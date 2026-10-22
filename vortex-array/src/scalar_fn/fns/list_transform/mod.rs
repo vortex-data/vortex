@@ -10,15 +10,19 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 
 use itertools::Itertools;
+use num_traits::AsPrimitive;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_mask::AllOr;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::List;
 use crate::arrays::ListArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
@@ -133,10 +137,7 @@ impl ScalarFnVTable for ListTransform {
         let ListTransformOptions::Bound(lambda) = options else {
             vortex_bail!("list_transform()'s lambda is not bound");
         };
-        // Every element belongs to exactly one valid list, in order: nothing comes before the
-        // first list or after the last, and a null list has no elements.
-        let list = args.get(0)?.execute::<ListViewArray>(ctx)?;
-        let list = list_from_list_view(empty_null_lists(list, ctx)?, ctx)?;
+        let list = exact_lists(args.get(0)?, ctx)?;
         let elements = list.elements();
         let values = lambda.evaluate(vec![elements.clone()], elements.len())?;
         vortex_ensure_eq!(values.len(), elements.len());
@@ -184,28 +185,74 @@ fn element_dtype(list: &DType, params: &[FieldName]) -> VortexResult<[DType; 1]>
     Ok([element.as_ref().clone()])
 }
 
+/// The lists laid out so that every element belongs to exactly one valid list, in order: nothing
+/// comes before the first list or after the last, and a null list has no elements.
+fn exact_lists(list: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ListArray> {
+    // A list array usually is exact already, and then needs no rebuild.
+    let list = match list.try_downcast::<List>() {
+        Ok(list) if is_exact(&list, ctx)? => return Ok(list),
+        Ok(list) => list.into_array(),
+        Err(list) => list,
+    };
+    let list = list.execute::<ListViewArray>(ctx)?;
+    list_from_list_view(empty_null_lists(list, ctx)?, ctx)
+}
+
+/// Whether nothing comes before the first list or after the last, and no null list holds elements.
+fn is_exact(list: &ListArray, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+    let offsets = list.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+    let nulls = null_runs(&list.list_validity(), list.len(), ctx)?;
+    Ok(match_each_integer_ptype!(offsets.ptype(), |O| {
+        let offsets = offsets.as_slice::<O>();
+        let last: usize = offsets[offsets.len() - 1].as_();
+        // The offsets are sorted, so a run of null lists is empty when it starts and ends at the
+        // same offset.
+        offsets[0] == O::default()
+            && last == list.elements().len()
+            && nulls
+                .iter()
+                .all(|&(start, end)| offsets[start] == offsets[end])
+    }))
+}
+
+/// The runs of null rows, as `(start, end)` ranges.
+fn null_runs(
+    validity: &Validity,
+    len: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Vec<(usize, usize)>> {
+    if matches!(validity, Validity::NonNullable | Validity::AllValid) {
+        return Ok(Vec::new());
+    }
+    Ok(match (!&validity.execute_mask(len, ctx)?).slices() {
+        AllOr::All => vec![(0, len)],
+        AllOr::None => Vec::new(),
+        AllOr::Some(runs) => runs.to_vec(),
+    })
+}
+
 /// The lists with every null list emptied, so that nothing under a null list reaches the lambda.
 fn empty_null_lists(list: ListViewArray, ctx: &mut ExecutionCtx) -> VortexResult<ListViewArray> {
     let validity = list.listview_validity();
-    if matches!(validity, Validity::NonNullable | Validity::AllValid) {
+    let nulls = null_runs(&validity, list.len(), ctx)?;
+    if nulls.is_empty() {
         return Ok(list);
     }
-    let valid = validity.execute_mask(list.len(), ctx)?;
     let sizes = list.sizes().clone().execute::<PrimitiveArray>(ctx)?;
     let sizes = match_each_integer_ptype!(sizes.ptype(), |T| {
         let sizes = sizes.as_slice::<T>();
-        let null = |index: usize| !valid.value(index);
         // Writers usually leave null lists empty already.
-        if !(0..sizes.len()).any(|index| null(index) && sizes[index] != T::default()) {
+        if nulls
+            .iter()
+            .all(|&(start, end)| sizes[start..end].iter().all(|size| *size == T::default()))
+        {
             return Ok(list);
         }
-        PrimitiveArray::from_iter((0..sizes.len()).map(|index| {
-            if null(index) {
-                T::default()
-            } else {
-                sizes[index]
-            }
-        }))
+        let mut sizes = BufferMut::copy_from(sizes);
+        for &(start, end) in &nulls {
+            sizes[start..end].fill(T::default());
+        }
+        PrimitiveArray::new(sizes.freeze(), Validity::NonNullable)
     });
     // SAFETY: only sizes changed, and only to 0, so every view stays within the elements. The new
     // array is not marked zero-copy to a list: an emptied list leaves its elements behind as a gap,
