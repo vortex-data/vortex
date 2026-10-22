@@ -5,7 +5,7 @@
 # to be cut. After an origin release is known, min_library_version is backfilled to document its
 # freeze. A frozen record never changes.
 
-edition = "unstable"
+edition = "unstable2026.10.0"
 family = "unstable"
 origin = "vortex"
 freezes = false

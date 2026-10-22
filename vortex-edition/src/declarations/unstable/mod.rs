@@ -20,8 +20,9 @@ preview or a plugin edition before freezing; earlier experimental files acquire 
 guarantee.",
 };
 
-/// The shared draft edition. It never freezes, so it has no compatibility guarantee.
-pub const UNSTABLE: EditionId = EditionId::new("unstable", 0, 0, 0);
+/// The shared draft edition. It never freezes, so it has no compatibility guarantee. Its date
+/// records when it was added.
+pub const UNSTABLE: EditionId = EditionId::new("unstable", 2026, 10, 0);
 
 /// Built-in serialized components awaiting stabilization in [`UNSTABLE`].
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {

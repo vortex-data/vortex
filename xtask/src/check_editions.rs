@@ -366,12 +366,12 @@ mod tests {
         assert!(record_is_frozen(&frozen));
 
         let unstable: Table =
-            "edition = 'unstable'\nfamily = 'unstable'\norigin = 'vortex'\nfreezes = false"
+            "edition = 'unstable2026.10.0'\nfamily = 'unstable'\norigin = 'vortex'\nfreezes = false"
                 .parse()?;
         assert!(!record_is_frozen(&unstable));
         assert!(
             check_addition(
-                "vortex/editions/unstable/unstable.toml",
+                "vortex/editions/unstable/unstable2026.10.0.toml",
                 &unstable,
                 &BTreeMap::new()
             )?

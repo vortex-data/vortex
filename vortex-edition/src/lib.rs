@@ -53,7 +53,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::registry::Id;
 
-/// The identifier of an edition, e.g. `core2026.07.0`, or the undated [`UNSTABLE`].
+/// The identifier of an edition, e.g. `core2026.07.0`.
 ///
 /// The `family` names an independently versioned, additive group of members (`core` is the set
 /// available to the default writer). For `core`, the date components record when the edition
@@ -72,8 +72,8 @@ pub struct EditionId {
 }
 
 impl EditionId {
-    /// Create a dated edition identifier. Use [`UNSTABLE`] for the shared unstable edition.
-    /// Validated by [`EditionId::validate`], which [`test_harness::validate_edition`] exercises
+    /// Create an edition identifier. Validated by [`EditionId::validate`], which
+    /// [`test_harness::validate_edition`] exercises
     /// per edition in unit tests.
     pub const fn new(family: &'static str, year: u16, month: u8, version: u8) -> Self {
         Self {
@@ -92,13 +92,10 @@ impl EditionId {
     }
 
     /// Validate the identifier's form: a non-empty lowercase family, a four-digit year,
-    /// and a month in 01-12, except for the undated [`UNSTABLE`]. Checked for every declared edition
-    /// by [`EditionSession::validate`] and per edition by
+    /// and a month in 01-12. Checked for every declared edition by
+    /// [`EditionSession::validate`] and per edition by
     /// [`test_harness::validate_edition`].
     pub fn validate(&self) -> VortexResult<()> {
-        if *self == UNSTABLE {
-            return Ok(());
-        }
         if self.family.is_empty() || !self.family.chars().all(|c| c.is_ascii_lowercase()) {
             vortex_bail!("edition {self} must have a non-empty lowercase family, e.g. `core`");
         }
@@ -114,9 +111,6 @@ impl EditionId {
 
 impl Display for EditionId {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        if *self == UNSTABLE {
-            return f.write_str("unstable");
-        }
         write!(
             f,
             "{}{}.{:02}.{}",
