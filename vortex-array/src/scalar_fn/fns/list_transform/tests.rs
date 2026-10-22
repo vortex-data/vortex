@@ -18,6 +18,7 @@ use crate::IntoArray;
 use crate::RecursiveCanonical;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::DictArray;
 use crate::arrays::FixedSizeListArray;
@@ -72,6 +73,18 @@ fn rows(l: ArrayRef) -> VortexResult<ArrayRef> {
     )
 }
 
+/// Rows `{l, a}`.
+fn rows_with_a(l: ArrayRef, a: ArrayRef) -> VortexResult<ArrayRef> {
+    let len = l.len();
+    Ok(StructArray::try_new(
+        FieldNames::from(["l", "a"]),
+        vec![l, a],
+        len,
+        Validity::NonNullable,
+    )?
+    .into_array())
+}
+
 fn list_of(values: ArrayRef, offsets: &[u32], validity: Validity) -> VortexResult<ArrayRef> {
     let mut ctx = SESSION.create_execution_ctx();
     Ok(ListArray::try_new(
@@ -95,6 +108,11 @@ fn transformed(values: ArrayRef) -> VortexResult<ArrayRef> {
 /// `x -> x + 1`, which fails on `i32::MAX`.
 fn plus_one() -> VortexResult<Lambda> {
     Lambda::new(["x"], checked_add(var("x"), lit(1_i32)))
+}
+
+/// `x -> x + $.a`, which reads `a` from outside the lambda.
+fn plus_a() -> VortexResult<Lambda> {
+    Lambda::new(["x"], checked_add(var("x"), col("a")))
 }
 
 fn assert_applies(input: ArrayRef, expr: &Expression, expected: ArrayRef) -> VortexResult<()> {
@@ -217,7 +235,7 @@ fn the_lambda_runs_on_a_slice_without_its_leftovers(#[case] body: Expression) ->
     let list = sliced_list_with_leftovers()?
         .try_downcast::<List>()
         .map_err(|_| vortex_err!("not a list"))?;
-    let result = transform_list(list, &lambda, &mut ctx)?
+    let result = transform_list(list, &lambda, &[], &mut ctx)?
         .try_downcast::<List>()
         .map_err(|_| vortex_err!("not a list"))?;
     assert_eq!(result.elements().len(), 2);
@@ -535,7 +553,7 @@ fn applying_the_bound_node() -> VortexResult<()> {
 }
 
 #[test]
-fn a_lambda_bound_to_another_element_dtype_is_an_error() -> VortexResult<()> {
+fn a_bound_lambda_rebinds_when_the_element_dtype_changes() -> VortexResult<()> {
     let list = |elements| {
         DType::List(
             Arc::new(DType::Primitive(PType::I32, elements)),
@@ -543,22 +561,170 @@ fn a_lambda_bound_to_another_element_dtype_is_an_error() -> VortexResult<()> {
         )
     };
     let bound = list_transform(root(), plus_one()?).bind(&list(Nullability::NonNullable))?;
-    let error = bound
+    let rebuilt = bound
         .clone()
-        .with_children([BoundExpression::new_root(list(Nullability::Nullable))])
-        .expect_err("bound to i32, rebuilt over i32?");
-    let options = bound.as_::<ListTransform>();
-    let return_dtype_error = ListTransform
-        .return_dtype(options, &[list(Nullability::Nullable)])
-        .expect_err("bound to i32, given i32?");
-    for error in [error, return_dtype_error] {
-        assert!(
-            error
-                .to_string()
-                .contains("is bound to element dtype i32, not i32?"),
-            "{error}"
-        );
-    }
+        .with_children([BoundExpression::new_root(list(Nullability::Nullable))])?;
+    assert_eq!(
+        rebuilt,
+        list_transform(root(), plus_one()?).bind(&list(Nullability::Nullable))?
+    );
+    assert_eq!(
+        ListTransform.return_dtype(bound.as_::<ListTransform>(), &[list(Nullability::Nullable)])?,
+        list(Nullability::Nullable)
+    );
+    Ok(())
+}
+
+#[test]
+fn a_body_reads_a_column() -> VortexResult<()> {
+    let expr = list_transform(col("l"), plus_a()?);
+    assert_eq!(
+        expr.to_string(),
+        "vortex.list.transform($.l, $.a, (x, a) -> (@x + @a))"
+    );
+    // Every element of a list sees its row's `a`. The null list's `i32::MAX + 20` would overflow,
+    // so it must not reach the lambda.
+    let input = rows_with_a(lists()?, buffer![10_i32, 20, 30].into_array())?;
+    let expected = transformed(
+        PrimitiveArray::from_option_iter([Some(11_i32), Some(12), Some(33), None]).into_array(),
+    )?;
+    assert_applies(input, &expr, expected)
+}
+
+#[test]
+fn a_null_value_read_from_outside_keeps_its_list_valid() -> VortexResult<()> {
+    let input = rows_with_a(
+        lists()?,
+        PrimitiveArray::from_option_iter([None, Some(20_i32), Some(30)]).into_array(),
+    )?;
+    let expected = transformed(
+        PrimitiveArray::from_option_iter([None, None, Some(33_i32), None]).into_array(),
+    )?;
+    assert_applies(input, &list_transform(col("l"), plus_a()?), expected)
+}
+
+#[test]
+fn a_constant_value_read_from_outside() -> VortexResult<()> {
+    let input = rows_with_a(lists()?, ConstantArray::new(10_i32, 3).into_array())?;
+    let expected = transformed(
+        PrimitiveArray::from_option_iter([Some(11_i32), Some(12), Some(13), None]).into_array(),
+    )?;
+    assert_applies(input, &list_transform(col("l"), plus_a()?), expected)
+}
+
+#[test]
+fn overlapping_list_views_with_a_value_read_from_outside() -> VortexResult<()> {
+    // `[[3, 4], [1], [2, 3]]`, sharing element 3, which must see each of its two rows' `a`.
+    let mut ctx = SESSION.create_execution_ctx();
+    let view = ListViewArray::try_new(
+        buffer![1_i32, 2, 3, 4].into_array(),
+        buffer![2_u32, 0, 1].into_array(),
+        buffer![2_u32, 1, 2].into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )?
+    .into_array();
+    let input = rows_with_a(view, buffer![10_i32, 20, 30].into_array())?;
+    let expected = list_of(
+        buffer![13_i32, 14, 21, 32, 33].into_array(),
+        &[0, 2, 3, 5],
+        Validity::NonNullable,
+    )?;
+    assert_applies(input, &list_transform(col("l"), plus_a()?), expected)
+}
+
+#[test]
+fn a_nested_lambda_reads_a_column() -> VortexResult<()> {
+    // `[[[1], [2]], [[3]]]` with `a = [10, 20]` under `xs -> list_transform(xs, y -> y + $.a)`:
+    // both calls take `$.a` as an input.
+    let l = list_of(
+        list_of(
+            buffer![1_i32, 2, 3].into_array(),
+            &[0, 1, 2, 3],
+            Validity::NonNullable,
+        )?,
+        &[0, 2, 3],
+        Validity::NonNullable,
+    )?;
+    let inner = Lambda::new(["y"], checked_add(var("y"), col("a")))?;
+    let expr = list_transform(
+        col("l"),
+        Lambda::new(["xs"], list_transform(var("xs"), inner))?,
+    );
+    assert_eq!(
+        expr.to_string(),
+        "vortex.list.transform($.l, $.a, (xs, a) -> vortex.list.transform(@xs, @a, (y, a) -> (@y + @a)))"
+    );
+    let expected = list_of(
+        list_of(
+            buffer![11_i32, 12, 23].into_array(),
+            &[0, 1, 2, 3],
+            Validity::NonNullable,
+        )?,
+        &[0, 2, 3],
+        Validity::NonNullable,
+    )?;
+    assert_applies(
+        rows_with_a(l, buffer![10_i32, 20].into_array())?,
+        &expr,
+        expected,
+    )
+}
+
+#[test]
+fn a_nested_lambda_reads_the_outer_parameter() -> VortexResult<()> {
+    // `[[{k: 10, vs: [1, 2]}, {k: 20, vs: [3]}]]` under `p -> list_transform(p.vs, v -> v + p.k)`
+    let points = StructArray::try_new(
+        FieldNames::from(["k", "vs"]),
+        vec![
+            buffer![10_i32, 20].into_array(),
+            list_of(
+                buffer![1_i32, 2, 3].into_array(),
+                &[0, 2, 3],
+                Validity::NonNullable,
+            )?,
+        ],
+        2,
+        Validity::NonNullable,
+    )?
+    .into_array();
+    let inner = Lambda::new(["v"], checked_add(var("v"), get_item("k", var("p"))))?;
+    let expr = list_transform(
+        root(),
+        Lambda::new(["p"], list_transform(get_item("vs", var("p")), inner))?,
+    );
+    assert_eq!(
+        expr.to_string(),
+        "vortex.list.transform($, (p) -> vortex.list.transform(@p.vs, @p.k, (v, k) -> (@v + @k)))"
+    );
+    let expected = list_of(
+        list_of(
+            buffer![11_i32, 12, 23].into_array(),
+            &[0, 2, 3],
+            Validity::NonNullable,
+        )?,
+        &[0, 2],
+        Validity::NonNullable,
+    )?;
+    assert_applies(
+        list_of(points, &[0, 2], Validity::NonNullable)?,
+        &expr,
+        expected,
+    )
+}
+
+#[test]
+fn a_value_read_from_outside_that_became_non_nullable() -> VortexResult<()> {
+    // Bound where `a` is nullable, applied where it isn't, as after a rewrite: the lambda is
+    // rebound to the new dtype.
+    let a = PrimitiveArray::from_option_iter([Some(10_i32), Some(20), Some(30)]).into_array();
+    let bound = list_transform(col("l"), plus_a()?).bind(rows_with_a(lists()?, a)?.dtype())?;
+    let input = rows_with_a(lists()?, buffer![10_i32, 20, 30].into_array())?;
+    let expected = transformed(
+        PrimitiveArray::from_option_iter([Some(11_i32), Some(12), Some(33), None]).into_array(),
+    )?;
+    let mut ctx = SESSION.create_execution_ctx();
+    assert_arrays_eq!(input.apply_bound(&bound)?, expected, &mut ctx);
     Ok(())
 }
 

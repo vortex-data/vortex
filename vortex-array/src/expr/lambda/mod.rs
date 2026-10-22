@@ -10,8 +10,13 @@
 //!
 //! Binding turns the lambda into an ordinary expression over a struct of its inputs, one field per
 //! parameter: `@x` becomes `$.x`. To run it, the function puts the parameters' arrays in that
-//! struct, such as one row per list element, and applies the bound body to it. The body reads
-//! nothing but its parameters, so the function's children are everything it reads.
+//! struct, such as one row per list element, and applies the bound body to it.
+//!
+//! A body may read values from outside the lambda, such as a column. Before a function keeps a
+//! lambda, [`Lambda::extract_captures`] turns each of those values into a new parameter and returns
+//! the expressions that compute them, which the function takes as extra children. A lambda in a
+//! function's options therefore reads nothing but its parameters, and the function's children are
+//! everything it reads.
 
 #[cfg(test)]
 mod tests;
@@ -25,6 +30,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -42,6 +48,8 @@ use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::Transformed;
 use crate::expr::traversal::TraversalOrder;
 use crate::expr::traversal::pre_order_visit_down;
+use crate::expr::var;
+use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::internal::row_count::RowCount;
 use crate::validity::Validity;
 
@@ -49,7 +57,8 @@ use crate::validity::Validity;
 /// written.
 ///
 /// The body is an ordinary [`Expression`] that reads its parameters with
-/// [`var`](crate::expr::var), and nothing else from outside the lambda.
+/// [`var`](crate::expr::var). It may also read values from outside the lambda, which
+/// [`Lambda::extract_captures`] turns into parameters.
 ///
 /// ```rust
 /// # use vortex_array::expr::{Lambda, checked_add, lit, var};
@@ -65,8 +74,10 @@ pub struct Lambda {
 impl Lambda {
     /// Create a lambda with these parameters and body.
     ///
-    /// Returns an error when a parameter repeats, or when the body reads from outside the lambda:
-    /// `$` or a column, another lambda's parameter, or the scan's `row_idx()` or `row_count()`.
+    /// The body may read from outside the lambda: `$` or a column, another lambda's parameter, or
+    /// the scan's `row_idx()` or `row_count()`. See [`Lambda::extract_captures`].
+    ///
+    /// Returns an error when a parameter repeats.
     pub fn new(
         params: impl IntoIterator<Item = impl Into<FieldName>>,
         body: Expression,
@@ -75,17 +86,59 @@ impl Lambda {
         if let Some(param) = params.iter().duplicates().next() {
             vortex_bail!("lambda parameter {param} is declared more than once");
         }
-        pre_order_visit_down(&body, |node: &Expression| {
-            vortex_ensure!(
-                !reads_outside_lambda(node, params.as_ref()),
-                "lambda ({}) can only read its parameters, not {node}; reading anything else is \
-                 not supported yet",
-                params.iter().format(", ")
-            );
-            Ok(TraversalOrder::Continue)
-        })?;
-
         Ok(Self { params, body })
+    }
+
+    /// Turn every value the body reads from outside the lambda into a new parameter.
+    ///
+    /// Returns the lambda with those parameters after its own, and the expressions that compute
+    /// their values, in the same order. A function that takes a lambda keeps the returned lambda
+    /// and takes the expressions as extra children, so that a rewrite of the expression, such as
+    /// `replace` or field pruning, sees them.
+    ///
+    /// A value is read as a whole: `$.s.a` becomes one parameter, `a`, not a read of `$`. A value
+    /// read twice becomes one parameter. A new parameter is named after the field or variable it
+    /// reads, with a number added when that name is taken.
+    ///
+    /// ```rust
+    /// # use vortex_array::expr::{Lambda, checked_add, col, var};
+    /// let lambda = Lambda::new(["x"], checked_add(var("x"), col("a"))).unwrap();
+    /// let (lambda, captures) = lambda.extract_captures();
+    /// assert_eq!(lambda.to_string(), "(x, a) -> (@x + @a)");
+    /// assert_eq!(captures, [col("a")]);
+    /// ```
+    pub fn extract_captures(self) -> (Lambda, Vec<Expression>) {
+        let written = self.params;
+        let mut params = written.iter().cloned().collect_vec();
+        let mut captures: Vec<Expression> = Vec::new();
+        let body = self
+            .body
+            .transform_down(|node| {
+                if !is_capture(&node, written.as_ref()) {
+                    return Ok(Transformed::no(node));
+                }
+                let name = match captures.iter().position(|capture| capture == &node) {
+                    Some(index) => params[written.len() + index].clone(),
+                    None => {
+                        let name = unused_name(capture_name(&node), &params);
+                        params.push(name.clone());
+                        captures.push(node);
+                        name
+                    }
+                };
+                Ok(Transformed {
+                    value: var(name),
+                    changed: true,
+                    order: TraversalOrder::Skip,
+                })
+            })
+            .vortex_expect("expression traversal cannot fail")
+            .into_inner();
+        let lambda = Lambda {
+            params: params.into(),
+            body,
+        };
+        (lambda, captures)
     }
 
     /// The parameter names, in order.
@@ -101,7 +154,7 @@ impl Lambda {
     /// The dtype of the body, given the parameters' dtypes, without binding it.
     pub fn return_dtype(&self, param_dtypes: &[DType]) -> VortexResult<DType> {
         let inputs = inputs_dtype(self.param_fields(param_dtypes)?);
-        self.body_over_inputs().return_dtype(&inputs)
+        self.body_over_inputs()?.return_dtype(&inputs)
     }
 
     /// Bind the body to these parameter dtypes: `@x` becomes `$.x`, a field of the struct of the
@@ -109,10 +162,13 @@ impl Lambda {
     ///
     /// A function that takes a lambda calls this from its `bind_options`, so the body is bound
     /// once, with the node that holds it, and never while the function runs.
+    ///
+    /// Returns an error when the body reads from outside the lambda: the function must pass those
+    /// values in as parameters, with [`Lambda::extract_captures`].
     pub fn bind(&self, param_dtypes: &[DType]) -> VortexResult<BoundLambda> {
         let params = self.param_fields(param_dtypes)?;
         let body = self
-            .body_over_inputs()
+            .body_over_inputs()?
             .bind(&inputs_dtype(params.clone()))?;
         Ok(BoundLambda { params, body })
     }
@@ -149,12 +205,20 @@ impl Lambda {
 
     /// The body over the struct of the lambda's inputs, where `@x` reads the field `x`.
     ///
+    /// Returns an error when the body reads from outside the lambda, which the struct can't hold.
     /// A lambda in the body is a function's options, which this leaves alone: its variables are its
     /// own parameters.
-    fn body_over_inputs(&self) -> Expression {
-        self.body
+    fn body_over_inputs(&self) -> VortexResult<Expression> {
+        Ok(self
+            .body
             .clone()
             .transform_down(|node| {
+                vortex_ensure!(
+                    !reads_outside_lambda(&node, self.params.as_ref()),
+                    "lambda ({}) can only read its parameters, not {node}; \
+                     Lambda::extract_captures turns what it reads from outside into parameters",
+                    self.params.iter().format(", ")
+                );
                 Ok(match &node {
                     Expression::Variable(name) => Transformed {
                         value: get_item(name.clone(), root()),
@@ -163,9 +227,8 @@ impl Lambda {
                     },
                     _ => Transformed::no(node),
                 })
-            })
-            .vortex_expect("expression traversal cannot fail")
-            .into_inner()
+            })?
+            .into_inner())
     }
 }
 
@@ -209,6 +272,19 @@ impl BoundLambda {
     /// Whether the lambda is bound to these parameter dtypes.
     pub fn is_bound_to(&self, param_dtypes: &[DType]) -> bool {
         self.params.fields().eq(param_dtypes.iter().cloned())
+    }
+
+    /// The same lambda bound to other parameter dtypes, such as after a rewrite of the function's
+    /// node made a value it passes in non-nullable.
+    ///
+    /// Every node of the body is rebuilt over the new struct of inputs, so the body's dtype follows
+    /// the parameters'. The result is the same as binding the written lambda to these dtypes.
+    pub fn rebind(&self, param_dtypes: &[DType]) -> VortexResult<BoundLambda> {
+        vortex_ensure_eq!(param_dtypes.len(), self.params.nfields(), "lambda {self}");
+        let params = StructFields::new(self.params.names().clone(), param_dtypes.to_vec());
+        let root = BoundExpression::new_root(inputs_dtype(params.clone()));
+        let body = with_root(&self.body, &root)?;
+        Ok(BoundLambda { params, body })
     }
 
     /// Whether nothing in the body can fail. See [`Lambda::is_infallible`].
@@ -274,10 +350,23 @@ impl Display for BoundLambda {
     }
 }
 
+/// `expr` rebuilt over another root, node by node, so that every node's dtype follows the root's.
+fn with_root(expr: &BoundExpression, root: &BoundExpression) -> VortexResult<BoundExpression> {
+    if expr.as_scalar().is_none() {
+        return Ok(root.clone());
+    }
+    let children: Vec<_> = expr
+        .children()
+        .iter()
+        .map(|child| with_root(child, root))
+        .try_collect()?;
+    expr.clone().with_children(children)
+}
+
 /// Whether `node`, in the body of a lambda with these parameters, reads a value from outside the
-/// lambda, which lambdas can't do yet: `$`, another lambda's parameter, or the scan's `row_idx()`
-/// or `row_count()`. The scan replaces those two before anything runs, but never looks inside a
-/// lambda's body.
+/// lambda: `$`, another lambda's parameter, or the scan's `row_idx()` or `row_count()`. The scan
+/// replaces those two before anything runs, but never looks inside a lambda's body, so they too
+/// must be passed in as parameters.
 fn reads_outside_lambda(node: &Expression, params: &[FieldName]) -> bool {
     match node {
         Expression::Root => true,
@@ -287,4 +376,48 @@ fn reads_outside_lambda(node: &Expression, params: &[FieldName]) -> bool {
             scalar_fn.is::<RowCount>() || scalar_fn.id().as_ref() == "vortex.row_idx"
         }
     }
+}
+
+/// Whether `node` is a value from outside a lambda with these parameters, read as a whole: a read
+/// from outside, or a field of one, such as `$.s.a`.
+fn is_capture(node: &Expression, params: &[FieldName]) -> bool {
+    if node
+        .as_scalar()
+        .is_some_and(|scalar_fn| scalar_fn.is::<GetItem>())
+    {
+        return is_capture(&node.children()[0], params);
+    }
+    reads_outside_lambda(node, params)
+}
+
+/// The name of the parameter for a captured value: the field or variable it reads, such as `a`
+/// for `$.s.a`.
+fn capture_name(capture: &Expression) -> FieldName {
+    match capture {
+        Expression::Root => FieldName::from("root"),
+        Expression::Variable(name) => name.clone(),
+        Expression::Scalar { scalar_fn, .. } => match scalar_fn.as_opt::<GetItem>() {
+            Some(field) => field.clone(),
+            // `row_idx()` or `row_count()`, named after their ids.
+            None => {
+                let id = scalar_fn.id();
+                let (_, name) = id
+                    .as_ref()
+                    .rsplit_once('.')
+                    .unwrap_or_else(|| ("", id.as_ref()));
+                FieldName::from(name)
+            }
+        },
+    }
+}
+
+/// `name`, or `name_2`, `name_3`, ... if it is taken.
+fn unused_name(name: FieldName, taken: &[FieldName]) -> FieldName {
+    if !taken.contains(&name) {
+        return name;
+    }
+    (2..)
+        .map(|n| FieldName::from(format!("{name}_{n}")))
+        .find(|candidate| !taken.contains(candidate))
+        .vortex_expect("some numbered name is free")
 }

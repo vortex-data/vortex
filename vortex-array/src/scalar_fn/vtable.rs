@@ -165,8 +165,8 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     /// [`ScalarFnArray`] is built from its children, before
     /// [`return_dtype`](Self::return_dtype), so [`execute`](Self::execute) finds the options bound.
     /// A rebuilt node calls it again, possibly with other dtypes: options that are already bound
-    /// must be checked against these dtypes, returning `None` if they fit and an error if they
-    /// don't. Return `None` to keep the options as they are, which the default does.
+    /// must be checked against these dtypes, returning `None` if they fit, and rebound or an error
+    /// if they don't. Return `None` to keep the options as they are, which the default does.
     #[doc(hidden)]
     fn bind_options(
         &self,

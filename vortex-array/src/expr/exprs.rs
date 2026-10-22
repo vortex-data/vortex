@@ -3,6 +3,7 @@
 
 //! Factory functions for creating [`Expression`]s from scalar function vtables.
 
+use std::iter;
 use std::sync::Arc;
 
 use vortex_error::VortexExpect;
@@ -1397,16 +1398,27 @@ pub fn bound_list_sum_opts(
 
 /// Creates an expression that applies a lambda to every element of each list.
 ///
-/// The lambda takes one parameter, the element.
+/// The lambda takes one parameter, the element. Whatever else its body reads from outside, such as
+/// a column or a parameter of an enclosing lambda, becomes another input of the call and another
+/// parameter of the lambda (see [`Lambda::extract_captures`]): every element of a row's list sees
+/// that row's value.
 ///
 /// ```rust
 /// # use vortex_array::expr::{Lambda, checked_add, col, list_transform, lit, var};
 /// let lambda = Lambda::new(["x"], checked_add(var("x"), lit(1_i32))).unwrap();
 /// let expr = list_transform(col("l"), lambda);
 /// assert_eq!(expr.to_string(), "vortex.list.transform($.l, (x) -> (@x + 1i32))");
+///
+/// let lambda = Lambda::new(["x"], checked_add(var("x"), col("a"))).unwrap();
+/// let expr = list_transform(col("l"), lambda);
+/// assert_eq!(expr.to_string(), "vortex.list.transform($.l, $.a, (x, a) -> (@x + @a))");
 /// ```
 pub fn list_transform(list: Expression, lambda: Lambda) -> Expression {
-    ListTransform.new_expr(ListTransformOptions::Lambda(lambda), [list])
+    let (lambda, captures) = lambda.extract_captures();
+    ListTransform.new_expr(
+        ListTransformOptions::Lambda(lambda),
+        iter::once(list).chain(captures),
+    )
 }
 
 /// Reinterpret timestamp wall times in `options.time_zone`, preserving the time unit.
