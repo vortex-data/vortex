@@ -16,9 +16,7 @@ use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
-use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
-use crate::scalar::ScalarValue;
 use crate::scalar_fn::fns::fill_null::FillNullKernel;
 use crate::scalar_fn::fns::operators::Operator;
 
@@ -54,26 +52,27 @@ impl FillNullKernel for Dict {
             ));
         };
 
-        // Now we rewrite the nullable codes to point at the fill value.
+        // A dictionary can hold more values than its codes type can index, so the index of an
+        // unreferenced fill value can exceed the range of the codes. Non-nullable codes need no
+        // fill code. For nullable codes, decline in that case, so that the generic path fills the
+        // decoded array. The first match has the smallest index, so no later match fits either.
         let codes = array.codes();
+        let codes = if codes.dtype().is_nullable() {
+            let codes_dtype = codes.dtype().as_nonnullable();
+            let fill_index = existing_fill_value_index as u64;
+            if fill_index > codes_dtype.as_ptype().max_value_as_u64() {
+                return Ok(None);
+            }
 
-        // Cast the index to the correct unsigned integer type matching the codes' ptype.
-        let codes_ptype = codes.dtype().as_ptype();
+            codes
+                .clone()
+                .fill_null(Scalar::from(fill_index).cast(&codes_dtype)?)?
+        } else {
+            codes.clone()
+        };
 
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "The existing index must be representable by the existing ptype"
-        )]
-        let fill_scalar_value = match_each_integer_ptype!(codes_ptype, |P| {
-            ScalarValue::from(existing_fill_value_index as P)
-        });
-
-        // Fill nulls in both the codes and the values. Note that the precondition of this function
-        // states that the fill value is non-null, so we do not have to worry about the nullability.
-        let codes = codes.clone().fill_null(Scalar::try_new(
-            codes.dtype().as_nonnullable(),
-            Some(fill_scalar_value),
-        )?)?;
+        // Fill the nulls of the values. Note that the precondition of this function states that the
+        // fill value is non-null, so we do not have to worry about the nullability.
         let values = array.values().clone().fill_null(fill_value.clone())?;
 
         // SAFETY: invariants are still satisfied after patching nulls.
@@ -91,9 +90,11 @@ impl FillNullKernel for Dict {
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::IntoArray;
@@ -107,6 +108,41 @@ mod tests {
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[rstest]
+    #[case::u8_max(PrimitiveArray::from_option_iter([Some(0u8), None]), 255)]
+    #[case::u8_overflow(PrimitiveArray::from_option_iter([Some(0u8), None]), 256)]
+    #[case::u8_truncation(PrimitiveArray::from_option_iter([Some(0u8), None]), 300)]
+    #[case::i8_max(PrimitiveArray::from_option_iter([Some(0i8), None]), 127)]
+    #[case::i8_overflow(PrimitiveArray::from_option_iter([Some(0i8), None]), 128)]
+    fn fill_unreferenced_value(
+        #[case] codes: PrimitiveArray,
+        #[case] fill_value: i32,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dict = DictArray::try_new(
+            codes.into_array(),
+            PrimitiveArray::from_iter(0..=fill_value).into_array(),
+        )?;
+
+        let filled = dict.into_array().fill_null(fill_value)?;
+        assert_arrays_eq!(filled, PrimitiveArray::from_iter([0, fill_value]), &mut ctx);
+
+        Ok(())
+    }
+
+    #[test]
+    fn non_nullable_codes_fill_unreferenced_value() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values =
+            PrimitiveArray::from_option_iter((0..=300).map(|value| (value != 1).then_some(value)));
+        let dict = DictArray::try_new(buffer![0u8, 1].into_array(), values.into_array())?;
+
+        let filled = dict.into_array().fill_null(300)?;
+        assert_arrays_eq!(filled, PrimitiveArray::from_iter([0, 300]), &mut ctx);
+
+        Ok(())
+    }
 
     #[test]
     fn nullable_codes_fill_in_values() {
