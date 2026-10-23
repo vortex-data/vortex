@@ -11,8 +11,9 @@
 //! Import this module's [`ScanBuilder`] to select V2 explicitly. It accepts a [`ScanFile`]
 //! directly and supports projection, filters, row ranges, and selections. Unsupported layouts return an
 //! error; limits are not part of this builder's API. Work is partitioned into fixed
-//! chunks of up to 65,536 rows, or 1,048,576 rows for filtered scans, independently of the stored
-//! layout's chunk boundaries.
+//! chunks of up to 65,536 rows, or up to 1,048,576 rows for filtered scans, independently of the
+//! stored layout's chunk boundaries. Filtered scans use smaller chunks when the projection reads
+//! many bytes per row or the row range would give fewer chunks than threads.
 //! Full-file projections use smaller 8,192-row multiples when serialized bytes per row are high.
 //!
 //! A [`ScanFile`] carrying a [`ScanCache`] shares its lowered plan, filter plans and proved
@@ -51,6 +52,7 @@ use vortex_io::request::IoService;
 use vortex_io::request::IoSource;
 use vortex_io::runtime::Handle;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_mask::Mask;
 use vortex_scan::planning::driver::Progress;
 use vortex_scan::planning::driver::Run;
 use vortex_scan::planning::planner::Planner;
@@ -65,15 +67,17 @@ pub use self::cache::WeakScanCache;
 use crate::LayoutRef;
 use crate::plan::physical::lower;
 use crate::plan::physical::optimize;
+use crate::plan::physical::pipeline::Scan;
 use crate::plan::physical::plan_row_idx_expression;
 use crate::scan::arrow::to_record_batch;
-use crate::scan::execution::FILTERED_ROWS_PER_CHUNK;
 use crate::scan::execution::FilterPlans;
 use crate::scan::execution::MAX_ROWS_PER_CHUNK;
 use crate::scan::execution::PreparedScan;
 use crate::scan::execution::ROW_BLOCK_SIZE;
 pub use crate::scan::execution::SegmentLocation;
+use crate::scan::execution::filtered_rows_per_chunk;
 use crate::scan::execution::rows_per_chunk;
+use crate::scan::execution::total_bytes;
 use crate::scan::v2::io::SegmentScanIo;
 use crate::scan::v2::io::segment_ranges;
 use crate::segments::SegmentSource;
@@ -296,11 +300,33 @@ impl<A: 'static + Send> ScanRun<A> {
                     plan_row_idx_expression(builder.projection.clone(), root)?,
                     &builder.session,
                 )?;
-                cache.insert_projection(builder.projection, plan)
+                cache.insert_projection(builder.projection.clone(), plan)
             }
         };
+        let rows = builder.row_range.unwrap_or(0..row_count);
         let chunk_rows = if filter.is_some() {
-            FILTERED_ROWS_PER_CHUNK
+            let projected_bytes = if identity {
+                total_bytes(&file.locations)
+            } else {
+                cache.projection_bytes(&builder.projection, || {
+                    let segments = Scan::segments(
+                        &builder.session,
+                        &projection,
+                        0..row_count,
+                        &Mask::new_true(usize::try_from(row_count)?),
+                    )?;
+                    Ok(segments
+                        .iter()
+                        .map(|segment| u64::from(file.locations[**segment as usize].length))
+                        .sum())
+                })?
+            };
+            filtered_rows_per_chunk(
+                rows.end - rows.start,
+                row_count,
+                projected_bytes,
+                get_available_parallelism().unwrap_or(1),
+            )
         } else if identity {
             rows_per_chunk(row_count, &file.locations)
         } else {
@@ -323,7 +349,7 @@ impl<A: 'static + Send> ScanRun<A> {
                 chunk_rows,
             }),
             io,
-            rows: builder.row_range.unwrap_or(0..row_count),
+            rows,
             selection: builder.selection,
             map_fn: builder.map_fn,
             ordered: builder.ordered,

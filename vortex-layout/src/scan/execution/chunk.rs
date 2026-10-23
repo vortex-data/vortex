@@ -7,6 +7,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::vec::IntoIter;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::request::IoConsumer;
 use vortex_io::request::IoRequestId;
@@ -35,13 +36,41 @@ pub(crate) fn rows_per_chunk(row_count: u64, locations: &[SegmentLocation]) -> u
     if row_count <= MAX_ROWS_PER_CHUNK as u64 {
         return MAX_ROWS_PER_CHUNK;
     }
-    let bytes: u64 = locations
+    let blocks = blocks_per_target_bytes(total_bytes(locations), row_count);
+    blocks.clamp(1, 8) as usize * ROW_BLOCK_SIZE
+}
+
+/// Rows per chunk of a filtered scan over `rows` rows of the file.
+///
+/// Large chunks amortize filter evaluation over cheap projections. A projection that reads many
+/// bytes per row, or a row range that would otherwise give fewer chunks than threads, gets smaller
+/// chunks so the surviving rows still spread across the runtime's threads.
+pub(crate) fn filtered_rows_per_chunk(
+    rows: u64,
+    row_count: u64,
+    projected_bytes: u64,
+    parallelism: usize,
+) -> usize {
+    let max_blocks = (FILTERED_ROWS_PER_CHUNK / ROW_BLOCK_SIZE) as u64;
+    let min_blocks = (MAX_ROWS_PER_CHUNK / ROW_BLOCK_SIZE) as u64;
+    let by_bytes = blocks_per_target_bytes(projected_bytes, row_count).max(1);
+    let by_threads = (rows / parallelism.max(1) as u64 / ROW_BLOCK_SIZE as u64).max(min_blocks);
+    let blocks = by_bytes.min(by_threads).min(max_blocks);
+    usize::try_from(blocks).vortex_expect("at most FILTERED_ROWS_PER_CHUNK blocks") * ROW_BLOCK_SIZE
+}
+
+/// The row blocks that hold [`TARGET_BYTES_PER_CHUNK`] when `bytes` spread over `row_count` rows.
+fn blocks_per_target_bytes(bytes: u64, row_count: u64) -> u64 {
+    let bytes_per_row = bytes.div_ceil(row_count.max(1)).max(1);
+    TARGET_BYTES_PER_CHUNK / bytes_per_row / ROW_BLOCK_SIZE as u64
+}
+
+/// The serialized bytes of every segment in `locations`.
+pub(crate) fn total_bytes(locations: &[SegmentLocation]) -> u64 {
+    locations
         .iter()
         .map(|location| u64::from(location.length))
-        .sum();
-    let bytes_per_row = bytes.div_ceil(row_count).max(1);
-    let blocks = TARGET_BYTES_PER_CHUNK / bytes_per_row / ROW_BLOCK_SIZE as u64;
-    blocks.clamp(1, 8) as usize * ROW_BLOCK_SIZE
+        .sum()
 }
 
 /// Fixed boundaries in the file's row domain, clipped to the requested range.

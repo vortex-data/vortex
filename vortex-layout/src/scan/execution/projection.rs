@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::vec::IntoIter;
 
+use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::dtype::DType;
@@ -30,6 +32,8 @@ use crate::scan::execution::adaptor::Piece;
 use crate::scan::execution::adaptor::ScanAdaptor;
 
 const MAX_OUTPUT_ROWS: usize = 65_536;
+/// Pieces smaller than this are grouped with their neighbours into one batch.
+const MIN_OUTPUT_ROWS: usize = 4_096;
 
 /// Keeps sparse selections together and subdivides dense selections to avoid large copies when
 /// converting chunked projection results to Arrow.
@@ -97,15 +101,19 @@ impl Planner for ProjectionPlanner {
     }
 }
 
-/// Runs the projection plan over a split's selected rows and returns them as one batch, in row
-/// order. A selection that projects to no rows finishes without a batch.
+/// Runs the projection plan over a split's selected rows and returns them in row order, one
+/// batch per piece the scan produced. Pieces under [`MIN_OUTPUT_ROWS`] are grouped with their
+/// neighbours. Emitting pieces separately avoids concatenating them on conversion to Arrow,
+/// which rebuilds nested dictionaries. A selection that projects to no rows finishes without a
+/// batch.
 struct ProjectionMorsel {
     scan: Arc<PreparedScan>,
     dtype: DType,
     selected: SelectedRows,
     adaptor: Option<ScanAdaptor>,
     pieces: Vec<Piece>,
-    done: bool,
+    /// Batches ready to emit once the scan has finished, in row order.
+    batches: Option<VecDeque<ArrayRef>>,
 }
 
 impl ProjectionMorsel {
@@ -117,24 +125,39 @@ impl ProjectionMorsel {
             selected,
             adaptor: None,
             pieces: Vec::new(),
-            done: false,
+            batches: None,
         }
     }
 
-    fn finish(&mut self) -> VortexResult<MorselOutput> {
-        self.done = true;
+    /// Groups the finished pieces into batches of at least [`MIN_OUTPUT_ROWS`] rows where
+    /// possible.
+    fn group_pieces(&mut self) -> VortexResult<VecDeque<ArrayRef>> {
         self.pieces.sort_by_key(|piece| piece.rows.start);
-        let mut arrays: Vec<_> = std::mem::take(&mut self.pieces)
-            .into_iter()
-            .map(|piece| piece.array)
-            .filter(|array| !array.is_empty())
-            .collect();
-        let array = match arrays.len() {
-            0 => return Ok(MorselOutput::Done),
-            1 => arrays.remove(0),
-            _ => ChunkedArray::try_new(arrays, self.dtype.clone())?.into_array(),
-        };
-        Ok(MorselOutput::Batch(array))
+        let mut batches = VecDeque::new();
+        let mut group = Vec::new();
+        let mut group_rows = 0;
+        for piece in std::mem::take(&mut self.pieces) {
+            if piece.array.is_empty() {
+                continue;
+            }
+            group_rows += piece.array.len();
+            group.push(piece.array);
+            if group_rows >= MIN_OUTPUT_ROWS {
+                batches.push_back(self.concat(std::mem::take(&mut group))?);
+                group_rows = 0;
+            }
+        }
+        if !group.is_empty() {
+            batches.push_back(self.concat(group)?);
+        }
+        Ok(batches)
+    }
+
+    fn concat(&self, mut arrays: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
+        if arrays.len() == 1 {
+            return Ok(arrays.remove(0));
+        }
+        Ok(ChunkedArray::try_new(arrays, self.dtype.clone())?.into_array())
     }
 }
 
@@ -148,8 +171,14 @@ impl IoConsumer for ProjectionMorsel {
 
 impl Morsel for ProjectionMorsel {
     fn state(&self) -> State {
+        if let Some(batches) = &self.batches {
+            return if batches.is_empty() {
+                State::Done
+            } else {
+                State::NeedsCompute
+            };
+        }
         match &self.adaptor {
-            _ if self.done => State::Done,
             None => State::NeedsCompute,
             Some(adaptor) => match adaptor.state() {
                 State::Done => State::NeedsCompute,
@@ -159,8 +188,11 @@ impl Morsel for ProjectionMorsel {
     }
 
     fn compute(&mut self) -> VortexResult<MorselOutput> {
-        if self.done {
-            vortex_bail!("ProjectionMorsel: compute called after Done");
+        if let Some(batches) = &mut self.batches {
+            return match batches.pop_front() {
+                Some(batch) => Ok(MorselOutput::Batch(batch)),
+                None => vortex_bail!("ProjectionMorsel: compute called after Done"),
+            };
         }
         let Some(adaptor) = self.adaptor.as_mut() else {
             let scan = Scan::try_new(
@@ -181,7 +213,8 @@ impl Morsel for ProjectionMorsel {
             return Ok(MorselOutput::Continue);
         };
         if adaptor.state() == State::Done {
-            return self.finish();
+            self.batches = Some(self.group_pieces()?);
+            return Ok(MorselOutput::Continue);
         }
         Ok(match adaptor.compute()? {
             AdaptorStep::Yield => MorselOutput::Continue,
