@@ -4,6 +4,7 @@
 use std::sync::Arc;
 use std::sync::LazyLock;
 
+use rstest::rstest;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
@@ -1056,5 +1057,52 @@ fn test_filter_sliced_list_array() -> VortexResult<()> {
         &mut ctx,
     );
     assert_arrays_eq!(result, expected, &mut ctx);
+    Ok(())
+}
+
+#[rstest]
+#[case::nothing_to_drop(&[1, 2, 3], &[0, 1, 1, 3], &[true, false, true], &[1, 2, 3], &[0, 1, 1, 3])]
+#[case::leftovers_at_the_ends(&[9, 1, 2, 9], &[1, 2, 3], &[true, true], &[1, 2], &[0, 1, 2])]
+#[case::null_lists_holding_elements(
+    &[9, 9, 9, 1, 9, 9, 2, 3, 9, 9],
+    &[1, 3, 4, 6, 8, 9],
+    &[false, true, false, true, false],
+    &[1, 2, 3],
+    &[0, 0, 1, 1, 3, 3]
+)]
+#[case::only_the_last_null_list_holds_elements(
+    &[1, 2, 9],
+    &[0, 1, 1, 2, 3],
+    &[true, false, true, false],
+    &[1, 2],
+    &[0, 1, 1, 2, 2]
+)]
+#[case::every_list_null(&[9, 9], &[0, 1, 2], &[false, false], &[], &[0, 0, 0])]
+fn rebuild_with_referenced_valid_elements(
+    #[case] elements: &[i32],
+    #[case] offsets: &[u32],
+    #[case] validity: &[bool],
+    #[case] expected_elements: &[i32],
+    #[case] expected_offsets: &[u32],
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let list = ListArray::try_new(
+        PrimitiveArray::from_iter(elements.iter().copied()).into_array(),
+        PrimitiveArray::from_iter(offsets.iter().copied()).into_array(),
+        Validity::from_iter(validity.iter().copied()),
+        &mut ctx,
+    )?;
+    let rebuilt = list.rebuild_with_referenced_valid_elements(&mut ctx)?;
+    assert_arrays_eq!(
+        rebuilt.elements().clone(),
+        PrimitiveArray::from_iter(expected_elements.iter().copied()),
+        &mut ctx
+    );
+    assert_arrays_eq!(
+        rebuilt.offsets().clone(),
+        PrimitiveArray::from_iter(expected_offsets.iter().copied()),
+        &mut ctx
+    );
+    assert_arrays_eq!(rebuilt, list, &mut ctx);
     Ok(())
 }

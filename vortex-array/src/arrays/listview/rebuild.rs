@@ -18,6 +18,8 @@ use crate::arrays::PiecewiseSequenceArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
+use crate::arrays::listview::list_from_list_view;
+use crate::arrays::listview::list_view_from_list;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::IntegerPType;
@@ -119,6 +121,47 @@ impl ListViewArray {
                 vortex_bail!("ListViewRebuildMode::OverlapCompression is not implemented")
             }
         }
+    }
+
+    /// Rebuilds the [`ListViewArray`] over only the elements that valid lists reference: nothing
+    /// before the first list, after the last, between lists or under a null list.
+    ///
+    /// Lists that are zero-copy to a [`ListArray`] keep their layout, with their ends sliced off,
+    /// unless a null list holds elements. Other lists are rebuilt back to back. An array with
+    /// nothing to drop is returned as it is.
+    ///
+    /// [`ListArray`]: crate::arrays::ListArray
+    pub fn rebuild_with_referenced_valid_elements(
+        &self,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ListViewArray> {
+        if !self.is_zero_copy_to_list() {
+            // The rebuild lays out only the valid lists' elements, and leaves null lists empty.
+            return self.rebuild(ListViewRebuildMode::MakeExact, ctx);
+        }
+        if self.is_empty() {
+            return self.rebuild(ListViewRebuildMode::TrimElements, ctx);
+        }
+        let nulls = self.validity()?.execute_null_runs(self.len(), ctx)?;
+        let sizes = self.sizes().clone().execute::<PrimitiveArray>(ctx)?;
+        let null_lists_empty = match_each_integer_ptype!(sizes.ptype(), |S| {
+            let sizes = sizes.as_slice::<S>();
+            nulls
+                .iter()
+                .all(|&(start, end)| sizes[start..end].iter().all(|size| *size == S::default()))
+        });
+        if !null_lists_empty {
+            // The lists are back to back, so they are a `ListArray`'s, without copying.
+            let list = list_from_list_view(self.clone(), ctx)?
+                .rebuild_with_referenced_valid_elements(ctx)?;
+            return list_view_from_list(list, ctx);
+        }
+        let (start, end) = self.referenced_element_bounds(ctx)?;
+        if start == 0 && end == self.elements().len() {
+            return Ok(self.clone());
+        }
+        // SAFETY: the bounds are the referenced elements' bounds.
+        unsafe { self.trim_elements(start, end) }
     }
 
     /// Rebuilds a [`ListViewArray`], removing all data overlaps and creating a flattened layout.
@@ -469,6 +512,72 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::dtype::Nullability;
     use crate::validity::Validity;
+
+    #[rstest]
+    #[case::nothing_to_drop(&[1, 2], &[(0, 1), (1, 1)], &[true, true], true, &[1, 2], &[(0, 1), (1, 1)])]
+    #[case::leftovers_at_the_ends(
+        &[9, 1, 2, 9],
+        &[(1, 1), (2, 1)],
+        &[true, true],
+        true,
+        &[1, 2],
+        &[(0, 1), (1, 1)]
+    )]
+    #[case::null_list_holding_elements(
+        &[9, 1, 9, 2],
+        &[(1, 1), (2, 1), (3, 1)],
+        &[true, false, true],
+        true,
+        &[1, 2],
+        &[(0, 1), (1, 0), (1, 1)]
+    )]
+    #[case::gap_between_lists(&[1, 9, 2], &[(0, 1), (2, 1)], &[true, true], false, &[1, 2], &[(0, 1), (1, 1)])]
+    #[case::lists_out_of_order(
+        &[1, 2, 3, 9],
+        &[(2, 1), (0, 2)],
+        &[true, true],
+        false,
+        &[3, 1, 2],
+        &[(0, 1), (1, 2)]
+    )]
+    fn rebuild_with_referenced_valid_elements(
+        #[case] elements: &[i32],
+        #[case] views: &[(u32, u32)],
+        #[case] validity: &[bool],
+        #[case] zero_copy_to_list: bool,
+        #[case] expected_elements: &[i32],
+        #[case] expected_views: &[(u32, u32)],
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let view = ListViewArray::try_new(
+            PrimitiveArray::from_iter(elements.iter().copied()).into_array(),
+            PrimitiveArray::from_iter(views.iter().map(|(offset, _)| *offset)).into_array(),
+            PrimitiveArray::from_iter(views.iter().map(|(_, size)| *size)).into_array(),
+            Validity::from_iter(validity.iter().copied()),
+            &mut ctx,
+        )?;
+        // SAFETY: the cases marked zero-copy to a list have sorted lists with nothing between them.
+        let view = unsafe { view.with_zero_copy_to_list(zero_copy_to_list) };
+        let rebuilt = view.rebuild_with_referenced_valid_elements(&mut ctx)?;
+        assert!(rebuilt.is_zero_copy_to_list());
+        assert_arrays_eq!(
+            rebuilt.elements().clone(),
+            PrimitiveArray::from_iter(expected_elements.iter().copied()),
+            &mut ctx
+        );
+        assert_arrays_eq!(
+            rebuilt.offsets().clone(),
+            PrimitiveArray::from_iter(expected_views.iter().map(|(offset, _)| *offset)),
+            &mut ctx
+        );
+        assert_arrays_eq!(
+            rebuilt.sizes().clone(),
+            PrimitiveArray::from_iter(expected_views.iter().map(|(_, size)| *size)),
+            &mut ctx
+        );
+        assert_arrays_eq!(rebuilt, view, &mut ctx);
+        Ok(())
+    }
 
     #[test]
     fn test_rebuild_flatten_removes_overlaps() -> VortexResult<()> {

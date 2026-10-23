@@ -12,6 +12,8 @@ pub use vtable::ListArray;
 
 pub(crate) mod compute;
 
+mod rebuild;
+
 mod vtable;
 pub use vtable::List;
 

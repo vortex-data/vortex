@@ -17,6 +17,7 @@ use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 
@@ -270,6 +271,23 @@ impl Validity {
                 arr.clone().execute::<Mask>(ctx)
             }
         }
+    }
+
+    /// Execute this validity into the runs of null rows of the given length, as sorted
+    /// `(start, end)` ranges.
+    pub(crate) fn execute_null_runs(
+        &self,
+        length: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Vec<(usize, usize)>> {
+        if length == 0 || matches!(self, Self::NonNullable | Self::AllValid) {
+            return Ok(Vec::new());
+        }
+        Ok(match (!&self.execute_mask(length, ctx)?).slices() {
+            AllOr::All => vec![(0, length)],
+            AllOr::None => Vec::new(),
+            AllOr::Some(runs) => runs.to_vec(),
+        })
     }
 
     /// Compare the logical masks of two Validity values of the given length, executing them
