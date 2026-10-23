@@ -33,6 +33,7 @@ tracing = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-error = { workspace = true }
+vortex-fastlanes = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-runend = { workspace = true }
 vortex-session = { workspace = true }
