@@ -12,8 +12,8 @@ use crate::array::ArrayView;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::dtype::DType;
-use crate::scalar_fn::fns::cast::CastKernel;
-use crate::scalar_fn::fns::cast::CastReduce;
+use crate::scalar_fn::builtin::cast::CastKernel;
+use crate::scalar_fn::builtin::cast::CastReduce;
 use crate::validity::Validity;
 
 fn build_with_validity(

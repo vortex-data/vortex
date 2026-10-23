@@ -40,8 +40,6 @@ use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
-use crate::expr::ext_storage;
-use crate::expr::root;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
@@ -137,9 +135,14 @@ fn test_invalid_values_return_read_errors(#[case] storage: ArrayRef) -> VortexRe
 
     let optimized = array.optimize_ctx(&SESSION)?;
     assert!(optimized.is::<Extension>());
-    assert_arrays_eq!(optimized.apply(&ext_storage(root()))?, storage, &mut ctx);
     assert_arrays_eq!(
-        array.slice(0..1)?.apply(&ext_storage(root()))?,
+        optimized.as_::<Extension>().storage_array().clone(),
+        storage,
+        &mut ctx
+    );
+    let sliced = array.slice(0..1)?.optimize_ctx(&SESSION)?;
+    assert_arrays_eq!(
+        sliced.as_::<Extension>().storage_array().clone(),
         buffer![0i64].into_array(),
         &mut ctx
     );

@@ -111,11 +111,18 @@ pub mod expr {
     //! Expression trees, their optimizer, and the analyses and rewrites built on them.
     pub use vortex_array::expr::*;
     pub use vortex_expr::*;
+    pub use vortex_functions::expr::*;
 
     /// Statistics, stat expressions, and statistics-based pruning rewrites.
     pub mod stats {
         pub use vortex_array::expr::stats::*;
         pub use vortex_expr::stats::*;
+    }
+
+    /// Constructors for expressions whose children have already been bound and type-checked.
+    pub mod bound {
+        pub use vortex_array::expr::bound::*;
+        pub use vortex_functions::expr::bound::*;
     }
 }
 use vortex_array::memory::MemorySession;
@@ -125,6 +132,7 @@ use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
 use vortex_btrblocks::CompressionSession;
 use vortex_expr::stats::session::StatsSession;
+pub use vortex_functions as functions;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
@@ -351,6 +359,7 @@ impl VortexSessionDefault for VortexSession {
             .with::<MemorySession>()
             .with::<CompressionSession>()
             .with::<RuntimeSession>();
+        vortex_functions::initialize(&session);
         #[cfg(feature = "parquet-variant")]
         vortex_parquet_variant::initialize(&session);
         vortex_uuid::initialize(&session);

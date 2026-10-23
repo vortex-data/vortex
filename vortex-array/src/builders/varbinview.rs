@@ -1074,14 +1074,13 @@ impl DeduplicatedBuffers {
             .collect()
     }
 
-    pub(crate) fn extend_from_iter(
-        &mut self,
-        buffers: impl Iterator<Item = ByteBuffer>,
-    ) -> Vec<u32> {
+    /// Pushes each of `buffers`, returning the index of each in the deduplicated buffers.
+    pub fn extend_from_iter(&mut self, buffers: impl Iterator<Item = ByteBuffer>) -> Vec<u32> {
         buffers.map(|buffer| self.push(buffer)).collect()
     }
 
-    pub(crate) fn finish(self) -> Arc<[ByteBuffer]> {
+    /// The deduplicated buffers, in the order they were first pushed.
+    pub fn finish(self) -> Arc<[ByteBuffer]> {
         Arc::from(self.buffers)
     }
 }

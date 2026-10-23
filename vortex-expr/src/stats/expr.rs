@@ -18,9 +18,9 @@ use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
-pub use vortex_array::scalar_fn::fns::stat::StatFn;
-pub use vortex_array::scalar_fn::fns::stat::StatOptions;
 use vortex_error::VortexExpect;
+pub use vortex_functions::stat::StatFn;
+pub use vortex_functions::stat::StatOptions;
 
 /// Creates an expression that reads a stored aggregate statistic for `expr`.
 ///

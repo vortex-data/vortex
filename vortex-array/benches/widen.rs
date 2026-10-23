@@ -35,15 +35,16 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
-use vortex_array::scalar_fn::fns::between::BetweenOptions;
-use vortex_array::scalar_fn::fns::between::StrictComparison;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_array::test_harness::mark_optimized;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_functions::between::BetweenOptions;
+use vortex_functions::between::StrictComparison;
+use vortex_functions::builtins::ArrayFunctions;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -66,10 +67,12 @@ fn main() {
 // The session variables are created here, so that no timed case pays for their default
 // constructors. No case serializes, so the session needs no `ArraySession`.
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    VortexSession::empty()
+    let session = VortexSession::empty()
         .with::<KernelSession>()
         .with::<AggregateFnSession>()
-        .with::<MemorySession>()
+        .with::<MemorySession>();
+    vortex_functions::initialize(&session);
+    session
 });
 
 // The decoded values hold 256 KiB. The inputs are sized so that every case does a few

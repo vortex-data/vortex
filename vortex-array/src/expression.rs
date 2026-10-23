@@ -12,7 +12,7 @@ use crate::arrays::ScalarFnArray;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
 use crate::expr::expression::unbound_variable;
-use crate::scalar_fn::fns::literal::Literal;
+use crate::scalar_fn::builtin::literal::Literal;
 
 impl ArrayRef {
     /// Apply a bound expression to this array, producing a new array in constant time.

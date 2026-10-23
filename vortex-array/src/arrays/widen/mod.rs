@@ -41,7 +41,7 @@ pub use array::WidenArraySlotsExt;
 pub use array::WidenSlots;
 pub use array::WidenSlotsView;
 
-pub(crate) mod compute;
+pub mod compute;
 mod encode;
 
 mod vtable;
@@ -55,17 +55,14 @@ use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::arrays::widen::compute::numeric::WidenNumericKernel;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::binary::CompareExecuteAdaptor;
-use crate::scalar_fn::fns::zip::Zip;
-use crate::scalar_fn::fns::zip::ZipExecuteAdaptor;
+use crate::scalar_fn::builtin::binary::Binary;
+use crate::scalar_fn::builtin::binary::CompareExecuteAdaptor;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
     kernels.register_execute_parent_kernel(Binary.id(), Widen, CompareExecuteAdaptor(Widen));
     kernels.register_execute_parent_kernel(Binary.id(), Widen, WidenNumericKernel);
     kernels.register_execute_parent_kernel(Dict.id(), Widen, TakeExecuteAdaptor(Widen));
-    kernels.register_execute_parent_kernel(Zip.id(), Widen, ZipExecuteAdaptor(Widen));
     compute::rules::register_parent_rules(session);
 }
 

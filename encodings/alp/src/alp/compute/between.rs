@@ -9,17 +9,17 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::NativeDType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::between::BetweenKernel;
-use vortex_array::scalar_fn::fns::between::BetweenOptions;
-use vortex_array::scalar_fn::fns::between::BetweenReduce;
-use vortex_array::scalar_fn::fns::between::StrictComparison;
 use vortex_error::VortexResult;
+use vortex_functions::between::BetweenKernel;
+use vortex_functions::between::BetweenOptions;
+use vortex_functions::between::BetweenReduce;
+use vortex_functions::between::StrictComparison;
+use vortex_functions::builtins::ArrayFunctions;
 
 use crate::ALP;
 use crate::ALPFloat;
@@ -199,12 +199,12 @@ mod tests {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar_fn::fns::between::BetweenOptions;
-    use vortex_array::scalar_fn::fns::between::StrictComparison;
     use vortex_error::VortexResult;
+    use vortex_functions::between::BetweenOptions;
+    use vortex_functions::between::StrictComparison;
+    use vortex_functions::builtins::ArrayFunctions;
     use vortex_session::VortexSession;
 
     use crate::ALPArray;

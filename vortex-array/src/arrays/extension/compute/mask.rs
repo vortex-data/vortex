@@ -9,8 +9,8 @@ use crate::array::ArrayView;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::extension::ExtensionArrayExt;
-use crate::scalar_fn::fns::mask::Mask as MaskExpr;
-use crate::scalar_fn::fns::mask::MaskReduce;
+use crate::scalar_fn::builtin::mask::Mask as MaskExpr;
+use crate::scalar_fn::builtin::mask::MaskReduce;
 
 impl MaskReduce for Extension {
     fn mask(array: ArrayView<'_, Extension>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {

@@ -9,8 +9,8 @@ use crate::arrays::Patched;
 use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::binary::CompareExecuteAdaptor;
+use crate::scalar_fn::builtin::binary::Binary;
+use crate::scalar_fn::builtin::binary::CompareExecuteAdaptor;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();

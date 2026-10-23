@@ -11,8 +11,8 @@ use crate::arrays::map::MapArrayExt;
 use crate::arrays::map::MapArraySlotsExt;
 use crate::arrays::map::compute::rebuild_map_from_array;
 use crate::executor::ExecutionCtx;
-use crate::scalar_fn::fns::mask::MaskKernel;
-use crate::scalar_fn::fns::mask::MaskReduce;
+use crate::scalar_fn::builtin::mask::MaskKernel;
+use crate::scalar_fn::builtin::mask::MaskReduce;
 
 impl MaskReduce for Map {
     const VALIDITY_IS_METADATA_ONLY: bool = true;

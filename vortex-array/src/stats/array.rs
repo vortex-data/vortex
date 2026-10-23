@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 use parking_lot::RwLock;
-use vortex_array::ExecutionCtx;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -17,6 +16,7 @@ use super::StatsSet;
 use super::StatsSetIntoIter;
 use super::TypedStatsSetRef;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::is_constant::is_constant;
 use crate::aggregate_fn::fns::is_sorted::is_sorted;

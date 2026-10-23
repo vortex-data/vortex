@@ -9,8 +9,8 @@ use crate::arrays::Union;
 use crate::arrays::dict::TakeReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::kernels::ArrayKernelsExt;
-use crate::scalar_fn::fns::mask::Mask as MaskFn;
-use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use crate::scalar_fn::builtin::mask::Mask as MaskFn;
+use crate::scalar_fn::builtin::mask::MaskReduceAdaptor;
 
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();

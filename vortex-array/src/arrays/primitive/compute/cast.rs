@@ -44,8 +44,8 @@ use crate::match_each_native_ptype;
 use crate::match_each_signed_integer_ptype;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::cast::CastKernel;
-use crate::scalar_fn::fns::cast::CastReduce;
+use crate::scalar_fn::builtin::cast::CastKernel;
+use crate::scalar_fn::builtin::cast::CastReduce;
 use crate::validity::Validity;
 
 impl CastReduce for Primitive {

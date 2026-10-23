@@ -12,7 +12,7 @@ use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::fill_null::FillNullKernel;
+use crate::scalar_fn::builtin::fill_null::FillNullKernel;
 use crate::validity::Validity;
 
 impl FillNullKernel for Bool {

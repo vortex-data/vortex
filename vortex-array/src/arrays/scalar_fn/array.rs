@@ -18,7 +18,7 @@ use crate::array::TypedArrayRef;
 use crate::arrays::ScalarFn;
 use crate::dtype::DType;
 use crate::scalar_fn::ScalarFnRef;
-use crate::scalar_fn::fns::literal::Literal;
+use crate::scalar_fn::builtin::literal::Literal;
 
 // ScalarFnArray has a variable number of slots (one per child)
 

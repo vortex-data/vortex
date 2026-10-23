@@ -10,10 +10,10 @@ use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::Constant;
 use crate::arrays::bool::BoolArrayExt;
-use crate::scalar_fn::fns::binary::BooleanKernel;
-use crate::scalar_fn::fns::binary::kleene_boolean_buffer_scalar;
-use crate::scalar_fn::fns::binary::kleene_boolean_buffers;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::binary::BooleanKernel;
+use crate::scalar_fn::builtin::binary::kleene_boolean_buffer_scalar;
+use crate::scalar_fn::builtin::binary::kleene_boolean_buffers;
+use crate::scalar_fn::builtin::operators::Operator;
 
 impl BooleanKernel for Bool {
     fn boolean(

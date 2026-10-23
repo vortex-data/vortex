@@ -143,19 +143,13 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::expr::and;
-    use crate::expr::between;
     use crate::expr::cast;
     use crate::expr::eq;
     use crate::expr::get_item;
     use crate::expr::gt;
     use crate::expr::lit;
     use crate::expr::not;
-    use crate::expr::pack;
     use crate::expr::root;
-    use crate::expr::select;
-    use crate::expr::select_exclude;
-    use crate::scalar_fn::fns::between::BetweenOptions;
-    use crate::scalar_fn::fns::between::StrictComparison;
 
     #[test]
     fn test_display_tree_root() {
@@ -214,26 +208,6 @@ mod tests {
     }
 
     #[test]
-    fn test_display_tree_select() {
-        use insta::assert_snapshot;
-        let select_expr = select(["name", "age"], root());
-        assert_snapshot!(select_expr.display_tree().to_string(), @r"
-        vortex.select({name, age})
-        └── child: vortex.root()
-        ");
-    }
-
-    #[test]
-    fn test_display_tree_select_exclude() {
-        use insta::assert_snapshot;
-        let select_exclude_expr = select_exclude(["internal_id", "metadata"], root());
-        assert_snapshot!(select_exclude_expr.display_tree().to_string(), @r"
-        vortex.select(~{internal_id, metadata})
-        └── child: vortex.root()
-        ");
-    }
-
-    #[test]
     fn test_display_tree_cast() {
         use insta::assert_snapshot;
         let cast_expr = cast(
@@ -257,82 +231,6 @@ mod tests {
             ├── lhs: vortex.get_item(active)
             │   └── input: vortex.root()
             └── rhs: vortex.literal(true)
-        ");
-    }
-
-    #[test]
-    fn test_display_tree_between() {
-        use insta::assert_snapshot;
-        let between_expr = between(
-            get_item("score", root()),
-            lit(0),
-            lit(100),
-            BetweenOptions {
-                lower_strict: StrictComparison::NonStrict,
-                upper_strict: StrictComparison::NonStrict,
-            },
-        );
-        assert_snapshot!(between_expr.display_tree().to_string(), @r"
-        vortex.between(lower_strict: <=, upper_strict: <=)
-        ├── array: vortex.get_item(score)
-        │   └── input: vortex.root()
-        ├── lower: vortex.literal(0i32)
-        └── upper: vortex.literal(100i32)
-        ");
-    }
-
-    #[test]
-    fn test_display_tree_nested() {
-        use insta::assert_snapshot;
-        let nested_expr = select(
-            ["result"],
-            cast(
-                between(
-                    get_item("score", root()),
-                    lit(50),
-                    lit(100),
-                    BetweenOptions {
-                        lower_strict: StrictComparison::Strict,
-                        upper_strict: StrictComparison::NonStrict,
-                    },
-                ),
-                DType::Bool(Nullability::NonNullable),
-            ),
-        );
-        assert_snapshot!(nested_expr.display_tree().to_string(), @r"
-        vortex.select({result})
-        └── child: vortex.cast(bool)
-            └── input: vortex.between(lower_strict: <, upper_strict: <=)
-                ├── array: vortex.get_item(score)
-                │   └── input: vortex.root()
-                ├── lower: vortex.literal(50i32)
-                └── upper: vortex.literal(100i32)
-        ");
-    }
-
-    #[test]
-    fn test_display_tree_pack() {
-        use insta::assert_snapshot;
-        let select_from_pack_expr = select(
-            ["fizz", "buzz"],
-            pack(
-                [
-                    ("fizz", root()),
-                    ("bar", lit(5)),
-                    ("buzz", eq(lit(42), get_item("answer", root()))),
-                ],
-                Nullability::Nullable,
-            ),
-        );
-        assert_snapshot!(select_from_pack_expr.display_tree().to_string(), @r"
-        vortex.select({fizz, buzz})
-        └── child: vortex.pack(names: [fizz, bar, buzz], nullability: Nullable)
-            ├── fizz: vortex.root()
-            ├── bar: vortex.literal(5i32)
-            └── buzz: vortex.binary(=)
-                ├── lhs: vortex.literal(42i32)
-                └── rhs: vortex.get_item(answer)
-                    └── input: vortex.root()
         ");
     }
 }

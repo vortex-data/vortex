@@ -9,8 +9,8 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::arrays::filter::FilterReduce;
-use vortex_array::scalar_fn::fns::mask::Mask as MaskExpr;
-use vortex_array::scalar_fn::fns::mask::MaskReduce;
+use vortex_array::scalar_fn::builtin::mask::Mask as MaskExpr;
+use vortex_array::scalar_fn::builtin::mask::MaskReduce;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 

@@ -19,12 +19,12 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::scalar_fn::fns::like::Like;
-use vortex_array::scalar_fn::fns::like::LikeOptions;
 use vortex_error::VortexResult;
 use vortex_fsst::FSSTArray;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
+use vortex_functions::like::Like;
+use vortex_functions::like::LikeOptions;
 use vortex_session::VortexSession;
 
 use crate::error::Backtrace;

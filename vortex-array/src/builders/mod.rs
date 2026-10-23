@@ -54,7 +54,7 @@ use crate::memory::BufferAllocatorRef;
 use crate::scalar::Scalar;
 
 mod lazy_null_builder;
-pub(crate) use lazy_null_builder::LazyBitBufferBuilder;
+pub use lazy_null_builder::LazyBitBufferBuilder;
 
 mod bool;
 mod child;

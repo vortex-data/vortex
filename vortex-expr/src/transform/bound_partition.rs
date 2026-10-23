@@ -19,8 +19,8 @@ use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::NodeRewriter;
 use vortex_array::expr::traversal::Transformed;
 use vortex_array::expr::traversal::TraversalOrder;
-use vortex_array::scalar_fn::fns::get_item::GetItem;
-use vortex_array::scalar_fn::fns::pack::Pack;
+use vortex_array::scalar_fn::builtin::get_item::GetItem;
+use vortex_array::scalar_fn::builtin::pack::Pack;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
@@ -376,9 +376,9 @@ mod tests {
     use vortex_array::expr::col;
     use vortex_array::expr::get_item;
     use vortex_array::expr::lit;
-    use vortex_array::expr::merge;
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
+    use vortex_functions::expr::merge;
 
     use super::*;
     use crate::analysis::make_bound_free_field_annotator;

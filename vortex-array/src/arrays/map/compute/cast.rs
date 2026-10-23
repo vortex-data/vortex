@@ -16,8 +16,8 @@ use crate::arrays::map::compute::rebuild_map_from_array;
 use crate::dtype::DType;
 use crate::dtype::MapDType;
 use crate::executor::ExecutionCtx;
-use crate::scalar_fn::fns::cast::CastKernel;
-use crate::scalar_fn::fns::cast::CastReduce;
+use crate::scalar_fn::builtin::cast::CastKernel;
+use crate::scalar_fn::builtin::cast::CastReduce;
 
 fn prepare_map_cast_target(
     array: ArrayView<'_, Map>,

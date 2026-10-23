@@ -6,8 +6,8 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
-use vortex_array::scalar_fn::fns::cast::CastKernel;
-use vortex_array::scalar_fn::fns::cast::CastReduce;
+use vortex_array::scalar_fn::builtin::cast::CastKernel;
+use vortex_array::scalar_fn::builtin::cast::CastReduce;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 

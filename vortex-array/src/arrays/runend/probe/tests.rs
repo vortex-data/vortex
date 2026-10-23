@@ -21,7 +21,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::operators::Operator;
 use crate::validity::Validity;
 
 /// A one-off or retained probe over `array`, the retained one living in `retained`.

@@ -29,7 +29,7 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::operators::Operator;
 use crate::validity::Validity;
 
 /// Returns `lhs operator rhs` after one execution step, and asserts that it equals the same

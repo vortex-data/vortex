@@ -33,13 +33,11 @@ use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ReduceRuleSet;
-use crate::scalar_fn::fns::cast::Cast;
-use crate::scalar_fn::fns::cast::CastReduceAdaptor;
-use crate::scalar_fn::fns::like::Like;
-use crate::scalar_fn::fns::like::LikeReduceAdaptor;
-use crate::scalar_fn::fns::mask::Mask as MaskFn;
-use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
-use crate::scalar_fn::fns::pack::Pack;
+use crate::scalar_fn::builtin::cast::Cast;
+use crate::scalar_fn::builtin::cast::CastReduceAdaptor;
+use crate::scalar_fn::builtin::mask::Mask as MaskFn;
+use crate::scalar_fn::builtin::mask::MaskReduceAdaptor;
+use crate::scalar_fn::builtin::pack::Pack;
 use crate::validity::Validity;
 
 pub(crate) const RULES: ReduceRuleSet<Dict> = ReduceRuleSet::new(&[&DictConstantCodesRule]);
@@ -71,7 +69,6 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
     kernels.register_reduce_parent_rule(Filter, Dict, const { &FilterReduceAdaptor(Dict) });
     kernels.register_reduce_parent_rule(Cast, Dict, const { &CastReduceAdaptor(Dict) });
     kernels.register_reduce_parent_rule(MaskFn, Dict, const { &MaskReduceAdaptor(Dict) });
-    kernels.register_reduce_parent_rule(Like, Dict, const { &LikeReduceAdaptor(Dict) });
     kernels.register_reduce_parent_rule(
         Chunked,
         Dict,
@@ -339,9 +336,9 @@ mod tests {
     use crate::executor::VortexSessionExecute;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::fns::binary::Binary;
-    use crate::scalar_fn::fns::not::Not;
-    use crate::scalar_fn::fns::operators::Operator;
+    use crate::scalar_fn::builtin::binary::Binary;
+    use crate::scalar_fn::builtin::not::Not;
+    use crate::scalar_fn::builtin::operators::Operator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 

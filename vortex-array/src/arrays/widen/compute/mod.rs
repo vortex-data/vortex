@@ -12,14 +12,13 @@
 //! needs the min and max of each operand, which come from cached statistics or from one scan of the
 //! operand. That scan is the one hidden cost in this module.
 //!
-//! [`AggregateFnSession::default`] registers the aggregate kernel, not
-//! [`initialize`](super::initialize), because the kernel session runs `initialize` on a temporary
-//! session and drops its aggregate registry.
+//! [`AggregateFnSession::default`] registers the aggregate kernel, not the `Widen` encoding's
+//! `initialize`, because the kernel session runs `initialize` on a temporary session and drops its
+//! aggregate registry.
 //!
 //! [`AggregateFnSession::default`]: crate::aggregate_fn::session::AggregateFnSession::default
 
 pub(crate) mod aggregate;
-mod between;
 mod cast;
 mod compare;
 mod fill_null;
@@ -29,7 +28,6 @@ pub(crate) mod numeric;
 pub(crate) mod rules;
 mod slice;
 mod take;
-mod zip;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -53,7 +51,7 @@ use crate::scalar::Scalar;
 /// `dtype` **must** have the nullability of `values`, because the values hold the validity of the
 /// `Widen`. A mask, a fill null or a take with nullable indices can change the nullability of the
 /// values, so those callers take the nullability of the result.
-pub(super) fn wrap_values(values: ArrayRef, dtype: DType) -> VortexResult<ArrayRef> {
+pub fn wrap_values(values: ArrayRef, dtype: DType) -> VortexResult<ArrayRef> {
     if values.dtype() == &dtype {
         return Ok(values);
     }
@@ -66,7 +64,7 @@ pub(super) fn wrap_values(values: ArrayRef, dtype: DType) -> VortexResult<ArrayR
 ///
 /// A null `scalar` keeps the type of the values. Returns `None` when `scalar` does not have the
 /// logical dtype, or when the values or the logical dtype is not an integer (a decimal `Widen`).
-pub(super) fn ptype_holding_values_and_scalar(
+pub fn ptype_holding_values_and_scalar(
     array: ArrayView<'_, Widen>,
     scalar: &Scalar,
 ) -> Option<PType> {
@@ -97,7 +95,7 @@ pub(super) fn ptype_holding_values_and_scalar(
 }
 
 /// Casts the integer array `array` to `ptype`, keeping its nullability.
-pub(super) fn cast_keeping_nullability(array: &ArrayRef, ptype: PType) -> VortexResult<ArrayRef> {
+pub fn cast_keeping_nullability(array: &ArrayRef, ptype: PType) -> VortexResult<ArrayRef> {
     array.cast(DType::Primitive(ptype, array.dtype().nullability()))
 }
 
@@ -105,7 +103,7 @@ pub(super) fn cast_keeping_nullability(array: &ArrayRef, ptype: PType) -> Vortex
 ///
 /// Integers must have the same signedness, and decimals must have the same scale. Returns `None`
 /// for null constants, unsupported dtypes, or incompatible constants.
-pub(super) fn constant_fits_values(constant: &Scalar, values: &DType) -> Option<bool> {
+pub fn constant_fits_values(constant: &Scalar, values: &DType) -> Option<bool> {
     match (values, constant.dtype()) {
         (DType::Decimal(values_dtype, _), DType::Decimal(constant_dtype, _))
             if values_dtype.scale() == constant_dtype.scale() =>
@@ -136,7 +134,7 @@ pub(super) fn constant_fits_values(constant: &Scalar, values: &DType) -> Option<
 ///
 /// The logical dtypes **must** have the same signedness. The value types then have that signedness
 /// too, so the wider one holds every value of the narrower one.
-pub(super) fn ptype_holding_both_values(
+pub fn ptype_holding_both_values(
     lhs: ArrayView<'_, Widen>,
     rhs: ArrayView<'_, Widen>,
 ) -> Option<PType> {
@@ -155,7 +153,7 @@ pub(super) fn ptype_holding_both_values(
 
 /// Returns `constant`, which **must** fit the type of `values`, as a constant array of that type
 /// with the nullability of `constant`.
-pub(super) fn constant_in_values_dtype(
+pub fn constant_in_values_dtype(
     constant: &Scalar,
     values: &ArrayRef,
     len: usize,
