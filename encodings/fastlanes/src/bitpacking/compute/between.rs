@@ -196,6 +196,7 @@ where
         lower,
         nullability,
         kernel,
+        false,
         &predicate,
         ctx,
     )
