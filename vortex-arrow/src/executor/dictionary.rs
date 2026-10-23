@@ -14,9 +14,11 @@ use arrow_array::cast::AsArray;
 use arrow_array::new_null_array;
 use arrow_array::types::*;
 use arrow_buffer::ArrowNativeType;
+use arrow_buffer::ScalarBuffer;
 use arrow_schema::DataType;
 use arrow_schema::TimeUnit;
 use rustc_hash::FxHashMap;
+use rustc_hash::FxHashSet;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -128,8 +130,17 @@ fn primitive_to_dict_with<K: ArrowDictionaryKeyType>(
     }
 }
 
-/// Assigns codes in order of first appearance, keyed by `key` of each valid value. Null values
-/// get null codes.
+/// Valid values sampled to choose how [`encode_primitive`] assigns codes.
+const SAMPLE_LEN: usize = 1024;
+/// The largest key range [`encode_primitive`] looks up in a dense table.
+const MAX_DENSE_RANGE: usize = 1 << 16;
+
+/// Dictionary-encodes `array` keyed by `key` of each valid value. Null values get null codes.
+///
+/// Keys spanning a small range are looked up in a dense table. When a sample of the values is
+/// nearly all distinct, the values themselves become the dictionary with sequential codes, since
+/// Arrow dictionaries may hold duplicates and deduplicating would barely shrink them. Otherwise
+/// codes are assigned in order of first appearance through a hash map.
 fn encode_primitive<K, T, B>(
     array: &ArrowArrayRef,
     key: impl Fn(T::Native) -> B,
@@ -137,14 +148,106 @@ fn encode_primitive<K, T, B>(
 where
     K: ArrowDictionaryKeyType,
     T: ArrowPrimitiveType,
-    B: Hash + Eq,
+    B: Hash + Eq + Copy + Into<i128>,
 {
     let array = array.as_primitive::<T>();
-    let mut lookup: FxHashMap<B, K::Native> = FxHashMap::default();
+    let nulls = array.nulls().filter(|nulls| nulls.null_count() > 0);
+    let is_valid = |idx: usize| nulls.is_none_or(|nulls| nulls.is_valid(idx));
+    let valid_keys = || {
+        array
+            .values()
+            .iter()
+            .enumerate()
+            .filter(move |(idx, _)| is_valid(*idx))
+            .map(|(_, &value)| key(value))
+    };
+
+    let (min, max) = valid_keys().fold((i128::MAX, i128::MIN), |(min, max), key| {
+        let key = key.into();
+        (min.min(key), max.max(key))
+    });
+    let range = usize::try_from(max.checked_sub(min)?).ok();
+    let (codes, values) = match range {
+        Some(range) if range < MAX_DENSE_RANGE && range <= array.len().saturating_mul(4) => {
+            encode_dense::<K, T, B>(array, &is_valid, &key, min, range)?
+        }
+        _ => {
+            let mut sample = FxHashSet::default();
+            let sampled = valid_keys()
+                .take(SAMPLE_LEN)
+                .inspect(|key| {
+                    sample.insert(*key);
+                })
+                .count();
+            if sample.len() * 8 >= sampled * 7 && K::Native::from_usize(array.len()).is_some() {
+                let codes = (0..array.len()).map(K::Native::usize_as).collect();
+                (codes, array.values().clone())
+            } else {
+                let distinct = sample.len() * array.len() / sampled.max(1);
+                encode_hashed::<K, T, B>(array, &is_valid, &key, distinct)?
+            }
+        }
+    };
+
+    let codes = PrimitiveArray::<K>::new(codes, nulls.cloned());
+    let values = PrimitiveArray::<T>::new(values, None).with_data_type(array.data_type().clone());
+    // SAFETY: every valid code indexes a value of the dictionary.
+    Some(Arc::new(unsafe {
+        DictionaryArray::new_unchecked(codes, Arc::new(values))
+    }))
+}
+
+/// Assigns codes in order of first appearance through a table indexed by `key - min`.
+fn encode_dense<K, T, B>(
+    array: &PrimitiveArray<T>,
+    is_valid: &impl Fn(usize) -> bool,
+    key: &impl Fn(T::Native) -> B,
+    min: i128,
+    range: usize,
+) -> Option<(ScalarBuffer<K::Native>, ScalarBuffer<T::Native>)>
+where
+    K: ArrowDictionaryKeyType,
+    T: ArrowPrimitiveType,
+    B: Into<i128>,
+{
+    const UNSEEN: u32 = u32::MAX;
+    let mut table = vec![UNSEEN; range + 1];
     let mut values = Vec::new();
     let mut codes = Vec::with_capacity(array.len());
     for (idx, &value) in array.values().iter().enumerate() {
-        if array.is_null(idx) {
+        if !is_valid(idx) {
+            codes.push(K::Native::default());
+            continue;
+        }
+        let slot = &mut table[usize::try_from(key(value).into() - min).ok()?];
+        if *slot == UNSEEN {
+            K::Native::from_usize(values.len())?;
+            *slot = u32::try_from(values.len()).ok()?;
+            values.push(value);
+        }
+        codes.push(K::Native::usize_as(*slot as usize));
+    }
+    Some((codes.into(), values.into()))
+}
+
+/// Assigns codes in order of first appearance through a hash map sized for `distinct` keys.
+fn encode_hashed<K, T, B>(
+    array: &PrimitiveArray<T>,
+    is_valid: &impl Fn(usize) -> bool,
+    key: &impl Fn(T::Native) -> B,
+    distinct: usize,
+) -> Option<(ScalarBuffer<K::Native>, ScalarBuffer<T::Native>)>
+where
+    K: ArrowDictionaryKeyType,
+    T: ArrowPrimitiveType,
+    B: Hash + Eq,
+{
+    let mut lookup: FxHashMap<B, K::Native> =
+        FxHashMap::with_capacity_and_hasher(distinct, Default::default());
+    let mut values = Vec::with_capacity(distinct);
+    let mut codes = Vec::with_capacity(array.len());
+    for (idx, &value) in array.values().iter().enumerate() {
+        if !is_valid(idx) {
             codes.push(K::Native::default());
             continue;
         }
@@ -158,13 +261,7 @@ where
         };
         codes.push(code);
     }
-    let codes = PrimitiveArray::<K>::new(codes.into(), array.nulls().cloned());
-    let values =
-        PrimitiveArray::<T>::new(values.into(), None).with_data_type(array.data_type().clone());
-    // SAFETY: every valid code indexes a value pushed above.
-    Some(Arc::new(unsafe {
-        DictionaryArray::new_unchecked(codes, Arc::new(values))
-    }))
+    Some((codes.into(), values.into()))
 }
 
 /// Convert a constant array to a dictionary with a single entry.
@@ -267,6 +364,7 @@ mod tests {
     use arrow_array::Int64Array;
     use arrow_array::StringArray;
     use arrow_array::UInt32Array;
+    use arrow_array::UInt64Array;
     use arrow_array::cast::AsArray;
     use arrow_array::types::Int16Type;
     use arrow_array::types::UInt8Type;
@@ -370,6 +468,17 @@ mod tests {
     ) -> VortexResult<()> {
         let actual = execute(input, &target_type)?;
         assert_eq!(expected.as_ref(), actual.as_ref());
+        Ok(())
+    }
+
+    #[test]
+    fn primitive_fallback_distinct_values() -> VortexResult<()> {
+        let values = (0..2000u64).map(|i| (i % 7 != 3).then(|| i.wrapping_mul(0x9E37_79B9_7F4A_7C15)));
+        let input = PrimitiveArray::from_option_iter(values.clone()).into_array();
+        let actual = execute(input, &dict_type(DataType::UInt32, DataType::UInt64))?;
+        let expected = UInt64Array::from_iter(values);
+        let flat = arrow_cast::cast(&actual, &DataType::UInt64)?;
+        assert_eq!(flat.as_ref(), &expected as &dyn arrow_array::Array);
         Ok(())
     }
 
