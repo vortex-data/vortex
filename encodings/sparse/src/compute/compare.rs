@@ -7,10 +7,10 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::scalar_fn::fns::binary::CompareKernel;
-use vortex_array::scalar_fn::fns::binary::scalar_cmp;
-use vortex_array::scalar_fn::fns::operators::CompareOperator;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::binary::CompareKernel;
+use vortex_array::scalar_fn::builtin::binary::scalar_cmp;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_error::VortexResult;
 
 use crate::Sparse;
@@ -64,7 +64,7 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_array::scalar_fn::builtin::operators::Operator;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 

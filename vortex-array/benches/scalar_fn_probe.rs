@@ -20,8 +20,8 @@ use vortex_array::arrays::ScalarFnArray;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::binary::Binary;
+use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_session::VortexSession;
 
 #[global_allocator]

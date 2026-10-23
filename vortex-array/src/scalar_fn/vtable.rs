@@ -31,10 +31,10 @@ use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::TypedScalarFnInstance;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::is_not_null::IsNotNull;
-use crate::scalar_fn::fns::literal::Literal;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::binary::Binary;
+use crate::scalar_fn::builtin::is_not_null::IsNotNull;
+use crate::scalar_fn::builtin::literal::Literal;
+use crate::scalar_fn::builtin::operators::Operator;
 use crate::validity::Validity;
 
 // Here and beyond we use validity(x) interchangeably with is_not_null(x).
@@ -57,7 +57,7 @@ pub enum ReduceNodeValidity<T: ReduceNode> {
 }
 
 /// IsNotNull(child) as a reducible node
-pub(crate) fn is_not_null_node<T: ReduceNode>(child: &T) -> VortexResult<T> {
+pub fn is_not_null_node<T: ReduceNode>(child: &T) -> VortexResult<T> {
     child.new_node(IsNotNull.bind(EmptyOptions), std::slice::from_ref(child))
 }
 
@@ -263,7 +263,7 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     /// is not because `false AND null` returns `false`. `is_null` is also not strict.
     ///
     /// Strictness does not require valid inputs to produce a valid output. For example,
-    /// [`crate::expr::list_sum`] returns null for a valid empty list. Implement
+    /// `list_sum` returns null for a valid empty list. Implement
     /// [`ScalarFnVTable::validity`] only when the output validity can be derived without
     /// evaluation.
     ///
@@ -281,7 +281,7 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     ///
     /// Return `true` only when a well-typed call cannot error because of its values. `checked_add`
     /// is fallible on integer overflow, and integer division is fallible when its divisor is zero.
-    /// A null result is not an error: [`crate::expr::list_sum`] is infallible for an empty list.
+    /// A null result is not an error: `list_sum` is infallible for an empty list.
     ///
     /// Ignore incidental execution errors, such as canonicalization failures, allocation errors,
     /// and encoding mismatches. They are not part of the function's semantics.

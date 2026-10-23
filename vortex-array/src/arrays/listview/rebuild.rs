@@ -26,7 +26,7 @@ use crate::dtype::PType;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::operators::Operator;
 use crate::validity::Validity;
 
 /// The widened offset type used for a rebuilt, zero-copy-to-list array.

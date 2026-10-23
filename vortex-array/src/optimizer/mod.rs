@@ -184,7 +184,7 @@ fn try_session_parent_reduce(
 
     #[allow(clippy::unused_enumerate_index)]
     for (_kernel_idx, reduce_parent) in reduce_parent_fns.iter().enumerate() {
-        if let Some(new_array) = reduce_parent(child, parent, slot_idx)? {
+        if let Some(new_array) = reduce_parent.reduce_parent(child, parent, slot_idx)? {
             trace_op!(record_session_parent_reduce_applied(
                 parent,
                 child,

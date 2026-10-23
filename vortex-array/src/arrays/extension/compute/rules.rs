@@ -20,8 +20,8 @@ use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::cast::CastReduceAdaptor;
-use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use crate::scalar_fn::builtin::cast::CastReduceAdaptor;
+use crate::scalar_fn::builtin::mask::MaskReduceAdaptor;
 
 pub(crate) const RULES: ReduceRuleSet<Extension> = ReduceRuleSet::new(&[&ExtensionConstantRule]);
 
@@ -110,8 +110,8 @@ mod tests {
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
-    use crate::scalar_fn::fns::binary::Binary;
-    use crate::scalar_fn::fns::operators::Operator;
+    use crate::scalar_fn::builtin::binary::Binary;
+    use crate::scalar_fn::builtin::operators::Operator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 

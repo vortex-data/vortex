@@ -5,7 +5,7 @@ use crate::arrays::Union;
 use crate::arrays::dict::TakeReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ParentRuleSet;
-use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use crate::scalar_fn::builtin::mask::MaskReduceAdaptor;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Union> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&MaskReduceAdaptor(Union)),

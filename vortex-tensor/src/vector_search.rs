@@ -40,7 +40,7 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_error::VortexResult;
 
 use crate::scalar_fns::cosine_similarity::CosineSimilarity;

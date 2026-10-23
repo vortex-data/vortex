@@ -15,7 +15,7 @@ use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::fill_null::FillNullKernel;
+use crate::scalar_fn::builtin::fill_null::FillNullKernel;
 use crate::validity::Validity;
 
 impl FillNullKernel for Primitive {

@@ -17,7 +17,6 @@ use vortex_array::expr::eq;
 use vortex_array::expr::gt;
 use vortex_array::expr::is_not_null;
 use vortex_array::expr::is_null;
-use vortex_array::expr::list_contains;
 use vortex_array::expr::lit;
 use vortex_array::expr::lt;
 use vortex_array::expr::or;
@@ -28,6 +27,7 @@ use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::internal::row_count::RowCount;
 use vortex_error::VortexResult;
+use vortex_functions::expr::list_contains;
 use vortex_session::VortexSession;
 
 use crate::stats::StatsSession;

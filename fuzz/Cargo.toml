@@ -36,6 +36,7 @@ vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fsst = { workspace = true, features = ["_test-harness"] }
+vortex-functions = { workspace = true }
 vortex-io = { workspace = true, features = ["wasm-bindgen"] }
 vortex-mask = { workspace = true }
 vortex-row = { workspace = true }

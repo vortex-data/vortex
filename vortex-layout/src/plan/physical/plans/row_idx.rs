@@ -16,7 +16,7 @@ use vortex_array::expr::BoundExpression;
 use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
 use vortex_array::expr::traversal::TraversalOrder;
-use vortex_array::scalar_fn::fns::pack::Pack as PackFn;
+use vortex_array::scalar_fn::builtin::pack::Pack as PackFn;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;

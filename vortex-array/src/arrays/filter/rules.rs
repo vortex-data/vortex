@@ -24,7 +24,7 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
-use crate::scalar_fn::fns::get_item::GetItem;
+use crate::scalar_fn::builtin::get_item::GetItem;
 
 pub(super) const PARENT_RULES: ParentRuleSet<Filter> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&FilterReduceAdaptor(Filter)),

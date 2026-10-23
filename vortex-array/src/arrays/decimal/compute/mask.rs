@@ -8,7 +8,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
-use crate::scalar_fn::fns::mask::MaskReduce;
+use crate::scalar_fn::builtin::mask::MaskReduce;
 use crate::validity::Validity;
 
 impl MaskReduce for Decimal {

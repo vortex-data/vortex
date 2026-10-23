@@ -17,14 +17,12 @@ use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
-use crate::scalar_fn::fns::cast::CastReduceAdaptor;
-use crate::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
-use crate::scalar_fn::fns::list_contains::ListContainsElementReduceAdaptor;
+use crate::scalar_fn::builtin::cast::CastReduceAdaptor;
+use crate::scalar_fn::builtin::fill_null::FillNullReduceAdaptor;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Chunked> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&CastReduceAdaptor(Chunked)),
     ParentRuleSet::lift(&ChunkedUnaryScalarFnPushDownRule),
-    ParentRuleSet::lift(&ListContainsElementReduceAdaptor(Chunked)),
     ParentRuleSet::lift(&ChunkedConstantScalarFnPushDownRule),
     ParentRuleSet::lift(&FillNullReduceAdaptor(Chunked)),
 ]);

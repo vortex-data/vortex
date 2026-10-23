@@ -1,0 +1,562 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::fmt::Display;
+use std::fmt::Formatter;
+
+use itertools::Itertools;
+use prost::Message;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arrays::Constant;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldName;
+use vortex_array::dtype::FieldNames;
+use vortex_array::expr::BoundExpression;
+use vortex_array::expr::display::ExprDisplay;
+use vortex_array::proto::expr::FieldNames as ProtoFieldNames;
+use vortex_array::proto::expr::SelectOpts;
+use vortex_array::proto::expr::select_opts::Opts;
+use vortex_array::scalar_fn::Arity;
+use vortex_array::scalar_fn::ChildName;
+use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ScalarFnId;
+use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::builtin::pack::Pack;
+use vortex_array::scalar_fn::builtin::pack::PackOptions;
+use vortex_error::VortexError;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
+use vortex_utils::aliases::hash_set::HashSet;
+
+use crate::field::DisplayFieldNames;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum FieldSelection {
+    Include(FieldNames),
+    Exclude(FieldNames),
+}
+
+#[derive(Clone)]
+pub struct Select;
+
+impl ScalarFnVTable for Select {
+    type Options = FieldSelection;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("vortex.select");
+        *ID
+    }
+
+    fn serialize(&self, instance: &FieldSelection) -> VortexResult<Option<Vec<u8>>> {
+        let opts = match instance {
+            FieldSelection::Include(fields) => Opts::Include(ProtoFieldNames {
+                names: fields.iter().map(|f| f.to_string()).collect(),
+            }),
+            FieldSelection::Exclude(fields) => Opts::Exclude(ProtoFieldNames {
+                names: fields.iter().map(|f| f.to_string()).collect(),
+            }),
+        };
+
+        let select_opts = SelectOpts { opts: Some(opts) };
+        Ok(Some(select_opts.encode_to_vec()))
+    }
+
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<FieldSelection> {
+        let prost_metadata = SelectOpts::decode(_metadata)?;
+
+        let select_opts = prost_metadata
+            .opts
+            .ok_or_else(|| vortex_err!("SelectOpts missing opts field"))?;
+
+        let field_selection = match select_opts {
+            Opts::Include(field_names) => FieldSelection::Include(FieldNames::from_iter(
+                field_names.names.iter().map(|s| s.as_str()),
+            )),
+            Opts::Exclude(field_names) => FieldSelection::Exclude(FieldNames::from_iter(
+                field_names.names.iter().map(|s| s.as_str()),
+            )),
+        };
+
+        Ok(field_selection)
+    }
+
+    fn arity(&self, _options: &FieldSelection) -> Arity {
+        Arity::Exact(1)
+    }
+
+    fn child_name(&self, _instance: &FieldSelection, child_idx: usize) -> ChildName {
+        match child_idx {
+            0 => ChildName::from("child"),
+            _ => unreachable!(),
+        }
+    }
+
+    fn fmt_sql(
+        &self,
+        selection: &FieldSelection,
+        expr: &dyn ExprDisplay,
+        f: &mut Formatter<'_>,
+    ) -> std::fmt::Result {
+        Display::fmt(expr.display_child(0), f)?;
+        match selection {
+            FieldSelection::Include(fields) => {
+                write!(f, "{{{}}}", DisplayFieldNames(fields))
+            }
+            FieldSelection::Exclude(fields) => {
+                write!(f, "{{~ {}}}", DisplayFieldNames(fields))
+            }
+        }
+    }
+
+    fn return_dtype(
+        &self,
+        selection: &FieldSelection,
+        arg_dtypes: &[DType],
+    ) -> VortexResult<DType> {
+        let child_dtype = &arg_dtypes[0];
+        let child_struct_dtype = child_dtype
+            .as_struct_fields_opt()
+            .ok_or_else(|| vortex_err!("Select child not a struct dtype"))?;
+
+        let projected = match selection {
+            FieldSelection::Include(fields) => child_struct_dtype.project(fields.as_ref())?,
+            FieldSelection::Exclude(fields) => child_struct_dtype
+                .names()
+                .iter()
+                .cloned()
+                .zip_eq(child_struct_dtype.fields())
+                .filter(|(name, _)| !fields.as_ref().contains(name))
+                .collect(),
+        };
+
+        Ok(DType::Struct(projected, child_dtype.nullability()))
+    }
+
+    fn execute(
+        &self,
+        selection: &FieldSelection,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let child = args.get(0)?;
+        if let Some(constant) = child.as_opt::<Constant>() {
+            let child_struct_dtype = child
+                .dtype()
+                .as_struct_fields_opt()
+                .ok_or_else(|| vortex_err!("Select child not a struct dtype"))?;
+            let included = selection.normalize_to_included_fields(child_struct_dtype.names())?;
+            let scalar = constant.scalar().as_struct().project(included.as_ref())?;
+
+            return Ok(ConstantArray::new(scalar, child.len()).into_array());
+        }
+
+        let child = child.execute::<StructArray>(ctx)?;
+
+        let result = match selection {
+            FieldSelection::Include(f) => child.project(f.as_ref()),
+            FieldSelection::Exclude(names) => {
+                let included_names = child
+                    .names()
+                    .iter()
+                    .filter(|&f| !names.as_ref().contains(f))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                child.project(included_names.as_slice())
+            }
+        }?;
+
+        result.into_array().execute(ctx)
+    }
+
+    fn simplify(
+        &self,
+        selection: &FieldSelection,
+        expr: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
+        let child_struct = expr.child(0);
+        let struct_dtype = child_struct.dtype();
+        let struct_nullability = struct_dtype.nullability();
+
+        let struct_fields = struct_dtype.as_struct_fields_opt().ok_or_else(|| {
+            vortex_err!(
+                "Select child must return a struct dtype, however it was a {}",
+                struct_dtype
+            )
+        })?;
+
+        // "Mask" out the unwanted fields of the child struct `DType`.
+        let included_fields = selection.normalize_to_included_fields(struct_fields.names())?;
+        let all_included_fields_are_nullable = included_fields.iter().all(|name| {
+            struct_fields
+                .field(name)
+                .vortex_expect(
+                    "`normalize_to_included_fields` checks that the included fields already exist \
+                     in `struct_fields`",
+                )
+                .is_nullable()
+        });
+
+        // If no fields are included, we can trivially simplify to a pack expression.
+        // NOTE(ngates): we do this knowing that our layout expression partitioning logic has
+        //  special-casing for pack, but not for select. We will fix this up when we revisit the
+        //  layout APIs.
+        if included_fields.is_empty() {
+            return Ok(Some(Pack.try_new_bound_expr(
+                PackOptions {
+                    names: FieldNames::empty(),
+                    nullability: struct_nullability,
+                },
+                [],
+            )?));
+        }
+
+        // We cannot always convert a `select` into a projection of its child fields. This is
+        // because reading a field does a validity intersection of the struct validity with the
+        // field, which is not the same as just "masking" out the unwanted fields (a selection).
+        //
+        // We can, however, make this simplification when the child of the `select` is already a
+        // `pack` and we know that reading a field will do no validity intersections.
+        //
+        // The intersection only happens when the struct is nullable but the field is not. That
+        // would change the semantics of a `select`, so we can only simplify when it won't happen.
+        let would_intersect_validity =
+            struct_nullability.is_nullable() && !all_included_fields_are_nullable;
+
+        if let Some(child_pack) = child_struct.as_opt::<Pack>()
+            && !would_intersect_validity
+        {
+            // Take the field expressions straight out of the child `pack` rather than wrap the
+            // `pack` in `get_item`. The guard above proves the two are equivalent here, and the
+            // optimizer visits children before their parent, so a `get_item` introduced now
+            // would never be simplified away.
+            let fields: Vec<BoundExpression> = included_fields
+                .iter()
+                .map(|name| {
+                    let idx = child_pack.names.find(name).ok_or_else(|| {
+                        vortex_err!(
+                            "Cannot find field {} in pack fields {:?}",
+                            name,
+                            child_pack.names
+                        )
+                    })?;
+
+                    Ok(child_struct.child(idx).clone())
+                })
+                .try_collect::<_, _, VortexError>()?;
+
+            return Ok(Some(Pack.try_new_bound_expr(
+                PackOptions {
+                    names: included_fields,
+                    nullability: struct_nullability,
+                },
+                fields,
+            )?));
+        }
+
+        Ok(None)
+    }
+
+    fn is_strict(&self, _options: &FieldSelection) -> bool {
+        true
+    }
+
+    fn is_infallible(&self, _instance: &FieldSelection) -> bool {
+        // If this type-checks, it is infallible.
+        true
+    }
+}
+
+impl FieldSelection {
+    pub fn include(columns: FieldNames) -> Self {
+        assert_eq!(columns.iter().unique().collect_vec().len(), columns.len());
+        Self::Include(columns)
+    }
+
+    pub fn exclude(columns: FieldNames) -> Self {
+        assert_eq!(columns.iter().unique().collect_vec().len(), columns.len());
+        Self::Exclude(columns)
+    }
+
+    pub fn is_include(&self) -> bool {
+        matches!(self, Self::Include(_))
+    }
+
+    pub fn is_exclude(&self) -> bool {
+        matches!(self, Self::Exclude(_))
+    }
+
+    pub fn field_names(&self) -> &FieldNames {
+        let (FieldSelection::Include(fields) | FieldSelection::Exclude(fields)) = self;
+
+        fields
+    }
+
+    pub fn normalize_to_included_fields(
+        &self,
+        available_fields: &FieldNames,
+    ) -> VortexResult<FieldNames> {
+        // Hash the available fields so that wide selections stay linear.
+        let available: HashSet<&FieldName> = available_fields.iter().collect();
+
+        // Check that all of the field names exist in the available fields.
+        if self.field_names().iter().any(|f| !available.contains(f)) {
+            vortex_bail!(
+                "Select fields {:?} must be a subset of child fields {:?}",
+                self,
+                available_fields
+            );
+        }
+
+        match self {
+            FieldSelection::Include(fields) => Ok(fields.clone()),
+            FieldSelection::Exclude(exc_fields) => {
+                let excluded: HashSet<&FieldName> = exc_fields.iter().collect();
+                Ok(available_fields
+                    .iter()
+                    .filter(|f| !excluded.contains(f))
+                    .cloned()
+                    .collect())
+            }
+        }
+    }
+}
+
+impl Display for FieldSelection {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FieldSelection::Include(fields) => write!(f, "{{{}}}", DisplayFieldNames(fields)),
+            FieldSelection::Exclude(fields) => write!(f, "~{{{}}}", DisplayFieldNames(fields)),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::Constant;
+    use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::ScalarFnArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldName;
+    use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::Nullability::Nullable;
+    use vortex_array::dtype::PType::I32;
+    use vortex_array::dtype::StructFields;
+    use vortex_array::expr::root;
+    use vortex_array::expr::test_harness;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::ScalarFnVTableExt;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use crate::expr::select;
+    use crate::expr::select_exclude;
+    use crate::select::FieldSelection;
+    use crate::select::Select;
+    use crate::select::StructArray;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+
+        crate::initialize(&session);
+
+        session
+    });
+
+    fn test_array() -> StructArray {
+        StructArray::from_fields(&[
+            ("a", buffer![0, 1, 2].into_array()),
+            ("b", buffer![4, 5, 6].into_array()),
+        ])
+        .unwrap()
+    }
+
+    #[test]
+    pub fn include_columns() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let st = test_array();
+        let select = select(vec![FieldName::from("a")], root());
+        let selected = st.into_array().apply(&select).unwrap();
+        let selected_names = selected.dtype().as_struct_fields().names();
+        assert_eq!(selected_names.as_ref(), &["a"]);
+        assert_arrays_eq!(
+            selected,
+            StructArray::from_fields(&[("a", buffer![0i32, 1, 2].into_array())]).unwrap(),
+            &mut ctx
+        );
+    }
+
+    #[test]
+    pub fn exclude_columns() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let st = test_array();
+        let select = select_exclude(vec![FieldName::from("a")], root());
+        let selected = st.into_array().apply(&select).unwrap();
+        let selected_names = selected.dtype().as_struct_fields().names();
+        assert_eq!(selected_names.as_ref(), &["b"]);
+        assert_arrays_eq!(
+            selected,
+            StructArray::from_fields(&[("b", buffer![4i32, 5, 6].into_array())]).unwrap(),
+            &mut ctx
+        );
+    }
+
+    #[test]
+    fn dtype() {
+        let dtype = test_harness::struct_dtype();
+
+        let select_expr = select(vec![FieldName::from("a")], root());
+        let expected_dtype = DType::Struct(
+            dtype
+                .as_struct_fields_opt()
+                .unwrap()
+                .project(&["a".into()])
+                .unwrap(),
+            Nullability::NonNullable,
+        );
+        assert_eq!(select_expr.return_dtype(&dtype).unwrap(), expected_dtype);
+
+        let select_expr_exclude = select_exclude(
+            vec![
+                FieldName::from("col1"),
+                FieldName::from("col2"),
+                FieldName::from("bool1"),
+                FieldName::from("bool2"),
+            ],
+            root(),
+        );
+        assert_eq!(
+            select_expr_exclude.return_dtype(&dtype).unwrap(),
+            expected_dtype
+        );
+
+        let select_expr_exclude = select_exclude(
+            vec![FieldName::from("col1"), FieldName::from("col2")],
+            root(),
+        );
+        assert_eq!(
+            select_expr_exclude.return_dtype(&dtype).unwrap(),
+            DType::Struct(
+                dtype
+                    .as_struct_fields_opt()
+                    .unwrap()
+                    .project(&["a".into(), "bool1".into(), "bool2".into()])
+                    .unwrap(),
+                Nullability::NonNullable
+            )
+        );
+    }
+
+    #[test]
+    fn test_as_include_names() {
+        let field_names = FieldNames::from(["a", "b", "c"]);
+        for expr in [select(["a"], root()), select_exclude(["b", "c"], root())] {
+            assert_eq!(
+                expr.as_::<Select>()
+                    .normalize_to_included_fields(&field_names)
+                    .unwrap(),
+                FieldNames::from(["a"])
+            );
+        }
+    }
+
+    #[test]
+    fn execute_constant_struct_stays_constant() -> VortexResult<()> {
+        let field_count = 128usize;
+        let names = (0..field_count)
+            .map(|idx| FieldName::from(format!("f{idx}")))
+            .collect::<Vec<_>>();
+        let dtypes = vec![I32.into(); field_count];
+        let fields = StructFields::new(FieldNames::from(names), dtypes);
+        let scalar = Scalar::struct_(
+            DType::Struct(fields, Nullability::NonNullable),
+            (0..128).map(Scalar::from),
+        );
+        let array = ConstantArray::new(scalar, 1_000_000).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let item: ArrayRef = ScalarFnArray::try_new(
+            Select.bind(FieldSelection::Include(FieldNames::from(["f97", "f3"]))),
+            vec![array],
+        )?
+        .into_array()
+        .execute(&mut ctx)?;
+
+        let constant = item.as_::<Constant>();
+        assert_eq!(constant.len(), 1_000_000);
+        assert_eq!(
+            constant.scalar(),
+            &Scalar::struct_(
+                DType::Struct(
+                    StructFields::new(
+                        FieldNames::from(["f97", "f3"]),
+                        vec![I32.into(), I32.into()],
+                    ),
+                    Nullability::NonNullable,
+                ),
+                [Scalar::from(97), Scalar::from(3)],
+            )
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_remove_select_rule() {
+        let dtype = DType::Struct(
+            StructFields::new(["a", "b"].into(), vec![I32.into(), I32.into()]),
+            Nullable,
+        );
+        let e = select(["a", "b"], root());
+
+        let result = e.bind(&dtype).unwrap().optimize_recursive().unwrap();
+
+        assert_eq!(result.dtype(), &dtype);
+    }
+
+    #[test]
+    fn test_remove_select_rule_exclude_fields() {
+        use crate::expr::select_exclude;
+
+        let dtype = DType::Struct(
+            StructFields::new(
+                ["a", "b", "c"].into(),
+                vec![I32.into(), I32.into(), I32.into()],
+            ),
+            Nullable,
+        );
+        let e = select_exclude(["c"], root());
+
+        let result = e.bind(&dtype).unwrap().optimize_recursive().unwrap();
+
+        // Should exclude "c" and include "a" and "b"
+        let result_dtype = result.dtype();
+        assert!(result_dtype.is_nullable());
+        let fields = result_dtype.as_struct_fields_opt().unwrap();
+        assert_eq!(fields.names().as_ref(), &["a", "b"]);
+        assert_eq!(
+            result_dtype,
+            &DType::struct_([("a", I32), ("b", I32)], Nullable)
+        );
+    }
+}

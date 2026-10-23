@@ -8,13 +8,13 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::list_contains::ListContainsElementReduce;
-use vortex_array::scalar_fn::fns::list_contains::ListContainsOptions;
-use vortex_array::scalar_fn::fns::list_contains::PreparedSet;
-use vortex_array::scalar_fn::fns::list_contains::PreparedSetData;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
+use vortex_functions::list_contains::ListContainsElementReduce;
+use vortex_functions::list_contains::ListContainsOptions;
+use vortex_functions::list_contains::PreparedSet;
+use vortex_functions::list_contains::PreparedSetData;
 
 use crate::array::Sequence;
 use crate::compute::compare::Intersection;
@@ -97,14 +97,14 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType::I32;
-    use vortex_array::expr::list_contains;
-    use vortex_array::expr::list_contains_opts;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar_fn::fns::list_contains::ListContainsOptions;
     use vortex_error::VortexResult;
+    use vortex_functions::expr::list_contains;
+    use vortex_functions::expr::list_contains_opts;
+    use vortex_functions::list_contains::ListContainsOptions;
     use vortex_session::VortexSession;
 
     use crate::Sequence;

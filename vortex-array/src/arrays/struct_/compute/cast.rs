@@ -23,7 +23,7 @@ use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::fns::cast::Cast;
+use crate::scalar_fn::builtin::cast::Cast;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
@@ -153,7 +153,7 @@ mod tests {
     use crate::optimizer::kernels::ExecuteParentFn;
     use crate::optimizer::kernels::KernelSession;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::fns::cast::Cast;
+    use crate::scalar_fn::builtin::cast::Cast;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);

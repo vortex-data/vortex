@@ -13,8 +13,8 @@ use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
-use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
-use vortex_array::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
+use vortex_array::scalar_fn::builtin::cast::CastReduceAdaptor;
+use vortex_array::scalar_fn::builtin::fill_null::FillNullReduceAdaptor;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;

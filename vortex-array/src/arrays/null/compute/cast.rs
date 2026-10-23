@@ -11,7 +11,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Null;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::cast::CastReduce;
+use crate::scalar_fn::builtin::cast::CastReduce;
 
 impl CastReduce for Null {
     fn cast(array: ArrayView<'_, Null>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {

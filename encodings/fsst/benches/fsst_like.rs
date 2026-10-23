@@ -14,8 +14,6 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
-use vortex_array::scalar_fn::fns::like::Like;
-use vortex_array::scalar_fn::fns::like::LikeOptions;
 use vortex_array::session::ArraySession;
 use vortex_fsst::FSSTArray;
 use vortex_fsst::test_utils::NUM_STRINGS;
@@ -26,6 +24,8 @@ use vortex_fsst::test_utils::make_fsst_json_strings;
 use vortex_fsst::test_utils::make_fsst_log_lines;
 use vortex_fsst::test_utils::make_fsst_rare_match;
 use vortex_fsst::test_utils::make_fsst_short_urls;
+use vortex_functions::like::Like;
+use vortex_functions::like::LikeOptions;
 use vortex_session::VortexSession;
 
 #[global_allocator]

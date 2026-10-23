@@ -109,15 +109,13 @@ mod tests {
     use super::ExprSerializeProtoExt;
     use crate::expr::Expression;
     use crate::expr::and;
-    use crate::expr::between;
     use crate::expr::eq;
     use crate::expr::get_item;
     use crate::expr::lit;
+    use crate::expr::lt;
     use crate::expr::or;
     use crate::expr::root;
     use crate::proto::expr as pb;
-    use crate::scalar_fn::fns::between::BetweenOptions;
-    use crate::scalar_fn::fns::between::StrictComparison;
     use crate::scalar_fn::session::ScalarFnSession;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -129,18 +127,7 @@ mod tests {
     #[test]
     fn expression_serde() {
         let expr: Expression = or(
-            and(
-                between(
-                    lit(1),
-                    root(),
-                    get_item("a", root()),
-                    BetweenOptions {
-                        lower_strict: StrictComparison::Strict,
-                        upper_strict: StrictComparison::Strict,
-                    },
-                ),
-                lit(1),
-            ),
+            and(lt(lit(1), get_item("a", root())), lit(1)),
             eq(lit(1), root()),
         );
 

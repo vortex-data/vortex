@@ -111,11 +111,18 @@ pub mod expr {
     //! Expression trees, their optimizer, and the analyses and rewrites built on them.
     pub use vortex_array::expr::*;
     pub use vortex_expr::*;
+    pub use vortex_functions::expr::*;
 
     /// Statistics, stat expressions, and statistics-based pruning rewrites.
     pub mod stats {
         pub use vortex_array::expr::stats::*;
         pub use vortex_expr::stats::*;
+    }
+
+    /// Constructors for expressions whose children have already been bound and type-checked.
+    pub mod bound {
+        pub use vortex_array::expr::bound::*;
+        pub use vortex_functions::expr::bound::*;
     }
 }
 use vortex_array::memory::MemorySession;
@@ -125,6 +132,7 @@ use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
 use vortex_btrblocks::CompressionSession;
 use vortex_expr::stats::session::StatsSession;
+pub use vortex_functions as functions;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
@@ -346,6 +354,7 @@ impl VortexSessionDefault for VortexSession {
             .with::<MemorySession>()
             .with::<CompressionSession>()
             .with::<RuntimeSession>();
+        vortex_functions::initialize(&session);
         vortex_arrow::initialize(&session);
         #[cfg(feature = "parquet-variant")]
         vortex_parquet_variant::initialize(&session);
@@ -386,7 +395,6 @@ mod test {
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
-    use vortex_array::expr::select;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressorBuilder;
@@ -395,6 +403,7 @@ mod test {
     use vortex_file::OpenOptionsSessionExt;
     use vortex_file::WriteOptionsSessionExt;
     use vortex_file::WriteStrategyBuilder;
+    use vortex_functions::expr::select;
     use vortex_session::VortexSession;
 
     use crate as vortex;

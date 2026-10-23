@@ -19,8 +19,8 @@ use vortex::expr::or_collect;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::scalar_fn::ScalarFnVTableExt;
-use vortex::scalar_fn::fns::binary::Binary;
-use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scalar_fn::builtin::binary::Binary;
+use vortex::scalar_fn::builtin::operators::Operator;
 
 use crate::box_wrapper;
 use crate::error::try_or;

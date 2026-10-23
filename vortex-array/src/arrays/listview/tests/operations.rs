@@ -6,14 +6,12 @@ use std::sync::LazyLock;
 
 use rstest::rstest;
 use vortex_buffer::buffer;
-use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use super::common::create_basic_listview;
 use super::common::create_large_listview;
 use super::common::create_nullable_listview;
-use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::is_constant::is_constant;
@@ -506,108 +504,6 @@ fn test_cast_large_dataset() {
         &mut ctx,
     );
     assert_arrays_eq!(result_list, expected, &mut SESSION.create_execution_ctx());
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// Zip tests
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
-#[test]
-fn test_zip_widens_false_element_nullability() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    // [[1, 2], [3], [4]]
-    let if_true = ListViewArray::new(
-        buffer![1i32, 2, 3, 4].into_array(),
-        buffer![0u32, 2, 3].into_array(),
-        buffer![2u32, 1, 1].into_array(),
-        Validity::NonNullable,
-        &mut ctx,
-    )
-    .into_array();
-    // [[10, null], [30], [40]]
-    let if_false = ListViewArray::new(
-        PrimitiveArray::from_option_iter([Some(10i32), None, Some(30), Some(40)]).into_array(),
-        buffer![0u32, 2, 3].into_array(),
-        buffer![2u32, 1, 1].into_array(),
-        Validity::NonNullable,
-        &mut ctx,
-    )
-    .into_array();
-    let mask = Mask::from_iter([false, true, false]);
-
-    let result = mask
-        .into_array()
-        .zip(if_true, if_false)?
-        .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())?;
-    assert!(result.is::<ListView>());
-    assert_eq!(
-        result.dtype(),
-        &DType::List(
-            Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
-            Nullability::NonNullable,
-        )
-    );
-
-    // [[10, null], [3], [40]]
-    let expected = ListViewArray::new(
-        PrimitiveArray::from_option_iter([Some(10i32), None, Some(3), Some(40)]).into_array(),
-        buffer![0u32, 2, 3].into_array(),
-        buffer![2u32, 1, 1].into_array(),
-        Validity::NonNullable,
-        &mut ctx,
-    )
-    .into_array();
-    assert_arrays_eq!(result, expected, &mut ctx);
-    Ok(())
-}
-
-#[test]
-fn test_zip_widens_true_element_nullability() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    // [[1, null], [3], [4]]
-    let if_true = ListViewArray::new(
-        PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4)]).into_array(),
-        buffer![0u32, 2, 3].into_array(),
-        buffer![2u32, 1, 1].into_array(),
-        Validity::NonNullable,
-        &mut ctx,
-    )
-    .into_array();
-    // [[10], [20], [30]]
-    let if_false = ListViewArray::new(
-        buffer![10i32, 20, 30].into_array(),
-        buffer![0u32, 1, 2].into_array(),
-        buffer![1u32, 1, 1].into_array(),
-        Validity::NonNullable,
-        &mut ctx,
-    )
-    .into_array();
-    let mask = Mask::from_iter([true, false, true]);
-
-    let result = mask
-        .into_array()
-        .zip(if_true, if_false)?
-        .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())?;
-    assert!(result.is::<ListView>());
-    assert_eq!(
-        result.dtype(),
-        &DType::List(
-            Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
-            Nullability::NonNullable,
-        )
-    );
-
-    // [[1, null], [20], [4]]
-    let expected = ListViewArray::new(
-        PrimitiveArray::from_option_iter([Some(1i32), None, Some(20), Some(4)]).into_array(),
-        buffer![0u32, 2, 3].into_array(),
-        buffer![2u32, 1, 1].into_array(),
-        Validity::NonNullable,
-        &mut ctx,
-    )
-    .into_array();
-    assert_arrays_eq!(result, expected, &mut ctx);
-    Ok(())
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

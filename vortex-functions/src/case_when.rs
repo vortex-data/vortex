@@ -1,0 +1,1875 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! SQL-style CASE WHEN: evaluates `(condition, value)` pairs in order and returns
+//! the value from the first matching condition (first-match-wins). NULL conditions
+//! are treated as false. If no ELSE clause is provided, unmatched rows produce NULL;
+//! otherwise they get the ELSE value.
+//!
+//! Unlike SQL which coerces all branches to a common supertype, all THEN/ELSE
+//! branches must share the same base dtype (ignoring nullability). The result
+//! nullability is the union of all branches (forced nullable if no ELSE).
+//!
+//! The serialized expression format is not part of a Vortex edition and is not
+//! guaranteed to remain compatible across Vortex versions.
+
+use std::fmt;
+use std::fmt::Formatter;
+use std::hash::Hash;
+use std::sync::Arc;
+
+use prost::Message;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::builders::builder_with_capacity_in;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::expr::BoundExpression;
+use vortex_array::expr::display::ExprDisplay;
+use vortex_array::proto::expr as pb;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::Arity;
+use vortex_array::scalar_fn::ChildName;
+use vortex_array::scalar_fn::EmptyOptions;
+use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ScalarFnId;
+use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::builtin::fill_null::FillNull;
+use vortex_array::scalar_fn::builtin::is_not_null::IsNotNull;
+use vortex_array::scalar_fn::builtin::is_null::IsNull;
+use vortex_array::scalar_fn::builtin::literal::Literal;
+use vortex_buffer::BufferMut;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
+use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
+
+use crate::zip::zip_nullability_union;
+
+/// Options for the n-ary CaseWhen expression.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CaseWhenOptions {
+    /// Number of WHEN/THEN pairs.
+    pub num_when_then_pairs: u32,
+    /// Whether an ELSE clause is present.
+    /// If false, unmatched rows return NULL.
+    pub has_else: bool,
+}
+
+impl CaseWhenOptions {
+    /// Total number of child expressions: 2 per WHEN/THEN pair, plus 1 if ELSE is present.
+    pub fn num_children(&self) -> usize {
+        self.num_when_then_pairs as usize * 2 + usize::from(self.has_else)
+    }
+}
+
+impl fmt::Display for CaseWhenOptions {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "case_when(pairs={}, else={})",
+            self.num_when_then_pairs, self.has_else
+        )
+    }
+}
+
+/// An n-ary CASE WHEN expression.
+///
+/// Children are in order: `[when_0, then_0, when_1, then_1, ..., else?]`.
+#[derive(Clone)]
+pub struct CaseWhen;
+
+impl ScalarFnVTable for CaseWhen {
+    type Options = CaseWhenOptions;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("vortex.case_when");
+        *ID
+    }
+
+    fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        vortex_ensure!(
+            options.num_when_then_pairs > 0,
+            "CaseWhen must have at least one WHEN/THEN pair"
+        );
+        let Some(num_children) = options
+            .num_when_then_pairs
+            .checked_mul(2)
+            .and_then(|count| count.checked_add(u32::from(options.has_else)))
+        else {
+            vortex_bail!("CaseWhen has too many children to serialize");
+        };
+        Ok(Some(pb::CaseWhenOpts { num_children }.encode_to_vec()))
+    }
+
+    fn deserialize(
+        &self,
+        metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        let opts = pb::CaseWhenOpts::decode(metadata)?;
+        if opts.num_children < 2 {
+            vortex_bail!(
+                "CaseWhen expects at least 2 children, got {}",
+                opts.num_children
+            );
+        }
+        Ok(CaseWhenOptions {
+            num_when_then_pairs: opts.num_children / 2,
+            has_else: opts.num_children % 2 == 1,
+        })
+    }
+
+    fn arity(&self, options: &Self::Options) -> Arity {
+        Arity::Exact(options.num_children())
+    }
+
+    fn child_name(&self, options: &Self::Options, child_idx: usize) -> ChildName {
+        let num_pair_children = options.num_when_then_pairs as usize * 2;
+        if child_idx < num_pair_children {
+            let pair_idx = child_idx / 2;
+            if child_idx.is_multiple_of(2) {
+                ChildName::from(Arc::from(format!("when_{pair_idx}")))
+            } else {
+                ChildName::from(Arc::from(format!("then_{pair_idx}")))
+            }
+        } else if options.has_else && child_idx == num_pair_children {
+            ChildName::from("else")
+        } else {
+            unreachable!("Invalid child index {} for CaseWhen", child_idx)
+        }
+    }
+
+    fn fmt_sql(
+        &self,
+        options: &Self::Options,
+        expr: &dyn ExprDisplay,
+        f: &mut Formatter<'_>,
+    ) -> fmt::Result {
+        write!(f, "CASE")?;
+        for i in 0..options.num_when_then_pairs as usize {
+            write!(
+                f,
+                " WHEN {} THEN {}",
+                expr.display_child(i * 2),
+                expr.display_child(i * 2 + 1)
+            )?;
+        }
+        if options.has_else {
+            let else_idx = options.num_when_then_pairs as usize * 2;
+            write!(f, " ELSE {}", expr.display_child(else_idx))?;
+        }
+        write!(f, " END")
+    }
+
+    fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
+        if options.num_when_then_pairs == 0 {
+            vortex_bail!("CaseWhen must have at least one WHEN/THEN pair");
+        }
+
+        let expected_len = options.num_children();
+        if arg_dtypes.len() != expected_len {
+            vortex_bail!(
+                "CaseWhen expects {expected_len} argument dtypes, got {}",
+                arg_dtypes.len()
+            );
+        }
+
+        // Unlike SQL which coerces all branches to a common supertype, we require
+        // all THEN/ELSE branches to have the same base dtype (ignoring nullability).
+        // The result nullability is the union of all branches, at every nesting level.
+        let first_then = &arg_dtypes[1];
+        let mut result_dtype = first_then.clone();
+
+        for i in 1..options.num_when_then_pairs as usize {
+            let then_i = &arg_dtypes[i * 2 + 1];
+            let Some(union) = zip_nullability_union(&result_dtype, then_i) else {
+                vortex_bail!(
+                    "CaseWhen THEN dtypes must match (ignoring nullability), got {} and {}",
+                    first_then,
+                    then_i
+                );
+            };
+            result_dtype = union;
+        }
+
+        if options.has_else {
+            let else_dtype = &arg_dtypes[options.num_when_then_pairs as usize * 2];
+            let Some(union) = zip_nullability_union(&result_dtype, else_dtype) else {
+                vortex_bail!(
+                    "CaseWhen THEN and ELSE dtypes must match (ignoring nullability), got {} and {}",
+                    first_then,
+                    else_dtype
+                );
+            };
+            result_dtype = union;
+        } else {
+            // No ELSE means unmatched rows are NULL
+            result_dtype = result_dtype.as_nullable();
+        }
+
+        Ok(result_dtype)
+    }
+
+    fn execute(
+        &self,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let row_count = args.row_count();
+        let num_pairs = options.num_when_then_pairs as usize;
+        let dtypes = (0..args.num_inputs())
+            .map(|index| Ok(args.get(index)?.dtype().clone()))
+            .collect::<VortexResult<Vec<_>>>()?;
+        let output_dtype = self.return_dtype(options, &dtypes)?;
+
+        let mut remaining = Mask::new_true(row_count);
+        let mut branches: Vec<(Mask, ArrayRef)> = Vec::with_capacity(num_pairs);
+
+        for i in 0..num_pairs {
+            if remaining.all_false() {
+                break;
+            }
+
+            let condition = args.get(i * 2)?.filter(remaining.clone())?;
+            let cond_bool = condition.execute::<BoolArray>(ctx)?;
+            let cond_mask = cond_bool.to_mask_fill_null_false(ctx);
+            let effective_mask = remaining.intersect_by_rank(&cond_mask);
+
+            if effective_mask.all_false() {
+                continue;
+            }
+
+            let then_value = args.get(i * 2 + 1)?;
+            remaining = remaining.bitand_not(&effective_mask);
+            branches.push((effective_mask, then_value));
+        }
+
+        let else_value: ArrayRef = if options.has_else {
+            args.get(num_pairs * 2)?
+        } else {
+            let then_dtype = args.get(1)?.dtype().as_nullable();
+            ConstantArray::new(Scalar::null(then_dtype), row_count).into_array()
+        };
+
+        if branches.is_empty() {
+            return else_value.cast(output_dtype);
+        }
+
+        // `remaining` now selects the rows that no branch matched.
+        merge_case_branches(&branches, &remaining, &else_value, &output_dtype, ctx)
+    }
+
+    fn simplify(
+        &self,
+        options: &Self::Options,
+        expr: &BoundExpression,
+    ) -> VortexResult<Option<BoundExpression>> {
+        // Rewrite the COALESCE-shaped CASE WHEN into `fill_null`, which references `x`
+        // once and lowers to a single fill kernel instead of a `zip`/merge that resolves
+        // `x` twice (once for the `is_null` predicate, once for the value branch).
+        //
+        //   CASE WHEN is_null(x)     THEN c ELSE x END  ==>  fill_null(x, c)
+        //   CASE WHEN is_not_null(x) THEN x ELSE c END  ==>  fill_null(x, c)
+        //
+        // The fill `c` must be a `Literal`: `fill_null`'s kernel reads the fill value via
+        // `as_constant()`, so a non-constant fill would produce an unexecutable expression.
+        if options.num_when_then_pairs != 1 || !options.has_else {
+            return Ok(None);
+        }
+
+        let when = expr.child(0);
+        let then = expr.child(1);
+        let els = expr.child(2);
+
+        // `is_null(x) ? c : x` — predicate operand and ELSE are the same `x`, fill is THEN.
+        let (x, fill) = if when.is::<IsNull>() && when.child(0) == els {
+            (els, then)
+        // `is_not_null(x) ? x : c` — predicate operand and THEN are the same `x`, fill is ELSE.
+        } else if when.is::<IsNotNull>() && when.child(0) == then {
+            (then, els)
+        } else {
+            return Ok(None);
+        };
+
+        let Some(scalar) = fill.as_opt::<Literal>() else {
+            return Ok(None);
+        };
+
+        if scalar.is_null() {
+            // Filling the nulls of `x` with NULL is a no-op
+            return Ok(Some(x.clone()));
+        }
+
+        if !FillNull::supports_dtype(x.dtype()) {
+            return Ok(None);
+        }
+
+        Ok(Some(FillNull.try_new_bound_expr(
+            EmptyOptions,
+            [x.clone(), fill.clone()],
+        )?))
+    }
+
+    fn is_strict(&self, _options: &Self::Options) -> bool {
+        // A null in an unselected branch does not force a null output.
+        false
+    }
+
+    fn is_infallible(&self, _options: &Self::Options) -> bool {
+        true
+    }
+}
+
+/// Assemble coarse runs directly; compact fragmented branches before restoring row positions.
+///
+/// `else_mask` selects the rows that no branch matched. Every branch and the ELSE value
+/// are cast to `output_dtype`, the dtype that `return_dtype` reports.
+fn merge_case_branches(
+    branches: &[(Mask, ArrayRef)],
+    else_mask: &Mask,
+    else_value: &ArrayRef,
+    output_dtype: &DType,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    if let Some((_, value)) = branches.iter().find(|(mask, _)| mask.all_true()) {
+        return value.cast(output_dtype.clone());
+    }
+
+    if prefer_runs(branches, else_value.len()) {
+        return merge_runs(branches, else_value, output_dtype, ctx);
+    }
+
+    merge_compact(branches, else_mask, else_value, output_dtype, ctx)
+}
+
+fn prefer_runs(branches: &[(Mask, ArrayRef)], len: usize) -> bool {
+    // A span may add an ELSE run. Coarse runs amortize slicing without the
+    // extra compact-output buffer and gather; isolated branch selections do too.
+    const MIN_ROWS_PER_RUN: usize = 128;
+
+    let mut remaining_spans = branches.len().max(len / (2 * MIN_ROWS_PER_RUN));
+    for (mask, _) in branches {
+        let count = match mask {
+            Mask::AllTrue(_) => 1,
+            Mask::AllFalse(_) => 0,
+            Mask::Values(values) => values.cached_slices().map_or_else(
+                || {
+                    values
+                        .bit_buffer()
+                        .set_slices()
+                        .take(remaining_spans.saturating_add(1))
+                        .count()
+                },
+                |slices| slices.len(),
+            ),
+        };
+
+        if count > remaining_spans {
+            return false;
+        }
+        remaining_spans -= count;
+    }
+
+    true
+}
+
+fn merge_compact(
+    branches: &[(Mask, ArrayRef)],
+    else_mask: &Mask,
+    else_value: &ArrayRef,
+    output_dtype: &DType,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let len = else_value.len();
+    let mut builder = builder_with_capacity_in(output_dtype, len, ctx.allocator());
+    let mut indices = BufferMut::<u64>::zeroed_in(len, ctx.allocator().clone());
+
+    let else_branch = (!else_mask.all_false()).then_some((else_mask, else_value));
+    let selections = branches
+        .iter()
+        .map(|(mask, value)| (mask, value))
+        .chain(else_branch);
+
+    for (mask, value) in selections {
+        let offset = builder.len();
+        value
+            .filter(mask.clone())?
+            .cast(output_dtype.clone())?
+            .append_to_builder(builder.as_mut(), ctx)?;
+        assign_positions(&mut indices, mask, offset);
+    }
+
+    builder.finish().take(indices.freeze().into_array())
+}
+
+fn merge_runs(
+    branches: &[(Mask, ArrayRef)],
+    else_value: &ArrayRef,
+    output_dtype: &DType,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let mut spans = Vec::new();
+    for (index, (mask, _)) in branches.iter().enumerate() {
+        if let AllOr::Some(slices) = mask.slices() {
+            spans.extend(slices.iter().map(|&(start, end)| (start, end, index)));
+        }
+    }
+    spans.sort_unstable_by_key(|&(start, ..)| start);
+
+    // Cast once up front: every span below is a slice of these arrays.
+    let values = branches
+        .iter()
+        .map(|(_, value)| value.cast(output_dtype.clone()))
+        .collect::<VortexResult<Vec<_>>>()?;
+    let else_value = else_value.cast(output_dtype.clone())?;
+    let len = else_value.len();
+
+    let mut builder = builder_with_capacity_in(output_dtype, len, ctx.allocator());
+    for (start, end, branch) in spans {
+        if builder.len() < start {
+            else_value
+                .slice(builder.len()..start)?
+                .append_to_builder(builder.as_mut(), ctx)?;
+        }
+
+        values[branch]
+            .slice(start..end)?
+            .append_to_builder(builder.as_mut(), ctx)?;
+    }
+
+    if builder.len() < len {
+        else_value
+            .slice(builder.len()..len)?
+            .append_to_builder(builder.as_mut(), ctx)?;
+    }
+
+    Ok(builder.finish())
+}
+
+fn assign_positions(indices: &mut [u64], mask: &Mask, offset: usize) {
+    match mask.indices() {
+        AllOr::All => {
+            for (position, index) in indices.iter_mut().enumerate() {
+                *index = (offset + position) as u64;
+            }
+        }
+        AllOr::None => {}
+        AllOr::Some(selected) => {
+            for (position, &row) in selected.iter().enumerate() {
+                indices[row] = (offset + position) as u64;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use rstest::rstest;
+    use vortex_array::Canonical;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::DecimalArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::ScalarFnArray;
+    use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::DecimalDType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
+    use vortex_array::expr::Expression;
+    use vortex_array::expr::col;
+    use vortex_array::expr::eq;
+    use vortex_array::expr::get_item;
+    use vortex_array::expr::gt;
+    use vortex_array::expr::is_not_null;
+    use vortex_array::expr::is_null;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::proto::ExprSerializeProtoExt;
+    use vortex_array::expr::root;
+    use vortex_array::expr::test_harness;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::ScalarFnVTableExt;
+    use vortex_array::scalar_fn::VecExecutionArgs;
+    use vortex_array::scalar_fn::builtin::operators::Operator;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexExpect as _;
+    use vortex_session::VortexSession;
+
+    use super::*;
+    use crate::expr::case_when;
+    use crate::expr::case_when_no_else;
+    use crate::expr::nested_case_when;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
+
+    #[test]
+    fn compact_and_run_merges_agree_for_nested_and_nullable_values() -> VortexResult<()> {
+        let primitive =
+            PrimitiveArray::from_option_iter([Some(1i64), None, Some(3), Some(4)]).into_array();
+        let fixtures = vec![
+            primitive.clone(),
+            DecimalArray::new(
+                buffer![100i64, -200, 300, 400],
+                DecimalDType::new(15, 2),
+                Validity::from_iter([true, false, true, true]),
+            )
+            .into_array(),
+            DecimalArray::new(
+                buffer![1i128 << 100, -2, 3, 4],
+                DecimalDType::new(38, 0),
+                Validity::NonNullable,
+            )
+            .into_array(),
+            VarBinViewArray::from_iter(
+                [
+                    Some("long out-of-line value"),
+                    None,
+                    Some("short"),
+                    Some(""),
+                ],
+                DType::Utf8(Nullability::Nullable),
+            )
+            .into_array(),
+            StructArray::try_from_iter([("nested", primitive)])?.into_array(),
+        ];
+        // Each case lists the branch selections in branch order. Rows that no branch
+        // selects come from ELSE.
+        let cases: [&[[bool; 4]]; 5] = [
+            &[[true, false, true, false]],
+            &[[true, true, false, false]],
+            &[[false, true, false, false]],
+            &[[true, false, false, false], [false, false, true, false]],
+            &[[false, false, false, true], [false, true, false, false]],
+        ];
+
+        let mut ctx = SESSION.create_execution_ctx();
+        for value in fixtures {
+            let reorder =
+                |indices: Buffer<u32>, ctx: &mut ExecutionCtx| -> VortexResult<ArrayRef> {
+                    Ok(value
+                        .take(indices.into_array())?
+                        .execute::<Canonical>(ctx)?
+                        .into_array())
+                };
+            let branch_values = [value.clone(), reorder(buffer![1u32, 0, 3, 2], &mut ctx)?];
+            let otherwise = reorder(buffer![3u32, 2, 1, 0], &mut ctx)?;
+
+            for selections in cases {
+                let branches: Vec<_> = selections
+                    .iter()
+                    .zip(&branch_values)
+                    .map(|(selection, value)| (Mask::from_iter(*selection), value.clone()))
+                    .collect();
+                let else_mask = Mask::from_iter(
+                    (0..4).map(|row| !selections.iter().any(|selection| selection[row])),
+                );
+
+                assert_arrays_eq!(
+                    merge_runs(&branches, &otherwise, value.dtype(), &mut ctx)?,
+                    merge_compact(&branches, &else_mask, &otherwise, value.dtype(), &mut ctx)?,
+                    &mut ctx
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    fn nested_struct(values: [Option<i32>; 4], nullable: bool) -> VortexResult<ArrayRef> {
+        let field = if nullable {
+            PrimitiveArray::from_option_iter(values).into_array()
+        } else {
+            PrimitiveArray::from_iter(values.map(|value| value.vortex_expect("non-null value")))
+                .into_array()
+        };
+
+        Ok(StructArray::try_from_iter([("a", field)])?.into_array())
+    }
+
+    /// THEN and ELSE may differ in nested nullability. The output must keep nested nulls from
+    /// either side, on the run merge, the compact merge and when no branch matches.
+    #[rstest]
+    #[case::compact_nullable_then([true, false, true, false], true)]
+    #[case::compact_nullable_else([true, false, true, false], false)]
+    #[case::runs_nullable_then([true, true, false, false], true)]
+    #[case::runs_nullable_else([true, true, false, false], false)]
+    #[case::no_match_nullable_else([false, false, false, false], false)]
+    fn nested_nullability_is_merged_across_branches(
+        #[case] selection: [bool; 4],
+        #[case] nullable_then: bool,
+    ) -> VortexResult<()> {
+        let nullable = [None, Some(2), None, Some(4)];
+        let non_nullable = [Some(10), Some(20), Some(30), Some(40)];
+        let (then_values, else_values) = if nullable_then {
+            (nullable, non_nullable)
+        } else {
+            (non_nullable, nullable)
+        };
+
+        let array = ScalarFnArray::try_new(
+            CaseWhen.bind(CaseWhenOptions {
+                num_when_then_pairs: 1,
+                has_else: true,
+            }),
+            vec![
+                BoolArray::from_iter(selection).into_array(),
+                nested_struct(then_values, nullable_then)?,
+                nested_struct(else_values, !nullable_then)?,
+            ],
+        )?
+        .into_array();
+
+        let expected = (0..4).map(|row| {
+            if selection[row] {
+                then_values[row]
+            } else {
+                else_values[row]
+            }
+        });
+        let expected = StructArray::try_from_iter([(
+            "a",
+            PrimitiveArray::from_option_iter(expected).into_array(),
+        )])?
+        .into_array();
+
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_arrays_eq!(array, expected, &mut ctx);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_return_dtype_merges_nested_nullability() -> VortexResult<()> {
+        let field = |nullability| {
+            DType::Struct(
+                StructFields::new(
+                    ["a"].into(),
+                    vec![DType::Primitive(PType::I32, nullability)],
+                ),
+                Nullability::NonNullable,
+            )
+        };
+        let options = CaseWhenOptions {
+            num_when_then_pairs: 1,
+            has_else: true,
+        };
+        let condition = DType::Bool(Nullability::NonNullable);
+
+        for (then_dtype, else_dtype) in [
+            (
+                field(Nullability::Nullable),
+                field(Nullability::NonNullable),
+            ),
+            (
+                field(Nullability::NonNullable),
+                field(Nullability::Nullable),
+            ),
+        ] {
+            assert_eq!(
+                CaseWhen.return_dtype(&options, &[condition.clone(), then_dtype, else_dtype])?,
+                field(Nullability::Nullable)
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn selected_rows_do_not_execute_erroring_branches_or_later_conditions() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let condition =
+            BoolArray::from_iter([Some(true), Some(false), Some(true), None]).into_array();
+        let division = buffer![20i32, 30, 40, 50]
+            .into_array()
+            .binary(buffer![2i32, 0, 4, 0].into_array(), Operator::Div)?;
+        assert!(division.clone().execute::<Canonical>(&mut ctx).is_err());
+        let options = CaseWhenOptions {
+            num_when_then_pairs: 1,
+            has_else: true,
+        };
+        let result = CaseWhen.execute(
+            &options,
+            &VecExecutionArgs::new(
+                vec![
+                    condition.clone(),
+                    division.clone(),
+                    ConstantArray::new(7i32, 4).into_array(),
+                ],
+                4,
+            ),
+            &mut ctx,
+        )?;
+        assert_arrays_eq!(result, buffer![10i32, 7, 10, 7].into_array(), &mut ctx);
+
+        let result = CaseWhen.execute(
+            &options,
+            &VecExecutionArgs::new(
+                vec![
+                    condition.clone(),
+                    StructArray::try_from_iter([("value", division.clone())])?.into_array(),
+                    StructArray::try_from_iter([(
+                        "value",
+                        ConstantArray::new(7i32, 4).into_array(),
+                    )])?
+                    .into_array(),
+                ],
+                4,
+            ),
+            &mut ctx,
+        )?;
+        assert_arrays_eq!(
+            result,
+            StructArray::try_from_iter([("value", buffer![10i32, 7, 10, 7].into_array())])?
+                .into_array(),
+            &mut ctx
+        );
+
+        let later_condition = buffer![20i32, 30, 40, 50]
+            .into_array()
+            .binary(buffer![0i32, 3, 0, 5].into_array(), Operator::Div)?
+            .binary(ConstantArray::new(0i32, 4).into_array(), Operator::Gt)?;
+        let result = CaseWhen.execute(
+            &CaseWhenOptions {
+                num_when_then_pairs: 2,
+                has_else: true,
+            },
+            &VecExecutionArgs::new(
+                vec![
+                    condition,
+                    ConstantArray::new(2i32, 4).into_array(),
+                    later_condition,
+                    ConstantArray::new(3i32, 4).into_array(),
+                    division,
+                ],
+                4,
+            ),
+            &mut ctx,
+        )?;
+        assert_arrays_eq!(result, buffer![2i32, 3, 2, 3].into_array(), &mut ctx);
+
+        let selected_error = ScalarFnArray::try_new(
+            CaseWhen.bind(options),
+            vec![
+                ConstantArray::new(true, 4).into_array(),
+                buffer![20i32, 30, 40, 50]
+                    .into_array()
+                    .binary(buffer![2i32, 0, 4, 0].into_array(), Operator::Div)?,
+                ConstantArray::new(7i32, 4).into_array(),
+            ],
+        )?
+        .into_array();
+        assert!(selected_error.execute::<Canonical>(&mut ctx).is_err());
+        Ok(())
+    }
+
+    fn apply_expr(expr: &Expression, array: &ArrayRef) -> ArrayRef {
+        array.clone().apply(expr).unwrap()
+    }
+
+    fn apply_bound_expr(expr: &BoundExpression, array: &ArrayRef) -> ArrayRef {
+        array.clone().apply_bound(expr).unwrap()
+    }
+
+    // ==================== Serialization Tests ====================
+
+    #[rstest]
+    #[case(1, true, 3)]
+    #[case(1, false, 2)]
+    #[case(3, true, 7)]
+    #[case(4, false, 8)]
+    #[case(u32::MAX / 2, true, u32::MAX)]
+    #[case(u32::MAX / 2, false, u32::MAX - 1)]
+    fn test_serialization_roundtrip(
+        #[case] num_when_then_pairs: u32,
+        #[case] has_else: bool,
+        #[case] num_children: u32,
+    ) -> VortexResult<()> {
+        let options = CaseWhenOptions {
+            num_when_then_pairs,
+            has_else,
+        };
+        let serialized = CaseWhen.serialize(&options)?.expect("serializable options");
+        assert_eq!(
+            pb::CaseWhenOpts::decode(serialized.as_slice())?.num_children,
+            num_children
+        );
+        assert_eq!(CaseWhen.deserialize(&serialized, &SESSION)?, options);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(0, "at least one WHEN/THEN pair")]
+    #[case(u32::MAX / 2 + 1, "too many children")]
+    fn test_serialization_invalid_options(
+        #[case] num_when_then_pairs: u32,
+        #[case] expected_error: &str,
+        #[values(false, true)] has_else: bool,
+    ) {
+        let options = CaseWhenOptions {
+            num_when_then_pairs,
+            has_else,
+        };
+        let error = CaseWhen.serialize(&options).unwrap_err();
+        assert!(error.to_string().contains(expected_error));
+    }
+
+    #[rstest]
+    #[case::missing(&[])]
+    #[case::zero_children(&[0x08, 0])]
+    #[case::one_child(&[0x08, 1])]
+    #[case::truncated(&[0x08, 0x80])]
+    fn test_deserialization_invalid_metadata(#[case] metadata: &[u8]) {
+        assert!(CaseWhen.deserialize(metadata, &SESSION).is_err());
+    }
+
+    #[rstest]
+    fn test_expression_serialization_roundtrip(
+        #[values(1, 3)] num_when_then_pairs: u32,
+        #[values(false, true)] has_else: bool,
+    ) -> VortexResult<()> {
+        let branches = (0..num_when_then_pairs)
+            .map(|value| (eq(col("value"), lit(value)), lit(value)))
+            .collect();
+        let expression = nested_case_when(branches, has_else.then(|| lit(42u32)));
+        let bytes = expression.serialize_proto()?.encode_to_vec();
+        let proto = pb::Expr::decode(bytes.as_slice())?;
+        assert_eq!(proto.id, "vortex.case_when");
+        assert_eq!(Expression::from_proto(&proto, &SESSION)?, expression);
+        Ok(())
+    }
+
+    // ==================== Display Tests ====================
+
+    #[test]
+    fn test_display_with_else() {
+        let expr = case_when(gt(col("value"), lit(0i32)), lit(100i32), lit(0i32));
+        let display = format!("{}", expr);
+        assert!(display.contains("CASE"));
+        assert!(display.contains("WHEN"));
+        assert!(display.contains("THEN"));
+        assert!(display.contains("ELSE"));
+        assert!(display.contains("END"));
+    }
+
+    #[test]
+    fn test_display_no_else() {
+        let expr = case_when_no_else(gt(col("value"), lit(0i32)), lit(100i32));
+        let display = format!("{}", expr);
+        assert!(display.contains("CASE"));
+        assert!(display.contains("WHEN"));
+        assert!(display.contains("THEN"));
+        assert!(!display.contains("ELSE"));
+        assert!(display.contains("END"));
+    }
+
+    #[test]
+    fn test_display_nested_nary() {
+        // CASE WHEN x > 10 THEN 'high' WHEN x > 5 THEN 'medium' ELSE 'low' END
+        let expr = nested_case_when(
+            vec![
+                (gt(col("x"), lit(10i32)), lit("high")),
+                (gt(col("x"), lit(5i32)), lit("medium")),
+            ],
+            Some(lit("low")),
+        );
+        let display = format!("{}", expr);
+        assert_eq!(display.matches("CASE").count(), 1);
+        assert_eq!(display.matches("WHEN").count(), 2);
+        assert_eq!(display.matches("THEN").count(), 2);
+    }
+
+    // ==================== DType Tests ====================
+
+    #[test]
+    fn test_return_dtype_with_else() {
+        let expr = case_when(lit(true), lit(100i32), lit(0i32));
+        let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let result_dtype = expr.return_dtype(&input_dtype).unwrap();
+        assert_eq!(
+            result_dtype,
+            DType::Primitive(PType::I32, Nullability::NonNullable)
+        );
+    }
+
+    #[test]
+    fn test_return_dtype_with_nullable_else() {
+        let expr = case_when(
+            lit(true),
+            lit(100i32),
+            lit(Scalar::null(DType::Primitive(
+                PType::I32,
+                Nullability::Nullable,
+            ))),
+        );
+        let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let result_dtype = expr.return_dtype(&input_dtype).unwrap();
+        assert_eq!(
+            result_dtype,
+            DType::Primitive(PType::I32, Nullability::Nullable)
+        );
+    }
+
+    #[test]
+    fn test_return_dtype_without_else_is_nullable() {
+        let expr = case_when_no_else(lit(true), lit(100i32));
+        let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let result_dtype = expr.return_dtype(&input_dtype).unwrap();
+        assert_eq!(
+            result_dtype,
+            DType::Primitive(PType::I32, Nullability::Nullable)
+        );
+    }
+
+    #[test]
+    fn test_return_dtype_with_struct_input() {
+        let dtype = test_harness::struct_dtype();
+        let expr = case_when(
+            gt(get_item("col1", root()), lit(10u16)),
+            lit(100i32),
+            lit(0i32),
+        );
+        let result_dtype = expr.return_dtype(&dtype).unwrap();
+        assert_eq!(
+            result_dtype,
+            DType::Primitive(PType::I32, Nullability::NonNullable)
+        );
+    }
+
+    #[test]
+    fn test_return_dtype_mismatched_then_else_errors() {
+        let expr = case_when(lit(true), lit(100i32), lit("zero"));
+        let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let err = expr.return_dtype(&input_dtype).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("THEN and ELSE dtypes must match (ignoring nullability)")
+        );
+    }
+
+    // ==================== Arity Tests ====================
+
+    #[test]
+    fn test_arity_with_else() {
+        let options = CaseWhenOptions {
+            num_when_then_pairs: 1,
+            has_else: true,
+        };
+        assert_eq!(CaseWhen.arity(&options), Arity::Exact(3));
+    }
+
+    #[test]
+    fn test_arity_without_else() {
+        let options = CaseWhenOptions {
+            num_when_then_pairs: 1,
+            has_else: false,
+        };
+        assert_eq!(CaseWhen.arity(&options), Arity::Exact(2));
+    }
+
+    // ==================== Child Name Tests ====================
+
+    #[test]
+    fn test_child_names() {
+        let options = CaseWhenOptions {
+            num_when_then_pairs: 1,
+            has_else: true,
+        };
+        assert_eq!(CaseWhen.child_name(&options, 0).to_string(), "when_0");
+        assert_eq!(CaseWhen.child_name(&options, 1).to_string(), "then_0");
+        assert_eq!(CaseWhen.child_name(&options, 2).to_string(), "else");
+    }
+
+    // ==================== N-ary Arity Tests ====================
+
+    #[test]
+    fn test_arity_nary_with_else() {
+        let options = CaseWhenOptions {
+            num_when_then_pairs: 3,
+            has_else: true,
+        };
+        // 3 pairs * 2 children + 1 else = 7
+        assert_eq!(CaseWhen.arity(&options), Arity::Exact(7));
+    }
+
+    #[test]
+    fn test_arity_nary_without_else() {
+        let options = CaseWhenOptions {
+            num_when_then_pairs: 3,
+            has_else: false,
+        };
+        // 3 pairs * 2 children = 6
+        assert_eq!(CaseWhen.arity(&options), Arity::Exact(6));
+    }
+
+    // ==================== N-ary Child Name Tests ====================
+
+    #[test]
+    fn test_child_names_nary() {
+        let options = CaseWhenOptions {
+            num_when_then_pairs: 3,
+            has_else: true,
+        };
+        assert_eq!(CaseWhen.child_name(&options, 0).to_string(), "when_0");
+        assert_eq!(CaseWhen.child_name(&options, 1).to_string(), "then_0");
+        assert_eq!(CaseWhen.child_name(&options, 2).to_string(), "when_1");
+        assert_eq!(CaseWhen.child_name(&options, 3).to_string(), "then_1");
+        assert_eq!(CaseWhen.child_name(&options, 4).to_string(), "when_2");
+        assert_eq!(CaseWhen.child_name(&options, 5).to_string(), "then_2");
+        assert_eq!(CaseWhen.child_name(&options, 6).to_string(), "else");
+    }
+
+    // ==================== N-ary DType Tests ====================
+
+    #[test]
+    fn test_return_dtype_nary_mismatched_then_types_errors() {
+        let expr = nested_case_when(
+            vec![(lit(true), lit(100i32)), (lit(false), lit("oops"))],
+            Some(lit(0i32)),
+        );
+        let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let err = expr.return_dtype(&input_dtype).unwrap_err();
+        assert!(err.to_string().contains("THEN dtypes must match"));
+    }
+
+    #[test]
+    fn test_return_dtype_nary_mixed_nullability() {
+        // When some THEN branches are nullable and others are not,
+        // the result should be nullable (union of nullabilities).
+        let non_null_then = lit(100i32);
+        let nullable_then = lit(Scalar::null(DType::Primitive(
+            PType::I32,
+            Nullability::Nullable,
+        )));
+        let expr = nested_case_when(
+            vec![(lit(true), non_null_then), (lit(false), nullable_then)],
+            Some(lit(0i32)),
+        );
+        let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let result = expr.return_dtype(&input_dtype).unwrap();
+        assert_eq!(result, DType::Primitive(PType::I32, Nullability::Nullable));
+    }
+
+    #[test]
+    fn test_return_dtype_nary_no_else_is_nullable() {
+        let expr = nested_case_when(
+            vec![(lit(true), lit(10i32)), (lit(false), lit(20i32))],
+            None,
+        );
+        let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let result = expr.return_dtype(&input_dtype).unwrap();
+        assert_eq!(result, DType::Primitive(PType::I32, Nullability::Nullable));
+    }
+
+    // ==================== Expression Manipulation Tests ====================
+
+    #[test]
+    fn test_replace_children() {
+        let expr = case_when(lit(true), lit(1i32), lit(0i32));
+        let replaced = expr
+            .with_children([lit(false), lit(2i32), lit(3i32)])
+            .vortex_expect("operation should succeed in test");
+        assert_eq!(replaced, case_when(lit(false), lit(2i32), lit(3i32)));
+    }
+
+    // ==================== Evaluate Tests ====================
+
+    #[test]
+    fn test_evaluate_simple_condition() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let test_array =
+            StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4, 5].into_array())])
+                .unwrap()
+                .into_array();
+
+        let expr = case_when(
+            gt(get_item("value", root()), lit(2i32)),
+            lit(100i32),
+            lit(0i32),
+        );
+
+        let result = apply_expr(&expr, &test_array);
+        assert_arrays_eq!(
+            result,
+            buffer![0i32, 0, 100, 100, 100].into_array(),
+            &mut ctx
+        );
+    }
+
+    #[test]
+    fn test_evaluate_nary_multiple_conditions() {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Test n-ary via nested_case_when
+        let test_array =
+            StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4, 5].into_array())])
+                .unwrap()
+                .into_array();
+
+        let expr = nested_case_when(
+            vec![
+                (eq(get_item("value", root()), lit(1i32)), lit(10i32)),
+                (eq(get_item("value", root()), lit(3i32)), lit(30i32)),
+            ],
+            Some(lit(0i32)),
+        );
+
+        let result = apply_expr(&expr, &test_array);
+        assert_arrays_eq!(result, buffer![10i32, 0, 30, 0, 0].into_array(), &mut ctx);
+    }
+
+    #[test]
+    fn test_evaluate_nary_first_match_wins() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let test_array =
+            StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4, 5].into_array())])
+                .unwrap()
+                .into_array();
+
+        // Both conditions match for values > 3, but first one wins
+        let expr = nested_case_when(
+            vec![
+                (gt(get_item("value", root()), lit(2i32)), lit(100i32)),
+                (gt(get_item("value", root()), lit(3i32)), lit(200i32)),
+            ],
+            Some(lit(0i32)),
+        );
+
+        let result = apply_expr(&expr, &test_array);
+        assert_arrays_eq!(
+            result,
+            buffer![0i32, 0, 100, 100, 100].into_array(),
+            &mut ctx
+        );
+    }
+
+    #[test]
+    fn test_evaluate_no_else_returns_null() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let test_array =
+            StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4, 5].into_array())])
+                .unwrap()
+                .into_array();
+
+        let expr = case_when_no_else(gt(get_item("value", root()), lit(3i32)), lit(100i32));
+
+        let result = apply_expr(&expr, &test_array);
+        assert!(result.dtype().is_nullable());
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([None::<i32>, None, None, Some(100), Some(100)])
+                .into_array(),
+            &mut ctx
+        );
+    }
+
+    #[test]
+    fn test_evaluate_all_conditions_false() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let test_array =
+            StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4, 5].into_array())])
+                .unwrap()
+                .into_array();
+
+        let expr = case_when(
+            gt(get_item("value", root()), lit(100i32)),
+            lit(1i32),
+            lit(0i32),
+        );
+
+        let result = apply_expr(&expr, &test_array);
+        assert_arrays_eq!(result, buffer![0i32, 0, 0, 0, 0].into_array(), &mut ctx);
+    }
+
+    #[test]
+    fn test_evaluate_all_conditions_true() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let test_array =
+            StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4, 5].into_array())])
+                .unwrap()
+                .into_array();
+
+        let expr = case_when(
+            gt(get_item("value", root()), lit(0i32)),
+            lit(100i32),
+            lit(0i32),
+        );
+
+        let result = apply_expr(&expr, &test_array);
+        assert_arrays_eq!(
+            result,
+            buffer![100i32, 100, 100, 100, 100].into_array(),
+            &mut ctx
+        );
+    }
+
+    #[test]
+    fn test_evaluate_all_true_no_else_returns_correct_dtype() {
+        let mut ctx = SESSION.create_execution_ctx();
+        // CASE WHEN value > 0 THEN 100 END — condition is always true, no ELSE.
+        // Result must be Nullable because the implicit ELSE is NULL.
+        let test_array = StructArray::from_fields(&[("value", buffer![1i32, 2, 3].into_array())])
+            .unwrap()
+            .into_array();
+
+        let expr = case_when_no_else(gt(get_item("value", root()), lit(0i32)), lit(100i32));
+
+        let result = apply_expr(&expr, &test_array);
+        assert!(
+            result.dtype().is_nullable(),
+            "result dtype must be Nullable, got {:?}",
+            result.dtype()
+        );
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(100i32), Some(100), Some(100)]).into_array(),
+            &mut ctx
+        );
+    }
+
+    #[test]
+    fn test_merge_case_branches_widens_nullability_of_later_branch() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // When a later THEN branch is Nullable and branches[0] and ELSE are NonNullable,
+        // the result dtype must still be Nullable.
+        //
+        // CASE WHEN value = 0 THEN 10          -- NonNullable
+        //      WHEN value = 1 THEN nullable(20) -- Nullable
+        //      ELSE 0                           -- NonNullable
+        // → result must be Nullable(i32)
+        let test_array =
+            StructArray::from_fields(&[("value", buffer![0i32, 1, 2].into_array())])?.into_array();
+
+        let nullable_20 =
+            Scalar::from(20i32).cast(&DType::Primitive(PType::I32, Nullability::Nullable))?;
+
+        let expr = nested_case_when(
+            vec![
+                (eq(get_item("value", root()), lit(0i32)), lit(10i32)),
+                (eq(get_item("value", root()), lit(1i32)), lit(nullable_20)),
+            ],
+            Some(lit(0i32)),
+        );
+
+        let result = apply_expr(&expr, &test_array);
+        assert!(
+            result.dtype().is_nullable(),
+            "result dtype must be Nullable, got {:?}",
+            result.dtype()
+        );
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(10), Some(20), Some(0)]).into_array(),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_evaluate_with_literal_condition() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let test_array = buffer![1i32, 2, 3].into_array();
+        let expr = case_when(lit(true), lit(100i32), lit(0i32));
+        let result = apply_expr(&expr, &test_array);
+
+        assert_arrays_eq!(result, buffer![100i32, 100, 100].into_array(), &mut ctx);
+    }
+
+    #[test]
+    fn test_evaluate_with_bool_column_result() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let test_array =
+            StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4, 5].into_array())])
+                .unwrap()
+                .into_array();
+
+        let expr = case_when(
+            gt(get_item("value", root()), lit(2i32)),
+            lit(true),
+            lit(false),
+        );
+
+        let result = apply_expr(&expr, &test_array);
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([false, false, true, true, true]).into_array(),
+            &mut ctx
+        );
+    }
+
+    #[test]
+    fn test_evaluate_with_nullable_condition() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let test_array = StructArray::from_fields(&[(
+            "cond",
+            BoolArray::from_iter([Some(true), None, Some(false), None, Some(true)]).into_array(),
+        )])
+        .unwrap()
+        .into_array();
+
+        let expr = case_when(get_item("cond", root()), lit(100i32), lit(0i32));
+
+        let result = apply_expr(&expr, &test_array);
+        assert_arrays_eq!(result, buffer![100i32, 0, 0, 0, 100].into_array(), &mut ctx);
+    }
+
+    #[test]
+    fn test_evaluate_with_nullable_result_values() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let test_array = StructArray::from_fields(&[
+            ("value", buffer![1i32, 2, 3, 4, 5].into_array()),
+            (
+                "result",
+                PrimitiveArray::from_option_iter([Some(10), None, Some(30), None, Some(50)])
+                    .into_array(),
+            ),
+        ])
+        .unwrap()
+        .into_array();
+
+        let expr = case_when(
+            gt(get_item("value", root()), lit(2i32)),
+            get_item("result", root()),
+            lit(0i32),
+        );
+
+        let result = apply_expr(&expr, &test_array);
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(0i32), Some(0), Some(30), None, Some(50)])
+                .into_array(),
+            &mut ctx
+        );
+    }
+
+    #[test]
+    fn test_evaluate_with_all_null_condition() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let test_array = StructArray::from_fields(&[(
+            "cond",
+            BoolArray::from_iter([None, None, None]).into_array(),
+        )])
+        .unwrap()
+        .into_array();
+
+        let expr = case_when(get_item("cond", root()), lit(100i32), lit(0i32));
+
+        let result = apply_expr(&expr, &test_array);
+        assert_arrays_eq!(result, buffer![0i32, 0, 0].into_array(), &mut ctx);
+    }
+
+    // ==================== N-ary Evaluate Tests ====================
+
+    #[test]
+    fn test_evaluate_nary_no_else_returns_null() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let test_array =
+            StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4, 5].into_array())])
+                .unwrap()
+                .into_array();
+
+        // Two conditions, no ELSE — unmatched rows should be NULL
+        let expr = nested_case_when(
+            vec![
+                (eq(get_item("value", root()), lit(1i32)), lit(10i32)),
+                (eq(get_item("value", root()), lit(3i32)), lit(30i32)),
+            ],
+            None,
+        );
+
+        let result = apply_expr(&expr, &test_array);
+        assert!(result.dtype().is_nullable());
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(10i32), None, Some(30), None, None])
+                .into_array(),
+            &mut ctx
+        );
+    }
+
+    #[test]
+    fn test_evaluate_nary_many_conditions() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let test_array =
+            StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4, 5].into_array())])
+                .unwrap()
+                .into_array();
+
+        // 5 WHEN/THEN pairs: each value maps to its value * 10
+        let expr = nested_case_when(
+            vec![
+                (eq(get_item("value", root()), lit(1i32)), lit(10i32)),
+                (eq(get_item("value", root()), lit(2i32)), lit(20i32)),
+                (eq(get_item("value", root()), lit(3i32)), lit(30i32)),
+                (eq(get_item("value", root()), lit(4i32)), lit(40i32)),
+                (eq(get_item("value", root()), lit(5i32)), lit(50i32)),
+            ],
+            Some(lit(0i32)),
+        );
+
+        let result = apply_expr(&expr, &test_array);
+        assert_arrays_eq!(
+            result,
+            buffer![10i32, 20, 30, 40, 50].into_array(),
+            &mut ctx
+        );
+    }
+
+    #[test]
+    fn test_evaluate_nary_all_false_no_else() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let test_array = StructArray::from_fields(&[("value", buffer![1i32, 2, 3].into_array())])
+            .unwrap()
+            .into_array();
+
+        // All conditions are false, no ELSE — everything should be NULL
+        let expr = nested_case_when(
+            vec![
+                (gt(get_item("value", root()), lit(100i32)), lit(10i32)),
+                (gt(get_item("value", root()), lit(200i32)), lit(20i32)),
+            ],
+            None,
+        );
+
+        let result = apply_expr(&expr, &test_array);
+        assert!(result.dtype().is_nullable());
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([None::<i32>, None, None]).into_array(),
+            &mut ctx
+        );
+    }
+
+    #[test]
+    fn test_evaluate_nary_overlapping_conditions_first_wins() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let test_array =
+            StructArray::from_fields(&[("value", buffer![10i32, 20, 30].into_array())])
+                .unwrap()
+                .into_array();
+
+        // value=10: matches cond1 (>5) and cond2 (>0), first should win
+        // value=20: matches all three, first should win
+        // value=30: matches all three, first should win
+        let expr = nested_case_when(
+            vec![
+                (gt(get_item("value", root()), lit(5i32)), lit(1i32)),
+                (gt(get_item("value", root()), lit(0i32)), lit(2i32)),
+                (gt(get_item("value", root()), lit(15i32)), lit(3i32)),
+            ],
+            Some(lit(0i32)),
+        );
+
+        let result = apply_expr(&expr, &test_array);
+        // First matching condition always wins
+        assert_arrays_eq!(result, buffer![1i32, 1, 1].into_array(), &mut ctx);
+    }
+
+    #[test]
+    fn test_evaluate_nary_early_exit_when_remaining_empty() {
+        let mut ctx = SESSION.create_execution_ctx();
+        // After branch 0 claims all rows, remaining becomes all_false.
+        // The loop breaks before evaluating branch 1's condition.
+        let test_array = StructArray::from_fields(&[("value", buffer![1i32, 2, 3].into_array())])
+            .unwrap()
+            .into_array();
+
+        let expr = nested_case_when(
+            vec![
+                (gt(get_item("value", root()), lit(0i32)), lit(100i32)),
+                // Never evaluated due to early exit; 999 must never appear in output.
+                (gt(get_item("value", root()), lit(0i32)), lit(999i32)),
+            ],
+            Some(lit(0i32)),
+        );
+
+        let result = apply_expr(&expr, &test_array);
+        assert_arrays_eq!(result, buffer![100i32, 100, 100].into_array(), &mut ctx);
+    }
+
+    #[test]
+    fn test_evaluate_nary_skips_branch_with_empty_effective_mask() {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Branch 0 claims value=1. Branch 1 targets the same rows but they are already
+        // matched → effective_mask is all_false → branch 1 is skipped (THEN not used).
+        let test_array = StructArray::from_fields(&[("value", buffer![1i32, 2, 3].into_array())])
+            .unwrap()
+            .into_array();
+
+        let expr = nested_case_when(
+            vec![
+                (eq(get_item("value", root()), lit(1i32)), lit(10i32)),
+                // Same condition as branch 0 — all matching rows already claimed → skipped.
+                // 999 must never appear in output.
+                (eq(get_item("value", root()), lit(1i32)), lit(999i32)),
+                (eq(get_item("value", root()), lit(2i32)), lit(20i32)),
+            ],
+            Some(lit(0i32)),
+        );
+
+        let result = apply_expr(&expr, &test_array);
+        assert_arrays_eq!(result, buffer![10i32, 20, 0].into_array(), &mut ctx);
+    }
+
+    #[test]
+    fn test_evaluate_nary_string_output() -> VortexResult<()> {
+        // Exercises merge_case_branches with a non-primitive (Utf8) builder.
+        let test_array =
+            StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4].into_array())])?
+                .into_array();
+
+        // CASE WHEN value > 2 THEN 'high' WHEN value > 0 THEN 'low' ELSE 'none' END
+        // value=1,2 → 'low' (branch 1 after branch 0 claims 3,4)
+        // value=3,4 → 'high' (branch 0)
+        let expr = nested_case_when(
+            vec![
+                (gt(get_item("value", root()), lit(2i32)), lit("high")),
+                (gt(get_item("value", root()), lit(0i32)), lit("low")),
+            ],
+            Some(lit("none")),
+        );
+
+        let result = apply_expr(&expr, &test_array);
+        assert_arrays_eq!(
+            result,
+            VarBinViewArray::from_iter_str(["low", "low", "high", "high"]),
+            &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_evaluate_nary_with_nullable_conditions() {
+        let mut ctx = SESSION.create_execution_ctx();
+        let test_array = StructArray::from_fields(&[
+            (
+                "cond1",
+                BoolArray::from_iter([Some(true), None, Some(false)]).into_array(),
+            ),
+            (
+                "cond2",
+                BoolArray::from_iter([Some(false), Some(true), None]).into_array(),
+            ),
+        ])
+        .unwrap()
+        .into_array();
+
+        let expr = nested_case_when(
+            vec![
+                (get_item("cond1", root()), lit(10i32)),
+                (get_item("cond2", root()), lit(20i32)),
+            ],
+            Some(lit(0i32)),
+        );
+
+        let result = apply_expr(&expr, &test_array);
+        // row 0: cond1=true → 10
+        // row 1: cond1=NULL(→false), cond2=true → 20
+        // row 2: cond1=false, cond2=NULL(→false) → else=0
+        assert_arrays_eq!(result, buffer![10i32, 20, 0].into_array(), &mut ctx);
+    }
+
+    // ==================== Simplify: COALESCE -> fill_null ====================
+
+    /// Builds a non-nullable struct scope whose named fields are all `Nullable(I64)`.
+    fn nullable_i64_scope(fields: &[&str]) -> DType {
+        DType::Struct(
+            StructFields::new(
+                fields.to_vec().into(),
+                vec![DType::Primitive(PType::I64, Nullability::Nullable); fields.len()],
+            ),
+            Nullability::NonNullable,
+        )
+    }
+
+    #[test]
+    fn test_simplify_coalesce_is_null_rewrites_to_fill_null() -> VortexResult<()> {
+        // CASE WHEN is_null(x) THEN 0 ELSE x END  ==>  fill_null(x, 0)
+        let expr = case_when(is_null(col("x")), lit(0i64), col("x"));
+        let optimized = expr
+            .bind(&nullable_i64_scope(&["x"]))?
+            .optimize_recursive()?;
+        assert!(
+            optimized.to_string().starts_with("vortex.fill_null"),
+            "expected fill_null, got {optimized}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_simplify_coalesce_is_not_null_rewrites_to_fill_null() -> VortexResult<()> {
+        // CASE WHEN is_not_null(x) THEN x ELSE 0 END  ==>  fill_null(x, 0)
+        let expr = case_when(is_not_null(col("x")), col("x"), lit(0i64));
+        let optimized = expr
+            .bind(&nullable_i64_scope(&["x"]))?
+            .optimize_recursive()?;
+        assert!(
+            optimized.to_string().starts_with("vortex.fill_null"),
+            "expected fill_null, got {optimized}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_simplify_does_not_fire_when_operands_differ() -> VortexResult<()> {
+        // The is_null operand (x) and the ELSE (y) are different columns: not a COALESCE.
+        let expr = case_when(is_null(col("x")), lit(0i64), col("y"));
+        let optimized = expr
+            .bind(&nullable_i64_scope(&["x", "y"]))?
+            .optimize_recursive()?;
+        let s = optimized.to_string();
+        assert!(s.contains("CASE"), "expected CASE WHEN to remain, got {s}");
+        assert!(!s.contains("fill_null"), "must not rewrite, got {s}");
+        Ok(())
+    }
+
+    #[test]
+    fn test_simplify_does_not_fire_for_non_constant_fill() -> VortexResult<()> {
+        // COALESCE(x, c) with a *column* fill: fill_null cannot consume a non-constant
+        // fill value, so the rewrite must not fire.
+        let expr = case_when(is_null(col("x")), col("c"), col("x"));
+        let optimized = expr
+            .bind(&nullable_i64_scope(&["x", "c"]))?
+            .optimize_recursive()?;
+        let s = optimized.to_string();
+        assert!(s.contains("CASE"), "expected CASE WHEN to remain, got {s}");
+        assert!(!s.contains("fill_null"), "must not rewrite, got {s}");
+        Ok(())
+    }
+
+    #[test]
+    fn test_simplify_null_fill_collapses_to_input() -> VortexResult<()> {
+        // Filling the nulls of x with NULL is a no-op, so both forms collapse to just `x`.
+        //   CASE WHEN is_null(x)     THEN null ELSE x    END  ==>  x
+        //   CASE WHEN is_not_null(x) THEN x    ELSE null END  ==>  x
+        let null_fill = || {
+            lit(Scalar::null(DType::Primitive(
+                PType::I64,
+                Nullability::Nullable,
+            )))
+        };
+
+        for expr in [
+            case_when(is_null(col("x")), null_fill(), col("x")),
+            case_when(is_not_null(col("x")), col("x"), null_fill()),
+        ] {
+            let optimized = expr
+                .bind(&nullable_i64_scope(&["x"]))?
+                .optimize_recursive()?;
+            assert_eq!(
+                optimized.to_string(),
+                "$.x",
+                "expected collapse to input column, got {optimized}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_simplify_null_fill_semantic_equivalence() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // The collapse-to-input rewrite must preserve values (and `x`'s nullability).
+        let array = PrimitiveArray::from_option_iter([Some(1i64), None, Some(3)]).into_array();
+        let scope = DType::Primitive(PType::I64, Nullability::Nullable);
+        let null_fill = lit(Scalar::null(DType::Primitive(
+            PType::I64,
+            Nullability::Nullable,
+        )));
+
+        let original = case_when(is_null(root()), null_fill, root());
+        let optimized = original.bind(&scope)?.optimize_recursive()?;
+        assert_eq!(
+            optimized.to_string(),
+            "$",
+            "expected collapse to root, got {optimized}"
+        );
+
+        let expected = PrimitiveArray::from_option_iter([Some(1i64), None, Some(3)]).into_array();
+        assert_arrays_eq!(apply_expr(&original, &array), expected, &mut ctx);
+        assert_arrays_eq!(apply_bound_expr(&optimized, &array), expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_simplify_does_not_fire_without_else() -> VortexResult<()> {
+        let expr = case_when_no_else(is_null(col("x")), lit(0i64));
+        let optimized = expr
+            .bind(&nullable_i64_scope(&["x"]))?
+            .optimize_recursive()?;
+        assert!(
+            !optimized.to_string().contains("fill_null"),
+            "must not rewrite a no-ELSE case_when, got {optimized}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_simplify_does_not_fire_for_multi_pair() -> VortexResult<()> {
+        let expr = nested_case_when(
+            vec![
+                (is_null(col("x")), lit(0i64)),
+                (gt(col("x"), lit(5i64)), lit(1i64)),
+            ],
+            Some(col("x")),
+        );
+        let optimized = expr
+            .bind(&nullable_i64_scope(&["x"]))?
+            .optimize_recursive()?;
+        assert!(
+            !optimized.to_string().contains("fill_null"),
+            "must not rewrite a multi-pair case_when, got {optimized}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_simplify_semantic_equivalence() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // The optimized expression must produce the same values as the original CASE WHEN.
+        let array = PrimitiveArray::from_option_iter([Some(1i64), None, Some(3)]).into_array();
+        let scope = DType::Primitive(PType::I64, Nullability::Nullable);
+
+        let original = case_when(is_null(root()), lit(0i64), root());
+        let optimized = original.bind(&scope)?.optimize_recursive()?;
+        assert!(
+            optimized.to_string().starts_with("vortex.fill_null"),
+            "expected fill_null, got {optimized}"
+        );
+
+        // Original keeps CASE WHEN's nullable result dtype; the rewrite tightens it to
+        // NonNullable because a non-null fill cannot leave any nulls behind. Values match.
+        assert_arrays_eq!(
+            apply_expr(&original, &array),
+            PrimitiveArray::from_option_iter([Some(1i64), Some(0), Some(3)]).into_array(),
+            &mut ctx
+        );
+        assert_arrays_eq!(
+            apply_bound_expr(&optimized, &array),
+            buffer![1i64, 0, 3].into_array(),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_simplify_utf8_coalesce_remains_executable() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = VarBinViewArray::from_iter_nullable_str([Some("a"), None]).into_array();
+
+        for expr in [
+            case_when(is_null(root()), lit("fallback"), root()),
+            case_when(is_not_null(root()), root(), lit("fallback")),
+        ] {
+            let optimized = expr.bind(input.dtype())?.optimize_recursive()?;
+            assert!(optimized.is::<FillNull>(), "{optimized}");
+            let result = input.clone().apply_bound(&optimized)?;
+            assert_arrays_eq!(
+                result,
+                VarBinViewArray::from_iter_str(["a", "fallback"]),
+                &mut ctx
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_simplify_list_coalesce_keeps_case_when() -> VortexResult<()> {
+        // Lists have no fill_null kernel, so the COALESCE shape must stay a CASE WHEN.
+        let mut ctx = SESSION.create_execution_ctx();
+        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
+        let input_dtype = DType::List(Arc::clone(&element_dtype), Nullability::Nullable);
+        let mut builder = builder_with_capacity_in(&input_dtype, 2, ctx.allocator());
+        builder.append_scalar(&Scalar::list(
+            Arc::clone(&element_dtype),
+            vec![Scalar::from(1i32)],
+            Nullability::Nullable,
+        ))?;
+        builder.append_scalar(&Scalar::null(input_dtype))?;
+        let input = builder.finish();
+        let fill = Scalar::list(
+            element_dtype,
+            vec![Scalar::from(2i32)],
+            Nullability::NonNullable,
+        );
+
+        let optimized = case_when(is_null(root()), lit(fill.clone()), root())
+            .bind(input.dtype())?
+            .optimize_recursive()?;
+        assert!(optimized.is::<CaseWhen>(), "{optimized}");
+        let result = input
+            .clone()
+            .apply_bound(&optimized)?
+            .execute::<Canonical>(&mut ctx)?
+            .into_array();
+        assert_eq!(
+            result.execute_scalar(0, &mut ctx)?,
+            input.execute_scalar(0, &mut ctx)?
+        );
+        assert_eq!(
+            result.execute_scalar(1, &mut ctx)?,
+            fill.cast(result.dtype())?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_merge_case_branches_alternating_mask() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Alternating rows exercise compact branch assembly.
+        let n = 100usize;
+
+        // Branch 0: even rows → 0, Branch 1: odd rows → 1, Else: never reached.
+        let branch0_mask = Mask::from_indices(n, (0..n).step_by(2));
+        let branch1_mask = Mask::from_indices(n, (1..n).step_by(2));
+
+        let else_value = PrimitiveArray::from_option_iter(vec![Some(99i32); n]).into_array();
+        let output_dtype = else_value.dtype().clone();
+        let result = merge_case_branches(
+            &[
+                (
+                    branch0_mask,
+                    PrimitiveArray::from_option_iter(vec![Some(0i32); n]).into_array(),
+                ),
+                (
+                    branch1_mask,
+                    PrimitiveArray::from_option_iter(vec![Some(1i32); n]).into_array(),
+                ),
+            ],
+            &Mask::new_false(n),
+            &else_value,
+            &output_dtype,
+            &mut SESSION.create_execution_ctx(),
+        )?;
+
+        // Even rows → 0, odd rows → 1.
+        let expected: Vec<Option<i32>> = (0..n)
+            .map(|v| if v % 2 == 0 { Some(0) } else { Some(1) })
+            .collect();
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter(expected).into_array(),
+            &mut ctx
+        );
+        Ok(())
+    }
+}

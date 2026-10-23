@@ -20,8 +20,8 @@ use vortex_array::expr::bound::lit;
 use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::stat::StatFn;
 use vortex_error::VortexResult;
+use vortex_functions::stat::StatFn;
 
 /// A target that can bind abstract statistics to concrete expressions.
 ///

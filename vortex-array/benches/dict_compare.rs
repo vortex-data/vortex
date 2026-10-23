@@ -24,7 +24,7 @@ use vortex_array::expr::lit;
 use vortex_array::expr::root;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_session::VortexSession;
 
 #[global_allocator]

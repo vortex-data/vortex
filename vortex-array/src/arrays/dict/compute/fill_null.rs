@@ -19,8 +19,8 @@ use crate::builtins::ArrayBuiltins;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
-use crate::scalar_fn::fns::fill_null::FillNullKernel;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::fill_null::FillNullKernel;
+use crate::scalar_fn::builtin::operators::Operator;
 
 impl FillNullKernel for Dict {
     fn fill_null(

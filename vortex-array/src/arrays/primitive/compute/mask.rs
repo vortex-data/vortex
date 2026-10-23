@@ -8,7 +8,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::scalar_fn::fns::mask::MaskReduce;
+use crate::scalar_fn::builtin::mask::MaskReduce;
 use crate::validity::Validity;
 
 impl MaskReduce for Primitive {

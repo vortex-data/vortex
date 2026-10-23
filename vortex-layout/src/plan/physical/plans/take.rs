@@ -10,11 +10,11 @@ use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
-use vortex_array::scalar_fn::fns::dynamic::DynamicComparison;
-use vortex_array::scalar_fn::is_negative_cost;
 use vortex_error::VortexResult;
 use vortex_expr::BoundLabels;
 use vortex_expr::label_bound_tree;
+use vortex_functions::dynamic::DynamicComparison;
+use vortex_functions::is_negative_cost;
 use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 

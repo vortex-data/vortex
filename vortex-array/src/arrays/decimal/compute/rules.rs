@@ -16,8 +16,8 @@ use crate::arrays::slice::SliceReduceAdaptor;
 use crate::match_each_decimal_value_type;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
-use crate::scalar_fn::fns::cast::CastReduceAdaptor;
-use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use crate::scalar_fn::builtin::cast::CastReduceAdaptor;
+use crate::scalar_fn::builtin::mask::MaskReduceAdaptor;
 
 pub(crate) static RULES: ParentRuleSet<Decimal> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DecimalMaskedValidityRule),

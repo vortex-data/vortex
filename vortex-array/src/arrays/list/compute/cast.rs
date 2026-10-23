@@ -12,8 +12,8 @@ use crate::arrays::ListArray;
 use crate::arrays::list::ListArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::scalar_fn::fns::cast::CastKernel;
-use crate::scalar_fn::fns::cast::CastReduce;
+use crate::scalar_fn::builtin::cast::CastKernel;
+use crate::scalar_fn::builtin::cast::CastReduce;
 
 impl CastReduce for List {
     fn cast(array: ArrayView<'_, List>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {

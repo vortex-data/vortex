@@ -11,9 +11,9 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Extension;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::builtins::ArrayBuiltins;
-use crate::scalar_fn::fns::binary::CompareKernel;
-use crate::scalar_fn::fns::operators::CompareOperator;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::binary::CompareKernel;
+use crate::scalar_fn::builtin::operators::CompareOperator;
+use crate::scalar_fn::builtin::operators::Operator;
 
 impl CompareKernel for Extension {
     fn compare(

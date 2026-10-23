@@ -21,9 +21,9 @@ use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::cast::Cast;
-use crate::scalar_fn::fns::get_item::GetItem;
-use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use crate::scalar_fn::builtin::cast::Cast;
+use crate::scalar_fn::builtin::get_item::GetItem;
+use crate::scalar_fn::builtin::mask::MaskReduceAdaptor;
 use crate::validity::Validity;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Struct> = ParentRuleSet::new(&[

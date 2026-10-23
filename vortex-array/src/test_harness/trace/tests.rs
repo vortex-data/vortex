@@ -57,10 +57,8 @@ use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::like::Like;
-use crate::scalar_fn::fns::like::LikeOptions;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::binary::Binary;
+use crate::scalar_fn::builtin::operators::Operator;
 use crate::serde::ArrayChildren;
 use crate::session::ArraySession;
 use crate::test_harness::trace::TraceOptions;
@@ -631,16 +629,6 @@ fn trace_execution_chunked_append_child_flow() -> VortexResult<()> {
     Ok(())
 }
 
-/// A dictionary of strings: codes `[0, 1, 2, 1, 0, 2]` over values
-/// `["alpha", "beta", "gamma"]`.
-fn dict_of_strings() -> VortexResult<ArrayRef> {
-    Ok(DictArray::try_new(
-        PrimitiveArray::from_iter([0u32, 1, 2, 1, 0, 2]).into_array(),
-        VarBinViewArray::from_iter_str(["alpha", "beta", "gamma"]).into_array(),
-    )?
-    .into_array())
-}
-
 fn execution_ctx() -> ExecutionCtx {
     ExecutionCtx::new(VortexSession::empty().with::<ArraySession>())
 }
@@ -814,63 +802,6 @@ fn trace_compare_on_dict() -> VortexResult<()> {
       iter 4 current=vortex.bool(bool, len=5) builder_active=false
     optimize_recursive root=vortex.bool(bool, len=5)
       return output=vortex.bool(bool, len=5)
-    ");
-
-    Ok(())
-}
-
-#[test]
-fn trace_like_on_dict() -> VortexResult<()> {
-    let strings = dict_of_strings()?;
-    let pattern = ConstantArray::new(Scalar::from("b%"), strings.len()).into_array();
-
-    let like = Like::try_new(
-        strings,
-        pattern,
-        LikeOptions {
-            negated: false,
-            case_insensitive: false,
-        },
-    )?
-    .into_array();
-
-    let traced = trace_op(|| like.optimize(&SESSION))?;
-    insta::assert_snapshot!(traced.trace.to_string(), @"
-    optimize root=vortex.like(bool, len=6)
-      reduce_parent static:LikeReduceAdaptor(Dict) slot=0 parent=vortex.like(bool, len=6) child=vortex.dict(utf8, len=6) -> vortex.dict(bool, len=6)
-      done output=vortex.dict(bool, len=6)
-    ");
-
-    let optimized = traced.output;
-    let traced = trace_op(|| {
-        optimized
-            .execute::<Canonical>(&mut execution_ctx())
-            .map(IntoArray::into_array)
-    })?;
-
-    assert_arrays_eq!(
-        traced.output,
-        BoolArray::from_iter([false, true, false, true, false, false]),
-        &mut execution_ctx()
-    );
-    insta::assert_snapshot!(traced.trace.to_string(), @"
-    optimize_recursive root=vortex.dict(bool, len=6)
-    optimize_recursive root=vortex.primitive(u32, len=6)
-    optimize_recursive root=vortex.like(bool, len=3)
-    optimize_recursive root=vortex.varbinview(utf8, len=3)
-    optimize_recursive root=vortex.constant(utf8, len=3)
-    execute_until target=AnyCanonical root=vortex.dict(bool, len=6)
-      iter 0 current=vortex.dict(bool, len=6) builder_active=false
-        ExecuteSlot slot=1 parent=vortex.dict(bool, len=6) child=vortex.like(bool, len=3)
-      iter 1 current=vortex.like(bool, len=3) stack_parent=vortex.dict(bool, len=6) slot=1 builder_active=false
-        Done array=vortex.bool(bool, len=3)
-      iter 2 current=vortex.bool(bool, len=3) stack_parent=vortex.dict(bool, len=6) slot=1 builder_active=false
-        pop_frame slot=1 output=vortex.dict(bool, len=6)
-      iter 3 current=vortex.dict(bool, len=6) builder_active=false
-        child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(bool, len=6) child=vortex.bool(bool, len=3) -> vortex.bool(bool, len=6)
-      iter 4 current=vortex.bool(bool, len=6) builder_active=false
-    optimize_recursive root=vortex.bool(bool, len=6)
-      return output=vortex.bool(bool, len=6)
     ");
 
     Ok(())

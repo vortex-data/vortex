@@ -11,8 +11,8 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
-use vortex_array::scalar_fn::fns::cast::CastKernel;
-use vortex_array::scalar_fn::fns::cast::CastReduce;
+use vortex_array::scalar_fn::builtin::cast::CastKernel;
+use vortex_array::scalar_fn::builtin::cast::CastReduce;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 

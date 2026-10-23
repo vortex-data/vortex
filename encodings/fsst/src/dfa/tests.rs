@@ -16,9 +16,9 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::scalar_fn::fns::like::Like;
-use vortex_array::scalar_fn::fns::like::LikeOptions;
 use vortex_error::VortexResult;
+use vortex_functions::like::Like;
+use vortex_functions::like::LikeOptions;
 use vortex_session::VortexSession;
 
 use super::FsstMatcher;

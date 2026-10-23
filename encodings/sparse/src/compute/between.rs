@@ -6,10 +6,10 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::scalar_fn::fns::between::BetweenKernel;
-use vortex_array::scalar_fn::fns::between::BetweenOptions;
 use vortex_error::VortexResult;
+use vortex_functions::between::BetweenKernel;
+use vortex_functions::between::BetweenOptions;
+use vortex_functions::builtins::ArrayFunctions;
 
 use crate::Sparse;
 use crate::SparseExt as _;
@@ -70,11 +70,11 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar_fn::fns::between::BetweenOptions;
-    use vortex_array::scalar_fn::fns::between::StrictComparison;
     use vortex_buffer::buffer;
+    use vortex_functions::between::BetweenOptions;
+    use vortex_functions::between::StrictComparison;
+    use vortex_functions::builtins::ArrayFunctions;
     use vortex_session::VortexSession;
 
     use crate::Sparse;

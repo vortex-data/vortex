@@ -39,12 +39,12 @@ use vortex::expr::nested_case_when;
 use vortex::expr::not;
 use vortex::expr::pack;
 use vortex::expr::root;
+use vortex::functions::like::Like;
+use vortex::functions::like::LikeOptions;
 use vortex::scalar_fn::ScalarFnVTableExt;
-use vortex::scalar_fn::fns::binary::Binary;
-use vortex::scalar_fn::fns::like::Like;
-use vortex::scalar_fn::fns::like::LikeOptions;
-use vortex::scalar_fn::fns::literal::Literal;
-use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scalar_fn::builtin::binary::Binary;
+use vortex::scalar_fn::builtin::literal::Literal;
+use vortex::scalar_fn::builtin::operators::Operator;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 

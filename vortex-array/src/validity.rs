@@ -32,8 +32,8 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::patches::Patches;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::binary::Binary;
+use crate::scalar_fn::builtin::operators::Operator;
 
 /// Validity information for an array.
 #[derive(Clone)]

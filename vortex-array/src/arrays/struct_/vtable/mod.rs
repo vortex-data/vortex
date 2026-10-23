@@ -26,7 +26,6 @@ use crate::builders::StructBuilder;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-mod kernel;
 mod operations;
 mod validity;
 
@@ -36,10 +35,6 @@ use crate::array::ArrayId;
 
 /// A [`Struct`]-encoded Vortex array.
 pub type StructArray = Array<Struct>;
-
-pub(crate) fn initialize(session: &VortexSession) {
-    kernel::initialize(session);
-}
 
 impl VTable for Struct {
     type TypedArrayData = EmptyArrayData;
