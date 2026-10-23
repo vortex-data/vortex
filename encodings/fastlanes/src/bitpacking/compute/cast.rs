@@ -303,7 +303,7 @@ mod tests {
         let target = DType::Primitive(tgt, Nullability::Nullable);
 
         let casted = packed.clone().into_array().cast(target.clone())?;
-        assert_arrays_eq!(casted, source.clone().cast(target.clone())?, &mut ctx);
+        assert_arrays_eq!(casted, source.cast(target.clone())?, &mut ctx);
 
         let sliced = packed.into_array().slice(500..1700)?.cast(target.clone())?;
         assert_arrays_eq!(sliced, source.slice(500..1700)?.cast(target)?, &mut ctx);
