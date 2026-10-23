@@ -5,6 +5,8 @@ at `5fc5cb8` (2026-10-17). They live on the `ct/ext-types-research` branch and a
 merged.
 
 Reviews on 2026-10-22 and 2026-10-23 updated the Decimal notes and [`decisions.md`](decisions.md).
+Part 4 of the Decimal notes holds the implementation plan for `Narrow` and the canonical decimal
+fix.
 The decimal, DecimalByteParts, serialization and versioning code that the notes cite is the same on
 `develop` at `dbaf5f8` (2026-10-22).
 

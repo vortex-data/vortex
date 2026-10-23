@@ -9,7 +9,7 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 Many planned type changes depend on each other. The IDs below match the full graph in section 7
 of [`agents/report.md`](agents/report.md), which gives a reason for each edge. There is no N25.
-The decision IDs (D1 to D24, X1 to X9, C1) and the open questions (DQ5 to DQ7, XQ1 to XQ6, CQ1)
+The decision IDs (D1 to D35, X1 to X9, C1) and the open questions (DQ5 to DQ7, XQ1 to XQ6, CQ1)
 come from [`decisions.md`](../decisions.md).
 
 | ID | Work | Kind |
@@ -122,13 +122,15 @@ uses `DecimalType`, which already has 128-bit and 256-bit widths.
 ## Independent changes
 
 These changes are small and independent, and they can land in any order. On 2026-10-23, none of
-them is on `develop`:
+them is on `develop`. [Part 4](04-implementation.md) splits these changes and the canonical form
+into PRs, with one brief for each PR.
 
 1. **Strict enum decoding.** The decimal `values_type` decodes with `DecimalType::try_from`, and
    the protobuf `PType` decodes with `PType::try_from`. Both fail on an unknown value instead of a
    silent `I8` or `U8`. Readers must have this change before any writer emits a new value. The
    decimal part must also land before the read plugin converts old nodes, because the detection
-   of old nodes reads this field.
+   of old nodes reads this field. The same PR fixes eleven `PType` fields of array and layout
+   metadata with the same fallback (decided, D34).
 2. **The DecimalByteParts nullability fix.** For a cast that changes only the nullability, the
    cast rule casts the MSP without the check that `Validity::trivially_cast_nullability` makes in
    other cast rules. The fix adds that check, as PR
@@ -142,9 +144,11 @@ them is on `develop`:
    [#10332](https://github.com/vortex-data/vortex/pull/10332) and
    [#10333](https://github.com/vortex-data/vortex/pull/10333) closed on 2026-10-23. A rewrite of
    #10223 and #10332 goes up as new PRs after a rebase. The rewrite makes `Narrow` in-memory only.
-   Its only integer-only check is the private `validate_dtypes`, so decimal support stays
-   additive. A new PR with the first part of #10333 (`NarrowArray::encode_values`) lands after it.
-   The fix for dictionary fill codes is its own PR.
+   It lands as five stacked PRs (decided, D35). The first adds `encode` and the deprecated
+   `encode_values`, and a later PR moves the existing narrowing call sites to `encode_values`
+   (decided, D28). The last PR of the stack adds the rules that move structural encodings above
+   `Narrow` (decided, D25). The fix for dictionary fill codes is its own PR, before that last PR.
+   Decimal support needs real kernel changes, because some kernels assume an integer child.
    [`decisions.md`](../decisions.md#the-narrow-pull-requests) lists the state of these PRs.
 
 ## One canonical form
@@ -165,8 +169,9 @@ Benchmarks and fixtures come first:
   `encodings/decimal-byte-parts/benches/dbp_assemble.rs` and `vortex-arrow/benches/to_arrow.rs`.
 - Compatibility fixtures for narrow, wide and Arrow-style widths, gap values, high scales at
   narrow widths, nonzero values in null slots, and DecimalByteParts with a narrow MSP
-  ([part 2](02-design.md#the-file-format)). They are published from a release before the
-  in-memory change, because only the old writer can make narrow leaves (decided, D24). The error
+  ([part 2](02-design.md#the-file-format)). A release publishes them before the PRs that change
+  how files are read, because only the old writer can make narrow leaves (decided, D24 and D31).
+  Library changes do not wait for it. The error
   cases, such as a value outside the precision in a narrowing copy, are unit tests, because the
   compat harness expects every read to succeed.
 
@@ -174,23 +179,26 @@ The in-memory change has these steps, in order. Each step is its own PR, because
 needs temporary code (decided, D11):
 
 1. Give the width function one owner. `DecimalDType::values_type()` replaces the 25 direct calls
-   to `smallest_decimal_value_type`. Producers and imports take the width from the precision
-   (decided, D12 and D13).
+   to `smallest_decimal_value_type`. Producers and imports take the width from the precision, and
+   every import checks its values (decided, D12, D13 and D30).
 2. Add `Narrow` over decimals (N28). This step holds the child rules of D10, the kernels and casts
    of D15, and the rule that joins a `Narrow` over a `Narrow`. When `validate_dtypes` opens for
    decimals, the compare kernel and the sum pushdown get decimal code in the same change.
 3. Make DecimalByteParts decoding produce the canonical array of its dtype, with the
    `TODO(connor)` of D16. Decoding widens a narrower MSP, and it narrows a wider MSP with the copy
-   of D21. Require `u64` lower parts, and correct the module doc, which allows narrower parts.
+   of D21. Require `u64` lower parts, and reject lower parts that assemble wider than the
+   canonical width (decided, D29). Correct the module doc, which allows narrower parts.
 4. Make the `vortex.decimal` read plugin convert old nodes (decided, D9 and D21). The plugin scans
    the values, because it cannot use stored statistics.
 5. Make the DecimalByteParts scheme take the canonical array, and delete `narrowed_decimal`
-   (decided, D17). The scheme stays after the wire change, for writers whose edition does not
-   permit `vortex.narrow`. File contents stay the same. The exception is precision 39 to 76 with
+   (decided, D17). The MSP narrows with the deprecated `encode_values` (decided, D28). The scheme
+   stays after the wire change, for writers whose edition does not permit `vortex.narrow`. File
+   contents stay the same. The exception is precision 39 to 76 with
    values that need more than 64 bits, which becomes a plain `i256` array.
 6. Make `DecimalArray::try_new` accept only the canonical width and check every valid value, with
-   `new_unchecked` for kernels (decided, D14). Builders follow, including `DecimalBuilder::extend`,
-   which accepts wider buffers (PR [#10155](https://github.com/vortex-data/vortex/pull/10155)).
+   `new_unchecked` for kernels (decided, D14). `try_new` takes an `ExecutionCtx` (decided, D30).
+   Builders follow, including `DecimalBuilder::extend`, which accepts wider buffers. This step is
+   three PRs: the width rule, the value check, and the removal of dead code.
 
 Then the `patch` panic and the "does the constant fit" special cases are unreachable.
 
@@ -199,10 +207,11 @@ in-memory change (decided, D11). It holds three parts:
 
 - The `vortex.narrow` wire format for integers and decimals (decided, D8). This is the second part
   of PR #10333.
-- One new preview edition that permits `vortex.narrow` and DecimalByteParts with lower parts,
-  together with the other wire improvements.
-- A decimal `Narrow` scheme that narrows the decimal type first, for writers that select that
-  edition. It runs before the DecimalByteParts scheme, which then compresses the child.
+- One new preview edition that permits `vortex.narrow` and DecimalByteParts with lower parts.
+- A `Narrow` scheme that narrows the decimal type first, for writers that select that edition. It
+  runs before the DecimalByteParts scheme, which then compresses the child (decided, D33). Its
+  design pass settles which arrays it narrows (decided, D27), its precedence with the
+  DecimalByteParts scheme, and its cascade level.
 
 Later, both formats enter `core` together. Two optimizations wait until benchmarks show that they
 are needed. One is the max pass in DecimalByteParts decoding (D16). The other is the pushdown of
@@ -224,7 +233,8 @@ the bar of no compute regression applies to the final state (decided, D19).
 | 4, decimal kernels | N12 for precision 19 to 76. N13 rules over the view, which delete most decimal kernels. N14, which is optional. N18 and N27 |
 | 5, optional | N16, then N15 if the built-in type and an extension type become identical. N19 and N20 after N22 |
 
-Waves 1 and 2 can run in parallel. The decimal fix (N28 and N11) does not wait for the extension
+[Part 4](04-implementation.md) gives the order of the PRs inside waves 0 and 1. Waves 1 and 2 can
+run in parallel. The decimal fix (N28 and N11) does not wait for the extension
 work, because the built-in type owns its rules. Only the optional move to an extension type (N15)
 waits for N1 to N4. For decimals, waves 3 and 4 are future work (D20), and their recommendations
 are not reviewed.
@@ -251,6 +261,8 @@ are not reviewed.
 | An old reader reads a protobuf wide `PType` as `U8` | A new protobuf `oneof` variant, and strict readers early |
 | Rewritten arithmetic makes several passes over the data | Fused scaled-integer kernels, checked with the existing decimal and compare benchmarks |
 | D3 without `Narrow` forces the full width on every column | `Narrow` for decimals lands in the in-memory change, before `try_new` rejects other widths |
+| An in-memory `Narrow` reaches a writer that cannot write `vortex.narrow` | The serializer writes the canonical array (D26). The code documents this as a workaround until `vortex.narrow` is in `core` |
+| Moving the narrowing call sites to `encode_values` changes the signedness of internal children in new files | Readers on `develop` accept any integer type there, and the PR checks that the latest release reads its files (D28) |
 | A narrow buffer does not give a precision | Every producer finds the precision from the values. Readers convert old nodes by their max (D9). DecimalByteParts decoding widens a narrow MSP (D16) |
 | Compute on DecimalByteParts regresses when its decoding stops returning narrow leaves | In the final state, the compressor narrows the decimal type first, so decoding reuses the buffer. Until then, the maintainer accepts the cost (D19). The max pass of D16 can come later, and new benchmarks measure the cost |
 | Gap columns use the next width in memory in the final state | Accepted (D19). Pushdown of sum, min and max into the MSP can come later |

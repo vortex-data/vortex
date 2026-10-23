@@ -519,15 +519,14 @@ the same signedness and nullability as its parent, and a strictly smaller width 
 the rule of `validate_dtypes` in the local rewrite. `vortex.narrow` stays in memory only until the
 maintainer decides to write it to files (D18).
 
-`vortex.narrow` is only for columns with a fixed logical dtype: decimal columns and top-level
-integer columns (D23). Internal integer children keep changing their own dtype with
-`PrimitiveArrayExt::narrow`, as they do today. The btrblocks schemes call it for internal children
-of the patch, sparse, RLE, temporal, VarBin, FSST and OnPair schemes
-(`vortex-btrblocks/src/schemes/{patches,temporal}.rs`, `integer/{sparse,rle}.rs`,
+`vortex.narrow` is for arrays with a fixed logical dtype (D23). Which arrays the compressor wraps is
+deferred (D27). Internal integer children keep changing their own dtype. Today they use
+`PrimitiveArrayExt::narrow`, and NR6 moves them to the deprecated `encode_values` (D28). The
+btrblocks schemes call it for internal children of the patch, sparse, RLE, temporal, VarBin, FSST
+and OnPair schemes (`vortex-btrblocks/src/schemes/{patches,temporal}.rs`, `integer/{sparse,rle}.rs`,
 `float/sparse.rs`, `binary/varbin.rs`, `string/{fsst,onpair,sparse}.rs`). The structural compressor
 calls it for list offsets (`vortex-compressor/src/compressor/structural.rs:54`). No call narrows a
-DBP part.
-Issue #10733 keeps open whether `List` and `ListView` offsets get a fixed `I64` dtype with
+DBP part. Issue #10733 keeps open whether `List` and `ListView` offsets get a fixed `I64` dtype with
 `Narrow`.
 
 `Narrow` kernels pass work to the child, and the fallback is to canonicalize (D15):
@@ -636,9 +635,9 @@ the private `validate_dtypes`, so decimal support stays additive. When that chec
 decimals, the compare kernel and the sum pushdown need decimal code in the same change.
 
 The closed PR #10333 adds `vortex.narrow` to a new draft edition `preview2026.10.0`, with one
-metadata byte that holds the child `PType`. Under D8, the metadata stores the child dtype: the
-child `PType` for an integer parent, or the child precision for a decimal parent. The parent dtype
-tells the reader which of the two it holds. Every release that permits an ID must read every valid
+metadata byte that holds the child `PType`. Under D8 and D32, the metadata is a prost message with
+a typed `oneof`: the child `PType` for an integer parent, or the child precision for a decimal
+parent. A missing variant is an error. Every release that permits an ID must read every valid
 instance of it (invariant 6 in `docs/specs/versioning/design.md`). So the decimal reader ships in
 the same release as the first edition that permits `vortex.narrow`. The second part of #10333
 comes back as a new PR in the wire change, which puts `vortex.narrow` and DBP v2 into one preview
@@ -738,7 +737,8 @@ execution is not verified.
 Rule X5 pulls generic structural arrays out from under the extension wrapper. Recommendation XQ1
 names them: `Constant`, `Dict`, `RunEnd`, `Sparse`, `Chunked`, `Masked` and `Interleave`. So
 generic structural encodings sit above the type layer. The decimal storage encodings, DBP and
-`Narrow`, sit below them.
+`Narrow`, sit below them. For `Narrow`, reduce rules move these seven encodings above it (D25).
+The rewrite's chunked and interleave merge rules, which put `Narrow` on top, are dropped.
 
 For `Decimal`, the wire forms of today already follow this rule:
 
@@ -1661,6 +1661,23 @@ The `Narrow` metadata stores only the child precision (D8). Each in-memory step 
 (D11). The DBP constructor and module doc require `u64` lower parts (D16). One DBP scheme serves
 every edition, and default writers pay the `i256` cost until both formats enter `core` (D17).
 
+A planning review on 2026-10-23 split the work into 22 PRs, with one brief for each PR in
+`agents/briefs/` (part 4 of the Decimal notes). It added D25 to D35:
+
+- Generic structural encodings always sit above `Narrow` (D25).
+- A writer that cannot write `vortex.narrow` writes the canonical array, as a documented
+  workaround until `core` (D26).
+- Which arrays the compressor narrows is deferred (D27).
+- `encode` builds a `Narrow`, and the deprecated `encode_values` returns only the child. The
+  existing narrowing call sites move to `encode_values` (D28).
+- The DBP constructor rejects lower parts that assemble wider than the canonical width (D29).
+- `try_new` takes an `ExecutionCtx`, and imports check their own values (D30).
+- Only the PRs that change how files are read wait for the compat fixtures (D31).
+- The `vortex.narrow` metadata is a prost message with a typed `oneof` (D32).
+- The compressor uses a `Narrow` scheme at first (D33).
+- Strict decoding covers eleven more `PType` fields (D34).
+- The integer `Narrow` lands as five stacked PRs, then the call-site PR (D35).
+
 These notes add the integer view of section 3.2, so that decimal kernels delegate to integer
 kernels. D20 makes it future work. Section 9 lists the open questions with the recommendations of
 these notes.
@@ -1697,6 +1714,9 @@ of D20, and they are not reviewed:
 | Wide integers become visible to users before engines can export them | Writer gating (N10) and an explicit engine policy (section 5.6) |
 
 ### 8.3 Sequence
+
+[Part 4](../04-implementation.md) of the Decimal notes replaces this sequence with PR IDs, waves and
+briefs. The list below keeps the reasons for the order.
 
 PR #10230 gave decimals an integer child, which D2 replaces. It closed on 2026-10-19. Its fix to the
 DBP cast rule becomes P2 below. The plan below replaces its other steps.

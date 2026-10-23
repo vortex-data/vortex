@@ -13,6 +13,7 @@ canonical decimal encoding.
 | [1. Current state](01-current-state.md) | How `Decimal` works on `develop`, and what is wrong |
 | [2. Design](02-design.md) | The leaf, imports and Arrow, `Narrow`, DecimalByteParts, the file format, and the future work |
 | [3. Roadmap](03-roadmap.md) | The dependency graph of the type work, the independent changes, and the order of work |
+| [4. Implementation plan](04-implementation.md) | The PRs of the `Narrow` and canonical decimal work, their dependencies and waves, with one brief for each PR |
 
 ## Summary
 
@@ -43,6 +44,10 @@ canonical decimal encoding.
   formats enter `core`, they write wide decimals with values above 64 bits as plain `i256` arrays.
 - Decided: the bar of no compute regression applies to the final state. Until the compressor
   narrows the decimal type first, decoding a compressed decimal runs at the full width in memory.
+- Decided: the work lands as 22 PRs in four tracks. Each PR has a brief that a coding agent can
+  implement alone. Generic structural encodings always sit above `Narrow`. A writer that cannot
+  write `vortex.narrow` writes the canonical array, as a documented workaround. Which arrays the
+  compressor narrows is deferred.
 - Arrow has the same decimal model and the same gap at the top of each width. Its width is part
   of the type, and from precision 5 the Vortex widths match the smallest Arrow types.
 - Decided: `vortex.decimal` keeps its wire ID, and the decimal file format does not change.
@@ -55,6 +60,7 @@ canonical decimal encoding.
 
 ## Agent documents
 
+- [`agents/briefs/`](agents/briefs/): one brief for each PR of part 4, in four files.
 - [`agents/report.md`](agents/report.md): the full report. It has file and line references, API
   sketches, the wire plan, the complete dependency graph with a reason for each edge, and the
   evidence log.
@@ -73,7 +79,9 @@ read the history of the decimal compression scheme, and PRs #10305 and #10314. O
 traced which statistics the compressors store on the DecimalByteParts parts, read the decimal
 types of arrow-rs 59.3, and read the cast change of PR #10230. A second review on the same day
 read when the reader attaches stored statistics, the DecimalByteParts constructor and compressor
-scheme, the compat harness, and the edition families. One throwaway Rust test confirmed
+scheme, the compat harness, and the edition families. A planning review on the same day had five
+agents draft the PR briefs from the code at `b70206818f`, and the review checked their main claims
+in the code. One throwaway Rust test confirmed
 the `f32` cast disagreement and the `ext_storage` pushdown rules (probes R1 and R6 in the extension
 notes). One short Python script checked byte order. Section 10 of the report lists the claims that
 are not verified, which include every performance claim.
