@@ -82,14 +82,15 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
         Stat::IsSorted
     };
 
+    // Arrays with 0 or 1 elements are (strict) sorted. Check this before the cached
+    // statistics so that a stale hint cannot contradict it.
+    if array.len() <= 1 {
+        return Ok(true);
+    }
+
     // Short-circuit using cached array statistics.
     if let Precision::Exact(value) = array.statistics().get_as::<bool>(stat) {
         return Ok(value);
-    }
-
-    // Arrays with 0 or 1 elements are (strict) sorted.
-    if array.len() <= 1 {
-        return Ok(true);
     }
 
     // Constant and null arrays are always sorted, but not strict sorted.
@@ -618,8 +619,26 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::expr::stats::Precision;
+    use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
+
+    #[test]
+    fn singleton_ignores_stale_sortedness_stats() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let array = buffer![7i32].into_array();
+        array
+            .statistics()
+            .set(Stat::IsSorted, Precision::Exact(false.into()));
+        array
+            .statistics()
+            .set(Stat::IsStrictSorted, Precision::Exact(false.into()));
+
+        assert!(is_sorted(&array, &mut ctx)?);
+        assert!(is_strict_sorted(&array, &mut ctx)?);
+        Ok(())
+    }
 
     // Tests migrated from compute/is_sorted.rs
     #[test]

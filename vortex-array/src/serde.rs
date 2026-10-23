@@ -32,6 +32,8 @@ use crate::array::new_foreign_array;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::TryFromBytes;
+use crate::expr::stats::Precision;
+use crate::expr::stats::Stat;
 use crate::flatbuffers::FlatBuffer;
 use crate::flatbuffers::WriteFlatBuffer;
 use crate::flatbuffers::array as fba;
@@ -418,9 +420,14 @@ impl SerializedArray {
 
         // Populate statistics from the serialized array.
         if let Some(stats) = self.flatbuffer().stats() {
-            decoded
-                .statistics()
-                .set_all(StatsSet::from_flatbuffer(&stats, dtype, session)?);
+            let mut stats = StatsSet::from_flatbuffer(&stats, dtype, session)?;
+            // Arrays with 0 or 1 elements are always (strict) sorted. Older writers could store
+            // a sortedness hint that says otherwise, so the intrinsic fact takes precedence.
+            if len <= 1 {
+                stats.set(Stat::IsSorted, Precision::Exact(true.into()));
+                stats.set(Stat::IsStrictSorted, Precision::Exact(true.into()));
+            }
+            decoded.statistics().set_all(stats);
         }
 
         Ok(decoded)
