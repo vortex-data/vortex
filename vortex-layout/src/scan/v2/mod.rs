@@ -11,8 +11,9 @@
 //! Import this module's [`ScanBuilder`] to select V2 explicitly. It accepts a [`ScanFile`]
 //! directly and supports projection, filters, row ranges, and selections. Unsupported layouts return an
 //! error; limits are not part of this builder's API. Work is partitioned into fixed
-//! chunks of up to 65,536 rows, or 1,048,576 rows for filtered scans, independently of the stored
-//! layout's chunk boundaries.
+//! chunks of up to 65,536 rows, or up to 1,048,576 rows for filtered scans, independently of the
+//! stored layout's chunk boundaries. Filtered scans use smaller chunks when the projection reads
+//! many bytes per row or the row range would give fewer chunks than threads.
 //! Full-file projections use smaller 8,192-row multiples when serialized bytes per row are high.
 //!
 //! A [`ScanFile`] carrying a [`ScanCache`] shares its lowered plan, segment index, and dictionary
@@ -45,6 +46,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::request::IoService;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_mask::Mask;
 use vortex_scan::planning::planner::WorkScope;
 use vortex_scan::selection::Selection;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
@@ -55,6 +57,7 @@ pub use self::cache::ScanCache;
 use crate::LayoutRef;
 use crate::plan::physical::lower;
 use crate::plan::physical::optimize;
+use crate::plan::physical::pipeline::Scan;
 use crate::plan::physical::plan_row_idx_expression;
 use crate::scan::arrow::to_record_batch;
 use crate::scan::execution::FilterPlans;
@@ -76,13 +79,40 @@ fn rows_per_chunk(row_count: u64, locations: &[SegmentLocation]) -> usize {
     if row_count <= MAX_ROWS_PER_CHUNK as u64 {
         return MAX_ROWS_PER_CHUNK;
     }
-    let bytes: u64 = locations
+    let blocks = blocks_per_target_bytes(total_bytes(locations), row_count);
+    blocks.clamp(1, 8) as usize * ROW_BLOCK_SIZE
+}
+
+/// Rows per task of a filtered scan over `rows` rows of the file.
+///
+/// Large chunks amortize filter evaluation over cheap projections. A projection that reads many
+/// bytes per row, or a row range that would otherwise give fewer chunks than threads, gets smaller
+/// chunks so the surviving rows still spread across the runtime's threads.
+fn filtered_rows_per_chunk(
+    rows: u64,
+    row_count: u64,
+    projected_bytes: u64,
+    parallelism: usize,
+) -> usize {
+    let max_blocks = (FILTERED_ROWS_PER_CHUNK / ROW_BLOCK_SIZE) as u64;
+    let min_blocks = (MAX_ROWS_PER_CHUNK / ROW_BLOCK_SIZE) as u64;
+    let by_bytes = blocks_per_target_bytes(projected_bytes, row_count).max(1);
+    let by_threads = (rows / parallelism.max(1) as u64 / ROW_BLOCK_SIZE as u64).max(min_blocks);
+    let blocks = by_bytes.min(by_threads).min(max_blocks);
+    usize::try_from(blocks).vortex_expect("at most FILTERED_ROWS_PER_CHUNK blocks") * ROW_BLOCK_SIZE
+}
+
+/// The row blocks that hold [`TARGET_BYTES_PER_CHUNK`] when `bytes` spread over `row_count` rows.
+fn blocks_per_target_bytes(bytes: u64, row_count: u64) -> u64 {
+    let bytes_per_row = bytes.div_ceil(row_count.max(1)).max(1);
+    TARGET_BYTES_PER_CHUNK / bytes_per_row / ROW_BLOCK_SIZE as u64
+}
+
+fn total_bytes(locations: &[SegmentLocation]) -> u64 {
+    locations
         .iter()
         .map(|location| u64::from(location.length))
-        .sum();
-    let bytes_per_row = bytes.div_ceil(row_count).max(1);
-    let blocks = TARGET_BYTES_PER_CHUNK / bytes_per_row / ROW_BLOCK_SIZE as u64;
-    blocks.clamp(1, 8) as usize * ROW_BLOCK_SIZE
+        .sum()
 }
 
 /// Fixed boundaries in the file's row domain, clipped to the requested range.
@@ -307,18 +337,40 @@ impl<A: 'static + Send> PreparedScan<A> {
                 None => {
                     let plan =
                         optimize(plan_row_idx_expression(builder.projection.clone(), root)?)?;
-                    cache.insert_projection(builder.projection, plan)
+                    cache.insert_projection(builder.projection.clone(), plan)
                 }
             }
         };
+        let rows = builder.row_range.unwrap_or(0..row_count);
         let chunk_rows = if filter.is_some() {
-            FILTERED_ROWS_PER_CHUNK
+            let projected_bytes = if identity {
+                total_bytes(&file.locations)
+            } else {
+                cache.projection_bytes(&builder.projection, || {
+                    let segments = Scan::segments(
+                        &builder.session,
+                        &projection,
+                        0..row_count,
+                        &Mask::new_true(usize::try_from(row_count)?),
+                    )?;
+                    Ok(segments
+                        .iter()
+                        .map(|segment| u64::from(file.locations[**segment as usize].length))
+                        .sum())
+                })?
+            };
+            filtered_rows_per_chunk(
+                rows.end - rows.start,
+                row_count,
+                projected_bytes,
+                get_available_parallelism().unwrap_or(1),
+            )
         } else if identity {
             rows_per_chunk(row_count, &file.locations)
         } else {
             MAX_ROWS_PER_CHUNK
         };
-        let splits = row_chunks(builder.row_range.unwrap_or(0..row_count), chunk_rows);
+        let splits = row_chunks(rows, chunk_rows);
         let ranges = match cache.ranges() {
             Some(ranges) => ranges,
             None => cache.insert_ranges(segment_ranges(&file.locations)),

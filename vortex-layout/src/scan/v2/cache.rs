@@ -9,6 +9,7 @@ use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
+use vortex_error::VortexResult;
 
 use super::io::SegmentRanges;
 use crate::plan::physical::PlanRef;
@@ -36,6 +37,8 @@ struct Inner {
     /// them, so a projection must reuse its plan for its values to be found again.
     projections: Mutex<FxHashMap<ExactBoundExpr, PlanRef>>,
     ranges: Mutex<Option<SegmentRanges>>,
+    /// Serialized bytes the whole-file projection reads, by projection.
+    projection_bytes: Mutex<FxHashMap<ExactBoundExpr, u64>>,
     values: ValueCache,
 }
 
@@ -78,6 +81,22 @@ impl ScanCache {
     /// Keeps `ranges`, returning the index already kept if another scan got there first.
     pub(super) fn insert_ranges(&self, ranges: SegmentRanges) -> SegmentRanges {
         Arc::clone(self.0.ranges.lock().get_or_insert(ranges))
+    }
+
+    /// The serialized bytes a whole-file scan of `projection` reads, computing them with
+    /// `compute` on first use.
+    pub(super) fn projection_bytes(
+        &self,
+        projection: &BoundExpression,
+        compute: impl FnOnce() -> VortexResult<u64>,
+    ) -> VortexResult<u64> {
+        let key = ExactBoundExpr(projection.clone());
+        if let Some(bytes) = self.0.projection_bytes.lock().get(&key) {
+            return Ok(*bytes);
+        }
+        let bytes = compute()?;
+        self.0.projection_bytes.lock().insert(key, bytes);
+        Ok(bytes)
     }
 
     pub(super) fn values(&self) -> ValueCache {
