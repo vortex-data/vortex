@@ -270,6 +270,12 @@ where
     }))
 }
 
+/// Codes and dictionary values built by [`encode_dense`] and [`encode_hashed`].
+type EncodedDict<K, T> = (
+    ScalarBuffer<<K as ArrowPrimitiveType>::Native>,
+    ScalarBuffer<<T as ArrowPrimitiveType>::Native>,
+);
+
 /// Assigns codes in order of first appearance through a table indexed by `key - min`.
 fn encode_dense<K, T, B>(
     array: &PrimitiveArray<T>,
@@ -277,7 +283,7 @@ fn encode_dense<K, T, B>(
     key: &impl Fn(T::Native) -> B,
     min: i128,
     range: usize,
-) -> Option<(ScalarBuffer<K::Native>, ScalarBuffer<T::Native>)>
+) -> Option<EncodedDict<K, T>>
 where
     K: ArrowDictionaryKeyType,
     T: ArrowPrimitiveType,
@@ -309,7 +315,7 @@ fn encode_hashed<K, T, B>(
     is_valid: &impl Fn(usize) -> bool,
     key: &impl Fn(T::Native) -> B,
     distinct: usize,
-) -> Option<(ScalarBuffer<K::Native>, ScalarBuffer<T::Native>)>
+) -> Option<EncodedDict<K, T>>
 where
     K: ArrowDictionaryKeyType,
     T: ArrowPrimitiveType,
@@ -548,7 +554,8 @@ mod tests {
 
     #[test]
     fn primitive_fallback_distinct_values() -> VortexResult<()> {
-        let values = (0..2000u64).map(|i| (i % 7 != 3).then(|| i.wrapping_mul(0x9E37_79B9_7F4A_7C15)));
+        let values =
+            (0..2000u64).map(|i| (i % 7 != 3).then(|| i.wrapping_mul(0x9E37_79B9_7F4A_7C15)));
         let input = PrimitiveArray::from_option_iter(values.clone()).into_array();
         let actual = execute(input, &dict_type(DataType::UInt32, DataType::UInt64))?;
         let expected = UInt64Array::from_iter(values);
@@ -577,7 +584,10 @@ mod tests {
 
         let actual = execute(packed.into_array(), &dict_type(codes_type, DataType::Int64))?;
         let flat = arrow_cast::cast(&actual, &DataType::Int64)?;
-        assert_eq!(flat.as_ref(), &Int64Array::from(values) as &dyn arrow_array::Array);
+        assert_eq!(
+            flat.as_ref(),
+            &Int64Array::from(values) as &dyn arrow_array::Array
+        );
         Ok(())
     }
 
