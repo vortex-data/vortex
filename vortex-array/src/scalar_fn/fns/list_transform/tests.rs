@@ -3,11 +3,13 @@
 
 use std::sync::Arc;
 
+use rstest::rstest;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
 use super::ListTransform;
 use super::ListTransformOptions;
+use super::Lists;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::RecursiveCanonical;
@@ -21,6 +23,7 @@ use crate::arrays::ListArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
+use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
@@ -144,6 +147,85 @@ fn a_sliced_list_skips_a_null_lists_elements() -> VortexResult<()> {
         Validity::from_iter([false, true, true]),
     )?;
     assert_applies(lists, &list_transform(root(), plus_one()?), expected)
+}
+
+/// `[[1], [2]]` over `[MAX, 1, 2, MAX]`.
+fn sliced_list_with_leftovers() -> VortexResult<ArrayRef> {
+    list_of(
+        buffer![i32::MAX, 1_i32, 2, i32::MAX].into_array(),
+        &[1, 2, 3],
+        Validity::NonNullable,
+    )
+}
+
+/// `[[1], [2]]` over `[MAX, 1, 2]`: the lists are back to back, after a leftover.
+fn list_view_with_a_leftover_in_front() -> VortexResult<ArrayRef> {
+    let mut ctx = array_session().create_execution_ctx();
+    let view = ListViewArray::try_new(
+        buffer![i32::MAX, 1_i32, 2].into_array(),
+        buffer![1_u32, 2].into_array(),
+        buffer![1_u32, 1].into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )?;
+    // SAFETY: the lists are sorted, with nothing between them.
+    Ok(unsafe { view.with_zero_copy_to_list(true) }.into_array())
+}
+
+/// `[[1], [2]]` over `[1, MAX, 2]`: the lists skip an element.
+fn list_view_with_a_gap() -> VortexResult<ArrayRef> {
+    let mut ctx = array_session().create_execution_ctx();
+    Ok(ListViewArray::try_new(
+        buffer![1_i32, i32::MAX, 2].into_array(),
+        buffer![0_u32, 2].into_array(),
+        buffer![1_u32, 1].into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )?
+    .into_array())
+}
+
+/// `x + 1` would overflow on `i32::MAX`, which no list shows.
+#[rstest]
+#[case::sliced_list(sliced_list_with_leftovers)]
+#[case::list_view_with_a_leftover_in_front(list_view_with_a_leftover_in_front)]
+#[case::list_view_with_a_gap(list_view_with_a_gap)]
+fn a_lambda_that_can_fail_sees_only_the_lists_elements(
+    #[case] input: fn() -> VortexResult<ArrayRef>,
+) -> VortexResult<()> {
+    let expected = list_of(
+        buffer![2_i32, 3].into_array(),
+        &[0, 1, 2],
+        Validity::NonNullable,
+    )?;
+    assert_applies(input()?, &list_transform(root(), plus_one()?), expected)
+}
+
+#[test]
+fn a_lambda_that_can_fail_runs_on_a_slice_without_its_leftovers() -> VortexResult<()> {
+    // Canonicalizing the result drops the leftovers too, so look at what the lambda runs on.
+    let mut ctx = array_session().create_execution_ctx();
+    let lists = Lists::visible_elements_only(sliced_list_with_leftovers()?, &mut ctx)?;
+    lists.with_elements(|elements| {
+        assert_arrays_eq!(elements.clone(), buffer![1_i32, 2].into_array(), &mut ctx);
+        Ok(elements.clone())
+    })?;
+    Ok(())
+}
+
+#[test]
+fn a_lambda_that_cannot_fail_runs_on_the_elements_in_place() -> VortexResult<()> {
+    // `x = 3` cannot fail, so it runs over the whole elements buffer, the null list's `i32::MAX`
+    // included, and nothing is copied.
+    let mut ctx = array_session().create_execution_ctx();
+    let result = lists()?
+        .apply(&list_transform(
+            root(),
+            Lambda::new(["x"], eq(var("x"), lit(3_i32)))?,
+        ))?
+        .execute::<ListViewArray>(&mut ctx)?;
+    assert_eq!(result.elements().len(), 5);
+    Ok(())
 }
 
 #[test]
