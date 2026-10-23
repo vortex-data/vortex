@@ -26,18 +26,20 @@ impl ListArray {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ListArray> {
         let offsets = self.offsets().clone().execute::<PrimitiveArray>(ctx)?;
-        let nulls = self.list_validity().execute_null_runs(self.len(), ctx)?;
+        let validity = self.list_validity().execute_mask(self.len(), ctx)?;
+        let all = [(0, self.len())];
+        let valid = validity.slices().unwrap_or_else(|| &all, || &[]);
         match_each_integer_ptype!(offsets.ptype(), |O| {
-            self.rebuild_without_null_runs(offsets.as_slice::<O>(), &nulls)
+            self.rebuild_with_valid_runs(offsets.as_slice::<O>(), valid)
         })
     }
 
-    fn rebuild_without_null_runs<O: IntegerPType>(
+    fn rebuild_with_valid_runs<O: IntegerPType>(
         &self,
         offsets: &[O],
-        nulls: &[(usize, usize)],
+        valid: &[(usize, usize)],
     ) -> VortexResult<ListArray> {
-        let kept = referenced_valid_ranges(offsets, nulls);
+        let kept = referenced_valid_ranges(offsets, valid);
         if kept.iter().map(|(start, end)| end - start).sum::<usize>() == self.elements().len() {
             return Ok(self.clone());
         }
@@ -54,7 +56,7 @@ impl ListArray {
                     .filter(Mask::from_buffer_with_slices(bits.freeze(), kept))?
             }
         };
-        let offsets = shift_past_null_runs(offsets, nulls);
+        let offsets = shift_past_null_lists(offsets, valid);
         // SAFETY: the elements are the ranges of the runs of valid lists, in order, and every offset
         // moved down by the elements dropped before it, so each valid list keeps its elements and
         // each null list is empty.
@@ -67,43 +69,36 @@ impl ListArray {
 /// The element ranges of the runs of valid lists, with touching ranges merged.
 fn referenced_valid_ranges<O: IntegerPType>(
     offsets: &[O],
-    nulls: &[(usize, usize)],
+    valid: &[(usize, usize)],
 ) -> Vec<(usize, usize)> {
-    let mut ranges: Vec<(usize, usize)> = Vec::with_capacity(nulls.len() + 1);
-    let mut keep = |start: O, end: O| {
-        let (start, end): (usize, usize) = (start.as_(), end.as_());
+    let mut ranges: Vec<(usize, usize)> = Vec::with_capacity(valid.len());
+    for &(first, end) in valid {
+        let (start, end): (usize, usize) = (offsets[first].as_(), offsets[end].as_());
         match ranges.last_mut() {
             _ if start == end => {}
             Some(last) if last.1 == start => last.1 = end,
             _ => ranges.push((start, end)),
         }
-    };
-    let mut valid_from = 0;
-    for &(null_start, null_end) in nulls {
-        keep(offsets[valid_from], offsets[null_start]);
-        valid_from = null_end;
     }
-    keep(offsets[valid_from], offsets[offsets.len() - 1]);
     ranges
 }
 
 /// The offsets with every offset moved down by the elements dropped before it: those before the
 /// first list and those under null lists. A null list then starts and ends where the valid lists
 /// before it end.
-fn shift_past_null_runs<O: IntegerPType>(offsets: &[O], nulls: &[(usize, usize)]) -> BufferMut<O> {
+fn shift_past_null_lists<O: IntegerPType>(offsets: &[O], valid: &[(usize, usize)]) -> BufferMut<O> {
     let mut shifted = BufferMut::copy_from(offsets);
     let mut dropped = offsets[0];
-    let mut valid_from = 0;
-    for &(null_start, null_end) in nulls {
-        for offset in &mut shifted[valid_from..null_start] {
+    let mut null_from = 0;
+    for &(valid_start, valid_end) in valid {
+        shifted[null_from..valid_start].fill(offsets[null_from] - dropped);
+        dropped += offsets[valid_start] - offsets[null_from];
+        for offset in &mut shifted[valid_start..valid_end] {
             *offset = *offset - dropped;
         }
-        shifted[null_start..null_end].fill(offsets[null_start] - dropped);
-        dropped += offsets[null_end] - offsets[null_start];
-        valid_from = null_end;
+        null_from = valid_end;
     }
-    for offset in &mut shifted[valid_from..] {
-        *offset = *offset - dropped;
-    }
+    // The null lists after the last valid one, and the end of the last list.
+    shifted[null_from..].fill(offsets[null_from] - dropped);
     shifted
 }

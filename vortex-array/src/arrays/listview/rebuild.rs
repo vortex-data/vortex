@@ -142,13 +142,23 @@ impl ListViewArray {
         if self.is_empty() {
             return self.rebuild(ListViewRebuildMode::TrimElements, ctx);
         }
-        let nulls = self.validity()?.execute_null_runs(self.len(), ctx)?;
+        let validity = self.validity()?.execute_mask(self.len(), ctx)?;
+        let all = [(0, self.len())];
+        let valid = validity.slices().unwrap_or_else(|| &all, || &[]);
         let sizes = self.sizes().clone().execute::<PrimitiveArray>(ctx)?;
         let null_lists_empty = match_each_integer_ptype!(sizes.ptype(), |S| {
             let sizes = sizes.as_slice::<S>();
-            nulls
+            let mut null_from = 0;
+            valid
                 .iter()
-                .all(|&(start, end)| sizes[start..end].iter().all(|size| *size == S::default()))
+                .chain([&(self.len(), self.len())])
+                .all(|&(valid_start, valid_end)| {
+                    let empty = sizes[null_from..valid_start]
+                        .iter()
+                        .all(|size| *size == S::default());
+                    null_from = valid_end;
+                    empty
+                })
         });
         if !null_lists_empty {
             // The lists are back to back, so they are a `ListArray`'s, without copying.
