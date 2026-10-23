@@ -26,6 +26,7 @@ arrow-data = { workspace = true }
 arrow-schema = { workspace = true, features = ["canonical_extension_types"] }
 itertools = { workspace = true }
 num-traits = { workspace = true }
+rustc-hash = { workspace = true }
 simdutf8 = { workspace = true }
 tracing = { workspace = true }
 vortex-array = { workspace = true }
