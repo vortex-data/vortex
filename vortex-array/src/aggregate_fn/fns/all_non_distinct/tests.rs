@@ -4,7 +4,9 @@
 use std::sync::LazyLock;
 
 use rstest::rstest;
+use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -22,11 +24,14 @@ use crate::arrays::NullArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
+use crate::dtype::BigCast;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
+use crate::dtype::DecimalType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::match_each_decimal_value_type;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -291,6 +296,46 @@ fn decimal_different_value_types() -> VortexResult<()> {
     let a = DecimalArray::new(buffer![1i8, 2, 3], dtype, Validity::NonNullable).into_array();
     let b = DecimalArray::new(buffer![1i16, 2, 3], dtype, Validity::NonNullable).into_array();
     assert_matches_baseline(&a, &b)
+}
+
+/// Decimal values `[1, 2, last]` stored as `values_type`.
+fn decimal_with_storage(values_type: DecimalType, last: i8) -> ArrayRef {
+    let dtype = DecimalDType::new(2, 0);
+    match_each_decimal_value_type!(values_type, |T| {
+        let values = [1i8, 2, last].map(|value| {
+            <T as BigCast>::from(value).vortex_expect("small values fit every decimal type")
+        });
+        DecimalArray::new(Buffer::copy_from(values), dtype, Validity::NonNullable).into_array()
+    })
+}
+
+/// Each pair of storage types selects a different widened comparison.
+#[rstest]
+fn decimal_every_storage_pair(
+    #[values(
+        DecimalType::I8,
+        DecimalType::I16,
+        DecimalType::I32,
+        DecimalType::I64,
+        DecimalType::I128,
+        DecimalType::I256
+    )]
+    lhs: DecimalType,
+    #[values(
+        DecimalType::I8,
+        DecimalType::I16,
+        DecimalType::I32,
+        DecimalType::I64,
+        DecimalType::I128,
+        DecimalType::I256
+    )]
+    rhs: DecimalType,
+) -> VortexResult<()> {
+    assert_matches_baseline(&decimal_with_storage(lhs, 3), &decimal_with_storage(rhs, 3))?;
+    assert_matches_baseline(
+        &decimal_with_storage(lhs, 3),
+        &decimal_with_storage(rhs, -3),
+    )
 }
 
 #[test]

@@ -6,16 +6,19 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
-use vortex_array::match_each_integer_ptype;
+use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar_fn::fns::cast::CastKernel;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
+use crate::BitPackedArray;
 use crate::bitpacking::BitPacked;
 use crate::bitpacking::BitWidthsView;
 use crate::bitpacking::array::BitPackedArrayExt;
@@ -59,6 +62,39 @@ fn build_with_validity(
         array.offset(),
     )?
     .into_array())
+}
+
+/// The array with the unsigned ptype of the same width.
+///
+/// The packed values and patches are never negative, so they keep their value. Only the patch
+/// values are reinterpreted. The packed buffer is shared.
+fn unsigned_view_of(
+    array: ArrayView<'_, BitPacked>,
+    bit_width: u8,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<BitPackedArray> {
+    let ptype = array.dtype().as_ptype().to_unsigned();
+    let patches = array
+        .patches()
+        .map(|patches| {
+            patches.map_values(|values| {
+                Ok(values
+                    .execute::<PrimitiveArray>(ctx)?
+                    .reinterpret_cast(ptype)
+                    .into_array())
+            })
+        })
+        .transpose()?;
+
+    BitPacked::try_new(
+        array.packed().clone(),
+        ptype,
+        array.validity()?,
+        patches,
+        bit_width,
+        array.len(),
+        array.offset(),
+    )
 }
 
 impl CastReduce for BitPacked {
@@ -117,16 +153,30 @@ impl CastKernel for BitPacked {
             .validity()?
             .cast_nullability(tgt_nullability, array.len(), ctx)?;
 
-        let result = match_each_integer_ptype!(tgt, |T| {
+        // Bit-packing rejects negative values, so sign extension of a packed value is the same as
+        // zero extension. A signed cast then gives the same bits as the unsigned cast of the same
+        // widths, and signed and unsigned casts share one set of kernels.
+        let unsigned_view;
+        let source = if src.is_signed_int() {
+            unsigned_view = unsigned_view_of(array, bit_width, ctx)?;
+            unsigned_view.as_view()
+        } else {
+            array
+        };
+
+        let result = match_each_unsigned_integer_ptype!(tgt.to_unsigned(), |T| {
             let mut builder = PrimitiveBuilder::<T>::with_capacity_in(
                 tgt_nullability,
                 array.len(),
                 ctx.allocator(),
             );
-            match_each_integer_ptype!(src, |F| {
-                unpack_map_into_builder::<F, T, _>(array, &mut builder, ctx, |v: F| v.as_())?;
+            match_each_unsigned_integer_ptype!(src.to_unsigned(), |F| {
+                unpack_map_into_builder::<F, T, _>(source, &mut builder, ctx, |v: F| v.as_())?;
             });
-            builder.finish_into_primitive().into_array()
+            builder
+                .finish_into_primitive()
+                .reinterpret_cast(tgt)
+                .into_array()
         });
         Ok(Some(result))
     }
@@ -185,6 +235,24 @@ mod tests {
             PrimitiveArray::from_iter([10u32, 20, 30, 40, 50, 60]),
             &mut SESSION.create_execution_ctx()
         );
+    }
+
+    /// Signed sources are cast through an unsigned view, which reinterprets the patch values.
+    #[rstest]
+    #[case::i8_to_i16(PType::I16)]
+    #[case::i8_to_i64(PType::I64)]
+    fn test_cast_bitpacked_signed_with_patches(#[case] tgt: PType) -> VortexResult<()> {
+        let values = PrimitiveArray::from_iter(
+            (0..2000).map(|i| if i % 97 == 0 { 120i8 } else { (i % 7) as i8 }),
+        );
+        let packed = bp(&values.clone().into_array(), 3);
+        assert!(packed.patches().is_some(), "test setup expects patches");
+
+        let target = DType::Primitive(tgt, Nullability::NonNullable);
+        let casted = packed.into_array().cast(target.clone())?;
+        let expected = values.into_array().cast(target)?;
+        assert_arrays_eq!(casted, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
     }
 
     #[test]
