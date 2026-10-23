@@ -83,6 +83,19 @@ Later work: LT1 puts both formats into `core` and decides the end of the seriali
 workaround. LT2 is the max pass in DecimalByteParts decoding (D16). LT3 is the pushdown of sum,
 min and max into the MSP (D19). LT2 and LT3 wait until benchmarks show that they are needed.
 
+## Status
+
+The first wave opened on 2026-10-23 as draft PRs, all based on `develop` at `3974ee069c`:
+
+| ID | PR | Note |
+| --- | --- | --- |
+| FX1 | #10755 | Three commits, as planned. Its tests use a new `test_harness::assert_serde_error` helper |
+| FX2 | #10746 | As planned |
+| FX3 | #10745 | Fixes #10623. Non-nullable codes keep the fast path, because they need no fill code |
+| CD1 | #10752 | The compress bench enables the default `core` edition, so the decimal scheme uses its v1 variant |
+| CD2 | #10753 | Adds `fixtures_build_canonical_decimal_widths`, and two columns at precisions 1 and 3 |
+| None | #10747 | The versioning docs describe the scheme variants that #10076 added |
+
 ## Graph
 
 Each solid arrow is a hard dependency. Some arrows also follow from other arrows. The graph keeps
@@ -203,17 +216,19 @@ publishes the CD2 fixtures also gates CD5 and CD6, so CD2 is worth landing in wa
 
 ## Follow-up issues
 
-These problems came up during planning and are outside the planned PRs. Each one gets its own
-issue.
+These problems came up during planning and the first wave of PRs. They are outside the planned
+PRs, and each one has its own issue.
 
-1. Generic structural encodings always sit above other encodings. NR5 does this for `Narrow` only.
-2. The decimal `min_max` aggregate panics on a valid value outside the precision, which a file read
-   can produce.
-3. The cast rules of RunEnd, ZigZag, FoR and RLE push nullability casts down without the
-   `trivially_cast_nullability` guard that FX2 adds to DecimalByteParts.
-4. The compat harness: no CI job runs `--mode all`, one failing fixture aborts the whole check, and
-   the README describes `--git-ref` wrongly.
-5. Stale versioning docs about the decimal scheme and per-edition scheme configuration.
+| Issue | Problem |
+| --- | --- |
+| #10748 | Generic structural encodings always sit above other encodings. NR5 does this for `Narrow` only |
+| #10749 | Decimal `scalar_at` and `min_max` panic on a stored value outside the precision, which a file read can produce |
+| #10750 | Seven cast rules (RunEnd, ZigZag, FoR, RLE, ALP, ALP-RD, DateTimeParts) push nullability casts without the guard that FX2 adds to DecimalByteParts |
+| #10751 | The FoR scheme bit-packs its child outside the allowed schemes, so its child skips the edition filter |
+| #10754 | The compat harness: no CI job runs `--mode all`, one failing fixture stops the whole check, and the README describes `--git-ref` wrongly |
+| #10756 | Corrupt ALP-RD, RLE and RunEnd metadata can panic a file read |
+
+The stale versioning docs needed no issue, because #10747 fixes them.
 
 ## Risks
 

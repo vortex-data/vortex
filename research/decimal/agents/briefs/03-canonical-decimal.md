@@ -1221,6 +1221,11 @@ Steps:
 
 Tests:
 
+- Change `legacy_decimal_fixtures_keep_stored_widths` in
+  `vortex-test/compat-gen/src/fixtures/arrays/synthetic/mod.rs`, which CD2 (#10753) adds. Its
+  file round-trip check asserts that a read keeps the stored width of each old column. After CD6
+  the read converts old nodes, so the check must assert the read results of the CD2 tables
+  instead. Keep its in-memory width check.
 - New in `vtable/plugin/tests.rs`. They build nodes with `ArrayDeserialization::new` and
   hand-written `DecimalMetadata`, as
   `encodings/decimal-byte-parts/src/decimal_byte_parts/plugin/tests.rs:317-328` does. They build no
