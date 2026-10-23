@@ -32,6 +32,15 @@ pub trait Fixture {
 
     /// Generate the fixture file(s) into `dir`, returning manifest entries.
     fn write(&self, dir: &Path, ctx: &mut ExecutionCtx) -> VortexResult<Vec<FixtureEntry>>;
+
+    /// Write the file that `check` compares with a published file. Defaults to [`Self::write`].
+    fn write_expected(
+        &self,
+        dir: &Path,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Vec<FixtureEntry>> {
+        self.write(dir, ctx)
+    }
 }
 
 /// A deterministic fixture that produces a single array written via flat layout (no compression).
@@ -45,7 +54,16 @@ pub trait FlatLayoutFixture {
     /// Build the expected arrays. Must be deterministic under all versions of vortex.
     fn build(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
 
-    /// Encoding IDs that must appear somewhere in the array tree produced by [`Self::build`].
+    /// Build the arrays that `generate` writes. Defaults to [`Self::build`].
+    ///
+    /// Override this only to write an old physical form that [`Self::build`] cannot return. The
+    /// result has the dtype and the logical values of [`Self::build`].
+    fn build_written(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        self.build(ctx)
+    }
+
+    /// Encoding IDs that must appear somewhere in the array tree produced by
+    /// [`Self::build_written`].
     ///
     /// Only include encodings that the fixture is specifically testing, not incidental ones
     /// (e.g. a primitives fixture should not list struct even if it wraps values in one).
@@ -76,7 +94,21 @@ pub trait DatasetFixture {
 // ---------------------------------------------------------------------------
 
 /// Adapts a [`FlatLayoutFixture`] into a [`Fixture`] by writing through the flat layout strategy.
+///
+/// [`Fixture::write`] writes [`FlatLayoutFixture::build_written`], and
+/// [`Fixture::write_expected`] writes [`FlatLayoutFixture::build`].
 pub struct FlatLayoutAdapter(pub Box<dyn FlatLayoutFixture>);
+
+impl FlatLayoutAdapter {
+    fn write_array(&self, dir: &Path, array: ArrayRef) -> VortexResult<Vec<FixtureEntry>> {
+        let path = dir.join(self.name());
+        adapter::write_file(&path, array)?;
+        Ok(vec![FixtureEntry {
+            name: self.name().to_string(),
+            description: self.description().to_string(),
+        }])
+    }
+}
 
 impl Fixture for FlatLayoutAdapter {
     fn name(&self) -> &str {
@@ -88,15 +120,20 @@ impl Fixture for FlatLayoutAdapter {
     }
 
     fn write(&self, dir: &Path, ctx: &mut ExecutionCtx) -> VortexResult<Vec<FixtureEntry>> {
-        let array = self.0.build(ctx)?;
+        let array = self.0.build_written(ctx)?;
         check_expected_encodings(&array, self.0.as_ref())?;
         compute_all_stats(&array, ctx)?;
-        let path = dir.join(self.name());
-        adapter::write_file(&path, array)?;
-        Ok(vec![FixtureEntry {
-            name: self.name().to_string(),
-            description: self.description().to_string(),
-        }])
+        self.write_array(dir, array)
+    }
+
+    fn write_expected(
+        &self,
+        dir: &Path,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Vec<FixtureEntry>> {
+        let array = self.0.build(ctx)?;
+        compute_all_stats(&array, ctx)?;
+        self.write_array(dir, array)
     }
 }
 

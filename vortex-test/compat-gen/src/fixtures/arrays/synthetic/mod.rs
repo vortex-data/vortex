@@ -20,7 +20,11 @@ mod tests {
     use std::sync::LazyLock;
 
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::Decimal;
+    use vortex_array::arrays::decimal::DecimalArrayExt;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DecimalType;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use super::fixtures;
@@ -30,14 +34,44 @@ mod tests {
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
-    fn roundtrip_fixtures_to_bytes() {
+    fn roundtrip_fixtures_to_bytes() -> VortexResult<()> {
         for fixture in fixtures() {
             let mut ctx = SESSION.create_execution_ctx();
-            let array = fixture.build(&mut ctx).unwrap();
-            check_expected_encodings(&array, fixture.as_ref()).unwrap();
-            let bytes = adapter::write_file_to_bytes(array.clone()).unwrap();
-            let roundtripped = adapter::read_file(bytes).unwrap();
-            assert_arrays_eq!(array, roundtripped, &mut ctx);
+            let expected = fixture.build(&mut ctx)?;
+            let written = fixture.build_written(&mut ctx)?;
+            assert_arrays_eq!(written, expected, &mut ctx);
+
+            check_expected_encodings(&written, fixture.as_ref())?;
+            adapter::compute_all_stats(&written, &mut ctx)?;
+            let bytes = adapter::write_file_to_bytes(written)?;
+            let roundtripped = adapter::read_file(bytes)?;
+            assert_arrays_eq!(roundtripped, expected, &mut ctx);
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn fixtures_build_canonical_decimal_widths() -> VortexResult<()> {
+        for fixture in fixtures() {
+            let mut ctx = SESSION.create_execution_ctx();
+            let expected = fixture.build(&mut ctx)?;
+            for node in expected.depth_first_traversal() {
+                let Some(decimal) = node.as_opt::<Decimal>() else {
+                    continue;
+                };
+                let canonical_type =
+                    DecimalType::smallest_decimal_value_type(&decimal.decimal_dtype());
+                assert_eq!(
+                    decimal.values_type(),
+                    canonical_type,
+                    "a decimal leaf of {} with dtype {}",
+                    fixture.name(),
+                    node.dtype(),
+                );
+            }
+        }
+
+        Ok(())
     }
 }

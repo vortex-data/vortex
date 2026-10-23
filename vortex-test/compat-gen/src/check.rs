@@ -42,7 +42,7 @@ struct FailedFixture {
 /// Check `.vortex` files in `dir` against in-memory fixtures.
 ///
 /// For each known fixture, generates fresh files in a temp directory via
-/// `fixture.write(tmp_dir)`, then reads both the stored file and fresh file,
+/// `fixture.write_expected(tmp_dir)`, then reads both the stored file and fresh file,
 /// decodes them, and compares the arrays.
 ///
 /// Prints JSON result to stdout, human-readable progress to stderr.
@@ -67,7 +67,7 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
 
     eprintln!("generating fresh fixtures for comparison...");
     for fixture in &fixtures {
-        fixture.write(tmp_dir.path(), &mut ctx)?;
+        fixture.write_expected(tmp_dir.path(), &mut ctx)?;
     }
 
     // Collect .vortex files in the check directory.
