@@ -294,7 +294,7 @@ impl Array<Struct> {
             slots.push(Some(field));
         }
         let dtype = StructFields::new(names, field_dtypes);
-        Array::try_from_parts(ArrayParts::new(
+        Self::try_from_struct_parts(ArrayParts::new(
             Struct,
             DType::Struct(dtype, validity.nullability()),
             length,
@@ -317,7 +317,7 @@ impl Array<Struct> {
         let outer_dtype = DType::Struct(dtype, validity.nullability());
         let slots = make_struct_slots(fields, &validity, length);
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(
+            Self::from_struct_parts_unchecked(ArrayParts::new(
                 Struct,
                 outer_dtype,
                 length,
@@ -336,13 +336,33 @@ impl Array<Struct> {
     ) -> VortexResult<Self> {
         let outer_dtype = DType::Struct(dtype, validity.nullability());
         let slots = make_struct_slots(fields, &validity, length);
-        Array::try_from_parts(ArrayParts::new(
+        Self::try_from_struct_parts(ArrayParts::new(
             Struct,
             outer_dtype,
             length,
             EmptyArrayData,
             slots,
         ))
+    }
+
+    /// Creates the array from parts after validation.
+    ///
+    /// The generic constructors call this function. It is not generic, so crates that call those
+    /// constructors do not each compile the `Struct` array vtable.
+    fn try_from_struct_parts(parts: ArrayParts<Struct>) -> VortexResult<Self> {
+        Array::try_from_parts(parts)
+    }
+
+    /// Creates the array from parts without validation.
+    ///
+    /// The generic constructors call this function. It is not generic, so crates that call those
+    /// constructors do not each compile the `Struct` array vtable.
+    ///
+    /// # Safety
+    ///
+    /// The parts must be logically consistent.
+    unsafe fn from_struct_parts_unchecked(parts: ArrayParts<Struct>) -> Self {
+        unsafe { Array::from_parts_unchecked(parts) }
     }
 
     /// Construct a `StructArray` from named fields.
@@ -462,7 +482,7 @@ impl Array<Struct> {
 
         let new_dtype = struct_dtype.without_field(position).ok()?;
         let new_array = unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(
+            Self::from_struct_parts_unchecked(ArrayParts::new(
                 Struct,
                 DType::Struct(new_dtype, self.dtype().nullability()),
                 len,
