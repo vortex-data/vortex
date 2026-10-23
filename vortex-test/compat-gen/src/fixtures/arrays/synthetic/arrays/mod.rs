@@ -9,6 +9,7 @@ mod bool;
 mod chunked;
 mod datetime;
 mod decimal;
+mod decimal_widths;
 mod fixed_size_list;
 mod list;
 mod listview;
@@ -35,6 +36,7 @@ pub fn fixtures() -> Vec<Box<dyn FlatLayoutFixture>> {
         Box::new(null::NullFixture),
         Box::new(datetime::DateTimeFixture),
         Box::new(decimal::DecimalFixture),
+        Box::new(decimal_widths::DecimalCanonicalWidthsFixture),
         Box::new(listview::ListViewFixture),
         Box::new(map::MapFixture),
     ]
