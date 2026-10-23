@@ -36,6 +36,9 @@ impl Iterator for PythonArrayIterator {
     fn next(&mut self) -> Option<Self::Item> {
         // Check for any signals on this chunk.
         Python::attach(|py| {
+            if let Err(pyerr) = py.check_signals() {
+                return Some(Err(vortex_err!("{}", pyerr)));
+            }
             let mut iter = self.iter.clone_ref(py).into_bound(py);
             iter.next().map(|array| {
                 array
