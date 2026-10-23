@@ -29,7 +29,7 @@ value of the precision:
 ```rust
 impl DecimalDType {
     /// The width of the values buffer for this precision.
-    pub const fn values_type(&self) -> DecimalType {
+    pub const fn canonical_values_type(&self) -> DecimalType {
         match self.precision.get() {
             1..=2 => DecimalType::I8,
             3..=4 => DecimalType::I16,

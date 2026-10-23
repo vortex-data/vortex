@@ -13,8 +13,9 @@ Rules for all three PRs:
 
 - Each commit ends with `Signed-off-by: Connor Tsui <connor.tsui20@gmail.com>`. Add no AI
   co-author line.
-- The user chooses which checks to run. The acceptance checks list the commands, scoped to the
-  affected crates. The pinned nightly is `nightly-2026-09-10` (`.github/workflows/ci.yml:25`).
+- Agents can run any command that the work needs, including the acceptance checks. The checks are
+  scoped to the affected crates. The pinned nightly is `nightly-2026-09-10`
+  (`.github/workflows/ci.yml:25`).
 - Tests return `VortexResult<()>` where they can and use named `rstest` cases. Tests that need a
   session share the module `static SESSION: LazyLock<VortexSession>` that PR #10681 introduced.
 - Every "before the fix" result in these briefs comes from reading the code, not from a run.

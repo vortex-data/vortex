@@ -398,7 +398,7 @@ impl DecimalDType {
     /// The width of the values buffer for this precision.
     ///
     /// This is the existing `DecimalType::smallest_decimal_value_type` (D12).
-    pub const fn values_type(&self) -> DecimalType {
+    pub const fn canonical_values_type(&self) -> DecimalType {
         match self.precision.get() {
             1..=2 => DecimalType::I8,
             3..=4 => DecimalType::I16,
@@ -411,7 +411,7 @@ impl DecimalDType {
 }
 
 impl Array<Decimal> {
-    /// Fails unless `T::DECIMAL_TYPE` equals `decimal_dtype.values_type()`.
+    /// Fails unless `T::DECIMAL_TYPE` equals `decimal_dtype.canonical_values_type()`.
     pub fn try_new<T: NativeDecimalType>(
         buffer: Buffer<T>,
         decimal_dtype: DecimalDType,
@@ -430,8 +430,8 @@ one-canonical-form fix (node N11) does not wait for the wide integers (node N9).
 
 Invariants:
 
-- **I1, width.** The buffer width equals `decimal_dtype.values_type()`. `DecimalData::validate`
-  checks it next to the length and alignment checks of today
+- **I1, width.** The buffer width equals `decimal_dtype.canonical_values_type()`.
+  `DecimalData::validate` checks it next to the length and alignment checks of today
   (`vortex-array/src/arrays/decimal/array.rs:301-319`). The check costs nothing for each row.
 - **I2, value.** Every valid unscaled value `v` satisfies `|v| <= 10^p - 1`. `try_new` checks
   every valid value, and `new_unchecked` skips that check for kernels that keep values legal
@@ -787,7 +787,7 @@ pair of dtypes exists (C1). `Decimal` ships built-in rules for the common pairs 
 | Cast to an integer | For a positive scale, `check_range` on the unscaled values with the inclusive bounds `MIN · 10^s` and `MAX · 10^s` of the target, then divide by `10^s` toward zero. A bound that does not fit the storage width saturates. For a negative scale, multiply by `10^-s` with a checked multiply at a width that holds the result. Then do a checked narrowing to the target. A zero value needs no factor, so it succeeds even when `10^-s` fits no integer width | Replaces `DecimalToIntegerCast` and keeps its rule: a value outside the range fails before truncation, so `127.1` fails for `i8` (`scalar/typed_view/decimal/integer_cast.rs:14-53`, test `cast_decimal_to_integer_bounds` in `arrays/decimal/compute/cast.rs:651`). The current code computes in `i256` and rejects a factor `10^s` that does not fit (`integer_cast.rs:37-39`). Under recommendation CQ1, truncation becomes a separate `trunc` step |
 | Cast to a float | Integer to `f64`, divide by `10^s`, then narrow to `f32` or `f16` | One path for scalars and arrays. CQ1 also decides whether this rounding cast stays a default cast |
 | Cast from an integer | Widen, multiply by `10^s`, precision check | Replaces `cast_to_decimal` |
-| Sum | Integer sum with accumulator `values_type(min(p + 10, 76))`, precision check | `sum_decimal_dtype` (`aggregate_fn/fns/sum/mod.rs:81-86`) |
+| Sum | Integer sum with accumulator `canonical_values_type(min(p + 10, 76))`, precision check | `sum_decimal_dtype` (`aggregate_fn/fns/sum/mod.rs:81-86`) |
 | Min, max, min_max, bounded_min, bounded_max | Integer aggregate on the view, then a decimal of the input dtype for each result value | Matches `min_max/extension.rs:17-35`. `min_max` returns a struct of two values. Truncation applies only to `Utf8` and `Binary`, so the bounded variants return exact values for decimals |
 | is_sorted, is_constant | Integer aggregate on the view. The `Bool` result stays as it is | Valid within one `(p, s)` |
 | Hash, group by, distinct, join keys | Integer hash and equality on the view | Valid within one `(p, s)` |
@@ -1749,9 +1749,9 @@ Benchmarks and fixtures, before the producers change:
 
 The in-memory change (D11). Each step is its own PR, because none of them needs temporary code:
 
-1. Add `DecimalDType::values_type()` and route the 25 `smallest_decimal_value_type` calls through
-   it, so that the width function has one owner (D12). Producers and imports take the width from
-   the precision. Imports copy, write zeros in null slots, and fail on a value outside the
+1. Add `DecimalDType::canonical_values_type()` and route the 25 `smallest_decimal_value_type` calls
+   through it, so that the width function has one owner (D12). Producers and imports take the width
+   from the precision. Imports copy, write zeros in null slots, and fail on a value outside the
    precision (D13).
 2. `Narrow` over decimals (N28): the child rules of D10, the kernels and casts of D15, and the rule
    that joins a `Narrow` over a `Narrow`. When `validate_dtypes` opens for decimals, the compare

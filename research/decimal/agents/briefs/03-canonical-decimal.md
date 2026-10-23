@@ -18,11 +18,13 @@ These briefs cover issue #10701: one canonical width for each decimal dtype, and
   fill-null and cast rules (NR4). Commit `af4b663059` holds merges and indices (NR5).
 - Every commit carries `Signed-off-by: Connor Tsui <connor.tsui20@gmail.com>` and no AI co-author
   line.
-- Verification commands are the user's choice. The acceptance checks list them for the user.
+- Agents can run any command that the work needs, including the acceptance checks. Use the
+  narrowest command, as `AGENTS.md` describes.
 
-Two terms recur. The canonical width of a dtype is `DecimalDType::values_type()`, which CD3 adds
-(D12). The stored width of an array is `DecimalArray::values_type()`. The two are equal for every
-array only after CD8a.
+Two terms recur. The canonical width of a dtype is `DecimalDType::canonical_values_type()`, which
+CD3 adds (D12). The name differs from the stored-width accessor on purpose, so that code cannot mix
+the two up. The stored width of an array is `DecimalArray::values_type()`. The two are equal for
+every array only after CD8a.
 
 ## Shared helpers
 
@@ -30,7 +32,7 @@ Each helper has one owner. Later PRs use it and do not add their own.
 
 | Helper | Owner | Users | Contract |
 | --- | --- | --- | --- |
-| `DecimalDType::values_type()` | CD3 | Every later PR | The canonical width of the precision (D12) |
+| `DecimalDType::canonical_values_type()` | CD3 | Every later PR | The canonical width of the precision (D12) |
 | `copy_to_canonical_width` | CD3 | CD3 imports, CD4 execution, CD5 decoding, CD6 old nodes | Public in `vortex_array::arrays::decimal`. A narrowing copy writes zeros in null slots and fails on a valid value outside the target precision (D13, D21). A widening copy checks nothing |
 | `check_precision` | CD3 | The zero-copy imports of CD3, `try_new` in CD8b | Public. Fails on a valid value outside the precision. It takes a `Mask`, so it needs no `ExecutionCtx` |
 | The best child dtype for a range | CD4 | `NarrowArray::encode_decimal`, CD6, the `Narrow` scheme of WR3 | Public. From the min and max of the valid values, or no range, and a parent `DecimalDType`, it returns the dtype with the same scale and the smallest precision that holds the range and the scale (D10) |
@@ -364,7 +366,9 @@ Design notes:
   `uv run vortex-test/compat-gen/scripts/compat.py publish --yes --git-ref <tag>`, which uploads
   every fixture to `v<version>/arrays/`. So:
   1. Merge CD2.
-  2. Cut a release from a `develop` commit that has CD2 and not CD3.
+  2. Cut a release from a `develop` commit that has CD2. CD3 can be in it too: CD3 changes no form
+     that the CD2 fixtures write, because `build_written` builds its arrays directly and not
+     through an import. CD5 and CD6 must not be in it.
   3. Confirm that the upload job passed, and that
      `uv run vortex-test/compat-gen/scripts/compat.py list --version <version>` lists the seven
      new names.
@@ -419,16 +423,17 @@ keeps `msp_i64_p4_s2_wide`, because it is a read that succeeds.
 
 ### CD3: One width owner, and imports copy into the canonical width
 
-- Goal: `DecimalDType::values_type()` becomes the one owner of the width of each precision (D12).
-  The Arrow and DuckDB imports copy into that width, with zeros in null slots and an error on a
-  valid value outside the precision (D13). One shared helper performs every such copy (D21).
+- Goal: `DecimalDType::canonical_values_type()` becomes the one owner of the width of each precision
+  (D12). The Arrow and DuckDB imports copy into that width, with zeros in null slots and an error on
+  a valid value outside the precision (D13). One shared helper performs every such copy (D21).
 - Depends on: None. Soft: CD1, CD2. Blocks: CD4, CD5, CD6, CD8a.
 - Decisions: D12, D13, D21 (the helper), D30 (imports check their own values), D3 (as far as
   imports go).
 - Branch: `ct/decimal-width-owner`, based on `develop`.
-- Scope: Add `DecimalDType::values_type()`. Remove `DecimalType::smallest_decimal_value_type` and
-  migrate all its calls. Add the shared helpers `copy_to_canonical_width` and `check_precision`.
-  Change the Arrow and DuckDB imports, so that every import checks its values (D30).
+- Scope: Add `DecimalDType::canonical_values_type()`. Remove
+  `DecimalType::smallest_decimal_value_type` and migrate all its calls. Add the shared helpers
+  `copy_to_canonical_width` and `check_precision`. Change the Arrow and DuckDB imports, so that
+  every import checks its values (D30).
 - Out of scope: Builders, including `DecimalBuilder::extend` and `append_decimal_array`
   (`vortex-array/src/builders/decimal.rs:298-306`, `:160-178`), and a strict `try_new` (CD8a, CD8b).
   DBP decoding (CD5). The read plugin (CD6). `narrowed_decimal` and the compressor (CD7). The
@@ -441,30 +446,30 @@ too. Run `rg -n smallest_decimal_value_type` at the base of CD3.
 
 | # | Call | Use | New code |
 | --- | --- | --- | --- |
-| 1 | `vortex-array/src/dtype/decimal/types.rs:73` | `is_compatible_decimal_value_type` | `self >= dtype.values_type()` |
-| 2 | `vortex-array/src/dtype/dtype_impl.rs:320` | element byte width | `decimal.values_type().byte_width()` |
-| 3 | `vortex-array/src/array/haystack/mod.rs:119` | IN-list width | `decimal.values_type()` |
-| 4 | `vortex-array/src/builders/mod.rs:416` | builder factory width | `decimal_type.values_type()` |
-| 5 | `vortex-array/src/scalar/arbitrary.rs:164` | arbitrary scalar | `decimal_type.values_type()` |
-| 6 | `vortex-array/src/scalar/typed_view/decimal/dvalue.rs:186` | `DecimalValue::zero` | `decimal_type.values_type()` |
-| 7 | `vortex-array/src/scalar/typed_view/decimal/dvalue.rs:209` | `DecimalValue::normalize` | `decimal_type.values_type()` |
-| 8 | `vortex-array/src/scalar/typed_view/decimal/arithmetic.rs:112` | scalar work width | `work.values_type()` |
-| 9 | `vortex-array/src/arrays/constant/vtable/canonical.rs:97` | constant canonicalization | `decimal_type.values_type()` |
-| 10 | `vortex-array/src/arrays/constant/vtable/canonical.rs:356` | constant canonicalization | `decimal.values_type()` |
-| 11 | `vortex-array/src/arrays/decimal/compute/cast.rs:155` | cast target width | `to_decimal_dtype.values_type()` |
-| 12 | `vortex-array/src/arrays/arbitrary.rs:146` | arbitrary array | `decimal.values_type()` |
-| 13 | `vortex-array/src/arrays/primitive/compute/cast.rs:144` | integer to decimal cast | `decimal_dtype.values_type()` |
-| 14 | `vortex-array/src/scalar_fn/fns/binary/numeric/decimal.rs:98` | arithmetic work width | `work_dtype.values_type()` |
-| 15 | `vortex-array/src/scalar_fn/fns/binary/numeric/decimal.rs:416` | arithmetic result width | `decimal_dtype.values_type()` |
-| 16 | `vortex-array/src/canonical.rs:188` | empty canonical array | `decimal_type.values_type()` |
-| 17 | `vortex-array/src/aggregate_fn/fns/uncompressed_size_in_bytes/decimal.rs:21` | size statistic | `array.decimal_dtype().values_type()` |
-| 18 | `vortex-array/src/aggregate_fn/fns/uncompressed_size_in_bytes/mod.rs:365` | size statistic | `decimal_type.values_type()` |
-| 19 | `vortex-array/src/aggregate_fn/fns/uncompressed_size_in_bytes/list_view.rs:103` | size statistic | `decimal.values_type()` |
-| 20 | `vortex-array/src/aggregate_fn/fns/sum/decimal.rs:49` | sum accumulation width | `dtype.values_type()` |
-| 21 | `vortex-cuda/src/kernel/arrays/constant.rs:73` | CUDA constant | `decimal_dtype.values_type()` |
-| 22 | `fuzz/src/array/sum/mod.rs:54` | fuzz oracle | `output_dtype.values_type()` |
-| 23 | `vortex-row/src/codec.rs:583` | row key width in `decimal_key_type` | `dt.values_type()`, keep the function and its doc |
-| 24 | `encodings/sparse/src/canonical.rs:316` | sparse canonicalization | `decimal_dtype.values_type()` |
+| 1 | `vortex-array/src/dtype/decimal/types.rs:73` | `is_compatible_decimal_value_type` | `self >= dtype.canonical_values_type()` |
+| 2 | `vortex-array/src/dtype/dtype_impl.rs:320` | element byte width | `decimal.canonical_values_type().byte_width()` |
+| 3 | `vortex-array/src/array/haystack/mod.rs:119` | IN-list width | `decimal.canonical_values_type()` |
+| 4 | `vortex-array/src/builders/mod.rs:416` | builder factory width | `decimal_type.canonical_values_type()` |
+| 5 | `vortex-array/src/scalar/arbitrary.rs:164` | arbitrary scalar | `decimal_type.canonical_values_type()` |
+| 6 | `vortex-array/src/scalar/typed_view/decimal/dvalue.rs:186` | `DecimalValue::zero` | `decimal_type.canonical_values_type()` |
+| 7 | `vortex-array/src/scalar/typed_view/decimal/dvalue.rs:209` | `DecimalValue::normalize` | `decimal_type.canonical_values_type()` |
+| 8 | `vortex-array/src/scalar/typed_view/decimal/arithmetic.rs:112` | scalar work width | `work.canonical_values_type()` |
+| 9 | `vortex-array/src/arrays/constant/vtable/canonical.rs:97` | constant canonicalization | `decimal_type.canonical_values_type()` |
+| 10 | `vortex-array/src/arrays/constant/vtable/canonical.rs:356` | constant canonicalization | `decimal.canonical_values_type()` |
+| 11 | `vortex-array/src/arrays/decimal/compute/cast.rs:155` | cast target width | `to_decimal_dtype.canonical_values_type()` |
+| 12 | `vortex-array/src/arrays/arbitrary.rs:146` | arbitrary array | `decimal.canonical_values_type()` |
+| 13 | `vortex-array/src/arrays/primitive/compute/cast.rs:144` | integer to decimal cast | `decimal_dtype.canonical_values_type()` |
+| 14 | `vortex-array/src/scalar_fn/fns/binary/numeric/decimal.rs:98` | arithmetic work width | `work_dtype.canonical_values_type()` |
+| 15 | `vortex-array/src/scalar_fn/fns/binary/numeric/decimal.rs:416` | arithmetic result width | `decimal_dtype.canonical_values_type()` |
+| 16 | `vortex-array/src/canonical.rs:188` | empty canonical array | `decimal_type.canonical_values_type()` |
+| 17 | `vortex-array/src/aggregate_fn/fns/uncompressed_size_in_bytes/decimal.rs:21` | size statistic | `array.decimal_dtype().canonical_values_type()` |
+| 18 | `vortex-array/src/aggregate_fn/fns/uncompressed_size_in_bytes/mod.rs:365` | size statistic | `decimal_type.canonical_values_type()` |
+| 19 | `vortex-array/src/aggregate_fn/fns/uncompressed_size_in_bytes/list_view.rs:103` | size statistic | `decimal.canonical_values_type()` |
+| 20 | `vortex-array/src/aggregate_fn/fns/sum/decimal.rs:49` | sum accumulation width | `dtype.canonical_values_type()` |
+| 21 | `vortex-cuda/src/kernel/arrays/constant.rs:73` | CUDA constant | `decimal_dtype.canonical_values_type()` |
+| 22 | `fuzz/src/array/sum/mod.rs:54` | fuzz oracle | `output_dtype.canonical_values_type()` |
+| 23 | `vortex-row/src/codec.rs:583` | row key width in `decimal_key_type` | `dt.canonical_values_type()`, keep the function and its doc |
+| 24 | `encodings/sparse/src/canonical.rs:316` | sparse canonicalization | `decimal_dtype.canonical_values_type()` |
 | 25 | `vortex-duckdb/src/convert/vector.rs:314` | DuckDB import narrowing | Removed. The import uses the helper |
 
 Producers and imports that create a width other than the canonical width today:
@@ -486,7 +491,7 @@ Files (checked at `b70206818f`):
 
 | Path | Change |
 | --- | --- |
-| `vortex-array/src/dtype/decimal/mod.rs` | Add `DecimalDType::values_type()` in the impl block (`:43-110`). Tests in the module test block |
+| `vortex-array/src/dtype/decimal/mod.rs` | Add `DecimalDType::canonical_values_type()` in the impl block (`:43-110`). Tests in the module test block |
 | `vortex-array/src/dtype/decimal/types.rs` | Remove `smallest_decimal_value_type` (`:45-57`). Update `is_compatible_decimal_value_type` (`:71-74`) |
 | The 23 other files of the table above | Mechanical migration |
 | `vortex-array/src/arrays/decimal/utils.rs` | Add `copy_to_canonical_width` and `check_precision`, with tests |
@@ -500,7 +505,7 @@ Design notes:
   ```rust
   impl DecimalDType {
       /// The canonical width of the values buffer for this precision.
-      pub const fn values_type(&self) -> DecimalType {
+      pub const fn canonical_values_type(&self) -> DecimalType {
           match self.precision.get() {
               1..=2 => DecimalType::I8,
               3..=4 => DecimalType::I16,
@@ -529,16 +534,16 @@ Design notes:
   ) -> VortexResult<BufferHandle>
   ```
 
-  - The result holds `values.len()` values of `target.values_type()`.
+  - The result holds `values.len()` values of `target.canonical_values_type()`.
   - It returns an error when `validity.len()` differs from `values.len()`.
-  - Narrowing copy, when `target.values_type()` is narrower than `F`: every valid value must be
-    within `F::MIN_BY_PRECISION[p]` and `F::MAX_BY_PRECISION[p]` for the precision `p` of `target`
-    (`vortex-array/src/dtype/decimal/types.rs:102-108`). Otherwise the copy fails, and the error
-    names the row, the value and `target`. Null slots of the result hold zeros.
-  - Widening copy, when `target.values_type()` is wider than `F`: each value is widened, and no
-    value is checked. The caller must know that every valid value fits `target`. This holds when
-    `target` has at least the precision of the source dtype, or when the caller chose `target` from
-    the values (CD6).
+  - Narrowing copy, when `target.canonical_values_type()` is narrower than `F`: every valid value
+    must be within `F::MIN_BY_PRECISION[p]` and `F::MAX_BY_PRECISION[p]` for the precision `p` of
+    `target` (`vortex-array/src/dtype/decimal/types.rs:102-108`). Otherwise the copy fails, and the
+    error names the row, the value and `target`. Null slots of the result hold zeros.
+  - Widening copy, when `target.canonical_values_type()` is wider than `F`: each value is widened,
+    and no value is checked. The caller must know that every valid value fits `target`. This holds
+    when `target` has at least the precision of the source dtype, or when the caller chose `target`
+    from the values (CD6).
   - Same width: a plain copy without a check. A caller that owns a `Buffer<F>` reuses it instead.
   - The helper never rescales. The caller keeps the scale.
   - Use the lane kernels for the checked loop (`vortex_compute::lane_kernels::IndexedSourceExt`, as
@@ -555,10 +560,10 @@ Design notes:
   - It builds the dtype with `DecimalDType::try_new`, not `new` (`:184`, `:195`, `:206`, `:217`).
     An invalid precision or scale from FFI then returns an error, not a panic.
   - It builds a `Mask` from the Arrow `NullBuffer`, which is all valid when absent.
-  - When the Arrow native width equals `decimal_dtype.values_type()`, it keeps the zero-copy
-    buffer, calls `check_precision`, and builds the array with the unchecked constructor. This
-    covers `Decimal32` at precision 5 to 9, `Decimal64` at 10 to 18, `Decimal128` at 19 to 38, and
-    `Decimal256` at 39 to 76.
+  - When the Arrow native width equals `decimal_dtype.canonical_values_type()`, it keeps the
+    zero-copy buffer, calls `check_precision`, and builds the array with the unchecked constructor.
+    This covers `Decimal32` at precision 5 to 9, `Decimal64` at 10 to 18, `Decimal128` at 19 to 38,
+    and `Decimal256` at 39 to 76.
   - Otherwise it calls `copy_to_canonical_width` and builds the array with the unchecked
     constructor. `Decimal256` keeps the transmute of `:219-222` before the copy.
   - The error adds context with `.with_context()`: the import rejects values outside the precision,
@@ -587,7 +592,7 @@ Design notes:
 
 Steps:
 
-1. Add `DecimalDType::values_type()` with tests.
+1. Add `DecimalDType::canonical_values_type()` with tests.
 2. Migrate the 25 calls, remove `smallest_decimal_value_type`, and update
    `is_compatible_decimal_value_type`.
 3. Add `copy_to_canonical_width` with tests.
@@ -613,8 +618,8 @@ Tests:
 - `vortex-arrow/src/convert.rs` tests:
   - `test_decimal_import_canonical_width`: `rstest` over `Decimal32(4, 2)`, `Decimal64(9, 2)`,
     `Decimal128(5, 2)`, `Decimal128(18, 2)`, `Decimal128(38, 2)`, `Decimal256(38, 2)` and
-    `Decimal256(40, 2)`. The result has `values_type() == decimal_dtype.values_type()` and equal
-    values. The equal-width cases keep the Arrow buffer pointer.
+    `Decimal256(40, 2)`. The result has `values_type() == decimal_dtype.canonical_values_type()` and
+    equal values. The equal-width cases keep the Arrow buffer pointer.
   - `test_decimal_import_zeros_null_slots`: an Arrow `Decimal128(5, 2)` array with 10^30 in a null
     slot imports, and the null slot holds zero.
   - `test_decimal_import_rejects_value_outside_precision`: `Decimal128(5, 2)` with a valid
@@ -672,7 +677,7 @@ their values in CD3 (D30).
 - Depends on: NR1, NR3, NR4, CD3, CD1. Soft: NR2 (bench file layout), NR5 (its structural rules
   also hold for decimals). Blocks: CD6, CD8a, WR1, WR3.
 - Decisions: D10, D15, D4, D8 (one encoding for integers and decimals, in memory only), D19, D25,
-  D26.
+  D26, D36.
 - Branch: `ct/decimal-narrow`, based on `develop` after NR1, NR3, NR4, CD1 and CD3 merge.
 - Scope: Open `validate_dtypes` for decimals, and add decimal execution and a decimal encoder. Add
   decimal branches to the compare, aggregate, cast and fill-null kernels. Change the decimal cast
@@ -700,10 +705,13 @@ Places in the rewrite that assume an integer child. CD4 handles each one:
 | 11 | `af4b663059:.../narrow/rules.rs:240-279` `zip_values` | `PType::try_from`, declines | Keep the decline. Test the fallback |
 | 12 | `af4b663059:.../narrow/rules.rs:316-346` `BetweenReduce` | None, a scalar cast and `two_compares` | Test only. Relies on 6 and 7 |
 | 13 | `af4b663059:.../narrow/rules.rs:281-314` `TakeIndicesReduce` | Dictionary codes are integers | None. A decimal cannot be a code |
-| 14 | `8d548646ee:vortex-array/src/arrays/narrow/aggregates.rs:83-89` | The child partial, cast to the parent partial dtype, assumes the same result dtype | Decimal `Sum` and `SumV2` use the result dtype of the parent (design notes) |
+| 14 | `8d548646ee:vortex-array/src/arrays/narrow/aggregates.rs:83-89` | The child partial, cast to the parent partial dtype, assumes the same result dtype | The kernel builds the decimal sum accumulator from the parent dtype (D36) |
 | 15 | `af4b663059:.../narrow/numeric.rs:69-72` | `PType::try_from`, declines | Keep the decline. Test the fallback |
-| 16 | `af4b663059:.../narrow/merge.rs:112-148` `stored_inputs` | `PType::try_from`, declines | Keep the decline. Test the fallback |
-| 17 | `af4b663059:.../narrow/merge.rs:77-94` interleave indices | Indices are integers | None |
+
+The rows cite the tip `af4b663059`, which also holds NR5 code. CD4 does not need NR5, so on its base
+some of these lines are elsewhere, and `TakeIndicesReduce` (row 13) exists only after NR5. The
+rewrite file `narrow/merge.rs` never lands: NR5 drops its chunked and interleave merge rules (D25).
+So CD4 has no merge code to change.
 
 Files. The `narrow` module comes from NR1 to NR4, so its lines are not on `b70206818f`:
 
@@ -714,9 +722,7 @@ Files. The `narrow` module comes from NR1 to NR4, so its lines are not on `b7020
 | `vortex-array/src/arrays/narrow/encoding.rs` | `NarrowArray::encode_decimal` and the precision helper |
 | `vortex-array/src/arrays/narrow/compare.rs` | Decimal branches |
 | `vortex-array/src/arrays/narrow/rules.rs` | Decimal `CastReduce` and `FillNullReduce` |
-| `vortex-array/src/arrays/narrow/aggregates.rs` | Decline decimal `Sum` and `SumV2` |
-| `vortex-array/src/aggregate_fn/fns/sum/mod.rs` | `try_accumulate` (`:218-254`) sums a decimal `Narrow` child with the result dtype of the parent |
-| `vortex-array/src/aggregate_fn/fns/sum_v2/mod.rs` | The same in `try_accumulate` (`:221-244`) |
+| `vortex-array/src/arrays/narrow/aggregates.rs` | The decimal sum accumulator comes from the parent dtype, and it reads the child batch (D36) |
 | `vortex-array/src/arrays/decimal/compute/cast.rs` | The D15 rule in `CastReduce` (`:45-82`) and `CastKernel` (`:84-170`) |
 | `vortex-array/src/arrays/narrow/tests/decimal.rs` | New tests, registered in `narrow/tests/mod.rs` |
 | The `Narrow` bench file of NR2, or `vortex-array/benches/` | Decimal `Narrow` benches |
@@ -726,7 +732,7 @@ Design notes:
 - `validate_dtypes(child, parent)` under D10:
   - Two primitive dtypes follow the integer rule of D22, unchanged.
   - Two decimal dtypes need the same scale, the same nullability, and
-    `child.values_type() < parent.values_type()`. `DecimalType` orders by width
+    `child.canonical_values_type() < parent.canonical_values_type()`. `DecimalType` orders by width
     (`vortex-array/src/dtype/decimal/types.rs:25-42`).
   - Any other pair fails, with an error that names both dtypes.
   - A strictly narrower canonical width implies a lower precision. `DecimalDType::try_new` already
@@ -777,21 +783,19 @@ Design notes:
 - Compare two decimal `Narrow` arrays: cast both children to the higher child precision at the
   common scale, then compare. The narrower child becomes a `Narrow` or a relabeled leaf under the
   cast rule. The comparison then falls back to its canonical form at the child width.
-- Sum. The result dtype of a decimal sum depends on the input precision (`sum_decimal_dtype`,
-  `vortex-array/src/aggregate_fn/fns/sum/mod.rs:81-86`). A child accumulator uses
-  `sum_decimal_dtype(child)`, which overflows where the parent result does not. So:
-  - The NR3 kernel declines decimal `Sum` and `SumV2` (`Ok(None)`).
-  - `Sum::try_accumulate` and `SumV2::try_accumulate` handle a batch that is a decimal `Narrow`.
-    They execute the child to a columnar form (`execute::<Columnar>`, as
-    `vortex-array/src/aggregate_fn/accumulator.rs:169` does) and pass it to their own `accumulate`
-    with the arguments of the parent. The accumulator dispatches kernels before `try_accumulate`
-    (`accumulator.rs:107-138`), so the decline comes first.
+- Sum (decided, D36). The result dtype of a decimal sum depends on the input precision
+  (`sum_decimal_dtype`, `vortex-array/src/aggregate_fn/fns/sum/mod.rs:81-86`). An accumulator for
+  the child dtype uses `sum_decimal_dtype(child)`, which overflows where the parent result does not.
+  A `Narrow` must never fail where its parent would not (D36). So:
+  - The NR3 kernel builds the sum accumulator from the dtype of the parent, and it feeds that
+    accumulator the child batch. `Sum` and `SumV2` need no `Narrow` code.
   - `accumulate_decimal` reads any input width into the width of the result dtype
     (`vortex-array/src/aggregate_fn/fns/sum/decimal.rs:27-61`). `multiply_constant` handles a
     constant child of any precision (`vortex-array/src/aggregate_fn/fns/sum/constant.rs:69-89`).
     So the sum never widens the child buffer.
-  - Alternative: keep the NR3 path, and decline when the child partial overflows. It is simpler,
-    but its fallback widens a child of any length.
+  - First, confirm that the accumulator accepts a batch whose decimal dtype differs from its input
+    dtype. Not verified. If it does not, stop and report, because the fix then touches the shared
+    accumulator code.
 - Min, max, first and last: the NR3 path stands. The child partial casts to the parent partial
   dtype, so each value becomes a value of the parent dtype. `IsSorted`, `IsConstant` and the counts
   need no change. Whether the struct partial of `MinMax` casts field by field is Not verified, so
@@ -822,7 +826,7 @@ Steps:
 1. Open `validate_dtypes` for decimals and update the docs.
 2. Add decimal execution and `encode_decimal`.
 3. Add the decimal compare branches.
-4. Route decimal `Sum` and `SumV2` through the result dtype of the parent.
+4. Build the decimal sum accumulator from the parent dtype in the NR3 kernel (D36).
 5. Add the D15 cast rules on `Narrow` and on the decimal leaf, and the fill-null branch.
 6. Add the conformance and fallback tests.
 7. Add the benchmarks.
@@ -914,9 +918,9 @@ Acceptance checks:
 
 Review focus: The child label (D10) comes only from a dtype or from `encode_decimal`. Execution
 never goes through the cast rule. The sum overflows only against the precision of the parent. The
-compare shortcut gets the sign right for negative constants and keeps nulls. Casts that wrap set
-the nullability first. Inputs at a non-canonical stored width before CD8a still give correct
-results. `DecimalArray::values_type()` (stored) and `DecimalDType::values_type()` (canonical) have
+compare shortcut gets the sign right for negative constants and keeps nulls. Casts that wrap set the
+nullability first. Inputs at a non-canonical stored width before CD8a still give correct results.
+`DecimalArray::values_type()` (stored) and `DecimalDType::canonical_values_type()` (canonical) have
 the same name.
 
 Size: large. One encoding opens for a second type, with four kernels, the cast kernel and broad
@@ -931,6 +935,7 @@ canonical width wraps it in a `Narrow` without decoding is left to the design pa
   part has the dtype `u64`. Today decoding reuses the MSP buffer at the MSP width, a form that D3
   removes.
 - Depends on: CD1, CD3, and the published CD2 fixtures (D31). Soft: FX2. Blocks: CD8a.
+- Shares files with CD7 (see the CD7 brief). Do not run CD5 and CD7 at the same time.
 - Decisions: D16, D21, D29, D3, D12, D14.
 - Branch: `ct/dbp-canonical-decode`, based on `develop` after CD3 merges, or stacked on CD3.
 - Scope:
@@ -967,8 +972,8 @@ Files (checked at `b70206818f`):
 Design notes:
 
 `assemble_decimal(msp, lower_parts, decimal_dtype, ctx)` keeps its signature. It returns a decimal
-array whose width is `T = decimal_dtype.values_type()`. The assembled width `A` is the MSP width
-with no lower parts, `i128` with one lower part, and `i256` with two or three.
+array whose width is `T = decimal_dtype.canonical_values_type()`. The assembled width `A` is the MSP
+width with no lower parts, `i128` with one lower part, and `i256` with two or three.
 
 | Lower parts | Case | Result |
 | --- | --- | --- |
@@ -1024,8 +1029,8 @@ Tests:
 - New in `assemble.rs`:
   - `test_assemble_returns_canonical_width` (`rstest`): MSP ptype and precision `(I8, 2)` reuse,
     `(I8, 4)`, `(I32, 18)`, `(I64, 38)`, `(I16, 76)` widen, and `(I64, 9)`, `(I32, 2)` narrow, each
-    with and without nulls. It asserts `values_type()` against `decimal_dtype.values_type()` and the
-    values.
+    with and without nulls. It asserts `values_type()` against
+    `decimal_dtype.canonical_values_type()` and the values.
   - `test_assemble_reuses_msp_buffer`: pointer equality when the MSP width is the canonical width.
   - `test_assemble_narrowing_copy_zeroes_null_slots`: an `i64` MSP at `Decimal(2, 0)` with 1000 in a
     null slot gives 0 in that slot.
@@ -1084,8 +1089,11 @@ Acceptance checks:
 - On a CUDA host: `cargo clippy -p vortex-cuda --all-targets --all-features -- -D warnings`,
   `cargo nextest run -p vortex-cuda`, and
   `clang-format --style=file -i vortex-cuda/kernels/src/decimal_cast.cu`.
-- `cargo run -p vortex-compat --release -- check --dir <CD2 fixtures> --mode exact`
-- Decoding gives `values_type() == decimal_dtype.values_type()` for every MSP width and part count.
+- `cargo run -p vortex-compat --release -- check --dir <CD2 fixtures> --mode exact`, where
+  `<CD2 fixtures>` holds the files that the release with CD2 published, or files generated at a
+  commit before CD5. Files generated with the CD5 code only test the new code against itself.
+- Decoding gives `values_type() == decimal_dtype.canonical_values_type()` for every MSP width and
+  part count.
 - The reuse path copies nothing. A narrowing copy writes zeros in null slots and fails on a valid
   value outside the precision. The constructor and the v2 reader reject a lower part that is not
   `u64`.
@@ -1107,7 +1115,7 @@ than the canonical width returns an error, because the btrblocks scheme never wr
   dtype. The reader converts it into the canonical array or a decimal `Narrow`. After this PR no
   read produces a decimal leaf with a non-canonical width.
 - Depends on: FX1, CD3, CD4, and the published CD2 fixtures (D31). Soft: CD5. Blocks: CD8a.
-- Decisions: D7, D9, D21, D14, D10, D24, D31.
+- Decisions: D7, D9, D21, D14, D10, D24, D31, D37.
 - Branch: `ct/decimal-read-plugin`, based on `develop` after FX1, CD3 and CD4 merge, or stacked on
   CD4.
 - Scope:
@@ -1154,7 +1162,7 @@ The ALP plugin is the model (`encodings/alp/src/alp/plugin.rs:33-94`). The deser
 (`serde.rs:419-424`), so the plugin scans the buffer (D9).
 
 `deserialize` with the stored width `W_s` and the canonical width
-`W_c = decimal_dtype.values_type()`:
+`W_c = decimal_dtype.canonical_values_type()`:
 
 1. Decode the metadata with FX1. Check that the buffer has `len * W_s.byte_width()` bytes and the
    alignment of `W_s`. A malformed node returns an error and never panics (D14).
@@ -1174,8 +1182,8 @@ The ALP plugin is the model (`encodings/alp/src/alp/plugin.rs:33-94`). The deser
       range and the scale.
    3. `p*` never exceeds `p`, because the largest magnitude of a width below `W_c` is below
       `10^p - 1`.
-   4. Let `W* = values_type(p*)`. If `W* == W_c`, return the canonical array, a widening copy from
-      `W_s`.
+   4. Let `W* = canonical_values_type(p*)`. If `W* == W_c`, return the canonical array, a widening
+      copy from `W_s`.
    5. Otherwise build the child `Decimal(p*, s)` at `W*`. Reuse the buffer if `W* == W_s`, make a
       widening copy if `W* > W_s`, and `copy_to_canonical_width` if `W* < W_s`. Return
       `NarrowArray::try_new(child, parent_dtype)`.
@@ -1188,7 +1196,7 @@ label also serves the compare shortcut of CD4.
 
 | Case | Result |
 | --- | --- |
-| All values null | `p*` comes from the scale alone. A child at `values_type(p*)`, a copy when that width differs from `W_s` |
+| All values null | `p*` comes from the scale alone. A child at `canonical_values_type(p*)`, a copy when that width differs from `W_s` |
 | Empty array | The same rule, with an empty child |
 | Negative values | The min counts: `i8` -128 needs precision 3, so the child is `i16` |
 | Scale 0 or negative | No lower bound from the scale |
@@ -1246,6 +1254,9 @@ Review focus:
 - The choice between reuse and copy.
 - The `is_supported_encoding` override, no panic on malformed input, and the host copy of device
   buffers.
+- The CUDA read of an old narrow node (decided, D37). The host converts old narrow nodes, also on
+  CUDA read paths. A GPU scan of such a node copies the buffer to the host and gets a host-side
+  `Narrow`. State this in the PR, and ask a CUDA reviewer to confirm that such a scan still works.
 
 Size: medium. One new module and one registration change.
 
@@ -1258,9 +1269,13 @@ its canonical array (D26).
   from the values. It narrows the MSP as the compressor narrows other internal children.
   `narrowed_decimal` goes. File contents stay the same, except for precision 39 to 76 with values
   that need more than 64 bits in v1 mode.
-- Depends on: NR1 (`encode_values`). Soft: CD3, CD5. Blocks: CD8a, WR3.
+- Depends on: NR1 (`encode_values`), CD1 (benchmarks first, D19). Soft: CD3, CD5. Blocks: CD8a,
+  WR3.
+- Shares files with CD5: the crate doc in `encodings/decimal-byte-parts/src/lib.rs`, the tests in
+  `assemble.rs` and `benches/dbp_assemble.rs`. CD7 also changes the signature of `split_decimal`,
+  which CD5's tests call. Do not run CD5 and CD7 at the same time.
 - Decisions: D17, D23, D22, D19, D11, D28.
-- Branch: `ct/dbp-scheme-canonical`, based on `develop` after NR1 merges.
+- Branch: `ct/dbp-scheme-canonical`, based on `develop` after NR1 and CD1 merge.
 - Scope: `lower_part_count`, `split_decimal` with an explicit count, `DecimalByteParts::encode`,
   `DecimalScheme::compress`, the removal of `narrowed_decimal`, docs, golden corpus entries and
   tests.
@@ -1439,7 +1454,7 @@ Files (checked at `b70206818f`):
 
 | Path | Change |
 | --- | --- |
-| `vortex-array/src/arrays/decimal/vtable/mod.rs:123-149` | `validate` checks `values_type == decimal_dtype.values_type()` |
+| `vortex-array/src/arrays/decimal/vtable/mod.rs:123-149` | `validate` checks `values_type == decimal_dtype.canonical_values_type()` |
 | `vortex-array/src/arrays/decimal/array.rs:188-343` | `DecimalData` constructors check the width and become crate-private. No caller outside the decimal module uses them |
 | `vortex-array/src/arrays/decimal/array.rs:404-531` | `Array<Decimal>` constructors: the width rule, and conversion in `from_iter` and `from_option_iter` |
 | `vortex-array/src/arrays/decimal/array.rs:53-109` | Type doc: one width for each precision |
@@ -1453,7 +1468,7 @@ Files (checked at `b70206818f`):
 
 Design notes:
 
-- The width rule is `values_type == decimal_dtype.values_type()`:
+- The width rule is `values_type == decimal_dtype.canonical_values_type()`:
   - `VTable::validate` checks it. This covers `Array::try_from_parts`, deserialization and
     `with_buffers`.
   - `try_new::<T>` and `try_new_handle` return an error that names the dtype, the canonical width
@@ -1468,7 +1483,8 @@ Design notes:
   `BigCast`. They panic when a value does not fit the canonical width. CD8b adds the precision
   check.
 - `DecimalBuilder::new`, `new_in`, `with_capacity` and `with_capacity_in` lose their type parameter.
-  The buffer variant comes from `decimal.values_type()`. `append_value::<V>` keeps converting.
+  The buffer variant comes from `decimal.canonical_values_type()`. `append_value::<V>` keeps
+  converting.
 - Constant canonicalization builds `Buffer::full(value.cast::<T>(), len)` with `T` the canonical
   type. A scalar keeps any width that fits its precision (`scalar/validate.rs:58-60`), so a
   `DecimalValue::I128` at precision 5 gives an `i128` buffer today. Scalars from DataFusion
@@ -1592,6 +1608,9 @@ Open questions: None.
 - Goal: `try_new` checks that every valid value fits the precision (D14). Kernels that keep values
   legal use `new_unchecked`. The builder and the iterator constructors check values.
 - Depends on: CD8a. Soft: CD1. Blocks: None.
+- Shares files with CD8c and WR1. This PR adds `ctx` to `DecimalArray::new` and `try_new`, which
+  CD8c and WR1 call, and it edits the same builder code and tests as CD8c. Land this PR first, or
+  run the three one after the other.
 - Decisions: D14, D13, D30, XQ3, XQ4.
 - Branch: `ct/decimal-value-check`, based on `develop` after CD8a merges, or stacked on CD8a.
 - Scope:
@@ -1737,6 +1756,9 @@ Open questions: None. `try_new` takes an `ExecutionCtx`, as `VarBinViewArray::tr
 - Goal: Delete the code that handles a decimal array whose width differs from its dtype. CD8a makes
   this code unreachable.
 - Depends on: CD8a. Soft: CD8b. Blocks: None.
+- Shares files with CD8b: `vortex-array/src/builders/decimal.rs`,
+  `vortex-array/src/arrays/decimal/utils.rs` and several tests. Start after CD8b merges, or rebase
+  on it.
 - Decisions: D3, D14.
 - Branch: `ct/decimal-remove-width-workarounds`, based on `develop` after CD8a merges.
 - Scope: the items in the table, and their tests.
@@ -1764,9 +1786,10 @@ Files (checked at `b70206818f`):
 | Tests | `vortex-array/src/scalar_fn/fns/binary/compare/tests.rs:575-616`, `vortex-array/src/scalar_fn/fns/binary/numeric/tests.rs:421`, `:818`, `vortex-array/src/builders/decimal.rs:347` (`test_mixed_extend`), `vortex-array/src/aggregate_fn/fns/all_non_distinct/tests.rs:283-292` |
 
 Design notes: Each change replaces a width dispatch with one dispatch over
-`decimal_dtype.values_type()`. Where a `None` becomes impossible, the code uses `vortex_expect` with
-a message that names the invariant. Two operands of one decimal dtype share one width after CD8a.
-Scalars of a dtype fit its precision (`scalar/validate.rs:58-60`), so they fit the canonical type.
+`decimal_dtype.canonical_values_type()`. Where a `None` becomes impossible, the code uses
+`vortex_expect` with a message that names the invariant. Two operands of one decimal dtype share one
+width after CD8a. Scalars of a dtype fit its precision (`scalar/validate.rs:58-60`), so they fit the
+canonical type.
 
 Steps:
 

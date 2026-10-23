@@ -178,9 +178,9 @@ Benchmarks and fixtures come first:
 The in-memory change has these steps, in order. Each step is its own PR, because none of them
 needs temporary code (decided, D11):
 
-1. Give the width function one owner. `DecimalDType::values_type()` replaces the 25 direct calls
-   to `smallest_decimal_value_type`. Producers and imports take the width from the precision, and
-   every import checks its values (decided, D12, D13 and D30).
+1. Give the width function one owner. `DecimalDType::canonical_values_type()` replaces the 25 direct
+   calls to `smallest_decimal_value_type`. Producers and imports take the width from the precision,
+   and every import checks its values (decided, D12, D13 and D30).
 2. Add `Narrow` over decimals (N28). This step holds the child rules of D10, the kernels and casts
    of D15, and the rule that joins a `Narrow` over a `Narrow`. When `validate_dtypes` opens for
    decimals, the compare kernel and the sum pushdown get decimal code in the same change.

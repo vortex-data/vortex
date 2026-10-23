@@ -10,8 +10,13 @@ These briefs cover the integer `Narrow` track. NR1, NR3 and NR4 land the local r
 `b70206818f`. NR1 also gets `encode_values`, the serialization workaround and a flatten rule. NR2
 is new. NR5 keeps only the dictionary-codes rule of the rewrite, and it adds the rules that move
 structural encodings above `Narrow` (D25). NR6 moves the existing narrowing call sites to
-`encode_values` (D28). All rewrite commits and `adc1e83b9d` are reachable from every worktree,
-because the worktrees share one bare repository.
+`encode_values` (D28). All rewrite commits and `adc1e83b9d` are reachable from every local worktree,
+because the worktrees share one bare repository. The rewrite commits are not on `origin`. Only the
+local branches `ct/narrow-pushdown` (checked out in `vortex3`) and `ct/narrow-encoding` hold them,
+and both names also exist on `origin` with the older commits of the closed PRs. Do not push, reset
+or delete these two local branches. A remote agent cannot reach the commits until they are pushed
+to a new backup branch. `adc1e83b9d`, `0d94e44a91` and `07fafc2a5b` are on
+`origin/ct/narrow-compression`.
 
 No build, test or benchmark ran for these briefs. Every statement that a commit builds or passes
 comes from reading the code, and it is marked "Not verified" where it matters.
@@ -60,7 +65,7 @@ These changes on `develop` since `61ff28d970` touch the APIs that the rewrite us
 | `fill_null` on an empty input | `633c52deab` (#10627) | `FillNull` returns an empty array for a non-constant fill on an empty input (`vortex-array/src/scalar_fn/fns/fill_null/mod.rs:145`). The `Narrow` rule receives a `Scalar`, so it is not affected |
 | Kernel for constant dictionary codes | `a169338930` (#10643) | A new execute-parent kernel handles `Constant` codes (`vortex-array/src/arrays/dict/take.rs:181-205`). The NR5 rule for `Narrow` codes is a reduce rule, so the two do not overlap |
 | Deprecated APIs and `legacy_session` removed | `85ae34d5f0` (#10595) | The rewrite uses none of the removed APIs |
-| Execution contexts in validation and patches | `c48457b572`, `7216cb5cb8`, `673fd2e064` | `ListViewArray::try_new` and `Patches` take a context. The rewrite uses neither |
+| Execution contexts in validation and patches | `c48457b572`, `7216cb5cb8`, `673fd2e064`, `b549eb5a97` | `ListViewArray::try_new`, `Patches::new`, `MaskedArray::try_new`, `RunEndArray::try_new` and `SparseArray::try_new` take a context. The rewrite uses none of them. The new NR5 rules rebuild `Masked`, `RunEnd` and `Sparse`, so the NR5 brief names constructors without a context |
 
 `VTable`, `OperationsVTable`, `ValidityChild`, the kernel registry, `CompareKernel`,
 `execute_compare`, `execute_numeric`, the reduce adaptors, `ChunkedSlots::CHUNKS_OFFSET`,
@@ -126,6 +131,10 @@ benchmarks exist before the kernels change. NR6 needs only NR1. CodSpeed baselin
 to `develop` (`.github/workflows/codspeed.yml:13-17`). How CodSpeed picks a base for a PR whose base
 branch is another PR branch is not verified. The safe order is to merge NR1 and NR2, then rebase NR3
 to NR5 on `develop` before their CodSpeed reports are read.
+
+`develop` squash-merges PRs. After a PR of the stack merges, a plain `git rebase develop` on the
+next branch replays the commits of the merged PR again and conflicts. Rebase with
+`git rebase --onto develop <old tip of the merged branch>`, or with `gh stack`.
 
 ### Integer-only sites in the rewrite (input for CD4)
 
@@ -444,7 +453,8 @@ Open questions: None.
 - Goal: Register one fallback aggregate kernel for `Narrow`. It runs order-preserving and
   sum-like aggregates on the child, and it casts the partial state to the state dtype of the
   parent.
-- Depends on: NR1. Soft: NR2. Blocks: NR4 (stack), CD4.
+- Depends on: NR1, NR2 (stack, D35: the benchmarks exist before the kernels change). Soft: None.
+  Blocks: NR4 (stack), CD4.
 - Decisions: D15.
 - Branch: `ct/narrow-aggregate-kernels`, based on NR2.
 - Scope: Cherry-pick `8d548646ee`. Replace `array_session()` in its tests.
@@ -646,8 +656,23 @@ Design notes:
 | `Narrow(Chunked(c1, ..., cn))` | `Chunked(Narrow(c1), ..., Narrow(cn))` |
 | `Narrow(Interleave(selectors, v1, ..., vn))` | `Interleave(selectors, Narrow(v1), ..., Narrow(vn))` |
 
-- Every output is valid. Each new `Narrow` wraps an array of the child dtype, so `validate_dtypes`
-  holds. A cast of a scalar from the child dtype to the parent dtype is exact.
+- Every output is valid if each new `Narrow` gets the right dtype. The array that it wraps can have
+  another nullability than the structural array above it. `Masked` has the nullable dtype of its
+  child (`vortex-array/src/arrays/masked/array.rs:84`), so its child is often non-nullable. `Dict`
+  values can be non-nullable under nullable codes, and `Sparse` values can be non-nullable under a
+  null fill. So each new `Narrow` takes the parent dtype with the nullability of the array that it
+  wraps: `parent.with_nullability(inner.dtype().nullability())`. Then `validate_dtypes` holds. A
+  cast of a scalar from the child dtype to the parent dtype is exact.
+- Reduce rules have no `ExecutionCtx`, but `MaskedArray::try_new`, `RunEndArray::try_new`,
+  `RunEndArray::new`, `SparseArray::try_new` and `Patches::new` need one. Use the constructors
+  without a context:
+  - `Masked`: `MaskedArray::new_unchecked`. Its safety needs a child without nulls. The new
+    `Narrow` has the validity of the old child, so it holds.
+  - `RunEnd`: `RunEnd::new_unchecked(ends, values, offset, length)`, with the ends, offset and
+    length of the input.
+  - `Sparse`: `patches.map_values(..)` (`vortex-array/src/patches.rs:972`), then
+    `SparseArray::try_new_from_patches`.
+  - `Dict`, `Chunked` and `Interleave`: their `try_new` takes no context.
 - Where the rules live. `Dict`, `Constant`, `Masked`, `Chunked` and `Interleave` are in
   `vortex-array`, so their rules are `Narrow` reduce rules that match the child encoding. `RunEnd`
   and `Sparse` are in their own crates, which depend on `vortex-array`. So their rules are
@@ -677,7 +702,9 @@ Tests:
 - `test_pull_up_structural`, an `rstest` over the five `vortex-array` shapes. Each result has the
   structural encoding at the root and a `Narrow` below it. Its values equal the input, checked with
   `assert_arrays_eq!`.
-- `test_pull_up_nullable`: nullable children, a null constant, and `Masked` with nulls.
+- `test_pull_up_nullable`: nullable children, a null constant, `Masked` with nulls over a
+  non-nullable child, `Dict` with nullable codes over non-nullable values, and `Sparse` with a null
+  fill over non-nullable values.
 - `test_pull_up_fixed_point`: `optimize()` on a `Chunked` of `Narrow` chunks returns the same tree.
   So no rule pair loops.
 - In `encodings/runend` and `encodings/sparse`: `Narrow` over the encoding optimizes to the encoding
@@ -698,7 +725,11 @@ Acceptance checks:
 - After `optimize()`, no `Narrow` sits directly above one of the seven encodings.
 
 Review focus: The fill and constant casts to the parent dtype. Nullability of each new `Narrow`.
-No rule pair loops. The dictionary rule copies `DictData`.
+No rule pair loops. The dictionary rule copies `DictData`. Each `unsafe` constructor has a SAFETY
+comment that names why its precondition holds.
+
+Shares files with CD4: both edit `vortex-array/src/arrays/narrow/rules.rs`. Do not run NR5 and CD4
+at the same time.
 
 Size: Medium. Seven small rules in three crates, and their tests.
 

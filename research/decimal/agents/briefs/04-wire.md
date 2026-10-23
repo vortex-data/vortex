@@ -5,9 +5,9 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 # Wire change: briefs WR1 to WR3
 
-These briefs assume that NR1 to NR5 and CD3 to CD8a are on `develop`. Integer and decimal `Narrow`
-then exist in memory with no wire form, and one DecimalByteParts (DBP) scheme takes the canonical
-decimal array.
+WR1 needs NR1, CD3, CD4 and CD8a on `develop`. WR3 also needs NR5 and CD7. In practice NR1 to NR5
+and CD3 to CD8a are all on `develop` by then. Integer and decimal `Narrow` then exist in memory with
+no wire form, and one DecimalByteParts (DBP) scheme takes the canonical decimal array.
 
 Paths under `vortex-array/src/arrays/narrow/` do not exist at `b70206818f`. NR1 creates them. The
 briefs cite the local rewrite (`f7408481ce`) or the closed #10333 (`adc1e83b9d`) for them. Every
@@ -25,11 +25,13 @@ The section [Lockstep](#lockstep) gives the reasons.
   error and never a panic. When the selected editions do not permit `vortex.narrow`, the writer
   still writes the canonical array (D26).
 - Depends on: NR1 (encoding, `validate_dtypes`, the lowering hook, registration), CD3
-  (`DecimalDType::values_type()`), CD4 (decimal rules in `validate_dtypes`, decimal `Narrow`).
-  Soft: FX1, NR3, NR4, NR5, CD6. Blocks: WR2, WR3.
+  (`DecimalDType::canonical_values_type()`), CD4 (decimal rules in `validate_dtypes`, decimal
+  `Narrow`). Soft: FX1, NR3, NR4, NR5, CD6. Blocks: WR2, WR3.
 - Decisions: D8, D10, D14, D15 (one `Narrow` over a `Narrow`), D22, D26, D32. Invariants 1, 2 and 6
   of `docs/specs/versioning/design.md:219-235`.
 - Branch: `ct/narrow-wire-format`, based on `develop` after CD8a.
+- Shares an API with CD8b: CD8b adds `ctx` to `DecimalArray::new` and `try_new`, which the decimal
+  tests of this PR call. Start after CD8b merges, or rebase on it.
 - Scope: The serializer and deserializer of `vortex.narrow`, the documented wire contract, the
   lowering when the context does not permit the ID, and tests for round trips and for every
   rejected input.
@@ -112,9 +114,10 @@ pub(super) fn child_dtype(parent: &DType, metadata: &[u8]) -> VortexResult<DType
    - The variant matches the parent: `Integer` for an integer parent, `Decimal` for a decimal
      parent.
    - Integer parent: `PType::try_from` of the value. An unknown value is an error.
-   - Decimal parent: `DecimalDType::try_new(precision, parent.scale())`. This rejects 0, a value
-     above 76, and a precision below a positive scale
-     (`vortex-array/src/dtype/decimal/mod.rs:48-78`).
+   - Decimal parent: convert the stored `u32` with `u8::try_from`, and fail on a value above 255.
+     Never use `as u8`: 258 would wrap to 2 and decode as a valid-looking child. Then call
+     `DecimalDType::try_new(precision, parent.scale())`. This rejects 0, a value above 76, and a
+     precision below a positive scale (`vortex-array/src/dtype/decimal/mod.rs:48-78`).
    - `validate_dtypes(&child, parent)`. This rejects a float child, other signedness, a width that
      is not smaller, and a decimal child whose canonical width is not narrower (D10, D22).
 3. `children.get(0, &child, len)`. The child dtype is valid at this point. The slice impl of
@@ -151,7 +154,8 @@ Tests:
   child gives `Decimal(7)`. The serialized ID is `vortex.narrow`.
 - `reject_metadata`, `rstest`: an empty buffer, bytes that do not decode, an unknown `PType`, a
   `Decimal` variant under an integer parent, an `Integer` variant under a decimal parent, precision
-  0, precision 77, a precision below the scale, a precision whose canonical width is not narrower,
+  0, precision 77, precision 258 (which `as u8` would wrap to 2) under `Decimal(12, 2)`, a precision
+  below the scale, a precision whose canonical width is not narrower,
   `F32`, `U8` under `I64` (signedness), and `I64` under `I64` (same width).
 - `reject_parent_dtype`, `rstest`: `F64`, `Utf8`, `Bool`, `I8`, `Decimal(2, 1)`.
 - `reject_child_and_buffer_counts`: zero children, two children, one buffer.
@@ -307,8 +311,8 @@ the cascade budget (D33). The facts below are the input for that pass.
   (D17). Integers narrow by width with the same signedness (D22). This replaces part 2 of #10333.
 - Depends on: WR1 (serializer), WR2 (the edition that tests and snapshots select), NR1
   (`NarrowArray::encode`), NR5 (the rules that move structural encodings above `Narrow`), CD3
-  (`values_type()` and the narrowing copy), CD4 (`NarrowArray::encode_decimal` and the best child
-  dtype), CD7 (the DBP scheme on the canonical array). Soft: NR2, CD1, CD8a. Blocks: LT1.
+  (`canonical_values_type()` and the narrowing copy), CD4 (`NarrowArray::encode_decimal` and the
+  best child dtype), CD7 (the DBP scheme on the canonical array). Soft: NR2, CD1, CD8a. Blocks: LT1.
 - Decisions: D4, D10, D11, D17, D18, D19, D22, D23, D25, D27, D33.
 - Branch: `ct/narrow-compressor`, based on WR2.
 - Scope: A `Narrow` scheme for integers and decimals, its gate in the BtrBlocks builder, the CUDA
@@ -436,7 +440,7 @@ Hard dependencies on the NR and CD PRs:
 | PR | Needs | For |
 | --- | --- | --- |
 | WR1 | NR1 | `Narrow`, `validate_dtypes`, the lowering hook, registration in the default `ArraySession` (`f7408481ce:vortex-array/src/session/mod.rs`) |
-| WR1 | CD3 | `DecimalDType::values_type()` for the width check |
+| WR1 | CD3 | `DecimalDType::canonical_values_type()` for the width check |
 | WR1 | CD4 | Decimal rules in `validate_dtypes` and decimal `Narrow` arrays |
 | WR2 | CD5 | The v2 contract with `u64` lower parts and canonical decoding (D16) |
 | WR2 | CD7 | The DBP scheme on the canonical array, which v2 mode runs once the edition permits v2 |
