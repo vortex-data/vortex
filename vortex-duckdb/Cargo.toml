@@ -66,6 +66,10 @@ wkb = { workspace = true }
 name = "bool_export"
 harness = false
 
+[[bench]]
+name = "decimal_export"
+harness = false
+
 [lints]
 workspace = true
 
