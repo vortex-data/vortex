@@ -11,6 +11,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 
 use crate::ArrayRef;
@@ -40,6 +41,17 @@ pub struct DictMetadata {
     // false/None = unknown whether all values are referenced (conservative default).
     #[prost(optional, bool, tag = "4")]
     pub(super) all_values_referenced: Option<bool>,
+}
+
+impl DictMetadata {
+    pub(super) fn get_codes_ptype(&self) -> VortexResult<PType> {
+        PType::try_from(self.codes_ptype).map_err(|_| {
+            vortex_err!(
+                "DictMetadata codes_ptype must be a known PType, got {}",
+                self.codes_ptype
+            )
+        })
+    }
 }
 
 #[array_slots(Dict)]
@@ -358,6 +370,7 @@ impl Array<Dict> {
 mod test {
     use std::sync::LazyLock;
 
+    use prost::Message;
     use rand::RngExt;
     use rand::SeedableRng;
     use rand::distr::Distribution;
@@ -371,10 +384,13 @@ mod test {
     use vortex_mask::AllOr;
     use vortex_session::VortexSession;
 
+    use super::DictMetadata;
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::array::VTable;
     use crate::arrays::ChunkedArray;
+    use crate::arrays::Dict;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
@@ -580,6 +596,36 @@ mod test {
             }
             .encode_to_vec(),
         );
+    }
+
+    #[test]
+    fn test_deserialize_rejects_unknown_codes_ptype() -> VortexResult<()> {
+        let metadata = DictMetadata {
+            codes_ptype: 11,
+            ..Default::default()
+        }
+        .encode_to_vec();
+        let children: Vec<ArrayRef> = Vec::new();
+        let result = Dict.deserialize(
+            &DType::Primitive(PType::I32, NonNullable),
+            0,
+            &metadata,
+            &[],
+            &children,
+            &SESSION,
+        );
+        assert!(result.is_err_and(|err| {
+            err.to_string()
+                .contains("DictMetadata codes_ptype must be a known PType, got 11")
+        }));
+
+        let known = DictMetadata {
+            codes_ptype: PType::U32 as i32,
+            ..Default::default()
+        };
+        assert_eq!(known.get_codes_ptype()?, PType::U32);
+
+        Ok(())
     }
 
     /// Covers the early exit taken once every value is referenced, including when that happens

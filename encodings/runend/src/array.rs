@@ -43,6 +43,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -67,6 +68,17 @@ pub struct RunEndMetadata {
     pub num_runs: u64,
     #[prost(uint64, tag = "3")]
     pub offset: u64,
+}
+
+impl RunEndMetadata {
+    fn get_ends_ptype(&self) -> VortexResult<PType> {
+        PType::try_from(self.ends_ptype).map_err(|_| {
+            vortex_err!(
+                "RunEndMetadata ends_ptype must be a known PType, got {}",
+                self.ends_ptype
+            )
+        })
+    }
 }
 
 impl ArrayHash for RunEndData {
@@ -152,7 +164,8 @@ impl VTable for RunEnd {
         session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         let metadata = RunEndMetadata::decode(metadata)?;
-        let ends_dtype = DType::Primitive(metadata.ends_ptype(), Nullability::NonNullable);
+        let ends_ptype = metadata.get_ends_ptype()?;
+        let ends_dtype = DType::Primitive(ends_ptype, Nullability::NonNullable);
         let runs = usize::try_from(metadata.num_runs).vortex_expect("Must be a valid usize");
         let ends = children.get(0, &ends_dtype, runs)?;
 
@@ -575,6 +588,8 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
+    use prost::Message;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::DecimalArray;
@@ -591,10 +606,12 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::dtype::i256;
     use vortex_array::validity::Validity;
+    use vortex_array::vtable::VTable;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::RunEndMetadata;
     use crate::RunEnd;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -932,6 +949,36 @@ mod tests {
         let expected =
             DecimalArray::from_iter([first, first, second, second, second], decimal_dtype);
         assert_arrays_eq!(arr, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_deserialize_rejects_unknown_ends_ptype() -> VortexResult<()> {
+        let metadata = RunEndMetadata {
+            ends_ptype: 11,
+            ..Default::default()
+        }
+        .encode_to_vec();
+        let children: Vec<ArrayRef> = Vec::new();
+        let result = RunEnd.deserialize(
+            &DType::Primitive(PType::I32, Nullability::NonNullable),
+            0,
+            &metadata,
+            &[],
+            &children,
+            &SESSION,
+        );
+        assert!(result.is_err_and(|err| {
+            err.to_string()
+                .contains("RunEndMetadata ends_ptype must be a known PType, got 11")
+        }));
+
+        let known = RunEndMetadata {
+            ends_ptype: PType::U32 as i32,
+            ..Default::default()
+        };
+        assert_eq!(known.get_ends_ptype()?, PType::U32);
+
         Ok(())
     }
 }
