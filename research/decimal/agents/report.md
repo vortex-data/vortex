@@ -628,20 +628,21 @@ at precision 39 to 76, or it comes from a write that skipped the decimal scheme.
 
 #### The integer `Narrow` PRs
 
-The integer `Narrow` is a draft stack: PRs #10223, #10332 and #10333. Section 8.3 and the decisions
-file give their state on 2026-10-23. A local rewrite of #10223 and #10332 makes `Narrow` in-memory
-only. It goes up as new PRs, and the old PRs close then. Its only integer-only check is the private
-`validate_dtypes`, so decimal support stays additive. When that check opens for decimals, the
-compare kernel and the sum pushdown need decimal code in the same change.
+The integer `Narrow` was a draft stack: PRs #10223, #10332 and #10333. The maintainer closed all
+three on 2026-10-23, and new PRs replace them. Section 8.3 and the decisions file give the state on
+2026-10-23. A local rewrite of #10223 and #10332 makes `Narrow` in-memory only. It goes up as new
+PRs after a rebase over PR #10681, which removed `array_session()`. Its only integer-only check is
+the private `validate_dtypes`, so decimal support stays additive. When that check opens for
+decimals, the compare kernel and the sum pushdown need decimal code in the same change.
 
-The pushed PR #10333 adds `vortex.narrow` to a new draft edition `preview2026.10.0`, with one
+The closed PR #10333 adds `vortex.narrow` to a new draft edition `preview2026.10.0`, with one
 metadata byte that holds the child `PType`. Under D8, the metadata stores the child dtype: the
 child `PType` for an integer parent, or the child precision for a decimal parent. The parent dtype
 tells the reader which of the two it holds. Every release that permits an ID must read every valid
 instance of it (invariant 6 in `docs/specs/versioning/design.md`). So the decimal reader ships in
 the same release as the first edition that permits `vortex.narrow`. The second part of #10333
-moves into the wire change, which puts `vortex.narrow` and DBP v2 into one preview edition (D11,
-D18).
+comes back as a new PR in the wire change, which puts `vortex.narrow` and DBP v2 into one preview
+edition (D11, D18).
 
 #### DecimalByteParts
 
@@ -1711,9 +1712,10 @@ Independent changes, in any order. On 2026-10-23, none of these is on `develop`:
   the case that needs execution, and tests for a nullable-to-non-nullable cast with nulls, without
   nulls, and with only nulls. It is its own PR, with no issue.
 - **P3.** N1: the urgent extension changes U1 to U8.
-- **P4.** The integer `Narrow` in memory. The rewrite of #10223 and #10332 goes up as new PRs, and
-  the old PRs close then. The first part of PR #10333 (`NarrowArray::encode_values`) lands with it.
-  The fix for dictionary fill codes is its own PR.
+- **P4.** The integer `Narrow` in memory. #10223, #10332 and #10333 closed on 2026-10-23. The
+  rewrite of #10223 and #10332 goes up as new PRs after a rebase. A new PR with the first part of
+  #10333 (`NarrowArray::encode_values`) lands after it. The fix for dictionary fill codes is its
+  own PR.
 
 Benchmarks and fixtures, before the producers change:
 
@@ -1935,6 +1937,7 @@ GitHub, read only:
 | [PR #10230](https://github.com/vortex-data/vortex/pull/10230) | Canonical decimals with one integer child, stacked on #10333. The description, the diff, and the comments, read on 2026-10-19. It closed on 2026-10-19. On 2026-10-23, the review read its diff of the DBP cast rule again |
 | [PR #10305](https://github.com/vortex-data/vortex/pull/10305) | Decimal storage width at most the canonical width, open. The description, read on 2026-10-22 and 2026-10-23 |
 | [PR #10314](https://github.com/vortex-data/vortex/pull/10314) | Bounded decimal dispatch macros, draft, stacked on #10305. The description, read on 2026-10-22 and 2026-10-23 |
+| [PR #10681](https://github.com/vortex-data/vortex/pull/10681) | Removal of `array_session()`, merged on 2026-10-23. The commit message and its diff of `dict/compute/fill_null.rs`, read on 2026-10-23 |
 | [PR #10155](https://github.com/vortex-data/vortex/pull/10155) | `DecimalBuilder::extend` from wider buffers for DuckDB imports, merged. The commit message, read on 2026-10-22 |
 | [Issue #10701](https://github.com/vortex-data/vortex/issues/10701) | Tracking issue for the canonical decimal fix, opened by the maintainer on 2026-10-22. The body, read on 2026-10-23. Its question about the gap of section 3.3 was answered on 2026-10-23 |
 | [Issue #10733](https://github.com/vortex-data/vortex/issues/10733) | Tracking issue for `Narrow` over integers and decimals, opened by the maintainer on 2026-10-23. The body, read on 2026-10-23. It keeps the question about `List` and `ListView` offsets open |

@@ -137,14 +137,15 @@ them is on `develop`:
    own PR with tests, and it needs no issue.
 3. **Extension opacity fixes (N1).** These are the urgent changes in
    [part 4 of the extension notes](../extension-types/04-urgent-changes.md).
-4. **The integer `Narrow` in memory.** The rewrite of PRs
-   [#10223](https://github.com/vortex-data/vortex/pull/10223) and
-   [#10332](https://github.com/vortex-data/vortex/pull/10332) goes up as new PRs, and the old PRs
-   close then. The rewrite makes `Narrow` in-memory only. Its only integer-only check is the
-   private `validate_dtypes`, so decimal support stays additive. The first part of PR
-   [#10333](https://github.com/vortex-data/vortex/pull/10333) (`NarrowArray::encode_values`) lands
-   with it. The fix for dictionary fill codes is its own PR.
-   [`decisions.md`](../decisions.md#the-open-narrow-pull-requests) lists the state of these PRs.
+4. **The integer `Narrow` in memory.** The draft PRs
+   [#10223](https://github.com/vortex-data/vortex/pull/10223),
+   [#10332](https://github.com/vortex-data/vortex/pull/10332) and
+   [#10333](https://github.com/vortex-data/vortex/pull/10333) closed on 2026-10-23. A rewrite of
+   #10223 and #10332 goes up as new PRs after a rebase. The rewrite makes `Narrow` in-memory only.
+   Its only integer-only check is the private `validate_dtypes`, so decimal support stays
+   additive. A new PR with the first part of #10333 (`NarrowArray::encode_values`) lands after it.
+   The fix for dictionary fill codes is its own PR.
+   [`decisions.md`](../decisions.md#the-narrow-pull-requests) lists the state of these PRs.
 
 ## One canonical form
 
@@ -216,7 +217,7 @@ the bar of no compute regression applies to the final state (decided, D19).
 
 | Wave | Work |
 | --- | --- |
-| 0, independent | Strict enum decoding, the DecimalByteParts nullability fix, N1, the integer `Narrow` in memory with the first part of PR #10333, and the decimal benchmarks and fixtures |
+| 0, independent | Strict enum decoding, the DecimalByteParts nullability fix, N1, the integer `Narrow` in memory followed by the `encode_values` PR, and the decimal benchmarks and fixtures |
 | 1, one canonical form | N11 as two changes (D11). The in-memory change holds the width owner, N28 for decimals, DecimalByteParts decoding, the read plugin, the DecimalByteParts scheme on the canonical array and the strict `try_new`, each as its own PR. The wire change holds the `vortex.narrow` wire format, the preview edition with DecimalByteParts lower parts, and the decimal `Narrow` scheme |
 | 2, foundations | N7 fixed-width kernels. N8 scaled-integer kernels, used first by `Timestamp` unit casts. N4 cast rules, then N21 `Duration` and `Interval`. N2 and then N3, with the decimal rules as acceptance tests. N23 engine plugins |
 | 3, new types | N9 wide integers, user-visible only behind an edition (recommendation DQ5). N10 edition gates and the protobuf `oneof`. N17 FixedSizeBinary, after DQ7. N5 array validation |

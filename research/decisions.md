@@ -105,32 +105,37 @@ These questions belong to future work (D20). Their recommendations are not revie
 | CQ1 | What does the default cast do with a value that it cannot represent exactly? | It returns an error, like `TryFrom`. Lossy steps such as `trunc` and `round` are separate, named expressions. For decimals, this is future work (D20) |
 | CQ2 | How do struct casts match fields? | By name, with unique field names (issue [#6900](https://github.com/vortex-data/vortex/issues/6900)). Extra source fields return an error |
 
-## The open `Narrow` pull requests
+## The `Narrow` pull requests
 
 This review read the draft stack on 2026-10-19 and again on 2026-10-22. The state below is from
 2026-10-23.
 
-- The pushed PRs [#10223](https://github.com/vortex-data/vortex/pull/10223),
+- The draft PRs [#10223](https://github.com/vortex-data/vortex/pull/10223),
   [#10332](https://github.com/vortex-data/vortex/pull/10332) and
-  [#10333](https://github.com/vortex-data/vortex/pull/10333) date from 2026-10-06. They are 215
-  commits behind `develop`, and #10223 and #10333 conflict with it.
-- A rewrite of #10223 and #10332 exists, but it is not pushed. It makes `Narrow` an in-memory
-  encoding with no serialized form, and it merges into `develop` without conflicts. It goes up as
-  new PRs, and #10223 and #10332 close then.
+  [#10333](https://github.com/vortex-data/vortex/pull/10333) date from 2026-10-06. The maintainer
+  closed all three on 2026-10-23, and new PRs replace them. Issue
+  [#10733](https://github.com/vortex-data/vortex/issues/10733) tracks the new PRs.
+- A rewrite of #10223 and #10332 exists in five local commits, but it is not pushed. It makes
+  `Narrow` an in-memory encoding with no serialized form. Since PR
+  [#10681](https://github.com/vortex-data/vortex/pull/10681) merged on 2026-10-23, the rewrite
+  needs a rebase. That PR removed `array_session()`, which the rewrite calls 47 times, and it
+  conflicts with the rewrite in the test module of `dict/compute/fill_null.rs`. The local branch
+  has the name `ct/narrow-pushdown`, which is the head branch of the closed #10332, so the new PRs
+  use new branch names.
 - The rewrite also fixes a fill code that the dictionary `fill_null` kernel truncates. That bug
   exists on `develop` without `Narrow`, so the fix becomes its own PR.
 - The only integer-only check of #10223 and #10332 is the private `validate_dtypes`, so decimal
   support stays additive. When that check opens for decimals, the compare kernel and the sum
   pushdown need decimal code in the same change.
 - The CodSpeed reports on #10223 and #10332 compare against `3c87da0`, because `cc018ee` had no
-  run. Their gains, such as those of the FSST benchmarks, do not come from `Narrow`. The rebased
-  PRs need new reports.
-- PR #10333 splits in two:
-  1. The first part replaces `PrimitiveArrayExt::narrow` with `NarrowArray::encode_values`.
+  run. Their gains, such as those of the FSST benchmarks, do not come from `Narrow`. The new PRs
+  need new reports.
+- The work of PR #10333 comes back as two new PRs:
+  1. The first PR replaces `PrimitiveArrayExt::narrow` with `NarrowArray::encode_values`.
      Internal buffers then keep their signedness in every preset. Golden snapshots and file
-     contents change, but no wire format changes. This part lands with the rewrite.
-  2. The second part adds the serialization of D8, the edition entry, and `Narrow` children in the
-     compressor. It moves into the wire change (D11 and D18).
+     contents change, but no wire format changes. This PR lands after the rewrite.
+  2. The second PR adds the serialization of D8, the edition entry, and `Narrow` children in the
+     compressor. It is part of the wire change (D11 and D18).
 - The CodSpeed report on #10333 shows `take_map` regressions of 22% and 11% in Simulation mode.
   The `take_map` benchmark builds `u64` patch indices directly and does not call the narrowing
   code. The cause is not known. The new PRs get fresh CodSpeed runs, and the investigation
