@@ -26,11 +26,19 @@ use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::PrimitiveArray as VortexPrimitiveArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::PType;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::matcher::Matcher;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_fastlanes::BitPacked;
+use vortex_fastlanes::BitPackedArrayExt;
+use vortex_fastlanes::BitWidthsView;
 
 use crate::ArrowExporter;
 use crate::executor::execute_arrow_naive;
@@ -42,7 +50,7 @@ impl Matcher for ArrowDictExportable {
     type Match<'a> = &'a ArrayRef;
 
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.is::<Dict>() || array.is::<Constant>()).then_some(array)
+        (array.is::<Dict>() || array.is::<Constant>() || array.is::<BitPacked>()).then_some(array)
     }
 }
 
@@ -63,6 +71,9 @@ pub(super) fn to_arrow_dictionary(
         Ok(constant) => return constant_to_dict(constant, codes_type, values_type, exporter, ctx),
         Err(array) => array,
     };
+    if let Some(dict) = bitpacked_to_dict(&array, codes_type, values_type, exporter, ctx)? {
+        return Ok(dict);
+    }
 
     // Otherwise, we should try and build a dictionary.
     let array = execute_arrow_naive(array, Some(values_type), exporter, ctx)?;
@@ -75,6 +86,68 @@ pub(super) fn to_arrow_dictionary(
         &DataType::Dictionary(Box::new(codes_type.clone()), Box::new(values_type.clone())),
     )
     .map_err(VortexError::from)
+}
+
+/// The widest packed values [`bitpacked_to_dict`] exports as codes.
+const MAX_BITPACKED_CODE_BITS: u8 = 16;
+
+/// Exports a patch-free bit-packed array as a dictionary over every value its bit width can hold.
+///
+/// Packed values are non-negative and below `2^bit_width`, so the unpacked values are their own
+/// codes into the values `0..2^bit_width`. Unpacking straight into the codes type skips decoding
+/// to the values type and then dictionary-encoding the result. Returns `None` when the array is not
+/// such a bit-packed array, the codes type cannot hold every packed value, or the dictionary would
+/// outnumber the array's rows.
+fn bitpacked_to_dict(
+    array: &ArrayRef,
+    codes_type: &DataType,
+    values_type: &DataType,
+    exporter: &ArrowExporter<'_>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrowArrayRef>> {
+    let Some(bitpacked) = array.as_opt::<BitPacked>() else {
+        return Ok(None);
+    };
+    let BitWidthsView::Global(bit_width) = bitpacked.bit_widths() else {
+        return Ok(None);
+    };
+    let Some(codes_ptype) = codes_ptype(codes_type) else {
+        return Ok(None);
+    };
+    let dict_len = 1usize << bit_width;
+    if bit_width > MAX_BITPACKED_CODE_BITS
+        || usize::from(bit_width) + usize::from(codes_ptype.is_signed_int())
+            > codes_ptype.bit_width()
+        || !values_type.is_integer()
+        || dict_len > array.len()
+        || bitpacked.patches().is_some()
+    {
+        return Ok(None);
+    }
+
+    let codes = array
+        .clone()
+        .cast(DType::Primitive(codes_ptype, array.dtype().nullability()))?;
+    let codes = execute_arrow_naive(codes, Some(codes_type), exporter, ctx)?;
+    let values = match_each_integer_ptype!(array.dtype().as_ptype(), |T| {
+        VortexPrimitiveArray::from_iter((0..dict_len).map(T::usize_as)).into_array()
+    });
+    let values = execute_arrow_naive(values, Some(values_type), exporter, ctx)?;
+    make_dict_array(codes_type, codes, values).map(Some)
+}
+
+fn codes_ptype(codes_type: &DataType) -> Option<PType> {
+    Some(match codes_type {
+        DataType::Int8 => PType::I8,
+        DataType::Int16 => PType::I16,
+        DataType::Int32 => PType::I32,
+        DataType::Int64 => PType::I64,
+        DataType::UInt8 => PType::U8,
+        DataType::UInt16 => PType::U16,
+        DataType::UInt32 => PType::U32,
+        DataType::UInt64 => PType::U64,
+        _ => return None,
+    })
 }
 
 /// Dictionary-encodes a primitive Arrow array with codes of `codes_type`.
@@ -382,6 +455,8 @@ mod tests {
     use vortex_array::scalar_fn::fns::mask::Mask;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_fastlanes::BitPackedArrayExt;
+    use vortex_fastlanes::BitPackedData;
     use vortex_session::VortexSession;
 
     use crate::ArrowArrayExecutor;
@@ -479,6 +554,30 @@ mod tests {
         let expected = UInt64Array::from_iter(values);
         let flat = arrow_cast::cast(&actual, &DataType::UInt64)?;
         assert_eq!(flat.as_ref(), &expected as &dyn arrow_array::Array);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::fits(DataType::UInt32, 11)]
+    #[case::signed_codes(DataType::Int16, 11)]
+    #[case::codes_narrower_than_bit_width(DataType::UInt16, 20)]
+    #[case::wide(DataType::UInt32, 20)]
+    fn bitpacked_exports_as_dict(
+        #[case] codes_type: DataType,
+        #[case] bit_width: u8,
+    ) -> VortexResult<()> {
+        let max = (1u64 << bit_width) - 1;
+        let values: Vec<_> = (0..5000u64)
+            .map(|i| (i % 13 != 4).then(|| i64::try_from(i * 7919 % max).unwrap_or(0)))
+            .collect();
+        let source = PrimitiveArray::from_option_iter(values.clone()).into_array();
+        let packed =
+            BitPackedData::encode(&source, bit_width, &mut SESSION.create_execution_ctx())?;
+        assert!(packed.patches().is_none());
+
+        let actual = execute(packed.into_array(), &dict_type(codes_type, DataType::Int64))?;
+        let flat = arrow_cast::cast(&actual, &DataType::Int64)?;
+        assert_eq!(flat.as_ref(), &Int64Array::from(values) as &dyn arrow_array::Array);
         Ok(())
     }
 
