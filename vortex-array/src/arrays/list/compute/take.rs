@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools as _;
+use num_traits::AsPrimitive;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -27,6 +29,7 @@ use crate::arrays::piecewise_sequence::constant_unsigned_usize;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::dtype::IntegerPType;
+use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_unsigned_integer_ptype;
@@ -162,152 +165,54 @@ fn take_slices(
     let offsets = offsets.reinterpret_cast(offsets.ptype().to_unsigned());
     let output_len = indices_ref.len();
 
+    // The piece starts and lengths are read once per piece, so they are widened to `u64` instead
+    // of compiling the gather kernels for each of their widths.
+    let starts = pieces_as_u64(&starts);
     let taken = match lengths {
         Columnar::Constant(lengths) => {
             let length = constant_unsigned_usize(&lengths);
-            take_slices_constant_start_dispatch(
-                array,
-                &starts,
-                length,
-                &offsets,
-                indices_ref,
-                output_len,
-                &data_validity,
-            )?
+            match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
+                take_slices_constant_length::<u64, O>(
+                    array,
+                    &starts,
+                    length,
+                    offsets.as_slice::<O>(),
+                    indices_ref,
+                    output_len,
+                    &data_validity,
+                )
+            })?
         }
         Columnar::Canonical(lengths) => {
-            let lengths = lengths.into_primitive();
-            take_slices_start_dispatch(
-                array,
-                &starts,
-                &lengths,
-                &offsets,
-                indices_ref,
-                output_len,
-                &data_validity,
-            )?
+            let lengths = pieces_as_u64(&lengths.into_primitive());
+            match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
+                take_slices_typed::<u64, u64, O>(
+                    array,
+                    &starts,
+                    &lengths,
+                    offsets.as_slice::<O>(),
+                    indices_ref,
+                    output_len,
+                    &data_validity,
+                )
+            })?
         }
     };
     Ok(Some(taken))
 }
 
-fn take_slices_constant_start_dispatch(
-    array: ArrayView<'_, List>,
-    starts: &PrimitiveArray,
-    length: usize,
-    offsets: &PrimitiveArray,
-    indices_ref: &ArrayRef,
-    output_len: usize,
-    data_validity: &Mask,
-) -> VortexResult<ArrayRef> {
-    match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-        take_slices_constant_offset_dispatch::<S>(
-            array,
-            starts,
-            length,
-            offsets,
-            indices_ref,
-            output_len,
-            data_validity,
-        )
-    })
-}
+/// Returns the unsigned piece values as `u64`. This does not copy when they are already `u64`.
+fn pieces_as_u64(pieces: &PrimitiveArray) -> Buffer<u64> {
+    if pieces.ptype() == PType::U64 {
+        return pieces.to_buffer::<u64>();
+    }
 
-fn take_slices_constant_offset_dispatch<S>(
-    array: ArrayView<'_, List>,
-    starts: &PrimitiveArray,
-    length: usize,
-    offsets: &PrimitiveArray,
-    indices_ref: &ArrayRef,
-    output_len: usize,
-    data_validity: &Mask,
-) -> VortexResult<ArrayRef>
-where
-    S: UnsignedPType,
-{
-    match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
-        take_slices_constant_length::<S, O>(
-            array,
-            starts.as_slice::<S>(),
-            length,
-            offsets.as_slice::<O>(),
-            indices_ref,
-            output_len,
-            data_validity,
-        )
-    })
-}
-
-fn take_slices_start_dispatch(
-    array: ArrayView<'_, List>,
-    starts: &PrimitiveArray,
-    lengths: &PrimitiveArray,
-    offsets: &PrimitiveArray,
-    indices_ref: &ArrayRef,
-    output_len: usize,
-    data_validity: &Mask,
-) -> VortexResult<ArrayRef> {
-    match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-        take_slices_length_dispatch::<S>(
-            array,
-            starts,
-            lengths,
-            offsets,
-            indices_ref,
-            output_len,
-            data_validity,
-        )
-    })
-}
-
-fn take_slices_length_dispatch<S>(
-    array: ArrayView<'_, List>,
-    starts: &PrimitiveArray,
-    lengths: &PrimitiveArray,
-    offsets: &PrimitiveArray,
-    indices_ref: &ArrayRef,
-    output_len: usize,
-    data_validity: &Mask,
-) -> VortexResult<ArrayRef>
-where
-    S: UnsignedPType,
-{
-    match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
-        take_slices_offset_dispatch::<S, L>(
-            array,
-            starts,
-            lengths,
-            offsets,
-            indices_ref,
-            output_len,
-            data_validity,
-        )
-    })
-}
-
-fn take_slices_offset_dispatch<S, L>(
-    array: ArrayView<'_, List>,
-    starts: &PrimitiveArray,
-    lengths: &PrimitiveArray,
-    offsets: &PrimitiveArray,
-    indices_ref: &ArrayRef,
-    output_len: usize,
-    data_validity: &Mask,
-) -> VortexResult<ArrayRef>
-where
-    S: UnsignedPType,
-    L: UnsignedPType,
-{
-    match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
-        take_slices_typed::<S, L, O>(
-            array,
-            starts.as_slice::<S>(),
-            lengths.as_slice::<L>(),
-            offsets.as_slice::<O>(),
-            indices_ref,
-            output_len,
-            data_validity,
-        )
+    match_each_unsigned_integer_ptype!(pieces.ptype(), |P| {
+        pieces
+            .as_slice::<P>()
+            .iter()
+            .map(|&piece| piece.as_())
+            .collect()
     })
 }
 
@@ -850,10 +755,12 @@ mod test {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::ArrayRef;
     use crate::IntoArray as _;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
@@ -1111,6 +1018,58 @@ mod test {
                 .unwrap(),
             Scalar::list(element_dtype, vec![], Nullability::NonNullable)
         );
+    }
+
+    /// The take widens narrow piece starts and lengths to `u64`.
+    #[rstest]
+    #[case::u8_pieces(
+        buffer![1u8, 0].into_array(),
+        buffer![2u8, 1].into_array(),
+        buffer![2i32, 3, 4, 0, 1],
+        buffer![0u32, 3, 3, 5]
+    )]
+    #[case::mixed_pieces(
+        buffer![1u16, 0].into_array(),
+        buffer![2u32, 1].into_array(),
+        buffer![2i32, 3, 4, 0, 1],
+        buffer![0u32, 3, 3, 5]
+    )]
+    #[case::constant_length(
+        buffer![3u16, 0].into_array(),
+        ConstantArray::new(1u8, 2).into_array(),
+        buffer![5i32, 6, 0, 1],
+        buffer![0u32, 2, 4]
+    )]
+    fn piecewise_sequence_take_narrow_pieces(
+        #[case] starts: ArrayRef,
+        #[case] lengths: ArrayRef,
+        #[case] expected_elements: Buffer<i32>,
+        #[case] expected_offsets: Buffer<u32>,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let list = ListArray::try_new(
+            buffer![0i32, 1, 2, 3, 4, 5, 6].into_array(),
+            buffer![0u32, 2, 5, 5, 7].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?
+        .into_array();
+        let output_len = expected_offsets.len() - 1;
+        let indices = PiecewiseSequenceArray::try_new(
+            starts,
+            lengths,
+            ConstantArray::new(1u64, 2).into_array(),
+            output_len,
+        )?;
+        let expected = ListArray::try_new(
+            expected_elements.into_array(),
+            expected_offsets.into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?;
+
+        assert_arrays_eq!(list.take(indices.into_array())?, expected, &mut ctx);
+        Ok(())
     }
 
     #[test]
