@@ -73,7 +73,7 @@ impl CompareKernel for BitPacked {
 /// Compare every value against the constant via the fused FastLanes `unpack_cmp` kernel.
 ///
 /// `NativePType::is_eq` / `is_lt` etc. provide total comparison (matching the primitive between
-/// kernel's dispatch shape). `NotEq` has no direct method, so use `!is_eq`.
+/// kernel's dispatch shape).
 fn compare_constant_typed<T>(
     lhs: ArrayView<'_, BitPacked>,
     bit_width: u8,
@@ -88,64 +88,38 @@ where
         + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
     <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
 {
+    // `NotEq`, `Gte` and `Lte` invert the result of `Eq`, `Lt` and `Gt`. Each pair shares one
+    // closure, so the fused unpack kernels are compiled once for both operators.
+    let eq = |a: T, b: T| a.is_eq(b);
+    let lt = |a: T, b: T| a.is_lt(b);
+    let gt = |a: T, b: T| a.is_gt(b);
     match operator {
-        CompareOperator::Eq => compare_with(
-            lhs,
-            bit_width,
-            rhs,
-            operator,
-            nullability,
-            |a, b| a.is_eq(b),
-            ctx,
-        ),
-        CompareOperator::NotEq => compare_with(
-            lhs,
-            bit_width,
-            rhs,
-            operator,
-            nullability,
-            |a, b| !a.is_eq(b),
-            ctx,
-        ),
-        CompareOperator::Lt => compare_with(
-            lhs,
-            bit_width,
-            rhs,
-            operator,
-            nullability,
-            |a, b| a.is_lt(b),
-            ctx,
-        ),
-        CompareOperator::Lte => compare_with(
-            lhs,
-            bit_width,
-            rhs,
-            operator,
-            nullability,
-            |a, b| a.is_le(b),
-            ctx,
-        ),
-        CompareOperator::Gt => compare_with(
-            lhs,
-            bit_width,
-            rhs,
-            operator,
-            nullability,
-            |a, b| a.is_gt(b),
-            ctx,
-        ),
-        CompareOperator::Gte => compare_with(
-            lhs,
-            bit_width,
-            rhs,
-            operator,
-            nullability,
-            |a, b| a.is_ge(b),
-            ctx,
-        ),
+        CompareOperator::Eq => {
+            compare_with(lhs, bit_width, rhs, operator, nullability, eq, false, ctx)
+        }
+        CompareOperator::NotEq => {
+            compare_with(lhs, bit_width, rhs, operator, nullability, eq, true, ctx)
+        }
+        CompareOperator::Lt => {
+            compare_with(lhs, bit_width, rhs, operator, nullability, lt, false, ctx)
+        }
+        CompareOperator::Gte => {
+            compare_with(lhs, bit_width, rhs, operator, nullability, lt, true, ctx)
+        }
+        CompareOperator::Gt => {
+            compare_with(lhs, bit_width, rhs, operator, nullability, gt, false, ctx)
+        }
+        CompareOperator::Lte => {
+            compare_with(lhs, bit_width, rhs, operator, nullability, gt, true, ctx)
+        }
     }
 }
 
+/// Compare every value against `rhs`. The result is `cmp(value, rhs) != negate`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "typed compare execution parameters"
+)]
 fn compare_with<T, F>(
     lhs: ArrayView<'_, BitPacked>,
     bit_width: u8,
@@ -153,6 +127,7 @@ fn compare_with<T, F>(
     operator: CompareOperator,
     nullability: Nullability,
     cmp: F,
+    negate: bool,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef>
 where
@@ -162,11 +137,11 @@ where
     <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
     F: Fn(T, T) -> bool + Copy,
 {
-    let exact = move |value| cmp(value, rhs);
+    let exact = move |value| cmp(value, rhs) != negate;
     if let Some(value) = decided_by_bit_width(bit_width, rhs, operator, cmp) {
-        return constant_result(lhs, value, nullability, &exact, ctx);
+        return constant_result(lhs, value != negate, nullability, &exact, ctx);
     }
-    stream_compare_fused(lhs, bit_width, rhs, nullability, cmp, &exact, ctx)
+    stream_compare_fused(lhs, bit_width, rhs, nullability, cmp, negate, &exact, ctx)
 }
 
 /// The result for every packed value, if the bit width alone decides it.
@@ -253,7 +228,14 @@ mod tests {
                     let packed = BitPackedData::encode(&prim.clone().into_array(), bw, &mut ctx)?;
                     let rhs_val = (cap.min(2048) / 2) as $T;
                     let rhs = ConstantArray::new(rhs_val, prim.len()).into_array();
-                    for op in [CompareOperator::Eq, CompareOperator::Lt, CompareOperator::Gte] {
+                    for op in [
+                        CompareOperator::Eq,
+                        CompareOperator::NotEq,
+                        CompareOperator::Lt,
+                        CompareOperator::Lte,
+                        CompareOperator::Gt,
+                        CompareOperator::Gte,
+                    ] {
                         let got = <BitPacked as CompareKernel>::compare(
                             packed.as_view(), &rhs, op, &mut ctx,
                         )?

@@ -59,17 +59,23 @@ const WORDS_PER_CHUNK: usize = CHUNK_SIZE / U64_BITS;
 /// Compare the unpacked values of a [`BitPackedArray`] against `rhs` using the fused FastLanes
 /// `unpack_cmp` kernel, producing a [`BoolArray`].
 ///
-/// `kernel(value, rhs)` sees only packed values, so it may assume `[0, 2^W - 1]`.
+/// `kernel(value, rhs)` sees only packed values, so it may assume `[0, 2^W - 1]`. When `negate` is
+/// set, the result of `kernel` is inverted, so one kernel serves an operator and its negation.
 /// `predicate(value)` is exact and handles patches and width 0; it is `&dyn` since that path is
 /// cold.
 ///
 /// [`BitPackedArray`]: crate::BitPackedArray
+#[expect(
+    clippy::too_many_arguments,
+    reason = "typed compare execution parameters"
+)]
 pub(super) fn stream_compare_fused<T, K>(
     array: ArrayView<'_, BitPacked>,
     bit_width: u8,
     rhs: T,
     nullability: Nullability,
     kernel: K,
+    negate: bool,
     predicate: &dyn Fn(T) -> bool,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef>
@@ -118,6 +124,9 @@ where
                     >(bit_width, packed_chunk, &mut lane_major, kernel, rhs);
                 }
                 transpose_bits::<<T as PhysicalPType>::Physical>(&lane_major, out);
+                if negate {
+                    out.iter_mut().for_each(|word| *word = !*word);
+                }
             },
         )?;
     }
