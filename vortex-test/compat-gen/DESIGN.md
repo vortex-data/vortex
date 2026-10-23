@@ -18,14 +18,15 @@ from any version decodes to the wrong values, the test fails.
 
 ## How Fixtures Work
 
-A fixture is a small `.vortex` file with known contents. The expected
-contents are defined by a Rust function — `build()` — that deterministically
-constructs the arrays. The same `build()` code is used at both ends:
+A fixture is a small `.vortex` file with known contents. A deterministic
+Rust function, `build()`, defines the expected contents. The two ends use
+these functions:
 
-- **At publish time:** `build()` produces arrays -> the writer serializes them
-  to a `.vortex` file -> the file is uploaded to S3.
-- **At check time:** `build()` produces the same arrays -> the reader decodes
-  the old file -> the two are compared value-by-value.
+- **At publish time:** `build_written()` produces arrays -> the writer
+  serializes them to a `.vortex` file -> the file is uploaded to S3.
+  `build_written()` defaults to `build()`.
+- **At check time:** `build()` produces the expected arrays -> the reader
+  decodes the old file -> the two are compared value-by-value.
 
 If the reader is correct, the values match. If a code change breaks
 decoding, they don't.
@@ -40,6 +41,22 @@ contain. The contract is that `build()` for a given fixture name is immutable
 once defined. It must never change its output. If someone modifies it, the
 check fails loudly against every old version.
 
+Some fixtures must publish an old physical form. An example is a decimal
+array that is stored narrower or wider than the canonical width of its
+precision. `build()` must not return such a form, because `check` runs
+`build()` with the current library. So these fixtures also override
+`build_written()`, which builds the arrays that `generate` and `publish`
+write. `check` still compares each published file with the result of
+`build()`. The two results have the same dtype and the same logical values.
+Only their physical form differs. So the published file keeps the old form,
+and `build()` stays the oracle.
+
+An override works only while the current library can still build the old
+form. For the decimal fixtures, that is while `DecimalArray::try_new` accepts
+the stored width. When it rejects the width, `build_written()` fails, and the
+override must be deleted. The files that earlier releases published keep the
+old form. Later releases publish the canonical form under the same name.
+
 ### Fixture evolution
 
 Because `build()` is immutable, you cannot add a column to an existing
@@ -52,23 +69,43 @@ Every fixture implements this trait in Rust:
 
 ```rust
 pub trait Fixture {
-    /// Filename, e.g. "primitives.vortex".
+    /// Filename, e.g. "primitives.vortex" or "tpch_lineitem.regular.vortex".
     fn name(&self) -> &str;
 
     /// Human-readable description.
     fn description(&self) -> &str;
 
-    /// Optional async setup (download external data, etc).
-    /// Called before build(). Default is a no-op.
-    fn setup(&self, _tmp_dir: &Path) -> VortexResult<()> { Ok(()) }
+    /// Write the file(s) that `generate` and `publish` produce into `dir`.
+    fn write(&self, dir: &Path, ctx: &mut ExecutionCtx) -> VortexResult<Vec<FixtureEntry>>;
 
-    /// Build the expected arrays. Must be deterministic.
-    /// Returns a Vec to support chunked fixtures (multiple chunks).
-    fn build(&self, tmp_dir: &Path) -> VortexResult<Vec<ArrayRef>>;
+    /// Write the file(s) that `check` compares with the published files.
+    /// Defaults to `write()`.
+    fn write_expected(
+        &self,
+        dir: &Path,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Vec<FixtureEntry>> {
+        self.write(dir, ctx)
+    }
 }
 ```
 
 All fixtures are registered in `all_fixtures()` in `src/fixtures/mod.rs`.
+
+Synthetic fixtures implement `FlatLayoutFixture`, and `FlatLayoutAdapter`
+turns each of them into a `Fixture`. Two optional methods separate the file
+that a fixture publishes from the file that `check` compares it with:
+
+- `FlatLayoutFixture::build_written()` builds the arrays that `generate`
+  writes. It defaults to `build()`. Override it only to publish an old
+  physical form that `build()` must not return, as
+  [the oracle question](#the-oracle-question) explains.
+- `Fixture::write_expected()` writes the file that `check` compares with a
+  published file. `FlatLayoutAdapter` writes `build()` in `write_expected()`
+  and `build_written()` in `write()`. Dataset fixtures keep the default.
+
+The expected-encodings check runs on the result of `build_written()`, because
+that is the form that the published file holds.
 
 ### Current fixture suite
 
