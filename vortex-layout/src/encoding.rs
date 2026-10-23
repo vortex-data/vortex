@@ -99,7 +99,12 @@ pub trait LayoutVTablePlugin: 'static + Send + Sync + Debug {
     ///
     /// This function is called only for layouts whose in-memory ID matches [`id`](Self::id). The
     /// returned ID must be declared by [`serialized_ids`](Self::serialized_ids).
-    fn serialize(&self, layout: &dyn DynLayout) -> VortexResult<LayoutSerialization> {
+    fn serialize(
+        &self,
+        layout: &dyn DynLayout,
+        session: &VortexSession,
+    ) -> VortexResult<LayoutSerialization> {
+        _ = session;
         Ok(LayoutSerialization::from_layout(layout))
     }
 

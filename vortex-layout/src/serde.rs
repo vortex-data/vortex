@@ -199,7 +199,7 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
             .collect::<VortexResult<Vec<_>>>()?;
         let children = (!children.is_empty()).then(|| fbb.create_vector(&children));
 
-        let serialization = self.session.layouts().serialize(self.layout)?;
+        let serialization = self.session.layout_serialize(self.layout)?;
 
         // Next we write out the metadata if it's non-empty.
         let metadata = &serialization.metadata;
@@ -303,7 +303,11 @@ mod tests {
             ids
         }
 
-        fn serialize(&self, layout: &dyn DynLayout) -> VortexResult<LayoutSerialization> {
+        fn serialize(
+            &self,
+            layout: &dyn DynLayout,
+            _session: &VortexSession,
+        ) -> VortexResult<LayoutSerialization> {
             Ok(LayoutSerialization {
                 serialized_id: flat_v0_id(),
                 metadata: layout.metadata(),

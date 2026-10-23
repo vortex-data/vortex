@@ -14,6 +14,7 @@ use vortex_session::registry::Id;
 use crate::DynLayout;
 use crate::LayoutEncoding;
 use crate::LayoutEncodingRef;
+use crate::LayoutId;
 use crate::LayoutSerialization;
 use crate::layouts::chunked::Chunked;
 use crate::layouts::dict::Dict;
@@ -61,24 +62,8 @@ impl LayoutSession {
         &self.registry
     }
 
-    /// Serialize `layout` with the encoding registered for its in-memory ID.
-    ///
-    /// A layout whose ID has no registered encoding, such as a foreign layout, is written under its
-    /// own ID.
-    pub fn serialize(&self, layout: &dyn DynLayout) -> VortexResult<LayoutSerialization> {
-        let Some(encoding) = self.serializers.get(&layout.encoding_id()) else {
-            return Ok(LayoutSerialization::from_layout(layout));
-        };
-        let serialization = encoding.serialize(layout)?;
-        vortex_ensure!(
-            encoding
-                .serialized_ids()
-                .contains(&serialization.serialized_id),
-            "layout serializer {} produced undeclared serialized ID {}",
-            layout.encoding_id(),
-            serialization.serialized_id,
-        );
-        Ok(serialization)
+    fn serializer(&self, id: &LayoutId) -> Option<LayoutEncodingRef> {
+        self.serializers.get(id)
     }
 }
 
@@ -116,6 +101,26 @@ pub trait LayoutSessionExt: SessionExt {
     /// Returns the layout encoding registry.
     fn layouts(&self) -> SessionGuard<'_, LayoutSession> {
         self.get::<LayoutSession>()
+    }
+
+    /// Serialize `layout` with the encoding registered for its in-memory ID.
+    ///
+    /// A layout whose ID has no registered encoding, such as a foreign layout, is written under its
+    /// own ID.
+    fn layout_serialize(&self, layout: &dyn DynLayout) -> VortexResult<LayoutSerialization> {
+        let Some(encoding) = self.layouts().serializer(&layout.encoding_id()) else {
+            return Ok(LayoutSerialization::from_layout(layout));
+        };
+        let serialization = encoding.serialize(layout, &self.session())?;
+        vortex_ensure!(
+            encoding
+                .serialized_ids()
+                .contains(&serialization.serialized_id),
+            "layout serializer {} produced undeclared serialized ID {}",
+            layout.encoding_id(),
+            serialization.serialized_id,
+        );
+        Ok(serialization)
     }
 }
 impl<S: SessionExt> LayoutSessionExt for S {}
