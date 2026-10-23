@@ -235,31 +235,44 @@ where
             .map(|(_, &value)| key(value))
     };
 
-    let (min, max) = valid_keys().fold((i128::MAX, i128::MIN), |(min, max), key| {
-        let key = key.into();
-        (min.min(key), max.max(key))
-    });
-    let range = usize::try_from(max.checked_sub(min)?).ok();
-    let (codes, values) = match range {
-        Some(range) if range < MAX_DENSE_RANGE && range <= array.len().saturating_mul(4) => {
-            encode_dense::<K, T, B>(array, &is_valid, &key, min, range)?
-        }
-        _ => {
-            let mut sample = FxHashSet::default();
-            let sampled = valid_keys()
-                .take(SAMPLE_LEN)
-                .inspect(|key| {
-                    sample.insert(*key);
-                })
-                .count();
-            if sample.len() * 8 >= sampled * 7 && K::Native::from_usize(array.len()).is_some() {
-                let codes = (0..array.len()).map(K::Native::usize_as).collect();
-                (codes, array.values().clone())
-            } else {
-                let distinct = sample.len() * array.len() / sampled.max(1);
-                encode_hashed::<K, T, B>(array, &is_valid, &key, distinct)?
-            }
-        }
+    // A sample decides how to assign codes, and rules out a dense table without scanning every
+    // key when the sampled keys already span too wide a range.
+    let mut sample = FxHashSet::default();
+    let (mut sample_min, mut sample_max) = (i128::MAX, i128::MIN);
+    let sampled = valid_keys()
+        .take(SAMPLE_LEN)
+        .inspect(|key| {
+            sample.insert(*key);
+            let key = (*key).into();
+            sample_min = sample_min.min(key);
+            sample_max = sample_max.max(key);
+        })
+        .count();
+    let dense = sample_max
+        .checked_sub(sample_min)
+        .is_some_and(|range| range < MAX_DENSE_RANGE as i128)
+        .then(|| {
+            let (min, max) = valid_keys().fold((i128::MAX, i128::MIN), |(min, max), key| {
+                let key = key.into();
+                (min.min(key), max.max(key))
+            });
+            let range = usize::try_from(max - min).ok()?;
+            (range < MAX_DENSE_RANGE && range <= array.len().saturating_mul(4))
+                .then_some((min, range))
+        })
+        .flatten();
+
+    let (codes, values) = if let Some((min, range)) = dense {
+        encode_dense::<K, T, B>(array, &is_valid, &key, min, range)?
+    } else if sampled > 0
+        && sample.len() * 8 >= sampled * 7
+        && K::Native::from_usize(array.len()).is_some()
+    {
+        let codes = (0..array.len()).map(K::Native::usize_as).collect();
+        (codes, array.values().clone())
+    } else {
+        let distinct = sample.len() * array.len() / sampled.max(1);
+        encode_hashed::<K, T, B>(array, &is_valid, &key, distinct)?
     };
 
     let codes = PrimitiveArray::<K>::new(codes, nulls.cloned());
