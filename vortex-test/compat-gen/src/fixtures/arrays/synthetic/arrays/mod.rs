@@ -9,6 +9,7 @@ mod bool;
 mod chunked;
 mod datetime;
 mod decimal;
+mod decimal_legacy;
 mod decimal_widths;
 mod fixed_size_list;
 mod list;
@@ -20,11 +21,14 @@ mod struct_nested;
 mod varbin;
 mod varbinview;
 
+#[cfg(test)]
+pub(super) use decimal_legacy::fixtures as legacy_decimal_fixtures;
+
 use crate::fixtures::FlatLayoutFixture;
 
 /// All per-array-type fixtures.
 pub fn fixtures() -> Vec<Box<dyn FlatLayoutFixture>> {
-    vec![
+    let mut fixtures: Vec<Box<dyn FlatLayoutFixture>> = vec![
         Box::new(primitive::PrimitivesFixture),
         Box::new(varbin::VarBinFixture),
         Box::new(varbinview::VarBinViewFixture),
@@ -39,5 +43,10 @@ pub fn fixtures() -> Vec<Box<dyn FlatLayoutFixture>> {
         Box::new(decimal_widths::DecimalCanonicalWidthsFixture),
         Box::new(listview::ListViewFixture),
         Box::new(map::MapFixture),
-    ]
+    ];
+    fixtures.extend(
+        decimal_legacy::fixtures()
+            .map(|fixture| -> Box<dyn FlatLayoutFixture> { Box::new(fixture) }),
+    );
+    fixtures
 }
