@@ -4,7 +4,7 @@
 //! The planner-driven scan executor.
 //!
 //! A V2 scan lowers the file's layout once into a physical plan and runs every split of it
-//! through the planning protocol: the [`Run`](vortex_scan::planning::driver::Run) driver advances
+//! through the planning protocol: the [`Run`] driver advances
 //! the split's planners and morsels, and every segment read is a protocol request served from the
 //! file's [`SegmentSource`]. The layout reader is never asked to evaluate anything.
 //!
