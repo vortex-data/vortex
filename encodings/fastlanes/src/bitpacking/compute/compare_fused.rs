@@ -59,8 +59,10 @@ const WORDS_PER_CHUNK: usize = CHUNK_SIZE / U64_BITS;
 /// Compare the unpacked values of a [`BitPackedArray`] against `rhs` using the fused FastLanes
 /// `unpack_cmp` kernel, producing a [`BoolArray`].
 ///
-/// `kernel(value, rhs)` sees only packed values, so it may assume `[0, 2^W - 1]`. When `negate` is
-/// set, the result of `kernel` is inverted, so one kernel serves an operator and its negation.
+/// `kernel(value, rhs)` sees only packed values, so it may assume `[0, 2^W - 1]`. It compares values
+/// as `V`, which can be the physical type of `T` so that types of one width share kernels. When
+/// `negate` is set, the result of `kernel` is inverted, so one kernel serves an operator and its
+/// negation.
 /// `predicate(value)` is exact and handles patches and width 0; it is `&dyn` since that path is
 /// cold.
 ///
@@ -69,10 +71,10 @@ const WORDS_PER_CHUNK: usize = CHUNK_SIZE / U64_BITS;
     clippy::too_many_arguments,
     reason = "typed compare execution parameters"
 )]
-pub(super) fn stream_compare_fused<T, K>(
+pub(super) fn stream_compare_fused<T, V, K>(
     array: ArrayView<'_, BitPacked>,
     bit_width: u8,
-    rhs: T,
+    rhs: V,
     nullability: Nullability,
     kernel: K,
     negate: bool,
@@ -84,7 +86,8 @@ where
         + BitPackedIter
         + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
     <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
-    K: Fn(T, T) -> bool + Copy,
+    V: FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
+    K: Fn(V, V) -> bool + Copy,
 {
     let len = array.len();
     let bit_width = bit_width as usize;
@@ -119,7 +122,7 @@ where
                 // kernel assigns every word in `transposed`, so its previous contents are irrelevant.
                 unsafe {
                     <<T as PhysicalPType>::Physical as BitPackingCompare>::unchecked_unpack_cmp::<
-                        T,
+                        V,
                         _,
                     >(bit_width, packed_chunk, &mut lane_major, kernel, rhs);
                 }
