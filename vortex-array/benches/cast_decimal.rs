@@ -7,7 +7,8 @@
 //!   masked kernel (`try_map_masked_into`) instead of the dense one (`try_map_into`).
 //! - **work**: an *in-place* cast that only widens precision at the same scale, so the values
 //!   buffer is reused untouched (`O(1)`), vs a *copy* cast that must allocate a new buffer and
-//!   rescan every value (`O(n)`).
+//!   rescan every value (`O(n)`), vs a *widening* cast whose target precision has a wider
+//!   canonical width than the input.
 
 #![expect(clippy::unwrap_used)]
 
@@ -22,8 +23,10 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::BigCast;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::NativeDecimalType;
 use vortex_array::dtype::Nullability;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::validity::Validity;
@@ -48,12 +51,17 @@ const SIZES: &[usize] = &[16_384];
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
 
-/// Builds an `i64`-backed `Decimal(precision, scale)` array of `n` values that all fit in
-/// precision 10, optionally with ~50% nulls.
-fn decimal_array(n: usize, precision: u8, scale: i8, nullable: bool) -> ArrayRef {
+/// Builds a `T`-backed `Decimal(precision, scale)` array of `n` values that are all below
+/// `10^9`, optionally with ~50% nulls.
+fn decimal_array<T: NativeDecimalType>(
+    n: usize,
+    precision: u8,
+    scale: i8,
+    nullable: bool,
+) -> ArrayRef {
     let mut rng = StdRng::seed_from_u64(42);
-    let values: BufferMut<i64> = (0..n)
-        .map(|_| rng.random_range(0..1_000_000_000i64))
+    let values: BufferMut<T> = (0..n)
+        .map(|_| <T as BigCast>::from(rng.random_range(0..1_000_000_000i64)).unwrap())
         .collect();
     let validity = if nullable {
         Validity::from_iter((0..n).map(|_| rng.random_bool(0.5)))
@@ -82,7 +90,7 @@ fn bench_cast(bencher: Bencher, array: ArrayRef, target: DType) {
 fn in_place_non_nullable(bencher: Bencher, n: usize) {
     bench_cast(
         bencher,
-        decimal_array(n, 10, 2, false),
+        decimal_array::<i64>(n, 10, 2, false),
         DType::Decimal(DecimalDType::new(18, 2), Nullability::NonNullable),
     );
 }
@@ -91,7 +99,7 @@ fn in_place_non_nullable(bencher: Bencher, n: usize) {
 fn in_place_nullable(bencher: Bencher, n: usize) {
     bench_cast(
         bencher,
-        decimal_array(n, 10, 2, true),
+        decimal_array::<i64>(n, 10, 2, true),
         DType::Decimal(DecimalDType::new(18, 2), Nullability::Nullable),
     );
 }
@@ -103,7 +111,7 @@ fn in_place_nullable(bencher: Bencher, n: usize) {
 fn copy_non_nullable(bencher: Bencher, n: usize) {
     bench_cast(
         bencher,
-        decimal_array(n, 18, 2, false),
+        decimal_array::<i64>(n, 18, 2, false),
         DType::Decimal(DecimalDType::new(10, 2), Nullability::NonNullable),
     );
 }
@@ -112,7 +120,28 @@ fn copy_non_nullable(bencher: Bencher, n: usize) {
 fn copy_nullable(bencher: Bencher, n: usize) {
     bench_cast(
         bencher,
-        decimal_array(n, 18, 2, true),
+        decimal_array::<i64>(n, 18, 2, true),
         DType::Decimal(DecimalDType::new(10, 2), Nullability::Nullable),
+    );
+}
+
+// Widening: the target precision has a wider canonical width than the input, so every value is
+// copied into a buffer of the wider type.
+
+#[divan::bench(args = SIZES)]
+fn widen_non_nullable(bencher: Bencher, n: usize) {
+    bench_cast(
+        bencher,
+        decimal_array::<i32>(n, 9, 2, false),
+        DType::Decimal(DecimalDType::new(18, 2), Nullability::NonNullable),
+    );
+}
+
+#[divan::bench(args = SIZES)]
+fn widen_nullable(bencher: Bencher, n: usize) {
+    bench_cast(
+        bencher,
+        decimal_array::<i32>(n, 9, 2, true),
+        DType::Decimal(DecimalDType::new(18, 2), Nullability::Nullable),
     );
 }
