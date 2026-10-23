@@ -2158,7 +2158,7 @@ async fn nested_empty_list_roundtrip(#[case] validity: Validity) -> VortexResult
     let array = StructArray::from_fields(&[("nested", outer)])?.into_array();
 
     let result = write_read_roundtrip(array.clone()).await?;
-    assert_arrays_eq!(result, array, &mut SESSION.create_execution_ctx());
+    assert_arrays_eq!(result, array, &mut ctx);
     Ok(())
 }
 
