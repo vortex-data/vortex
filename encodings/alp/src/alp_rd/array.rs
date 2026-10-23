@@ -7,6 +7,7 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 
+use ::alp::MAX_DICT_SIZE;
 use itertools::Itertools;
 use prost::Message;
 use vortex_array::Array;
@@ -46,6 +47,7 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
@@ -109,6 +111,7 @@ impl VTable for ALPRD {
     ) -> VortexResult<()> {
         let alprd_slots = ALPRDSlotsView::from_slots(slots);
         validate_parts(
+            data,
             dtype,
             len,
             alprd_slots.left_parts,
@@ -176,6 +179,15 @@ impl VTable for ALPRD {
             vortex_bail!(
                 "Expected at least 2 children for ALPRD encoding, found {}",
                 children.len()
+            );
+        }
+
+        // Stored metadata is untrusted: dict_len must stay within the stored entries.
+        if metadata.dict_len as usize > metadata.dict.len() {
+            vortex_bail!(
+                "ALP-RD dictionary length {} exceeds the {} stored entries",
+                metadata.dict_len,
+                metadata.dict.len()
             );
         }
 
@@ -470,6 +482,7 @@ fn patches_from_slots(
 
 #[allow(clippy::disallowed_methods)]
 fn validate_parts(
+    data: &ALPRDData,
     dtype: &DType,
     len: usize,
     left_parts: &ArrayRef,
@@ -494,12 +507,34 @@ fn validate_parts(
         );
     }
 
-    let expected_right_parts_dtype = match dtype {
-        DType::Primitive(PType::F32, _) => DType::Primitive(PType::U32, Nullability::NonNullable),
-        DType::Primitive(PType::F64, _) => DType::Primitive(PType::U64, Nullability::NonNullable),
+    let (expected_right_parts_dtype, float_bit_width) = match dtype {
+        DType::Primitive(PType::F32, _) => (
+            DType::Primitive(PType::U32, Nullability::NonNullable),
+            u32::BITS,
+        ),
+        DType::Primitive(PType::F64, _) => (
+            DType::Primitive(PType::U64, Nullability::NonNullable),
+            u64::BITS,
+        ),
         _ => vortex_bail!("Expected f32 or f64 dtype, got {:?}", dtype),
     };
     vortex_ensure_eq!(right_parts.dtype(), &expected_right_parts_dtype);
+
+    // Stored metadata is untrusted: the alp decoder masks codes into an at-most-MAX_DICT_SIZE
+    // dictionary, and the decode shift overflows the float's bit pattern once right_bit_width
+    // reaches the width of the float.
+    vortex_ensure!(
+        data.left_parts_dictionary().len() <= MAX_DICT_SIZE as usize,
+        "ALP-RD dictionary holds {} entries, more than MAX_DICT_SIZE ({})",
+        data.left_parts_dictionary().len(),
+        MAX_DICT_SIZE
+    );
+    vortex_ensure!(
+        u32::from(data.right_bit_width()) < float_bit_width,
+        "ALP-RD right_bit_width {} must be below the {}-bit float width",
+        data.right_bit_width(),
+        float_bit_width
+    );
 
     if let Some(patches) = left_parts_patches {
         vortex_ensure_eq!(patches.array_len(), len);
@@ -565,15 +600,24 @@ mod test {
 
     use prost::Message;
     use rstest::rstest;
+    use vortex_array::ArrayDeserialization;
+    use vortex_array::ArrayPlugin;
+    use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
     use vortex_array::dtype::NativePType;
+    use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::ALPRD;
     use super::ALPRDMetadata;
     use crate::ALPRDFloat;
     use crate::RDEncoderExt;
@@ -632,5 +676,117 @@ mod test {
             }
             .encode_to_vec(),
         );
+    }
+
+    /// Deserialize ALP-RD parts the way a file read does, through the plugin door, so both
+    /// deserialize-time and validate-time rejections surface as errors.
+    fn deserialize_alprd(
+        dtype: &DType,
+        len: usize,
+        metadata: &ALPRDMetadata,
+        children: Vec<ArrayRef>,
+    ) -> VortexResult<ArrayRef> {
+        ALPRD.deserialize(
+            ArrayDeserialization::new(
+                ALPRD.id(),
+                dtype,
+                len,
+                &metadata.encode_to_vec(),
+                &[],
+                &children,
+            ),
+            &SESSION,
+        )
+    }
+
+    /// The stored dictionary is untrusted, so `dict_len` past the end of the stored entries
+    /// must be a deserialize error, not a slice panic (#10756).
+    #[test]
+    fn test_deserialize_rejects_dict_len_past_the_stored_dictionary() {
+        let dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
+        let metadata = ALPRDMetadata {
+            right_bit_width: 32,
+            dict_len: 8,
+            dict: vec![0, 1],
+            left_parts_ptype: PType::U16 as i32,
+            patches: None,
+        };
+        let children = vec![buffer![0u16].into_array(), buffer![0u32].into_array()];
+
+        let error = deserialize_alprd(&dtype, 1, &metadata, children)
+            .expect_err("dict_len past the stored dictionary must be rejected");
+        assert!(error.to_string().contains("dictionary"));
+    }
+
+    /// The `alp` decoder's lane lookup masks codes into an at-most-`MAX_DICT_SIZE` dictionary,
+    /// so a longer stored dictionary must be rejected rather than panicking at decode time.
+    #[test]
+    fn test_deserialize_rejects_dictionary_larger_than_max_dict_size() {
+        let dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
+        let metadata = ALPRDMetadata {
+            right_bit_width: 16,
+            dict_len: 9,
+            dict: vec![0, 1, 2, 3, 4, 5, 6, 7, 8],
+            left_parts_ptype: PType::U16 as i32,
+            patches: None,
+        };
+        let children = vec![buffer![0u16].into_array(), buffer![0u32].into_array()];
+
+        let error = deserialize_alprd(&dtype, 1, &metadata, children)
+            .expect_err("a dictionary larger than MAX_DICT_SIZE must be rejected");
+        assert!(error.to_string().contains("MAX_DICT_SIZE"));
+    }
+
+    /// The decode shift `left << right_bit_width` overflows the float's bit pattern once
+    /// `right_bit_width` reaches the width of the float, so the boundary value is rejected.
+    #[rstest]
+    #[case::f32(PType::F32, 32)]
+    #[case::f64(PType::F64, 64)]
+    fn test_deserialize_rejects_right_bit_width_at_the_float_width(
+        #[case] float_ptype: PType,
+        #[case] right_bit_width: u32,
+    ) {
+        let dtype = DType::Primitive(float_ptype, Nullability::NonNullable);
+        let metadata = ALPRDMetadata {
+            right_bit_width,
+            dict_len: 2,
+            dict: vec![0, 1],
+            left_parts_ptype: PType::U16 as i32,
+            patches: None,
+        };
+        let right_parts = match float_ptype {
+            PType::F32 => buffer![0u32].into_array(),
+            _ => buffer![0u64].into_array(),
+        };
+        let children = vec![buffer![0u16].into_array(), right_parts];
+
+        let error = deserialize_alprd(&dtype, 1, &metadata, children)
+            .expect_err("right_bit_width at the float width must be rejected");
+        assert!(error.to_string().contains("right_bit_width"));
+    }
+
+    /// Metadata inside the format's bounds still deserializes and decodes: code 1 maps through
+    /// the dictionary and the shift stays below the f32 width.
+    #[test]
+    fn test_deserialize_accepts_metadata_within_bounds() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
+        let metadata = ALPRDMetadata {
+            right_bit_width: 16,
+            dict_len: 2,
+            dict: vec![10, 20],
+            left_parts_ptype: PType::U16 as i32,
+            patches: None,
+        };
+        let children = vec![buffer![1u16].into_array(), buffer![0u32].into_array()];
+
+        let deserialized = deserialize_alprd(&dtype, 1, &metadata, children)?;
+        let decoded = deserialized.execute::<PrimitiveArray>(&mut ctx)?;
+        assert_arrays_eq!(
+            decoded,
+            PrimitiveArray::from_iter([f32::from_bits(20u32 << 16)]),
+            &mut ctx
+        );
+        Ok(())
     }
 }

@@ -27,6 +27,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 use vortex_fastlanes::bitpack_compress::bitpack_encode_unchecked;
 use vortex_session::VortexSession;
@@ -151,6 +152,21 @@ where
 {
     if left_parts.len() != right_parts.len() {
         vortex_panic!("alp_rd_decode: left_parts.len != right_parts.len");
+    }
+
+    // Left-parts codes are untrusted: both decode paths below index (or mask into) the
+    // dictionary with each code, so a code outside it must be an error, not a panic or
+    // silently decoded garbage.
+    if let Some(code) = left_parts
+        .as_slice()
+        .iter()
+        .copied()
+        .find(|&code| code as usize >= left_parts_dict.len())
+    {
+        vortex_bail!(
+            "ALP-RD left-parts code {code} is not in the {}-entry dictionary",
+            left_parts_dict.len()
+        );
     }
 
     if let Some(patches) = left_parts_patches {
