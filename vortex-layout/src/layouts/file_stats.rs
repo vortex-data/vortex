@@ -167,6 +167,7 @@ impl StatsAccumulator {
                 }
                 Stat::Min | Stat::Max | Stat::Sum => {
                     if let Some(s) = values.statistics().compute_stat(stat, ctx)?
+                        && (stat != Stat::Sum || sum_fits_chunk_sum_dtype(&s, values.dtype()))
                         && let Some(v) = s.into_value()
                     {
                         let precision = if stat_was_truncated(&stats_table, stat, ctx)? {
@@ -190,6 +191,21 @@ impl StatsAccumulator {
         }
         Ok(stats_set)
     }
+}
+
+/// Returns whether the file sum fits the dtype of the chunk sums it was computed from.
+///
+/// `Sum` widens decimal precision, so summing the column of chunk sums would allow a result wider
+/// than the sum of the original input. The chunk sums already have the original input's sum
+/// dtype, so a total that does not fit their precision is an overflow and the file sum is left
+/// unset, matching a chunk sum that overflows.
+fn sum_fits_chunk_sum_dtype(sum: &Scalar, chunk_sum_dtype: &DType) -> bool {
+    let Some(decimal_dtype) = chunk_sum_dtype.as_decimal_opt() else {
+        return true;
+    };
+    sum.as_decimal_opt()
+        .and_then(|sum| sum.decimal_value())
+        .is_none_or(|value| value.fits_in_precision(*decimal_dtype))
 }
 
 fn stat_was_truncated(
@@ -538,9 +554,17 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
+    #[cfg(target_pointer_width = "64")]
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::bool::BoolArrayExt;
     use vortex_array::builders::VarBinViewBuilder;
+    #[cfg(target_pointer_width = "64")]
+    use vortex_array::dtype::DecimalDType;
+    #[cfg(target_pointer_width = "64")]
+    use vortex_array::scalar::DecimalValue;
+    #[cfg(target_pointer_width = "64")]
+    use vortex_array::scalar::ScalarValue;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
 
@@ -669,6 +693,47 @@ mod tests {
         assert_eq!(
             stats.get(Stat::Sum),
             expected.map_or(Precision::Absent, Precision::exact)
+        );
+
+        Ok(())
+    }
+
+    /// Each chunk sum of `rows_per_chunk` nines fits the `Decimal(11, 0)` sum dtype of a
+    /// `Decimal(1, 0)` column, but the file sum must fit it too rather than a twice-widened dtype.
+    #[cfg(target_pointer_width = "64")]
+    #[rstest]
+    #[case::total_fits(5_000_000_000, Some(90_000_000_000))]
+    #[case::total_overflows(10_000_000_000, None)]
+    fn decimal_file_sum_keeps_sum_precision(
+        #[case] rows_per_chunk: usize,
+        #[case] expected: Option<i128>,
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let nine = Scalar::decimal(
+            DecimalValue::I8(9),
+            DecimalDType::new(1, 0),
+            Nullability::NonNullable,
+        );
+        let chunk = ConstantArray::new(nine, rows_per_chunk).into_array();
+        let mut acc = StatsAccumulator::new(chunk.dtype(), &[Stat::Sum], 12);
+        for _ in 0..2 {
+            acc.push_chunk(&chunk, &mut ctx)?;
+        }
+
+        // The file sum must fit `Decimal(11, 0)`, the sum dtype of the original input.
+        assert_eq!(
+            Stat::Sum.dtype(chunk.dtype()),
+            Some(DType::Decimal(
+                DecimalDType::new(11, 0),
+                Nullability::Nullable
+            ))
+        );
+        let stats = acc.as_stats_set(&[Stat::Sum], &mut ctx)?;
+        assert_eq!(
+            stats.get(Stat::Sum),
+            expected.map_or(Precision::Absent, |value| {
+                Precision::exact(ScalarValue::Decimal(DecimalValue::I128(value)))
+            })
         );
 
         Ok(())
