@@ -3,6 +3,7 @@
 
 use std::sync::LazyLock;
 
+use rstest::rstest;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -26,6 +27,8 @@ use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::assert_arrays_eq;
 use crate::dtype::DecimalDType;
 use crate::dtype::FieldNames;
+use crate::dtype::half::f16;
+use crate::dtype::i256;
 use crate::executor::ExecutionCtx;
 use crate::kernel::ExecuteParentKernel;
 use crate::validity::Validity;
@@ -415,6 +418,61 @@ fn test_take_execute_kernel_handles_nullable_decimal_filter_child() -> VortexRes
         result.expect("filter child should execute its take parent"),
         DecimalArray::from_option_iter([Some(400i128), Some(100), None], decimal_dtype)
             .into_array(),
+        &mut ctx
+    );
+    Ok(())
+}
+
+/// Each case has values of a different width, which the take copies as raw bytes.
+#[rstest]
+#[case::f16(
+    PrimitiveArray::from_iter([1.0f32, 2.0, 3.0, 4.0, 5.0].map(f16::from_f32)).into_array(),
+    PrimitiveArray::from_option_iter([Some(f16::from_f32(4.0)), None, Some(f16::from_f32(1.0))])
+        .into_array(),
+)]
+#[case::f32(
+    PrimitiveArray::from_iter([1.5f32, 2.5, 3.5, 4.5, 5.5]).into_array(),
+    PrimitiveArray::from_option_iter([Some(4.5f32), None, Some(1.5)]).into_array(),
+)]
+#[case::f64(
+    PrimitiveArray::from_iter([1.5f64, 2.5, 3.5, 4.5, 5.5]).into_array(),
+    PrimitiveArray::from_option_iter([Some(4.5f64), None, Some(1.5)]).into_array(),
+)]
+#[case::decimal_i8(
+    DecimalArray::from_iter([10i8, 20, 30, 40, 50], DecimalDType::new(2, 1)).into_array(),
+    DecimalArray::from_option_iter([Some(40i8), None, Some(10)], DecimalDType::new(2, 1))
+        .into_array(),
+)]
+#[case::decimal_i256(
+    DecimalArray::from_iter(
+        [10i128, 20, 30, 40, 50].map(i256::from_i128),
+        DecimalDType::new(40, 1),
+    )
+    .into_array(),
+    DecimalArray::from_option_iter(
+        [Some(i256::from_i128(40)), None, Some(i256::from_i128(10))],
+        DecimalDType::new(40, 1),
+    )
+    .into_array(),
+)]
+fn test_take_execute_kernel_copies_every_fixed_width(
+    #[case] child: crate::ArrayRef,
+    #[case] expected: crate::ArrayRef,
+) -> VortexResult<()> {
+    let filter =
+        FilterArray::new(child, Mask::from_iter([true, false, true, true, false])).into_array();
+    let codes = PrimitiveArray::new(
+        buffer![2u64, 100, 0],
+        Validity::Array(BoolArray::from_iter([true, false, true]).into_array()),
+    );
+    let parent = DictArray::try_new(codes.into_array(), filter.clone())?.into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let result = execute_parent(&filter, &parent, 1, &mut ctx)?;
+
+    assert_arrays_eq!(
+        result.expect("filter child should execute its take parent"),
+        expected,
         &mut ctx
     );
     Ok(())
