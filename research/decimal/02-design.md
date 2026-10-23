@@ -6,21 +6,25 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 # 2. Design
 
 This part follows [`decisions.md`](../decisions.md), which records the decisions of the maintainer
-from 2026-10-19. "Decided" marks a settled choice. "Recommendation" marks a proposal of these notes
-that is still open.
+from 2026-10-19, 2026-10-22 and 2026-10-23. "Decided" marks a settled choice. "Recommendation"
+marks a proposal of these notes that is still open.
 
 ## Goal
 
 `Decimal` stays a built-in type that behaves like a hardcoded extension type (decided, D1). Each
-decimal dtype has exactly one canonical encoding (decided, D3). Decimal kernels reuse the integer
-kernels.
+decimal dtype has exactly one canonical encoding (decided, D3), and a `Narrow` encoding keeps
+narrow storage possible (decided, D4). Issue
+[#10701](https://github.com/vortex-data/vortex/issues/10701) tracks this fix. The move of decimal
+kernels onto the integer kernels is future work (decided, D20).
 
 ## The leaf
 
 A canonical decimal array is a leaf: one values buffer and validity, with no data child (decided,
 D2). `DecimalArray` and the `vortex.decimal` wire node already have this shape.
 
-The precision fixes the width of the buffer:
+The precision fixes the width of the buffer (decided, D12). The mapping is the existing
+`DecimalType::smallest_decimal_value_type`, which gives the smallest signed width that holds every
+value of the precision:
 
 ```rust
 impl DecimalDType {
@@ -38,15 +42,15 @@ impl DecimalDType {
 }
 ```
 
-Recommendation (DQ1): use this mapping, which gives the smallest signed width that holds the
-digits. It already exists as `DecimalType::smallest_decimal_value_type`.
-
 The leaf keeps three invariants:
 
 1. **Width.** The buffer has the width of the precision. Construction checks it, and the check
    costs nothing for each row.
-2. **Value.** Every valid unscaled value `v` satisfies `|v| <= 10^p - 1`. Imports from Arrow,
-   DuckDB, FFI and Python check it. Kernels that make new values check their own results.
+2. **Value.** Every valid unscaled value `v` satisfies `|v| <= 10^p - 1`. `DecimalArray::try_new`
+   checks every valid value, and `new_unchecked` skips that check for kernels that keep values
+   legal (decided, D14). Imports use `try_new`. File reads trust the precision and never panic.
+   A read that makes a narrowing copy checks the precision, because it reads every value anyway
+   (decided, D21).
 3. **Leaf.** The array has one buffer and validity, and no data child.
 
 So a kernel never receives a width that it does not expect. The `patch` panic and the "does the
@@ -55,10 +59,52 @@ constant fit" special cases go away.
 `DecimalType` already has `I128` and `I256`. So the leaf needs no new `PType`, and this fix can
 land before the wide integers.
 
+## Imports, exports and Arrow
+
+An import copies into the canonical width when the source has another width (decided, D13). It
+writes zeros in null slots, and it fails on a value outside the precision. Two common imports
+copy:
+
+- Arrow `Decimal128` data at precision 18 or below. This import is zero-copy today.
+- DuckDB data at precision 1 to 2, which DuckDB stores as `i16`.
+
+The Arrow import logic can be configured to handle values outside the precision in another way.
+
+Exports widen as they do today. The Arrow export uses `Decimal128` for every precision up to 38,
+because DataFusion does not fully support `Decimal32` and `Decimal64` yet. The DuckDB export uses
+`i16` for precision 1 to 4. To widen an array, Vortex executes a `Narrow` with a wider dtype over
+it.
+
+Arrow has the same model as Vortex. A decimal type has a precision and a scale, and each value is
+an unscaled two's complement integer. arrow-rs also rejects a positive scale larger than the
+precision. Arrow has one decimal type for each width:
+
+| Arrow type | Largest precision | Vortex width for that precision |
+| --- | --- | --- |
+| `Decimal32` | 9 | `i32` |
+| `Decimal64` | 18 | `i64` |
+| `Decimal128` | 38 | `i128` |
+| `Decimal256` | 76 | `i256` |
+
+In Arrow, the width is part of the type, so `Decimal32(5, 2)` and `Decimal128(5, 2)` are two
+types. A Vortex dtype has no width, so Vortex chooses one. From precision 5, the Vortex width is
+the width of the smallest Arrow type that holds the precision. Arrow has no 8-bit or 16-bit
+decimal, so precision 1 to 4 has no exact Arrow match. When engines support the small Arrow types,
+exports for precision 5 to 18 can stop copying.
+
+Arrow has the same gap as Vortex at the top of each width (see
+[Width and precision](#width-and-precision)). Arrow treats a value above the precision as invalid,
+but arrow-rs does not check values when it builds an array. A separate call checks them, and
+another call turns them into nulls. So an Arrow array can hold invalid values, and the Vortex
+import returns an error for them.
+
 ## The integer view
 
+This section is future work (decided, D20). Its recommendations are not reviewed.
+
 The integer view is a `PrimitiveArray` over the same buffer and validity. It needs no copy.
-Decimal kernels delegate to integer kernels through it.
+Decimal kernels can delegate to integer kernels through it. The `Narrow` work does not need the
+view, because `Narrow` kernels pass work to the decimal kernels of the child (decided, D15).
 
 For precision 1 to 18, the view uses `I8` to `I64`, which exist today. For precision 19 to 76, the
 view needs `I128` and `I256` (decided, D5). Until those types exist, the kernels for wide decimals
@@ -70,46 +116,208 @@ integer view plays that role.
 ## `Narrow`
 
 Without a narrow form, D3 forces the full width on every column. A `Narrow` encoding solves this
-(decided, D4). It stores a `Decimal(p, s)` column as one child of dtype `Decimal(p', s)`, with
-`p' < p` and the same nullability.
+(decided, D4). It stores a `Decimal(p, s)` column as one child of dtype `Decimal(p', s)`. The child
+follows three rules (decided, D10):
 
-- `Narrow` has no buffers. Validity comes from the child.
+- It has the same scale and the same nullability as the parent.
+- Its canonical width is strictly narrower than the canonical width of `p`. So a `Narrow` from
+  `Decimal(76, s)` to `Decimal(75, s)` is not allowed, because both use `i256`. The integer
+  `Narrow` has the same rule, and the rule can be relaxed later.
+- The producer chooses `p'`: the best precision that the values and the scale allow, or a larger
+  one.
+
+`DecimalDType::try_new` rejects a positive scale larger than the precision
+(`vortex-array/src/dtype/decimal/mod.rs:68`). So `p'` is at least `s`, and the scale limits how far
+a column can narrow:
+
+| Scale `s` | Narrowest child width |
+| --- | --- |
+| Up to 2 | `i8` |
+| 3 to 4 | `i16` |
+| 5 to 9 | `i32` |
+| 10 to 18 | `i64` |
+| 19 to 38 | `i128` |
+
+This limit matters only for a column whose values all have fewer unscaled digits than the scale.
+Such values have an absolute value below 1.
+
+A `Narrow` has three properties:
+
+- It has no buffers. Validity comes from the child.
 - It decodes by widening the child buffer to the width of `p`.
 - It needs no value check, because a legal `Decimal(p', s)` value is a legal `Decimal(p, s)` value.
 
-Recommendation (DQ2): one `Narrow` encoding for integers and decimals. Integers narrow by width
-(issue [#10020](https://github.com/vortex-data/vortex/issues/10020)), and decimals narrow by
-precision. The integer view of a decimal `Narrow` is an integer `Narrow` over the view of the
-child. So the integer `Narrow` kernels give decimals their narrow-width speed.
+One `Narrow` encoding serves integers and decimals, with one wire ID `vortex.narrow` (decided,
+D8). Integers narrow by width (issue
+[#10020](https://github.com/vortex-data/vortex/issues/10020)), and decimals narrow by precision.
+An integer child has the same signedness and nullability as its parent, and a strictly smaller
+width (decided, D22). So an `I64` column with values from 0 to 200 gets an `I16` child, not a `U8`
+child. The metadata stores only the child `PType` or the child precision. The plugin of the parent
+builds the child dtype from it. The child must have the scale and nullability of the parent, so
+metadata that stored them would only let a file hold an invalid child. `vortex.narrow` stays in
+memory only until the maintainer decides to write it to files (decided, D18).
 
-Precision and integer width do not line up. An `i32` holds values up to 2,147,483,647, which needs
-precision 10. But 9 is the largest precision that maps to `i32`. So a writer needs value bounds to
-choose `p'`:
+`vortex.narrow` is only for columns with a fixed logical dtype: decimal columns and top-level
+integer columns (decided, D23). Internal integer children keep changing their own dtype, as they
+do today. Examples are list offsets, dictionary codes, run ends and the DecimalByteParts MSP.
+Whether `List` and `ListView` offsets get a fixed `I64` dtype with `Narrow` is an open question on
+issue [#10733](https://github.com/vortex-data/vortex/issues/10733), and the decimal work does not
+depend on it.
 
-- The compressor has them from statistics.
-- A cast that widens the precision has them from the source dtype. It returns a `Narrow` over the
-  source without a copy.
-- An old narrow buffer, read without a scan, does not have them. DecimalByteParts holds it instead,
-  as the next section describes.
+`Narrow` kernels pass work to the child, and the fallback is to canonicalize (decided, D15):
 
-Recommendation (DQ3): decimal `Narrow` gets its own wire ID, unless it lands before the edition of
-PR [#10333](https://github.com/vortex-data/vortex/pull/10333) ships. That draft edition already
-defines `vortex.narrow` for integers.
+| Operation | Kernel on a decimal `Narrow` |
+| --- | --- |
+| Compare with a constant | If the constant is outside the range of the child dtype, the answer needs no values. Otherwise, compare the child with the constant at the child precision |
+| Min and max | The result of the child, as a value of the parent dtype |
+| Sum | The sum of the child, with the result dtype of the parent |
+| Filter, take and slice | Run on the child |
+| Cast | Pass the cast to the child, with the same target dtype |
+
+A `Narrow` over a `Narrow` becomes one `Narrow`. Another decimal cast to a precision with the same
+scale follows three rules:
+
+- When the canonical width grows, the cast returns a `Narrow` over its input. Nothing is copied
+  until execution.
+- When the canonical width stays the same, for example from `Decimal(5, 2)` to `Decimal(9, 2)`, the
+  cast changes only the dtype.
+- When the precision drops, the cast checks every value, and it fails on a value that does not
+  fit.
+
+### Width and precision
+
+Precision limits are powers of ten, and integer widths are powers of two, so they do not line up.
+The table shows the largest precision for each width:
+
+| Width | Largest precision for the width | Largest unscaled value at that precision | Largest value of the width |
+| --- | --- | --- | --- |
+| `i8` | 2 | 99 | 127 |
+| `i16` | 4 | 9,999 | 32,767 |
+| `i32` | 9 | 999,999,999 | 2,147,483,647 |
+| `i64` | 18 | 10^18 - 1 | about 9.2 * 10^18 |
+| `i128` | 38 | 10^38 - 1 | about 1.7 * 10^38 |
+
+A value between the two limits fits the width, but it needs a precision of the next width. For
+example, 2,000,000,000 fits `i32`, but it needs precision 10, whose canonical width is `i64`. So a
+width alone does not give `p'`, and each producer finds `p'` from the values. A false child label
+gives wrong results, because the `Narrow` rules trust the child dtype. Examples are the compare
+shortcut and the cast that passes to the child.
+
+A gap column holds values in that range. In the final state, it uses the next width in memory
+(decided, D19):
+
+| Column | Values | Width in memory today | Width in the final state |
+| --- | --- | --- | --- |
+| `Decimal(10, 2)` | 100.00 to 327.67 | `i16` | `i32`, at precision 5 |
+| `Decimal(18, 2)` | 10,000,000.00 to 21,474,836.47 | `i32` | `i64`, at precision 10 |
+
+Disk size does not change, because integer encodings such as BitPacking store the same bits.
+Exports do not change, because they already widen. Pushdown of sum, min and max into the parts of
+DecimalByteParts can remove this cost for those operations later.
+
+### Reading old narrow data
+
+Old writers chose the width from the values (`narrowed_decimal`), not from a precision. A reader
+finds an old node because its stored width differs from the canonical width of its dtype (decided,
+D7). It then converts the node (decided, D9). For a narrower node:
+
+1. The reader scans the non-null values to find their max. The read plugin cannot use stored
+   statistics, because the deserializer attaches them after the plugin returns.
+2. It chooses the best precision that the values and the scale allow, or a larger one.
+3. If the width of that precision is narrower than the canonical width of the column, the result
+   is a `Narrow` over a child at that width. Otherwise, the result is the canonical array.
+4. The result reuses the buffer when its width is the stored width. Otherwise, the result is a
+   copy.
+
+For a wider node, the reader makes a narrowing copy. Null slots can hold any value (decided, D14),
+so the max ignores them.
+
+Every narrowing copy follows one rule (decided, D21). It writes zeros in null slots, and it fails
+on a valid value outside the precision of the target dtype. Three paths make such a copy:
+
+- An old node that is wider than its canonical width.
+- An old narrow node whose best precision has a smaller width than the stored width.
+- DecimalByteParts decoding with an MSP wider than the canonical width.
+
+The copy reads every value anyway, so the precision check costs nothing extra. For example, an old
+`Decimal(4, 2)` node at `i32` with the unscaled value 20,000 fails, because 20,000 is outside
+precision 4. A read without a copy trusts the precision and does not scan. Values in a buffer
+narrower than the canonical width always fit the precision, so only wider nodes can hold values
+above it.
+
+In the gaps, the result is a copy. For example, take an old `Decimal(4, 2)` node with an `i8`
+buffer and values up to 1.27 (unscaled 127). The values need precision 3, and precision 3 and
+precision 4 both use `i16`. No legal array keeps the `i8` buffer, so the result is a plain
+`Decimal(4, 2)` array at `i16`.
+
+Old narrow `vortex.decimal` nodes are rare, so the speed of this conversion matters little.
 
 ## DecimalByteParts
 
-DecimalByteParts (DBP) stays the compressed decimal form. Its children are integers: a signed most
-significant part (MSP), and 64-bit lower parts for wide values. The ordinary integer schemes
-compress each part.
+DecimalByteParts (DBP) stays the compressed decimal form:
 
-Recommendation (DQ4): the dtype of a DBP array fixes the type of its MSP. Then narrowing happens in
-only two places: `Narrow` for the precision, and integer encodings such as bit packing for the
-bits. The current narrowing step of the compressor (`narrowed_decimal`) has no job left.
+- Each unscaled value is cut into 64-bit words of its two's complement bits. The most significant
+  part (MSP) holds the top word, and up to three lower parts hold the rest. With no lower parts,
+  the value is the MSP.
+- The MSP is any signed integer up to 64 bits, with the nullability of the decimal, and it holds
+  the validity (decided, D16). Each lower part is a non-nullable `u64`, with zeros in null rows.
+  Today the constructor accepts a lower part of any unsigned width, and the module doc says that
+  each part can use a narrower dtype. But the split makes only `u64` parts, and the compressor
+  never narrows the dtype of a part. D16 tightens the constructor and the doc. This breaks no
+  file, because no file has lower parts.
+- Each part can use any integer encoding. The parts are integers, so they promise only a width,
+  never a number of digits.
+- One in-memory array has two wire forms. `vortex.decimal_byte_parts` (v1) has only the MSP.
+  `vortex.decimal_byte_parts.v2` adds lower parts, and no edition permits it yet. The writer picks
+  v1 when there are no lower parts.
 
-Readers still accept the narrow MSPs of old files. A reader wraps an old narrow MSP in an integer
-`Narrow` of the fixed type, without a copy. So the in-memory MSP always has the fixed type. An old
-narrow `vortex.decimal` leaf of up to 64 bits becomes a DBP array in the same way. Its buffer
-becomes the child of that integer `Narrow`.
+Operations run on the parts wherever they can (decided, D16). Today compare, between, filter,
+take, slice, mask and the nullability cast do this. Every other operation decodes DBP first.
+
+Decoding produces the canonical array of the DBP dtype (decided, D16). Today it reuses the MSP
+buffer at the MSP width. So a `Decimal(18, 2)` array with an `i32` MSP decodes to a decimal array
+with an `i32` buffer. D3 removes that form, so decoding widens a narrower MSP. The MSP rule also
+allows an MSP wider than the canonical width for precision up to 18, for example an `i64` MSP for
+`Decimal(4, 2)`. Decoding narrows such an MSP with the copy of D21. A `TODO(connor)` in the code
+marks a later optimization: find the max of the MSP, and return a `Narrow` that reuses its buffer.
+It waits until benchmarks show large regressions.
+
+The compressor has one DBP scheme (decided, D17):
+
+- Today the scheme calls `narrowed_decimal`, which narrows the decimal array to the smallest
+  integer type that holds the values, and the split then copies its buffer into the MSP. The
+  canonical fix makes that narrow array illegal. Instead, the scheme takes the canonical array.
+  It uses the value range to choose the number of lower parts, because v1 has none. It also
+  narrows the MSP dtype, as the compressor narrows every internal child. The parts get the same
+  widths as today, so file contents do not change.
+- The scheme is not temporary. Writers whose edition does not permit `vortex.narrow` need it. These
+  include default writers until `vortex.narrow` enters `core`, and writers that select an older
+  edition.
+- When an edition permits `vortex.narrow`, a decimal `Narrow` scheme runs first and narrows the
+  decimal type. The DBP scheme then compresses the child. So the compressor writes a `Narrow` of
+  dtype `Decimal(p, s)` over a DBP child of dtype `Decimal(p', s)`. The MSP of that child usually
+  has the canonical width of `p'`, so decoding reuses its buffer. In the gaps, decoding widens it.
+  If the best precision has the canonical width of the column, the compressor writes DBP without
+  `Narrow`.
+- For precision 39 to 76 with values that need more than 64 bits, the compressor uses the
+  lower-parts form when an edition permits it. Otherwise, it writes a plain `i256` array. Today it
+  writes a plain `i128` array, which D3 forbids.
+
+The `core` family holds the formats of the default writer
+(`docs/specs/versioning/using-editions.md`). So default writers write these wide columns as plain
+`i256` arrays until `vortex.narrow` and DBP v2 enter `core`. The maintainer accepts this cost. If
+possible, the wire change ships in the same release as the in-memory change, so that writers that
+select the preview edition never pay it (decided, D11).
+
+Until the compressor narrows the decimal type first, decoding a compressed decimal runs at the full
+width in memory. This applies to existing files and to files that are written in that period. The
+maintainer accepts this cost, because the bar of no compute regression applies to the final state
+(decided, D19).
+
+The DBP cast rule has a bug that is independent of these changes. For a cast that changes only the
+nullability, the rule casts the MSP without the check that other cast rules make with
+`Validity::trivially_cast_nullability`. The fix lands as its own PR
+([part 3](03-roadmap.md#independent-changes)).
 
 ## Where structural encodings sit
 
@@ -123,6 +331,9 @@ dictionary arrays already hold decimal values. So `Decimal` needs no plugin that
 in-memory form back to the legacy wire forms.
 
 ## Decimal operations as rules over the view
+
+This section is future work outside the canonical decimal fix (decided, D20). Its
+recommendations are not reviewed.
 
 `Decimal` implements its semantics as rewrite rules on arrays that the type owns (decided, X4).
 Each rule runs integer kernels on the view and builds a decimal result. There is no `ext_wrap`
@@ -154,6 +365,9 @@ of ten apart (except days). The current decimal arithmetic kernel does the opera
 precision check in one pass. A fused integer kernel keeps that speed.
 
 ## Integer lanes or FixedSizeBinary
+
+This section is future work outside the canonical decimal fix (decided, D20). Its
+recommendations are not reviewed.
 
 D2 and D3 fix the shape of the leaf. The remaining choice is the type of the values in the buffer,
 and of the view over it.
@@ -214,6 +428,9 @@ Wide integers do not need FixedSizeBinary:
 
 ## Wide integers
 
+This section is future work outside the canonical decimal fix (decided, D20). Its
+recommendations are not reviewed.
+
 - `PType` gets `I128`, `I256`, `U128` and `U256` (decided, D5), for example as the values 11 to 14.
 - Two typed sub-enums split the integers. `LaneIntPType` holds the eight integer types up to 64
   bits, and `WideIntPType` holds the four wide types. Offsets, codes, take indices and lane
@@ -247,6 +464,9 @@ Top-level wide columns need a rule in each engine:
 
 ## FixedSizeBinary
 
+This section is future work outside the canonical decimal fix (decided, D20). Its
+recommendations are not reviewed.
+
 FixedSizeBinary is a core type for opaque bytes of a fixed length (decided, D6). It refines
 `Binary` in the same way that `FixedSizeList` refines `List`.
 
@@ -268,26 +488,45 @@ layer is the right place for shared code. PR
 
 ## The file format
 
-The leaf is the `vortex.decimal` wire node, so the decimal file format does not change. Readers
-handle every existing decimal wire form:
+The leaf is the `vortex.decimal` wire node, so the decimal file format does not change. The node
+keeps its wire ID (decided, D7). The versioning spec asks for a new ID only when readers must
+understand something new (`docs/specs/versioning/design.md`). D3 removes forms and adds none, so
+old readers read every new file. The read plugin of `vortex.decimal` finds an old node by its
+stored width, and it converts the node. Readers handle every existing decimal wire form:
 
 | Wire node | In memory |
 | --- | --- |
 | `vortex.decimal` at the canonical width | The leaf, zero-copy |
-| `vortex.decimal` at a narrower width of up to 64 bits | DecimalByteParts with the buffer as its MSP, zero-copy |
-| `vortex.decimal` at `I128` for precision 39 to 76 | The leaf, after a widening copy |
-| `vortex.decimal` at a wider width, for example Arrow `Decimal128` data at low precision | The leaf, after a checked narrowing copy |
+| `vortex.decimal` at a narrower width | The result of [Reading old narrow data](#reading-old-narrow-data): a `Narrow`, or the canonical array |
+| `vortex.decimal` at a wider width, for example Arrow `Decimal128` data at a low precision | The leaf, after the narrowing copy of D21 with zeros in null slots. A value outside the precision is an error |
 | `vortex.decimal` with an unknown width | An error, not a silent `I8` |
-| DecimalByteParts v1 and v2 | DecimalByteParts. An old narrow MSP becomes an integer `Narrow` |
+| DecimalByteParts v1 and v2 | DecimalByteParts, unchanged. Decoding widens a narrower MSP and narrows a wider MSP |
+| `vortex.narrow`, after the wire change | A `Narrow` over its child |
 
 Writers produce forms that old readers understand. The leaf becomes `vortex.decimal` at the
 canonical width. DBP becomes DecimalByteParts v1, which the first core edition already contains,
-or v2 where an edition allows it. Decimal `Narrow` is written only where an edition allows its wire
-ID. Constant, dictionary and run-end arrays of decimals keep their current wire forms.
+or v2 where an edition permits it. `Narrow` is written only where an edition permits
+`vortex.narrow`, and the compressor produces it only then. `vortex.narrow` and DBP v2 enter one
+preview edition together, and later `core` together (decided, D18). Constant, dictionary and
+run-end arrays of decimals keep their current wire forms.
 
 So wide `PType` values never reach the wire for decimal columns, and decimal statistics keep the
-`Decimal` dtype. Before the reader changes, the compatibility fixtures need narrow, wide and
-Arrow-style widths. Today they cover only `i32` and `i64`.
+`Decimal` dtype.
+
+The compat harness (`vortex-test/compat-gen`) publishes fixtures from a released version, and the
+current reader must read every published fixture. Only the old writer can make narrow leaves. So
+the new fixtures land and are published from a release before the in-memory change (decided,
+D24). They cover these cases:
+
+- Narrow, wide and Arrow-style widths.
+- Narrow buffers with gap values.
+- High scales at narrow widths.
+- Nonzero values in null slots.
+- DBP with a narrow MSP.
+
+The fixtures cover only reads that succeed. The error cases are unit tests, because the harness
+expects every read to succeed. Examples are a value outside the precision in a narrowing copy, and
+an unknown width. Today the decimal fixture covers only canonical `i32` and `i64` widths.
 
 ## `Decimal` stays built in
 
@@ -307,24 +546,16 @@ the unscaled integers, and `price < 5` compares `500` with `5`.
 
 ## Open questions
 
-The decisions file lists these questions as open. Each answer is a recommendation of these notes.
+The decisions file lists these questions as open. They belong to future work (decided, D20), and
+their recommendations are not reviewed.
 
 | ID | Question | Recommendation |
 | --- | --- | --- |
-| DQ1 | Which width does each precision get? | The smallest signed width, as above. A wider function, such as the `I128` minimum of the Arrow export, avoids copies at Arrow import but costs memory |
-| DQ2 | Is `Narrow` one encoding for integers and decimals? | Yes |
-| DQ3 | Does decimal `Narrow` share the wire ID `vortex.narrow`? | No, unless it lands before the edition of PR #10333 ships |
-| DQ4 | Does the dtype of a DBP array fix the type of its MSP? | Yes |
 | DQ5 | Are wide integers user-visible, and which kernels come first? | User-visible behind an edition, with a small kernel set first |
 | DQ6 | Does decimal arithmetic accept different precisions and scales? | Yes, with the Arrow rules. Comparisons keep the rule of equal dtypes |
 | DQ7 | How does FixedSizeBinary appear on the wire? | A new core dtype tag behind an edition |
 | CQ1 | What does the default cast do with a value that it cannot represent exactly? | It returns an error |
 
-These notes add three smaller open questions:
-
-- What is the lower bound of a negative scale? The docs name a `MIN_SCALE` that does not exist,
-  and tests use -128. DuckDB rejects negative scales, and Arrow allows them.
-- When DBP decodes an old narrow MSP, does it compute value bounds and return a decimal `Narrow`,
-  or does it always widen?
-- Do file reads check the decimal precision, or trust the file? Recommendation XQ3 for extension
-  values suggests trust, with checks only for what memory safety needs.
+One smaller question is also future work. What is the lower bound of a negative scale? The docs
+name a `MIN_SCALE` that does not exist, and tests use -128. DuckDB rejects negative scales, and
+Arrow allows them.

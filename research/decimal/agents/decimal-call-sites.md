@@ -98,7 +98,7 @@ these labels. The leaf design is decision D2 and D3 in `../../decisions.md`.
 | `vortex-array/src/builders/decimal.rs` | `DecimalBuilder` with six buffer variants | shrink: one width for each dtype, over `PrimitiveBuilder` |
 | `vortex-array/src/dtype/decimal/*` | `DecimalDType`, `DecimalType`, `NativeDecimalType`, i256 bound tables | keep `DecimalDType`, and keep `DecimalType` only for legacy metadata |
 | `vortex-array/src/scalar/typed_view/decimal/*` | `DecimalValue`, `DecimalScalar`, Arrow arithmetic rules | shrink: scalar view over a storage integer |
-| `encodings/decimal-byte-parts/src/*` | MSP plus 64-bit lower parts, v1 and v2 wire | keep as the compressed form. Its dtype fixes the type of its MSP (DQ4) |
+| `encodings/decimal-byte-parts/src/*` | MSP plus 64-bit lower parts, v1 and v2 wire | keep as the compressed form. Its MSP can stay narrow, and its lower parts are `u64` (D16). Decoding widens a narrower MSP to the canonical width of the dtype, and it narrows a wider one (D21). One compressor scheme builds it from the canonical array (D17) |
 | `vortex-arrow/src/executor/decimal.rs` | width adaptation to Decimal32/64/128/256 | keep, reads the one canonical width |
 | `vortex-duckdb/src/exporter/decimal.rs` | width adaptation to DuckDB widths | keep, reads the one canonical width |
 | `vortex-btrblocks/src/schemes/decimal.rs` | narrow then split | shrink: no narrowing, which moves to `Narrow` and integer encodings |

@@ -27,18 +27,21 @@ gives file and line references for each one.
 | Problem | Effect |
 | --- | --- |
 | One dtype has up to six physical forms | Kernels must handle mixed widths, widen on the fly, or test whether a constant fits the storage. `DecimalArray::patch` panics when the width cannot hold the dtype. Issue [#5820](https://github.com/vortex-data/vortex/issues/5820) collects the fuzzer crashes |
+| The compressor chooses the width from the values | `narrowed_decimal` picks the smallest integer type that holds the values, not the width of a lower precision. So an `i32` buffer of a `Decimal(18, 2)` column can hold 2,000,000,000, which needs precision 10 |
+| DecimalByteParts decodes to narrow leaves | Since 2025-05, the compressors put narrow values of 64 bits or less into DecimalByteParts. Its decode reuses the buffer of its most significant part, so the canonical result often has a narrow width. The only narrow `vortex.decimal` node that the compressors write is `I128` at precision 39 to 76 |
 | The canonical width is a convention, not a contract | 25 call sites compute it. The row codec uses it so that keys "from differently compressed chunks stay memcmp-comparable" |
 | Arrays never check the precision | Scalars check it, but arrays do not. So out-of-range values can reach kernels, and a comment in the arithmetic kernel says so |
 | The scalar path and the array path disagree | A decimal scalar casts to `f32` and `f16`. The array cast supports only `f64`, so an array cast to `f32` fails with "No CastKernel". A throwaway test confirmed the `f32` case |
 | `Decimal` duplicates `Primitive` | It has its own canonical variant (51 dispatch sites), builder, compare, arithmetic and aggregates. Decimal-specific files hold about 7,600 non-test lines |
 | DecimalByteParts carries the decimal dtype | It splits wide integers into 64-bit parts, but only decimals can use it |
+| The DecimalByteParts cast rule skips a nullability check | For a cast that changes only the nullability, the rule casts the most significant part. It does not first make sure that the change is safe without execution, as other cast rules do with `Validity::trivially_cast_nullability` |
 | Unknown enum values decode silently | An unknown `values_type` decodes as `I8`. An unknown protobuf `PType` decodes as `U8`, and Variant metadata stores protobuf dtypes in files |
 | Shared code has decimal special cases | Bloom filters, `IN` lists, size statistics, sparse arrays, run-end decoding and the row codec each have a decimal path |
 | No 128-bit integer columns | DuckDB `HUGEINT` cannot be imported, although decimal storage already holds 128-bit values |
 
 The silent decoding causes no wrong reads today, because no writer emits unknown values. But it
-blocks safe additions to both enums, so a fix is part of the urgent changes in
-[part 3](03-roadmap.md#urgent-changes).
+blocks safe additions to both enums, so a fix is part of the independent changes in
+[part 3](03-roadmap.md#independent-changes).
 
 ## `Decimal` as a test of the extension design
 

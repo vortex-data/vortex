@@ -4,6 +4,10 @@ This directory holds research notes about the Vortex type system. The notes are 
 at `5fc5cb8` (2026-10-17). They live on the `ct/ext-types-research` branch and are not meant to be
 merged.
 
+Reviews on 2026-10-22 and 2026-10-23 updated the Decimal notes and [`decisions.md`](decisions.md).
+The decimal, DecimalByteParts, serialization and versioning code that the notes cite is the same on
+`develop` at `dbaf5f8` (2026-10-22).
+
 | Topic | Summary for people | Detail for agents |
 | --- | --- | --- |
 | Extension types | [`extension-types/`](extension-types/README.md) | [`extension-types/agents/`](extension-types/agents/) |
