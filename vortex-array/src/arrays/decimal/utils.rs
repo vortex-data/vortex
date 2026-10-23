@@ -23,11 +23,21 @@ pub(crate) fn widened_buffer<W: NativeDecimalType>(array: &DecimalArray) -> Buff
         return array.buffer::<W>();
     }
     match_each_decimal_value_type!(array.values_type(), |T| {
-        array
-            .buffer::<T>()
-            .iter()
-            .map(|v| W::from(*v).vortex_expect("widening decimal cast must succeed"))
-            .collect()
+        // Only storage types narrower than `W` reach here. The const condition lets the compiler
+        // skip codegen of the other arms.
+        if const { (T::DECIMAL_TYPE as u8) < (W::DECIMAL_TYPE as u8) } {
+            array
+                .buffer::<T>()
+                .iter()
+                .map(|v| W::from(*v).vortex_expect("widening decimal cast must succeed"))
+                .collect()
+        } else {
+            unreachable!(
+                "{} is not narrower than {}",
+                T::DECIMAL_TYPE,
+                W::DECIMAL_TYPE
+            )
+        }
     })
 }
 
@@ -46,45 +56,51 @@ pub fn converted_buffer<W: NativeDecimalType>(
         return Ok(widened_buffer(array));
     }
     match_each_decimal_value_type!(array.values_type(), |T| {
-        let src = array.buffer::<T>();
-        match validity {
-            Mask::AllTrue(_) => {
-                // Keeping the overflow scan branchless and vectorizable. Only on overflow
-                // do we rescan for diagnostics.
-                let any_overflow = src.iter().fold(false, |acc, v| acc | W::from(*v).is_none());
-                if any_overflow {
-                    let (i, v) = src
-                        .iter()
-                        .enumerate()
-                        .find(|&(_, v)| W::from(*v).is_none())
-                        .vortex_expect("overflow scan found an overflowing value");
-                    vortex_bail!(
-                        "decimal value {v} at index {i} does not fit {}",
-                        W::DECIMAL_TYPE
-                    );
+        // Only storage types wider than `W` reach here. The const condition lets the compiler
+        // skip codegen of the other arms.
+        if const { (T::DECIMAL_TYPE as u8) > (W::DECIMAL_TYPE as u8) } {
+            let src = array.buffer::<T>();
+            match validity {
+                Mask::AllTrue(_) => {
+                    // Keeping the overflow scan branchless and vectorizable. Only on overflow
+                    // do we rescan for diagnostics.
+                    let any_overflow = src.iter().fold(false, |acc, v| acc | W::from(*v).is_none());
+                    if any_overflow {
+                        let (i, v) = src
+                            .iter()
+                            .enumerate()
+                            .find(|&(_, v)| W::from(*v).is_none())
+                            .vortex_expect("overflow scan found an overflowing value");
+                        vortex_bail!(
+                            "decimal value {v} at index {i} does not fit {}",
+                            W::DECIMAL_TYPE
+                        );
+                    }
                 }
-            }
-            Mask::AllFalse(_) => return Ok(Buffer::zeroed(src.len())),
-            Mask::Values(values) => {
-                let any_overflow = src.iter().fold(false, |acc, v| acc | W::from(*v).is_none());
-                if any_overflow {
-                    for (i, v) in src.iter().enumerate() {
-                        if values.value(i) && W::from(*v).is_none() {
-                            vortex_bail!(
-                                "decimal value {v} at index {i} does not fit {}",
-                                W::DECIMAL_TYPE
-                            );
+                Mask::AllFalse(_) => return Ok(Buffer::zeroed(src.len())),
+                Mask::Values(values) => {
+                    let any_overflow = src.iter().fold(false, |acc, v| acc | W::from(*v).is_none());
+                    if any_overflow {
+                        for (i, v) in src.iter().enumerate() {
+                            if values.value(i) && W::from(*v).is_none() {
+                                vortex_bail!(
+                                    "decimal value {v} at index {i} does not fit {}",
+                                    W::DECIMAL_TYPE
+                                );
+                            }
                         }
                     }
                 }
             }
+            // The convert pass is infallible: every valid value fits, and out-of-range null-slot
+            // garbage is mapped to the default value. Callers must still ignore null slots.
+            Ok(src
+                .iter()
+                .map(|v| W::from(*v).unwrap_or_default())
+                .collect())
+        } else {
+            unreachable!("{} is not wider than {}", T::DECIMAL_TYPE, W::DECIMAL_TYPE)
         }
-        // The convert pass is infallible: every valid value fits, and out-of-range null-slot
-        // garbage is mapped to the default value. Callers must still ignore null slots.
-        Ok(src
-            .iter()
-            .map(|v| W::from(*v).unwrap_or_default())
-            .collect())
     })
 }
 
@@ -140,5 +156,63 @@ pub fn narrowed_decimal(decimal_array: DecimalArray) -> DecimalArray {
         DecimalType::I256 => {
             try_downcast!(decimal_array, from: i256, to: i8, i16, i32, i64, i128)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_buffer::Buffer;
+    use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
+    use vortex_mask::Mask;
+
+    use super::converted_buffer;
+    use crate::arrays::DecimalArray;
+    use crate::dtype::BigCast;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::DecimalType;
+    use crate::match_each_decimal_value_type;
+    use crate::validity::Validity;
+
+    /// Each pair selects a different widening or narrowing conversion.
+    #[rstest]
+    fn converted_buffer_every_storage_pair(
+        #[values(
+            DecimalType::I8,
+            DecimalType::I16,
+            DecimalType::I32,
+            DecimalType::I64,
+            DecimalType::I128,
+            DecimalType::I256
+        )]
+        storage: DecimalType,
+        #[values(
+            DecimalType::I8,
+            DecimalType::I16,
+            DecimalType::I32,
+            DecimalType::I64,
+            DecimalType::I128,
+            DecimalType::I256
+        )]
+        target: DecimalType,
+    ) -> VortexResult<()> {
+        let values = [1i8, -2, 3];
+        let dtype = DecimalDType::new(2, 0);
+        let array = match_each_decimal_value_type!(storage, |S| {
+            let values = values.map(|value| {
+                <S as BigCast>::from(value).vortex_expect("small values fit every decimal type")
+            });
+            DecimalArray::new(Buffer::copy_from(values), dtype, Validity::NonNullable)
+        });
+
+        match_each_decimal_value_type!(target, |W| {
+            let converted = converted_buffer::<W>(&array, &Mask::new_true(values.len()))?;
+            let expected = values.map(|value| {
+                <W as BigCast>::from(value).vortex_expect("small values fit every decimal type")
+            });
+            assert_eq!(converted.as_slice(), expected.as_slice());
+        });
+        Ok(())
     }
 }
