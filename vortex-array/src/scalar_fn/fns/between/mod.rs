@@ -618,6 +618,36 @@ mod tests {
         Ok(())
     }
 
+    /// Compression stores an all-null chunk as a [`ConstantArray`]. Its rows must come out null
+    /// rather than false, since `NOT` turns a false row into a match.
+    #[rstest]
+    #[case::f64(Scalar::null_native::<f64>(), Scalar::from(-0.0f64), Scalar::from(0.0f64))]
+    #[case::i32(Scalar::null_native::<i32>(), Scalar::from(0i32), Scalar::from(0i32))]
+    fn constant_null_array(
+        #[case] null: Scalar,
+        #[case] lower: Scalar,
+        #[case] upper: Scalar,
+    ) -> VortexResult<()> {
+        let ctx = &mut SESSION.create_execution_ctx();
+        let array = ConstantArray::new(null, 3).into_array();
+        let lower = ConstantArray::new(lower, 3).into_array();
+        let upper = ConstantArray::new(upper, 3).into_array();
+
+        let between = array.between(lower, upper, NON_STRICT)?;
+        let not_between = between.not()?;
+
+        assert_eq!(
+            between.execute::<BoolArray>(ctx)?.opt_bool_vec(ctx),
+            [None, None, None]
+        );
+        assert_eq!(
+            not_between.execute::<BoolArray>(ctx)?.opt_bool_vec(ctx),
+            [None, None, None]
+        );
+
+        Ok(())
+    }
+
     #[test]
     fn test_between_decimal() {
         let ctx = &mut SESSION.create_execution_ctx();
