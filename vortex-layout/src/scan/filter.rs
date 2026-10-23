@@ -9,13 +9,13 @@ use parking_lot::Mutex;
 use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
 use vortex_array::expr::BoundExpression;
-use vortex_array::scalar_fn::fns::binary::Binary;
-use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::binary::Binary;
+use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_functions::dynamic::DynamicExprUpdates;
 
 use crate::LayoutReader;
 

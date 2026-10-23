@@ -44,7 +44,7 @@ fn cast_and_execute(
 /// An encoding that supports nullable dtypes **must** also pass a partially valid array, which
 /// checks the nullability contract of [`CastReduce`].
 ///
-/// [`CastReduce`]: crate::scalar_fn::fns::cast::CastReduce
+/// [`CastReduce`]: crate::scalar_fn::builtin::cast::CastReduce
 pub fn test_cast_conformance(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let dtype = array.dtype();
 

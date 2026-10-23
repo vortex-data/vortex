@@ -32,9 +32,9 @@ use crate::dtype::PType;
 use crate::kernel::ExecuteParentKernel;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::binary::execute_numeric;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::binary::Binary;
+use crate::scalar_fn::builtin::binary::execute_numeric;
+use crate::scalar_fn::builtin::operators::Operator;
 
 /// Runs checked add, subtract, multiply and divide of a [`Widen`] with another `Widen` or a
 /// constant at the smallest integer type that holds both operands and every result.

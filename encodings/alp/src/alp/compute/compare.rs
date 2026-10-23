@@ -11,9 +11,9 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::fns::binary::CompareKernel;
-use vortex_array::scalar_fn::fns::operators::CompareOperator;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::binary::CompareKernel;
+use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -144,9 +144,9 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar_fn::fns::binary::CompareKernel;
-    use vortex_array::scalar_fn::fns::operators::CompareOperator;
-    use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_array::scalar_fn::builtin::binary::CompareKernel;
+    use vortex_array::scalar_fn::builtin::operators::CompareOperator;
+    use vortex_array::scalar_fn::builtin::operators::Operator;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 

@@ -5,7 +5,6 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use num_traits::AsPrimitive;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
@@ -26,6 +25,7 @@ use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::array_slots;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::buffer::BufferHandle;

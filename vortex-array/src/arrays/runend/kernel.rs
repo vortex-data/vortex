@@ -24,8 +24,8 @@ use crate::arrays::runend::compute::take_from::RunEndTakeFrom;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::binary::CompareExecuteAdaptor;
+use crate::scalar_fn::builtin::binary::Binary;
+use crate::scalar_fn::builtin::binary::CompareExecuteAdaptor;
 
 pub(super) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
