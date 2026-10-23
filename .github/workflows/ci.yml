@@ -307,12 +307,19 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          - name: "all-features"
-            runner: amd64-ci-large
-            args: "--all-features --all-targets"
-          - name: "default features"
-            runner: amd64-ci-large
-            args: "--all-targets"
+          # cargo-hack builds crates serially; partition the two workspace-wide builds.
+          - name: "all-features partition 1 of 2"
+            runner: amd64-ci-small
+            args: "--all-features --all-targets --partition 1/2"
+          - name: "all-features partition 2 of 2"
+            runner: amd64-ci-small
+            args: "--all-features --all-targets --partition 2/2"
+          - name: "default features partition 1 of 2"
+            runner: amd64-ci-small
+            args: "--all-targets --partition 1/2"
+          - name: "default features partition 2 of 2"
+            runner: amd64-ci-small
+            args: "--all-targets --partition 2/2"
           - name: "with tokio dispatcher"
             runner: amd64-ci-medium
             # Only build the crates that have the tokio features, not re-building other crates with no-default-features
