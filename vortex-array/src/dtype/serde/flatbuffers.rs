@@ -555,7 +555,10 @@ impl TryFrom<fb::PType> for PType {
             fb::PType::F16 => Self::F16,
             fb::PType::F32 => Self::F32,
             fb::PType::F64 => Self::F64,
-            _ => vortex_bail!("Unknown PType variant"),
+            _ => vortex_bail!(
+                "flatbuffer Primitive ptype must be a known PType, got {}",
+                value.0
+            ),
         })
     }
 }
@@ -849,5 +852,14 @@ mod test {
         let result = DType::try_from(view);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("length mismatch"));
+    }
+
+    #[test]
+    fn test_unknown_ptype_from_flatbuffer() {
+        let result = PType::try_from(fb::PType(11));
+        assert!(result.is_err_and(|err| {
+            err.to_string()
+                .contains("flatbuffer Primitive ptype must be a known PType, got 11")
+        }));
     }
 }
