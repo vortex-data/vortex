@@ -629,10 +629,10 @@ at precision 39 to 76, or it comes from a write that skipped the decimal scheme.
 
 The integer `Narrow` was a draft stack: PRs #10223, #10332 and #10333. The maintainer closed all
 three on 2026-10-23, and new PRs replace them. Section 8.3 and the decisions file give the state on
-2026-10-23. A local rewrite of #10223 and #10332 makes `Narrow` in-memory only. It goes up as new
-PRs after a rebase over PR #10681, which removed `array_session()`. Its only integer-only check is
-the private `validate_dtypes`, so decimal support stays additive. When that check opens for
-decimals, the compare kernel and the sum pushdown need decimal code in the same change.
+2026-10-23. A local rewrite of #10223 and #10332 makes `Narrow` in-memory only. The new PRs are
+written from scratch, with that rewrite as a reference for tests and edge cases (D38). The rewrite
+assumes integers in more places than `validate_dtypes`, so the new code avoids those assumptions
+where that costs little, and CD4 handles the rest.
 
 The closed PR #10333 adds `vortex.narrow` to a new draft edition `preview2026.10.0`, with one
 metadata byte that holds the child `PType`. Under D8 and D32, the metadata is a prost message with
@@ -1677,6 +1677,10 @@ A planning review on 2026-10-23 split the work into 22 PRs, with one brief for e
 - The compressor uses a `Narrow` scheme at first (D33).
 - Strict decoding covers eleven more `PType` fields (D34).
 - The integer `Narrow` lands as five stacked PRs, then the call-site PR (D35).
+- An operation on a `Narrow` fails only where the parent would fail, and aggregates use the
+  accumulator of the parent dtype (D36).
+- The host converts old narrow nodes, also on CUDA read paths (D37).
+- The integer PRs are written from scratch, with the local rewrite as a reference (D38).
 
 These notes add the integer view of section 3.2, so that decimal kernels delegate to integer
 kernels. D20 makes it future work. Section 9 lists the open questions with the recommendations of
@@ -1733,9 +1737,9 @@ Independent changes, in any order. On 2026-10-23, none of these is on `develop`:
   nulls, and with only nulls. It is its own PR, with no issue.
 - **P3.** N1: the urgent extension changes U1 to U8.
 - **P4.** The integer `Narrow` in memory. #10223, #10332 and #10333 closed on 2026-10-23. The
-  rewrite of #10223 and #10332 goes up as new PRs after a rebase. A new PR with the first part of
-  #10333 (`NarrowArray::encode_values`) lands after it. The fix for dictionary fill codes is its
-  own PR.
+  new PRs are written from scratch, with the local rewrite of #10223 and #10332 as a reference
+  (D38). NR1 adds `NarrowArray::encode_values`, and NR6 moves the call sites to it (D28). The fix
+  for dictionary fill codes is its own PR, and it ports the rewrite's fix as it is.
 
 Benchmarks and fixtures, before the producers change:
 

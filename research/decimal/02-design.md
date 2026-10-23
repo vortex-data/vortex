@@ -193,8 +193,10 @@ on it.
 | Filter, take and slice | Run on the child |
 | Cast | Pass the cast to the child, with the same target dtype |
 
-A `Narrow` over a `Narrow` becomes one `Narrow`. Another decimal cast to a precision with the same
-scale follows three rules:
+An operation on a `Narrow` fails only where the same operation on the parent fails, and it gives the
+same result (decided, D36). So aggregates use the accumulator of the parent dtype and feed it the
+child. A `Narrow` over a `Narrow` becomes one `Narrow`. Another decimal cast to a precision with the
+same scale follows three rules:
 
 - When the canonical width grows, the cast returns a `Narrow` over its input. Nothing is copied
   until execution.
@@ -269,7 +271,9 @@ buffer and values up to 1.27 (unscaled 127). The values need precision 3, and pr
 precision 4 both use `i16`. No legal array keeps the `i8` buffer, so the result is a plain
 `Decimal(4, 2)` array at `i16`.
 
-Old narrow `vortex.decimal` nodes are rare, so the speed of this conversion matters little.
+Old narrow `vortex.decimal` nodes are rare, so the speed of this conversion matters little. The
+host converts them, also on CUDA read paths, where the buffer is first copied to the host (decided,
+D37).
 
 ## DecimalByteParts
 

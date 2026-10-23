@@ -45,7 +45,8 @@ canonical decimal encoding.
 - Decided: the bar of no compute regression applies to the final state. Until the compressor
   narrows the decimal type first, decoding a compressed decimal runs at the full width in memory.
 - Decided: the work lands as 22 PRs in four tracks. Each PR has a brief that a coding agent can
-  implement alone. Generic structural encodings always sit above `Narrow`. A writer that cannot
+  implement alone. The integer `Narrow` PRs are written from scratch, with a local rewrite as a
+  reference. Generic structural encodings always sit above `Narrow`. A writer that cannot
   write `vortex.narrow` writes the canonical array, as a documented workaround. Which arrays the
   compressor narrows is deferred.
 - Arrow has the same decimal model and the same gap at the top of each width. Its width is part

@@ -11,7 +11,8 @@ These briefs cover issue #10701: one canonical width for each decimal dtype, and
 - A `file:line` without a commit points at the `develop` checkout at `b70206818f`.
 - A reference with a commit, for example `af4b663059:vortex-array/src/arrays/narrow/mod.rs:73`,
   points at the local integer `Narrow` rewrite in `/Users/connor/spiral/vortex-data/vortex3`. The
-  NR PRs rebase that code, so those line numbers will move.
+  NR PRs are written from scratch with that rewrite as a reference (D38), so the landed code can
+  differ. Check each cited site against the NR code on `develop`.
 - In the rewrite, commit `f7408481ce` holds the encoding, `validate_dtypes`, the compare kernel and
   the cast, fill-null, filter, mask, slice and take rules (NR1). Commit `8d548646ee` holds the
   aggregate kernel (NR3). Commit `74aa17644e` holds arithmetic, between, zip and the wider
@@ -705,7 +706,7 @@ Places in the rewrite that assume an integer child. CD4 handles each one:
 | 11 | `af4b663059:.../narrow/rules.rs:240-279` `zip_values` | `PType::try_from`, declines | Keep the decline. Test the fallback |
 | 12 | `af4b663059:.../narrow/rules.rs:316-346` `BetweenReduce` | None, a scalar cast and `two_compares` | Test only. Relies on 6 and 7 |
 | 13 | `af4b663059:.../narrow/rules.rs:281-314` `TakeIndicesReduce` | Dictionary codes are integers | None. A decimal cannot be a code |
-| 14 | `8d548646ee:vortex-array/src/arrays/narrow/aggregates.rs:83-89` | The child partial, cast to the parent partial dtype, assumes the same result dtype | The kernel builds the decimal sum accumulator from the parent dtype (D36) |
+| 14 | `8d548646ee:vortex-array/src/arrays/narrow/aggregates.rs:83-89` | The child partial, cast to the parent partial dtype, assumes the same result dtype | NR3 builds every accumulator from the parent dtype (D36). CD4 adds the decimal tests |
 | 15 | `af4b663059:.../narrow/numeric.rs:69-72` | `PType::try_from`, declines | Keep the decline. Test the fallback |
 
 The rows cite the tip `af4b663059`, which also holds NR5 code. CD4 does not need NR5, so on its base
@@ -722,7 +723,7 @@ Files. The `narrow` module comes from NR1 to NR4, so its lines are not on `b7020
 | `vortex-array/src/arrays/narrow/encoding.rs` | `NarrowArray::encode_decimal` and the precision helper |
 | `vortex-array/src/arrays/narrow/compare.rs` | Decimal branches |
 | `vortex-array/src/arrays/narrow/rules.rs` | Decimal `CastReduce` and `FillNullReduce` |
-| `vortex-array/src/arrays/narrow/aggregates.rs` | The decimal sum accumulator comes from the parent dtype, and it reads the child batch (D36) |
+| `vortex-array/src/arrays/narrow/aggregates.rs` | No change expected: NR3 builds every accumulator from the parent dtype (D36). Change it only if a decimal accumulator rejects the child batch |
 | `vortex-array/src/arrays/decimal/compute/cast.rs` | The D15 rule in `CastReduce` (`:45-82`) and `CastKernel` (`:84-170`) |
 | `vortex-array/src/arrays/narrow/tests/decimal.rs` | New tests, registered in `narrow/tests/mod.rs` |
 | The `Narrow` bench file of NR2, or `vortex-array/benches/` | Decimal `Narrow` benches |
@@ -787,8 +788,8 @@ Design notes:
   (`sum_decimal_dtype`, `vortex-array/src/aggregate_fn/fns/sum/mod.rs:81-86`). An accumulator for
   the child dtype uses `sum_decimal_dtype(child)`, which overflows where the parent result does not.
   A `Narrow` must never fail where its parent would not (D36). So:
-  - The NR3 kernel builds the sum accumulator from the dtype of the parent, and it feeds that
-    accumulator the child batch. `Sum` and `SumV2` need no `Narrow` code.
+  - NR3 already builds every accumulator from the dtype of the parent, and it feeds that
+    accumulator the child batch. `Sum` and `SumV2` need no `Narrow` code, and CD4 adds only tests.
   - `accumulate_decimal` reads any input width into the width of the result dtype
     (`vortex-array/src/aggregate_fn/fns/sum/decimal.rs:27-61`). `multiply_constant` handles a
     constant child of any precision (`vortex-array/src/aggregate_fn/fns/sum/constant.rs:69-89`).
@@ -826,7 +827,7 @@ Steps:
 1. Open `validate_dtypes` for decimals and update the docs.
 2. Add decimal execution and `encode_decimal`.
 3. Add the decimal compare branches.
-4. Build the decimal sum accumulator from the parent dtype in the NR3 kernel (D36).
+4. Confirm with tests that decimal sums through the NR3 kernel use the parent result dtype (D36).
 5. Add the D15 cast rules on `Narrow` and on the decimal leaf, and the fill-null branch.
 6. Add the conformance and fallback tests.
 7. Add the benchmarks.

@@ -24,12 +24,15 @@ planning review on 2026-10-23.
   it. If a brief must change, tell that agent.
 - The briefs cite `develop` at `b70206818f`. Line numbers move as PRs land, so the agent reads the
   cited code before it changes it. Code from the local integer `Narrow` rewrite is cited with its
-  commit, for example `f7408481ce:vortex-array/src/arrays/narrow/mod.rs`.
+  commit, for example `f7408481ce:vortex-array/src/arrays/narrow/mod.rs`. That rewrite is a
+  reference for tests and edge cases. The PRs are written from scratch, and only FX3 ports a
+  rewrite commit as it is (D38).
 - The rewrite commits (`f7408481ce`, `8d548646ee`, `74aa17644e`, `af4b663059` and `7e2e5e4d7a`) are
   not on `origin`. Only the local branches `ct/narrow-pushdown` and `ct/narrow-encoding` hold them,
   and those names also exist on `origin` with the older commits of the closed PRs. Agents in local
-  worktrees of this repository can read them. A remote agent or another clone cannot. Push them to a
-  new backup branch before such an agent starts, and do not delete or reset the two local branches.
+  worktrees of this repository can read them. A remote agent or another clone cannot. Before such
+  an agent needs the reference, push them to a new backup branch. Do not delete or reset the two
+  local branches.
 - Agents can run any command that the work needs: builds, tests, the acceptance checks, and the
   generators of committed files, such as golden snapshots (NR6, CD7, WR3) and the edition record
   (WR2). CI fails when a committed file is stale. Use the narrowest command, as `AGENTS.md`
@@ -218,7 +221,7 @@ issue.
 | --- | --- |
 | CD5 changes the CUDA decoder, which few reviewers know | A minimal change in its own commit, with a CUDA reviewer. It becomes its own PR if it grows |
 | After CD6, a CUDA read of an old narrow decimal node copies the buffer to the host and returns a `Narrow`, and CUDA has no `Narrow` kernel | Accepted (D37): the host converts old nodes, which are rare. A CUDA reviewer confirms in CD6 that such a scan still works |
-| The rewrite commits exist only on local branches | Push them to a backup branch before a remote agent needs them (see "How to use the briefs") |
+| The reference commits of the rewrite exist only on local branches | Keep the local branches. Push a backup branch before a remote agent needs the reference (see "How to use the briefs") |
 | NR6 writes signed internal children that earlier releases have not read | Readers on `develop` accept any integer type there. NR6 runs the latest release on its files |
 | The `take_map` regressions on #10333 have no known cause | NR6 compares CodSpeed runs on NR1, NR3, NR4 and NR6, and reads the flame graph diff |
 | WR3 has open design questions | A design pass before any code. The other wire PRs do not depend on it |

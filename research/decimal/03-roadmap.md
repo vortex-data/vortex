@@ -9,7 +9,7 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 Many planned type changes depend on each other. The IDs below match the full graph in section 7
 of [`agents/report.md`](agents/report.md), which gives a reason for each edge. There is no N25.
-The decision IDs (D1 to D35, X1 to X9, C1) and the open questions (DQ5 to DQ7, XQ1 to XQ6, CQ1)
+The decision IDs (D1 to D38, X1 to X9, C1) and the open questions (DQ5 to DQ7, XQ1 to XQ6, CQ1)
 come from [`decisions.md`](../decisions.md).
 
 | ID | Work | Kind |
@@ -142,14 +142,15 @@ into PRs, with one brief for each PR.
 4. **The integer `Narrow` in memory.** The draft PRs
    [#10223](https://github.com/vortex-data/vortex/pull/10223),
    [#10332](https://github.com/vortex-data/vortex/pull/10332) and
-   [#10333](https://github.com/vortex-data/vortex/pull/10333) closed on 2026-10-23. A rewrite of
-   #10223 and #10332 goes up as new PRs after a rebase. The rewrite makes `Narrow` in-memory only.
-   It lands as five stacked PRs (decided, D35). The first adds `encode` and the deprecated
-   `encode_values`, and a later PR moves the existing narrowing call sites to `encode_values`
-   (decided, D28). The last PR of the stack adds the rules that move structural encodings above
-   `Narrow` (decided, D25). The fix for dictionary fill codes is its own PR, before that last PR.
-   Decimal support needs real kernel changes, because some kernels assume an integer child.
-   [`decisions.md`](../decisions.md#the-narrow-pull-requests) lists the state of these PRs.
+   [#10333](https://github.com/vortex-data/vortex/pull/10333) closed on 2026-10-23. The new PRs are
+   written from scratch, with a local rewrite of #10223 and #10332 as a reference for tests and edge
+   cases (decided, D38). `Narrow` is in-memory only. It lands as five stacked PRs (decided, D35).
+   The first adds `encode` and the deprecated `encode_values`, and a later PR moves the existing
+   narrowing call sites to `encode_values` (decided, D28). The last PR of the stack adds the rules
+   that move structural encodings above `Narrow` (decided, D25). The fix for dictionary fill codes
+   is its own PR, before that last PR. Decimal support needs real kernel changes, because some
+   kernels assume an integer child. [`decisions.md`](../decisions.md#the-narrow-pull-requests) lists
+   the state of these PRs.
 
 ## One canonical form
 

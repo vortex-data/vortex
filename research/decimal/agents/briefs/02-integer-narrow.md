@@ -5,67 +5,49 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 # Integer `Narrow` PR briefs: NR1 to NR6
 
-These briefs cover the integer `Narrow` track. NR1, NR3 and NR4 land the local rewrite in
-`/Users/connor/spiral/vortex-data/vortex3` (base `61ff28d970`) after a rebase onto `develop` at
-`b70206818f`. NR1 also gets `encode_values`, the serialization workaround and a flatten rule. NR2
-is new. NR5 keeps only the dictionary-codes rule of the rewrite, and it adds the rules that move
-structural encodings above `Narrow` (D25). NR6 moves the existing narrowing call sites to
-`encode_values` (D28). All rewrite commits and `adc1e83b9d` are reachable from every local worktree,
-because the worktrees share one bare repository. The rewrite commits are not on `origin`. Only the
-local branches `ct/narrow-pushdown` (checked out in `vortex3`) and `ct/narrow-encoding` hold them,
-and both names also exist on `origin` with the older commits of the closed PRs. Do not push, reset
-or delete these two local branches. A remote agent cannot reach the commits until they are pushed
-to a new backup branch. `adc1e83b9d`, `0d94e44a91` and `07fafc2a5b` are on
-`origin/ct/narrow-compression`.
+These briefs cover the integer `Narrow` track. Each PR is written from scratch from its brief
+(D38). A local rewrite of the closed PRs #10223 and #10332 exists in
+`/Users/connor/spiral/vortex-data/vortex3`. It is a reference, not a base: read its code and tests
+for edge cases, reuse its test cases, and do not cherry-pick it. The rewrite predates D25, D26, D28
+and D36, so its structure differs from these briefs. The one exception is FX3, which ports the
+dictionary fill fix of the rewrite as it is.
 
-No build, test or benchmark ran for these briefs. Every statement that a commit builds or passes
-comes from reading the code, and it is marked "Not verified" where it matters.
+No build, test or benchmark ran for these briefs. Every claim about code comes from reading it,
+and it is marked "Not verified" where it matters.
 
 ## Shared context for the track
 
-### Commit map
+### The reference rewrite
 
-| Local commit | Subject | PR | Files |
+| Commit | Subject | Use it for | Do not copy |
 | --- | --- | --- | --- |
-| `f7408481ce` | feat(array): add in-memory Narrow integer encoding | NR1 | `vortex-array/src/arrays/narrow/{mod,vtable,encoding,compare,rules}.rs`, `narrow/tests/{mod,encoding,compute}.rs`, `vortex-array/src/arrays/mod.rs`, `vortex-array/src/session/mod.rs` |
-| (none) | new benchmarks | NR2 | `vortex-array/benches/narrow.rs`, `vortex-array/Cargo.toml` |
-| `8d548646ee` | feat(array): forward Narrow integer aggregates | NR3 | `narrow/aggregates.rs`, `narrow/mod.rs`, `narrow/tests/{mod,aggregates}.rs`, `vortex-array/src/aggregate_fn/session.rs`, `encodings/fastlanes/tests/narrow.rs` |
-| `74aa17644e` | feat(array): push arithmetic and scalar operations through Narrow | NR4 | `narrow/numeric.rs`, `narrow/{rules,encoding,mod}.rs`, `narrow/tests/{mod,numeric,pushdown}.rs` |
-| `af4b663059` | feat(array): retain Narrow storage through merges and indices | NR5, in part | Only `TakeIndicesReduce` in `narrow/rules.rs` and `test_narrowed_take_indices`. The chunked and interleave merge rules in `narrow/merge.rs` are dropped, because they put `Narrow` above `Chunked` and `Interleave` (D25) |
-| `7e2e5e4d7a` | fix(array): avoid truncating dictionary fill codes | FX3, plus one test for NR5 | `vortex-array/src/arrays/dict/compute/fill_null.rs` (FX3), `narrow/tests/merge.rs` test `test_fill_null_after_narrowing_take_indices` (NR5, in `narrow/tests/structural.rs`) |
-| `adc1e83b9d` | feat(compress): retain narrow integer children through compression | `encode_values` to NR1, the call-site switch to NR6, the rest to WR1 to WR3 | See the NR1 and NR6 briefs |
+| `f7408481ce` | feat(array): add in-memory Narrow integer encoding | NR1: the width selection of `encode`, `validate_dtypes`, the compare constant shortcut, the selection rules, and the cases of `narrow/tests/{encoding,compute}.rs` | The integer-only parts of the compare kernel (see below). The serialization stub |
+| `8d548646ee` | feat(array): forward Narrow integer aggregates | NR3: the list of supported aggregates, and the cases of `narrow/tests/aggregates.rs` and `encodings/fastlanes/tests/narrow.rs` | The accumulator for the child dtype. NR3 uses the accumulator of the parent dtype (D36) |
+| `74aa17644e` | feat(array): push arithmetic and scalar operations through Narrow | NR4: the interval arithmetic, the cast, fill-null, zip and between rules, and the cases of `narrow/tests/{numeric,pushdown}.rs` | The replacement of the NR1 cast and fill-null rules. NR1 writes those rules so that NR4 extends them |
+| `af4b663059` | feat(array): retain Narrow storage through merges and indices | NR5: `TakeIndicesReduce` and `test_narrowed_take_indices` | The chunked and interleave merge rules in `narrow/merge.rs`, which put `Narrow` above `Chunked` and `Interleave` (D25) |
+| `7e2e5e4d7a` | fix(array): avoid truncating dictionary fill codes | FX3 ports the fix as it is. NR5 reuses `test_fill_null_after_narrowing_take_indices` | Nothing |
+| `adc1e83b9d` | feat(compress): retain narrow integer children through compression | NR1: `encode_values`. NR6: the list of call sites. WR1 to WR3: background | The `Narrow` wrappers for internal children, and the preview edition with only `vortex.narrow` |
 
-Each commit builds on its predecessor only, by reading:
+All these commits are reachable from every local worktree, because the worktrees share one bare
+repository. The five rewrite commits are not on `origin`. Only the local branches
+`ct/narrow-pushdown` (checked out in `vortex3`) and `ct/narrow-encoding` hold them, and both names
+also exist on `origin` with the older commits of the closed PRs. Do not push, reset or delete
+these two local branches. A remote agent cannot read the reference until it is pushed to a new
+backup branch. `adc1e83b9d`, `0d94e44a91` and `07fafc2a5b` are on `origin/ct/narrow-compression`.
 
-- `f7408481ce` needs nothing but `develop`. Its tests use only NR1 code.
-- `8d548646ee` needs NR1. It does not need NR2.
-- `74aa17644e` needs NR1 code only. Its diff context in `narrow/mod.rs` and `narrow/tests/mod.rs`
-  names `mod aggregates`, so a cherry-pick without NR3 conflicts textually. NR3 is its base.
-- The part of `af4b663059` that NR5 keeps needs NR4, because `TakeIndicesReduce` sits in the NR4
-  version of `rules.rs`.
-- NR4 rewrites the cast and fill-null rules of NR1. The NR1 versions are correct subsets, so the
-  churn is acceptable.
+### Changes on `develop` since the rewrite
 
-None of these statements is verified by a build.
+The rewrite is based on `61ff28d970`. These changes on `develop` matter when an agent reads it:
 
-### Rebase onto `develop`
-
-`git merge-tree --write-tree --merge-base=61ff28d970 b70206818f <commit>` reports no textual
-conflict for `f7408481ce`, `8d548646ee`, `74aa17644e` and `af4b663059`. It reports one conflict
-for `7e2e5e4d7a`, in `vortex-array/src/arrays/dict/compute/fill_null.rs`. That commit is FX3, not
-part of this track.
-
-These changes on `develop` since `61ff28d970` touch the APIs that the rewrite uses:
-
-| Change on `develop` | Commit | Effect on the rewrite |
+| Change on `develop` | Commit | What new code does |
 | --- | --- | --- |
-| `vortex_array::array_session()` removed | `d834a11faa` (#10681) | NR1 to NR5 have 39 calls and 6 `use crate::array_session` lines. FX3 adds 2 more calls. Together these are the 47 mentions that the notes count. Every one must change, with the pattern below |
-| Interleave uses named slots | `96ac9f2cc5` (#10688) | `InterleaveArray::try_new(values, array_indices, row_indices)` and `InterleaveArrayExt` keep their signatures. The slot order is the same: selectors at 0 and 1, values from 2. `InterleaveSlots` is now `pub(super)` (`vortex-array/src/arrays/interleave/array.rs:24`). NR5 drops `narrow/merge.rs`, which used the literal `2`. The NR5 pull-up rule for `Interleave` builds a new array with `InterleaveArray::try_new` |
-| Storage pushdown in the aggregate session | `d7562aa0e6` (#10566), `3bf14ba647` (#10616) | `AggregateFnSession::default` gained `register_storage_ordered` calls (`vortex-array/src/aggregate_fn/session.rs:127-129`). The NR3 insertion merges cleanly. `register_aggregate_kernel` and the fallback lookup are unchanged (`:199-224`) |
+| `vortex_array::array_session()` removed | `d834a11faa` (#10681) | Every test module uses a module `static SESSION`, with the pattern below. The tests of the rewrite call `array_session()`, so port their cases, not their setup |
+| Interleave uses named slots | `96ac9f2cc5` (#10688) | `InterleaveArray::try_new(values, array_indices, row_indices)` keeps its signature. The slot order is the same: selectors at 0 and 1, values from 2. `InterleaveSlots` is `pub(super)` (`vortex-array/src/arrays/interleave/array.rs:24`). The NR5 pull-up rule builds a new array with `InterleaveArray::try_new` |
+| Storage pushdown in the aggregate session | `d7562aa0e6` (#10566), `3bf14ba647` (#10616) | `AggregateFnSession::default` has `register_storage_ordered` calls (`vortex-array/src/aggregate_fn/session.rs:127-129`). Register the NR3 kernel after the `Dict` kernels. `register_aggregate_kernel` and the fallback lookup are unchanged (`:199-224`) |
 | `fill_null` on an empty input | `633c52deab` (#10627) | `FillNull` returns an empty array for a non-constant fill on an empty input (`vortex-array/src/scalar_fn/fns/fill_null/mod.rs:145`). The `Narrow` rule receives a `Scalar`, so it is not affected |
-| Kernel for constant dictionary codes | `a169338930` (#10643) | A new execute-parent kernel handles `Constant` codes (`vortex-array/src/arrays/dict/take.rs:181-205`). The NR5 rule for `Narrow` codes is a reduce rule, so the two do not overlap |
-| Deprecated APIs and `legacy_session` removed | `85ae34d5f0` (#10595) | The rewrite uses none of the removed APIs |
-| Execution contexts in validation and patches | `c48457b572`, `7216cb5cb8`, `673fd2e064`, `b549eb5a97` | `ListViewArray::try_new`, `Patches::new`, `MaskedArray::try_new`, `RunEndArray::try_new` and `SparseArray::try_new` take a context. The rewrite uses none of them. The new NR5 rules rebuild `Masked`, `RunEnd` and `Sparse`, so the NR5 brief names constructors without a context |
+| Kernel for constant dictionary codes | `a169338930` (#10643) | An execute-parent kernel handles `Constant` codes (`vortex-array/src/arrays/dict/take.rs:181-205`). The NR5 rule for `Narrow` codes is a reduce rule, so the two do not overlap |
+| Deprecated APIs and `legacy_session` removed | `85ae34d5f0` (#10595) | None of the removed APIs is needed |
+| Execution contexts in validation and patches | `c48457b572`, `7216cb5cb8`, `673fd2e064`, `b549eb5a97` | `ListViewArray::try_new`, `Patches::new`, `MaskedArray::try_new`, `RunEndArray::try_new` and `SparseArray::try_new` take a context. Reduce rules have none, so the NR5 brief names constructors without a context |
 
 `VTable`, `OperationsVTable`, `ValidityChild`, the kernel registry, `CompareKernel`,
 `execute_compare`, `execute_numeric`, the reduce adaptors, `ChunkedSlots::CHUNKS_OFFSET`,
@@ -74,7 +56,7 @@ The execute-parent registry keeps a list for each key
 (`vortex-array/src/optimizer/kernels.rs:263-276`). So the compare kernel of NR1 and the numeric
 kernel of NR4 can both register for `Binary` on `Narrow`.
 
-#### Session replacement pattern
+#### Test session pattern
 
 PR #10681 gave each test module one session. `VortexSession::empty()` creates the vortex-array
 session variables on first use, and the default `KernelSession` runs `arrays::initialize`
@@ -89,16 +71,6 @@ use vortex_session::VortexSession;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 ```
 
-| Before | After |
-| --- | --- |
-| `use crate::array_session;` | Delete |
-| `let mut ctx = array_session().create_execution_ctx();` | `let mut ctx = SESSION.create_execution_ctx();` |
-| `let session = array_session();` | Delete, and use `SESSION` |
-| `session.aggregate_fns()` | `SESSION.aggregate_fns()` |
-| `session.array_serialize(&array)?` | `SESSION.array_serialize(&array)?` |
-| `array.serialize(&ctx, &session, &opts)` | `array.serialize(&ctx, &SESSION, &opts)` |
-| `Narrow.deserialize(.., &session)` | `Narrow.deserialize(.., &SESSION)` |
-
 A test outside vortex-array that needs another crate registers it in the closure, as
 `encodings/fastlanes/src/bitpacking/array/tests.rs:43-47` does:
 
@@ -109,8 +81,6 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 ```
-
-No `Narrow` test changes its session after setup, so every test can share the static.
 
 ### Stack and branches
 
@@ -136,12 +106,25 @@ to NR5 on `develop` before their CodSpeed reports are read.
 next branch replays the commits of the merged PR again and conflicts. Rebase with
 `git rebase --onto develop <old tip of the merged branch>`, or with `gh stack`.
 
-### Integer-only sites in the rewrite (input for CD4)
+### Write the kernels so that decimal support is additive
 
-The private `validate_dtypes` is the only check that rejects a decimal dtype. Many other sites
-assume integers. Most of them decline a decimal with `Ok(None)` and fall back to
-canonicalization, which is safe. Five sites give a panic, a wrong result or a likely execution loop
-once `validate_dtypes` accepts decimals. CD4 must change those five in the same PR.
+CD4 opens `Narrow` for decimals. The rewrite has integer-only assumptions that break then (table
+below). The new NR code avoids them from the start where that costs little:
+
+- No `as_ptype()` and no `DType::Primitive` on a path that a decimal child can reach once
+  `validate_dtypes` accepts decimals. For example, the compare of two `Narrow` operands picks the
+  wider child dtype without `as_ptype()`.
+- The out-of-range compare decides the direction by comparing the constant with the bounds of the
+  child dtype, not through `i64::try_from` and `is_signed_int()`.
+- Aggregates use the accumulator of the parent dtype (D36), so a decimal sum needs no special case.
+- `execute` can still yield a cast for integers, so that the child fuses decoding and widening.
+  CD4 adds the decimal path, because the decimal cast of D15 returns a `Narrow`.
+- Kernels that do not support decimals decline them with `Ok(None)`, so canonicalization handles
+  them.
+
+These sites of the rewrite assume integers. Most of them decline a decimal with `Ok(None)`, which
+is safe. The others give a panic, a wrong result or a likely execution loop once `validate_dtypes`
+accepts decimals:
 
 | Site | Assumption | Effect with a decimal `Narrow` | Safe for decimals |
 | --- | --- | --- | --- |
@@ -168,11 +151,13 @@ once `validate_dtypes` accepts decimals. CD4 must change those five in the same 
   null pass to the child. `Narrow` has no wire form yet, so the serializer writes its canonical
   array instead (D26).
 - Depends on: None. Soft: None. Blocks: NR2, NR3, NR4, NR5, NR6, CD4, CD7.
-- Decisions: D8 (one encoding with ID `vortex.narrow`), D15, D18, D22, D23, D26, D28.
+- Decisions: D8 (one encoding with ID `vortex.narrow`), D15, D18, D22, D23, D26, D28, D38.
 - Branch: `ct/narrow-in-memory`, based on `develop` (`b70206818f` or later).
 - Scope:
-  - Cherry-pick `f7408481ce`, and replace `array_session()` in its tests.
-  - Add `NarrowArray::encode_values`, marked `#[deprecated]` (D28), from `adc1e83b9d`.
+  - Write the encoding, `validate_dtypes`, the compare kernel, and the selection, cast and
+    fill-null rules. `f7408481ce` is the reference (D38).
+  - Add `NarrowArray::encode_values`, marked `#[deprecated]` (D28). `adc1e83b9d` has a reference
+    version.
   - Add the serialization workaround of D26: a plugin hook that lowers an array before it is
     serialized, which `Narrow` implements by executing itself to its canonical array.
   - Add a reduce rule that flattens a `Narrow` child, so D15 holds after physical rewrites.
@@ -186,14 +171,14 @@ Files (checked at `b70206818f`):
 
 | Path | Change |
 | --- | --- |
-| `vortex-array/src/arrays/narrow/mod.rs` | New, from `f7408481ce`. `Narrow`, `NarrowArray`, `NarrowSlots`, `try_new`, `validate_dtypes`, `initialize` |
-| `vortex-array/src/arrays/narrow/vtable.rs` | New, from `f7408481ce`. Add `VTable::reduce` that flattens a `Narrow` child, and the lowering hook |
-| `vortex-array/src/arrays/narrow/encoding.rs` | New, from `f7408481ce`. `NarrowArray::encode`, plus `encode_values` from `adc1e83b9d:vortex-array/src/arrays/narrow/encoding.rs:45-90` |
-| `vortex-array/src/arrays/narrow/compare.rs` | New, from `f7408481ce`. Compare kernel |
-| `vortex-array/src/arrays/narrow/rules.rs` | New, from `f7408481ce`. Slice, filter, take, mask, cast and fill-null rules |
+| `vortex-array/src/arrays/narrow/mod.rs` | New. Reference: `f7408481ce`. `Narrow`, `NarrowArray`, `NarrowSlots`, `try_new`, `validate_dtypes`, `initialize` |
+| `vortex-array/src/arrays/narrow/vtable.rs` | New. Reference: `f7408481ce`. With `VTable::reduce` that flattens a `Narrow` child, and the lowering hook |
+| `vortex-array/src/arrays/narrow/encoding.rs` | New. `NarrowArray::encode` and `encode_values`. References: `f7408481ce` and `adc1e83b9d:vortex-array/src/arrays/narrow/encoding.rs:45-90` |
+| `vortex-array/src/arrays/narrow/compare.rs` | New. Reference: `f7408481ce`. Compare kernel |
+| `vortex-array/src/arrays/narrow/rules.rs` | New. Reference: `f7408481ce`. Slice, filter, take, mask, cast and fill-null rules |
 | `vortex-array/src/arrays/narrow/tests/mod.rs` | New |
-| `vortex-array/src/arrays/narrow/tests/encoding.rs` | New. 9 `array_session()` calls and 1 import to replace. Add the flatten, `encode_values` and serialization tests |
-| `vortex-array/src/arrays/narrow/tests/compute.rs` | New. 5 calls and 1 import to replace |
+| `vortex-array/src/arrays/narrow/tests/encoding.rs` | New. Port the cases of the reference tests, and add the flatten, `encode_values` and serialization tests |
+| `vortex-array/src/arrays/narrow/tests/compute.rs` | New. Port the cases of the reference tests |
 | `vortex-array/src/array/plugin.rs:113-158` | Add the lowering hook to `ArrayPlugin`, with a default of `Ok(None)`. The blanket impl for `VTable` (`:165-205`) forwards it |
 | `vortex-array/src/serde.rs:169-190` | `ArraySerializationTree::try_new` asks the hook when `array_serialize` returns `None` |
 | `vortex-array/src/arrays/mod.rs:85-91` | Add `pub mod narrow;` with `pub use narrow::Narrow;` and `pub use narrow::NarrowArray;` between `masked` and `null` |
@@ -263,11 +248,12 @@ pub(super) fn validate_dtypes(storage: &DType, logical: &DType) -> VortexResult<
 - Compare kernel: two `Narrow` operands compare at the wider child width. A constant that casts to
   the child dtype compares against the child. A constant outside the child range gives a constant
   answer with the child validity. `Eq` is false and `NotEq` is true. `Lt`, `Lte`, `Gt` and `Gte`
-  follow from whether the constant is below the range. A null constant gives all nulls.
+  follow from whether the constant is below the range. A null constant gives all nulls. Follow
+  "Write the kernels so that decimal support is additive" above.
 - Cast rule in this PR: take an integer target of the same signedness. If it is no wider than the
   child, the cast goes to the child with the same target. If it is wider, the rule returns a
   `Narrow` over the child cast to the target nullability (D15 as amended). Other targets fall
-  back. NR4 widens this rule.
+  back. Write the cast and fill-null rules so that NR4 can add target kinds without replacing them.
 - Fill null declines when the fill value does not fit the child dtype, so canonical execution
   handles it.
 
@@ -275,19 +261,20 @@ Steps:
 
 1. Create `ct/narrow-in-memory` from `develop` in a new worktree. Do not reuse the `vortex3`
    worktree or its branch.
-2. Run `git cherry-pick f7408481ce`. It applies without conflicts.
-3. Replace `array_session()` in `narrow/tests/encoding.rs` and `narrow/tests/compute.rs` with the
-   module `SESSION` pattern of the shared section.
-4. Add `encode_values` and the shared private function, with their tests.
-5. Add the lowering hook in `plugin.rs` and `serde.rs`, and the `Narrow` impl, with its tests.
-6. Add `VTable::reduce` to `vortex-array/src/arrays/narrow/vtable.rs` and its test.
-7. Keep the cherry-picked commit `feat(array): add in-memory Narrow integer encoding`, and add steps
-   3 to 6 as new commits. Each commit has the line
+2. Read `f7408481ce` and its tests with `git show f7408481ce`.
+3. Write the module: the encoding, `validate_dtypes`, the vtable, the compare kernel and the rules.
+   Register it in `arrays/mod.rs` and `session/mod.rs`.
+4. Add `encode_values` and the shared private function.
+5. Add the lowering hook in `plugin.rs` and `serde.rs`, and the `Narrow` impl.
+6. Add `VTable::reduce` and the flatten rule.
+7. Add the tests, with the module `SESSION`. Port the cases of the reference tests.
+8. Commit in reviewable steps. Each commit has the line
    `Signed-off-by: Connor Tsui <connor.tsui20@gmail.com>` and no co-author line.
 
 Tests:
 
-- From `f7408481ce`, in `narrow/tests/encoding.rs`: `test_signed_encoding` and
+- Port the cases of these tests in `f7408481ce:vortex-array/src/arrays/narrow/tests/encoding.rs`:
+  `test_signed_encoding` and
   `test_unsigned_encoding` (`rstest` width boundaries), `test_null_payloads_and_empty`,
   `test_reject_invalid_dtypes`, `test_validate_slots`, `test_flatten_and_scalar_dtype`,
   `test_encoded_child_execution`, `test_smallest_width_unchanged`, `test_reject_float_encoding`,
@@ -305,7 +292,8 @@ Tests:
     the same values.
 - In `vortex-array/src/serde.rs` tests: an encoding without a wire form and without the hook still
   fails with "does not support serialization".
-- From `f7408481ce`, in `narrow/tests/compute.rs`: `test_selection_and_fill_null`,
+- Port the cases of these tests in `f7408481ce:vortex-array/src/arrays/narrow/tests/compute.rs`:
+  `test_selection_and_fill_null`,
   `test_cast_preserves_checked_nullability`, `test_fill_null_preserves_result_dtype`,
   `test_arithmetic_uses_logical_width`, and `test_comparison`. The last one is an `rstest` over six
   operators. It covers constants on both sides of the child range, both operand orders, and a
@@ -319,7 +307,6 @@ Acceptance checks:
 - `cargo clippy -p vortex-array --all-targets --all-features -- -D warnings`
 - `cargo +nightly-2026-09-10 fmt -p vortex-array`
 - `cargo nextest run -p vortex-array narrow` and `cargo nextest run -p vortex-array serde`
-- `git grep -n array_session -- vortex-array/src/arrays/narrow` prints nothing.
 - Serializing a `Narrow` writes its canonical array, and the read-back array has equal values.
 - No file writer or compressor produces `vortex.narrow`.
 - `encode_values` carries `#[deprecated]` and has no caller yet.
@@ -330,8 +317,8 @@ follow the child. The fill-null fallback. The new `reduce` rule. The lowering ho
 when an array has no wire form, and only `Narrow` implements it. Registration of the compare kernel
 through `arrays::initialize`.
 
-Size: Large. The rewrite commit has about 550 lines of source and 435 lines of tests, mostly a
-new module. `encode_values`, the hook and their tests come on top.
+Size: Large. The reference commit has about 550 lines of source and 435 lines of tests.
+`encode_values`, the hook and their tests come on top.
 
 Open questions: None.
 
@@ -450,27 +437,27 @@ Open questions: None.
 
 ### NR3: Aggregates forward to the child
 
-- Goal: Register one fallback aggregate kernel for `Narrow`. It runs order-preserving and
-  sum-like aggregates on the child, and it casts the partial state to the state dtype of the
-  parent.
+- Goal: Register one fallback aggregate kernel for `Narrow`. It feeds the child to an accumulator
+  of the parent dtype (D36), so every result and every overflow is the same as on the parent.
 - Depends on: NR1, NR2 (stack, D35: the benchmarks exist before the kernels change). Soft: None.
   Blocks: NR4 (stack), CD4.
-- Decisions: D15.
+- Decisions: D15, D36, D38.
 - Branch: `ct/narrow-aggregate-kernels`, based on NR2.
-- Scope: Cherry-pick `8d548646ee`. Replace `array_session()` in its tests.
+- Scope: Write the kernel. `8d548646ee` is the reference for the list of aggregates and for test
+  cases.
 - Out of scope: Decimal aggregates (CD4). Pushdown of sum, min and max into the MSP (LT3).
 
 Files (checked at `b70206818f`):
 
 | Path | Change |
 | --- | --- |
-| `vortex-array/src/arrays/narrow/aggregates.rs` | New, from `8d548646ee` |
+| `vortex-array/src/arrays/narrow/aggregates.rs` | New. Reference: `8d548646ee` |
 | `vortex-array/src/arrays/narrow/mod.rs` | `mod aggregates;` and `pub(crate) use aggregates::register_aggregate_kernels;`, module doc names aggregates |
 | `vortex-array/src/arrays/narrow/tests/mod.rs` | `mod aggregates;` |
-| `vortex-array/src/arrays/narrow/tests/aggregates.rs` | New. 2 calls and 1 import to replace |
+| `vortex-array/src/arrays/narrow/tests/aggregates.rs` | New. Port the cases of the reference tests |
 | `vortex-array/src/aggregate_fn/session.rs:51-52` | `use crate::arrays::narrow;` |
 | `vortex-array/src/aggregate_fn/session.rs:135-136` | `narrow::register_aggregate_kernels(&this);` after the `Dict` kernels |
-| `encodings/fastlanes/tests/narrow.rs` | New integration test with a `BitPacked` child. Replace `vortex_array::array_session()` with the closure pattern |
+| `encodings/fastlanes/tests/narrow.rs` | New integration test with a `BitPacked` child, with the closure session pattern |
 
 Design notes:
 
@@ -485,24 +472,25 @@ struct NarrowAggregateKernel; // impl DynAggregateKernel
   `Count`, `NullCount`, `AllNull`, `AllNonNull`. Every other aggregate returns `None` and uses the
   default path. `UncompressedSizeInBytes` must stay on the default path, because it depends on the
   logical width.
-- Algorithm: get the state dtype of the parent. Accumulate the child with an accumulator for the
-  child dtype. Flush, and cast the partial to the parent state dtype.
+- Algorithm (D36): build the accumulator for the parent dtype, and feed it the child batch. First
+  confirm that each supported accumulator accepts a batch of the narrower child dtype. Not
+  verified. An aggregate whose accumulator rejects it leaves the supported list and uses the
+  default path.
 - Integer correctness: exact widening keeps values and order. The integer `Sum` state is `I64` for
   every signed input and `U64` for every unsigned input
-  (`vortex-array/src/aggregate_fn/fns/sum/mod.rs:114-122`). So the child sum overflows exactly
-  when the parent sum does.
-- Integer-only assumption: a decimal sum state depends on the input precision
-  (`sum/mod.rs:81-86`). Add a comment at the accumulator line that says this kernel is correct for
-  integers only, and that decimals need the parent state precision. CD4 owns that change.
+  (`vortex-array/src/aggregate_fn/fns/sum/mod.rs:114-122`). With the parent accumulator, overflow
+  matches the parent by construction.
+- A decimal sum state depends on the input precision (`sum/mod.rs:81-86`). Because the
+  accumulator comes from the parent dtype, a decimal sum is correct once CD4 opens
+  `validate_dtypes`. CD4 only adds the decimal tests.
 
 Steps:
 
-1. Run `git cherry-pick 8d548646ee` on the NR2 branch.
-2. Replace `array_session()` in `narrow/tests/aggregates.rs` with the module `SESSION`.
-3. Replace the session in `encodings/fastlanes/tests/narrow.rs` with the closure pattern. Remove
-   the redundant `#![cfg(test)]` at the top of that integration test.
-4. Add the integer-only comment in `aggregates.rs`.
-5. Amend the commit with the sign-off line.
+1. Create `ct/narrow-aggregate-kernels` on the NR2 branch.
+2. Write `narrow/aggregates.rs` and its registration in `aggregate_fn/session.rs`.
+3. Port the test cases of `8d548646ee`, including the fastlanes integration test, with the module
+   sessions. That integration test needs no `#![cfg(test)]`.
+4. Commit with the sign-off line.
 
 Tests:
 
@@ -528,7 +516,7 @@ Review focus: The supported list. Each listed aggregate must give the same resul
 on the widened values. The cast of partial states that hold extrema or boundary values. The
 fallback registration does not shadow kernels for exact aggregates.
 
-Size: Small. About 100 lines of source and 235 lines of tests.
+Size: Small. The reference has about 100 lines of source and 235 lines of tests.
 
 Open questions: None.
 
@@ -538,9 +526,11 @@ Open questions: None.
   operands and the result interval. Push `between`, `zip`, `fill_null` and more casts through
   `Narrow`.
 - Depends on: NR3 (stack). Soft: NR2. Blocks: NR5.
-- Decisions: D15, D22.
+- Decisions: D15, D22, D38.
 - Branch: `ct/narrow-arithmetic-kernels`, based on NR3.
-- Scope: Cherry-pick `74aa17644e`. Replace `array_session()` in its tests. Fix one module doc.
+- Scope: Write the numeric kernel and the rules. `74aa17644e` is the reference for the interval
+  arithmetic and for test cases. Extend the cast and fill-null rules of NR1 instead of replacing
+  them.
 - Out of scope: Structural rules and the dictionary-codes rule (NR5). Decimal arithmetic (D20).
   Decimal casts (CD4).
 
@@ -548,13 +538,13 @@ Files (checked at `b70206818f`):
 
 | Path | Change |
 | --- | --- |
-| `vortex-array/src/arrays/narrow/numeric.rs` | New, from `74aa17644e`. Execute-parent kernel for `Binary` |
-| `vortex-array/src/arrays/narrow/rules.rs` | New cast rule, fill null through `integer_storage_type`, `ZipReduce` and `ZipFalseReduce`, `BetweenReduce` |
+| `vortex-array/src/arrays/narrow/numeric.rs` | New. Reference: `74aa17644e`. Execute-parent kernel for `Binary` |
+| `vortex-array/src/arrays/narrow/rules.rs` | Extend the cast and fill-null rules. Add `ZipReduce`, `ZipFalseReduce` and `BetweenReduce` |
 | `vortex-array/src/arrays/narrow/encoding.rs` | `integer_types` helper, used by `encode` and `numeric.rs` |
 | `vortex-array/src/arrays/narrow/mod.rs` | `mod numeric;`, `initialize` registers the numeric kernel |
 | `vortex-array/src/arrays/narrow/tests/mod.rs` | `mod numeric;` and `mod pushdown;` |
-| `vortex-array/src/arrays/narrow/tests/numeric.rs` | New. 9 calls and 1 import to replace |
-| `vortex-array/src/arrays/narrow/tests/pushdown.rs` | New. 7 calls and 1 import to replace. Its module doc names concatenation and interleave, which these tests do not cover. Remove those words |
+| `vortex-array/src/arrays/narrow/tests/numeric.rs` | New. Port the cases of the reference tests |
+| `vortex-array/src/arrays/narrow/tests/pushdown.rs` | New. Port the cases of the reference tests |
 
 Design notes:
 
@@ -579,10 +569,11 @@ Design notes:
 
 Steps:
 
-1. Run `git cherry-pick 74aa17644e` on the NR3 branch.
-2. Replace `array_session()` in `narrow/tests/numeric.rs` and `narrow/tests/pushdown.rs`.
-3. Fix the module doc of `narrow/tests/pushdown.rs`.
-4. Amend the commit with the sign-off line.
+1. Create `ct/narrow-arithmetic-kernels` on the NR3 branch.
+2. Write the numeric kernel, extend the cast and fill-null rules, and add the zip and between
+   rules.
+3. Port the test cases of `74aa17644e`, with the module `SESSION`.
+4. Commit in reviewable steps, with the sign-off line.
 
 Tests:
 
@@ -616,7 +607,7 @@ Review focus: Interval arithmetic for division across zero and for `i64::MIN / -
 checks stay with the checked kernel at the logical width. The cast rule for unsigned children and
 signed targets. The `min_max` pass on a wide operand. Null payloads outside the chosen width.
 
-Size: Large. About 450 lines of source and 425 lines of tests.
+Size: Large. The reference has about 450 lines of source and 425 lines of tests.
 
 Open questions: None.
 
@@ -626,10 +617,10 @@ Open questions: None.
   `Dict`, `RunEnd`, `Sparse`, `Constant`, `Masked`, `Chunked` or `Interleave` into that encoding
   over `Narrow` children. Dictionary codes that are a `Narrow` use its child directly.
 - Depends on: NR4 and FX3. Soft: NR2. Blocks: WR3.
-- Decisions: D25, D15, D23.
+- Decisions: D25, D15, D23, D38.
 - Branch: `ct/narrow-structural-rules`, based on NR4, after FX3 is on `develop`.
-- Scope: Seven pull-up rules, the dictionary-codes rule `TakeIndicesReduce` from `af4b663059`, and
-  the `Narrow` regression test from `7e2e5e4d7a`.
+- Scope: Seven pull-up rules, the dictionary-codes rule `TakeIndicesReduce` (reference:
+  `af4b663059`), and the case of the `Narrow` regression test from `7e2e5e4d7a`.
 - Out of scope: The chunked and interleave merge rules of `af4b663059` (`narrow/merge.rs`). They
   put `Narrow` above `Chunked` and `Interleave`, so they would loop against the new rules. The same
   pull-up rule for every other encoding, which a follow-up issue tracks. Decimal tests (CD4).
@@ -694,8 +685,9 @@ Steps:
 1. Confirm that FX3 is on `develop`. Rebase NR1 to NR4 if needed.
 2. Add the five rules in `vortex-array`, with their tests.
 3. Add the `RunEnd` and `Sparse` rules in their crates, with one test each.
-4. Port `TakeIndicesReduce` and `test_narrowed_take_indices` from `af4b663059`.
-5. Port `test_fill_null_after_narrowing_take_indices` from `7e2e5e4d7a`.
+4. Write `TakeIndicesReduce`, with `af4b663059` as the reference, and port the cases of
+   `test_narrowed_take_indices`.
+5. Port the case of `test_fill_null_after_narrowing_take_indices` from `7e2e5e4d7a`.
 
 Tests:
 
@@ -744,7 +736,8 @@ Open questions: None.
 - Depends on: NR1. Soft: NR5 (merge after the stack, D35). Blocks: None.
 - Decisions: D28, D22, D23, D11.
 - Branch: `ct/narrow-encode-values`, based on `develop` after NR1 merges.
-- Scope: The call sites of part 1 of `adc1e83b9d`, plus the matching lines of `0d94e44a91`. The
+- Scope: The call sites that part 1 of `adc1e83b9d` changed, with that commit and `0d94e44a91` as
+  references. The
   removal of `PrimitiveArrayExt::narrow`, with its tests ported. Regenerated golden snapshots. A
   check that the latest release reads files that this PR writes.
 - Out of scope: `encode_values` itself (NR1). Part 2 of `adc1e83b9d` (WR1 to WR3). Which arrays a
@@ -924,8 +917,8 @@ Open questions: None.
 4. The rewrite flattens nested `Narrow` arrays only in `try_new`. Physical rewrites check only the
    slot dtype (`vortex-array/src/array/erased.rs:595-620`), so NR1 adds a `VTable::reduce` flatten
    rule.
-5. The commits hold 41 `array_session()` calls and 6 `use` lines. NR1 to NR4 and the kept part of
-   NR5 hold 39 calls and 6 `use` lines, and FX3 holds 2 calls.
+5. The tests of the rewrite call `array_session()`, which `develop` removed. New tests use the
+   module session, so port their cases, not their setup.
 6. The report cites `narrow/mod.rs:81-84` for the width rule. That matches the tip `af4b663059`.
    In `f7408481ce` the same lines are `:76-79`.
 7. `ct/narrow-encoding` (#10223), `ct/narrow-pushdown` (#10332) and `ct/narrow-compression`

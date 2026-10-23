@@ -83,16 +83,18 @@ decimal encoding.
 | D33 | The compressor uses a real `Narrow` scheme at first. If the compressor turns out to always want it, it can become a hard-coded step. The design pass of WR3 settles its precedence with the DecimalByteParts scheme and the cascade level that it uses | A scheme fits the existing framework. The `AlwaysUse` contract and the cascade budget are the two costs to settle |
 | D34 | Strict decoding covers the decimal width, the protobuf `PType` and the eleven `PType` fields of array and layout metadata, in one PR with three commits | It is the same bug with the same fix |
 | D35 | The integer `Narrow` lands as five stacked PRs: the encoding, benchmarks, aggregates, arithmetic and casts, and the structural rules. The PR that moves the call sites to `encode_values` comes after them. The dictionary fill-code fix lands before the fifth PR | The benchmarks exist before the kernels change, and the fill-code fix guards the dictionary-codes rule |
-| D36 | An operation on a `Narrow` fails only where the same operation on the parent dtype fails, and it gives the same result. Aggregates on a decimal `Narrow` use the accumulator of the parent dtype and feed it the child, so `Sum` and `SumV2` need no `Narrow` code | `Narrow` is a physical encoding, so it must not change behavior. A child accumulator overflows at a lower precision than the parent |
+| D36 | An operation on a `Narrow` fails only where the same operation on the parent dtype fails, and it gives the same result. Aggregates on a `Narrow` use the accumulator of the parent dtype and feed it the child, for integers and decimals alike, so `Sum` and `SumV2` need no `Narrow` code | `Narrow` is a physical encoding, so it must not change behavior. A child accumulator overflows at a lower precision than the parent |
 | D37 | The `vortex.decimal` read plugin converts old narrow nodes on the host, also on CUDA read paths. A GPU scan of such a node copies its buffer to the host | Old narrow nodes are rare, and CUDA has no `Narrow` kernel |
+| D38 | The integer `Narrow` PRs are written from scratch from their briefs. The local rewrite of #10223 and #10332 is a reference for tests and edge cases, not a base. FX3 ports the rewrite's dictionary fill fix as it is | The rewrite predates D25, D26, D28 and D36, so a cherry-pick would carry its old structure into the new PRs |
 
-D1 to D6 date from 2026-10-19, D7 and D8 from 2026-10-22, and D12 to D37 from 2026-10-23. On
+D1 to D6 date from 2026-10-19, D7 and D8 from 2026-10-22, and D12 to D38 from 2026-10-23. On
 2026-10-23 the maintainer also revised D9, D10 and D11. Their 2026-10-22 versions used `P(W)`, the
-largest precision whose canonical width is `W`, as the child precision of old data, and they
-planned the work as one complete change. A second review on 2026-10-23 added D21 to D24, and it
-changed D8, D9, D11, D16, D17 and D20. A planning review on the same day added D25 to D37, and it
-changed D8, D12, D14, D15, D16, D17, D18, D23 and D24. [Part 2](decimal/02-design.md) of the Decimal
-notes explains D7 to D37, and [part 4](decimal/04-implementation.md) splits the work into PRs.
+largest precision whose canonical width is `W`, as the child precision of old data, and they planned
+the work as one complete change. A second review on 2026-10-23 added D21 to D24, and it changed D8,
+D9, D11, D16, D17 and D20. A planning review on the same day added D25 to D38, and it changed D8,
+D12, D14, D15, D16, D17, D18, D23 and D24. [Part 2](decimal/02-design.md) of the Decimal notes
+explains the design decisions from D7 on, and [part 4](decimal/04-implementation.md) splits the work
+into PRs.
 
 ### Open
 
@@ -130,12 +132,11 @@ This review read the draft stack on 2026-10-19 and again on 2026-10-22. The stat
   closed all three on 2026-10-23, and new PRs replace them. Issue
   [#10733](https://github.com/vortex-data/vortex/issues/10733) tracks the new PRs.
 - A rewrite of #10223 and #10332 exists in five local commits, but it is not pushed. It makes
-  `Narrow` an in-memory encoding with no serialized form. Since PR
-  [#10681](https://github.com/vortex-data/vortex/pull/10681) merged on 2026-10-23, the rewrite
-  needs a rebase. That PR removed `array_session()`, which the rewrite calls 47 times, and it
-  conflicts with the rewrite in the test module of `dict/compute/fill_null.rs`. The local branch
-  has the name `ct/narrow-pushdown`, which is the head branch of the closed #10332, so the new PRs
-  use new branch names.
+  `Narrow` an in-memory encoding with no serialized form. The new PRs are written from scratch, and
+  the rewrite is only a reference for tests and edge cases (D38). It predates
+  [#10681](https://github.com/vortex-data/vortex/pull/10681), which removed `array_session()`. The
+  local branch has the name `ct/narrow-pushdown`, which is the head branch of the closed #10332, so
+  the new PRs use new branch names.
 - The rewrite also fixes a fill code that the dictionary `fill_null` kernel truncates. That bug
   exists on `develop` without `Narrow`, so the fix becomes its own PR.
 - The only integer-only check of #10223 and #10332 is the private `validate_dtypes`, so decimal
