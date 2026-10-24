@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::dtype::DType;
+use vortex_array::dtype::DType;
 
-/// The context an [`Expression`](crate::expr::Expression) is bound against.
+/// The context an [`Expression`](crate::Expression) is bound against.
 ///
-/// Today a scope is just the dtype that [`root`](crate::expr::root) resolves to. It is an opaque
+/// Today a scope is just the dtype that [`root`](crate::root) resolves to. It is an opaque
 /// struct rather than a bare [`DType`] so that lexical bindings can be added later without changing
-/// [`Expression::bind_scope`](crate::expr::Expression::bind_scope)'s signature.
+/// [`Expression::bind_scope`](crate::Expression::bind_scope)'s signature.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Scope {
     root: DType,
@@ -33,8 +33,9 @@ impl From<DType> for Scope {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::dtype::Nullability;
+
     use super::*;
-    use crate::dtype::Nullability;
 
     #[test]
     fn root_round_trips() {

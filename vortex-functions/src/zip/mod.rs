@@ -32,18 +32,17 @@ use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::bound;
-use vortex_array::expr::display::ExprDisplay;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ReduceNode;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::builtin::literal::Literal;
+use vortex_array::scalar_fn::builtin::cast::Cast;
+use vortex_array::scalar_fn::display::ExprDisplay;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
@@ -187,27 +186,28 @@ impl ScalarFnVTable for Zip {
         zip_impl(&if_true, &if_false, &mask, ctx)
     }
 
-    fn simplify(
+    fn simplify<T: ReduceNode>(
         &self,
         _options: &Self::Options,
-        expr: &BoundExpression,
-    ) -> VortexResult<Option<BoundExpression>> {
-        let Some(mask_lit) = expr.child(2).as_opt::<Literal>() else {
+        node: &T,
+    ) -> VortexResult<Option<T>> {
+        let Some(mask_constant) = node.child(2).as_constant() else {
             return Ok(None);
         };
 
-        if let Some(mask_val) = mask_lit.as_bool().value() {
-            let selected = if mask_val {
-                expr.child(0).clone()
+        if let Some(mask_value) = mask_constant.as_bool().value() {
+            let selected = if mask_value {
+                node.child(0)
             } else {
-                expr.child(1).clone()
+                node.child(1)
             };
             // The selected branch can be less nullable than the zip result, which unions
             // both branches' nullability, so keep the dtype that binding inferred.
-            return Ok(Some(if selected.dtype() == expr.dtype() {
+            let dtype = node.node_dtype()?;
+            return Ok(Some(if selected.node_dtype()? == dtype {
                 selected
             } else {
-                bound::cast(selected, expr.dtype().clone())
+                selected.new_node(Cast.bind(dtype), std::slice::from_ref(&selected))?
             }));
         }
 
@@ -389,12 +389,12 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_expr::Expression;
+    use vortex_expr::lit;
+    use vortex_expr::root;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
 

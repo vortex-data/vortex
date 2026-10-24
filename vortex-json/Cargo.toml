@@ -23,6 +23,7 @@ vortex-array = { workspace = true, default-features = false }
 vortex-arrow = { workspace = true }
 vortex-edition = { workspace = true }
 vortex-error = { workspace = true, default-features = false }
+vortex-expr = { workspace = true }
 vortex-functions = { workspace = true }
 vortex-session = { workspace = true }
 

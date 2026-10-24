@@ -28,21 +28,21 @@ use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::display::ExprDisplay;
 use vortex_array::proto::expr as pb;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ReduceNode;
 use vortex_array::scalar_fn::ScalarFnId;
+use vortex_array::scalar_fn::ScalarFnRef;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::builtin::fill_null::FillNull;
 use vortex_array::scalar_fn::builtin::is_not_null::IsNotNull;
 use vortex_array::scalar_fn::builtin::is_null::IsNull;
-use vortex_array::scalar_fn::builtin::literal::Literal;
+use vortex_array::scalar_fn::display::ExprDisplay;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -269,11 +269,11 @@ impl ScalarFnVTable for CaseWhen {
         merge_case_branches(&branches, &remaining, &else_value, &output_dtype, ctx)
     }
 
-    fn simplify(
+    fn simplify<T: ReduceNode>(
         &self,
         options: &Self::Options,
-        expr: &BoundExpression,
-    ) -> VortexResult<Option<BoundExpression>> {
+        node: &T,
+    ) -> VortexResult<Option<T>> {
         // Rewrite the COALESCE-shaped CASE WHEN into `fill_null`, which references `x`
         // once and lowers to a single fill kernel instead of a `zip`/merge that resolves
         // `x` twice (once for the `is_null` predicate, once for the value branch).
@@ -281,43 +281,44 @@ impl ScalarFnVTable for CaseWhen {
         //   CASE WHEN is_null(x)     THEN c ELSE x END  ==>  fill_null(x, c)
         //   CASE WHEN is_not_null(x) THEN x ELSE c END  ==>  fill_null(x, c)
         //
-        // The fill `c` must be a `Literal`: `fill_null`'s kernel reads the fill value via
-        // `as_constant()`, so a non-constant fill would produce an unexecutable expression.
+        // The fill `c` must be a constant: `fill_null`'s kernel reads the fill value via
+        // `as_constant()`, so a non-constant fill would produce an unexecutable node.
         if options.num_when_then_pairs != 1 || !options.has_else {
             return Ok(None);
         }
 
-        let when = expr.child(0);
-        let then = expr.child(1);
-        let els = expr.child(2);
+        let when = node.child(0);
+        let then = node.child(1);
+        let els = node.child(2);
+
+        let when_is = |f: &dyn Fn(&ScalarFnRef) -> bool| when.scalar_fn().is_some_and(f);
 
         // `is_null(x) ? c : x` — predicate operand and ELSE are the same `x`, fill is THEN.
-        let (x, fill) = if when.is::<IsNull>() && when.child(0) == els {
+        let (x, fill) = if when_is(&|f| f.is::<IsNull>()) && when.child(0).is_same(&els) {
             (els, then)
         // `is_not_null(x) ? x : c` — predicate operand and THEN are the same `x`, fill is ELSE.
-        } else if when.is::<IsNotNull>() && when.child(0) == then {
+        } else if when_is(&|f| f.is::<IsNotNull>()) && when.child(0).is_same(&then) {
             (then, els)
         } else {
             return Ok(None);
         };
 
-        let Some(scalar) = fill.as_opt::<Literal>() else {
+        let Some(scalar) = fill.as_constant() else {
             return Ok(None);
         };
 
         if scalar.is_null() {
             // Filling the nulls of `x` with NULL is a no-op
-            return Ok(Some(x.clone()));
+            return Ok(Some(x));
         }
 
-        if !FillNull::supports_dtype(x.dtype()) {
+        if !FillNull::supports_dtype(&x.node_dtype()?) {
             return Ok(None);
         }
 
-        Ok(Some(FillNull.try_new_bound_expr(
-            EmptyOptions,
-            [x.clone(), fill.clone()],
-        )?))
+        Ok(Some(
+            node.new_node(FillNull.bind(EmptyOptions), &[x, fill])?,
+        ))
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {
@@ -492,17 +493,6 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::col;
-    use vortex_array::expr::eq;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::is_not_null;
-    use vortex_array::expr::is_null;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::proto::ExprSerializeProtoExt;
-    use vortex_array::expr::root;
-    use vortex_array::expr::test_harness;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::ScalarFnVTableExt;
     use vortex_array::scalar_fn::VecExecutionArgs;
@@ -511,6 +501,19 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect as _;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::BoundExpression;
+    use vortex_expr::Expression;
+    use vortex_expr::col;
+    use vortex_expr::eq;
+    use vortex_expr::get_item;
+    use vortex_expr::gt;
+    use vortex_expr::is_not_null;
+    use vortex_expr::is_null;
+    use vortex_expr::lit;
+    use vortex_expr::proto::ExprSerializeProtoExt;
+    use vortex_expr::root;
+    use vortex_expr::test_harness;
     use vortex_session::VortexSession;
 
     use super::*;

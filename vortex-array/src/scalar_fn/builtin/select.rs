@@ -25,20 +25,20 @@ use crate::arrays::struct_::StructArrayExt;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
-use crate::expr::BoundExpression;
-use crate::expr::display::ExprDisplay;
 use crate::proto::expr::FieldNames as ProtoFieldNames;
 use crate::proto::expr::SelectOpts;
 use crate::proto::expr::select_opts::Opts;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::builtin::field::DisplayFieldNames;
 use crate::scalar_fn::builtin::pack::Pack;
 use crate::scalar_fn::builtin::pack::PackOptions;
+use crate::scalar_fn::display::ExprDisplay;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FieldSelection {
@@ -182,13 +182,13 @@ impl ScalarFnVTable for Select {
         result.into_array().execute(ctx)
     }
 
-    fn simplify(
+    fn simplify<T: ReduceNode>(
         &self,
         selection: &FieldSelection,
-        expr: &BoundExpression,
-    ) -> VortexResult<Option<BoundExpression>> {
-        let child_struct = expr.child(0);
-        let struct_dtype = child_struct.dtype();
+        node: &T,
+    ) -> VortexResult<Option<T>> {
+        let child_struct = node.child(0);
+        let struct_dtype = child_struct.node_dtype()?;
         let struct_nullability = struct_dtype.nullability();
 
         let struct_fields = struct_dtype.as_struct_fields_opt().ok_or_else(|| {
@@ -210,17 +210,17 @@ impl ScalarFnVTable for Select {
                 .is_nullable()
         });
 
-        // If no fields are included, we can trivially simplify to a pack expression.
+        // If no fields are included, we can trivially reduce to a pack node.
         // NOTE(ngates): we do this knowing that our layout expression partitioning logic has
         //  special-casing for pack, but not for select. We will fix this up when we revisit the
         //  layout APIs.
         if included_fields.is_empty() {
-            return Ok(Some(Pack.try_new_bound_expr(
-                PackOptions {
+            return Ok(Some(node.new_node(
+                Pack.bind(PackOptions {
                     names: FieldNames::empty(),
                     nullability: struct_nullability,
-                },
-                [],
+                }),
+                &[],
             )?));
         }
 
@@ -228,22 +228,22 @@ impl ScalarFnVTable for Select {
         // because reading a field does a validity intersection of the struct validity with the
         // field, which is not the same as just "masking" out the unwanted fields (a selection).
         //
-        // We can, however, make this simplification when the child of the `select` is already a
+        // We can, however, make this reduction when the child of the `select` is already a
         // `pack` and we know that reading a field will do no validity intersections.
         //
         // The intersection only happens when the struct is nullable but the field is not. That
-        // would change the semantics of a `select`, so we can only simplify when it won't happen.
+        // would change the semantics of a `select`, so we can only reduce when it won't happen.
         let would_intersect_validity =
             struct_nullability.is_nullable() && !all_included_fields_are_nullable;
 
-        if let Some(child_pack) = child_struct.as_opt::<Pack>()
+        if let Some(child_pack) = child_struct.scalar_fn().and_then(|f| f.as_opt::<Pack>())
             && !would_intersect_validity
         {
-            // Take the field expressions straight out of the child `pack` rather than wrap the
+            // Take the field nodes straight out of the child `pack` rather than wrap the
             // `pack` in `get_item`. The guard above proves the two are equivalent here, and the
             // optimizer visits children before their parent, so a `get_item` introduced now
-            // would never be simplified away.
-            let fields: Vec<BoundExpression> = included_fields
+            // would never be reduced away.
+            let fields: Vec<T> = included_fields
                 .iter()
                 .map(|name| {
                     let idx = child_pack.names.find(name).ok_or_else(|| {
@@ -254,16 +254,16 @@ impl ScalarFnVTable for Select {
                         )
                     })?;
 
-                    Ok(child_struct.child(idx).clone())
+                    Ok(child_struct.child(idx))
                 })
                 .try_collect::<_, _, VortexError>()?;
 
-            return Ok(Some(Pack.try_new_bound_expr(
-                PackOptions {
+            return Ok(Some(node.new_node(
+                Pack.bind(PackOptions {
                     names: included_fields,
                     nullability: struct_nullability,
-                },
-                fields,
+                }),
+                &fields,
             )?));
         }
 
@@ -341,222 +341,5 @@ impl Display for FieldSelection {
             FieldSelection::Include(fields) => write!(f, "{{{}}}", DisplayFieldNames(fields)),
             FieldSelection::Exclude(fields) => write!(f, "~{{{}}}", DisplayFieldNames(fields)),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::LazyLock;
-
-    use vortex_buffer::buffer;
-    use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
-
-    use crate::ArrayRef;
-    use crate::IntoArray;
-    use crate::VortexSessionExecute;
-    use crate::arrays::Constant;
-    use crate::arrays::ConstantArray;
-    use crate::arrays::ScalarFnArray;
-    use crate::assert_arrays_eq;
-    use crate::dtype::DType;
-    use crate::dtype::FieldName;
-    use crate::dtype::FieldNames;
-    use crate::dtype::Nullability;
-    use crate::dtype::Nullability::Nullable;
-    use crate::dtype::PType::I32;
-    use crate::dtype::StructFields;
-    use crate::expr::root;
-    use crate::expr::select;
-    use crate::expr::select_exclude;
-    use crate::expr::test_harness;
-    use crate::scalar::Scalar;
-    use crate::scalar_fn::ScalarFnVTableExt;
-    use crate::scalar_fn::builtin::select::FieldSelection;
-    use crate::scalar_fn::builtin::select::Select;
-    use crate::scalar_fn::builtin::select::StructArray;
-
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty();
-
-        crate::initialize(&session);
-
-        session
-    });
-
-    fn test_array() -> StructArray {
-        StructArray::from_fields(&[
-            ("a", buffer![0, 1, 2].into_array()),
-            ("b", buffer![4, 5, 6].into_array()),
-        ])
-        .unwrap()
-    }
-
-    #[test]
-    pub fn include_columns() {
-        let mut ctx = SESSION.create_execution_ctx();
-        let st = test_array();
-        let select = select(vec![FieldName::from("a")], root());
-        let selected = st.into_array().apply(&select).unwrap();
-        let selected_names = selected.dtype().as_struct_fields().names();
-        assert_eq!(selected_names.as_ref(), &["a"]);
-        assert_arrays_eq!(
-            selected,
-            StructArray::from_fields(&[("a", buffer![0i32, 1, 2].into_array())]).unwrap(),
-            &mut ctx
-        );
-    }
-
-    #[test]
-    pub fn exclude_columns() {
-        let mut ctx = SESSION.create_execution_ctx();
-        let st = test_array();
-        let select = select_exclude(vec![FieldName::from("a")], root());
-        let selected = st.into_array().apply(&select).unwrap();
-        let selected_names = selected.dtype().as_struct_fields().names();
-        assert_eq!(selected_names.as_ref(), &["b"]);
-        assert_arrays_eq!(
-            selected,
-            StructArray::from_fields(&[("b", buffer![4i32, 5, 6].into_array())]).unwrap(),
-            &mut ctx
-        );
-    }
-
-    #[test]
-    fn dtype() {
-        let dtype = test_harness::struct_dtype();
-
-        let select_expr = select(vec![FieldName::from("a")], root());
-        let expected_dtype = DType::Struct(
-            dtype
-                .as_struct_fields_opt()
-                .unwrap()
-                .project(&["a".into()])
-                .unwrap(),
-            Nullability::NonNullable,
-        );
-        assert_eq!(select_expr.return_dtype(&dtype).unwrap(), expected_dtype);
-
-        let select_expr_exclude = select_exclude(
-            vec![
-                FieldName::from("col1"),
-                FieldName::from("col2"),
-                FieldName::from("bool1"),
-                FieldName::from("bool2"),
-            ],
-            root(),
-        );
-        assert_eq!(
-            select_expr_exclude.return_dtype(&dtype).unwrap(),
-            expected_dtype
-        );
-
-        let select_expr_exclude = select_exclude(
-            vec![FieldName::from("col1"), FieldName::from("col2")],
-            root(),
-        );
-        assert_eq!(
-            select_expr_exclude.return_dtype(&dtype).unwrap(),
-            DType::Struct(
-                dtype
-                    .as_struct_fields_opt()
-                    .unwrap()
-                    .project(&["a".into(), "bool1".into(), "bool2".into()])
-                    .unwrap(),
-                Nullability::NonNullable
-            )
-        );
-    }
-
-    #[test]
-    fn test_as_include_names() {
-        let field_names = FieldNames::from(["a", "b", "c"]);
-        for expr in [select(["a"], root()), select_exclude(["b", "c"], root())] {
-            assert_eq!(
-                expr.as_::<Select>()
-                    .normalize_to_included_fields(&field_names)
-                    .unwrap(),
-                FieldNames::from(["a"])
-            );
-        }
-    }
-
-    #[test]
-    fn execute_constant_struct_stays_constant() -> VortexResult<()> {
-        let field_count = 128usize;
-        let names = (0..field_count)
-            .map(|idx| FieldName::from(format!("f{idx}")))
-            .collect::<Vec<_>>();
-        let dtypes = vec![I32.into(); field_count];
-        let fields = StructFields::new(FieldNames::from(names), dtypes);
-        let scalar = Scalar::struct_(
-            DType::Struct(fields, Nullability::NonNullable),
-            (0..128).map(Scalar::from),
-        );
-        let array = ConstantArray::new(scalar, 1_000_000).into_array();
-        let mut ctx = SESSION.create_execution_ctx();
-
-        let item: ArrayRef = ScalarFnArray::try_new(
-            Select.bind(FieldSelection::Include(FieldNames::from(["f97", "f3"]))),
-            vec![array],
-        )?
-        .into_array()
-        .execute(&mut ctx)?;
-
-        let constant = item.as_::<Constant>();
-        assert_eq!(constant.len(), 1_000_000);
-        assert_eq!(
-            constant.scalar(),
-            &Scalar::struct_(
-                DType::Struct(
-                    StructFields::new(
-                        FieldNames::from(["f97", "f3"]),
-                        vec![I32.into(), I32.into()],
-                    ),
-                    Nullability::NonNullable,
-                ),
-                [Scalar::from(97), Scalar::from(3)],
-            )
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_remove_select_rule() {
-        let dtype = DType::Struct(
-            StructFields::new(["a", "b"].into(), vec![I32.into(), I32.into()]),
-            Nullable,
-        );
-        let e = select(["a", "b"], root());
-
-        let result = e.bind(&dtype).unwrap().optimize_recursive().unwrap();
-
-        assert_eq!(result.dtype(), &dtype);
-    }
-
-    #[test]
-    fn test_remove_select_rule_exclude_fields() {
-        use crate::expr::select_exclude;
-
-        let dtype = DType::Struct(
-            StructFields::new(
-                ["a", "b", "c"].into(),
-                vec![I32.into(), I32.into(), I32.into()],
-            ),
-            Nullable,
-        );
-        let e = select_exclude(["c"], root());
-
-        let result = e.bind(&dtype).unwrap().optimize_recursive().unwrap();
-
-        // Should exclude "c" and include "a" and "b"
-        let result_dtype = result.dtype();
-        assert!(result_dtype.is_nullable());
-        let fields = result_dtype.as_struct_fields_opt().unwrap();
-        assert_eq!(fields.names().as_ref(), &["a", "b"]);
-        assert_eq!(
-            result_dtype,
-            &DType::struct_([("a", I32), ("b", I32)], Nullable)
-        );
     }
 }

@@ -325,7 +325,6 @@ mod tests {
     use vortex_array::dtype::DType as VortexDType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::root;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::validity::Validity;
     use vortex_arrow::ArrowSessionExt;
@@ -333,6 +332,8 @@ mod tests {
     use vortex_error::vortex_bail;
     use vortex_error::vortex_ensure;
     use vortex_error::vortex_err;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::root;
     use vortex_functions::expr::variant_get;
     use vortex_functions::variant_get::VariantPath;
     use vortex_functions::variant_get::VariantPathElement;

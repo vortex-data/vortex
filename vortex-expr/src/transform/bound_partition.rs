@@ -11,23 +11,23 @@ use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::ExactBoundExpr;
-use vortex_array::expr::bound::get_item;
-use vortex_array::expr::bound::pack;
-use vortex_array::expr::traversal::NodeExt;
-use vortex_array::expr::traversal::NodeRewriter;
-use vortex_array::expr::traversal::Transformed;
-use vortex_array::expr::traversal::TraversalOrder;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::BoundExpression;
+use crate::ExactBoundExpr;
 use crate::analysis::Annotation;
 use crate::analysis::AnnotationFn;
 use crate::analysis::BoundAnnotations;
 use crate::analysis::descendent_bound_annotations;
+use crate::bound::get_item;
+use crate::bound::pack;
+use crate::traversal::NodeExt;
+use crate::traversal::NodeRewriter;
+use crate::traversal::Transformed;
+use crate::traversal::TraversalOrder;
 
 /// Partition an expression into sub-expressions that are uniquely associated with an annotation.
 /// A root expression is also returned that can be used to recombine the results of the partitions
@@ -295,15 +295,15 @@ mod tests {
     use vortex_array::dtype::Nullability::Nullable;
     use vortex_array::dtype::PType::I32;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::checked_add;
-    use vortex_array::expr::col;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::pack;
-    use vortex_array::expr::root;
 
     use super::*;
     use crate::analysis::make_bound_free_field_annotator;
+    use crate::checked_add;
+    use crate::col;
+    use crate::get_item;
+    use crate::lit;
+    use crate::pack;
+    use crate::root;
 
     #[fixture]
     fn dtype() -> DType {

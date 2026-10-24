@@ -3,32 +3,32 @@
 
 //! Factory functions for creating [`Expression`]s from scalar function vtables.
 
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldName;
+use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::Nullability;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::EmptyOptions;
+use vortex_array::scalar_fn::builtin::binary::Binary;
+use vortex_array::scalar_fn::builtin::cast::Cast;
+use vortex_array::scalar_fn::builtin::fill_null::FillNull;
+use vortex_array::scalar_fn::builtin::get_item::GetItem;
+use vortex_array::scalar_fn::builtin::is_not_null::IsNotNull;
+use vortex_array::scalar_fn::builtin::is_null::IsNull;
+use vortex_array::scalar_fn::builtin::literal::Literal;
+use vortex_array::scalar_fn::builtin::mask::Mask;
+use vortex_array::scalar_fn::builtin::not::Not;
+use vortex_array::scalar_fn::builtin::operators::Operator;
+use vortex_array::scalar_fn::builtin::pack::Pack;
+use vortex_array::scalar_fn::builtin::pack::PackOptions;
+use vortex_array::scalar_fn::builtin::select::FieldSelection;
+use vortex_array::scalar_fn::builtin::select::Select;
 use vortex_error::VortexExpect;
 use vortex_utils::iter::ReduceBalancedIterExt;
 
-use crate::dtype::DType;
-use crate::dtype::FieldName;
-use crate::dtype::FieldNames;
-use crate::dtype::Nullability;
-use crate::expr::BoundExpression;
-use crate::expr::Expression;
-use crate::scalar::Scalar;
-use crate::scalar_fn::EmptyOptions;
-use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::builtin::binary::Binary;
-use crate::scalar_fn::builtin::cast::Cast;
-use crate::scalar_fn::builtin::fill_null::FillNull;
-use crate::scalar_fn::builtin::get_item::GetItem;
-use crate::scalar_fn::builtin::is_not_null::IsNotNull;
-use crate::scalar_fn::builtin::is_null::IsNull;
-use crate::scalar_fn::builtin::literal::Literal;
-use crate::scalar_fn::builtin::mask::Mask;
-use crate::scalar_fn::builtin::not::Not;
-use crate::scalar_fn::builtin::operators::Operator;
-use crate::scalar_fn::builtin::pack::Pack;
-use crate::scalar_fn::builtin::pack::PackOptions;
-use crate::scalar_fn::builtin::select::FieldSelection;
-use crate::scalar_fn::builtin::select::Select;
+use crate::BoundExpression;
+use crate::Expression;
+use crate::ScalarFnExprExt;
 
 /// Creates an expression that references the root scope.
 ///
@@ -58,7 +58,7 @@ pub fn is_root(expr: &Expression) -> bool {
 /// ```
 /// use vortex_array::arrays::PrimitiveArray;
 /// use vortex_array::dtype::Nullability;
-/// use vortex_array::expr::lit;
+/// use vortex_expr::lit;
 /// use vortex_array::scalar_fn::builtin::literal::Literal;
 /// use vortex_array::scalar::Scalar;
 ///
@@ -85,7 +85,7 @@ pub fn bound_lit(value: impl Into<Scalar>) -> BoundExpression {
 /// Equivalent to `get_item(field, root())` - extracts a named field from the input array.
 ///
 /// ```rust
-/// # use vortex_array::expr::col;
+/// # use vortex_expr::col;
 /// let expr = col("name");
 /// ```
 pub fn col(field: impl Into<FieldName>) -> Expression {
@@ -102,7 +102,7 @@ pub fn bound_col(field: impl Into<FieldName>, scope: DType) -> BoundExpression {
 /// Accesses the specified field from the result of the child expression.
 ///
 /// ```rust
-/// # use vortex_array::expr::{get_item, root};
+/// # use vortex_expr::{get_item, root};
 /// let expr = get_item("user_id", root());
 /// ```
 pub fn get_item(field: impl Into<FieldName>, child: Expression) -> Expression {
@@ -120,12 +120,12 @@ pub fn bound_get_item(field: impl Into<FieldName>, child: BoundExpression) -> Bo
 
 /// Creates an expression that reads the parameter `name` of the enclosing lambda.
 ///
-/// It is only meaningful in the body of a [`Lambda`](crate::expr::Lambda). Anywhere else it fails
+/// It is only meaningful in the body of a [`Lambda`](crate::Lambda). Anywhere else it fails
 /// to bind.
 ///
 /// ```rust
 /// # use vortex_array::dtype::{DType, Nullability, PType};
-/// # use vortex_array::expr::{checked_add, lit, var};
+/// # use vortex_expr::{checked_add, lit, var};
 /// let expr = checked_add(var("x"), lit(1_i32));
 /// assert_eq!(expr.to_string(), "(@x + 1i32)");
 /// // Outside a lambda body, nothing gives `x` a value.
@@ -161,13 +161,14 @@ pub fn bound_binary(
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray};
+/// # use vortex_expr::ArrayExprExt;
 /// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::IntoArray;
 /// # use vortex_array::{VortexSessionExecute};
 /// # use vortex_session::VortexSession;
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
-/// # use vortex_array::expr::{eq, root, lit};
+/// # use vortex_expr::{eq, root, lit};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = xs.into_array().apply(&eq(root(), lit(3))).unwrap();
 /// let mut ctx = VortexSession::empty().create_execution_ctx();
@@ -194,13 +195,14 @@ pub fn bound_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray};
+/// # use vortex_expr::ArrayExprExt;
 /// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::IntoArray;
 /// # use vortex_array::{VortexSessionExecute};
 /// # use vortex_session::VortexSession;
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
-/// # use vortex_array::expr::{root, lit, not_eq};
+/// # use vortex_expr::{root, lit, not_eq};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = xs.into_array().apply(&not_eq(root(), lit(3))).unwrap();
 /// let mut ctx = VortexSession::empty().create_execution_ctx();
@@ -227,13 +229,14 @@ pub fn bound_not_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpressi
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
+/// # use vortex_expr::ArrayExprExt;
 /// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::IntoArray;
 /// # use vortex_array::{VortexSessionExecute};
 /// # use vortex_session::VortexSession;
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
-/// # use vortex_array::expr::{gt_eq, root, lit};
+/// # use vortex_expr::{gt_eq, root, lit};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = xs.into_array().apply(&gt_eq(root(), lit(3))).unwrap();
 /// let mut ctx = VortexSession::empty().create_execution_ctx();
@@ -260,13 +263,14 @@ pub fn bound_gt_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpressio
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
+/// # use vortex_expr::ArrayExprExt;
 /// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::IntoArray;
 /// # use vortex_array::{VortexSessionExecute};
 /// # use vortex_session::VortexSession;
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
-/// # use vortex_array::expr::{gt, root, lit};
+/// # use vortex_expr::{gt, root, lit};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = xs.into_array().apply(&gt(root(), lit(2))).unwrap();
 /// let mut ctx = VortexSession::empty().create_execution_ctx();
@@ -293,13 +297,14 @@ pub fn bound_gt(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
+/// # use vortex_expr::ArrayExprExt;
 /// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::IntoArray;
 /// # use vortex_array::{VortexSessionExecute};
 /// # use vortex_session::VortexSession;
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
-/// # use vortex_array::expr::{root, lit, lt_eq};
+/// # use vortex_expr::{root, lit, lt_eq};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = xs.into_array().apply(&lt_eq(root(), lit(2))).unwrap();
 /// let mut ctx = VortexSession::empty().create_execution_ctx();
@@ -326,13 +331,14 @@ pub fn bound_lt_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpressio
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
+/// # use vortex_expr::ArrayExprExt;
 /// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::IntoArray;
 /// # use vortex_array::{VortexSessionExecute};
 /// # use vortex_session::VortexSession;
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
-/// # use vortex_array::expr::{root, lit, lt};
+/// # use vortex_expr::{root, lit, lt};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = xs.into_array().apply(&lt(root(), lit(3))).unwrap();
 /// let mut ctx = VortexSession::empty().create_execution_ctx();
@@ -359,11 +365,12 @@ pub fn bound_lt(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
 ///
 /// ```
 /// # use vortex_array::arrays::BoolArray;
+/// # use vortex_expr::ArrayExprExt;
 /// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::IntoArray;
 /// # use vortex_array::{VortexSessionExecute};
 /// # use vortex_session::VortexSession;
-/// # use vortex_array::expr::{root, lit, or};
+/// # use vortex_expr::{root, lit, or};
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
 /// let result = xs.into_array().apply(&or(root(), lit(false))).unwrap();
 /// let mut ctx = VortexSession::empty().create_execution_ctx();
@@ -411,11 +418,12 @@ where
 ///
 /// ```
 /// # use vortex_array::arrays::BoolArray;
+/// # use vortex_expr::ArrayExprExt;
 /// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::IntoArray;
 /// # use vortex_array::{VortexSessionExecute};
 /// # use vortex_session::VortexSession;
-/// # use vortex_array::expr::{and, root, lit};
+/// # use vortex_expr::{and, root, lit};
 /// let xs = BoolArray::from_iter(vec![true, false, true]).into_array();
 /// let result = xs.apply(&and(root(), lit(true))).unwrap();
 /// let mut ctx = VortexSession::empty().create_execution_ctx();
@@ -463,12 +471,13 @@ where
 ///
 /// ```
 /// # use vortex_array::IntoArray;
+/// # use vortex_expr::ArrayExprExt;
 /// # use vortex_array::arrays::PrimitiveArray;
 /// # use vortex_array::builtins::ArrayBuiltins;
 /// # use vortex_array::{VortexSessionExecute};
 /// # use vortex_session::VortexSession;
 /// # use vortex_buffer::buffer;
-/// # use vortex_array::expr::{checked_add, lit, root};
+/// # use vortex_expr::{checked_add, lit, root};
 /// let xs = buffer![1, 2, 3].into_array();
 /// let result = xs.apply(&checked_add(root(), lit(5))).unwrap();
 ///
@@ -494,7 +503,7 @@ pub fn bound_checked_add(lhs: BoundExpression, rhs: BoundExpression) -> BoundExp
 /// Returns the logical negation of the input boolean expression.
 ///
 /// ```rust
-/// # use vortex_array::expr::{not, root};
+/// # use vortex_expr::{not, root};
 /// let expr = not(root());
 /// ```
 pub fn not(operand: Expression) -> Expression {
@@ -513,7 +522,7 @@ pub fn bound_not(operand: BoundExpression) -> BoundExpression {
 ///
 /// ```rust
 /// # use vortex_array::dtype::Nullability;
-/// # use vortex_array::expr::{pack, col, lit};
+/// # use vortex_expr::{pack, col, lit};
 /// let expr = pack([("id", col("user_id")), ("constant", lit(42))], Nullability::NonNullable);
 /// ```
 pub fn pack(
@@ -560,7 +569,7 @@ pub fn bound_pack(
 ///
 /// ```rust
 /// # use vortex_array::dtype::{DType, Nullability, PType};
-/// # use vortex_array::expr::{cast, root};
+/// # use vortex_expr::{cast, root};
 /// let expr = cast(root(), DType::Primitive(PType::I64, Nullability::NonNullable));
 /// ```
 pub fn cast(child: Expression, target: DType) -> Expression {
@@ -579,7 +588,7 @@ pub fn bound_cast(child: BoundExpression, target: DType) -> BoundExpression {
 /// Creates an expression that replaces null values with a fill value.
 ///
 /// ```rust
-/// # use vortex_array::expr::{fill_null, root, lit};
+/// # use vortex_expr::{fill_null, root, lit};
 /// let expr = fill_null(root(), lit(0i32));
 /// ```
 pub fn fill_null(child: Expression, fill_value: Expression) -> Expression {
@@ -600,7 +609,7 @@ pub fn bound_fill_null(child: BoundExpression, fill_value: BoundExpression) -> B
 /// Returns a boolean array indicating which positions contain null values.
 ///
 /// ```rust
-/// # use vortex_array::expr::{is_null, root};
+/// # use vortex_expr::{is_null, root};
 /// let expr = is_null(root());
 /// ```
 pub fn is_null(child: Expression) -> Expression {
@@ -621,7 +630,7 @@ pub fn bound_is_null(child: BoundExpression) -> BoundExpression {
 /// Returns a boolean array indicating which positions contain non-null values.
 ///
 /// ```rust
-/// # use vortex_array::expr::{is_not_null, root};
+/// # use vortex_expr::{is_not_null, root};
 /// let expr = is_not_null(root());
 /// ```
 pub fn is_not_null(child: Expression) -> Expression {
@@ -650,15 +659,15 @@ pub fn bound_mask(array: BoundExpression, mask: BoundExpression) -> BoundExpress
 
 /// Constructors for expressions whose children have already been bound and type-checked.
 ///
-/// These mirror the constructors in [`crate::expr`] and panic when the supplied children do not
+/// These mirror the unbound constructors in this crate and panic when the supplied children do not
 /// form a well-typed expression. Use [`BoundExpression::try_new`] when construction must be
 /// fallible.
 /// Creates an expression that selects (includes) specific fields from an array.
 ///
 /// Projects only the specified fields from the child expression, which must be of DType struct.
 /// ```rust
-/// # use vortex_array::expr::select;
-/// # use vortex_array::expr::root;
+/// # use vortex_expr::select;
+/// # use vortex_expr::root;
 /// let expr = select(["name", "age"], root());
 /// ```
 pub fn select(field_names: impl Into<FieldNames>, child: Expression) -> Expression {
@@ -679,8 +688,8 @@ pub fn bound_select(field_names: impl Into<FieldNames>, child: BoundExpression) 
 /// Projects all fields except the specified ones from the input struct expression.
 ///
 /// ```rust
-/// # use vortex_array::expr::select_exclude;
-/// # use vortex_array::expr::root;
+/// # use vortex_expr::select_exclude;
+/// # use vortex_expr::root;
 /// let expr = select_exclude(["internal_id", "metadata"], root());
 /// ```
 pub fn select_exclude(fields: impl Into<FieldNames>, child: Expression) -> Expression {

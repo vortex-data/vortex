@@ -14,7 +14,7 @@ use tokio::runtime::Runtime;
 use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::MaskFuture;
-use vortex::array::expr::root;
+use vortex::expr::root;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::session::RuntimeSessionExt;

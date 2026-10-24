@@ -17,10 +17,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::InterleaveArray;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
-use crate::expr::Expression;
 use crate::scalar::Scalar;
-use crate::scalar_fn::EmptyOptions;
-use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::builtin::binary::Binary;
 use crate::scalar_fn::builtin::cast::Cast;
 use crate::scalar_fn::builtin::fill_null::FillNull;
@@ -32,70 +29,6 @@ use crate::scalar_fn::builtin::not::Not;
 use crate::scalar_fn::builtin::operators::Operator;
 
 /// A collection of built-in scalar functions that can be applied to expressions or arrays.
-pub trait ExprBuiltins: Sized {
-    /// Cast to the given data type.
-    fn cast(&self, dtype: DType) -> VortexResult<Expression>;
-
-    /// Replace null values with the given fill value.
-    fn fill_null(&self, fill_value: Expression) -> VortexResult<Expression>;
-
-    /// Get item by field name (for struct types).
-    fn get_item(&self, field_name: impl Into<FieldName>) -> VortexResult<Expression>;
-
-    /// Is null check.
-    fn is_null(&self) -> VortexResult<Expression>;
-
-    /// Is not null check.
-    fn is_not_null(&self) -> VortexResult<Expression>;
-
-    /// Mask the expression using the given boolean mask.
-    /// The resulting expression's validity is the intersection of the original expression's
-    /// validity.
-    fn mask(&self, mask: Expression) -> VortexResult<Expression>;
-
-    /// Boolean negation.
-    fn not(&self) -> VortexResult<Expression>;
-
-    // TODO(joe): add an `interleave` expression builtin mirroring `ArrayBuiltins::interleave`.
-
-    /// Apply a binary operator to this expression and another.
-    fn binary(&self, rhs: Expression, op: Operator) -> VortexResult<Expression>;
-}
-
-impl ExprBuiltins for Expression {
-    fn cast(&self, dtype: DType) -> VortexResult<Expression> {
-        Cast.try_new_expr(dtype, [self.clone()])
-    }
-
-    fn fill_null(&self, fill_value: Expression) -> VortexResult<Expression> {
-        FillNull.try_new_expr(EmptyOptions, [self.clone(), fill_value])
-    }
-
-    fn get_item(&self, field_name: impl Into<FieldName>) -> VortexResult<Expression> {
-        GetItem.try_new_expr(field_name.into(), [self.clone()])
-    }
-
-    fn is_null(&self) -> VortexResult<Expression> {
-        IsNull.try_new_expr(EmptyOptions, [self.clone()])
-    }
-
-    fn is_not_null(&self) -> VortexResult<Expression> {
-        IsNotNull.try_new_expr(EmptyOptions, [self.clone()])
-    }
-
-    fn mask(&self, mask: Expression) -> VortexResult<Expression> {
-        Mask.try_new_expr(EmptyOptions, [self.clone(), mask])
-    }
-
-    fn not(&self) -> VortexResult<Expression> {
-        Not.try_new_expr(EmptyOptions, [self.clone()])
-    }
-
-    fn binary(&self, rhs: Expression, op: Operator) -> VortexResult<Expression> {
-        Binary.try_new_expr(op, [self.clone(), rhs])
-    }
-}
-
 pub trait ArrayBuiltins: Sized {
     /// Cast to the given data type.
     fn cast(&self, dtype: DType) -> VortexResult<ArrayRef>;

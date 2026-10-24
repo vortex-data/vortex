@@ -178,9 +178,10 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
-    use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
     use vortex_error::VortexResult;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::root;
     use vortex_session::VortexSession;
 
     use crate::expr::byte_length;

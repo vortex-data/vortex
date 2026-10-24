@@ -164,9 +164,9 @@ mod test {
     use vortex_array::dtype::FieldPath;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::BoundExpression;
     use vortex_buffer::buffer;
     use vortex_error::vortex_bail;
+    use vortex_expr::BoundExpression;
     use vortex_io::runtime::single::block_on;
     use vortex_mask::Mask;
 

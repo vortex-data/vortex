@@ -44,8 +44,9 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
-    use vortex_array::expr::root;
     use vortex_error::VortexResult;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::root;
     use vortex_functions::expr::byte_length;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;

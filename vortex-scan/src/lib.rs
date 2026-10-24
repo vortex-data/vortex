@@ -36,13 +36,13 @@ use futures::stream::BoxStream;
 use selection::Selection;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
-use vortex_array::expr::Expression;
-use vortex_array::expr::root;
 use vortex_array::expr::stats::Precision;
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_expr::Expression;
+use vortex_expr::root;
 use vortex_session::VortexSession;
 
 /// A sendable stream of partitions.

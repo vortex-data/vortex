@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::ExactBoundExpr;
+use vortex_expr::BoundExpression;
+use vortex_expr::ExactBoundExpr;
 
 use super::io::SegmentRanges;
 use crate::plan::physical::PlanRef;

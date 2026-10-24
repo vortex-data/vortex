@@ -48,6 +48,7 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::dtype::PType;
 use vortex::encodings::uuid::Uuid;
+use vortex::expr::ArrayExprExt;
 use vortex::expr::between;
 use vortex::functions::between::BetweenOptions;
 use vortex::functions::between::StrictComparison;

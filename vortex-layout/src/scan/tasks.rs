@@ -12,8 +12,8 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
-use vortex_array::expr::BoundExpression;
 use vortex_error::VortexResult;
+use vortex_expr::BoundExpression;
 use vortex_mask::Mask;
 use vortex_scan::row_mask::RowMask;
 

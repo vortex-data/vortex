@@ -19,14 +19,13 @@ use vortex_utils::debug_with::DebugWith;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
-use crate::expr::BoundExpression;
-use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::ArrayReduceNode;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ExpressionReduceNode;
 use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::display::ExprDisplay;
 use crate::scalar_fn::options::ScalarFnOptions;
 use crate::scalar_fn::signature::ScalarFnSignature;
 use crate::scalar_fn::typed::DynScalarFn;
@@ -124,7 +123,7 @@ impl ScalarFnRef {
 
     /// Bind whatever in the options depends on the argument types, or keep this function if
     /// nothing does. See [`ScalarFnVTable::bind_options`].
-    pub(crate) fn bind_options(self, arg_types: &[DType]) -> VortexResult<ScalarFnRef> {
+    pub fn bind_options(self, arg_types: &[DType]) -> VortexResult<ScalarFnRef> {
         Ok(self.0.bind_options(arg_types)?.unwrap_or(self))
     }
 
@@ -174,17 +173,17 @@ impl ScalarFnRef {
     // ------------------------------------------------------------------
 
     /// Format an expression tree in SQL-style format.
-    pub(crate) fn fmt_sql(
-        &self,
-        expr: &dyn ExprDisplay,
-        f: &mut Formatter<'_>,
-    ) -> std::fmt::Result {
+    pub fn fmt_sql(&self, expr: &dyn ExprDisplay, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.0.fmt_sql(expr, f)
     }
 
-    /// Simplify a bound expression using the dtypes carried by its nodes.
-    pub(crate) fn simplify(&self, expr: &BoundExpression) -> VortexResult<Option<BoundExpression>> {
-        self.0.simplify(expr)
+    /// Simplify this scalar function node in an expression tree. See
+    /// [`ScalarFnVTable::simplify`](crate::scalar_fn::ScalarFnVTable::simplify).
+    pub fn simplify_expression<'a>(
+        &self,
+        node: &ExpressionReduceNode<'a>,
+    ) -> VortexResult<Option<ExpressionReduceNode<'a>>> {
+        self.0.simplify_expression(node)
     }
 }
 
