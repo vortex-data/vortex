@@ -869,12 +869,6 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::dtype::PType::I32;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::Expression;
-    use vortex_array::expr::bound;
-    use vortex_array::expr::col;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::root;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::PValue;
     use vortex_array::scalar::Scalar;
@@ -885,6 +879,13 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::Expression;
+    use vortex_expr::bound;
+    use vortex_expr::col;
+    use vortex_expr::get_item;
+    use vortex_expr::lit;
+    use vortex_expr::root;
     use vortex_session::VortexSession;
 
     use super::process_matches;
@@ -1579,7 +1580,7 @@ mod tests {
             [None, Some(true), None, Some(true)],
         )?;
         assert_result(
-            needles.apply(&vortex_array::expr::not(in_list(root(), lit(set)))),
+            needles.apply(&vortex_expr::not(in_list(root(), lit(set)))),
             [None, Some(false), None, Some(false)],
         )
     }

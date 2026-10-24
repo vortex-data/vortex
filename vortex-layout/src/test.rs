@@ -12,9 +12,11 @@ use crate::session::LayoutSession;
 pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| new_session().with_tokio());
 
 pub fn new_session() -> VortexSession {
-    VortexSession::empty()
+    let session = VortexSession::empty()
         .with::<LayoutSession>()
-        .with::<RuntimeSession>()
+        .with::<RuntimeSession>();
+    vortex_functions::initialize(&session);
+    session
 }
 
 /// A child strategy that fails with [`FailingStrategy::MESSAGE`] without reading its stream, as a

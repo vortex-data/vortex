@@ -49,6 +49,7 @@ use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::error::VortexResult;
+use vortex::expr::ArrayExprExt;
 use vortex::flatbuffers::WriteFlatBufferExt;
 use vortex::ipc::messages::EncoderMessage;
 use vortex::ipc::messages::MessageEncoder;

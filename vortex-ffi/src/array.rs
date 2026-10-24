@@ -36,6 +36,7 @@ use vortex::error::vortex_ensure;
 use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
+use vortex::expr::ArrayExprExt;
 use vortex_arrow::ArrowSessionExt;
 
 use crate::box_wrapper;

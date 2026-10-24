@@ -27,6 +27,7 @@ vortex-array = { workspace = true, features = ["unstable_row_fns"] }
 vortex-buffer = { workspace = true }
 vortex-compute = { workspace = true }
 vortex-error = { workspace = true }
+vortex-expr = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
@@ -40,7 +41,10 @@ insta = { workspace = true }
 mimalloc = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
-vortex-array = { workspace = true, features = ["_test-harness", "table-display"] }
+vortex-array = { workspace = true, features = [
+    "_test-harness",
+    "table-display",
+] }
 
 [[bench]]
 name = "bool_zip"

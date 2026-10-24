@@ -1,0 +1,221 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::fmt;
+use std::fmt::Display;
+use std::fmt::Formatter;
+
+use vortex_array::scalar_fn::ChildName;
+use vortex_array::scalar_fn::display::ExprDisplay;
+use vortex_utils::tree::TreeDisplayAdapter;
+use vortex_utils::tree::write_branch_tree;
+
+use crate::BoundExpression;
+use crate::Expression;
+
+impl ExprDisplay for Expression {
+    fn display_child(&self, index: usize) -> &dyn ExprDisplay {
+        Expression::child(self, index)
+    }
+
+    fn display_children_count(&self) -> usize {
+        self.children().len()
+    }
+}
+
+impl ExprDisplay for BoundExpression {
+    fn display_child(&self, index: usize) -> &dyn ExprDisplay {
+        &self.children()[index]
+    }
+
+    fn display_children_count(&self) -> usize {
+        self.children().len()
+    }
+}
+
+trait DisplayTreeNode: Sized {
+    fn tree_children(&self) -> &[Self];
+
+    fn tree_child_name(&self, index: usize) -> ChildName;
+
+    fn fmt_tree_node(&self, f: &mut Formatter<'_>) -> fmt::Result;
+}
+
+/// Tree-display label for the scope root.
+const ROOT_DISPLAY: &str = "vortex.root()";
+
+impl DisplayTreeNode for Expression {
+    fn tree_children(&self) -> &[Self] {
+        Expression::children(self)
+    }
+
+    fn tree_child_name(&self, index: usize) -> ChildName {
+        match self {
+            Expression::Scalar { scalar_fn, .. } => scalar_fn.signature().child_name(index),
+            Expression::Root => unreachable!("the scope root has no children"),
+            Expression::Variable(_) => unreachable!("a variable has no children"),
+        }
+    }
+
+    fn fmt_tree_node(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Expression::Scalar { scalar_fn, .. } => Display::fmt(scalar_fn, f),
+            Expression::Root => write!(f, "{ROOT_DISPLAY}"),
+            Expression::Variable(name) => write!(f, "@{name}"),
+        }
+    }
+}
+
+impl DisplayTreeNode for BoundExpression {
+    fn tree_children(&self) -> &[Self] {
+        BoundExpression::children(self)
+    }
+
+    fn tree_child_name(&self, index: usize) -> ChildName {
+        match self {
+            BoundExpression::Scalar { scalar_fn, .. } => scalar_fn.signature().child_name(index),
+            BoundExpression::Root { .. } => unreachable!("the scope root has no children"),
+        }
+    }
+
+    fn fmt_tree_node(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            BoundExpression::Scalar { scalar_fn, .. } => Display::fmt(scalar_fn, f),
+            BoundExpression::Root { .. } => write!(f, "{ROOT_DISPLAY}"),
+        }
+    }
+}
+
+pub struct DisplayTreeExpr<'a, T: ?Sized = Expression>(pub &'a T);
+
+impl<T: DisplayTreeNode> TreeDisplayAdapter for DisplayTreeExpr<'_, T> {
+    type Context = ();
+    type Node = T;
+
+    fn write_node(
+        &self,
+        node: &Self::Node,
+        _context: &Self::Context,
+        formatter: &mut Formatter<'_>,
+    ) -> fmt::Result {
+        node.fmt_tree_node(formatter)
+    }
+
+    fn visit_children(
+        &self,
+        node: &Self::Node,
+        visit: &mut dyn FnMut(&str, &Self::Node, bool) -> fmt::Result,
+    ) -> fmt::Result {
+        let children = node.tree_children();
+        for (index, child) in children.iter().enumerate() {
+            let child_name = node.tree_child_name(index);
+            visit(child_name.as_ref(), child, index + 1 == children.len())?;
+        }
+        Ok(())
+    }
+}
+
+impl<T: DisplayTreeNode> Display for DisplayTreeExpr<'_, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write_branch_tree(self, self.0, &mut (), f)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+
+    use crate::and;
+    use crate::cast;
+    use crate::eq;
+    use crate::get_item;
+    use crate::gt;
+    use crate::lit;
+    use crate::not;
+    use crate::root;
+
+    #[test]
+    fn test_display_tree_root() {
+        use insta::assert_snapshot;
+        let root_expr = root();
+        assert_snapshot!(root_expr.display_tree().to_string(), @"vortex.root()");
+    }
+
+    #[test]
+    fn test_display_tree_literal() {
+        use insta::assert_snapshot;
+        let lit_expr = lit(42);
+        assert_snapshot!(lit_expr.display_tree().to_string(), @"vortex.literal(42i32)");
+    }
+
+    #[test]
+    fn test_display_tree_get_item() {
+        use insta::assert_snapshot;
+        let get_item_expr = get_item("my_field", root());
+        assert_snapshot!(get_item_expr.display_tree().to_string(), @r"
+        vortex.get_item(my_field)
+        └── input: vortex.root()
+        ");
+    }
+
+    #[test]
+    fn test_display_tree_binary() {
+        use insta::assert_snapshot;
+        let binary_expr = gt(get_item("x", root()), lit(10));
+        assert_snapshot!(binary_expr.display_tree().to_string(), @r"
+        vortex.binary(>)
+        ├── lhs: vortex.get_item(x)
+        │   └── input: vortex.root()
+        └── rhs: vortex.literal(10i32)
+        ");
+    }
+
+    #[test]
+    fn test_display_tree_complex_binary() {
+        use insta::assert_snapshot;
+        let complex_binary = and(
+            eq(get_item("name", root()), lit("alice")),
+            gt(get_item("age", root()), lit(18)),
+        );
+        assert_snapshot!(complex_binary.display_tree().to_string(), @r#"
+        vortex.binary(and)
+        ├── lhs: vortex.binary(=)
+        │   ├── lhs: vortex.get_item(name)
+        │   │   └── input: vortex.root()
+        │   └── rhs: vortex.literal("alice")
+        └── rhs: vortex.binary(>)
+            ├── lhs: vortex.get_item(age)
+            │   └── input: vortex.root()
+            └── rhs: vortex.literal(18i32)
+        "#);
+    }
+
+    #[test]
+    fn test_display_tree_cast() {
+        use insta::assert_snapshot;
+        let cast_expr = cast(
+            get_item("value", root()),
+            DType::Primitive(PType::I64, Nullability::NonNullable),
+        );
+        assert_snapshot!(cast_expr.display_tree().to_string(), @r"
+        vortex.cast(i64)
+        └── input: vortex.get_item(value)
+            └── input: vortex.root()
+        ");
+    }
+
+    #[test]
+    fn test_display_tree_not() {
+        use insta::assert_snapshot;
+        let not_expr = not(eq(get_item("active", root()), lit(true)));
+        assert_snapshot!(not_expr.display_tree().to_string(), @r"
+        vortex.not()
+        └── input: vortex.binary(=)
+            ├── lhs: vortex.get_item(active)
+            │   └── input: vortex.root()
+            └── rhs: vortex.literal(true)
+        ");
+    }
+}

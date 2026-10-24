@@ -15,13 +15,14 @@
 
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::bound::lit;
-use vortex_array::expr::traversal::NodeExt;
-use vortex_array::expr::traversal::Transformed;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
-use vortex_functions::stat::StatFn;
+
+use crate::BoundExpression;
+use crate::bound::lit;
+use crate::stats::stat_fn::StatFn;
+use crate::traversal::NodeExt;
+use crate::traversal::Transformed;
 
 /// A target that can bind abstract statistics to concrete expressions.
 ///
@@ -94,17 +95,17 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::and;
-    use vortex_array::expr::col;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::is_null;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::or;
-    use vortex_array::expr::root;
     use vortex_array::expr::stats::Stat;
     use vortex_error::VortexResult;
 
     use super::*;
+    use crate::and;
+    use crate::col;
+    use crate::get_item;
+    use crate::is_null;
+    use crate::lit;
+    use crate::or;
+    use crate::root;
     use crate::stats::all_non_nan;
     use crate::stats::nan_count;
 
