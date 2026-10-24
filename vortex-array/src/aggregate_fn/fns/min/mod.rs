@@ -4,7 +4,6 @@
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::Columnar;
@@ -17,8 +16,10 @@ use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::columnar_min_max;
+use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::fns::min_max::nan_scalar;
 use crate::aggregate_fn::fns::min_max::scalar_is_nan;
+use crate::aggregate_fn::stat_aggregates;
 use crate::dtype::DType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
@@ -74,8 +75,7 @@ impl AggregateFnVTable for Min {
     type Partial = MinPartial;
 
     fn id(&self) -> AggregateFnId {
-        static ID: CachedId = CachedId::new("vortex.min");
-        *ID
+        *stat_aggregates::MIN_ID
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -174,11 +174,19 @@ impl AggregateFnVTable for Min {
         args: AggregateArgs<'_, Self::Options>,
         partial: &mut Self::Partial,
         batch: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
+        // The NaN-skipping extrema come from `min_max`, which uses the array's min/max kernels and
+        // caches both extrema on the batch, so computing the other one later is free.
+        if args.options.skip_nans {
+            if let Some(result) = min_max(batch, ctx, *args.options)? {
+                partial.merge(args, result.min);
+            }
+            return Ok(true);
+        }
         // NaN-aware shortcircuits only apply to the NaN-including float minimum; everything else
         // takes the default dispatch path.
-        if args.options.skip_nans || !args.dtype.is_float() {
+        if !args.dtype.is_float() {
             return Ok(false);
         }
         match batch.statistics().get_as::<u64>(Stat::NaNCount) {

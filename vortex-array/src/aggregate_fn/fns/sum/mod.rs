@@ -13,7 +13,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
 
 pub(crate) use self::bool::accumulate_bool;
 pub(crate) use self::constant::multiply_constant;
@@ -32,9 +31,8 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::stat_aggregates;
 use crate::dtype::DType;
-use crate::dtype::DecimalDType;
-use crate::dtype::MAX_PRECISION;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::expr::stats::Precision;
@@ -75,24 +73,14 @@ pub fn sum(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
 #[derive(Clone, Debug)]
 pub struct Sum;
 
-// Both Spark and DataFusion use this heuristic.
-// - https://github.com/apache/spark/blob/fcf636d9eb8d645c24be3db2d599aba2d7e2955a/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/aggregate/Sum.scala#L66
-// - https://github.com/apache/datafusion/blob/4153adf2c0f6e317ef476febfdc834208bd46622/datafusion/functions-aggregate/src/sum.rs#L188
-/// Returns the decimal dtype a sum over `input` widens to.
-pub fn sum_decimal_dtype(input: &DecimalDType) -> DecimalDType {
-    DecimalDType::new(
-        u8::min(MAX_PRECISION, input.precision() + 10),
-        input.scale(),
-    )
-}
+pub use crate::aggregate_fn::stat_aggregates::sum_decimal_dtype;
 
 impl AggregateFnVTable for Sum {
     type Options = NumericalAggregateOpts;
     type Partial = SumPartial;
 
     fn id(&self) -> AggregateFnId {
-        static ID: CachedId = CachedId::new("vortex.sum");
-        *ID
+        *stat_aggregates::SUM_ID
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -108,30 +96,7 @@ impl AggregateFnVTable for Sum {
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
-        // When a sum overflows, we return a sum _value_ of null. Therefore, we all return dtypes
-        // are nullable.
-        use Nullability::Nullable;
-
-        Some(match input_dtype {
-            DType::Bool(_) => DType::Primitive(PType::U64, Nullable),
-            DType::Primitive(ptype, _) => match ptype {
-                PType::U8 | PType::U16 | PType::U32 | PType::U64 => {
-                    DType::Primitive(PType::U64, Nullable)
-                }
-                PType::I8 | PType::I16 | PType::I32 | PType::I64 => {
-                    DType::Primitive(PType::I64, Nullable)
-                }
-                PType::F16 | PType::F32 | PType::F64 => {
-                    // Float sums cannot overflow, but all null floats still end up as null
-                    DType::Primitive(PType::F64, Nullable)
-                }
-            },
-            DType::Decimal(decimal_dtype, _) => {
-                DType::Decimal(sum_decimal_dtype(decimal_dtype), Nullable)
-            }
-            // Unsupported types
-            _ => return None,
-        })
+        stat_aggregates::sum_return_dtype(input_dtype)
     }
 
     fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {

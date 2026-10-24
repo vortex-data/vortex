@@ -12,9 +12,6 @@ mod struct_;
 mod union;
 mod varbinview;
 
-use std::fmt;
-use std::fmt::Display;
-use std::fmt::Formatter;
 use std::mem::size_of;
 
 use bool::bool_uncompressed_size_in_bytes;
@@ -24,7 +21,6 @@ use fixed_size_list::fixed_size_list_uncompressed_size_in_bytes;
 use list_view::list_view_uncompressed_size_in_bytes;
 use null::null_uncompressed_size_in_bytes;
 use primitive::primitive_uncompressed_size_in_bytes;
-use prost::Message;
 use struct_::struct_uncompressed_size_in_bytes;
 use union::union_uncompressed_size_in_bytes;
 use varbinview::varbinview_uncompressed_size_in_bytes;
@@ -34,7 +30,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -46,6 +41,9 @@ use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
+use crate::aggregate_fn::stat_aggregates;
+pub use crate::aggregate_fn::stat_aggregates::UncompressedSizeOpts;
+pub use crate::aggregate_fn::stat_aggregates::UncompressedSizePrecision;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
@@ -59,76 +57,7 @@ use crate::dtype::PType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
-use crate::proto::expr as pb;
 use crate::scalar::Scalar;
-
-/// Whether [`UncompressedSizeInBytes`] approximates the bytes an array uses or counts them.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum UncompressedSizePrecision {
-    /// An approximation: every byte of every buffer the canonical array holds, whether or not a
-    /// row uses it. Cheap, but a view array sharing or sliced from a larger buffer reports the
-    /// whole buffer.
-    #[default]
-    Inexact,
-    /// The actual number of bytes the array's rows use, which costs a pass over view and list
-    /// arrays.
-    Exact,
-}
-
-/// Options for [`UncompressedSizeInBytes`].
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct UncompressedSizeOpts {
-    pub precision: UncompressedSizePrecision,
-}
-
-impl UncompressedSizeOpts {
-    /// Approximate the bytes the array uses by the buffers it holds. This is the default.
-    pub const fn inexact() -> Self {
-        Self {
-            precision: UncompressedSizePrecision::Inexact,
-        }
-    }
-
-    /// Count the actual bytes the array's rows use.
-    pub const fn exact() -> Self {
-        Self {
-            precision: UncompressedSizePrecision::Exact,
-        }
-    }
-
-    pub const fn is_exact(&self) -> bool {
-        matches!(self.precision, UncompressedSizePrecision::Exact)
-    }
-
-    /// Serialize these options to protobuf-encoded metadata bytes.
-    pub fn serialize(&self) -> Vec<u8> {
-        pb::UncompressedSizeInBytesOpts {
-            exact: self.is_exact(),
-        }
-        .encode_to_vec()
-    }
-
-    /// Deserialize these options from protobuf-encoded metadata bytes.
-    pub fn deserialize(metadata: &[u8]) -> VortexResult<Self> {
-        let opts = pb::UncompressedSizeInBytesOpts::decode(metadata)?;
-        Ok(if opts.exact {
-            Self::exact()
-        } else {
-            Self::inexact()
-        })
-    }
-}
-
-impl Display for UncompressedSizeOpts {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        // Only the non-default configuration is displayed, so the default renders as
-        // `vortex.uncompressed_size_in_bytes()`.
-        if self.is_exact() {
-            write!(f, "precision=exact")?;
-        }
-        Ok(())
-    }
-}
 
 /// Return the uncompressed size of an array in bytes.
 ///
@@ -200,7 +129,7 @@ pub struct UncompressedSizeInBytes;
 impl UncompressedSizeInBytes {
     /// Whether arrays of `dtype` can be measured. Variant arrays cannot.
     pub fn supports_dtype(dtype: &DType) -> bool {
-        supports_uncompressed_size_in_bytes(dtype)
+        stat_aggregates::supports_uncompressed_size_in_bytes(dtype)
     }
 }
 
@@ -209,8 +138,7 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
     type Partial = u64;
 
     fn id(&self) -> AggregateFnId {
-        static ID: CachedId = CachedId::new("vortex.uncompressed_size_in_bytes");
-        *ID
+        *stat_aggregates::UNCOMPRESSED_SIZE_IN_BYTES_ID
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -226,7 +154,7 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
-        supports_uncompressed_size_in_bytes(input_dtype)
+        stat_aggregates::supports_uncompressed_size_in_bytes(input_dtype)
             .then_some(DType::Primitive(PType::U64, NonNullable))
     }
 
@@ -422,34 +350,6 @@ fn checked_len_mul(len: usize, width: usize, name: &str) -> VortexResult<u64> {
 
     len.checked_mul(width)
         .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))
-}
-
-fn supports_uncompressed_size_in_bytes(dtype: &DType) -> bool {
-    match dtype {
-        DType::Null
-        | DType::Bool(_)
-        | DType::Primitive(..)
-        | DType::Decimal(..)
-        | DType::Utf8(_)
-        | DType::Binary(_) => true,
-        DType::List(element_dtype, _) | DType::FixedSizeList(element_dtype, ..) => {
-            supports_uncompressed_size_in_bytes(element_dtype)
-        }
-        DType::Map(map_dtype, _) => {
-            supports_uncompressed_size_in_bytes(&map_dtype.key_dtype())
-                && supports_uncompressed_size_in_bytes(&map_dtype.value_dtype())
-        }
-        DType::Struct(fields, _) => fields
-            .fields()
-            .all(|field| supports_uncompressed_size_in_bytes(&field)),
-        DType::Union(variants, _) => variants
-            .variants()
-            .all(|variant| supports_uncompressed_size_in_bytes(&variant)),
-        DType::Variant(_) => false,
-        DType::Extension(ext_dtype) => {
-            supports_uncompressed_size_in_bytes(ext_dtype.storage_dtype())
-        }
-    }
 }
 
 pub(crate) fn validity_uncompressed_size_in_bytes(validity: Mask) -> VortexResult<u64> {

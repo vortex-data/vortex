@@ -42,6 +42,7 @@ pub mod fns;
 pub mod kernels;
 pub mod proto;
 pub mod session;
+pub mod stat_aggregates;
 
 /// A unique identifier for an aggregate function.
 pub type AggregateFnId = Id;

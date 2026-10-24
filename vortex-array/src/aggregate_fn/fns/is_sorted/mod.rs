@@ -7,14 +7,11 @@ mod fixed_size_list;
 mod primitive;
 mod varbin;
 
-use std::fmt;
-use std::fmt::Display;
-use std::fmt::Formatter;
+use std::mem;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_session::registry::CachedId;
+use vortex_session::VortexSession;
 
 use self::bool::check_bool_sorted;
 use self::decimal::check_decimal_sorted;
@@ -32,8 +29,8 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::fns::fixed_size_bytes::is_fixed_size_bytes;
-use crate::arrays::Constant;
-use crate::arrays::Null;
+use crate::aggregate_fn::stat_aggregates;
+pub use crate::aggregate_fn::stat_aggregates::IsSortedOptions;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
@@ -43,19 +40,6 @@ use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
 use crate::scalar::Scalar;
-
-/// Options for the `is_sorted` aggregate function.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct IsSortedOptions {
-    /// If true, check for strictly ascending order (no duplicates).
-    pub strict: bool,
-}
-
-impl Display for IsSortedOptions {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "strict={}", self.strict)
-    }
-}
 
 /// Compute whether an array is sorted in non-decreasing order.
 ///
@@ -93,44 +77,12 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
         return Ok(value);
     }
 
-    // Constant and null arrays are always sorted, but not strict sorted.
-    if array.is::<Constant>() || array.is::<Null>() {
-        let result = !strict;
-        cache_is_sorted(array, strict, result);
-        return Ok(result);
-    }
-
-    // We don't support sorting struct arrays.
-    if array.dtype().is_struct() {
-        return Ok(false);
-    }
-
-    // Short-circuit for unsupported dtypes.
+    // Unsupported dtypes, such as structs and lists, are reported as unsorted.
     if IsSorted
         .return_dtype(&IsSortedOptions { strict }, array.dtype())
         .is_none()
     {
         return Ok(false);
-    }
-
-    // Enforce strictness before we even try to check if the array is sorted.
-    if strict {
-        let invalid_count = array.invalid_count(ctx)?;
-        match invalid_count {
-            // We can keep going
-            0 => {}
-            // If we have a potential null value - it has to be the first one.
-            1 => {
-                if !array.is_invalid(0, ctx)? {
-                    cache_is_sorted(array, strict, false);
-                    return Ok(false);
-                }
-            }
-            _ => {
-                cache_is_sorted(array, strict, false);
-                return Ok(false);
-            }
-        }
     }
 
     // Compute using Accumulator<IsSorted>.
@@ -145,6 +97,36 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
     cache_is_sorted(array, strict, result);
 
     Ok(result)
+}
+
+/// Decides whether a non-empty `batch` is sorted from its statistics and validity alone, without
+/// decoding its values. Returns `None` when the values must be inspected.
+fn batch_is_sorted(
+    batch: &ArrayRef,
+    strict: bool,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<bool>> {
+    let stat = if strict {
+        Stat::IsStrictSorted
+    } else {
+        Stat::IsSorted
+    };
+    if let Precision::Exact(value) = batch.statistics().get_as::<bool>(stat) {
+        return Ok(Some(value));
+    }
+
+    // Nulls sort first, and a strictly sorted array holds at most one of them, at its start.
+    if strict {
+        let unsorted = match batch.invalid_count(ctx)? {
+            0 => false,
+            1 => !batch.is_invalid(0, ctx)?,
+            _ => true,
+        };
+        if unsorted {
+            return Ok(Some(false));
+        }
+    }
+    Ok(None)
 }
 
 fn cache_is_sorted(array: &ArrayRef, strict: bool, result: bool) {
@@ -248,12 +230,19 @@ impl AggregateFnVTable for IsSorted {
     type Partial = IsSortedPartial;
 
     fn id(&self) -> AggregateFnId {
-        static ID: CachedId = CachedId::new("vortex.is_sorted");
-        *ID
+        *stat_aggregates::IS_SORTED_ID
     }
 
-    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        vortex_bail!("IsSorted is not yet serializable");
+    fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(options.serialize()))
+    }
+
+    fn deserialize(
+        &self,
+        metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        IsSortedOptions::deserialize(metadata)
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
@@ -423,6 +412,28 @@ impl AggregateFnVTable for IsSorted {
         partial: &Self::Partial,
     ) -> bool {
         !partial.is_sorted
+    }
+
+    fn try_accumulate(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        state: &mut Self::Partial,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        if !state.is_sorted || batch.is_empty() {
+            return Ok(true);
+        }
+
+        let strict = args.options.strict;
+        let Some(is_sorted) = batch_is_sorted(batch, strict, ctx)? else {
+            return Ok(false);
+        };
+        let partial = IsSorted::make_partial(batch, is_sorted, strict, ctx)?;
+        let partial = self.partial_from_scalar(args, &partial)?;
+        *state =
+            self.merge_partials(args, mem::replace(state, IsSortedPartial::empty()), partial)?;
+        Ok(true)
     }
 
     fn accumulate(
