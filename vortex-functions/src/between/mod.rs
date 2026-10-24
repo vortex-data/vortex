@@ -3,12 +3,14 @@
 
 mod constant;
 mod decimal;
+mod find;
 mod kernel;
 mod primitive;
 
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+pub use find::find_between;
 pub use kernel::*;
 use prost::Message;
 use vortex_array::ArrayRef;

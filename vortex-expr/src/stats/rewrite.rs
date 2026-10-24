@@ -22,7 +22,7 @@ use crate::stats::session::StatsSessionExt;
 mod builtins;
 #[cfg(test)]
 mod fn_tests;
-mod like_variant;
+pub mod helpers;
 
 pub(crate) use builtins::register_builtins;
 

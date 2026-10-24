@@ -301,7 +301,6 @@ mod tests {
     use vortex_array::expr::lit;
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
-    use vortex_functions::expr::merge;
 
     use super::*;
     use crate::analysis::make_bound_free_field_annotator;
@@ -440,41 +439,6 @@ mod tests {
             .bind(&root_dtype)
             .unwrap();
         assert_eq!(partitioned.root, expected_root);
-    }
-
-    #[rstest]
-    fn test_expr_merge(dtype: DType) {
-        let expr = merge([col("a"), pack([("b", col("b"))], NonNullable)]);
-
-        let partitioned = partition_by_field(expr.bind(&dtype).unwrap(), &dtype).unwrap();
-        let expected = merge([get_item("a_0", col("a")), get_item("b_0", col("b"))]);
-        let root_dtype =
-            partition_root_dtype(&partitioned.partition_names, &partitioned.partitions);
-        assert_eq!(
-            partitioned.root,
-            expected.bind(&root_dtype).unwrap(),
-            "{} {}",
-            partitioned.root,
-            expected
-        );
-
-        assert_eq!(partitioned.partitions.len(), 2);
-
-        let part_a = partitioned.find_partition(&"a".into()).unwrap();
-        let expected_a = pack([("a_0", col("a"))], NonNullable);
-        assert_eq!(
-            part_a,
-            &expected_a.bind(&dtype).unwrap(),
-            "{part_a} {expected_a}"
-        );
-
-        let part_b = partitioned.find_partition(&"b".into()).unwrap();
-        let expected_b = pack([("b_0", pack([("b", col("b"))], NonNullable))], NonNullable);
-        assert_eq!(
-            part_b,
-            &expected_b.bind(&dtype).unwrap(),
-            "{part_b} {expected_b}"
-        );
     }
 
     #[rstest]

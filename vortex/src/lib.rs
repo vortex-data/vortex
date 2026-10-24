@@ -354,6 +354,7 @@ impl VortexSessionDefault for VortexSession {
             .with::<MemorySession>()
             .with::<CompressionSession>()
             .with::<RuntimeSession>();
+        vortex_expr::initialize(&session);
         vortex_functions::initialize(&session);
         vortex_arrow::initialize(&session);
         #[cfg(feature = "parquet-variant")]
@@ -395,6 +396,7 @@ mod test {
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
+    use vortex_array::expr::select;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressorBuilder;
@@ -403,7 +405,6 @@ mod test {
     use vortex_file::OpenOptionsSessionExt;
     use vortex_file::WriteOptionsSessionExt;
     use vortex_file::WriteStrategyBuilder;
-    use vortex_functions::expr::select;
     use vortex_session::VortexSession;
 
     use crate as vortex;

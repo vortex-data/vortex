@@ -13,9 +13,10 @@ use vortex_array::scalar_fn::builtin::literal::Literal;
 use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_functions::between::Between;
-use vortex_functions::between::BetweenOptions;
-use vortex_functions::between::StrictComparison;
+
+use crate::between::Between;
+use crate::between::BetweenOptions;
+use crate::between::StrictComparison;
 
 /// Merge pairs of range comparisons on the same column within any conjunction of `expr` into a
 /// single [`Between`].
@@ -238,12 +239,12 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_functions::between::BetweenOptions;
-    use vortex_functions::between::StrictComparison;
-    use vortex_functions::expr::between;
     use vortex_session::VortexSession;
 
     use super::find_between;
+    use crate::between::BetweenOptions;
+    use crate::between::StrictComparison;
+    use crate::expr::between;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 

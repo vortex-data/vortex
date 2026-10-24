@@ -11,7 +11,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
-use vortex_expr::transform::find_between;
+use vortex_functions::between::find_between;
 use vortex_io::request::IoConsumer;
 use vortex_io::request::IoIntent;
 use vortex_io::request::IoRequest;

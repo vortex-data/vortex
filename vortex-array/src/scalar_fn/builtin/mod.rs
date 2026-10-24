@@ -4,7 +4,7 @@
 //! The scalar functions that vortex-array itself is built on.
 //!
 //! These are the functions that the core crate's own arrays, validity and expression machinery
-//! construct: literals and struct projection and packing for expressions, `is_null`,
+//! construct: literals and struct projection, selection and packing for expressions, `is_null`,
 //! `is_not_null`, `not` and the boolean operators for validity reduction, and `cast`, `mask`,
 //! `fill_null` and the comparison and arithmetic operators, which canonical arrays apply lazily to
 //! their own children (offsets, indices, codes and validity). [`ArrayBuiltins`] exposes them as
@@ -17,6 +17,7 @@
 
 pub mod binary;
 pub mod cast;
+mod field;
 pub mod fill_null;
 pub mod get_item;
 pub mod is_not_null;
@@ -26,3 +27,4 @@ pub mod mask;
 pub mod not;
 pub mod operators;
 pub mod pack;
+pub mod select;

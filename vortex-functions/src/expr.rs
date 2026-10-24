@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
@@ -45,8 +44,6 @@ use crate::merge::DuplicateHandling;
 use crate::merge::Merge;
 use crate::replace_time_zone::ReplaceTimeZone;
 use crate::replace_time_zone::ReplaceTimeZoneOptions;
-use crate::select::FieldSelection;
-use crate::select::Select;
 use crate::variant_get::VariantGet;
 use crate::variant_get::VariantGetOptions;
 use crate::variant_get::VariantPath;
@@ -163,52 +160,6 @@ pub fn bound_nested_case_when(
     CaseWhen
         .try_new_bound_expr(options, children)
         .vortex_expect("case expressions must have boolean conditions and matching branch dtypes")
-}
-
-/// Creates an expression that selects (includes) specific fields from an array.
-///
-/// Projects only the specified fields from the child expression, which must be of DType struct.
-/// ```rust
-/// # use vortex_functions::expr::select;
-/// # use vortex_array::expr::root;
-/// let expr = select(["name", "age"], root());
-/// ```
-pub fn select(field_names: impl Into<FieldNames>, child: Expression) -> Expression {
-    Select
-        .try_new_expr(FieldSelection::Include(field_names.into()), [child])
-        .vortex_expect("Failed to create Select expression")
-}
-
-/// Creates a bound expression that selects specific fields from a struct expression.
-pub fn bound_select(field_names: impl Into<FieldNames>, child: BoundExpression) -> BoundExpression {
-    Select
-        .try_new_bound_expr(FieldSelection::Include(field_names.into()), [child])
-        .vortex_expect("select expressions require fields from a struct child")
-}
-
-/// Creates an expression that excludes specific fields from an array.
-///
-/// Projects all fields except the specified ones from the input struct expression.
-///
-/// ```rust
-/// # use vortex_functions::expr::select_exclude;
-/// # use vortex_array::expr::root;
-/// let expr = select_exclude(["internal_id", "metadata"], root());
-/// ```
-pub fn select_exclude(fields: impl Into<FieldNames>, child: Expression) -> Expression {
-    Select
-        .try_new_expr(FieldSelection::Exclude(fields.into()), [child])
-        .vortex_expect("Failed to create Select expression")
-}
-
-/// Creates a bound expression that excludes specific fields from a struct expression.
-pub fn bound_select_exclude(
-    fields: impl Into<FieldNames>,
-    child: BoundExpression,
-) -> BoundExpression {
-    Select
-        .try_new_bound_expr(FieldSelection::Exclude(fields.into()), [child])
-        .vortex_expect("select expressions require fields from a struct child")
 }
 
 /// Creates an expression that merges struct expressions into a single struct.
@@ -808,8 +759,6 @@ pub mod bound {
     pub use super::bound_not_ilike as not_ilike;
     pub use super::bound_not_like as not_like;
     pub use super::bound_replace_time_zone as replace_time_zone;
-    pub use super::bound_select as select;
-    pub use super::bound_select_exclude as select_exclude;
     pub use super::bound_variant_get as variant_get;
     pub use super::bound_zip_expr as zip_expr;
 }

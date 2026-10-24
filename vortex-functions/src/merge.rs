@@ -262,18 +262,26 @@ mod tests {
     use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType::I32;
     use vortex_array::dtype::PType::I64;
     use vortex_array::dtype::PType::U32;
     use vortex_array::dtype::PType::U64;
+    use vortex_array::dtype::StructFields;
+    use vortex_array::expr::BoundExpression;
     use vortex_array::expr::Expression;
+    use vortex_array::expr::col;
     use vortex_array::expr::get_item;
+    use vortex_array::expr::pack;
     use vortex_array::expr::root;
     use vortex_array::scalar_fn::builtin::pack::Pack;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
+    use vortex_expr::analysis::make_bound_free_field_annotator;
+    use vortex_expr::transform::partition_bound;
     use vortex_session::VortexSession;
 
     use crate::expr::merge;
@@ -595,5 +603,66 @@ mod tests {
             result.dtype(),
             &DType::struct_([("a", I32), ("b", U32), ("c", U64)], NonNullable)
         );
+    }
+
+    fn partition_root_dtype(names: &FieldNames, partitions: &[BoundExpression]) -> DType {
+        DType::Struct(
+            StructFields::new(
+                names.clone(),
+                partitions
+                    .iter()
+                    .map(|partition| partition.dtype().clone())
+                    .collect(),
+            ),
+            NonNullable,
+        )
+    }
+
+    #[test]
+    fn partitions_merge_by_field() -> VortexResult<()> {
+        let dtype = DType::Struct(
+            StructFields::from_iter([
+                (
+                    "a",
+                    DType::Struct(
+                        StructFields::from_iter([("x", DType::from(I32)), ("y", DType::from(I32))]),
+                        NonNullable,
+                    ),
+                ),
+                ("b", DType::from(I32)),
+                ("c", DType::from(I32)),
+            ]),
+            NonNullable,
+        );
+        let fields = dtype.as_struct_fields_opt().vortex_expect("struct");
+        let expr = merge([col("a"), pack([("b", col("b"))], NonNullable)]);
+
+        let partitioned =
+            partition_bound(expr.bind(&dtype)?, make_bound_free_field_annotator(fields))?;
+        let expected = merge([get_item("a_0", col("a")), get_item("b_0", col("b"))]);
+        let root_dtype =
+            partition_root_dtype(&partitioned.partition_names, &partitioned.partitions);
+        assert_eq!(
+            partitioned.root,
+            expected.bind(&root_dtype)?,
+            "{} {}",
+            partitioned.root,
+            expected
+        );
+
+        assert_eq!(partitioned.partitions.len(), 2);
+
+        let part_a = partitioned
+            .find_partition(&"a".into())
+            .vortex_expect("partition a");
+        let expected_a = pack([("a_0", col("a"))], NonNullable);
+        assert_eq!(part_a, &expected_a.bind(&dtype)?, "{part_a} {expected_a}");
+
+        let part_b = partitioned
+            .find_partition(&"b".into())
+            .vortex_expect("partition b");
+        let expected_b = pack([("b_0", pack([("b", col("b"))], NonNullable))], NonNullable);
+        assert_eq!(part_b, &expected_b.bind(&dtype)?, "{part_b} {expected_b}");
+        Ok(())
     }
 }

@@ -80,6 +80,8 @@ pub use exprs::or;
 pub use exprs::or_collect;
 pub use exprs::pack;
 pub use exprs::root;
+pub use exprs::select;
+pub use exprs::select_exclude;
 pub use exprs::var;
 pub use lambda::*;
 pub use scope::*;

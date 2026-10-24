@@ -8,6 +8,7 @@ use vortex_utils::iter::ReduceBalancedIterExt;
 
 use crate::dtype::DType;
 use crate::dtype::FieldName;
+use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
@@ -26,6 +27,8 @@ use crate::scalar_fn::builtin::not::Not;
 use crate::scalar_fn::builtin::operators::Operator;
 use crate::scalar_fn::builtin::pack::Pack;
 use crate::scalar_fn::builtin::pack::PackOptions;
+use crate::scalar_fn::builtin::select::FieldSelection;
+use crate::scalar_fn::builtin::select::Select;
 
 /// Creates an expression that references the root scope.
 ///
@@ -650,6 +653,52 @@ pub fn bound_mask(array: BoundExpression, mask: BoundExpression) -> BoundExpress
 /// These mirror the constructors in [`crate::expr`] and panic when the supplied children do not
 /// form a well-typed expression. Use [`BoundExpression::try_new`] when construction must be
 /// fallible.
+/// Creates an expression that selects (includes) specific fields from an array.
+///
+/// Projects only the specified fields from the child expression, which must be of DType struct.
+/// ```rust
+/// # use vortex_array::expr::select;
+/// # use vortex_array::expr::root;
+/// let expr = select(["name", "age"], root());
+/// ```
+pub fn select(field_names: impl Into<FieldNames>, child: Expression) -> Expression {
+    Select
+        .try_new_expr(FieldSelection::Include(field_names.into()), [child])
+        .vortex_expect("Failed to create Select expression")
+}
+
+/// Creates a bound expression that selects specific fields from a struct expression.
+pub fn bound_select(field_names: impl Into<FieldNames>, child: BoundExpression) -> BoundExpression {
+    Select
+        .try_new_bound_expr(FieldSelection::Include(field_names.into()), [child])
+        .vortex_expect("select expressions require fields from a struct child")
+}
+
+/// Creates an expression that excludes specific fields from an array.
+///
+/// Projects all fields except the specified ones from the input struct expression.
+///
+/// ```rust
+/// # use vortex_array::expr::select_exclude;
+/// # use vortex_array::expr::root;
+/// let expr = select_exclude(["internal_id", "metadata"], root());
+/// ```
+pub fn select_exclude(fields: impl Into<FieldNames>, child: Expression) -> Expression {
+    Select
+        .try_new_expr(FieldSelection::Exclude(fields.into()), [child])
+        .vortex_expect("Failed to create Select expression")
+}
+
+/// Creates a bound expression that excludes specific fields from a struct expression.
+pub fn bound_select_exclude(
+    fields: impl Into<FieldNames>,
+    child: BoundExpression,
+) -> BoundExpression {
+    Select
+        .try_new_bound_expr(FieldSelection::Exclude(fields.into()), [child])
+        .vortex_expect("select expressions require fields from a struct child")
+}
+
 pub mod bound {
     pub use super::bound_and as and;
     pub use super::bound_and_collect as and_collect;
@@ -674,4 +723,6 @@ pub mod bound {
     pub use super::bound_or_collect as or_collect;
     pub use super::bound_pack as pack;
     pub use super::bound_root as root;
+    pub use super::bound_select as select;
+    pub use super::bound_select_exclude as select_exclude;
 }

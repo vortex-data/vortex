@@ -22,6 +22,7 @@ use crate::scalar_fn::builtin::literal::Literal;
 use crate::scalar_fn::builtin::mask::Mask;
 use crate::scalar_fn::builtin::not::Not;
 use crate::scalar_fn::builtin::pack::Pack;
+use crate::scalar_fn::builtin::select::Select;
 
 /// Registry of scalar function vtables.
 pub type ScalarFnRegistry = ArcSwapMap<Id, ScalarFnPluginRef>;
@@ -62,6 +63,7 @@ impl Default for ScalarFnSession {
         this.register(Mask);
         this.register(Not);
         this.register(Pack);
+        this.register(Select);
 
         this
     }

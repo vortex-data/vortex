@@ -23,7 +23,7 @@ use vortex_array::stream::ArrayStreamAdapter;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_expr::analysis::referenced_field_paths;
-use vortex_expr::transform::find_between;
+use vortex_functions::between::find_between;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::runtime::Task;
 use vortex_io::session::RuntimeSessionExt;

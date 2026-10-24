@@ -6,29 +6,6 @@ use std::fmt::Formatter;
 
 use itertools::Itertools;
 use prost::Message;
-use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::Constant;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::StructArray;
-use vortex_array::arrays::struct_::StructArrayExt;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::FieldName;
-use vortex_array::dtype::FieldNames;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::display::ExprDisplay;
-use vortex_array::proto::expr::FieldNames as ProtoFieldNames;
-use vortex_array::proto::expr::SelectOpts;
-use vortex_array::proto::expr::select_opts::Opts;
-use vortex_array::scalar_fn::Arity;
-use vortex_array::scalar_fn::ChildName;
-use vortex_array::scalar_fn::ExecutionArgs;
-use vortex_array::scalar_fn::ScalarFnId;
-use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::builtin::pack::Pack;
-use vortex_array::scalar_fn::builtin::pack::PackOptions;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -38,7 +15,30 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::field::DisplayFieldNames;
+use crate::ArrayRef;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::Constant;
+use crate::arrays::ConstantArray;
+use crate::arrays::StructArray;
+use crate::arrays::struct_::StructArrayExt;
+use crate::dtype::DType;
+use crate::dtype::FieldName;
+use crate::dtype::FieldNames;
+use crate::expr::BoundExpression;
+use crate::expr::display::ExprDisplay;
+use crate::proto::expr::FieldNames as ProtoFieldNames;
+use crate::proto::expr::SelectOpts;
+use crate::proto::expr::select_opts::Opts;
+use crate::scalar_fn::Arity;
+use crate::scalar_fn::ChildName;
+use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ScalarFnId;
+use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::builtin::field::DisplayFieldNames;
+use crate::scalar_fn::builtin::pack::Pack;
+use crate::scalar_fn::builtin::pack::PackOptions;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FieldSelection {
@@ -348,33 +348,33 @@ impl Display for FieldSelection {
 mod tests {
     use std::sync::LazyLock;
 
-    use vortex_array::ArrayRef;
-    use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::Constant;
-    use vortex_array::arrays::ConstantArray;
-    use vortex_array::arrays::ScalarFnArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_array::dtype::DType;
-    use vortex_array::dtype::FieldName;
-    use vortex_array::dtype::FieldNames;
-    use vortex_array::dtype::Nullability;
-    use vortex_array::dtype::Nullability::Nullable;
-    use vortex_array::dtype::PType::I32;
-    use vortex_array::dtype::StructFields;
-    use vortex_array::expr::root;
-    use vortex_array::expr::test_harness;
-    use vortex_array::scalar::Scalar;
-    use vortex_array::scalar_fn::ScalarFnVTableExt;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::ArrayRef;
+    use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::arrays::Constant;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::ScalarFnArray;
+    use crate::assert_arrays_eq;
+    use crate::dtype::DType;
+    use crate::dtype::FieldName;
+    use crate::dtype::FieldNames;
+    use crate::dtype::Nullability;
+    use crate::dtype::Nullability::Nullable;
+    use crate::dtype::PType::I32;
+    use crate::dtype::StructFields;
+    use crate::expr::root;
     use crate::expr::select;
     use crate::expr::select_exclude;
-    use crate::select::FieldSelection;
-    use crate::select::Select;
-    use crate::select::StructArray;
+    use crate::expr::test_harness;
+    use crate::scalar::Scalar;
+    use crate::scalar_fn::ScalarFnVTableExt;
+    use crate::scalar_fn::builtin::select::FieldSelection;
+    use crate::scalar_fn::builtin::select::Select;
+    use crate::scalar_fn::builtin::select::StructArray;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty();

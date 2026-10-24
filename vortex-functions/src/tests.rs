@@ -26,6 +26,8 @@ use vortex_array::expr::not_eq;
 use vortex_array::expr::or;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
+use vortex_array::expr::select;
+use vortex_array::expr::select_exclude;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
@@ -35,8 +37,6 @@ use crate::expr::between;
 use crate::expr::bound::case_when as bound_case_when;
 use crate::expr::case_when;
 use crate::expr::merge;
-use crate::expr::select;
-use crate::expr::select_exclude;
 
 #[test]
 fn test_display_tree_select() {

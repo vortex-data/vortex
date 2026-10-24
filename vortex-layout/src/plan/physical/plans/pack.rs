@@ -19,6 +19,7 @@ use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::builtin::get_item::GetItem;
 use vortex_array::scalar_fn::builtin::pack::Pack as PackFn;
 use vortex_array::scalar_fn::builtin::pack::PackOptions;
+use vortex_array::scalar_fn::builtin::select::Select;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -27,7 +28,6 @@ use vortex_error::vortex_err;
 use vortex_expr::descendent_bound_annotations;
 use vortex_expr::make_bound_free_field_annotator;
 use vortex_expr::transform::partition_bound;
-use vortex_functions::select::Select;
 use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
