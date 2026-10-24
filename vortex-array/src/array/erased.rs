@@ -360,7 +360,16 @@ impl ArrayRef {
         let count = match self.validity()? {
             Validity::NonNullable | Validity::AllValid => len,
             Validity::AllInvalid => 0,
-            Validity::Array(a) => a.execute::<BoolArray>(ctx)?.to_bit_buffer().true_count(),
+            // The number of valid rows is the number of `true` values in the validity array, which
+            // its `Sum` statistic gives. Count the bitmap if the session has no `Sum` aggregate.
+            Validity::Array(a) => match a
+                .statistics()
+                .compute_stat(Stat::Sum, ctx)?
+                .and_then(|sum| sum.as_primitive().as_::<usize>())
+            {
+                Some(count) => count,
+                None => a.execute::<BoolArray>(ctx)?.to_bit_buffer().true_count(),
+            },
         };
         vortex_ensure!(count <= len, "Valid count exceeds array length");
 
