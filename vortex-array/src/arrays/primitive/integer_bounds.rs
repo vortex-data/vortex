@@ -5,20 +5,27 @@
 //!
 //! These read the array's `Min`, `Max`, `IsSorted` and `IsStrictSorted` statistics, which are
 //! cached and computed by the aggregate functions the session registers, using any kernel the
-//! encoding provides. When a statistic has no answer, because the session registers no aggregate
+//! encoding provides. Bounds are computed with the `min_max` aggregate, so both extrema take one
+//! pass. When a statistic has no answer, because the session registers no aggregate
 //! for it, the array is executed to a [`PrimitiveArray`] and scanned once instead, and the scanned
 //! `Min`, `Max` and `NullCount` are cached. Validation therefore works in every session.
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::session::AggregateFnSessionExt;
+use crate::aggregate_fn::stat_aggregates;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
+use crate::expr::stats::StatsProvider;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
 
@@ -44,15 +51,44 @@ pub fn integer_bounds(
 ) -> VortexResult<Option<IntegerBounds>> {
     ensure_int(array)?;
     let stats = array.statistics();
-    if let Some(min) = stats
-        .compute_stat(Stat::Min, ctx)?
-        .and_then(|s| as_i128(array, &s))
-        && let Some(max) = stats
-            .compute_stat(Stat::Max, ctx)?
-            .and_then(|s| as_i128(array, &s))
+    if let Some(min) = stats.get(Stat::Min).as_exact()
+        && let Some(max) = stats.get(Stat::Max).as_exact()
+        && let Some(bounds) = bounds_from(array, &min, &max)
     {
-        return Ok(Some(IntegerBounds { min, max }));
+        return Ok(Some(bounds));
     }
+
+    // Compute both extrema in one pass with the session's `min_max` aggregate.
+    if let Some(min_max) = resolve_min_max(ctx)?
+        && min_max.return_dtype(array.dtype()).is_some()
+    {
+        let mut accumulator = min_max.accumulator(array.dtype())?;
+        accumulator.accumulate(array, ctx)?;
+        let result = accumulator.finish()?;
+        if result.is_null() {
+            return Ok(None);
+        }
+        let min = result
+            .as_struct()
+            .field_by_idx(0)
+            .vortex_expect("min_max has a min field");
+        let max = result
+            .as_struct()
+            .field_by_idx(1)
+            .vortex_expect("min_max has a max field");
+        if let Some(bounds) = bounds_from(array, &min, &max) {
+            if let (Some(min), Some(max)) = (min.value(), max.value()) {
+                stats.set(Stat::Min, Precision::Exact(min.clone()));
+                stats.set(Stat::Max, Precision::Exact(max.clone()));
+            }
+            // Cache the null count too, as computing the `Min` and `Max` statistics does.
+            if stats.get(Stat::NullCount).as_exact().is_none() {
+                stats.set(Stat::NullCount, Precision::exact(array.invalid_count(ctx)?));
+            }
+            return Ok(Some(bounds));
+        }
+    }
+
     Ok(scan_array(array, ctx)?.map(|scanned| IntegerBounds {
         min: scanned.min,
         max: scanned.max,
@@ -102,6 +138,28 @@ fn ensure_int(array: &ArrayRef) -> VortexResult<()> {
         array.dtype()
     );
     Ok(())
+}
+
+/// Resolves the `min_max` aggregate, skipping NaNs like the `Min` and `Max` statistics, if the
+/// session registers one.
+fn resolve_min_max(ctx: &ExecutionCtx) -> VortexResult<Option<AggregateFnRef>> {
+    let session = ctx.session();
+    let Some(plugin) = session
+        .aggregate_fns()
+        .find_plugin(&stat_aggregates::MIN_MAX_ID)
+    else {
+        return Ok(None);
+    };
+    plugin
+        .deserialize(&NumericalAggregateOpts::skip_nans().serialize(), session)
+        .map(Some)
+}
+
+fn bounds_from(array: &ArrayRef, min: &Scalar, max: &Scalar) -> Option<IntegerBounds> {
+    Some(IntegerBounds {
+        min: as_i128(array, min)?,
+        max: as_i128(array, max)?,
+    })
 }
 
 fn as_i128(array: &ArrayRef, scalar: &Scalar) -> Option<i128> {
