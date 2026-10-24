@@ -7,7 +7,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
 
 use self::primitive::accumulate_primitive;
 use crate::ArrayRef;
@@ -21,6 +20,7 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::stat_aggregates;
 use crate::dtype::DType;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::PType;
@@ -100,8 +100,7 @@ impl AggregateFnVTable for NanCount {
     type Partial = u64;
 
     fn id(&self) -> AggregateFnId {
-        static ID: CachedId = CachedId::new("vortex.nan_count");
-        *ID
+        *stat_aggregates::NAN_COUNT_ID
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
