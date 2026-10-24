@@ -44,6 +44,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_expr::transform::replace;
 use vortex_session::VortexSession;
 
 use super::ListTransform;
@@ -630,5 +631,17 @@ fn lambdas_are_not_serializable_yet() -> VortexResult<()> {
         .serialize_proto()
         .expect_err("lambdas are not serializable");
     assert!(error.to_string().contains("is not serializable"), "{error}");
+    Ok(())
+}
+
+#[test]
+fn replace_leaves_a_lambda_alone() -> VortexResult<()> {
+    // The lambda is in `list_transform`'s options, not among its children.
+    let expr = list_transform(col("l"), Lambda::new(["x"], checked_add(var("x"), lit(1)))?);
+    assert_eq!(replace(expr.clone(), &var("x"), lit(0)), expr);
+    assert_eq!(
+        replace(expr, &root(), col("s")).to_string(),
+        "vortex.list.transform($.s.l, (x) -> (@x + 1i32))"
+    );
     Ok(())
 }

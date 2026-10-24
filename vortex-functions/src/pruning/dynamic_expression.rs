@@ -23,19 +23,22 @@ use vortex_array::expr::bound::get_item;
 use vortex_array::expr::bound::lit;
 use vortex_array::expr::stats::Stat;
 use vortex_array::scalar_fn::EmptyOptions;
+use vortex_array::scalar_fn::ScalarFnId;
+use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::builtin::get_item::GetItem;
 use vortex_array::scalar_fn::internal::row_count::RowCount;
 use vortex_error::VortexResult;
-use vortex_functions::dynamic_expression::DynamicExpression;
-use vortex_functions::dynamic_expression::DynamicExpressionOptions;
-use vortex_functions::dynamic_expression::DynamicExpressionSource;
-use vortex_functions::dynamic_expression::input_field_name;
-use vortex_functions::stat::StatFn;
+use vortex_expr::stats::bound::stat;
+use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
+use vortex_expr::stats::rewrite::StatsRewriteRule;
+use vortex_expr::stats::stat_fn::StatFn;
 use vortex_session::VortexSession;
 
-use crate::stats::bound::stat;
-use crate::stats::rewrite::BoundExpressionPruneExt;
+use crate::dynamic_expression::DynamicExpression;
+use crate::dynamic_expression::DynamicExpressionOptions;
+use crate::dynamic_expression::DynamicExpressionSource;
+use crate::dynamic_expression::input_field_name;
 
 /// Which stats proof a [`StatsProofSource`] builds.
 #[derive(Clone, Copy, Debug)]
@@ -201,6 +204,32 @@ impl DynamicExpressionSource for StatsProofSource {
     }
 }
 
+/// Proves a [`DynamicExpression`] through its current source expression.
+#[derive(Debug)]
+pub(super) struct DynamicExpressionStatsRewrite;
+
+impl StatsRewriteRule for DynamicExpressionStatsRewrite {
+    fn scalar_fn_id(&self) -> ScalarFnId {
+        DynamicExpression.id()
+    }
+
+    fn falsify(
+        &self,
+        expr: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        dynamic_stats_proof(expr, session, StatsProof::Falsify)
+    }
+
+    fn satisfy(
+        &self,
+        expr: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        dynamic_stats_proof(expr, session, StatsProof::Satisfy)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::AtomicU64;
@@ -222,10 +251,10 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
-    use vortex_functions::expr::dynamic_expression;
+    use vortex_expr::stats::StatsSession;
 
     use super::*;
-    use crate::stats::StatsSession;
+    use crate::expr::dynamic_expression;
 
     #[derive(Debug, Default)]
     struct Threshold(AtomicU64);
@@ -263,6 +292,7 @@ mod tests {
     #[test]
     fn existing_proofs_follow_new_generations() -> VortexResult<()> {
         let session = VortexSession::empty().with::<StatsSession>();
+        crate::initialize(&session);
         let threshold = Arc::new(Threshold::default());
         let dtype = DType::struct_(
             [("a", DType::Primitive(PType::U64, Nullability::NonNullable))],
