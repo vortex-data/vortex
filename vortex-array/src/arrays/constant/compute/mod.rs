@@ -8,7 +8,6 @@ mod not;
 pub(crate) mod rules;
 mod slice;
 mod take;
-pub(crate) mod uncompressed_size;
 
 #[cfg(test)]
 mod test {

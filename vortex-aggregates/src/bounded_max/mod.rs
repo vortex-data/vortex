@@ -15,9 +15,6 @@ use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnSatisfaction;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::max::Max;
-use vortex_array::aggregate_fn::fns::min_max::MinMax;
-use vortex_array::aggregate_fn::fns::min_max::columnar_min_max;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
@@ -36,6 +33,10 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
+
+use crate::max::Max;
+use crate::min_max::MinMax;
+use crate::min_max::columnar_min_max;
 
 /// Field name for the bounded maximum upper-bound value in the partial state.
 pub const BOUNDED_MAX_BOUND: &str = "bound";
@@ -353,8 +354,6 @@ mod tests {
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::DynAccumulator;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
-    use vortex_array::aggregate_fn::fns::max::Max;
-    use vortex_array::aggregate_fn::fns::min::Min;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::dtype::Nullability;
@@ -369,6 +368,8 @@ mod tests {
     use crate::bounded_max::BoundedMaxOptions;
     use crate::bounded_max::BoundedMaxPartial;
     use crate::bounded_max::BoundedMaxState;
+    use crate::max::Max;
+    use crate::min::Min;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -377,7 +378,7 @@ mod tests {
     }
 
     fn fresh_session() -> VortexSession {
-        VortexSession::empty()
+        SESSION.clone()
     }
 
     #[test]

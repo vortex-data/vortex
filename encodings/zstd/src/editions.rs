@@ -56,10 +56,8 @@ mod tests {
 
     #[test]
     fn initialize_does_not_enable_zstd_edition() {
-        let session = VortexSession::empty();
-        crate::initialize(&session);
         assert!(
-            !session
+            !SESSION
                 .enabled_editions()
                 .editions()
                 .contains(&ZSTD_2026_02)

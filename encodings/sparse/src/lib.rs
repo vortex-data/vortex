@@ -71,13 +71,13 @@ mod ops;
 mod rules;
 mod slice;
 
+use vortex_aggregates::is_constant::IsConstant;
+use vortex_aggregates::min_max::MinMax;
+use vortex_aggregates::nan_count::NanCount;
+use vortex_aggregates::null_count::NullCount;
+use vortex_aggregates::sum::Sum;
+use vortex_aggregates::sum_v2::SumV2;
 use vortex_array::aggregate_fn::AggregateFnVTable as _;
-use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
-use vortex_array::aggregate_fn::fns::min_max::MinMax;
-use vortex_array::aggregate_fn::fns::nan_count::NanCount;
-use vortex_array::aggregate_fn::fns::null_count::NullCount;
-use vortex_array::aggregate_fn::fns::sum::Sum;
-use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::session::ArraySessionExt;
 

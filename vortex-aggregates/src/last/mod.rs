@@ -150,6 +150,7 @@ impl AggregateFnVTable for Last {
 
 #[cfg(test)]
 mod tests {
+
     use std::sync::LazyLock;
 
     use vortex_array::IntoArray;
@@ -176,7 +177,11 @@ mod tests {
     use crate::last::Last;
     use crate::last::last;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn last_non_null() -> VortexResult<()> {

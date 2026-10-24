@@ -9,8 +9,8 @@
 //!
 //! Floating-point multiplication can round differently from repeated addition, as with constant sums.
 //!
-//! [`Sum`]: vortex_array::aggregate_fn::fns::sum::Sum
-//! [`SumV2`]: vortex_array::aggregate_fn::fns::sum_v2::SumV2
+//! [`Sum`]: vortex_aggregates::sum::Sum
+//! [`SumV2`]: vortex_aggregates::sum_v2::SumV2
 
 mod kernel;
 pub(crate) use kernel::RunEndSumKernel;

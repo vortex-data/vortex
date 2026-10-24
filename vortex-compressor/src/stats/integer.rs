@@ -10,8 +10,10 @@ use rustc_hash::FxBuildHasher;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::NativeValue;
+use vortex_array::arrays::primitive::integer_bounds;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::expr::stats::Stat;
+use vortex_array::expr::stats::StatsProviderExt;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
@@ -362,15 +364,19 @@ where
     let null_count = validity.false_count();
     let value_count = validity.true_count();
 
+    // `integer_bounds` caches the exact extrema, which are then read back in `T`.
     let array_ref = array.as_ref();
+    integer_bounds(array_ref, ctx)?;
     let min = array_ref
         .statistics()
-        .compute_as::<T>(Stat::Min, ctx)
+        .get_as::<T>(Stat::Min)
+        .as_exact()
         .vortex_expect("min should be computed");
 
     let max = array_ref
         .statistics()
-        .compute_as::<T>(Stat::Max, ctx)
+        .get_as::<T>(Stat::Max)
+        .as_exact()
         .vortex_expect("max should be computed");
 
     // Initialize loop state.

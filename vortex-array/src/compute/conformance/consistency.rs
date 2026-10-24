@@ -31,18 +31,16 @@ use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::RecursiveCanonical;
-use crate::aggregate_fn::NumericalAggregateOpts;
-use crate::aggregate_fn::fns::min_max::min_max;
-use crate::aggregate_fn::fns::nan_count::nan_count;
-use crate::aggregate_fn::fns::sum::sum;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::builtins::ArrayBuiltins;
+use crate::compute::conformance::conformance_stat;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::expr::stats::Stat;
 use crate::scalar_fn::builtin::operators::Operator;
 
 /// Tests that filter and take operations produce consistent results.
@@ -807,7 +805,14 @@ fn test_boolean_demorgan_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 /// # Why This Matters
 /// Aggregate operations on sliced arrays must produce correct results
 /// regardless of the underlying encoding's offset handling.
-fn test_slice_aggregate_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
+///
+/// # Panics
+///
+/// Panics if the session has no aggregate functions registered for these statistics; register
+/// them with `vortex_aggregates::initialize`.
+pub fn test_slice_aggregate_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
+    use crate::dtype::DType;
+
     let len = array.len();
     if len < 5 {
         return; // Need enough elements for meaningful slice
@@ -848,32 +853,30 @@ fn test_slice_aggregate_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
         return;
     }
 
-    let slice_sum = sum(&sliced, ctx).vortex_expect("slice sum should succeed");
-    let canonical_sum = sum(&canonical_sliced, ctx).vortex_expect("canonical sum should succeed");
-    assert_eq!(
-        slice_sum, canonical_sum,
-        "sum on sliced array should match canonical"
-    );
-
-    let slice_minmax = min_max(&sliced, ctx, NumericalAggregateOpts::default())
-        .vortex_expect("slice min_max should succeed");
-    let canonical_minmax = min_max(&canonical_sliced, ctx, NumericalAggregateOpts::default())
-        .vortex_expect("canonical min_max should succeed");
-    assert_eq!(
-        slice_minmax, canonical_minmax,
-        "min_max on sliced array should match canonical"
-    );
-
-    if array.dtype().is_float() {
-        let slice_nan_count =
-            nan_count(&sliced, ctx).vortex_expect("slice nan_count should succeed");
-        let canonical_nan_count =
-            nan_count(&canonical_sliced, ctx).vortex_expect("canonical nan_count should succeed");
+    for stat in [Stat::Sum, Stat::Min, Stat::Max, Stat::NaNCount] {
+        if stat.dtype(array.dtype()).is_none() {
+            continue;
+        }
+        let sliced_stat = conformance_stat(&sliced, stat, ctx);
+        let canonical_stat = conformance_stat(&canonical_sliced, stat, ctx);
         assert_eq!(
-            slice_nan_count, canonical_nan_count,
-            "nan_count on sliced array should match canonical"
+            sliced_stat, canonical_stat,
+            "{stat} on sliced array should match canonical. \
+                 Sliced: {sliced_stat:?}, Canonical: {canonical_stat:?}"
         );
     }
+}
+
+/// Whether the session can compute the statistics [`test_slice_aggregate_consistency`] checks.
+fn aggregates_registered(ctx: &ExecutionCtx) -> bool {
+    [Stat::Sum, Stat::Min, Stat::Max, Stat::NaNCount]
+        .into_iter()
+        .all(|stat| {
+            stat.resolve_aggregate_fn(ctx.session())
+                .ok()
+                .flatten()
+                .is_some()
+        })
 }
 
 fn widened_primitive_dtype(dtype: &DType) -> Option<DType> {
@@ -1312,7 +1315,10 @@ pub fn test_array_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     test_comparison_symmetry_consistency(array, ctx);
 
     // Aggregate operations
-    test_slice_aggregate_consistency(array, ctx);
+    // Aggregates resolve through the session, and the core array crate cannot register them.
+    if aggregates_registered(ctx) {
+        test_slice_aggregate_consistency(array, ctx);
+    }
 
     // Identity operations
     test_filter_identity(array, ctx);

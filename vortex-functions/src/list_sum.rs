@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_aggregates::sum_v2::SumV2;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::Columnar;
@@ -10,7 +11,6 @@ use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::DynGroupedAccumulator;
 use vortex_array::aggregate_fn::GroupedAccumulator;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::Arity;

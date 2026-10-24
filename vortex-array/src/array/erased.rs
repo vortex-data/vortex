@@ -41,6 +41,7 @@ use crate::arrays::DictArray;
 use crate::arrays::FilterArray;
 use crate::arrays::SliceArray;
 use crate::arrays::bool::BoolArrayExt;
+use crate::arrays::bool::bool_bounds;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -331,7 +332,7 @@ impl ArrayRef {
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(true),
             Validity::AllInvalid => Ok(false),
-            Validity::Array(a) => Ok(a.statistics().compute_min::<bool>(ctx).unwrap_or(false)),
+            Validity::Array(a) => Ok(bool_bounds(&a, ctx)?.is_some_and(|bounds| bounds.all_true)),
         }
     }
 
@@ -344,7 +345,7 @@ impl ArrayRef {
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(false),
             Validity::AllInvalid => Ok(true),
-            Validity::Array(a) => Ok(!a.statistics().compute_max::<bool>(ctx).unwrap_or(true)),
+            Validity::Array(a) => Ok(!bool_bounds(&a, ctx)?.is_none_or(|bounds| bounds.any_true)),
         }
     }
 

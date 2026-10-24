@@ -288,10 +288,10 @@ mod test {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_aggregates::sum::sum;
     use vortex_array::ArrayRef;
     use vortex_array::ExecutionCtx;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::aggregate_fn::fns::sum::sum;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;

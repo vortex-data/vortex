@@ -16,6 +16,7 @@ version = { workspace = true }
 itertools = { workspace = true }
 parking_lot = { workspace = true }
 tracing = { workspace = true }
+vortex-aggregates = { workspace = true }
 vortex-array = { workspace = true }
 vortex-error = { workspace = true }
 vortex-functions = { workspace = true }

@@ -16,10 +16,10 @@ use vortex::aggregate_fn::AggregateFnRef;
 use vortex::aggregate_fn::AggregateFnVTableExt;
 use vortex::aggregate_fn::EmptyOptions;
 use vortex::aggregate_fn::NumericalAggregateOpts;
-use vortex::aggregate_fn::fns::max::Max;
-use vortex::aggregate_fn::fns::min::Min;
-use vortex::aggregate_fn::fns::nan_count::NanCount;
-use vortex::aggregate_fn::fns::null_count::NullCount;
+use vortex::aggregates::max::Max;
+use vortex::aggregates::min::Min;
+use vortex::aggregates::nan_count::NanCount;
+use vortex::aggregates::null_count::NullCount;
 use vortex::array::ArrayRef;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
@@ -393,7 +393,7 @@ mod tests {
     fn pruning_aggregate_fns() -> Vec<AggregateFnRef> {
         [Stat::Min, Stat::Max, Stat::NullCount, Stat::NaNCount]
             .into_iter()
-            .filter_map(|stat| stat.aggregate_fn())
+            .filter_map(vortex::aggregates::stat_aggregate_fn)
             .collect()
     }
 

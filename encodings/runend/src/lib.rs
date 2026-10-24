@@ -29,13 +29,13 @@ pub mod _benchmarking {
     use super::*;
 }
 
+use vortex_aggregates::is_constant::IsConstant;
+use vortex_aggregates::is_sorted::IsSorted;
+use vortex_aggregates::min_max::MinMax;
+use vortex_aggregates::sum::Sum;
+use vortex_aggregates::sum_v2::SumV2;
 use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
-use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
-use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
-use vortex_array::aggregate_fn::fns::min_max::MinMax;
-use vortex_array::aggregate_fn::fns::sum::Sum;
-use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;

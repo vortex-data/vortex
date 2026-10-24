@@ -7,11 +7,11 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rstest::rstest;
+use vortex_aggregates::min_max::min_max;
 use vortex_array::ArrayContext;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
@@ -38,6 +38,7 @@ use crate::bitpack_compress::bitpack_encode;
 fn session() -> VortexSession {
     let session = VortexSession::empty();
     crate::initialize(&session);
+    vortex_aggregates::initialize(&session);
     session
 }
 

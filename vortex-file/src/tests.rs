@@ -134,14 +134,13 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 fn pruning_aggregate_fns() -> Vec<AggregateFnRef> {
     [Stat::Min, Stat::Max, Stat::NullCount, Stat::NaNCount]
         .into_iter()
-        .filter_map(|stat| stat.aggregate_fn())
+        .filter_map(vortex_aggregates::stat_aggregate_fn)
         .collect()
 }
 
 /// The value the file statistics entry `aggregates` resolves for `stat`.
 fn stat_value(aggregates: &AggregateStats, stat: Stat) -> Precision<ScalarValue> {
-    let aggregate_fn = stat
-        .aggregate_fn()
+    let aggregate_fn = vortex_aggregates::stat_aggregate_fn(stat)
         .vortex_expect("test only uses stats with an aggregate fn");
     aggregates.get(&aggregate_fn).and_then(Scalar::into_value)
 }
@@ -2330,8 +2329,7 @@ async fn file_sum_is_absent_when_a_chunk_overflows() -> VortexResult<()> {
         .write_options()
         .disable_editions()
         .with_file_statistics(vec![
-            Stat::Sum
-                .aggregate_fn()
+            vortex_aggregates::stat_aggregate_fn(Stat::Sum)
                 .vortex_expect("sum has an aggregate fn"),
         ])
         .writer(&mut buf, dtype);

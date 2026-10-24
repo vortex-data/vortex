@@ -6,6 +6,7 @@
 use std::sync::Arc;
 use std::sync::LazyLock;
 
+use vortex_aggregates::stat_aggregate_fn;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType::I32;
@@ -41,7 +42,7 @@ static STATS_SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<StatsSession>());
 
 fn stat(expr: Expression, stat: Stat) -> Expression {
-    stat_expr(expr, stat.aggregate_fn().unwrap())
+    stat_expr(expr, stat_aggregate_fn(stat).unwrap())
 }
 
 #[test]

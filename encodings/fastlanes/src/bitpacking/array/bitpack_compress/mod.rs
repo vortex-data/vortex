@@ -19,14 +19,13 @@ pub use global::gather_patches;
 pub use global::test_harness;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::match_each_integer_ptype;
+use vortex_array::arrays::primitive::integer_bounds;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
 /// Return an error unless `array` holds integers that are all non-negative, which bit-packing
 /// requires.
-#[expect(unused_comparisons, clippy::absurd_extreme_comparisons)]
 fn ensure_non_negative_integers(
     array: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
@@ -37,9 +36,8 @@ fn ensure_non_negative_integers(
         array.ptype()
     );
     if array.ptype().is_signed_int() {
-        let has_negative_values = match_each_integer_ptype!(array.ptype(), |P| {
-            array.statistics().compute_min::<P>(ctx).unwrap_or_default() < 0
-        });
+        let has_negative_values =
+            integer_bounds(array.as_ref(), ctx)?.is_some_and(|bounds| bounds.min < 0);
         if has_negative_values {
             vortex_bail!(InvalidArgument: "cannot bitpack array containing negative integers")
         }

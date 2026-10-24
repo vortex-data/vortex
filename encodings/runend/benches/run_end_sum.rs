@@ -7,10 +7,10 @@ use std::sync::LazyLock;
 
 use divan::Bencher;
 use mimalloc::MiMalloc;
+use vortex_aggregates::sum_v2::sum_v2;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::aggregate_fn::fns::sum_v2::sum_v2;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::optimizer::kernels::KernelSession;

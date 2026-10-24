@@ -4,6 +4,8 @@
 //! Accumulator dispatch tests that exercise [`Combined`](crate::combined::Combined) through
 //! [`Mean`](crate::mean::Mean).
 
+use std::sync::LazyLock;
+
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -15,7 +17,6 @@ use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::DynAccumulator;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::Dict;
@@ -32,9 +33,16 @@ use vortex_session::VortexSession;
 use crate::combined::Combined;
 use crate::combined::PairOptions;
 use crate::mean::Mean;
+use crate::sum::Sum;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty();
+    crate::initialize(&session);
+    session
+});
 
 fn fresh_session() -> VortexSession {
-    crate::test_session()
+    SESSION.clone()
 }
 
 fn dict_of_seven() -> ArrayRef {

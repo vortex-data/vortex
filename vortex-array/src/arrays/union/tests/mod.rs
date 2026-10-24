@@ -16,8 +16,6 @@ use crate::ArrayContext;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
-use crate::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
@@ -303,23 +301,6 @@ fn constant_union_canonicalizes_to_sparse_union() -> VortexResult<()> {
             assert_eq!(canonical.execute_scalar(index, &mut ctx)?, scalar);
         }
     }
-
-    Ok(())
-}
-
-#[test]
-fn constant_union_reports_uncompressed_size() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let scalar = Scalar::union(variants()?, 5, 10i32.into(), Nullability::NonNullable)?;
-
-    // Four `u8` type IDs, four `i32` rows, and four `bool` placeholder bits rounded up to a byte.
-    let size = uncompressed_size_in_bytes(
-        &ConstantArray::new(scalar, 4).into_array(),
-        UncompressedSizeOpts::exact(),
-        &mut ctx,
-    )?;
-
-    assert_eq!(size, 4 + 4 * 4 + 1);
 
     Ok(())
 }

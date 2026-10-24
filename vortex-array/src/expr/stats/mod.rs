@@ -25,11 +25,8 @@ pub use stat_bound::*;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
-use crate::aggregate_fn;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
-use crate::aggregate_fn::AggregateFnVTableExt;
-use crate::aggregate_fn::EmptyOptions;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::aggregate_fn::stat_aggregates;
@@ -234,24 +231,6 @@ impl Stat {
         plugin
             .deserialize(&self.aggregate_fn_options(), session)
             .map(Some)
-    }
-
-    /// Return the built-in aggregate function corresponding to this statistic, if one exists.
-    pub fn aggregate_fn(&self) -> Option<AggregateFnRef> {
-        // Statistics follow NaN-skipping semantics; request it explicitly rather than the default.
-        Some(match self {
-            Self::Max => aggregate_fn::fns::max::Max.bind(NumericalAggregateOpts::skip_nans()),
-            Self::Min => aggregate_fn::fns::min::Min.bind(NumericalAggregateOpts::skip_nans()),
-            Self::Sum => aggregate_fn::fns::sum::Sum.bind(NumericalAggregateOpts::skip_nans()),
-            Self::NullCount => aggregate_fn::fns::null_count::NullCount.bind(EmptyOptions),
-            Self::NaNCount => aggregate_fn::fns::nan_count::NanCount.bind(EmptyOptions),
-            // The stat slot holds the exact size, so the statistic measures referenced bytes.
-            Self::UncompressedSizeInBytes => {
-                aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
-                    .bind(UncompressedSizeOpts::exact())
-            }
-            Self::IsConstant | Self::IsSorted | Self::IsStrictSorted => return None,
-        })
     }
 
     /// Return the statistic represented by `aggregate_fn`, if it has a legacy stat slot.

@@ -412,26 +412,130 @@ mod tests {
 
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
+    use vortex_session::registry::CachedId;
 
     use crate::ArrayRef;
+    use crate::Columnar;
+    use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::aggregate_fn::AggregateArgs;
+    use crate::aggregate_fn::AggregateFnId;
+    use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynGroupedAccumulator;
     use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::GroupedAccumulator;
-    use crate::aggregate_fn::fns::null_count::NullCount;
     use crate::arrays::Chunked;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::PType;
+    use crate::scalar::Scalar;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
-    fn accumulator() -> VortexResult<GroupedAccumulator<NullCount>> {
+    static ROW_COUNT_ID: CachedId = CachedId::new("test.row_count");
+
+    /// A minimal aggregate counting rows, so these tests need no concrete aggregate function.
+    #[derive(Clone, Debug)]
+    struct RowCount;
+
+    impl AggregateFnVTable for RowCount {
+        type Options = EmptyOptions;
+        type Partial = u64;
+
+        fn id(&self) -> AggregateFnId {
+            *ROW_COUNT_ID
+        }
+
+        fn deserialize(
+            &self,
+            _metadata: &[u8],
+            _session: &VortexSession,
+        ) -> VortexResult<Self::Options> {
+            Ok(EmptyOptions)
+        }
+
+        fn return_dtype(&self, _options: &Self::Options, _input_dtype: &DType) -> Option<DType> {
+            Some(DType::Primitive(PType::U64, NonNullable))
+        }
+
+        fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
+            self.return_dtype(options, input_dtype)
+        }
+
+        fn empty_partial(
+            &self,
+            _args: AggregateArgs<'_, Self::Options>,
+        ) -> VortexResult<Self::Partial> {
+            Ok(0)
+        }
+
+        fn partial_from_scalar(
+            &self,
+            _args: AggregateArgs<'_, Self::Options>,
+            scalar: &Scalar,
+        ) -> VortexResult<Self::Partial> {
+            Ok(scalar.as_primitive().typed_value::<u64>().unwrap_or(0))
+        }
+
+        fn merge_partials(
+            &self,
+            _args: AggregateArgs<'_, Self::Options>,
+            first: Self::Partial,
+            second: Self::Partial,
+        ) -> VortexResult<Self::Partial> {
+            Ok(first + second)
+        }
+
+        fn to_scalar(
+            &self,
+            _args: AggregateArgs<'_, Self::Options>,
+            partial: &Self::Partial,
+        ) -> VortexResult<Scalar> {
+            Ok(Scalar::primitive(*partial, NonNullable))
+        }
+
+        fn is_saturated(
+            &self,
+            _args: AggregateArgs<'_, Self::Options>,
+            _partial: &Self::Partial,
+        ) -> bool {
+            false
+        }
+
+        fn accumulate(
+            &self,
+            _args: AggregateArgs<'_, Self::Options>,
+            partial: &mut Self::Partial,
+            batch: &Columnar,
+            _ctx: &mut ExecutionCtx,
+        ) -> VortexResult<()> {
+            *partial += batch.len() as u64;
+            Ok(())
+        }
+
+        fn finalize(
+            &self,
+            _args: AggregateArgs<'_, Self::Options>,
+            partials: ArrayRef,
+        ) -> VortexResult<ArrayRef> {
+            Ok(partials)
+        }
+
+        fn finalize_scalar(
+            &self,
+            args: AggregateArgs<'_, Self::Options>,
+            partial: &Self::Partial,
+        ) -> VortexResult<Scalar> {
+            self.to_scalar(args, partial)
+        }
+    }
+
+    fn accumulator() -> VortexResult<GroupedAccumulator<RowCount>> {
         GroupedAccumulator::try_new(
-            NullCount,
+            RowCount,
             EmptyOptions,
             DType::Primitive(PType::I32, NonNullable),
         )
