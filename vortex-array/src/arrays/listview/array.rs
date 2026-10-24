@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
+use num_traits::ToPrimitive;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -17,8 +18,6 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::ExecutionCtx;
-use crate::aggregate_fn::NumericalAggregateOpts;
-use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -30,6 +29,7 @@ use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::bool;
 use crate::arrays::primitive::PrimitiveArrayExt;
+use crate::arrays::primitive::integer_bounds;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -490,14 +490,24 @@ pub trait ListViewArrayExt: ListViewArraySlotsExt {
             return Ok(0.0);
         }
 
-        // compute_stat short-circuits on a cached exact Sum and otherwise computes
-        let sizes_sum = sizes
+        let sizes_sum = match sizes
             .statistics()
             .compute_stat(Stat::Sum, ctx)?
-            .vortex_expect("sizes array has integer ptype elements")
-            .as_primitive()
-            .as_::<u64>()
-            .vortex_expect("integer ptypes can be upcast to u64");
+            .and_then(|sum| sum.as_primitive().as_::<u64>())
+        {
+            Some(sum) => sum,
+            // The session registers no `Sum` aggregate, so sum the sizes directly.
+            None => {
+                let sizes = sizes.clone().execute::<PrimitiveArray>(ctx)?;
+                match_each_integer_ptype!(sizes.ptype(), |P| {
+                    sizes
+                        .as_slice::<P>()
+                        .iter()
+                        .map(|size| size.to_u64().vortex_expect("sizes are non-negative"))
+                        .sum::<u64>()
+                })
+            }
+        };
 
         // if the same elements are referenced more than once the estimate may be
         // greater than 1.0, so clamp
@@ -533,11 +543,12 @@ pub trait ListViewArrayExt: ListViewArraySlotsExt {
             return Ok((start, end));
         }
 
-        let start = self
-            .offsets()
-            .statistics()
-            .compute_min::<usize>(ctx)
-            .vortex_expect("offsets must report a usize min statistic");
+        let start = usize::try_from(
+            integer_bounds(self.offsets(), ctx)?
+                .vortex_expect("non-empty offsets have a minimum")
+                .min,
+        )
+        .vortex_expect("offsets are non-negative");
 
         // Cast offsets and sizes to the widest integer type so that `offset + size` cannot overflow
         // the narrower input width.
@@ -548,15 +559,11 @@ pub trait ListViewArrayExt: ListViewArraySlotsExt {
         });
         let offsets = self.offsets().cast(wide_dtype.clone())?;
         let sizes = self.sizes().cast(wide_dtype)?;
-        let end = min_max(
-            &offsets.binary(sizes, Operator::Add)?,
-            ctx,
-            NumericalAggregateOpts::default(),
-        )?
-        .vortex_expect("non-empty array must report a min/max")
-        .max
-        .as_primitive()
-        .as_::<usize>()
+        let end = usize::try_from(
+            integer_bounds(&offsets.binary(sizes, Operator::Add)?, ctx)?
+                .vortex_expect("non-empty array has a maximum")
+                .max,
+        )
         .vortex_expect("max `offset + size` must fit in a usize");
 
         Ok((start, end))

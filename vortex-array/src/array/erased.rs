@@ -15,7 +15,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
@@ -29,7 +28,6 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::VTable;
-use crate::aggregate_fn::fns::sum::sum;
 use crate::array::ArrayData;
 use crate::array::ArrayId;
 use crate::array::ArrayInner;
@@ -37,10 +35,12 @@ use crate::array::ArraySlots;
 use crate::array::DynArrayData;
 use crate::array::probe::ArrayProbe;
 use crate::array::probe::RepeatedArrayProbe;
+use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::DictArray;
 use crate::arrays::FilterArray;
 use crate::arrays::SliceArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -359,13 +359,7 @@ impl ArrayRef {
         let count = match self.validity()? {
             Validity::NonNullable | Validity::AllValid => len,
             Validity::AllInvalid => 0,
-            Validity::Array(a) => {
-                let array_sum = sum(&a, ctx)?;
-                array_sum
-                    .as_primitive()
-                    .as_::<usize>()
-                    .ok_or_else(|| vortex_err!("sum of validity array is null"))?
-            }
+            Validity::Array(a) => a.execute::<BoolArray>(ctx)?.to_bit_buffer().true_count(),
         };
         vortex_ensure!(count <= len, "Valid count exceeds array length");
 
