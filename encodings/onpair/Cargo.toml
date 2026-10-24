@@ -32,6 +32,7 @@ _test-harness = ["vortex-array/_test-harness"]
 divan = { workspace = true }
 mimalloc = { workspace = true }
 rstest = { workspace = true }
+vortex-aggregates = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 
 [[bench]]

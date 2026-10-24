@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_aggregates::min_max::MinMax;
+use vortex_aggregates::min_max::make_minmax_dtype;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::aggregate_fn::AggregateFnRef;
-use vortex_array::aggregate_fn::fns::min_max::MinMax;
-use vortex_array::aggregate_fn::fns::min_max::make_minmax_dtype;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -78,11 +78,11 @@ impl DynAggregateKernel for SequenceMinMaxKernel {
 mod tests {
     use std::sync::LazyLock;
 
+    use vortex_aggregates::min_max::MinMaxResult;
+    use vortex_aggregates::min_max::min_max;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
-    use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
-    use vortex_array::aggregate_fn::fns::min_max::min_max;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;

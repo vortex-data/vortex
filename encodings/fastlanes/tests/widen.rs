@@ -11,15 +11,15 @@
 use std::sync::LazyLock;
 
 use rstest::rstest;
+use vortex_aggregates::is_constant::is_constant;
+use vortex_aggregates::is_sorted::is_sorted;
+use vortex_aggregates::is_sorted::is_strict_sorted;
+use vortex_aggregates::min_max::min_max;
+use vortex_aggregates::sum::sum;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::is_constant::is_constant;
-use vortex_array::aggregate_fn::fns::is_sorted::is_sorted;
-use vortex_array::aggregate_fn::fns::is_sorted::is_strict_sorted;
-use vortex_array::aggregate_fn::fns::min_max::min_max;
-use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;

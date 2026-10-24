@@ -12,13 +12,8 @@
 //! needs the min and max of each operand, which come from cached statistics or from one scan of the
 //! operand. That scan is the one hidden cost in this module.
 //!
-//! [`AggregateFnSession::default`] registers the aggregate kernel, not the `Widen` encoding's
-//! `initialize`, because the kernel session runs `initialize` on a temporary session and drops its
-//! aggregate registry.
-//!
-//! [`AggregateFnSession::default`]: crate::aggregate_fn::session::AggregateFnSession::default
+//! The aggregate kernel lives in `vortex-aggregates`, next to the aggregates it computes.
 
-pub(crate) mod aggregate;
 mod cast;
 mod compare;
 mod fill_null;

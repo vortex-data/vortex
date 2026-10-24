@@ -14,7 +14,6 @@ use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
-pub use crate::aggregate_fn::fns::min_max::valid_range;
 use crate::arrays::DecimalArray;
 use crate::arrays::decimal::DecimalArrayExt;
 use crate::arrays::decimal::DecimalData;
@@ -285,6 +284,44 @@ pub(crate) fn cast_value_in_precision<F: NativeDecimalType, T: NativeDecimalType
         .unwrap_or_else(|| {
             vortex_panic!("decimal value {value} exceeds the precision of {decimal_dtype}")
         })
+}
+
+/// Returns the smallest and the largest valid value, or `None` when no value is valid.
+///
+/// Null slots can hold any value and do not contribute to the range. The scan allocates nothing
+/// and does not check decimal precision.
+///
+/// # Panics
+///
+/// Panics if `validity` and `values` have different lengths.
+pub fn valid_range<T: NativeDecimalType>(values: &[T], validity: &Mask) -> Option<(T, T)> {
+    assert_eq!(
+        validity.len(),
+        values.len(),
+        "valid_range requires one validity bit per value"
+    );
+
+    match validity {
+        Mask::AllTrue(_) => compute_min_max(values.iter()),
+        Mask::AllFalse(_) => None,
+        Mask::Values(validity) => compute_min_max(
+            values
+                .iter()
+                .zip(validity.bit_buffer().iter())
+                .filter_map(|(value, valid)| valid.then_some(value)),
+        ),
+    }
+}
+
+fn compute_min_max<'a, T>(iter: impl Iterator<Item = &'a T>) -> Option<(T, T)>
+where
+    T: NativeDecimalType,
+{
+    match iter.minmax_by(|a, b| a.cmp(b)) {
+        MinMaxResult::NoElements => None,
+        MinMaxResult::OneElement(&value) => Some((value, value)),
+        MinMaxResult::MinMax(&min, &max) => Some((min, max)),
+    }
 }
 
 #[cfg(test)]

@@ -111,7 +111,11 @@ mod tests {
 
     use crate::count::Count;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     /// Run a grouped count through the accumulator.
     fn grouped_count_actual(

@@ -9,14 +9,14 @@
       "take_union": 3.473
     },
     "vortex-aggregates": {
-      "aggregate_grouped": 3.823
+      "aggregate_grouped": 3.823,
+      "aggregate_max": 3.586,
+      "aggregate_sum": 3.199
     },
     "vortex-alp": {
       "alp_compress": 5.189
     },
     "vortex-array": {
-      "aggregate_max": 3.586,
-      "aggregate_sum": 3.199,
       "binary_ops": 2.881,
       "cast_decimal": 2.634,
       "cast_primitive": 2.705,

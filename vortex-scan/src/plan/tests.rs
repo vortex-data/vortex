@@ -5,10 +5,10 @@ use std::fmt;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use vortex_aggregates::max::Max;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::max::Max;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;

@@ -30,7 +30,6 @@ mod vtable;
 pub use metadata::UuidMetadata;
 pub use text::format_uuid;
 pub use text::parse_uuid;
-use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_arrow::ArrowSessionExt;
@@ -51,7 +50,7 @@ pub fn initialize(session: &VortexSession) {
     session.dtypes().register(Uuid);
     session.scalar_fns().register(text::ParseUuid);
     session.scalar_fns().register(text::FormatUuid);
-    session.aggregate_fns().register_storage_ordered(Uuid);
+    vortex_aggregates::register_storage_ordered(session, Uuid);
     session.arrow().register_extension(Uuid);
 }
 
@@ -61,6 +60,10 @@ mod arrow_properties;
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_aggregates::is_sorted::IsSorted;
+    use vortex_aggregates::is_sorted::IsSortedOptions;
+    use vortex_aggregates::min_max::MinMax;
+    use vortex_aggregates::min_max::MinMaxResult;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -69,10 +72,6 @@ mod tests {
     use vortex_array::aggregate_fn::DynAccumulator;
     use vortex_array::aggregate_fn::ExtensionStoragePushdown;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
-    use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
-    use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
-    use vortex_array::aggregate_fn::fns::min_max::MinMax;
-    use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
     use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
     use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::FixedSizeListArray;

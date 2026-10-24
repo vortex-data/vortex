@@ -17,20 +17,11 @@ use super::StatsSetIntoIter;
 use super::TypedStatsSetRef;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::aggregate_fn::NumericalAggregateOpts;
-use crate::aggregate_fn::fns::is_constant::is_constant;
-use crate::aggregate_fn::fns::is_sorted::is_sorted;
-use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
-use crate::aggregate_fn::fns::min_max::MinMaxResult;
-use crate::aggregate_fn::fns::min_max::min_max;
-use crate::aggregate_fn::fns::nan_count::nan_count;
-use crate::aggregate_fn::fns::sum::sum;
-use crate::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
-use crate::scalar::Scalar;
-use crate::scalar::ScalarValue;
 use crate::stats::Precision;
 use crate::stats::Stat;
 use crate::stats::StatsProvider;
+use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 
 /// A shared [`StatsSet`] stored in an array. Can be shared by copies of the array and can also be mutated in place.
 /// Stats are created lazily on read or write.

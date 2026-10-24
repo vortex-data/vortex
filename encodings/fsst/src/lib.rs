@@ -28,9 +28,8 @@ mod tests;
 pub use array::*;
 pub use compress::*;
 use vortex_array::ArrayVTable;
-use vortex_array::aggregate_fn::AggregateFnVTable;
-use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+use vortex_array::aggregate_fn::stat_aggregates::UNCOMPRESSED_SIZE_IN_BYTES_ID;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
@@ -40,7 +39,7 @@ pub fn initialize(session: &VortexSession) {
     kernel::initialize(session);
     session.aggregate_fns().register_aggregate_kernel(
         FSST.id(),
-        Some(UncompressedSizeInBytes.id()),
+        Some(*UNCOMPRESSED_SIZE_IN_BYTES_ID),
         &compute::uncompressed_size_in_bytes::FsstUncompressedSizeKernel,
     );
     rules::register_parent_rules(session);
