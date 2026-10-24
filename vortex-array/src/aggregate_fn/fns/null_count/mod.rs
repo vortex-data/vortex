@@ -4,7 +4,6 @@
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::Columnar;
@@ -16,6 +15,7 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::stat_aggregates;
 use crate::dtype::DType;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::PType;
@@ -54,8 +54,7 @@ impl AggregateFnVTable for NullCount {
     type Partial = u64;
 
     fn id(&self) -> AggregateFnId {
-        static ID: CachedId = CachedId::new("vortex.null_count");
-        *ID
+        *stat_aggregates::NULL_COUNT_ID
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

@@ -4,7 +4,6 @@
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::Columnar;
@@ -20,6 +19,7 @@ use crate::aggregate_fn::fns::min_max::columnar_min_max;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::fns::min_max::nan_scalar;
 use crate::aggregate_fn::fns::min_max::scalar_is_nan;
+use crate::aggregate_fn::stat_aggregates;
 use crate::dtype::DType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
@@ -83,8 +83,7 @@ impl AggregateFnVTable for Min {
     type Partial = MinPartial;
 
     fn id(&self) -> AggregateFnId {
-        static ID: CachedId = CachedId::new("vortex.min");
-        *ID
+        *stat_aggregates::MIN_ID
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

@@ -3,7 +3,6 @@
 
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
-use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::Columnar;
@@ -13,6 +12,7 @@ use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::stat_aggregates;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::scalar::Scalar;
@@ -28,8 +28,7 @@ impl AggregateFnVTable for AllNull {
     type Partial = bool;
 
     fn id(&self) -> AggregateFnId {
-        static ID: CachedId = CachedId::new("vortex.all_null");
-        *ID
+        *stat_aggregates::ALL_NULL_ID
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
