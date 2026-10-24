@@ -28,6 +28,7 @@ use crate::expr::BoundExpression;
 use crate::expr::Expression;
 use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
+use crate::expr::stats::Stat;
 use crate::matcher::Matcher;
 use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnId;
@@ -328,6 +329,24 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     fn is_infallible(&self, options: &Self::Options) -> bool {
         _ = options;
         false
+    }
+
+    /// Expresses statistic `stat` of this function's result in terms of statistics of its
+    /// children, for statistics-based pruning.
+    ///
+    /// `expr` is a bound expression rooted at this function, and `child_stat` derives a statistic
+    /// of any expression, such as one of `expr`'s children. Return `None` when no derivation is
+    /// known; pruning then reads a statistic stored for `expr` itself, if there is one. The default
+    /// is `None`.
+    fn stat_expression(
+        &self,
+        options: &Self::Options,
+        expr: &BoundExpression,
+        stat: Stat,
+        child_stat: &dyn Fn(&BoundExpression, Stat) -> Option<BoundExpression>,
+    ) -> Option<BoundExpression> {
+        _ = (options, expr, stat, child_stat);
+        None
     }
 }
 

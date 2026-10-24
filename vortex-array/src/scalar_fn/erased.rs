@@ -21,6 +21,7 @@ use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
 use crate::expr::display::ExprDisplay;
+use crate::expr::stats::Stat;
 use crate::scalar_fn::ArrayReduceNode;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ExpressionReduceNode;
@@ -195,6 +196,17 @@ impl ScalarFnRef {
     }
 
     /// Simplify a bound expression using the dtypes carried by its nodes.
+    /// Expresses statistic `stat` of `expr`, which is rooted at this function, in terms of
+    /// statistics of other expressions. See [`ScalarFnVTable::stat_expression`].
+    pub fn stat_expression(
+        &self,
+        expr: &BoundExpression,
+        stat: Stat,
+        child_stat: &dyn Fn(&BoundExpression, Stat) -> Option<BoundExpression>,
+    ) -> Option<BoundExpression> {
+        self.0.stat_expression(expr, stat, child_stat)
+    }
+
     pub(crate) fn simplify(&self, expr: &BoundExpression) -> VortexResult<Option<BoundExpression>> {
         self.0.simplify(expr)
     }

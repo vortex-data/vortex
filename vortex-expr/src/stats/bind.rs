@@ -21,7 +21,8 @@ use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
-use vortex_functions::stat::StatFn;
+
+use crate::stats::stat_fn::StatFn;
 
 /// A target that can bind abstract statistics to concrete expressions.
 ///

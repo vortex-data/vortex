@@ -264,9 +264,11 @@ mod tests {
     /// Each test needs its own session: clones of a session share state, and `with_handle`
     /// stores the test's runtime handle in it.
     fn new_session() -> VortexSession {
-        VortexSession::empty()
+        let session = VortexSession::empty()
             .with::<LayoutSession>()
-            .with::<RuntimeSession>()
+            .with::<RuntimeSession>();
+        vortex_functions::initialize(&session);
+        session
     }
 
     struct CountingSegments(Arc<TestSegments>, AtomicUsize);

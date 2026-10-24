@@ -4,13 +4,15 @@
 //! Scalar functions built on the vortex-array scalar function framework that the core array
 //! crate does not itself depend on.
 //!
-//! The scalar functions that canonical arrays, validity and the optimizer rely on (cast,
-//! fill_null, mask, binary operators, get_item, pack, literal, zip, ...) live in
-//! `vortex_array::scalar_fn::builtin`. This crate holds struct reshaping ([`merge`]),
-//! conditionals ([`case_when`]), list reductions ([`list_length`], [`list_sum`]), and
-//! [`byte_length`], [`ext_storage`] and [`replace_time_zone`], and the scan-time functions
-//! [`dynamic`] (comparisons against a value that changes during a scan) and [`stat`] (reads of
-//! a statistic), along with their expression constructors in [`expr`].
+//! The scalar functions that canonical arrays, validity, the optimizer and expression analysis
+//! rely on (cast, fill_null, mask, binary operators, get_item, pack, select, literal, ...) live in
+//! `vortex_array::scalar_fn::builtin`. This crate holds struct merging ([`merge`]), conditionals
+//! ([`case_when`], [`zip`]), list functions ([`list_length`], [`list_sum`], [`list_transform`]),
+//! [`byte_length`], [`ext_storage`] and [`replace_time_zone`], string functions ([`lower`],
+//! [`strpos`]), string and range predicates ([`like`], [`between`], [`list_contains`],
+//! [`is_nan`]) and the scan-time [`dynamic`] and
+//! [`dynamic_expression`] functions, whose value changes during a scan, along with their
+//! expression constructors in [`expr`] and their statistics-based [`pruning`] rewrites.
 //!
 //! Call [`initialize`] to register them with a session.
 
@@ -38,8 +40,8 @@ pub mod list_transform;
 pub mod lower;
 pub mod lower_bound;
 pub mod merge;
+pub mod pruning;
 pub mod replace_time_zone;
-pub mod stat;
 pub mod strpos;
 pub mod variant_get;
 pub mod zip;
@@ -54,6 +56,7 @@ pub fn initialize(session: &VortexSession) {
     list_contains::initialize(session);
     variant_get::initialize(session);
     zip::initialize(session);
+    pruning::initialize(session);
     let scalar_fns = session.scalar_fns();
     scalar_fns.register(byte_length::ByteLength);
     scalar_fns.register(case_when::CaseWhen);
@@ -64,7 +67,6 @@ pub fn initialize(session: &VortexSession) {
     scalar_fns.register(lower::Lower);
     scalar_fns.register(merge::Merge);
     scalar_fns.register(replace_time_zone::ReplaceTimeZone);
-    scalar_fns.register(stat::StatFn);
     scalar_fns.register(strpos::Strpos);
 }
 
