@@ -23,7 +23,6 @@ use crate::aggregate_fn::fns::all_null::AllNull;
 use crate::aggregate_fn::fns::is_constant::IsConstant;
 use crate::aggregate_fn::fns::is_sorted::IsSorted;
 use crate::aggregate_fn::fns::max::Max;
-use crate::aggregate_fn::fns::mean::Mean;
 use crate::aggregate_fn::fns::min::Min;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::nan_count::NanCount;
