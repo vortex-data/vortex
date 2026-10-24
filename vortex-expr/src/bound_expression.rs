@@ -9,25 +9,25 @@ use std::hash::Hasher;
 use std::sync::Arc;
 
 use itertools::Itertools;
+use vortex_array::dtype::DType;
+use vortex_array::scalar_fn::EmptyOptions;
+use vortex_array::scalar_fn::ReduceNode;
+use vortex_array::scalar_fn::ReduceNodeValidity;
+use vortex_array::scalar_fn::ScalarFnRef;
+use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::builtin::is_not_null::IsNotNull;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
-use crate::dtype::DType;
-use crate::expr::Expression;
-use crate::expr::display::DisplayTreeExpr;
-use crate::expr::expression::unbound_variable;
-use crate::expr::scope::Scope;
-use crate::expr::traversal::TraversalOrder;
-use crate::expr::traversal::pre_order_visit_down;
-use crate::scalar_fn::EmptyOptions;
-use crate::scalar_fn::ExpressionReduceNode;
-use crate::scalar_fn::ReduceNode;
-use crate::scalar_fn::ReduceNodeValidity;
-use crate::scalar_fn::ScalarFnRef;
-use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::builtin::is_not_null::IsNotNull;
+use crate::Expression;
+use crate::ScalarFnExprExt;
+use crate::display::DisplayTreeExpr;
+use crate::expression::unbound_variable;
+use crate::optimize::ExpressionReduceNode;
+use crate::scope::Scope;
+use crate::traversal::TraversalOrder;
+use crate::traversal::pre_order_visit_down;
 
 /// An [`Expression`] that has been type-checked against a [`Scope`].
 ///
@@ -256,9 +256,11 @@ impl BoundExpression {
             // The scope is exactly as valid as itself.
             Self::Root { .. } => Ok(self.clone()),
             Self::Scalar { .. } => {
-                let node = ExpressionReduceNode::new(self);
+                let node = ExpressionReduceNode::node(self.clone());
                 Ok(match node.validity()? {
-                    ReduceNodeValidity::Reduced(reduced) => reduced.into_expression(),
+                    ReduceNodeValidity::Reduced(reduced) => {
+                        ExpressionReduceNode::expression(&reduced).clone()
+                    }
                     // IsNotNull(x) -> x.validity() symbolic reduction rule works only
                     // when node's.validity is Reduced to avoid infinite recursion.
                     ReduceNodeValidity::Irreducible => {
@@ -338,17 +340,17 @@ impl Drop for BoundExpression {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::scalar_fn::builtin::literal::Literal;
     use vortex_error::VortexResult;
 
     use super::*;
-    use crate::dtype::Nullability;
-    use crate::dtype::PType;
-    use crate::expr::col;
-    use crate::expr::eq;
-    use crate::expr::lit;
-    use crate::expr::root;
-    use crate::expr::test_harness::struct_dtype;
-    use crate::scalar_fn::builtin::literal::Literal;
+    use crate::col;
+    use crate::eq;
+    use crate::lit;
+    use crate::root;
+    use crate::test_harness::struct_dtype;
 
     fn scope() -> Scope {
         Scope::new(struct_dtype())

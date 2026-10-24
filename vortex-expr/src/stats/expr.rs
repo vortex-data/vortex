@@ -15,11 +15,11 @@ use vortex_array::aggregate_fn::fns::min_max::MinMax;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::aggregate_fn::fns::sum::Sum;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::Expression;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_error::VortexExpect;
 
+use crate::BoundExpression;
+use crate::Expression;
+use crate::ScalarFnExprExt;
 pub use crate::stats::stat_fn::StatFn;
 pub use crate::stats::stat_fn::StatOptions;
 
@@ -117,7 +117,8 @@ fn bound_nan_count(expr: BoundExpression) -> BoundExpression {
 /// the input dtype.
 pub mod bound {
     use vortex_array::aggregate_fn::AggregateFnRef;
-    use vortex_array::expr::BoundExpression;
+
+    use crate::BoundExpression;
 
     /// Creates a bound expression that reads a stored aggregate statistic.
     pub fn stat(expr: BoundExpression, aggregate_fn: AggregateFnRef) -> BoundExpression {
@@ -181,8 +182,6 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::bound as bound_expr;
-    use vortex_array::expr::root;
     use vortex_array::expr::stats::Precision;
     use vortex_array::expr::stats::Stat;
     use vortex_array::scalar::Scalar;
@@ -201,6 +200,9 @@ mod tests {
     use super::null_count;
     use super::stat;
     use super::sum;
+    use crate::ArrayExprExt;
+    use crate::bound as bound_expr;
+    use crate::root;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -215,7 +217,7 @@ mod tests {
             bound.dtype(),
             &DType::Primitive(PType::I64, Nullability::Nullable)
         );
-        assert_eq!(bound, sum(vortex_array::expr::root()).bind(&input_dtype)?);
+        assert_eq!(bound, sum(crate::root()).bind(&input_dtype)?);
         Ok(())
     }
 

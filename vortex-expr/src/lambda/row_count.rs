@@ -11,13 +11,13 @@ use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::expr::display::ExprDisplay;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::display::ExprDisplay;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
@@ -95,7 +95,7 @@ impl ScalarFnVTable for RowCount {
 /// Returns whether `array` contains a [`RowCount`] placeholder.
 ///
 /// Traversal is limited to lazy [`ScalarFnArray`] nodes produced by
-/// [`ArrayRef::apply`][crate::ArrayRef::apply]. Other arrays are evaluation
+/// [`ArrayExprExt::apply`](crate::ArrayExprExt::apply). Other arrays are evaluation
 /// leaves and cannot contain unevaluated placeholders.
 ///
 /// [`ScalarFnArray`]: vortex_array::arrays::ScalarFnArray
@@ -155,10 +155,10 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::scalar_fn::EmptyOptions;
 
-    use crate::scalar_fn::EmptyOptions;
-    use crate::scalar_fn::internal::row_count::RowCount;
-    use crate::scalar_fn::vtable::ScalarFnVTableExt;
+    use crate::ScalarFnExprExt;
+    use crate::lambda::row_count::RowCount;
 
     #[test]
     fn row_count_helper_dtype() {

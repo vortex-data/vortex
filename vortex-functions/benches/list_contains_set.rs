@@ -28,11 +28,12 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::expr::lit;
-use vortex_array::expr::root;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
+use vortex_expr::ArrayExprExt;
+use vortex_expr::lit;
+use vortex_expr::root;
 use vortex_functions::expr::list_contains;
 use vortex_session::VortexSession;
 

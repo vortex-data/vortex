@@ -5,29 +5,13 @@ use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use vortex_array::scalar_fn::ChildName;
+use vortex_array::scalar_fn::display::ExprDisplay;
 use vortex_utils::tree::TreeDisplayAdapter;
 use vortex_utils::tree::write_branch_tree;
 
-use crate::expr::BoundExpression;
-use crate::expr::Expression;
-use crate::scalar_fn::ChildName;
-
-pub enum DisplayFormat {
-    Compact,
-    Tree,
-}
-
-/// Read-only expression-tree interface used by scalar functions for SQL-style formatting.
-///
-/// Both [`Expression`] and [`BoundExpression`] implement this interface, allowing scalar
-/// functions to format either representation without converting between them.
-pub trait ExprDisplay: Display {
-    /// Return the child at `index`.
-    fn display_child(&self, index: usize) -> &dyn ExprDisplay;
-
-    /// Return the number of children in this node.
-    fn display_children_count(&self) -> usize;
-}
+use crate::BoundExpression;
+use crate::Expression;
 
 impl ExprDisplay for Expression {
     fn display_child(&self, index: usize) -> &dyn ExprDisplay {
@@ -139,17 +123,18 @@ impl<T: DisplayTreeNode> Display for DisplayTreeExpr<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::dtype::DType;
-    use crate::dtype::Nullability;
-    use crate::dtype::PType;
-    use crate::expr::and;
-    use crate::expr::cast;
-    use crate::expr::eq;
-    use crate::expr::get_item;
-    use crate::expr::gt;
-    use crate::expr::lit;
-    use crate::expr::not;
-    use crate::expr::root;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+
+    use crate::and;
+    use crate::cast;
+    use crate::eq;
+    use crate::get_item;
+    use crate::gt;
+    use crate::lit;
+    use crate::not;
+    use crate::root;
 
     #[test]
     fn test_display_tree_root() {

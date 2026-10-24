@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::borrow::Cow;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_error::VortexExpect;
@@ -23,18 +25,14 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
 use crate::dtype::DType;
-use crate::expr::BoundExpression;
-use crate::expr::Expression;
-use crate::expr::bound;
-use crate::expr::display::ExprDisplay;
 use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::TypedScalarFnInstance;
 use crate::scalar_fn::builtin::binary::Binary;
 use crate::scalar_fn::builtin::is_not_null::IsNotNull;
-use crate::scalar_fn::builtin::literal::Literal;
 use crate::scalar_fn::builtin::operators::Operator;
+use crate::scalar_fn::display::ExprDisplay;
 use crate::validity::Validity;
 
 // Here and beyond we use validity(x) interchangeably with is_not_null(x).
@@ -123,8 +121,7 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
 
     /// Format an expression tree in a human-readable SQL-style format.
     ///
-    /// The expression may be either an [`Expression`] or a
-    /// [`bound expression`](crate::expr::BoundExpression).
+    /// The expression may be either an unbound or a bound expression.
     fn fmt_sql(
         &self,
         options: &Self::Options,
@@ -151,15 +148,13 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     /// # Preconditions
     ///
     /// The length of `args` must match the [`Arity`] of this function. Callers are responsible
-    /// for validating this (e.g., [`Expression::try_new`] checks arity at construction time).
+    /// for validating this (e.g., `Expression::try_new` checks arity at construction time).
     /// Implementations may assume correct arity and will panic or return nonsensical results if
     /// violated.
-    ///
-    /// [`Expression::try_new`]: crate::expr::Expression::try_new
     fn return_dtype(&self, options: &Self::Options, args: &[DType]) -> VortexResult<DType>;
 
     /// Bind whatever in the options depends on the argument dtypes, such as the body of a
-    /// [`Lambda`](crate::expr::Lambda), returning the bound options.
+    /// `Lambda`, returning the bound options.
     ///
     /// This is called whenever a bound node is built and whenever a
     /// [`ScalarFnArray`] is built from its children, before
@@ -240,16 +235,19 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         Ok(res)
     }
 
-    /// Simplify the bound expression if possible.
+    /// Simplify an expression node if possible.
     ///
-    /// Every node of `expr` carries its dtype, so rules read types directly from the tree.
-    fn simplify(
+    /// Unlike [`ScalarFnVTable::reduce`], which the array optimizer also applies and which must
+    /// therefore keep the node's exact dtype, a simplification is applied by the expression
+    /// optimizer only and may rewrite the node into one whose dtype differs in nullability.
+    /// Every node of `node`'s tree carries its dtype, so rules read types directly from it.
+    fn simplify<T: ReduceNode>(
         &self,
         options: &Self::Options,
-        expr: &BoundExpression,
-    ) -> VortexResult<Option<BoundExpression>> {
+        node: &T,
+    ) -> VortexResult<Option<T>> {
         _ = options;
-        _ = expr;
+        _ = node;
         Ok(None)
     }
 
@@ -301,8 +299,8 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
 /// A node used for implementing abstract reduction rules over a tree of scalar functions.
 ///
 /// Reduction rules are generic over the node type, so a rule is written once and monomorphized
-/// per reducible tree kind: [`ExpressionReduceNode`] for bound expression trees and
-/// [`ArrayReduceNode`] for array trees. Nodes borrow from the tree being reduced, making
+/// per reducible tree kind: [`ArrayReduceNode`] for array trees and [`DynReduceNode`] for tree
+/// kinds defined outside this crate, such as bound expressions. Nodes borrow from the tree being reduced, making
 /// traversal allocation-free, while nodes produced by [`ReduceNode::new_node`] own their
 /// freshly-built subtrees.
 pub trait ReduceNode: Clone {
@@ -336,79 +334,108 @@ pub trait ReduceNode: Clone {
     fn validity(&self) -> VortexResult<ReduceNodeValidity<Self>>
     where
         Self: Sized;
+
+    /// Returns whether this node is known to evaluate to the same value as `other` for every
+    /// row. `false` is always a sound answer.
+    fn is_same(&self, other: &Self) -> bool;
 }
 
-/// A [`ReduceNode`] over a bound expression tree.
+/// Object-safe counterpart of [`ReduceNode`] for tree kinds defined outside this crate, such as
+/// bound expressions.
+///
+/// [`DynReduceNode`] wraps an implementation and is itself a [`ReduceNode`], so every reduction
+/// rule written against [`ReduceNode`] applies to it. Nodes created by an implementation's
+/// [`ErasedReduceNode::child`], [`ErasedReduceNode::new_node`] and
+/// [`ErasedReduceNode::new_constant`] must wrap the same implementation, so the tree kind can
+/// recover its own type from a reduced node with [`DynReduceNode::downcast_ref`].
+pub trait ErasedReduceNode: Send + Sync + 'static {
+    /// Returns this node as `Any`, for [`DynReduceNode::downcast_ref`].
+    fn as_any(&self) -> &dyn Any;
+
+    /// See [`ReduceNode::node_dtype`].
+    fn node_dtype(&self) -> VortexResult<DType>;
+
+    /// See [`ReduceNode::scalar_fn`].
+    fn scalar_fn(&self) -> Option<&ScalarFnRef>;
+
+    /// See [`ReduceNode::child`].
+    fn child(&self, idx: usize) -> DynReduceNode;
+
+    /// See [`ReduceNode::child_count`].
+    fn child_count(&self) -> usize;
+
+    /// See [`ReduceNode::new_node`].
+    fn new_node(
+        &self,
+        scalar_fn: ScalarFnRef,
+        children: &[DynReduceNode],
+    ) -> VortexResult<DynReduceNode>;
+
+    /// See [`ReduceNode::as_constant`].
+    fn as_constant(&self) -> Option<Scalar>;
+
+    /// See [`ReduceNode::new_constant`].
+    fn new_constant(&self, value: Scalar) -> DynReduceNode;
+
+    /// See [`ReduceNode::validity`]. `node` is the [`DynReduceNode`] wrapping `self`, for passing
+    /// to [`ScalarFnRef::validity_dyn`].
+    fn validity(&self, node: &DynReduceNode) -> VortexResult<ReduceNodeValidity<DynReduceNode>>;
+
+    /// See [`ReduceNode::is_same`].
+    fn is_same(&self, other: &DynReduceNode) -> bool;
+}
+
+/// A [`ReduceNode`] over a tree kind defined outside this crate. See [`ErasedReduceNode`].
 #[derive(Clone)]
-pub struct ExpressionReduceNode<'a> {
-    expression: Cow<'a, BoundExpression>,
-}
+pub struct DynReduceNode(Arc<dyn ErasedReduceNode>);
 
-impl<'a> ExpressionReduceNode<'a> {
-    /// Creates a node borrowing the given bound expression.
-    pub fn new(expression: &'a BoundExpression) -> Self {
-        Self {
-            expression: Cow::Borrowed(expression),
-        }
+impl DynReduceNode {
+    /// Wraps a node of an erased tree kind.
+    pub fn new<N: ErasedReduceNode>(node: N) -> Self {
+        Self(Arc::new(node))
     }
 
-    /// Returns the bound expression backing this node.
-    pub fn expression(&self) -> &BoundExpression {
-        &self.expression
-    }
-
-    /// Consumes this node and returns the backing bound expression.
-    pub fn into_expression(self) -> BoundExpression {
-        self.expression.into_owned()
+    /// Returns the wrapped node if it is of type `N`.
+    pub fn downcast_ref<N: ErasedReduceNode>(&self) -> Option<&N> {
+        self.0.as_any().downcast_ref()
     }
 }
 
-impl ReduceNode for ExpressionReduceNode<'_> {
+impl ReduceNode for DynReduceNode {
     fn node_dtype(&self) -> VortexResult<DType> {
-        Ok(self.expression.dtype().clone())
+        self.0.node_dtype()
     }
 
     fn scalar_fn(&self) -> Option<&ScalarFnRef> {
-        self.expression.as_scalar()
+        self.0.scalar_fn()
     }
 
     fn child(&self, idx: usize) -> Self {
-        let expression = match &self.expression {
-            Cow::Borrowed(expression) => Cow::Borrowed(expression.child(idx)),
-            Cow::Owned(expression) => Cow::Owned(expression.child(idx).clone()),
-        };
-        Self { expression }
+        self.0.child(idx)
     }
 
     fn child_count(&self) -> usize {
-        self.expression.children().len()
+        self.0.child_count()
     }
 
     fn new_node(&self, scalar_fn: ScalarFnRef, children: &[Self]) -> VortexResult<Self> {
-        let expression = BoundExpression::try_new(
-            scalar_fn,
-            children.iter().map(|c| c.expression.as_ref().clone()),
-        )?;
-        Ok(Self {
-            expression: Cow::Owned(expression),
-        })
+        self.0.new_node(scalar_fn, children)
     }
 
     fn as_constant(&self) -> Option<Scalar> {
-        self.expression.as_opt::<Literal>().cloned()
+        self.0.as_constant()
     }
 
     fn new_constant(&self, value: Scalar) -> Self {
-        Self {
-            expression: Cow::Owned(bound::lit(value)),
-        }
+        self.0.new_constant(value)
     }
 
     fn validity(&self) -> VortexResult<ReduceNodeValidity<Self>> {
-        match self.expression.as_scalar() {
-            Some(scalar_fn) => scalar_fn.validity_expression(self),
-            None => Ok(ReduceNodeValidity::Irreducible),
-        }
+        self.0.validity(self)
+    }
+
+    fn is_same(&self, other: &Self) -> bool {
+        self.0.is_same(other)
     }
 }
 
@@ -504,6 +531,10 @@ impl ReduceNode for ArrayReduceNode<'_> {
                 },
             },
         ))
+    }
+
+    fn is_same(&self, other: &Self) -> bool {
+        ArrayRef::ptr_eq(&self.array, &other.array)
     }
 }
 
@@ -605,33 +636,6 @@ pub trait ScalarFnVTableExt: ScalarFnVTable {
     /// Bind this vtable with the given options into a [`ScalarFnRef`].
     fn bind(&self, options: Self::Options) -> ScalarFnRef {
         TypedScalarFnInstance::new(self.clone(), options).erased()
-    }
-
-    /// Create a new expression with this vtable and the given options and children.
-    fn new_expr(
-        &self,
-        options: Self::Options,
-        children: impl IntoIterator<Item = Expression>,
-    ) -> Expression {
-        Self::try_new_expr(self, options, children).vortex_expect("Failed to create expression")
-    }
-
-    /// Try to create a new expression with this vtable and the given options and children.
-    fn try_new_expr(
-        &self,
-        options: Self::Options,
-        children: impl IntoIterator<Item = Expression>,
-    ) -> VortexResult<Expression> {
-        Expression::try_new(self.bind(options), children)
-    }
-
-    /// Try to create a bound expression with this vtable, the given options, and bound children.
-    fn try_new_bound_expr(
-        &self,
-        options: Self::Options,
-        children: impl IntoIterator<Item = BoundExpression>,
-    ) -> VortexResult<BoundExpression> {
-        BoundExpression::try_new(self.bind(options), children)
     }
 }
 impl<V: ScalarFnVTable> ScalarFnVTableExt for V {}

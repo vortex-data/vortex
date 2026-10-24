@@ -19,9 +19,6 @@ use vortex_array::arrays::dict_test::gen_varbin_words;
 use vortex_array::arrays::varbin::VarBinArrayExt;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::expr::eq;
-use vortex_array::expr::lit;
-use vortex_array::expr::root;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::builtin::operators::Operator;
@@ -146,7 +143,10 @@ fn bench_compare_sliced_dict_primitive(
         .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
         .bench_refs(|(dict, ctx)| {
             dict.clone()
-                .apply(&eq(root(), lit(value)))
+                .binary(
+                    ConstantArray::new(value, codes_len).into_array(),
+                    Operator::Eq,
+                )
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()
@@ -169,7 +169,10 @@ fn bench_compare_sliced_dict_varbinview(
         .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
         .bench_refs(|(dict, ctx)| {
             dict.clone()
-                .apply(&eq(root(), lit(value)))
+                .binary(
+                    ConstantArray::new(value, codes_len).into_array(),
+                    Operator::Eq,
+                )
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()

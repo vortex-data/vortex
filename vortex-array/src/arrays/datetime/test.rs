@@ -13,18 +13,18 @@ use crate::EqMode;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::datetime::TemporalData;
 use crate::assert_arrays_eq;
-use crate::expr::gt;
-use crate::expr::lit;
-use crate::expr::root;
+use crate::builtins::ArrayBuiltins;
 use crate::extension::datetime::TemporalMetadata;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
 use crate::extension::datetime::TimestampOptions;
 use crate::hash::ArrayEq;
 use crate::scalar::Scalar;
+use crate::scalar_fn::builtin::operators::Operator;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -223,20 +223,21 @@ fn comparison_rejects_mismatched_timestamp_units() -> VortexResult<()> {
         .into_array();
     let temporal = TemporalData::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
 
-    let filter_expr = gt(
-        root(),
-        lit(Scalar::extension::<Timestamp>(
+    let temporal = temporal.into_array();
+    let threshold = ConstantArray::new(
+        Scalar::extension::<Timestamp>(
             TimestampOptions {
                 unit: TimeUnit::Seconds,
                 tz: None,
             },
             Scalar::from(1704153600i64),
-        )),
-    );
+        ),
+        temporal.len(),
+    )
+    .into_array();
 
     let error = temporal
-        .into_array()
-        .apply(&filter_expr)?
+        .binary(threshold, Operator::Gt)?
         .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
         .unwrap_err();
     assert!(

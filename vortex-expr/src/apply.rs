@@ -2,22 +2,30 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use smallvec::SmallVec;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::ScalarFnArray;
+use vortex_array::optimizer::ArrayOptimizer;
+use vortex_array::scalar_fn::builtin::literal::Literal;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::ArrayRef;
-use crate::IntoArray;
-use crate::arrays::ConstantArray;
-use crate::arrays::ScalarFnArray;
-use crate::expr::BoundExpression;
-use crate::expr::Expression;
-use crate::expr::expression::unbound_variable;
-use crate::optimizer::ArrayOptimizer;
-use crate::scalar_fn::builtin::literal::Literal;
+use crate::BoundExpression;
+use crate::Expression;
+use crate::expression::unbound_variable;
 
-impl ArrayRef {
+/// Evaluation of expressions over arrays.
+pub trait ArrayExprExt: Sized {
     /// Apply a bound expression to this array, producing a new array in constant time.
-    pub fn apply_bound(self, expr: &BoundExpression) -> VortexResult<ArrayRef> {
+    fn apply_bound(self, expr: &BoundExpression) -> VortexResult<ArrayRef>;
+
+    /// Apply the expression to this array, producing a new array in constant time.
+    fn apply(self, expr: &Expression) -> VortexResult<ArrayRef>;
+}
+
+impl ArrayExprExt for ArrayRef {
+    fn apply_bound(self, expr: &BoundExpression) -> VortexResult<ArrayRef> {
         let BoundExpression::Scalar {
             scalar_fn,
             children,
@@ -42,8 +50,7 @@ impl ArrayRef {
         array.optimize()
     }
 
-    /// Apply the expression to this array, producing a new array in constant time.
-    pub fn apply(self, expr: &Expression) -> VortexResult<ArrayRef> {
+    fn apply(self, expr: &Expression) -> VortexResult<ArrayRef> {
         // If the expression is a root, return self.
         if expr.is_root() {
             return Ok(self);

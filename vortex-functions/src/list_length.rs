@@ -199,12 +199,13 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::cast;
-    use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::cast;
+    use vortex_expr::root;
     use vortex_session::VortexSession;
 
     use crate::expr::list_length;

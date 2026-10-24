@@ -1,16 +1,101 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
+
+use vortex_array::dtype::DType;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::DynReduceNode;
+use vortex_array::scalar_fn::ErasedReduceNode;
+use vortex_array::scalar_fn::ReduceNodeValidity;
+use vortex_array::scalar_fn::ScalarFnRef;
+use vortex_array::scalar_fn::builtin::literal::Literal;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::expr::BoundExpression;
-use crate::scalar_fn::ExpressionReduceNode;
+use crate::BoundExpression;
+use crate::bound;
+
+/// The [`ErasedReduceNode`] over a bound expression tree.
+///
+/// Reduction rules in `vortex-array` are written once against `ReduceNode`; this node lets them
+/// run over expressions through [`DynReduceNode`].
+#[derive(Clone)]
+pub struct ExpressionReduceNode(BoundExpression);
+
+impl ExpressionReduceNode {
+    /// Creates a node over the given bound expression.
+    pub fn node(expression: BoundExpression) -> DynReduceNode {
+        DynReduceNode::new(Self(expression))
+    }
+
+    /// Returns the bound expression backing a reduced node.
+    pub fn expression(node: &DynReduceNode) -> &BoundExpression {
+        &node
+            .downcast_ref::<Self>()
+            .vortex_expect("expression trees reduce to expression nodes")
+            .0
+    }
+}
+
+impl ErasedReduceNode for ExpressionReduceNode {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn node_dtype(&self) -> VortexResult<DType> {
+        Ok(self.0.dtype().clone())
+    }
+
+    fn scalar_fn(&self) -> Option<&ScalarFnRef> {
+        self.0.as_scalar()
+    }
+
+    fn child(&self, idx: usize) -> DynReduceNode {
+        Self::node(self.0.child(idx).clone())
+    }
+
+    fn child_count(&self) -> usize {
+        self.0.children().len()
+    }
+
+    fn new_node(
+        &self,
+        scalar_fn: ScalarFnRef,
+        children: &[DynReduceNode],
+    ) -> VortexResult<DynReduceNode> {
+        let expression = BoundExpression::try_new(
+            scalar_fn,
+            children.iter().map(|c| Self::expression(c).clone()),
+        )?;
+        Ok(Self::node(expression))
+    }
+
+    fn as_constant(&self) -> Option<Scalar> {
+        self.0.as_opt::<Literal>().cloned()
+    }
+
+    fn new_constant(&self, value: Scalar) -> DynReduceNode {
+        Self::node(bound::lit(value))
+    }
+
+    fn validity(&self, node: &DynReduceNode) -> VortexResult<ReduceNodeValidity<DynReduceNode>> {
+        match self.0.as_scalar() {
+            Some(scalar_fn) => scalar_fn.validity_dyn(node),
+            None => Ok(ReduceNodeValidity::Irreducible),
+        }
+    }
+
+    fn is_same(&self, other: &DynReduceNode) -> bool {
+        self.0 == *Self::expression(other)
+    }
+}
 
 impl BoundExpression {
     /// Optimize the root expression node only, iterating to convergence.
     ///
     /// This applies optimization rules repeatedly until no more changes occur:
-    /// 1. `simplify` - scalar-function simplifications over the bound node
+    /// 1. `simplify` - scalar-function simplifications over the node
     /// 2. `reduce` - abstract reduction rules via `ReduceNode`
     pub fn optimize(&self) -> VortexResult<BoundExpression> {
         Ok(self.try_optimize()?.unwrap_or_else(|| self.clone()))
@@ -21,18 +106,19 @@ impl BoundExpression {
     /// Non-scalar nodes carry no rules, so they never simplify.
     fn simplify_node(&self) -> VortexResult<Option<BoundExpression>> {
         match self {
-            BoundExpression::Scalar { scalar_fn, .. } => scalar_fn.simplify(self),
+            BoundExpression::Scalar { scalar_fn, .. } => Ok(scalar_fn
+                .simplify_dyn(&ExpressionReduceNode::node(self.clone()))?
+                .map(|simplified| ExpressionReduceNode::expression(&simplified).clone())),
             BoundExpression::Root { .. } => Ok(None),
         }
     }
 
     /// Apply this node's own abstract reduction rule, if it has one.
-    fn reduce_node<'a>(
-        &self,
-        node: &ExpressionReduceNode<'a>,
-    ) -> VortexResult<Option<ExpressionReduceNode<'a>>> {
+    fn reduce_node(&self) -> VortexResult<Option<BoundExpression>> {
         match self {
-            BoundExpression::Scalar { scalar_fn, .. } => scalar_fn.reduce_expression(node),
+            BoundExpression::Scalar { scalar_fn, .. } => Ok(scalar_fn
+                .reduce_dyn(&ExpressionReduceNode::node(self.clone()))?
+                .map(|reduced| ExpressionReduceNode::expression(&reduced).clone())),
             BoundExpression::Root { .. } => Ok(None),
         }
     }
@@ -60,15 +146,9 @@ impl BoundExpression {
                 changed = true;
             }
 
-            // Try reduce via ReduceNode. The node borrows the expression, so constructing it is
-            // free; the block scopes the borrow so `current` can be updated.
-            let reduced = {
-                let expr = current.as_ref().unwrap_or(self);
-                expr.reduce_node(&ExpressionReduceNode::new(expr))?
-                    .map(ExpressionReduceNode::into_expression)
-            };
-            if let Some(reduced_expr) = reduced {
-                current = Some(reduced_expr);
+            let expr = current.as_ref().unwrap_or(self);
+            if let Some(reduced) = expr.reduce_node()? {
+                current = Some(reduced);
                 changed = true;
             }
 
@@ -79,7 +159,6 @@ impl BoundExpression {
 
         Ok(current)
     }
-
     /// Optimize the entire expression tree recursively.
     ///
     /// Optimizes children first (bottom-up), then optimizes the root.
@@ -125,31 +204,32 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::StructArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::builtin::literal::Literal;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
-    use crate::IntoArray;
-    use crate::VortexSessionExecute;
-    use crate::arrays::BoolArray;
-    use crate::arrays::StructArray;
-    use crate::assert_arrays_eq;
-    use crate::dtype::DType;
-    use crate::dtype::Nullability;
-    use crate::dtype::PType;
-    use crate::dtype::StructFields;
-    use crate::expr::Expression;
-    use crate::expr::and;
-    use crate::expr::cast;
-    use crate::expr::eq;
-    use crate::expr::get_item;
-    use crate::expr::lit;
-    use crate::expr::lt_eq;
-    use crate::expr::or;
-    use crate::expr::root;
-    use crate::scalar::Scalar;
-    use crate::scalar_fn::builtin::literal::Literal;
+    use crate::ArrayExprExt;
+    use crate::Expression;
+    use crate::and;
+    use crate::cast;
+    use crate::eq;
+    use crate::get_item;
+    use crate::lit;
+    use crate::lt_eq;
+    use crate::or;
+    use crate::root;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 

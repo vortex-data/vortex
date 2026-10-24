@@ -21,8 +21,6 @@ use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::bound;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::extension::datetime::TimestampOptions;
@@ -32,9 +30,9 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ReduceNode;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::builtin::literal::Literal;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
@@ -111,20 +109,21 @@ impl ScalarFnVTable for ReplaceTimeZone {
         }
     }
 
-    fn simplify(
+    fn simplify<T: ReduceNode>(
         &self,
         options: &Self::Options,
-        expr: &BoundExpression,
-    ) -> VortexResult<Option<BoundExpression>> {
-        let (Some(value), Some(policy)) = (
-            expr.child(0).as_opt::<Literal>(),
-            expr.child(1).as_opt::<Literal>(),
-        ) else {
+        node: &T,
+    ) -> VortexResult<Option<T>> {
+        let (Some(value), Some(policy)) =
+            (node.child(0).as_constant(), node.child(1).as_constant())
+        else {
             return Ok(None);
         };
-        // Fold to a literal so stats pruning sees a bare literal operand. A failing replacement
+        // Fold to a constant so stats pruning sees a bare literal operand. A failing replacement
         // (e.g. a raised ambiguity) is left in place so the error surfaces at execution time.
-        Ok(replace_scalar(options, value, policy).ok().map(bound::lit))
+        Ok(replace_scalar(options, &value, &policy)
+            .ok()
+            .map(|scalar| node.new_constant(scalar)))
     }
 
     fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
@@ -325,9 +324,6 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::root;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::extension::datetime::Timestamp;
     use vortex_array::scalar::Scalar;
@@ -335,6 +331,10 @@ mod tests {
     use vortex_array::scalar_fn::builtin::literal::Literal;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_expr::ArrayExprExt;
+    use vortex_expr::get_item;
+    use vortex_expr::lit;
+    use vortex_expr::root;
     use vortex_session::VortexSession;
 
     use super::ReplaceTimeZone;

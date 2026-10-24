@@ -7,12 +7,12 @@ use bit_vec::BitVec;
 use itertools::Itertools;
 use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
-use vortex_array::expr::BoundExpression;
 use vortex_array::scalar_fn::builtin::binary::Binary;
 use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_expr::BoundExpression;
 use vortex_functions::dynamic::DynamicExprUpdates;
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
@@ -161,11 +161,11 @@ impl FilterExpr {
 mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
-    use vortex_array::expr::and;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::not;
-    use vortex_array::expr::root;
     use vortex_error::VortexResult;
+    use vortex_expr::and;
+    use vortex_expr::lit;
+    use vortex_expr::not;
+    use vortex_expr::root;
 
     use super::FilterExpr;
 

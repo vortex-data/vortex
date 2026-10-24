@@ -10,19 +10,19 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use itertools::Itertools;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldName;
+use vortex_array::scalar_fn::ScalarFnRef;
+use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
-use crate::dtype::DType;
-use crate::dtype::FieldName;
-use crate::expr::display::DisplayTreeExpr;
-use crate::expr::traversal::TraversalOrder;
-use crate::expr::traversal::pre_order_visit_down;
-use crate::scalar_fn::ScalarFnRef;
-use crate::scalar_fn::ScalarFnVTable;
+use crate::display::DisplayTreeExpr;
+use crate::traversal::TraversalOrder;
+use crate::traversal::pre_order_visit_down;
 
 /// An empty child slice, returned by [`Expression::children`] for childless variants.
 const NO_CHILDREN: &[Expression] = &[];
@@ -48,7 +48,7 @@ pub enum Expression {
     Root,
     /// A parameter of the enclosing lambda, read by name.
     ///
-    /// Binding a [`Lambda`](crate::expr::Lambda) turns its variables into reads of the struct of
+    /// Binding a [`Lambda`](crate::Lambda) turns its variables into reads of the struct of
     /// its inputs. Anywhere else a variable fails to bind, and it is not serializable yet.
     Variable(FieldName),
 }
@@ -198,7 +198,7 @@ impl Expression {
     ///
     /// ```rust
     /// # use vortex_array::dtype::Nullability;
-    /// # use vortex_array::expr::{and, eq, get_item, gt, is_not_null, lit, not, pack, root};
+    /// # use vortex_expr::{and, eq, get_item, gt, is_not_null, lit, not, pack, root};
     /// // Build a complex nested expression
     /// let complex_expr = pack(
     ///     [("result", and(
@@ -243,7 +243,7 @@ impl Expression {
     ///
     /// ```rust
     /// # use vortex_array::scalar_fn::builtin::literal::Literal;
-    /// # use vortex_array::expr::{eq, lit, root};
+    /// # use vortex_expr::{eq, lit, root};
     /// let expression = &eq(root(), lit(3u64));
     /// assert!(expression.contains::<Literal>().unwrap());
     /// let expression = root();
@@ -336,8 +336,8 @@ mod tests {
     use std::thread;
 
     use super::*;
-    use crate::expr::lit;
-    use crate::expr::not;
+    use crate::lit;
+    use crate::not;
 
     fn deep_expression(depth: usize) -> Expression {
         let mut expr = lit(true);
