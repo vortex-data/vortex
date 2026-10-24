@@ -16,6 +16,7 @@ use jni::sys::JNI_FALSE;
 use jni::sys::JNI_TRUE;
 use jni::sys::jlong;
 use vortex::aggregate_fn::AggregateFnRef;
+use vortex::aggregates::stat_aggregate_fn;
 use vortex::array::scalar::PValue;
 use vortex::array::scalar::Scalar;
 use vortex::array::scalar::ScalarValue;
@@ -169,7 +170,7 @@ impl ColumnStatistics {
     fn from_aggregates(aggregates: Option<&AggregateStats>) -> Self {
         let get = |stat: Stat| {
             aggregates
-                .zip(stat.aggregate_fn())
+                .zip(stat_aggregate_fn(stat))
                 .map_or(Precision::Absent, |(aggregates, aggregate_fn)| {
                     aggregates.get(&aggregate_fn)
                 })
@@ -215,8 +216,7 @@ async fn resolve_statistic(
     stat: Stat,
     legacy: &mut Option<StatsSet>,
 ) -> VortexResult<Precision<Scalar>> {
-    let aggregate_fn = stat
-        .aggregate_fn()
+    let aggregate_fn = stat_aggregate_fn(stat)
         .ok_or_else(|| vortex_err!("statistic {stat} has no aggregate function"))?;
 
     let partial = source.field_statistic(path, &aggregate_fn).await?;

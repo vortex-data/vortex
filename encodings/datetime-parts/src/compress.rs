@@ -11,12 +11,12 @@
 use std::mem::MaybeUninit;
 
 use num_traits::AsPrimitive;
+use vortex_aggregates::min_max::MinMaxResult;
+use vortex_aggregates::min_max::min_max;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
-use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TemporalArray;

@@ -14,14 +14,14 @@ use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use vortex_aggregates::min_max;
+use vortex_aggregates::sum;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::min_max;
-use vortex_array::aggregate_fn::fns::sum;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
@@ -71,6 +71,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .with::<KernelSession>()
         .with::<AggregateFnSession>()
         .with::<MemorySession>();
+    vortex_aggregates::initialize(&session);
     vortex_functions::initialize(&session);
     session
 });

@@ -33,6 +33,10 @@ const MAX_I256_HIGH: i128 = 10i128.pow(37);
 /// vectorized path is not trivially degenerate.
 const MAX_LEN: usize = 48;
 
+/// Bound on a drawn most significant part. Every part count's assembled value then stays inside
+/// its declared precision: `10^18 * 2^192` is about `6.3e75`, below the 76 digits of the widest.
+const MAX_MSP: i64 = 10i64.pow(18) - 1;
+
 fn ctx() -> ExecutionCtx {
     let session = VortexSession::empty();
     crate::initialize(&session);
@@ -104,7 +108,7 @@ fn canonicalize(array: ArrayRef, ctx: &mut ExecutionCtx) -> DecimalArray {
 fn draw_encoded(tc: &TestCase) -> (DecimalBytePartsArray, usize) {
     let lower_part_count = tc.draw(gs::integers::<usize>().min_value(0).max_value(3));
     let msp: Vec<i64> = tc.draw(
-        gs::vecs(gs::integers::<i64>())
+        gs::vecs(gs::integers::<i64>().min_value(-MAX_MSP).max_value(MAX_MSP))
             .min_size(1)
             .max_size(MAX_LEN),
     );

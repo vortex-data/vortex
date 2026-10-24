@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_aggregates::sum::Sum;
+use vortex_aggregates::sum_v2::SumV2;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::AggregateFnRef;
-use vortex_array::aggregate_fn::fns::sum::Sum;
-use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::scalar::Scalar;
@@ -65,6 +65,9 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_aggregates::sum::sum;
+    use vortex_aggregates::sum_v2::SumV2;
+    use vortex_aggregates::sum_v2::sum_v2;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -72,9 +75,6 @@ mod tests {
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::DynAccumulator;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
-    use vortex_array::aggregate_fn::fns::sum::sum;
-    use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
-    use vortex_array::aggregate_fn::fns::sum_v2::sum_v2;
     use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
     use vortex_array::scalar::Scalar;
     use vortex_array::session::ArraySessionExt;

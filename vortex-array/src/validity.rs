@@ -27,6 +27,7 @@ use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::bool::bool_bounds;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -388,16 +389,10 @@ impl Validity {
             Self::NonNullable => Some(Self::NonNullable),
             Self::AllValid => Some(Self::NonNullable),
             Self::AllInvalid => None,
-            Self::Array(is_valid) => {
-                is_valid
-                    .statistics()
-                    .compute_min::<bool>(ctx)
-                    .vortex_expect("validity array must support min")
-                    .then(|| {
-                        // min true => all true
-                        Self::NonNullable
-                    })
-            }
+            Self::Array(is_valid) => bool_bounds(&is_valid, ctx)
+                .vortex_expect("validity array must be a readable boolean array")
+                .is_some_and(|bounds| bounds.all_true)
+                .then_some(Self::NonNullable),
         }
     }
 

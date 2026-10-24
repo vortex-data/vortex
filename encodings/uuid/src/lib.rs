@@ -25,7 +25,6 @@ mod metadata;
 mod vtable;
 
 pub use metadata::UuidMetadata;
-use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_arrow::ArrowSessionExt;
 use vortex_session::VortexSession;
@@ -41,13 +40,17 @@ pub struct Uuid;
 /// like their storage bytes, and `is_sorted` and `min_max` are pushed down into the storage.
 pub fn initialize(session: &VortexSession) {
     session.dtypes().register(Uuid);
-    session.aggregate_fns().register_storage_ordered(Uuid);
+    vortex_aggregates::register_storage_ordered(session, Uuid);
     session.arrow().register_extension(Uuid);
 }
 
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_aggregates::is_sorted::IsSorted;
+    use vortex_aggregates::is_sorted::IsSortedOptions;
+    use vortex_aggregates::min_max::MinMax;
+    use vortex_aggregates::min_max::MinMaxResult;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -56,10 +59,6 @@ mod tests {
     use vortex_array::aggregate_fn::DynAccumulator;
     use vortex_array::aggregate_fn::ExtensionStoragePushdown;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
-    use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
-    use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
-    use vortex_array::aggregate_fn::fns::min_max::MinMax;
-    use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
     use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
     use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::FixedSizeListArray;

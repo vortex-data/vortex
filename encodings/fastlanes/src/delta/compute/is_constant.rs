@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_aggregates::is_constant::IsConstant;
+use vortex_aggregates::is_constant::is_constant;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::aggregate_fn::AggregateFnRef;
-use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
-use vortex_array::aggregate_fn::fns::is_constant::is_constant;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::match_each_integer_ptype;
@@ -119,13 +119,13 @@ fn deltas_are_zero(deltas: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<bo
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_aggregates::is_constant::IsConstant;
+    use vortex_aggregates::is_constant::is_constant;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::EmptyOptions;
-    use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
-    use vortex_array::aggregate_fn::fns::is_constant::is_constant;
     use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::optimizer::ArrayOptimizer;

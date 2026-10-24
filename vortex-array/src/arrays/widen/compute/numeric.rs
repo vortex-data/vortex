@@ -12,13 +12,12 @@ use crate::Canonical;
 use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::aggregate_fn::NumericalAggregateOpts;
-use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFn;
 use crate::arrays::Widen;
+use crate::arrays::primitive::integer_bounds;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
@@ -152,13 +151,13 @@ fn smallest_arithmetic_ptype(
 
 /// Returns the extrema of the valid values of an integer array, or `None` when no row is valid.
 ///
-/// [`min_max`] reads the exact cached `Min` and `Max` statistics of `array`. Without them it scans
+/// [`integer_bounds`] reads the exact `Min` and `Max` statistics of `array`. Without them it scans
 /// `array` once and caches the result on it.
 fn valid_value_interval(
     array: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<RangeInclusive<i128>>> {
-    let Some(bounds) = min_max(array, ctx, NumericalAggregateOpts::default())? else {
+    let Some(bounds) = integer_bounds(array, ctx)? else {
         return Ok(None);
     };
 

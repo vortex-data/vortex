@@ -83,7 +83,6 @@ mod tests {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::aggregate_fn::fns::is_constant::is_constant;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::runend::RunEnd;
     use crate::assert_arrays_eq;
@@ -184,7 +183,6 @@ mod tests {
 
         let sliced_array = re_array.slice(2..5).unwrap();
 
-        assert!(is_constant(&sliced_array, &mut ctx).unwrap());
         assert_arrays_eq!(
             sliced_array,
             PrimitiveArray::from_iter([2u64, 2, 2]),

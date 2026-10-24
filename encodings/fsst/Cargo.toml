@@ -35,6 +35,7 @@ mimalloc = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 test-with = { workspace = true }
+vortex-aggregates = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 
 [[bench]]

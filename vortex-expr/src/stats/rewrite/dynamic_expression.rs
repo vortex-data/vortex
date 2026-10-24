@@ -7,13 +7,13 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::sync::Arc;
 
+use vortex_aggregates::all_nan::AllNan;
+use vortex_aggregates::all_non_nan::AllNonNan;
+use vortex_aggregates::all_non_null::AllNonNull;
+use vortex_aggregates::all_null::AllNull;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions as AggregateEmptyOptions;
-use vortex_array::aggregate_fn::fns::all_nan::AllNan;
-use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
-use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
-use vortex_array::aggregate_fn::fns::all_null::AllNull;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
@@ -91,7 +91,7 @@ pub(crate) fn dynamic_stats_proof(
 fn proof_aggregates() -> Vec<AggregateFnRef> {
     [Stat::Min, Stat::Max, Stat::NullCount, Stat::NaNCount]
         .into_iter()
-        .filter_map(|stat| stat.aggregate_fn())
+        .filter_map(vortex_aggregates::stat_aggregate_fn)
         .chain([
             AllNull.bind(AggregateEmptyOptions),
             AllNonNull.bind(AggregateEmptyOptions),

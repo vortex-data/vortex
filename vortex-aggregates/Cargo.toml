@@ -13,6 +13,9 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
+cfg-if = { workspace = true }
+itertools = { workspace = true }
+num-traits = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
@@ -24,8 +27,11 @@ workspace = true
 
 [dev-dependencies]
 divan = { workspace = true }
+enum-iterator = { workspace = true }
 mimalloc = { workspace = true }
+prost = { workspace = true }
 rand = { workspace = true }
+rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 
 [[bench]]
@@ -34,4 +40,12 @@ harness = false
 
 [[bench]]
 name = "accumulator_construction"
+harness = false
+
+[[bench]]
+name = "aggregate_max"
+harness = false
+
+[[bench]]
+name = "aggregate_sum"
 harness = false

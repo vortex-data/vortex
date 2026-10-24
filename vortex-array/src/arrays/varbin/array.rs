@@ -293,21 +293,18 @@ impl VarBinData {
     ) -> VortexResult<()> {
         // Offsets must be sorted (but not strictly sorted, empty values are allowed), must not be
         // negative, and must not exceed the length of the bytes buffer.
-        vortex_ensure!(
-            integer_is_sorted(offsets, ctx)?,
-            InvalidArgument: "offsets must be sorted"
-        );
+        vortex_ensure!(integer_is_sorted(offsets, ctx)?, "offsets must be sorted");
         let Some(bounds) = integer_bounds(offsets, ctx)? else {
-            vortex_bail!(InvalidArgument: "offsets must have at least one valid value");
+            vortex_bail!("offsets must have at least one valid value");
         };
         let (min, max) = (bounds.min, bounds.max);
         vortex_ensure!(
             min >= 0,
-            InvalidArgument: "offsets minimum {min} outside valid range [0, {max}]"
+            "offsets minimum {min} outside valid range [0, {max}]"
         );
         vortex_ensure!(
             max <= bytes_len as i128,
-            InvalidArgument: "Max offset {max} is beyond the length of the bytes buffer {bytes_len}"
+            "Max offset {max} is beyond the length of the bytes buffer {bytes_len}"
         );
 
         Ok(())

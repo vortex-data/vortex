@@ -203,7 +203,7 @@ impl DecimalValue {
     }
 
     /// Checks the dtype precision and returns the value in the dtype's native storage width.
-    pub(crate) fn normalize(&self, decimal_type: DecimalDType) -> Option<Self> {
+    pub fn normalize(&self, decimal_type: DecimalDType) -> Option<Self> {
         let value_type = decimal_type.canonical_values_type();
         match_each_decimal_value_type!(value_type, |T| {
             let value = self.cast::<T>()?;

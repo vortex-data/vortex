@@ -9,8 +9,6 @@ use vortex_array::aggregate_fn::AggregateArgs;
 use vortex_array::aggregate_fn::AggregateFnId;
 use vortex_array::aggregate_fn::DynAccumulator;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::sum::Sum;
-use vortex_array::aggregate_fn::fns::sum::sum_decimal_dtype;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -34,6 +32,8 @@ use crate::combined::Combined;
 use crate::combined::CombinedOptions;
 use crate::combined::PairOptions;
 use crate::count::Count;
+use crate::sum::Sum;
+use crate::sum::sum_decimal_dtype;
 
 /// Compute the arithmetic mean of an array.
 ///
@@ -239,6 +239,7 @@ fn finalize_decimal_scalar(
 
 #[cfg(test)]
 mod tests {
+
     use std::sync::LazyLock;
 
     use vortex_array::VortexSessionExecute;
@@ -258,7 +259,11 @@ mod tests {
 
     use super::*;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn mean_all_valid() -> VortexResult<()> {

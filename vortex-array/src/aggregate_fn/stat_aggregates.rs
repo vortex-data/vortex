@@ -12,7 +12,6 @@ use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::registry::CachedId;
@@ -22,7 +21,6 @@ use crate::dtype::DecimalDType;
 use crate::dtype::MAX_PRECISION;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::proto::expr as pb;
 
 /// ID of the aggregate computing the minimum, the `Min` statistic.
 pub static MIN_ID: CachedId = CachedId::new("vortex.min");
@@ -49,74 +47,6 @@ pub static ALL_NON_NULL_ID: CachedId = CachedId::new("vortex.all_non_null");
 pub static ALL_NAN_ID: CachedId = CachedId::new("vortex.all_nan");
 /// ID of the aggregate checking that no value is NaN.
 pub static ALL_NON_NAN_ID: CachedId = CachedId::new("vortex.all_non_nan");
-
-/// Whether the `vortex.uncompressed_size_in_bytes` aggregate approximates the bytes an array uses or counts them.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum UncompressedSizePrecision {
-    /// An approximation: every byte of every buffer the canonical array holds, whether or not a
-    /// row uses it. Cheap, but a view array sharing or sliced from a larger buffer reports the
-    /// whole buffer.
-    #[default]
-    Inexact,
-    /// The actual number of bytes the array's rows use, which costs a pass over view and list
-    /// arrays.
-    Exact,
-}
-
-/// Options for the `vortex.uncompressed_size_in_bytes` aggregate.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct UncompressedSizeOpts {
-    pub precision: UncompressedSizePrecision,
-}
-
-impl UncompressedSizeOpts {
-    /// Approximate the bytes the array uses by the buffers it holds. This is the default.
-    pub const fn inexact() -> Self {
-        Self {
-            precision: UncompressedSizePrecision::Inexact,
-        }
-    }
-
-    /// Count the actual bytes the array's rows use.
-    pub const fn exact() -> Self {
-        Self {
-            precision: UncompressedSizePrecision::Exact,
-        }
-    }
-
-    pub const fn is_exact(&self) -> bool {
-        matches!(self.precision, UncompressedSizePrecision::Exact)
-    }
-
-    /// Serialize these options to protobuf-encoded metadata bytes.
-    pub fn serialize(&self) -> Vec<u8> {
-        pb::UncompressedSizeInBytesOpts {
-            exact: self.is_exact(),
-        }
-        .encode_to_vec()
-    }
-
-    /// Deserialize these options from protobuf-encoded metadata bytes.
-    pub fn deserialize(metadata: &[u8]) -> VortexResult<Self> {
-        let opts = pb::UncompressedSizeInBytesOpts::decode(metadata)?;
-        Ok(if opts.exact {
-            Self::exact()
-        } else {
-            Self::inexact()
-        })
-    }
-}
-
-impl Display for UncompressedSizeOpts {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        // Only the non-default configuration is displayed, so the default renders as
-        // `vortex.uncompressed_size_in_bytes()`.
-        if self.is_exact() {
-            write!(f, "precision=exact")?;
-        }
-        Ok(())
-    }
-}
 
 /// Options for the `is_sorted` aggregate function.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

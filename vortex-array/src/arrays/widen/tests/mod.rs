@@ -7,10 +7,8 @@
 //! row, and the `compute` tests run their operations over them. The `decimal` modules build their
 //! own decimal fixtures, and compare each result with the result on the canonical array.
 
-mod aggregates;
 mod compute;
 mod decimal;
-mod decimal_aggregates;
 mod decimal_cast;
 mod decimal_compare;
 mod decimal_fallback;

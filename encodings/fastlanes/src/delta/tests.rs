@@ -9,6 +9,7 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rstest::rstest;
+use vortex_aggregates::min_max::min_max;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayPlugin;
@@ -16,7 +17,6 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Slice;
@@ -54,6 +54,7 @@ use crate::delta::vtable::DeltaMetadata;
 fn session() -> VortexSession {
     let session = VortexSession::empty();
     crate::initialize(&session);
+    vortex_aggregates::initialize(&session);
     session
 }
 

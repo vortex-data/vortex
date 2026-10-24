@@ -7,14 +7,14 @@
   },
   "vortex-aggregates": {
     "accumulator_construction": 1,
-    "aggregate_grouped": 18
+    "aggregate_grouped": 18,
+    "aggregate_max": 15,
+    "aggregate_sum": 14
   },
   "vortex-alp": {
     "alp_compress": 36
   },
   "vortex-array": {
-    "aggregate_max": 15,
-    "aggregate_sum": 14,
     "binary_ops": 7,
     "cast_decimal": 6,
     "cast_primitive": 6,

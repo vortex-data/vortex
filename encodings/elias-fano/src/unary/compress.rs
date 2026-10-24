@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::AsPrimitive;
+use vortex_aggregates::sum::sum;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
-use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::Primitive;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;

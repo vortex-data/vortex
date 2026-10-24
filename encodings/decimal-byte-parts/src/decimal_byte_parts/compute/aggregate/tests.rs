@@ -4,6 +4,13 @@
 //! Kernel selection, decimal partials, and fallback equivalence.
 
 use rstest::rstest;
+use vortex_aggregates::first::First;
+use vortex_aggregates::is_sorted::IsSorted;
+use vortex_aggregates::is_sorted::IsSortedOptions;
+use vortex_aggregates::max::Max;
+use vortex_aggregates::min::Min;
+use vortex_aggregates::min_max::MinMax;
+use vortex_aggregates::sum::Sum;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -11,13 +18,6 @@ use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::first::First;
-use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
-use vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions;
-use vortex_array::aggregate_fn::fns::max::Max;
-use vortex_array::aggregate_fn::fns::min::Min;
-use vortex_array::aggregate_fn::fns::min_max::MinMax;
-use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::arrays::DecimalArray;

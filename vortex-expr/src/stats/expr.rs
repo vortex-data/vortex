@@ -3,18 +3,18 @@
 
 //! Expression constructors for statistics backed by aggregate functions.
 
+use vortex_aggregates::all_nan::AllNan;
+use vortex_aggregates::all_non_nan::AllNonNan;
+use vortex_aggregates::all_non_null::AllNonNull;
+use vortex_aggregates::all_null::AllNull;
+use vortex_aggregates::min_max::MinMax;
+use vortex_aggregates::nan_count::NanCount;
+use vortex_aggregates::null_count::NullCount;
+use vortex_aggregates::sum::Sum;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::all_nan::AllNan;
-use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
-use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
-use vortex_array::aggregate_fn::fns::all_null::AllNull;
-use vortex_array::aggregate_fn::fns::min_max::MinMax;
-use vortex_array::aggregate_fn::fns::nan_count::NanCount;
-use vortex_array::aggregate_fn::fns::null_count::NullCount;
-use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
@@ -168,6 +168,7 @@ pub mod bound {
 mod tests {
     use std::sync::LazyLock;
 
+    use vortex_aggregates::stat_aggregate_fn;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -515,12 +516,14 @@ mod tests {
             .statistics()
             .set(Stat::Max, Precision::exact(ScalarValue::from(3i32)));
 
-        let min_result = array.clone().apply(&stat(
-            root(),
-            Stat::Min
-                .aggregate_fn()
-                .vortex_expect("min should have an aggregate function"),
-        ))?;
+        let min_result = array
+            .clone()
+            .apply(&stat(
+                root(),
+                stat_aggregate_fn(Stat::Min).vortex_expect("min should have an aggregate function"),
+            ))?
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
+            .into_array();
         let expected_min =
             ConstantArray::new(Scalar::primitive(1i32, Nullability::Nullable), 3).into_array();
         assert_arrays_eq!(
@@ -529,12 +532,13 @@ mod tests {
             &mut SESSION.create_execution_ctx()
         );
 
-        let max_result = array.apply(&stat(
-            root(),
-            Stat::Max
-                .aggregate_fn()
-                .vortex_expect("max should have an aggregate function"),
-        ))?;
+        let max_result = array
+            .apply(&stat(
+                root(),
+                stat_aggregate_fn(Stat::Max).vortex_expect("max should have an aggregate function"),
+            ))?
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
+            .into_array();
         let expected_max =
             ConstantArray::new(Scalar::primitive(3i32, Nullability::Nullable), 3).into_array();
         assert_arrays_eq!(

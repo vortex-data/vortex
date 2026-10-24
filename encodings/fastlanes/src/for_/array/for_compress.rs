@@ -12,9 +12,11 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::arrays::primitive::integer_bounds;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::stats::Stat;
+use vortex_array::expr::stats::StatsProvider;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
@@ -24,6 +26,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -36,9 +39,14 @@ use crate::FoRData;
 impl FoRData {
     pub fn encode(array: PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<FoRArray> {
         let array_ref = array.clone().into_array();
+        // `integer_bounds` caches the exact minimum, which is then read back as a scalar.
+        if integer_bounds(&array_ref, ctx)?.is_none() {
+            vortex_bail!("cannot frame-of-reference encode an array with no valid values");
+        }
         let min = array_ref
             .statistics()
-            .compute_stat(Stat::Min, ctx)?
+            .get(Stat::Min)
+            .as_exact()
             .ok_or_else(|| vortex_err!("Min stat not found"))?;
 
         let encoded = match_each_integer_ptype!(array.ptype(), |T| {

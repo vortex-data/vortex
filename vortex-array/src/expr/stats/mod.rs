@@ -25,16 +25,12 @@ pub use stat_bound::*;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
-use crate::aggregate_fn;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
-use crate::aggregate_fn::AggregateFnVTableExt;
-use crate::aggregate_fn::EmptyOptions;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::aggregate_fn::stat_aggregates;
 use crate::aggregate_fn::stat_aggregates::IsSortedOptions;
-use crate::aggregate_fn::stat_aggregates::UncompressedSizeOpts;
 use crate::dtype::PType;
 
 #[derive(
@@ -210,14 +206,15 @@ impl Stat {
 
     /// The serialized options the aggregate function computing this statistic is bound to.
     ///
-    /// Min/max/sum statistics skip NaN values, and the uncompressed size statistic is exact.
+    /// Min/max/sum statistics skip NaN values.
     pub fn aggregate_fn_options(&self) -> Vec<u8> {
         match self {
             Self::Max | Self::Min | Self::Sum => NumericalAggregateOpts::skip_nans().serialize(),
-            Self::UncompressedSizeInBytes => UncompressedSizeOpts::exact().serialize(),
             Self::IsSorted => IsSortedOptions { strict: false }.serialize(),
             Self::IsStrictSorted => IsSortedOptions { strict: true }.serialize(),
-            Self::IsConstant | Self::NullCount | Self::NaNCount => vec![],
+            Self::IsConstant | Self::NullCount | Self::NaNCount | Self::UncompressedSizeInBytes => {
+                vec![]
+            }
         }
     }
 
@@ -236,29 +233,11 @@ impl Stat {
             .map(Some)
     }
 
-    /// Return the built-in aggregate function corresponding to this statistic, if one exists.
-    pub fn aggregate_fn(&self) -> Option<AggregateFnRef> {
-        // Statistics follow NaN-skipping semantics; request it explicitly rather than the default.
-        Some(match self {
-            Self::Max => aggregate_fn::fns::max::Max.bind(NumericalAggregateOpts::skip_nans()),
-            Self::Min => aggregate_fn::fns::min::Min.bind(NumericalAggregateOpts::skip_nans()),
-            Self::Sum => aggregate_fn::fns::sum::Sum.bind(NumericalAggregateOpts::skip_nans()),
-            Self::NullCount => aggregate_fn::fns::null_count::NullCount.bind(EmptyOptions),
-            Self::NaNCount => aggregate_fn::fns::nan_count::NanCount.bind(EmptyOptions),
-            Self::UncompressedSizeInBytes => {
-                aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
-                    .bind(EmptyOptions)
-            }
-            Self::IsConstant | Self::IsSorted | Self::IsStrictSorted => return None,
-        })
-    }
-
     /// Return the statistic represented by `aggregate_fn`, if it has a legacy stat slot.
     ///
     /// The aggregate must have this statistic's ID and options. Min/max/sum statistics skip NaN
-    /// values, so NaN-including configurations of those aggregates have no stat slot. The
-    /// uncompressed size statistic is exact, so the inexact configuration of that aggregate has
-    /// no stat slot either. Sortedness and constancy have no stat slot.
+    /// values, so NaN-including configurations of those aggregates have no stat slot. Sortedness
+    /// and constancy have no stat slot.
     pub fn from_aggregate_fn(aggregate_fn: &AggregateFnRef) -> Option<Self> {
         let id = aggregate_fn.id();
         let stat = [

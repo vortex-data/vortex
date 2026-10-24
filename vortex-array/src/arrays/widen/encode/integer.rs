@@ -8,23 +8,20 @@
 
 use std::ops::RangeInclusive;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::aggregate_fn::NumericalAggregateOpts;
-use crate::aggregate_fn::fns::min_max::MinMaxResult;
-use crate::aggregate_fn::fns::min_max::min_max;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::WidenArray;
+use crate::arrays::primitive::IntegerBounds;
+use crate::arrays::primitive::integer_bounds;
 use crate::arrays::widen::compute::wrap_values;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::PType;
-use crate::scalar::PValue;
 
 impl WidenArray {
     /// Stores `array` as a `Widen` over the smallest integer type with the same signedness that
@@ -74,7 +71,7 @@ fn narrow_values(array: PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<
     }
 
     // An array without valid values fits any type, and the bounds `0..=0` select the 1-byte type.
-    let bounds = match min_max(array.as_ref(), ctx, NumericalAggregateOpts::default())? {
+    let bounds = match integer_bounds(array.as_ref(), ctx)? {
         Some(bounds) => integer_extrema(bounds),
         None => 0..=0,
     };
@@ -91,19 +88,9 @@ fn narrow_values(array: PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<
         .execute::<PrimitiveArray>(ctx)
 }
 
-/// Widens integer extrema to `i128`, which holds every integer [`PValue`] exactly.
-///
-/// Both extrema **must** be non-null integers, as returned by [`min_max`] on an integer array.
-pub(in crate::arrays::widen) fn integer_extrema(bounds: MinMaxResult) -> RangeInclusive<i128> {
-    let [min, max] = [bounds.min, bounds.max].map(|bound| {
-        bound
-            .as_primitive()
-            .pvalue()
-            .and_then(PValue::as_i128)
-            .vortex_expect("min_max of an integer array returns non-null integer extrema")
-    });
-
-    min..=max
+/// Returns the extrema of an integer array as an inclusive range.
+pub(in crate::arrays::widen) fn integer_extrema(bounds: IntegerBounds) -> RangeInclusive<i128> {
+    bounds.min..=bounds.max
 }
 
 /// Returns the smallest integer type with the given signedness that holds every value in `bounds`,

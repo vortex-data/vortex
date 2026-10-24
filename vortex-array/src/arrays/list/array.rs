@@ -215,20 +215,17 @@ impl ListData {
         // We can safely unwrap the DType as primitive now
         // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed), must
         // not be negative, and must not exceed the length of the elements array.
-        vortex_ensure!(
-            integer_is_sorted(offsets, ctx)?,
-            InvalidArgument: "offsets must be sorted"
-        );
+        vortex_ensure!(integer_is_sorted(offsets, ctx)?, "offsets must be sorted");
         let bounds =
             integer_bounds(offsets, ctx)?.vortex_expect("offsets are non-empty and non-nullable");
         let (min, max) = (bounds.min, bounds.max);
         vortex_ensure!(
             min >= 0,
-            InvalidArgument: "offsets minimum {min} outside valid range [0, {max}]"
+            "offsets minimum {min} outside valid range [0, {max}]"
         );
         vortex_ensure!(
             max <= elements.len() as i128,
-            InvalidArgument: "Max offset {max} is beyond the length of the elements array {}",
+            "Max offset {max} is beyond the length of the elements array {}",
             elements.len()
         );
 

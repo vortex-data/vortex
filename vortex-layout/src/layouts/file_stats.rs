@@ -7,6 +7,15 @@ use std::sync::Arc;
 use futures::StreamExt;
 use itertools::Itertools;
 use parking_lot::Mutex;
+use vortex_aggregates::bounded_max::BoundedMax;
+use vortex_aggregates::bounded_max::BoundedMaxOptions;
+use vortex_aggregates::bounded_min::BoundedMin;
+use vortex_aggregates::bounded_min::BoundedMinOptions;
+use vortex_aggregates::max::Max;
+use vortex_aggregates::min::Min;
+use vortex_aggregates::nan_count::NanCount;
+use vortex_aggregates::null_count::NullCount;
+use vortex_aggregates::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
@@ -16,15 +25,6 @@ use vortex_array::aggregate_fn::AggregateFnSatisfaction;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
-use vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
-use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
-use vortex_array::aggregate_fn::fns::bounded_min::BoundedMinOptions;
-use vortex_array::aggregate_fn::fns::max::Max;
-use vortex_array::aggregate_fn::fns::min::Min;
-use vortex_array::aggregate_fn::fns::nan_count::NanCount;
-use vortex_array::aggregate_fn::fns::null_count::NullCount;
-use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
@@ -220,7 +220,7 @@ impl AggregateStats {
     pub fn to_stats_set(&self) -> StatsSet {
         let mut stats_set = StatsSet::default();
         for stat in Stat::all() {
-            let Some(requested) = stat.aggregate_fn() else {
+            let Some(requested) = vortex_aggregates::stat_aggregate_fn(stat) else {
                 continue;
             };
             let value = self.get(&requested).and_then(Scalar::into_value);
@@ -241,7 +241,7 @@ fn non_null(value: Precision<Scalar>) -> Precision<Scalar> {
 /// a string column fills the min slot.
 fn fills_legacy_stat_slot(aggregate_fn: &AggregateFnRef) -> bool {
     Stat::all()
-        .filter_map(|stat| stat.aggregate_fn())
+        .filter_map(vortex_aggregates::stat_aggregate_fn)
         .any(|requested| {
             !matches!(
                 aggregate_fn.can_satisfy(&requested),
@@ -834,7 +834,6 @@ impl FileStatsAccumulator {
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroUsize;
-    use std::sync::LazyLock;
 
     use rstest::rstest;
     use vortex_array::ArrayContext;
@@ -856,8 +855,7 @@ mod tests {
     use vortex_utils::aliases::hash_set::HashSet;
 
     use super::*;
-
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    use crate::test::SESSION;
 
     /// Pushes `chunk` through `acc` the way the write stream does.
     fn push(
@@ -882,7 +880,7 @@ mod tests {
     }
 
     fn agg(stat: Stat) -> AggregateFnRef {
-        stat.aggregate_fn()
+        vortex_aggregates::stat_aggregate_fn(stat)
             .vortex_expect("test only uses stats with an aggregate fn")
     }
 

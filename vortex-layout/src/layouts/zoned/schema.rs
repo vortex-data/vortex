@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use vortex_aggregates::stat_aggregate_fn;
 use vortex_array::aggregate_fn::AggregateFnId;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
@@ -204,7 +205,7 @@ pub(crate) fn legacy_stats_to_aggregates(
     let mut aggregate_fns = Vec::with_capacity(stats.len());
     let mut elements = Vec::with_capacity(stats.len());
     for stat in stats {
-        let Some(aggregate_fn) = stat.aggregate_fn() else {
+        let Some(aggregate_fn) = stat_aggregate_fn(*stat) else {
             continue;
         };
         let Some(stored) = fields.and_then(|fields| fields.field(stat.name())) else {
@@ -241,11 +242,11 @@ pub(crate) fn default_bounded_stat_max_bytes() -> std::num::NonZeroUsize {
 mod tests {
     use std::sync::LazyLock;
 
+    use vortex_aggregates::max::Max;
+    use vortex_aggregates::min::Min;
+    use vortex_aggregates::sum::Sum;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
-    use vortex_array::aggregate_fn::fns::max::Max;
-    use vortex_array::aggregate_fn::fns::min::Min;
-    use vortex_array::aggregate_fn::fns::sum::Sum;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;

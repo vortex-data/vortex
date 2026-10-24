@@ -6,18 +6,18 @@
 //! With no lower parts, the MSP holds the unscaled decimal values. Integer aggregates can reuse
 //! child kernels, but their results must preserve decimal scale, precision, and state nullability.
 
+use vortex_aggregates::is_sorted::IsSorted;
+use vortex_aggregates::is_sorted::is_sorted;
+use vortex_aggregates::is_sorted::is_strict_sorted;
+use vortex_aggregates::max::Max;
+use vortex_aggregates::min::Min;
+use vortex_aggregates::min_max::MinMax;
+use vortex_aggregates::min_max::min_max;
+use vortex_aggregates::sum::Sum;
+use vortex_aggregates::sum::sum;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::aggregate_fn::AggregateFnRef;
-use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
-use vortex_array::aggregate_fn::fns::is_sorted::is_sorted;
-use vortex_array::aggregate_fn::fns::is_sorted::is_strict_sorted;
-use vortex_array::aggregate_fn::fns::max::Max;
-use vortex_array::aggregate_fn::fns::min::Min;
-use vortex_array::aggregate_fn::fns::min_max::MinMax;
-use vortex_array::aggregate_fn::fns::min_max::min_max;
-use vortex_array::aggregate_fn::fns::sum::Sum;
-use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::dtype::DType;
 use vortex_array::expr::stats::Stat;
