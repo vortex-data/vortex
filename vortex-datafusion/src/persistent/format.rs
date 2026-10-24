@@ -45,8 +45,12 @@ use futures::stream;
 use object_store::ObjectMeta;
 use object_store::ObjectStore;
 use vortex::VortexSessionDefault;
+use vortex::aggregate_fn::AggregateFnVTableExt;
+use vortex::aggregate_fn::EmptyOptions;
+use vortex::aggregate_fn::fns::is_constant::IsConstant;
 use vortex::array::memory::MemorySessionExt;
 use vortex::dtype::DType;
+use vortex::dtype::FieldPath;
 use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -605,7 +609,7 @@ impl FileFormat for VortexFormat {
                         })
                 });
 
-            let (dtype, file_stats, row_count) = match cached_metadata {
+            let (_dtype, file_stats, row_count) = match cached_metadata {
                 Some(metadata) => metadata,
                 None => {
                     // Not entry - open the file
@@ -642,10 +646,6 @@ impl FileFormat for VortexFormat {
                 }
             };
 
-            let struct_dtype = dtype
-                .as_struct_fields_opt()
-                .vortex_expect("dtype is not a struct");
-
             // Evaluate the statistics for each column that we are able to return to DataFusion.
             let Some(file_stats) = file_stats else {
                 // If the file has no column stats, the best we can do is return a row count.
@@ -668,12 +668,23 @@ impl FileFormat for VortexFormat {
             for field in table_schema.fields().iter() {
                 // If the column does not exist, continue. This can happen if the schema has evolved
                 // but we have not yet updated the Vortex file.
-                let Some(col_idx) = struct_dtype.find(field.name()) else {
+                let Some((aggregates, stats_dtype)) =
+                    file_stats.get_by_path(&FieldPath::from_name(field.name().as_str()))
+                else {
                     // The default sets all statistics to `Precision<Absent>`.
                     column_statistics.push(ColumnStatistics::default());
                     continue;
                 };
-                let (stats_set, stats_dtype) = file_stats.get(col_idx);
+                let mut stats_set = aggregates.to_stats_set();
+                // `IsConstant` has no aggregate behind its stat slot, so `to_stats_set` omits it.
+                if let Some(is_constant) = aggregates
+                    .get(&IsConstant.bind(EmptyOptions))
+                    .as_exact()
+                    .and_then(|is_constant| bool::try_from(&is_constant).ok())
+                {
+                    stats_set.set(Stat::IsConstant, Precision::exact(is_constant));
+                }
+                let stats_set = &stats_set;
 
                 // Update the total size in bytes.
                 let column_size =

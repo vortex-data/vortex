@@ -3,14 +3,19 @@
 
 include ../setup.slt.no
 
+# String min/max are byte-bounded and read back as inexact, so no min or max is reported for `s`.
 query TIII???
 COPY (SELECT * FROM (VALUES (1, 'a', 1.5), (2, 'b', NULL)) t(i, s, d))
 TO '${WORK_DIR}/copy_return_stats.vortex' (FORMAT vortex, RETURN_STATS);
 ----
-<REGEX>:\$\{WORK_DIR\}/copy_return_stats\.vortex 2 \d+ 0 \{'"d"'=\{column_size_bytes=\d+, max=1\.5, min=1\.5, null_count=1, num_values=2\}, '"i"'=\{column_size_bytes=\d+, max=2, min=1, null_count=0, num_values=2\}, '"s"'=\{column_size_bytes=\d+, max=b, min=a, null_count=0, num_values=2\}\} NULL \{\}
+<REGEX>:\$\{WORK_DIR\}/copy_return_stats\.vortex 2 \d+ 0 \{'"d"'=\{column_size_bytes=\d+, max=1\.5, min=1\.5, null_count=1, num_values=2\}, '"i"'=\{column_size_bytes=\d+, max=2, min=1, null_count=0, num_values=2\}, '"s"'=\{column_size_bytes=\d+, null_count=0, num_values=2\}\} NULL \{\}
 
+# As in parquet, statistics are reported per leaf column: struct fields are keyed by their full
+# quoted path and the struct itself gets no entry. Lists are reported as a single column.
+# DuckDB structs are nullable, so their fields report no min, max or null count until struct
+# nulls are propagated into children (https://github.com/vortex-data/vortex/issues/9205).
 query TIII???
 COPY (SELECT {'a': 1, 'b': 2} AS st, [1, 2, 3] AS lst, 7 AS i)
 TO '${WORK_DIR}/copy_return_stats_nested.vortex' (FORMAT vortex, RETURN_STATS);
 ----
-<REGEX>:\$\{WORK_DIR\}/copy_return_stats_nested\.vortex 1 \d+ 0 \{'"i"'=\{column_size_bytes=\d+, max=7, min=7, null_count=0, num_values=1\}, '"lst"'=\{column_size_bytes=\d+, null_count=0, num_values=1\}, '"st"'=\{column_size_bytes=\d+, null_count=0, num_values=1\}\} NULL \{\}
+<REGEX>:\$\{WORK_DIR\}/copy_return_stats_nested\.vortex 1 \d+ 0 \{'"i"'=\{column_size_bytes=\d+, max=7, min=7, null_count=0, num_values=1\}, '"lst"'=\{column_size_bytes=\d+, null_count=0, num_values=1\}, '"st"\."a"'=\{column_size_bytes=\d+, num_values=1\}, '"st"\."b"'=\{column_size_bytes=\d+, num_values=1\}\} NULL \{\}

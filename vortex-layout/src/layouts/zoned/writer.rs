@@ -233,7 +233,8 @@ fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[A
     // Sum is deliberately absent: zone maps exist to prune, and a zone sum prunes nothing.
     // Its semantics are also unsettled - null-on-empty was changed in #9113 and reverted in
     // #9324 - so it is not a stat to record in every zone of every file, let alone freeze
-    // into an edition. File-level statistics still record `Stat::Sum` via `PRUNING_STATS`.
+    // into an edition. File-level statistics still record a sum by default (see
+    // `file_stats::default_pruning_aggregate_fns`).
     let mut aggregate_fns = vec![
         max,
         min,

@@ -167,19 +167,13 @@ impl FooterDeserializer {
             .map(|segment| self.parse_dtype(initial_offset, &self.buffer, segment))
             .transpose()?
             .unwrap_or_else(|| self.dtype.clone().vortex_expect("DType was provided"));
-        let file_stats = postscript
-            .statistics
-            .as_ref()
-            .map(|segment| {
-                self.parse_file_statistics(
-                    initial_offset,
-                    &self.buffer,
-                    segment,
-                    &dtype,
-                    &self.session,
-                )
-            })
-            .transpose()?;
+        // File statistics are optional, so ones that can't be read are dropped rather than
+        // failing the open.
+        let file_stats = postscript.statistics.as_ref().and_then(|segment| {
+            self.parse_file_statistics(initial_offset, &self.buffer, segment, &dtype, &self.session)
+                .inspect_err(|error| tracing::warn!(%error, "ignoring unreadable file statistics"))
+                .ok()
+        });
         let metadata = postscript
             .metadata
             .iter()

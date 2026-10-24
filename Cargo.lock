@@ -11993,6 +11993,7 @@ dependencies = [
  "object_store 0.13.2",
  "parking_lot",
  "pin-project-lite",
+ "prost 0.14.4",
  "rand 0.10.3",
  "rstest",
  "tempfile",
