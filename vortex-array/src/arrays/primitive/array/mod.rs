@@ -23,6 +23,7 @@ use crate::array::TypedArrayRef;
 use crate::arrays::BoolArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::primitive::integer_bounds;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
@@ -39,8 +40,6 @@ pub use patch::chunk_range;
 pub use patch::patch_chunk;
 
 use crate::ArrayRef;
-use crate::aggregate_fn::NumericalAggregateOpts;
-use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::array_slots;
@@ -160,7 +159,7 @@ pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
             return Ok(self.to_owned());
         }
 
-        let Some(min_max) = min_max(self.as_ref(), ctx, NumericalAggregateOpts::default())? else {
+        let Some(bounds) = integer_bounds(self.as_ref(), ctx)? else {
             return Ok(PrimitiveArray::new(
                 Buffer::<u8>::zeroed(self.len()),
                 PrimitiveArrayExt::validity(self),
@@ -169,18 +168,10 @@ pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
 
         // If we can't cast to i64, then leave the array as its original type.
         // It's too big to downcast anyway.
-        let Ok(min) = min_max
-            .min
-            .cast(&PType::I64.into())
-            .and_then(|s| i64::try_from(&s))
-        else {
+        let Ok(min) = i64::try_from(bounds.min) else {
             return Ok(self.to_owned());
         };
-        let Ok(max) = min_max
-            .max
-            .cast(&PType::I64.into())
-            .and_then(|s| i64::try_from(&s))
-        else {
+        let Ok(max) = i64::try_from(bounds.max) else {
             return Ok(self.to_owned());
         };
 
