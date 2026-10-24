@@ -24,6 +24,9 @@ use crate::dtype::PType;
 
 /// ID of the aggregate computing the minimum, the `Min` statistic.
 pub static MIN_ID: CachedId = CachedId::new("vortex.min");
+/// ID of the aggregate computing the minimum and maximum together, the `Min` and `Max` statistics
+/// in one pass.
+pub static MIN_MAX_ID: CachedId = CachedId::new("vortex.min_max");
 /// ID of the aggregate computing the maximum, the `Max` statistic.
 pub static MAX_ID: CachedId = CachedId::new("vortex.max");
 /// ID of the aggregate computing the sum, the `Sum` statistic.
