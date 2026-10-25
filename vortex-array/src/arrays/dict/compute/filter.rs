@@ -56,6 +56,7 @@ mod tests {
     use crate::expr::stats::Precision;
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProviderExt;
+    use crate::optimizer::ArrayOptimizer;
     use crate::scalar::ScalarValue;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -67,7 +68,9 @@ mod tests {
             ConstantArray::new(1u8, 5).into_array(),
             buffer![10i32, 20, 30].into_array(),
         );
-        let filtered = dict.filter(Mask::from_iter([true, false, true, true, false]))?;
+        let filtered = dict
+            .filter(Mask::from_iter([true, false, true, true, false]))?
+            .optimize(&SESSION)?;
 
         let filtered_dict = filtered.as_::<Dict>();
         assert_arrays_eq!(
@@ -94,7 +97,9 @@ mod tests {
             .set(Stat::IsConstant, Precision::exact(ScalarValue::Bool(false)));
         let dict = DictArray::new(codes, buffer![10i32, 20, 30].into_array());
 
-        let filtered = dict.filter(Mask::from_iter([true, false, true, true]))?;
+        let filtered = dict
+            .filter(Mask::from_iter([true, false, true, true]))?
+            .optimize(&SESSION)?;
 
         let filtered_codes = filtered.as_::<Dict>().codes().clone();
         assert_eq!(

@@ -19,6 +19,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::compute::conformance::consistency::test_array_consistency;
 use vortex_array::dtype::NativePType;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::smallvec::smallvec;
@@ -161,7 +162,7 @@ fn global_reference_survives_slicing() -> VortexResult<()> {
     )?;
     assert_eq!(global(&array)?, 7u32.into());
     assert!(array.blocked_references().is_none());
-    let sliced = array.into_array().slice(1500..1600)?;
+    let sliced = array.into_array().slice(1500..1600)?.optimize(&SESSION)?;
     assert_eq!(global(&sliced.as_::<FoR>().into_owned())?, 7u32.into());
     Ok(())
 }
@@ -328,7 +329,7 @@ fn fused_decode_sliced(
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let (array, expected) = fused(bit_width, signed)?;
-    let sliced = array.into_array().slice(start..end)?;
+    let sliced = array.into_array().slice(start..end)?.optimize(&SESSION)?;
     let sliced_for = sliced.as_::<FoR>();
     // A BitPacked child with patches slices lazily, which takes the unfused path.
     assert_eq!(sliced_for.encoded().is::<BitPacked>(), bit_width == 3);

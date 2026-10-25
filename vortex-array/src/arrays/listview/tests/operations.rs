@@ -30,6 +30,7 @@ use crate::compute::conformance::mask::test_mask_conformance;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::optimizer::ArrayOptimizer;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -51,7 +52,7 @@ fn test_slice_comprehensive() {
         ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx).into_array();
 
     // Test basic slice [1..3] - middle portion.
-    let sliced = listview.slice(1..3).unwrap();
+    let sliced = listview.slice(1..3).unwrap().optimize(&SESSION).unwrap();
     let sliced_list = sliced.as_::<ListView>();
     assert_eq!(sliced_list.len(), 2, "Wrong slice length");
     assert_eq!(
@@ -76,7 +77,7 @@ fn test_slice_comprehensive() {
     );
 
     // Test full array slice [0..4].
-    let full = listview.slice(0..4).unwrap();
+    let full = listview.slice(0..4).unwrap().optimize(&SESSION).unwrap();
     let full_list = full.as_::<ListView>();
     assert_eq!(full_list.len(), 4, "Full slice should preserve length");
     for i in 0..4 {
@@ -95,7 +96,7 @@ fn test_slice_comprehensive() {
     }
 
     // Test single element slice [2..3].
-    let single = listview.slice(2..3).unwrap();
+    let single = listview.slice(2..3).unwrap().optimize(&SESSION).unwrap();
     let single_list = single.as_::<ListView>();
     assert_eq!(single_list.len(), 1, "Single element slice failed");
     assert_eq!(
@@ -123,7 +124,7 @@ fn test_slice_out_of_order() {
         ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx).into_array();
 
     // Slice [1..4] should maintain the out-of-order offsets.
-    let sliced = listview.slice(1..4).unwrap();
+    let sliced = listview.slice(1..4).unwrap().optimize(&SESSION).unwrap();
     let sliced_list = sliced.as_::<ListView>();
 
     assert_eq!(
@@ -198,7 +199,7 @@ fn test_slice_with_nulls() {
     .into_array();
 
     // Slice [1..3] should preserve nulls.
-    let sliced = listview.slice(1..3).unwrap();
+    let sliced = listview.slice(1..3).unwrap().optimize(&SESSION).unwrap();
     let sliced_list = sliced.as_::<ListView>();
 
     assert_eq!(sliced_list.len(), 2);

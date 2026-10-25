@@ -328,6 +328,7 @@ impl LayoutReader for DictReader {
             self.values_array()
         };
         let all_values_referenced = self.layout.has_all_values_referenced();
+        let session = self.session.clone();
         Ok(async move {
             let (values, codes) = try_join!(values_eval.map_err(VortexError::from), codes_eval)?;
 
@@ -341,7 +342,7 @@ impl LayoutReader for DictReader {
                     .set_all_values_referenced(all_values_referenced)
             }
             .into_array()
-            .optimize()?;
+            .optimize(&session)?;
 
             array.apply_bound(&expr_outer)
         }

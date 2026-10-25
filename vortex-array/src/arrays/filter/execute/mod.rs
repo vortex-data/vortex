@@ -197,6 +197,7 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
+    use crate::optimizer::ArrayOptimizer;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -211,7 +212,7 @@ mod tests {
             values.cached_indices().is_none() && values.cached_slices().is_none()
         }));
 
-        let filtered = array.into_array().filter(mask)?;
+        let filtered = array.into_array().filter(mask)?.optimize(&SESSION)?;
         assert!(filtered.is::<Primitive>());
         let filtered = filtered.execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
         let filtered_values = filtered.to_buffer::<i32>();

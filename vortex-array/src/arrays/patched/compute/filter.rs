@@ -94,7 +94,7 @@ mod tests {
         let array = Patched::from_array_and_patches(array, &patches, &mut ctx)?.into_array();
 
         let mask = Mask::from_iter([true, false, false, false, true]);
-        let filtered = array.filter(mask)?.optimize()?;
+        let filtered = array.filter(mask)?.optimize(&SESSION)?;
 
         // Values at indices 0 and 4: MIN and MAX.
         let expected = PrimitiveArray::from_iter([u16::MIN, u16::MAX]);
@@ -117,11 +117,11 @@ mod tests {
 
         let array = Patched::from_array_and_patches(array, &patches, &mut ctx)?.into_array();
 
-        let sliced = array.slice(5..4096)?.optimize()?;
+        let sliced = array.slice(5..4096)?.optimize(&SESSION)?;
 
         // Filter that touches only the first 2 chunks.
         let mask = Mask::from_indices(4091, vec![0, 1, 2, 1025]);
-        let filtered = sliced.filter(mask)?.optimize()?;
+        let filtered = sliced.filter(mask)?.optimize(&SESSION)?;
 
         let expected = PrimitiveArray::from_iter([u16::MAX, u16::MIN, u16::MIN, u16::MAX]);
         assert_arrays_eq!(filtered, expected, &mut ctx);
@@ -144,7 +144,7 @@ mod tests {
 
         // Filter that only touches the middle 2 chunks.
         let mask = Mask::from_indices(4096, vec![1024, 1025, 3000]);
-        let filtered = array.filter(mask)?.optimize()?;
+        let filtered = array.filter(mask)?.optimize(&SESSION)?;
 
         let expected = PrimitiveArray::from_iter([u16::MAX, u16::MAX, u16::MIN]);
 
@@ -168,7 +168,7 @@ mod tests {
 
         // Filter that only touches the middle 2 chunks.
         let mask = Mask::from_indices(4096, vec![1024, 1025, 3000]);
-        let filtered = array.filter(mask)?.optimize()?;
+        let filtered = array.filter(mask)?.optimize(&SESSION)?;
 
         let expected = PrimitiveArray::from_iter([u16::MAX, u16::MIN, u16::MIN]);
 
@@ -202,7 +202,7 @@ mod tests {
         // Indices 1024 and 1025 fall in chunk 1, and 3000 falls in chunk 2.
         let mask = Mask::from_indices(4096, vec![1024, 1025, 3000]);
 
-        let filtered = sliced.filter(mask)?.optimize()?;
+        let filtered = sliced.filter(mask)?.optimize(&SESSION)?;
 
         let expected = PrimitiveArray::from_iter([u16::MAX, u16::MAX, u16::MIN]);
 
@@ -230,13 +230,13 @@ mod tests {
 
         // Slice to create offset > 0.
         // After slice(5..4096), logical position 0 = original position 5 (patched to 9999).
-        let sliced = array.slice(5..4096)?.optimize()?;
+        let sliced = array.slice(5..4096)?.optimize(&SESSION)?;
         assert_eq!(sliced.len(), 4091);
 
         // Filter that touches the first 2 chunks.
         // Logical indices: 0 (was 5, patched), 1 (was 6, value 6), 1025 (was 1030, patched).
         let mask = Mask::from_indices(4091, vec![0, 1, 1025]);
-        let filtered = sliced.filter(mask)?.optimize()?;
+        let filtered = sliced.filter(mask)?.optimize(&SESSION)?;
 
         // Expected: 9999 (patched at logical 0), 6 (original at logical 1), 8888 (patched at logical 1025).
         let expected = PrimitiveArray::from_iter([9999u16, 6, 8888]);
@@ -264,7 +264,7 @@ mod tests {
         // Slice at chunk boundary to create offset > 0.
         // Slice [1024..6144] gives us 5120 elements (5 chunks).
         // Original patches at 5000 and 6000 become relative indices 3976 and 4976.
-        let sliced = patched.into_array().slice(1024..6144)?.optimize()?;
+        let sliced = patched.into_array().slice(1024..6144)?.optimize(&SESSION)?;
         assert_eq!(sliced.len(), 5120);
 
         // Filter that touches only the last 2 chunks (chunks 3 and 4).
@@ -272,7 +272,7 @@ mod tests {
         // Patch at 3976 is in chunk 3, patch at 4976 is in chunk 4.
         let mask = Mask::from_indices(5120, vec![3976, 4976, 5119]);
 
-        let filtered = sliced.filter(mask)?.optimize()?;
+        let filtered = sliced.filter(mask)?.optimize(&SESSION)?;
 
         // Expected: patch at 3976 (was 5000), patch at 4976 (was 6000), and MIN at 5119.
         let expected = PrimitiveArray::from_iter([u16::MAX, u16::MAX, u16::MIN]);

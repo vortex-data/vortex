@@ -4,6 +4,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hasher;
+use std::sync::LazyLock;
 
 use rstest::fixture;
 use rstest::rstest;
@@ -67,6 +68,8 @@ use crate::test_harness::trace::TraceResolution;
 use crate::test_harness::trace::trace_op;
 use crate::test_harness::trace::trace_op_with;
 use crate::validity::Validity;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 #[fixture]
 fn stack_parent_fixture() -> VortexResult<ArrayRef> {
@@ -376,15 +379,15 @@ fn trace_optimize_reduce_fixpoint() -> VortexResult<()> {
     let values = PrimitiveArray::from_iter([0i32, 1, 2, 3]).into_array();
     let filter = FilterArray::try_new(values.clone(), Mask::new_true(values.len()))?.into_array();
 
-    let traced = trace_op(|| filter.optimize())?;
+    let traced = trace_op(|| filter.optimize(&SESSION))?;
 
     assert!(traced.output.is::<Primitive>());
     assert_arrays_eq!(traced.output, values, &mut execution_ctx());
-    insta::assert_snapshot!(traced.trace.to_string(), @r"
-optimize root=vortex.filter(i32, len=4) session=false
-  reduce TrivialFilterRule: vortex.filter(i32, len=4) -> vortex.primitive(i32, len=4)
-  done output=vortex.primitive(i32, len=4)
-");
+    insta::assert_snapshot!(traced.trace.to_string(), @"
+    optimize root=vortex.filter(i32, len=4)
+      reduce TrivialFilterRule: vortex.filter(i32, len=4) -> vortex.primitive(i32, len=4)
+      done output=vortex.primitive(i32, len=4)
+    ");
 
     Ok(())
 }
@@ -404,7 +407,7 @@ fn trace_optimize_contiguous_filter() -> VortexResult<()> {
         TraceOptions {
             resolution: TraceResolution::ExecutedOnly,
         },
-        || outer.optimize(),
+        || outer.optimize(&SESSION),
     )?;
 
     let optimized_slice = traced.output.as_::<Slice>();
@@ -414,8 +417,8 @@ fn trace_optimize_contiguous_filter() -> VortexResult<()> {
         PrimitiveArray::from_iter([2i32, 3]),
         &mut execution_ctx()
     );
-    insta::assert_snapshot!(traced.trace.to_string(), @r"
-    optimize root=vortex.filter(i32, len=2) session=false
+    insta::assert_snapshot!(traced.trace.to_string(), @"
+    optimize root=vortex.filter(i32, len=2)
       reduce TrivialFilterRule: vortex.filter(i32, len=2) -> vortex.slice(i32, len=2)
       done output=vortex.slice(i32, len=2)
     ");
@@ -439,21 +442,26 @@ fn trace_optimize_contiguous_filter() -> VortexResult<()> {
         &mut execution_ctx()
     );
     insta::assert_snapshot!(traced.trace.to_string(), @"
-    execute_until target=AnyCanonical root=vortex.filter(i32, len=2)
-      iter 0 current=vortex.filter(i32, len=2) builder_active=false
-        Done array=vortex.slice(i32, len=2)
-      iter 1 current=vortex.slice(i32, len=2) builder_active=false
+    optimize_recursive root=vortex.filter(i32, len=2)
+    optimize root=vortex.filter(i32, len=2)
+      reduce TrivialFilterRule: vortex.filter(i32, len=2) -> vortex.slice(i32, len=2)
+      done output=vortex.slice(i32, len=2)
+    optimize_recursive root=vortex.filter(i32, len=4)
+    optimize_recursive root=vortex.primitive(i32, len=6)
+    execute_until target=AnyCanonical root=vortex.slice(i32, len=2)
+      iter 0 current=vortex.slice(i32, len=2) builder_active=false
         ExecuteSlot slot=0 parent=vortex.slice(i32, len=2) child=vortex.filter(i32, len=4)
-      iter 2 current=vortex.filter(i32, len=4) stack_parent=vortex.slice(i32, len=2) slot=0 builder_active=false
+      iter 1 current=vortex.filter(i32, len=4) stack_parent=vortex.slice(i32, len=2) slot=0 builder_active=false
         Done array=vortex.primitive(i32, len=4)
-      iter 3 current=vortex.primitive(i32, len=4) stack_parent=vortex.slice(i32, len=2) slot=0 builder_active=false
+      iter 2 current=vortex.primitive(i32, len=4) stack_parent=vortex.slice(i32, len=2) slot=0 builder_active=false
         pop_frame slot=0 output=vortex.slice(i32, len=2)
-      iter 4 current=vortex.slice(i32, len=2) builder_active=false
-    optimize root=vortex.slice(i32, len=2) session=false
+      iter 3 current=vortex.slice(i32, len=2) builder_active=false
+    optimize root=vortex.slice(i32, len=2)
       reduce_parent static:SliceReduceAdaptor(Primitive) slot=0 parent=vortex.slice(i32, len=2) child=vortex.primitive(i32, len=4) -> vortex.primitive(i32, len=2)
       done output=vortex.primitive(i32, len=2)
         Done array=vortex.primitive(i32, len=2)
-      iter 5 current=vortex.primitive(i32, len=2) builder_active=false
+      iter 4 current=vortex.primitive(i32, len=2) builder_active=false
+    optimize_recursive root=vortex.primitive(i32, len=2)
       return output=vortex.primitive(i32, len=2)
     ");
 
@@ -492,16 +500,16 @@ fn trace_execute_filter_with_scattered_mask() -> VortexResult<()> {
         &mut execution_ctx()
     );
     insta::assert_snapshot!(traced.trace.to_string(), @"
+    optimize_recursive root=vortex.filter(i32, len=2)
+    optimize root=vortex.filter(i32, len=2)
+      reduce_parent static:FilterReduceAdaptor(Filter) slot=0 parent=vortex.filter(i32, len=2) child=vortex.filter(i32, len=4) -> vortex.filter(i32, len=2)
+      done output=vortex.filter(i32, len=2)
+    optimize_recursive root=vortex.primitive(i32, len=6)
     execute_until target=AnyCanonical root=vortex.filter(i32, len=2)
       iter 0 current=vortex.filter(i32, len=2) builder_active=false
-        ExecuteSlot slot=0 parent=vortex.filter(i32, len=2) child=vortex.filter(i32, len=4)
-      iter 1 current=vortex.filter(i32, len=4) stack_parent=vortex.filter(i32, len=2) slot=0 builder_active=false
-        Done array=vortex.primitive(i32, len=4)
-      iter 2 current=vortex.primitive(i32, len=4) stack_parent=vortex.filter(i32, len=2) slot=0 builder_active=false
-        pop_frame slot=0 output=vortex.filter(i32, len=2)
-      iter 3 current=vortex.filter(i32, len=2) builder_active=false
         Done array=vortex.primitive(i32, len=2)
-      iter 4 current=vortex.primitive(i32, len=2) builder_active=false
+      iter 1 current=vortex.primitive(i32, len=2) builder_active=false
+    optimize_recursive root=vortex.primitive(i32, len=2)
       return output=vortex.primitive(i32, len=2)
     ");
 
@@ -529,6 +537,18 @@ fn trace_execution_stack_parent_kernel_attempts(
         &mut ctx
     );
     insta::assert_snapshot!(traced.trace.to_string(), @"
+    optimize_recursive root=vortex.test.stack-parent(i32, len=3)
+    optimize root=vortex.test.stack-parent(i32, len=3)
+      loop input=vortex.test.stack-parent(i32, len=3)
+        reduce none array=vortex.test.stack-parent(i32, len=3)
+        reduce_parent none array=vortex.test.stack-parent(i32, len=3)
+      done output=vortex.test.stack-parent(i32, len=3) changed=false
+    optimize_recursive root=vortex.test.stack-child(i32, len=3)
+    optimize root=vortex.test.stack-child(i32, len=3)
+      loop input=vortex.test.stack-child(i32, len=3)
+        reduce none array=vortex.test.stack-child(i32, len=3)
+        reduce_parent none array=vortex.test.stack-child(i32, len=3)
+      done output=vortex.test.stack-child(i32, len=3) changed=false
     execute_until target=AnyCanonical root=vortex.test.stack-parent(i32, len=3)
       iter 0 current=vortex.test.stack-parent(i32, len=3) builder_active=false
         done_check target=false canonical=false
@@ -541,14 +561,20 @@ fn trace_execution_stack_parent_kernel_attempts(
         done_check target=false canonical=false
         stack_execute_parent attempt slot=0 parent=vortex.test.stack-parent(i32, len=3) child=vortex.test.stack-child(i32, len=3) source=session[0] kernel=execute_parent_fn outcome=declined
         stack_execute_parent applied slot=0 parent=vortex.test.stack-parent(i32, len=3) child=vortex.test.stack-child(i32, len=3) source=session[1] kernel=execute_parent_fn output=vortex.primitive(i32, len=3)
-    optimize root=vortex.primitive(i32, len=3) session=true
+    optimize root=vortex.primitive(i32, len=3)
       loop input=vortex.primitive(i32, len=3)
         reduce none array=vortex.primitive(i32, len=3)
         reduce_parent none array=vortex.primitive(i32, len=3)
       done output=vortex.primitive(i32, len=3) changed=false
-        optimize_ctx input=vortex.primitive(i32, len=3) output=vortex.primitive(i32, len=3) changed=false
+        optimize input=vortex.primitive(i32, len=3) output=vortex.primitive(i32, len=3) changed=false
       iter 2 current=vortex.primitive(i32, len=3) builder_active=false
         done_check target=true canonical=true
+    optimize_recursive root=vortex.primitive(i32, len=3)
+    optimize root=vortex.primitive(i32, len=3)
+      loop input=vortex.primitive(i32, len=3)
+        reduce none array=vortex.primitive(i32, len=3)
+        reduce_parent none array=vortex.primitive(i32, len=3)
+      done output=vortex.primitive(i32, len=3) changed=false
       return output=vortex.primitive(i32, len=3)
     ");
 
@@ -578,6 +604,11 @@ fn trace_execution_chunked_append_child_flow() -> VortexResult<()> {
         &mut ctx
     );
     insta::assert_snapshot!(traced.trace.to_string(), @"
+    optimize_recursive root=vortex.chunked(i32, len=5)
+    optimize_recursive root=vortex.primitive(u64, len=4)
+    optimize_recursive root=vortex.primitive(i32, len=2)
+    optimize_recursive root=vortex.primitive(i32, len=1)
+    optimize_recursive root=vortex.primitive(i32, len=2)
     execute_until target=AnyCanonical root=vortex.chunked(i32, len=5)
       iter 0 current=vortex.chunked(i32, len=5) builder_active=false
         builder start array=vortex.chunked(i32, len=5)
@@ -593,6 +624,7 @@ fn trace_execution_chunked_append_child_flow() -> VortexResult<()> {
         Done array=vortex.primitive(i32, len=0)
         builder finish output=vortex.primitive(i32, len=5)
       iter 4 current=vortex.primitive(i32, len=5) builder_active=false
+    optimize_recursive root=vortex.primitive(i32, len=5)
       return output=vortex.primitive(i32, len=5)
     ");
 
@@ -630,7 +662,7 @@ fn trace_take_on_chunked() -> VortexResult<()> {
 
     // No reduce rule rewrites a take over a chunked array: the work all happens at execution
     // time, so the optimizer trace is empty.
-    let traced = trace_op(|| take.optimize())?;
+    let traced = trace_op(|| take.optimize(&SESSION))?;
     insta::assert_snapshot!(traced.trace.to_string(), @"");
 
     let optimized = traced.output;
@@ -646,12 +678,19 @@ fn trace_take_on_chunked() -> VortexResult<()> {
         &mut execution_ctx()
     );
     insta::assert_snapshot!(traced.trace.to_string(), @"
+    optimize_recursive root=vortex.dict(i32, len=4)
+    optimize_recursive root=vortex.primitive(u64, len=4)
+    optimize_recursive root=vortex.chunked(i32, len=5)
+    optimize_recursive root=vortex.primitive(u64, len=3)
+    optimize_recursive root=vortex.primitive(i32, len=2)
+    optimize_recursive root=vortex.primitive(i32, len=3)
     execute_until target=AnyCanonical root=vortex.dict(i32, len=4)
       iter 0 current=vortex.dict(i32, len=4) builder_active=false
         child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(i32, len=4) child=vortex.chunked(i32, len=5) -> vortex.dict(i32, len=4)
       iter 1 current=vortex.dict(i32, len=4) builder_active=false
         child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(i32, len=4) child=vortex.primitive(i32, len=4) -> vortex.primitive(i32, len=4)
       iter 2 current=vortex.primitive(i32, len=4) builder_active=false
+    optimize_recursive root=vortex.primitive(i32, len=4)
       return output=vortex.primitive(i32, len=4)
     ");
 
@@ -679,13 +718,13 @@ fn trace_filter_on_struct_with_complex_children() -> VortexResult<()> {
         FilterArray::try_new(struct_, Mask::from_iter([true, false, true, true, false]))?
             .into_array();
 
-    let traced = trace_op(|| filtered.optimize())?;
+    let traced = trace_op(|| filtered.optimize(&SESSION))?;
     insta::assert_snapshot!(traced.trace.to_string(), @"
-    optimize root=vortex.filter({name=utf8, score=i64}, len=3) session=false
-      optimize root=vortex.filter(utf8, len=3) session=false
+    optimize root=vortex.filter({name=utf8, score=i64}, len=3)
+      reduce FilterStructRule: vortex.filter({name=utf8, score=i64}, len=3) -> vortex.struct({name=utf8, score=i64}, len=3)
+      optimize root=vortex.filter(utf8, len=3)
         reduce_parent static:FilterReduceAdaptor(Dict) slot=0 parent=vortex.filter(utf8, len=3) child=vortex.dict(utf8, len=5) -> vortex.dict(utf8, len=3)
         done output=vortex.dict(utf8, len=3)
-      reduce FilterStructRule: vortex.filter({name=utf8, score=i64}, len=3) -> vortex.struct({name=utf8, score=i64}, len=3)
       done output=vortex.struct({name=utf8, score=i64}, len=3)
     ");
 
@@ -709,6 +748,16 @@ fn trace_filter_on_struct_with_complex_children() -> VortexResult<()> {
     .into_array();
     assert_arrays_eq!(traced.output, expected, &mut execution_ctx());
     insta::assert_snapshot!(traced.trace.to_string(), @"
+    optimize_recursive root=vortex.struct({name=utf8, score=i64}, len=3)
+    optimize_recursive root=vortex.dict(utf8, len=3)
+    optimize_recursive root=vortex.filter(u32, len=3)
+    optimize_recursive root=vortex.primitive(u32, len=5)
+    optimize_recursive root=vortex.varbinview(utf8, len=3)
+    optimize_recursive root=vortex.filter(i64, len=3)
+    optimize_recursive root=vortex.chunked(i64, len=5)
+    optimize_recursive root=vortex.primitive(u64, len=3)
+    optimize_recursive root=vortex.primitive(i64, len=2)
+    optimize_recursive root=vortex.primitive(i64, len=3)
     execute_until target=AnyCanonical root=vortex.struct({name=utf8, score=i64}, len=3)
       iter 0 current=vortex.struct({name=utf8, score=i64}, len=3) builder_active=false
       return output=vortex.struct({name=utf8, score=i64}, len=3)
@@ -728,9 +777,9 @@ fn trace_compare_on_dict() -> VortexResult<()> {
 
     let compared = Binary::try_new(dict, rhs, Operator::Eq)?.into_array();
 
-    let traced = trace_op(|| compared.optimize())?;
+    let traced = trace_op(|| compared.optimize(&SESSION))?;
     insta::assert_snapshot!(traced.trace.to_string(), @"
-    optimize root=vortex.binary(bool, len=5) session=false
+    optimize root=vortex.binary(bool, len=5)
       reduce_parent static:DictionaryScalarFnValuesPushDownRule slot=0 parent=vortex.binary(bool, len=5) child=vortex.dict(i32, len=5) -> vortex.dict(bool, len=5)
       done output=vortex.dict(bool, len=5)
     ");
@@ -748,6 +797,11 @@ fn trace_compare_on_dict() -> VortexResult<()> {
         &mut execution_ctx()
     );
     insta::assert_snapshot!(traced.trace.to_string(), @"
+    optimize_recursive root=vortex.dict(bool, len=5)
+    optimize_recursive root=vortex.primitive(u32, len=5)
+    optimize_recursive root=vortex.binary(bool, len=3)
+    optimize_recursive root=vortex.primitive(i32, len=3)
+    optimize_recursive root=vortex.constant(i32, len=3)
     execute_until target=AnyCanonical root=vortex.dict(bool, len=5)
       iter 0 current=vortex.dict(bool, len=5) builder_active=false
         ExecuteSlot slot=1 parent=vortex.dict(bool, len=5) child=vortex.binary(bool, len=3)
@@ -758,6 +812,7 @@ fn trace_compare_on_dict() -> VortexResult<()> {
       iter 3 current=vortex.dict(bool, len=5) builder_active=false
         child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(bool, len=5) child=vortex.bool(bool, len=3) -> vortex.bool(bool, len=5)
       iter 4 current=vortex.bool(bool, len=5) builder_active=false
+    optimize_recursive root=vortex.bool(bool, len=5)
       return output=vortex.bool(bool, len=5)
     ");
 
@@ -779,9 +834,9 @@ fn trace_like_on_dict() -> VortexResult<()> {
     )?
     .into_array();
 
-    let traced = trace_op(|| like.optimize())?;
+    let traced = trace_op(|| like.optimize(&SESSION))?;
     insta::assert_snapshot!(traced.trace.to_string(), @"
-    optimize root=vortex.like(bool, len=6) session=false
+    optimize root=vortex.like(bool, len=6)
       reduce_parent static:LikeReduceAdaptor(Dict) slot=0 parent=vortex.like(bool, len=6) child=vortex.dict(utf8, len=6) -> vortex.dict(bool, len=6)
       done output=vortex.dict(bool, len=6)
     ");
@@ -799,6 +854,11 @@ fn trace_like_on_dict() -> VortexResult<()> {
         &mut execution_ctx()
     );
     insta::assert_snapshot!(traced.trace.to_string(), @"
+    optimize_recursive root=vortex.dict(bool, len=6)
+    optimize_recursive root=vortex.primitive(u32, len=6)
+    optimize_recursive root=vortex.like(bool, len=3)
+    optimize_recursive root=vortex.varbinview(utf8, len=3)
+    optimize_recursive root=vortex.constant(utf8, len=3)
     execute_until target=AnyCanonical root=vortex.dict(bool, len=6)
       iter 0 current=vortex.dict(bool, len=6) builder_active=false
         ExecuteSlot slot=1 parent=vortex.dict(bool, len=6) child=vortex.like(bool, len=3)
@@ -809,6 +869,7 @@ fn trace_like_on_dict() -> VortexResult<()> {
       iter 3 current=vortex.dict(bool, len=6) builder_active=false
         child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(bool, len=6) child=vortex.bool(bool, len=3) -> vortex.bool(bool, len=6)
       iter 4 current=vortex.bool(bool, len=6) builder_active=false
+    optimize_recursive root=vortex.bool(bool, len=6)
       return output=vortex.bool(bool, len=6)
     ");
 

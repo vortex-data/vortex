@@ -11,7 +11,6 @@ use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
-use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeOptions;
 use crate::scalar_fn::fns::like::LikeReduce;
@@ -29,9 +28,7 @@ impl LikeReduce for Dict {
         if let Some(pattern) = pattern.as_constant() {
             let pattern = ConstantArray::new(pattern, array.values().len()).into_array();
 
-            let values = Like::try_new(array.values().clone(), pattern, options)?
-                .into_array()
-                .optimize()?;
+            let values = Like::try_new(array.values().clone(), pattern, options)?.into_array();
 
             // SAFETY: LIKE preserves the len of the values, so codes are still pointing at
             //  valid positions.
@@ -64,7 +61,6 @@ mod tests {
     use crate::arrays::VarBinArray;
     use crate::arrays::dict::compute::like::ConstantArray;
     use crate::assert_arrays_eq;
-    use crate::optimizer::ArrayOptimizer;
     use crate::scalar_fn::fns::like::Like;
     use crate::scalar_fn::fns::like::LikeOptions;
 
@@ -80,9 +76,7 @@ mod tests {
         .into_array();
 
         let pattern = ConstantArray::new("hello%", 4).into_array();
-        let result = Like::try_new(dict, pattern, LikeOptions::default())?
-            .into_array()
-            .optimize()?;
+        let result = Like::try_new(dict, pattern, LikeOptions::default())?.into_array();
 
         assert_arrays_eq!(
             result,

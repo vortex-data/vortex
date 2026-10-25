@@ -111,6 +111,7 @@ mod tests {
     use crate::dtype::DecimalDType;
     use crate::dtype::DecimalType;
     use crate::match_each_decimal_value_type;
+    use crate::optimizer::ArrayOptimizer;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -183,7 +184,7 @@ mod tests {
         let sliced = array.slice(1..5)?;
 
         let range = 1..3;
-        let nested = sliced.slice(range.clone())?;
+        let nested = sliced.slice(range.clone())?.optimize(&SESSION)?;
         let decimal = nested.as_::<Decimal>();
         let byte_width = values_type.byte_width();
         let original_range = range.start + 1..range.end + 1;

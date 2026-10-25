@@ -14,6 +14,7 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_buffer::buffer;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -73,7 +74,7 @@ fn test_fsst_array_ops() {
     );
 
     // test slice
-    let fsst_sliced = fsst_array.slice(1..3).unwrap();
+    let fsst_sliced = fsst_array.slice(1..3).unwrap().optimize(&SESSION).unwrap();
     assert!(fsst_sliced.is::<FSST>());
     assert_eq!(fsst_sliced.len(), 2);
     assert_nth_scalar!(

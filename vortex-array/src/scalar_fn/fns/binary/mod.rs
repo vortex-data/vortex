@@ -597,40 +597,40 @@ mod tests {
 
         let array = Binary::try_new(left.clone(), right.clone(), Operator::And)?
             .into_array()
-            .optimize()?; // calls reduce()
+            .optimize(&SESSION)?; // calls reduce()
         assert!(array.is::<Bool>()); // and(left, const) -> left
         assert_arrays_eq!(array, left, &mut ctx);
 
         let array = Binary::try_new(right.clone(), left.clone(), Operator::And)?
             .into_array()
-            .optimize()?;
+            .optimize(&SESSION)?;
         assert!(array.is::<Bool>()); // and(const, left) -> left
         assert_arrays_eq!(array, left, &mut ctx);
 
         let array = Binary::try_new(left.clone(), right.clone(), Operator::Or)?
             .into_array()
-            .optimize()?;
+            .optimize(&SESSION)?;
         assert_eq!(array.as_constant(), Some(true.into())); // or(left, const) -> true
 
         let array = Binary::try_new(right.clone(), left, Operator::Or)?
             .into_array()
-            .optimize()?;
+            .optimize(&SESSION)?;
         assert_eq!(array.as_constant(), Some(true.into())); // or(const, left) -> true
 
         let array = Binary::try_new(right.clone(), right.clone(), Operator::Or)?
             .into_array()
-            .optimize()?;
+            .optimize(&SESSION)?;
         assert_eq!(array.as_constant(), Some(true.into())); // or(const, const) -> const
 
         let left_false = ConstantArray::new(false, 3).into_array();
 
         let array = Binary::try_new(right.clone(), left_false.clone(), Operator::Or)?
             .into_array()
-            .optimize()?;
+            .optimize(&SESSION)?;
         assert_eq!(array.as_constant(), Some(true.into()));
         let array = Binary::try_new(left_false, right, Operator::And)?
             .into_array()
-            .optimize()?;
+            .optimize(&SESSION)?;
         assert_eq!(array.as_constant(), Some(false.into()));
 
         Ok(())
@@ -645,7 +645,7 @@ mod tests {
 
         let array = Binary::try_new(nullable_true, right.clone(), Operator::And)?
             .into_array()
-            .optimize()?;
+            .optimize(&SESSION)?;
         assert_arrays_eq!(array, right, &mut ctx);
         Ok(())
     }
@@ -669,7 +669,7 @@ mod tests {
             let array = lhs
                 .binary(rhs.clone(), Operator::And)?
                 .is_null()?
-                .optimize()?;
+                .optimize(&SESSION)?;
             assert_eq!(*array.as_::<ExactScalarFn<Binary>>().options, Operator::And);
             assert_arrays_eq!(
                 array.as_::<ScalarFn>().get_child(0), // not(left.validity())
@@ -694,7 +694,7 @@ mod tests {
             let array = lhs
                 .binary(rhs.clone(), Operator::Or)?
                 .is_not_null()?
-                .optimize()?;
+                .optimize(&SESSION)?;
             assert_eq!(*array.as_::<ExactScalarFn<Binary>>().options, Operator::Or);
             assert_arrays_eq!(
                 array.as_::<ScalarFn>().get_child(0), // left.validity()

@@ -26,6 +26,7 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::unstable::row::InputElement;
@@ -152,7 +153,9 @@ fn test_batch_const_unwraps_filtered_masked_constant() -> VortexResult<()> {
     let child = ConstantArray::new(7_i64, 3).into_array();
     let masked = MaskedArray::try_new(child, Validity::from_iter([true, false, true]), &mut ctx)?
         .into_array();
-    let filtered = masked.filter(Mask::from_iter([true, true, false]))?;
+    let filtered = masked
+        .filter(Mask::from_iter([true, true, false]))?
+        .optimize(&SESSION)?;
 
     let Some(const_array) = batch_const(&filtered) else {
         vortex_bail!("filtered masked constant must remain batch-constant");
@@ -168,7 +171,9 @@ fn test_batch_const_preserves_filtered_extension() -> VortexResult<()> {
     let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
     let extension =
         ExtensionArray::new(ext_dtype, ConstantArray::new(7_i64, 3).into_array()).into_array();
-    let filtered = extension.filter(Mask::from_iter([true, false, true]))?;
+    let filtered = extension
+        .filter(Mask::from_iter([true, false, true]))?
+        .optimize(&SESSION)?;
 
     let Some(const_array) = batch_const(&filtered) else {
         vortex_bail!("filtered extension storage must remain batch-constant");

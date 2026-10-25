@@ -172,7 +172,11 @@ mod tests {
     fn all_valid_input_attaches_lazy_mask(#[case] validity: Validity) -> VortexResult<()> {
         let input = PrimitiveArray::new(buffer![1i32, 2, 3], validity);
         let mask = lazy_mask()?;
-        let output = input.clone().into_array().mask(mask.clone())?;
+        let output = input
+            .clone()
+            .into_array()
+            .mask(mask.clone())?
+            .optimize(&SESSION)?;
         let primitive = output.as_::<Primitive>();
 
         assert!(
@@ -236,7 +240,7 @@ mod tests {
             "expected an un-optimized ScalarFn wrapper before optimization"
         );
 
-        let optimized = masked.optimize()?;
+        let optimized = masked.optimize(&SESSION)?;
         assert!(
             !optimized.is::<ScalarFn>(),
             "constant mask should not fall through to execution, got {}",

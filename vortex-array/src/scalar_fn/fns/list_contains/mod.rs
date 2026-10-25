@@ -2013,7 +2013,7 @@ mod tests {
             options,
         )?
         .into_array()
-        .optimize()?;
+        .optimize(&SESSION)?;
         assert_eq!(array.as_constant(), Some(expected));
         Ok(())
     }

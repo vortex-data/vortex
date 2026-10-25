@@ -321,12 +321,12 @@ fn test_prepared_set_rows_are_the_constant_list() -> VortexResult<()> {
 
     // A slice and a filter keep the haystack instead of building it again.
     let prepared = PreparedSet::set_of(&set).expect("prepared set");
-    let sliced = set.slice(1..3)?.optimize()?;
+    let sliced = set.slice(1..3)?.optimize(&SESSION)?;
     assert_eq!(sliced.len(), 2);
     assert!(PreparedSet::set_of(&sliced).is_some_and(|sliced| sliced.shares_set_with(prepared)));
     let filtered = set
         .filter(Mask::from_iter([true, false, true, true]))?
-        .optimize()?;
+        .optimize(&SESSION)?;
     assert_eq!(filtered.len(), 3);
     assert!(
         PreparedSet::set_of(&filtered).is_some_and(|filtered| filtered.shares_set_with(prepared))
@@ -535,7 +535,7 @@ fn test_constant_list_over_chunked_needles(
     // The list is prepared before the push-down, so every chunk gets a slice of the one set.
     let array = ListContains::try_new_opts(list, needles, options)?
         .into_array()
-        .optimize()?;
+        .optimize(&SESSION)?;
     assert_chunks_share_one_set(&array);
 
     assert_arrays_eq!(array, BoolArray::from_iter(expected), &mut ctx);
@@ -550,7 +550,7 @@ fn test_optimized_expression_over_chunked_needles() -> VortexResult<()> {
         .bind(needles.dtype())?
         .optimize()?;
 
-    let array = needles.apply_bound(&expr)?;
+    let array = needles.apply_bound(&expr)?.optimize(&SESSION)?;
     assert_chunks_share_one_set(&array);
 
     assert_arrays_eq!(

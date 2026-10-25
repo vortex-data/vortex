@@ -24,6 +24,7 @@ use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::serde::SerializeOptions;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
@@ -77,6 +78,8 @@ struct Store {
 impl Store {
     fn flat(&mut self, array: &ArrayRef) -> VortexResult<LayoutRef> {
         let ctx = ArrayContext::empty();
+        // Tests hand in lazy slices, which have no serialized form until optimized away.
+        let array = array.optimize(&SESSION)?;
         let buffers = array.serialize(
             &ctx,
             &SESSION,
