@@ -207,7 +207,7 @@ mod tests {
         let scalar_fn_array = scalar_fn_array.into_array();
         test_scalar_probe_consistency(
             &scalar_fn_array,
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         );
         assert_arrays_eq!(
             scalar_fn_array,
@@ -344,7 +344,7 @@ mod tests {
     #[test]
     fn scalar_fn_probe_preserves_nested_nulls_and_slices() -> VortexResult<()> {
         let array = scalar_nested_add()?;
-        test_scalar_probe_consistency(&array, &mut array_session().create_execution_ctx());
+        test_scalar_probe_consistency(&array, &mut SESSION.create_execution_ctx());
         Ok(())
     }
 

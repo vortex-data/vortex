@@ -12317,6 +12317,8 @@ dependencies = [
  "arrow-buffer 59.3.2",
  "arrow-schema 59.3.2",
  "chrono",
+ "codspeed-divan-compat",
+ "mimalloc",
  "parquet-variant",
  "parquet-variant-compute",
  "prost 0.14.4",

@@ -5,9 +5,9 @@ use std::sync::Arc;
 
 use chrono::Timelike;
 use parquet_variant::Variant as PqVariant;
-use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
+use vortex_array::ProbeState;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::FieldName;
@@ -27,7 +27,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
-use crate::ParquetVariantArraySlotsExt;
+use crate::array::ParquetVariantSlots;
 use crate::vtable::ParquetVariant;
 
 impl OperationsVTable<ParquetVariant> for ParquetVariant {
@@ -38,78 +38,74 @@ impl OperationsVTable<ParquetVariant> for ParquetVariant {
     /// For valid data, a row with both `value` and struct `typed_value` is a partially
     /// shredded object: recursively reconstruct shredded fields and merge them with the
     /// raw-only fields from `value`.
-    fn scalar_at(
-        array: ArrayView<'_, ParquetVariant>,
+    fn probe_scalar(
+        state: &mut ProbeState<'_, ParquetVariant>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        if array.validity()?.execute_is_null(index, ctx)? {
-            return Ok(Scalar::null(DType::Variant(Nullability::Nullable)));
+        if !state.is_valid(index, ctx)? {
+            return Ok(Scalar::null(state.array().dtype().clone()));
         }
 
-        let metadata = array
-            .metadata()
+        let metadata = state
+            .slot(ParquetVariantSlots::METADATA)?
+            .vortex_expect("ParquetVariant metadata slot is present")
             .execute_scalar(index, ctx)?
             .as_binary()
             .value()
             .cloned()
             .vortex_expect("non-null metadata row must have binary value");
-        let inner = scalar_from_variant_storage(
-            metadata.as_ref(),
-            array.value(),
-            array.typed_value(),
-            index,
-            ctx,
-        )?;
+        let inner = scalar_from_variant_storage(state, metadata.as_ref(), index, ctx)?;
 
         Scalar::try_new(
-            array.dtype().clone(),
+            state.array().dtype().clone(),
             Some(ScalarValue::Variant(Box::new(inner))),
         )
+    }
+
+    fn scalar_at(
+        array: ArrayView<'_, ParquetVariant>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
 }
 
 fn scalar_from_variant_storage(
+    state: &mut ProbeState<'_, ParquetVariant>,
     metadata: &[u8],
-    value: Option<&ArrayRef>,
-    typed_value: Option<&ArrayRef>,
     index: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Scalar> {
     // A valid typed row owns the logical value except for partially shredded
     // objects, where the raw `value` may carry object fields that were not
     // represented in `typed_value`.
-    if let Some(typed_value) = typed_value
-        && typed_value.is_valid(index, ctx)?
+    if let Some(mut typed_value) = state.slot(ParquetVariantSlots::TYPED_VALUE)?
+        && typed_value.execute_is_valid(index, ctx)?
     {
-        return scalar_from_typed_value_array(metadata, value, typed_value, index, ctx);
+        let typed_value_scalar = typed_value.execute_scalar(index, ctx)?;
+        let value_scalar = if matches!(typed_value_scalar.dtype(), DType::Struct(..)) {
+            if let Some(mut value) = state.slot(ParquetVariantSlots::VALUE)?
+                && value.execute_is_valid(index, ctx)?
+            {
+                Some(value.execute_scalar(index, ctx)?)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        return scalar_from_typed_value_scalar(metadata, value_scalar, typed_value_scalar);
     }
 
-    if let Some(value) = value
-        && value.is_valid(index, ctx)?
+    if let Some(mut value) = state.slot(ParquetVariantSlots::VALUE)?
+        && value.execute_is_valid(index, ctx)?
     {
         return scalar_from_unshredded_value(metadata, &value.execute_scalar(index, ctx)?);
     }
 
     Ok(Scalar::null(DType::Null))
-}
-
-fn scalar_from_typed_value_array(
-    metadata: &[u8],
-    value: Option<&ArrayRef>,
-    typed_value: &ArrayRef,
-    index: usize,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Scalar> {
-    let typed_value_scalar = typed_value.execute_scalar(index, ctx)?;
-    let value_scalar = match typed_value_scalar.dtype() {
-        DType::Struct(..) => match value {
-            Some(value) if value.is_valid(index, ctx)? => Some(value.execute_scalar(index, ctx)?),
-            _ => None,
-        },
-        _ => None,
-    };
-    scalar_from_typed_value_scalar(metadata, value_scalar, typed_value_scalar)
 }
 
 fn scalar_from_typed_value_scalar(
@@ -390,10 +386,15 @@ mod tests {
     use parquet_variant::VariantBuilder;
     use parquet_variant_compute::VariantArray as ArrowVariantArray;
     use parquet_variant_compute::VariantArrayBuilder;
+    use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
+    use vortex_array::validity::Validity;
     use vortex_arrow::ArrowExportOptions;
     use vortex_arrow::ArrowSessionExt;
     use vortex_error::VortexResult;
@@ -414,6 +415,47 @@ mod tests {
             builder.append_value(*value);
         }
         Arc::new(builder.finish())
+    }
+
+    #[test]
+    fn test_scalar_probe_consistency() -> VortexResult<()> {
+        let (metadata, raw) = VariantBuilder::new().with_value("fallback").finish();
+        let metadata = VarBinViewArray::from_iter_bin((0..4).map(|_| metadata.as_slice()))
+            .into_array();
+        let value = VarBinViewArray::from_iter_nullable_bin([
+            Some(raw.as_slice()),
+            None,
+            Some(raw.as_slice()),
+            None,
+        ])
+        .into_array();
+        let typed_value =
+            PrimitiveArray::from_option_iter([None, Some(20i32), None, None]).into_array();
+        let array = ParquetVariant::try_new(
+            Validity::from_iter([true, true, false, true]),
+            metadata,
+            Some(value),
+            Some(typed_value),
+        )?
+        .into_array();
+        let expected = [
+            Scalar::variant(Scalar::from("fallback")),
+            Scalar::variant(Scalar::from(20i32)),
+            Scalar::null(DType::Variant(Nullability::Nullable)),
+            Scalar::variant(Scalar::null(DType::Null)),
+        ];
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut repeated = array.repeated_probe();
+        for index in [0, 1, 3, 2, 1, 0] {
+            assert_eq!(array.execute_scalar(index, &mut ctx)?, expected[index]);
+            assert_eq!(repeated.execute_scalar(index, &mut ctx)?, expected[index]);
+        }
+        let sliced = array.slice(1..4)?;
+        let mut sliced_probe = sliced.repeated_probe();
+        for index in [0, 2, 1, 0] {
+            assert_eq!(sliced_probe.execute_scalar(index, &mut ctx)?, expected[index + 1]);
+        }
+        Ok(())
     }
 
     fn assert_scalar_rows(
