@@ -77,8 +77,13 @@ pub(super) fn slice_constant_code(
     let code = code.as_primitive().as_::<usize>();
     if let Some(code) = code {
         let values = array.values().slice(code..code + 1)?;
+        // Keep the codes' nullability so the result's dtype matches the original dict's dtype.
+        let codes = ConstantArray::new(
+            Scalar::primitive(0u8, array.codes().dtype().nullability()),
+            len,
+        );
         Ok(Some(
-            DictArray::new(ConstantArray::new(0u8, len).into_array(), values).into_array(),
+            DictArray::new(codes.into_array(), values).into_array(),
         ))
     } else {
         Ok(Some(
@@ -93,10 +98,12 @@ mod tests {
 
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::dict::compute::slice::ConstantArray;
@@ -118,6 +125,35 @@ mod tests {
         let sliced = dict.slice(1..4)?;
         let expected = PrimitiveArray::from_iter([20i32, 20, 20]).into_array();
         assert_arrays_eq!(sliced, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn slice_nullable_constant_valid_code() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dict = DictArray::new(
+            ConstantArray::new(Scalar::primitive(1u8, Nullable), 5).into_array(),
+            BoolArray::from_iter([true, false]).into_array(),
+        );
+        assert_eq!(dict.dtype(), &DType::Bool(Nullable));
+        let sliced = dict.slice(1..4)?;
+        assert_eq!(sliced.dtype(), dict.dtype());
+        let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
+        assert_arrays_eq!(sliced, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn filter_nullable_constant_valid_code() -> VortexResult<()> {
+        let dict = DictArray::new(
+            ConstantArray::new(Scalar::primitive(0u8, Nullable), 4).into_array(),
+            buffer![10i32, 20].into_array(),
+        );
+        assert_eq!(dict.dtype(), &DType::Primitive(PType::I32, Nullable));
+        let filtered = dict
+            .into_array()
+            .filter(Mask::from_iter([true, false, true, false]))?;
+        assert_eq!(filtered.dtype(), &DType::Primitive(PType::I32, Nullable));
         Ok(())
     }
 
