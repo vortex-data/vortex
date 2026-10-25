@@ -38,7 +38,7 @@ impl OperationsVTable<Patched> for Patched {
         let patch_indices = array
             .patch_indices()
             .slice(range.clone())?
-            .optimize()?
+            .optimize(ctx.session())?
             .execute::<PrimitiveArray>(ctx)?;
 
         // NOTE: we do linear scan as lane has <= 32 patches, binary search would likely
@@ -174,7 +174,7 @@ mod tests {
             .into_array()
             .slice(3..4096)
             .unwrap()
-            .optimize()
+            .optimize(&SESSION)
             .unwrap();
 
         assert!(array.is::<Patched>());

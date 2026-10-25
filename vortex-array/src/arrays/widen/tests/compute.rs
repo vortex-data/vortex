@@ -42,6 +42,7 @@ use crate::compute::conformance::take::test_take_conformance;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::StrictComparison;
@@ -77,13 +78,14 @@ fn test_selection_returns_widen() -> VortexResult<()> {
     let array = partially_valid().into_array();
     let mask = BoolArray::from_iter([false, true, true, true, true]).into_array();
 
-    assert!(array.slice(1..4)?.is::<Widen>());
+    assert!(array.slice(1..4)?.optimize(&SESSION)?.is::<Widen>());
     assert!(
         array
             .filter(Mask::from_iter([true, true, false, false, true]))?
+            .optimize(&SESSION)?
             .is::<Widen>()
     );
-    assert!(array.mask(mask)?.is::<Widen>());
+    assert!(array.mask(mask)?.optimize(&SESSION)?.is::<Widen>());
 
     Ok(())
 }
@@ -97,7 +99,8 @@ fn test_take_executes_values_under_dict() -> VortexResult<()> {
         .into_array()
         .slice(2..5)?
         .take(buffer![2u32, 0, 1].into_array())?
-        .filter(Mask::from_iter([true, false, true]))?;
+        .filter(Mask::from_iter([true, false, true]))?
+        .optimize_recursive(&SESSION)?;
     assert!(selected.is::<Dict>());
     assert!(selected.as_::<Dict>().values().is::<Widen>());
 
@@ -141,12 +144,14 @@ fn test_cast_preserves_checked_nullability() -> VortexResult<()> {
     let values = PrimitiveArray::from_option_iter([Some(1i8), None]);
     let array = widen(values, PType::I32).into_array();
 
-    let widened = array.cast(DType::Primitive(PType::I64, Nullability::Nullable))?;
+    let widened = array
+        .cast(DType::Primitive(PType::I64, Nullability::Nullable))?
+        .optimize(&SESSION)?;
     assert!(widened.is::<Widen>());
     let expected = PrimitiveArray::from_option_iter([Some(1i64), None]);
     assert_arrays_eq!(widened, expected, &mut ctx);
 
-    let non_nullable = array.cast(PType::I64.into())?;
+    let non_nullable = array.cast(PType::I64.into())?.optimize(&SESSION)?;
     assert!(non_nullable.is::<Widen>());
     let error = non_nullable
         .execute::<PrimitiveArray>(&mut ctx)
@@ -196,7 +201,7 @@ fn test_cast_child(
     let array = array.into_array();
     let target = DType::Primitive(target, array.dtype().nullability());
 
-    let cast = array.cast(target.clone())?;
+    let cast = array.cast(target.clone())?.optimize(&SESSION)?;
 
     assert_eq!(stored_ptype(&cast), stored);
     let expected = canonical(&array, &mut ctx)?.cast(target)?;
@@ -237,7 +242,7 @@ fn test_fill_null(
     let values = PrimitiveArray::from_option_iter([Some(1i8), None]);
     let array = widen(values, PType::I64).into_array();
 
-    let filled = array.fill_null(fill_value)?;
+    let filled = array.fill_null(fill_value)?.optimize(&SESSION)?;
 
     assert_eq!(stored_ptype(&filled), stored);
     assert_arrays_eq!(filled, expected, &mut ctx);

@@ -1072,6 +1072,7 @@ mod test {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::test_harness::check_metadata;
     use vortex_array::vtable::VTable as _;
     use vortex_buffer::Buffer;
@@ -1108,6 +1109,7 @@ mod test {
         let compressor_ptr = fsst_array.compressor() as *const Compressor;
         let sliced = fsst_array
             .slice(1..3)?
+            .optimize(&SESSION)?
             .try_downcast::<FSST>()
             .map_err(|_| vortex_err!("slice must return an FSST array"))?;
         let sliced_compressor_ptr = sliced.compressor() as *const Compressor;

@@ -19,6 +19,7 @@ use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
@@ -283,7 +284,9 @@ fn test_zstd_append_to_view_builder_keeps_only_the_sliced_bytes() -> VortexResul
         .collect::<Vec<_>>();
     let array = VarBinViewArray::from_iter_str(&values);
     // Three values per frame, so the slice below starts and ends inside a frame holding more.
-    let compressed = Zstd::from_var_bin_view(&array, 0, 3, &mut ctx)?.slice(4..8)?;
+    let compressed = Zstd::from_var_bin_view(&array, 0, 3, &mut ctx)?
+        .slice(4..8)?
+        .optimize(&SESSION)?;
 
     // Seeded with a value of its own so the pushed buffers land after an in-progress buffer, and
     // appended to twice so the second push has to rebase past the first.

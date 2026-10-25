@@ -30,6 +30,7 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_buffer::buffer;
@@ -58,7 +59,9 @@ fn test_operations() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let array = widen_bitpacked(PrimitiveArray::from_iter([0u8, 1, 3, 7]), 3)?;
 
-    let selected = array.filter(Mask::from_iter([true, false, true, true]))?;
+    let selected = array
+        .filter(Mask::from_iter([true, false, true, true]))?
+        .optimize(&SESSION)?;
     assert!(selected.is::<Widen>());
     assert_eq!(selected.as_::<Widen>().values().dtype(), &PType::U8.into());
     assert_arrays_eq!(selected, buffer![0u64, 3, 7].into_array(), &mut ctx);

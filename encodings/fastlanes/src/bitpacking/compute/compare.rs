@@ -205,6 +205,7 @@ mod tests {
     use vortex_array::arrays::slice::SliceKernel;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar_fn::fns::binary::CompareKernel;
     use vortex_array::scalar_fn::fns::operators::CompareOperator;
     use vortex_array::scalar_fn::fns::operators::Operator;
@@ -364,7 +365,10 @@ mod tests {
         let prim = PrimitiveArray::from_iter(values);
         let packed = BitPackedData::encode(&prim.clone().into_array(), 7, &mut ctx)?;
 
-        let sliced = packed.into_array().slice(start..start + slice_len)?;
+        let sliced = packed
+            .into_array()
+            .slice(start..start + slice_len)?
+            .optimize(&SESSION)?;
         let rhs = ConstantArray::new(50u32, slice_len).into_array();
         for op in [
             CompareOperator::Eq,

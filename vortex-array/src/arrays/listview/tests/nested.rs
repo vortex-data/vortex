@@ -19,6 +19,7 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
+use crate::optimizer::ArrayOptimizer;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -123,7 +124,11 @@ fn test_listview_of_listview_with_overlapping() {
     );
 
     // Test slicing the outer ListView.
-    let sliced = outer_listview.slice(1..2).unwrap();
+    let sliced = outer_listview
+        .slice(1..2)
+        .unwrap()
+        .optimize(&SESSION)
+        .unwrap();
     assert_eq!(sliced.len(), 1);
     let sliced_lv = sliced.as_::<ListView>();
     let inner_after_slice = sliced_lv.list_elements_at(0, &mut ctx).unwrap();
@@ -257,7 +262,11 @@ fn test_mixed_offset_size_types() {
     assert_eq!(first_outer.len(), 3);
 
     // Test slicing with mixed types.
-    let sliced = outer_listview.slice(1..3).unwrap();
+    let sliced = outer_listview
+        .slice(1..3)
+        .unwrap()
+        .optimize(&SESSION)
+        .unwrap();
     assert_eq!(sliced.len(), 2);
     let sliced_lv = sliced.as_::<ListView>();
 

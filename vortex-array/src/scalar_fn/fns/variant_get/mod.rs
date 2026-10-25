@@ -439,6 +439,7 @@ mod tests {
     use crate::expr::proto::ExprSerializeProtoExt;
     use crate::expr::root;
     use crate::expr::variant_get;
+    use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
     use crate::scalar_fn::ScalarFnVTable;
@@ -564,6 +565,7 @@ mod tests {
         let expr = variant_get(root(), parse_path(path)?, dtype);
         array
             .apply(&expr)?
+            .optimize(&SESSION)?
             .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())
     }
 

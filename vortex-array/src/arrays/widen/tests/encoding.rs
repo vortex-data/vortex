@@ -218,7 +218,7 @@ fn test_reduce_flattens_nested_widen() -> VortexResult<()> {
     ))?;
     assert!(nested.values().is::<Widen>());
 
-    let flattened = nested.into_array().optimize()?;
+    let flattened = nested.into_array().optimize(&SESSION)?;
 
     assert!(ArrayRef::ptr_eq(flattened.as_::<Widen>().values(), &values));
     let expected = PrimitiveArray::from_option_iter([Some(-128i64), None, Some(127)]);
@@ -237,7 +237,12 @@ fn test_execute_encoded_values() -> VortexResult<()> {
     let array = WidenArray::try_new(values.into_array(), PType::I64.into())?;
     assert!(array.values().is::<Dict>());
 
-    let step = array.clone().into_array().execute::<ArrayRef>(&mut ctx)?;
+    // The step yields a lazy cast of the values, which optimizing pushes into the `Dict`.
+    let step = array
+        .clone()
+        .into_array()
+        .execute::<ArrayRef>(&mut ctx)?
+        .optimize(&SESSION)?;
 
     assert!(step.is::<Dict>());
     assert!(ArrayRef::ptr_eq(step.as_::<Dict>().codes(), &codes));

@@ -3,6 +3,8 @@
 
 //! Snapshot tests tracing how reductions and executions flow through run-end arrays.
 
+use std::sync::LazyLock;
+
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -25,6 +27,8 @@ use crate::scalar_fn::fns::operators::Operator;
 use crate::session::ArraySession;
 use crate::test_harness::trace::trace_op;
 
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
 fn execution_ctx() -> ExecutionCtx {
     ExecutionCtx::new(VortexSession::empty().with::<ArraySession>())
 }
@@ -44,9 +48,9 @@ fn trace_compare_on_runend() -> VortexResult<()> {
     let rhs = ConstantArray::new(Scalar::from(2i32), runend.len()).into_array();
     let compared = Binary::try_new(runend, rhs, Operator::Eq)?.into_array();
 
-    let traced = trace_op(|| compared.optimize())?;
+    let traced = trace_op(|| compared.optimize(&SESSION))?;
     insta::assert_snapshot!(traced.trace.to_string(), @"
-    optimize root=vortex.binary(bool, len=9) session=false
+    optimize root=vortex.binary(bool, len=9)
       reduce_parent static:RunEndScalarFnRule slot=0 parent=vortex.binary(bool, len=9) child=vortex.runend(i32, len=9) -> vortex.runend(bool, len=9)
       done output=vortex.runend(bool, len=9)
     ");
@@ -64,6 +68,11 @@ fn trace_compare_on_runend() -> VortexResult<()> {
         &mut execution_ctx()
     );
     insta::assert_snapshot!(traced.trace.to_string(), @"
+    optimize_recursive root=vortex.runend(bool, len=9)
+    optimize_recursive root=vortex.primitive(u8, len=3)
+    optimize_recursive root=vortex.binary(bool, len=3)
+    optimize_recursive root=vortex.primitive(i32, len=3)
+    optimize_recursive root=vortex.constant(i32, len=3)
     execute_until target=AnyCanonical root=vortex.runend(bool, len=9)
       iter 0 current=vortex.runend(bool, len=9) builder_active=false
         ExecuteSlot slot=1 parent=vortex.runend(bool, len=9) child=vortex.binary(bool, len=3)
@@ -74,6 +83,7 @@ fn trace_compare_on_runend() -> VortexResult<()> {
       iter 3 current=vortex.runend(bool, len=9) builder_active=false
         Done array=vortex.bool(bool, len=9)
       iter 4 current=vortex.bool(bool, len=9) builder_active=false
+    optimize_recursive root=vortex.bool(bool, len=9)
       return output=vortex.bool(bool, len=9)
     ");
 
@@ -101,12 +111,17 @@ fn trace_filter_on_runend() -> VortexResult<()> {
         &mut execution_ctx()
     );
     insta::assert_snapshot!(traced.trace.to_string(), @"
+    optimize_recursive root=vortex.filter(i32, len=4)
+    optimize_recursive root=vortex.runend(i32, len=9)
+    optimize_recursive root=vortex.primitive(u8, len=3)
+    optimize_recursive root=vortex.primitive(i32, len=3)
     execute_until target=AnyCanonical root=vortex.filter(i32, len=4)
       iter 0 current=vortex.filter(i32, len=4) builder_active=false
         child_execute_parent session[0]:execute_parent_fn slot=0 parent=vortex.filter(i32, len=4) child=vortex.runend(i32, len=9) -> vortex.dict(i32, len=4)
       iter 1 current=vortex.dict(i32, len=4) builder_active=false
         child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(i32, len=4) child=vortex.primitive(i32, len=3) -> vortex.primitive(i32, len=4)
       iter 2 current=vortex.primitive(i32, len=4) builder_active=false
+    optimize_recursive root=vortex.primitive(i32, len=4)
       return output=vortex.primitive(i32, len=4)
     ");
 
@@ -131,12 +146,18 @@ fn trace_take_on_runend() -> VortexResult<()> {
         &mut execution_ctx()
     );
     insta::assert_snapshot!(traced.trace.to_string(), @"
+    optimize_recursive root=vortex.dict(i32, len=4)
+    optimize_recursive root=vortex.primitive(u64, len=4)
+    optimize_recursive root=vortex.runend(i32, len=9)
+    optimize_recursive root=vortex.primitive(u8, len=3)
+    optimize_recursive root=vortex.primitive(i32, len=3)
     execute_until target=AnyCanonical root=vortex.dict(i32, len=4)
       iter 0 current=vortex.dict(i32, len=4) builder_active=false
         child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(i32, len=4) child=vortex.runend(i32, len=9) -> vortex.dict(i32, len=4)
       iter 1 current=vortex.dict(i32, len=4) builder_active=false
         child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(i32, len=4) child=vortex.primitive(i32, len=3) -> vortex.primitive(i32, len=4)
       iter 2 current=vortex.primitive(i32, len=4) builder_active=false
+    optimize_recursive root=vortex.primitive(i32, len=4)
       return output=vortex.primitive(i32, len=4)
     ");
 

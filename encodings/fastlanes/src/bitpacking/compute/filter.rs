@@ -150,6 +150,7 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::dtype::NativePType;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::Buffer;
@@ -507,7 +508,8 @@ mod tests {
             PrimitiveArray::from_iter((0..5000u32).map(|i| <T as From<u8>>::from((i % 100) as u8)));
         let bitpacked = BitPackedData::encode(&unpacked.into_array(), 7, &mut ctx)?
             .into_array()
-            .slice(range.clone())?;
+            .slice(range.clone())?
+            .optimize(&SESSION)?;
         let bitpacked = bitpacked.as_::<BitPacked>();
 
         let bits = selection(pattern, range.len());

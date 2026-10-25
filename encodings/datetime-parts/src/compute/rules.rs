@@ -16,7 +16,6 @@ use vortex_array::arrays::slice::SliceReduceAdaptor;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::extension::datetime::Timestamp;
-use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar_fn::fns::between::Between;
@@ -143,9 +142,7 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPComparisonPushDownRule {
             }
         }
 
-        let result = ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?
-            .into_array()
-            .optimize()?;
+        let result = ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?.into_array();
 
         Ok(Some(result))
     }
@@ -291,7 +288,7 @@ mod tests {
             .into_array();
 
         // Optimize should push down to days
-        let optimized = comparison.optimize().unwrap();
+        let optimized = comparison.optimize(&SESSION).unwrap();
 
         // Verify correctness: days [0, 1, 2] <= 1 should give [true, true, false]
         let mut ctx = SESSION.create_execution_ctx();
@@ -325,7 +322,7 @@ mod tests {
         .into_array();
 
         // Optimize should push down to days
-        let optimized = between.optimize().unwrap();
+        let optimized = between.optimize(&SESSION).unwrap();
 
         // Verify correctness: days [0, 1, 2, 3, 4] between 1 and 3 should give [false, true, true, true, false]
         let mut ctx = SESSION.create_execution_ctx();
@@ -363,7 +360,7 @@ mod tests {
         let constant = ConstantArray::new(scalar, dtp.len()).into_array();
         let comparison = Binary::try_new(dtp, constant, Operator::Lte)?.into_array();
 
-        let optimized = comparison.optimize()?;
+        let optimized = comparison.optimize(&SESSION)?;
         assert_eq!(optimized.dtype(), comparison.dtype());
 
         let mut ctx = SESSION.create_execution_ctx();
@@ -388,7 +385,7 @@ mod tests {
             .into_array();
 
         // Optimize should NOT push down (constant has non-zero seconds)
-        let optimized = comparison.optimize().unwrap();
+        let optimized = comparison.optimize(&SESSION).unwrap();
 
         // days [0, 1, 2] at midnight <= day 1 at noon: [true, true, false]
         let mut ctx = SESSION.create_execution_ctx();
@@ -424,7 +421,7 @@ mod tests {
             .into_array();
 
         // Should still compute correctly (just not optimized via pushdown)
-        let optimized = comparison.optimize().unwrap();
+        let optimized = comparison.optimize(&SESSION).unwrap();
         // timestamps at 1am on days [0, 1, 2] <= day 1 midnight: [true, false, false]
         assert_arrays_eq!(
             optimized,
