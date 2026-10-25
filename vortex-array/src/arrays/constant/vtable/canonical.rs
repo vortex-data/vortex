@@ -311,7 +311,7 @@ fn constant_canonical_list_array(
 }
 
 /// The elements of a list scalar as an array, one row per element; empty for a null list.
-fn list_scalar_elements(list: &ListScalar, allocator: &BufferAllocatorRef) -> ArrayRef {
+pub(crate) fn list_scalar_elements(list: &ListScalar, allocator: &BufferAllocatorRef) -> ArrayRef {
     let element_dtype = list.element_dtype();
     let Some(elements) = list.element_values() else {
         return Canonical::empty(element_dtype).into_array();

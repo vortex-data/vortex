@@ -9,12 +9,15 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use itertools::Itertools;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
+use crate::ArrayRef;
+use crate::arrays::constant::list_scalar_elements;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
@@ -166,6 +169,14 @@ impl<'a> ListScalar<'a> {
     /// Returns None if the list is null.
     pub(crate) fn element_values(&self) -> Option<&'a [Option<ScalarValue>]> {
         self.elements
+    }
+
+    /// Returns the elements of the list as an array, one row per element, null elements
+    /// included.
+    ///
+    /// Returns an empty array if the list is null.
+    pub(crate) fn elements_array(&self, allocator: &BufferAllocatorRef) -> ArrayRef {
+        list_scalar_elements(self, allocator)
     }
 
     /// Returns all elements in the list as a vector of scalars.

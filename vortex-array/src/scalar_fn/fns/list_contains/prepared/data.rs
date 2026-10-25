@@ -27,8 +27,6 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
-use crate::arrays::ListViewArray;
-use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnRef;
@@ -154,13 +152,8 @@ impl PreparedSetData {
         self.0
             .haystack
             .get_or_init(|| {
-                // The canonical form of a constant list holds its elements once, whatever its
-                // length.
-                ConstantArray::new(self.list().clone(), 1)
-                    .into_array()
-                    .execute::<ListViewArray>(ctx)
-                    .and_then(|list| ArrayHaystack::try_new(list.elements(), ctx))
-                    .map_err(Arc::new)
+                let elements = self.list().as_list().elements_array(ctx.allocator());
+                ArrayHaystack::try_new(&elements, ctx).map_err(Arc::new)
             })
             .as_ref()
             .map_err(|err| Arc::clone(err).into())

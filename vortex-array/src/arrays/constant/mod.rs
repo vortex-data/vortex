@@ -9,6 +9,7 @@ pub use arbitrary::ArbitraryConstantArray;
 mod array;
 pub use array::ConstantData;
 pub use vtable::ConstantArray;
+pub(crate) use vtable::canonical::list_scalar_elements;
 
 pub(crate) mod compute;
 
