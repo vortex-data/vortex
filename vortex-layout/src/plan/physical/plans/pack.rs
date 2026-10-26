@@ -27,7 +27,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_expr::descendent_bound_annotations;
 use vortex_expr::make_bound_free_field_annotator;
-use vortex_expr::transform::partition_bound;
+use vortex_expr::transform::partition_bound_annotations;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -339,18 +339,12 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
 
         let expression = parent.expression();
         let fields = child.fields();
-        let referenced_fields =
-            descendent_bound_annotations(expression, make_bound_free_field_annotator(fields))
-                .get(&ExactBoundExpr(expression.clone()))
-                .vortex_expect("Bound expression missing free-field annotations")
-                .clone();
-        // Most predicates reference one field. Avoid expanding the struct and building a
-        // partition tree when rebinding the expression to that field is sufficient.
-        if referenced_fields.len() == 1 {
-            let name = referenced_fields
-                .iter()
-                .next()
-                .vortex_expect("one referenced field");
+        // Most predicates reference one field. Find it without allocating annotations for
+        // every expression node; struct-valued expressions use the general partitioner below.
+        let mut single_field = None;
+        if collect_single_field(expression, &mut single_field)
+            && let Some(name) = single_field
+        {
             let index = fields.find(name).ok_or_else(|| {
                 vortex_err!("Struct expression references unknown field '{name}'")
             })?;
@@ -361,8 +355,13 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
             }
         }
         let expanded = expand_struct_root(expression.clone(), fields)?;
-        let partitioned =
-            partition_bound(expanded.clone(), make_bound_free_field_annotator(fields))?;
+        let annotations =
+            descendent_bound_annotations(&expanded, make_bound_free_field_annotator(fields));
+        let referenced_fields = annotations
+            .get(&ExactBoundExpr(expanded.clone()))
+            .vortex_expect("Bound expression missing free-field annotations")
+            .clone();
+        let partitioned = partition_bound_annotations(expanded.clone(), annotations)?;
 
         if partitioned.partition_names.is_empty() {
             let selected_indices = fields
@@ -459,6 +458,32 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
 
         Ok(Some(EvalPlan::try_new(residual, rewritten)?.into_plan()))
     }
+}
+
+/// Detects one top-level field without annotating the whole tree. Bare roots and selects
+/// fall back to the general partitioner, which handles their struct-valued scopes.
+fn collect_single_field<'a>(
+    expression: &'a BoundExpression,
+    field: &mut Option<&'a FieldName>,
+) -> bool {
+    if expression.is_root() {
+        return false;
+    }
+    if let Some(name) = expression
+        .as_scalar()
+        .and_then(|function| function.as_opt::<GetItem>())
+        && expression.children()[0].is_root()
+    {
+        if let Some(previous) = *field {
+            return previous == name;
+        }
+        *field = Some(name);
+        return true;
+    }
+    expression
+        .children()
+        .iter()
+        .all(|child| collect_single_field(child, field))
 }
 
 /// Rebinds a partitioned residual expression after collapsing single-value partitions.
