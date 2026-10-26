@@ -447,6 +447,36 @@ fn int_constant_lhs_and_rhs(#[case] op: Operator, #[case] expected: [bool; 4]) {
     assert_arrays_eq!(swapped, BoolArray::from_iter(expected_swapped), &mut ctx);
 }
 
+/// A constant left operand is moved to the right with the swapped operator. The 65 rows span one
+/// full bitmap word and a partial word.
+#[rstest]
+#[case(Operator::Eq)]
+#[case(Operator::NotEq)]
+#[case(Operator::Lt)]
+#[case(Operator::Lte)]
+#[case(Operator::Gt)]
+#[case(Operator::Gte)]
+fn int_constant_lhs_all_operators(#[case] op: Operator) {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values: Vec<i64> = (0..65).collect();
+    let array = PrimitiveArray::from_iter(values.iter().copied()).into_array();
+    let constant = ConstantArray::new(32i64, values.len()).into_array();
+
+    let compare = |lhs: i64, rhs: i64| match op {
+        Operator::Eq => lhs == rhs,
+        Operator::NotEq => lhs != rhs,
+        Operator::Lt => lhs < rhs,
+        Operator::Lte => lhs <= rhs,
+        Operator::Gt => lhs > rhs,
+        Operator::Gte => lhs >= rhs,
+        _ => unreachable!(),
+    };
+    let expected = BoolArray::from_iter(values.iter().map(|&value| compare(32, value)));
+
+    let result = execute_compare_test(constant, array, op);
+    assert_arrays_eq!(result, expected, &mut ctx);
+}
+
 /// Floats compare with Vortex's total ordering: NaN is the largest value, equality is bitwise,
 /// and -0.0 < +0.0. This matches `Scalar` comparison semantics.
 #[rstest]
