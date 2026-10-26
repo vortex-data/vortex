@@ -75,7 +75,9 @@ impl FilterPlans {
             .iter()
             .map(|expr| {
                 expr.falsify(session)?
-                    .map(|pruning| optimize(plan_row_idx_expression(pruning, root.clone())?, session))
+                    .map(|pruning| {
+                        optimize(plan_row_idx_expression(pruning, root.clone())?, session)
+                    })
                     .transpose()
             })
             .map(|plan| {

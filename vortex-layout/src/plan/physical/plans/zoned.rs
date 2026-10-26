@@ -495,7 +495,11 @@ pub(crate) fn is_zone_pruning(eval: &Plan<Eval>) -> VortexResult<bool> {
 pub(crate) struct ZonedDataRule;
 
 impl PlanReduceRule<Zoned> for ZonedDataRule {
-    fn reduce(&self, plan: &Plan<Zoned>, _session: &VortexSession) -> VortexResult<Option<PlanRef>> {
+    fn reduce(
+        &self,
+        plan: &Plan<Zoned>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<PlanRef>> {
         plan.data_plan()
     }
 }
