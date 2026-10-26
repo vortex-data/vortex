@@ -30,6 +30,8 @@ use vortex::array::expr::stats::Stat;
 use vortex::array::scalar::Scalar;
 use vortex::array::stats::StatsSet;
 use vortex::buffer::ByteBufferMut;
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::scan::DataSource as ScanDataSource;
@@ -37,8 +39,6 @@ use vortex::scan::DataSourceScanRef;
 use vortex::scan::ScanRequest;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
-use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 
 use super::VortexDataSource;
 
