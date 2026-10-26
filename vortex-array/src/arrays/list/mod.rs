@@ -13,7 +13,8 @@ pub use vtable::ListArray;
 pub(crate) mod compute;
 
 mod rebuild;
-pub(crate) use rebuild::null_lists_hold_elements;
+pub(crate) use rebuild::drop_unreferenced_elements;
+pub(crate) use rebuild::null_runs_holding_elements;
 
 mod vtable;
 pub use vtable::List;

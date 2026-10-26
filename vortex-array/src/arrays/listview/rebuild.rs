@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::FromPrimitive;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -16,11 +17,10 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PiecewiseSequenceArray;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::list::null_lists_hold_elements;
+use crate::arrays::list::drop_unreferenced_elements;
+use crate::arrays::list::null_runs_holding_elements;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
-use crate::arrays::listview::list_from_list_view;
-use crate::arrays::listview::list_view_from_list;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::IntegerPType;
@@ -87,6 +87,9 @@ pub enum ListViewRebuildMode {
 
     /// Equivalent to `MakeZeroCopyToList` plus `TrimElements`.
     ///
+    /// An array that is not yet zero-copy to a [`ListArray`] is copied with only its valid lists'
+    /// elements, and its null lists come out empty.
+    ///
     /// This is useful when concatenating multiple [`ListViewArray`]s together to create a new
     /// [`ListViewArray`] that is also zero-copy to a [`ListArray`].
     ///
@@ -127,40 +130,78 @@ impl ListViewArray {
     /// Rebuilds the [`ListViewArray`] over only the elements that valid lists reference: nothing
     /// before the first list, after the last, between lists or under a null list.
     ///
-    /// Lists that are zero-copy to a [`ListArray`] keep their layout, with their ends sliced off,
-    /// unless a null list holds elements. Other lists are rebuilt back to back. An array with
-    /// nothing to drop is returned as it is.
+    /// The result is zero-copy to a [`ListArray`] and its null lists are empty. A non-empty array
+    /// that is already zero-copy to a [`ListArray`] keeps its offsets' and sizes' types, and is
+    /// returned as it is when there is nothing to drop. Any other array is rebuilt with
+    /// [`MakeExact`](ListViewRebuildMode::MakeExact).
     ///
     /// [`ListArray`]: crate::arrays::ListArray
     pub fn rebuild_with_referenced_valid_elements(
         &self,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ListViewArray> {
-        if !self.is_zero_copy_to_list() {
-            // The rebuild lays out only the valid lists' elements, and leaves null lists empty.
+        if self.is_empty() || !self.is_zero_copy_to_list() {
             return self.rebuild(ListViewRebuildMode::MakeExact, ctx);
         }
-        if self.is_empty() {
-            return self.rebuild(ListViewRebuildMode::TrimElements, ctx);
-        }
-        let valid = self.validity()?.execute_mask(self.len(), ctx)?;
-        let sizes = self.sizes().clone().execute::<PrimitiveArray>(ctx)?;
-        let null_lists_empty = match_each_integer_ptype!(sizes.ptype(), |S| {
-            let sizes = sizes.as_slice::<S>();
-            !null_lists_hold_elements(&valid, |index| sizes[index] != S::default())
-        });
-        if !null_lists_empty {
-            // The lists are back to back, so they are a `ListArray`'s, without copying.
-            let list = list_from_list_view(self.clone(), ctx)?
-                .rebuild_with_referenced_valid_elements(ctx)?;
-            return list_view_from_list(list, ctx);
-        }
-        let (start, end) = self.referenced_element_bounds(ctx)?;
-        if start == 0 && end == self.elements().len() {
+        let validity = self.validity()?;
+        // The lists are back to back, so the last one ends where the referenced elements do.
+        let last = self.len() - 1;
+        let end = self.offset_at(last, ctx) + self.size_at(last, ctx);
+        if validity.definitely_no_nulls()
+            && self.offset_at(0, ctx) == 0
+            && end == self.elements().len()
+        {
             return Ok(self.clone());
         }
-        // SAFETY: the bounds are the referenced elements' bounds.
-        unsafe { self.trim_elements(start, end) }
+
+        let offsets = self.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+        let offsets_ptype = offsets.ptype();
+        // Offsets are never negative, so they are rebuilt unsigned and reinterpreted back.
+        let offsets = offsets.reinterpret_cast(offsets_ptype.to_unsigned());
+        let valid = validity.execute_mask(self.len(), ctx)?;
+        match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
+            self.rebuild_back_to_back(offsets.as_slice::<O>(), offsets_ptype, end, &valid, ctx)
+        })
+    }
+
+    /// [`rebuild_with_referenced_valid_elements`](Self::rebuild_with_referenced_valid_elements)
+    /// for an array that is zero-copy to a list, whose lists start at `starts` and end at `end`.
+    fn rebuild_back_to_back<O: IntegerPType>(
+        &self,
+        starts: &[O],
+        offsets_ptype: PType,
+        end: usize,
+        valid: &Mask,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ListViewArray> {
+        let null_runs = null_runs_holding_elements(starts, end, valid);
+        if null_runs.is_empty() && starts[0].as_() == 0 && end == self.elements().len() {
+            return Ok(self.clone());
+        }
+
+        let (elements, offsets) =
+            drop_unreferenced_elements(self.elements(), starts, end, &null_runs, ctx.allocator())?;
+        let offsets = PrimitiveArray::new(offsets.freeze(), Validity::NonNullable)
+            .reinterpret_cast(offsets_ptype)
+            .into_array();
+        let sizes = if null_runs.is_empty() {
+            self.sizes().clone()
+        } else {
+            let sizes = self.sizes().clone().execute::<PrimitiveArray>(ctx)?;
+            let sizes_ptype = sizes.ptype();
+            let sizes = sizes.reinterpret_cast(sizes_ptype.to_unsigned());
+            let sizes = match_each_unsigned_integer_ptype!(sizes.ptype(), |S| {
+                empty_runs(sizes.as_slice::<S>(), &null_runs, ctx.allocator())
+            });
+            sizes.reinterpret_cast(sizes_ptype).into_array()
+        };
+
+        // SAFETY: the lists stay back to back and in order over the elements kept: each valid list
+        // keeps its elements, and each null list that held elements is now empty.
+        Ok(unsafe {
+            ListViewArray::new_unchecked(elements, offsets, sizes, self.validity()?)
+                .with_zero_copy_to_list(true)
+        })
     }
 
     /// Rebuilds a [`ListViewArray`], removing all data overlaps and creating a flattened layout.
@@ -431,6 +472,23 @@ impl ListViewArray {
     }
 }
 
+/// The sizes with the lists in `runs` emptied.
+fn empty_runs<S: IntegerPType>(
+    sizes: &[S],
+    runs: &[(usize, usize)],
+    allocator: &BufferAllocatorRef,
+) -> PrimitiveArray {
+    let mut emptied = BufferMut::with_capacity_in(sizes.len(), allocator.clone());
+    let mut from = 0;
+    for &(run_start, run_end) in runs {
+        emptied.extend_from_slice(&sizes[from..run_start]);
+        emptied.push_n(S::zero(), run_end - run_start);
+        from = run_end;
+    }
+    emptied.extend_from_slice(&sizes[from..]);
+    PrimitiveArray::new(emptied.freeze(), Validity::NonNullable)
+}
+
 struct RebuildRanges<NewOffset, S> {
     new_offsets: BufferMut<NewOffset>,
     new_sizes: BufferMut<S>,
@@ -496,20 +554,31 @@ where
 
 #[cfg(test)]
 mod tests {
+    use rand::RngExt;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_error::VortexResult;
 
     use super::super::tests::common::SESSION;
     use super::ListViewRebuildMode;
+    use crate::ArrayRef;
+    use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
+    use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::list::ListArraySlotsExt;
     use crate::arrays::listview::ListViewArrayExt;
     use crate::arrays::listview::ListViewArraySlotsExt;
     use crate::assert_arrays_eq;
+    use crate::builtins::ArrayBuiltins;
+    use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::validity::Validity;
 
     #[rstest]
@@ -538,6 +607,46 @@ mod tests {
         false,
         &[3, 1, 2],
         &[(0, 1), (1, 2)]
+    )]
+    #[case::null_list_holding_elements_not_zero_copy(
+        &[9, 1, 9, 2],
+        &[(1, 1), (2, 1), (3, 1)],
+        &[true, false, true],
+        false,
+        &[1, 2],
+        &[(0, 1), (1, 0), (1, 1)]
+    )]
+    #[case::empty_null_list_with_leftovers_at_the_ends(
+        &[9, 1, 2, 9],
+        &[(1, 1), (2, 0), (2, 1)],
+        &[true, false, true],
+        true,
+        &[1, 2],
+        &[(0, 1), (1, 0), (1, 1)]
+    )]
+    #[case::every_list_null(
+        &[9, 9],
+        &[(0, 1), (1, 1)],
+        &[false, false],
+        true,
+        &[],
+        &[(0, 0), (0, 0)]
+    )]
+    #[case::empty_lists_with_leftovers(
+        &[9, 9],
+        &[(1, 0), (1, 0)],
+        &[true, true],
+        true,
+        &[],
+        &[(0, 0), (0, 0)]
+    )]
+    #[case::overlapping_lists(
+        &[1, 2, 3, 9],
+        &[(0, 3), (1, 2)],
+        &[true, true],
+        false,
+        &[1, 2, 3, 2, 3],
+        &[(0, 3), (3, 2)]
     )]
     fn rebuild_with_referenced_valid_elements(
         #[case] elements: &[i32],
@@ -575,6 +684,134 @@ mod tests {
             &mut ctx
         );
         assert_arrays_eq!(rebuilt, view, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::non_nullable(Validity::NonNullable)]
+    #[case::empty_null_list(Validity::from_iter([true, false, true]))]
+    fn rebuild_with_referenced_valid_elements_returns_an_exact_list_view_as_is(
+        #[case] validity: Validity,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let view = ListViewArray::try_new(
+            PrimitiveArray::from_iter([1i32, 2, 3]).into_array(),
+            PrimitiveArray::from_iter([0u32, 1, 1]).into_array(),
+            PrimitiveArray::from_iter([1u32, 0, 2]).into_array(),
+            validity,
+            &mut ctx,
+        )?;
+        // SAFETY: the lists are sorted with nothing between them.
+        let view = unsafe { view.with_zero_copy_to_list(true) };
+        let rebuilt = view.rebuild_with_referenced_valid_elements(&mut ctx)?;
+        assert!(ArrayRef::ptr_eq(rebuilt.elements(), view.elements()));
+        assert!(ArrayRef::ptr_eq(rebuilt.offsets(), view.offsets()));
+        assert!(ArrayRef::ptr_eq(rebuilt.sizes(), view.sizes()));
+        Ok(())
+    }
+
+    /// `values` as a primitive array of `ptype`.
+    fn primitive_of(
+        values: impl IntoIterator<Item = u32>,
+        ptype: PType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        Ok(PrimitiveArray::from_iter(values)
+            .into_array()
+            .cast(DType::Primitive(ptype, Nullability::NonNullable))?
+            .execute::<PrimitiveArray>(ctx)?
+            .into_array())
+    }
+
+    /// Random lists with elements before, after and under null lists, rebuilt as a `ListArray`
+    /// and as list views with and without the zero-copy flag, against a reference that gathers
+    /// each valid list's elements back to back.
+    #[test]
+    fn rebuild_with_referenced_valid_elements_matches_a_reference() -> VortexResult<()> {
+        const PTYPES: [PType; 5] = [PType::U8, PType::U16, PType::U64, PType::I32, PType::I64];
+        let u32_dtype = DType::Primitive(PType::U32, Nullability::NonNullable);
+        let mut ctx = SESSION.create_execution_ctx();
+        let mut rng = StdRng::seed_from_u64(0);
+        for _ in 0..500 {
+            let len = rng.random_range(0..10usize);
+            let mut offset = rng.random_range(0..3u32);
+            let mut offsets = vec![offset];
+            for _ in 0..len {
+                offset += rng.random_range(0..3u32);
+                offsets.push(offset);
+            }
+            let elements_len = offset + rng.random_range(0..3u32);
+            let valid: Vec<bool> = (0..len).map(|_| rng.random_bool(0.6)).collect();
+            let validity = match rng.random_range(0..3u8) {
+                0 if valid.iter().all(|valid| *valid) => Validity::NonNullable,
+                // Validity that starts mid-byte.
+                1 => Validity::Array(
+                    BoolArray::from_iter([false].into_iter().chain(valid.iter().copied()))
+                        .into_array()
+                        .slice(1..len + 1)?,
+                ),
+                _ => Validity::from_iter(valid.iter().copied()),
+            };
+            let ptype = PTYPES[rng.random_range(0..PTYPES.len())];
+
+            let mut expected_elements = Vec::new();
+            let mut expected_offsets = vec![0u32];
+            let mut kept = 0u32;
+            for (bounds, is_valid) in offsets.windows(2).zip(&valid) {
+                if *is_valid {
+                    expected_elements.extend(bounds[0]..bounds[1]);
+                    kept += bounds[1] - bounds[0];
+                }
+                expected_offsets.push(kept);
+            }
+            let expected_elements = PrimitiveArray::from_iter(expected_elements);
+            let expected_sizes =
+                PrimitiveArray::from_iter(expected_offsets.windows(2).map(|w| w[1] - w[0]));
+
+            let elements = PrimitiveArray::from_iter(0..elements_len).into_array();
+            let list = ListArray::try_new(
+                elements.clone(),
+                primitive_of(offsets.iter().copied(), ptype, &mut ctx)?,
+                validity.clone(),
+                &mut ctx,
+            )?;
+            let rebuilt = list.rebuild_with_referenced_valid_elements(&mut ctx)?;
+            assert_arrays_eq!(rebuilt.elements().clone(), expected_elements.clone(), &mut ctx);
+            assert_eq!(rebuilt.offsets().dtype(), list.offsets().dtype());
+            assert_arrays_eq!(
+                rebuilt.offsets().cast(u32_dtype.clone())?,
+                PrimitiveArray::from_iter(expected_offsets.iter().copied()),
+                &mut ctx
+            );
+            assert_arrays_eq!(rebuilt, list, &mut ctx);
+
+            for zero_copy_to_list in [true, false] {
+                let view = ListViewArray::try_new(
+                    elements.clone(),
+                    primitive_of(offsets[..len].iter().copied(), ptype, &mut ctx)?,
+                    primitive_of(offsets.windows(2).map(|w| w[1] - w[0]), ptype, &mut ctx)?,
+                    validity.clone(),
+                    &mut ctx,
+                )?;
+                // SAFETY: the views are a `ListArray`'s lists, sorted with nothing between them.
+                let view = unsafe { view.with_zero_copy_to_list(zero_copy_to_list) };
+                let rebuilt = view.rebuild_with_referenced_valid_elements(&mut ctx)?;
+                assert!(rebuilt.is_zero_copy_to_list());
+                assert_arrays_eq!(rebuilt.elements().clone(), expected_elements.clone(), &mut ctx);
+                // The copy widens the offsets, so compare their values.
+                assert_arrays_eq!(
+                    rebuilt.offsets().cast(u32_dtype.clone())?,
+                    PrimitiveArray::from_iter(expected_offsets[..len].iter().copied()),
+                    &mut ctx
+                );
+                assert_arrays_eq!(
+                    rebuilt.sizes().cast(u32_dtype.clone())?,
+                    expected_sizes.clone(),
+                    &mut ctx
+                );
+                assert_arrays_eq!(rebuilt, view, &mut ctx);
+            }
+        }
         Ok(())
     }
 
