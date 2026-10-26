@@ -70,6 +70,10 @@ impl TakeExecute for Pco {
         if indices.is::<PiecewiseSequence>() {
             return Ok(None);
         }
+        let PageIndex::IndexedFast(index) = array.page_index()? else {
+            return Ok(None);
+        };
+        let view = index.view();
         let grouped;
         let runs = {
             let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
@@ -351,10 +355,6 @@ fn gather_grouped<T: Number + NativePType, const NULLABLE: bool>(
         while cursor < resolved.len() {
             let page = resolved[cursor].0;
             let end = cursor + resolved[cursor..].partition_point(|request| request.0 == page);
-            let PageIndex::IndexedFast(index) = array.page_index()? else {
-                return Ok(None);
-            };
-            let view = index.view();
             let compact = PrimitiveArray::from_iter(
                 resolved[cursor..end]
                     .iter()
