@@ -38,8 +38,13 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 /// 64 blocks of `u32`, 256 KiB in all: shorter iterations are noisy on the walltime legs.
 const NUM_BLOCKS: usize = 64;
 
+// CodSpeed compares the fastest sample of a walltime run. With one iteration per sample, that is
+// the single fastest iteration out of 1000. Over 100 runs on the AVX2 leg, the median stayed
+// within 1%, but the fastest iteration was near 6.7 µs in 29 runs and near 7.55 µs in the others,
+// so CodSpeed reported a 12% change whenever two runs fell on different sides. A sample of 8
+// iterations reports their average, so one fast iteration no longer sets the result.
 #[vortex_bench_support::cpu_features]
-#[divan::bench]
+#[divan::bench(sample_size = 8)]
 fn bitpack_blocked_compress(bencher: Bencher) {
     // Block widths cycle from 1 to 16 bits, so the blocks take different packing kernels.
     let bit_widths: Vec<u8> = (1..=16).cycle().take(NUM_BLOCKS).collect();

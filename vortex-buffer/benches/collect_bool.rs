@@ -121,8 +121,13 @@ fn bench_words_gather(
         .bench_refs(|words| collect(words, len, &bools));
 }
 
+// A 65536-bool gather takes 1 to 2 µs on the walltime legs, which is close to the point where
+// divan stops tuning the sample size. Left to tune, divan picked 1, 2 or 4 iterations per sample
+// from one run to the next, and each choice reported its own time: 1.98 to 2.01 µs with one
+// iteration and 1.80 to 1.82 µs with two on the Graviton leg. A fixed `sample_size` removes that
+// choice, and 16 iterations make each 65536-bool sample take at least 16 µs on every leg.
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = GATHER_INPUT_SIZE)]
+#[divan::bench(args = GATHER_INPUT_SIZE, sample_size = 16)]
 fn words_gather_dispatch(bencher: Bencher, len: usize) {
     bench_words_gather(bencher, len, |words, len, bools| {
         // SAFETY: `collect_bool_words` invokes the predicate with indices `0..len` only.

@@ -153,9 +153,11 @@ Aim for at least a few microseconds of real work per iteration:
   range, as `vortex-array/benches/filter_fixed_width.rs` does.
 
 Benchmarks tagged `#[cpu_features]` run on the walltime legs instead, where the floor is timer
-resolution and per-iteration jitter. Give those at least tens of microseconds per iteration, and
-keep the working set inside the L2 cache of the leg machines (1 MiB on the Graviton leg) when the
-benchmark is about kernel code rather than memory bandwidth.
+resolution and per-iteration jitter. Give each sample of those at least tens of microseconds,
+with more work per iteration or with a fixed `sample_size` (see
+[How CodSpeed measures a benchmark](#how-codspeed-measures-a-benchmark)). Keep the working set
+inside the L2 cache of the leg machines (1 MiB on the Graviton leg) when the benchmark is about
+kernel code rather than memory bandwidth.
 
 ### Gate CodSpeed-incompatible benchmarks
 
@@ -170,19 +172,48 @@ noisiest series in the suite. Keep them for local `cargo bench` comparisons, but
 `#[cfg(not(codspeed))]` and leave them untagged, as `vortex-compute/benches/lane_kernels.rs` and
 `vortex-buffer/benches/collect_bool.rs` do.
 
-### CodSpeed's single-run model
+### How CodSpeed measures a benchmark
 
-CI benchmarks run under [CodSpeed's CPU simulation](https://codspeed.io/docs/instruments/cpu),
-which executes each benchmark **exactly once** and estimates CPU cycles from the instruction
-trace — including cache and memory access costs. This has several implications:
+CodSpeed measures a benchmark in one of two ways. The way depends on whether the benchmark has
+`#[cpu_features]`.
 
-- **`sample_count` and `sample_size` have no effect** — CodSpeed always runs one iteration.
-- **Results are deterministic** — the simulated cycle count is derived from the instruction
-  trace, not wall-clock time, so there is no noise from system load or scheduling.
-- **System calls are excluded** — CodSpeed only measures user-space code. Benchmarks that
-  rely on I/O or kernel interactions will not reflect those costs, so they should use the
+**Simulation.** Benchmarks without `#[cpu_features]` run under
+[CodSpeed's CPU simulation](https://codspeed.io/docs/instruments/cpu). The simulation runs each
+benchmark **exactly once** and estimates CPU cycles from the instruction trace, including cache
+and memory access costs. This has three results:
+
+- `sample_count` and `sample_size` have no effect. CodSpeed always runs one iteration.
+- System load does not change the result, because the estimate comes from the instruction trace
+  and not from a clock. Some benchmarks still switch between two values on pull requests that
+  change no Rust code (see [Known unstable benchmarks](#known-unstable-benchmarks)).
+- System calls are not measured. A benchmark that depends on I/O or kernel calls does not show
+  their cost, so it must use the
   [walltime instrument](https://codspeed.io/docs/instruments/walltime) or be gated with
   `#[cfg(not(codspeed))]`.
+
+**Walltime legs.** Benchmarks with `#[cpu_features]` run on dedicated machines, once for each CPU
+feature set (AVX2, AVX-512 and NEON). `.github/workflows/codspeed.yml` defines the legs. Each leg
+measures wall-clock time with divan:
+
+- Divan takes 1000 samples (`DIVAN_SAMPLE_COUNT` in the workflow).
+- Divan picks the number of iterations in one sample (the sample size) from the first sample. If
+  the first sample takes more than 100 times the timer precision (about 3 µs), divan uses one
+  iteration per sample. The first sample is cold and slow, so most walltime benchmarks run with
+  one iteration per sample.
+- CodSpeed compares the **fastest** sample of the pull request run with the fastest sample of the
+  base run. It does not compare the median.
+
+These three facts cause most of the walltime noise. With one iteration per sample, the fastest
+sample is the single fastest iteration out of 1000, so one unusually fast iteration changes the
+result. A benchmark near the 3 µs limit can also get a different sample size in each run, and each
+sample size reports a different time.
+
+For a short walltime benchmark, set `sample_size` in `#[divan::bench]` so that one sample takes
+tens of microseconds. CodSpeed then compares the average of several iterations, and the sample
+size is the same in every run. The setting has no effect in simulation.
+`vortex-buffer/benches/collect_bool.rs` and `encodings/fastlanes/benches/bitpack_blocked.rs` do
+this. Use a literal value: under `--cfg codspeed`, the simulation build ignores the setting, and a
+named constant becomes unused.
 
 ### Use `mimalloc` as the global allocator
 
@@ -200,6 +231,54 @@ values on pull requests that could not have affected them. `mimalloc` does the s
 time, and one allocator for every binary means no benchmark measures a different allocator from
 its neighbours. Add the two lines to every new benchmark file; each crate with benchmarks already
 has the `mimalloc` dev-dependency.
+
+## What Not to Do
+
+The mistakes below have made CodSpeed report regressions on pull requests that did not change the
+measured code. Such reports teach reviewers to ignore CodSpeed, and then real regressions pass
+unnoticed.
+
+- **Do not write a benchmark that does tens of nanoseconds of work.** In simulation, the fixed
+  harness cost is larger than the work, and that cost moves between runs. See
+  [Keep per-iteration work above the harness floor](#keep-per-iteration-work-above-the-harness-floor).
+- **Do not leave a short walltime benchmark to divan's sample-size tuning.** Below about 3 µs per
+  iteration, divan can pick a different sample size in each run, and each sample size reports a
+  different time. Set `sample_size` (see
+  [How CodSpeed measures a benchmark](#how-codspeed-measures-a-benchmark)).
+- **Do not assume that a stable median gives a stable CodSpeed result.** CodSpeed compares the
+  fastest sample. A walltime benchmark with a median that moves by less than 1% can still report a
+  12% change when some runs have a few fast iterations.
+- **Do not measure code that a pull request cannot change.** Third-party kernels and frozen copies
+  of old implementations only add noise to CodSpeed. See
+  [Keep third-party and frozen baselines out of CodSpeed](#keep-third-party-and-frozen-baselines-out-of-codspeed).
+- **Do not remove the `mimalloc` global allocator when you rewrite a benchmark file.**
+  `encodings/fastlanes/benches/bitpacking_filter.rs` lost it this way, and then measured the system
+  allocator again.
+- **Do not benchmark degenerate input.** A zero-byte allocation or a compaction with nothing to
+  move measures only the harness.
+- **Do not read a change in an unrelated benchmark as a regression after you add or remove
+  benchmarks.** Benchmarks in one binary run in one process and share the allocator state. When
+  earlier benchmarks change, the later benchmarks can move once.
+- **Do not acknowledge a flagged benchmark in CodSpeed without a cause.** If your change cannot
+  reach the flagged code, open the log of the CodSpeed job and compare the divan table of your run
+  with the table of the base run. If the median did not move, the flag comes from the
+  fastest-sample comparison. Fix the benchmark, or add it to the list below.
+
+### Known unstable benchmarks
+
+These benchmarks switch between a fast state and a slow state for a whole run, on code that did
+not change. The cause is not known, and a larger iteration does not help because the cost of each
+value also changes. A report on one of them is not evidence of a regression unless the pull
+request changes the code that the benchmark measures.
+
+| Benchmark | Instrument | Observed values |
+| --- | --- | --- |
+| `bitpacking_take`: `threshold[8, 64, 80]` | NEON leg | 1.4 to 2 times slower in 15% to 30% of runs |
+| `bitpacking_filter`: `filter[8, 64, 80]` | NEON leg | 1.4 to 2 times slower in 15% to 30% of runs |
+| `binary_ops`: `mul_u64_nonnull` | NEON leg | About 20 µs, or about 40 µs in 17% of runs |
+| `row_fn_utf8_input`: `starts_with[8 and 64, VarBin]` | AVX2 and AVX-512 legs | 12% to 17% slower in 40% to 50% of runs |
+| `bitpacking_take`: `isolated_runs[u32, (16, 0)]` | Simulation | 78 µs or 88 µs |
+| `chunk_array_builder`: `chunked_opt_bool_canonical_into[(1000, 10)]` | Simulation | 55 µs or 65.5 µs |
 
 ## SQL Benchmarks
 
