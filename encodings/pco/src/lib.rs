@@ -12,13 +12,15 @@
 //! To deserialize arrays manually, register the encoding in the array session:
 //!
 //! ```rust
-//! use vortex_array::session::ArraySessionExt;
 //! use vortex_session::VortexSession;
+//! use vortex_pco::Pco;
 //!
 //! let session = VortexSession::empty();
-//! session.arrays().register(vortex_pco::Pco);
+//! use vortex_array::session::ArraySessionExt;
+//! session.arrays().register(Pco);
 //! ```
 
+use prost::Message;
 mod array;
 mod compute;
 mod probe;
@@ -27,7 +29,7 @@ mod slice;
 
 pub use array::*;
 
-#[derive(Clone, prost::Message)]
+#[derive(Clone, PartialEq, Eq, Message)]
 /// Metadata for one Pco page.
 pub struct PcoPageInfo {
     // Since pco limits to 2^24 values per chunk, u32 is sufficient for the
@@ -39,7 +41,7 @@ pub struct PcoPageInfo {
 
 // We're calling this Info instead of Metadata because ChunkMeta refers to a specific
 // component of a Pco file.
-#[derive(Clone, prost::Message)]
+#[derive(Clone, PartialEq, Eq, Message)]
 /// Metadata for one Pco chunk.
 pub struct PcoChunkInfo {
     /// Pages contained in this chunk.
@@ -47,7 +49,7 @@ pub struct PcoChunkInfo {
     pub pages: Vec<PcoPageInfo>,
 }
 
-#[derive(Clone, prost::Message)]
+#[derive(Clone, PartialEq, Eq, Message)]
 /// Serialized metadata for a [`PcoArray`].
 pub struct PcoMetadata {
     // would be nice to reuse one header per vortex file, but it's really only 1 byte, so
@@ -58,6 +60,19 @@ pub struct PcoMetadata {
     /// Metadata for each compressed chunk.
     #[prost(message, repeated, tag = "2")]
     pub chunks: Vec<PcoChunkInfo>,
+    /// Optional logical-row boundaries for selective decoding. Older readers ignore this field.
+    #[prost(message, optional, tag = "3")]
+    pub logical_row_prefix: Option<PcoLogicalRowPrefix>,
+}
+
+/// Optional cumulative logical-row boundaries in physical page order.
+#[derive(Clone, PartialEq, Eq, Message)]
+pub struct PcoLogicalRowPrefix {
+    /// Exclusive unsliced logical-row ends in physical page order.
+    ///
+    /// The final page includes trailing null rows. An empty index has no valid values.
+    #[prost(uint64, repeated, tag = "2")]
+    pub logical_row_ends: Vec<u64>,
 }
 
 #[cfg(test)]
