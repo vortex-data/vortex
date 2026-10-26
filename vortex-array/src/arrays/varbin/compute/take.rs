@@ -172,15 +172,6 @@ impl TakeExecute for VarBin {
             .as_ref()
             .validity()?
             .execute_mask(indices.as_ref().len(), ctx)?;
-        if matches!(indices_mask, Mask::AllFalse(_)) {
-            return Ok(Some(
-                ConstantArray::new(
-                    Scalar::null(array.dtype().as_nullable()),
-                    indices.as_ref().len(),
-                )
-                .into_array(),
-            ));
-        }
 
         let views = match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
             match_each_integer_ptype!(indices.ptype(), |I| {
