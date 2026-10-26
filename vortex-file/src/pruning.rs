@@ -11,6 +11,8 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::bound::lit;
+use vortex_array::expr::stats::Stat;
+use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::cast::Cast;
 use vortex_array::scalar_fn::fns::get_item::GetItem;
 use vortex_array::scalar_fn::fns::literal::Literal;
@@ -32,8 +34,51 @@ pub(crate) fn can_prune_file_stats(
     let Some(pruning_expr) = expr.falsify(session)? else {
         return Ok(false);
     };
+    evaluate_file_stats_proof(pruning_expr, row_count, file_stats, false, session)
+}
 
-    let binder = FileStatsBinder { file_stats };
+/// Returns `true` if file-level statistics prove `expr` is true for every row of the file.
+pub(crate) fn is_satisfied_by_file_stats(
+    expr: &BoundExpression,
+    row_count: u64,
+    file_stats: &FileStatistics,
+    session: &VortexSession,
+) -> VortexResult<bool> {
+    let Some(proof) = expr.satisfy(session)? else {
+        return Ok(false);
+    };
+    evaluate_file_stats_proof(proof, row_count, file_stats, false, session)
+}
+
+/// Returns `true` if file-level statistics prove `expr` is true for every row of the file in which
+/// no column is null.
+///
+/// The proof binds every null count to zero. The min and max statistics ignore nulls, so a proof
+/// over them holds for the rows without nulls.
+pub(crate) fn is_satisfied_by_non_null_file_stats(
+    expr: &BoundExpression,
+    row_count: u64,
+    file_stats: &FileStatistics,
+    session: &VortexSession,
+) -> VortexResult<bool> {
+    let Some(proof) = expr.satisfy(session)? else {
+        return Ok(false);
+    };
+    evaluate_file_stats_proof(proof, row_count, file_stats, true, session)
+}
+
+/// Evaluates a stats proof against the file statistics; only a definite `true` proves it.
+fn evaluate_file_stats_proof(
+    pruning_expr: BoundExpression,
+    row_count: u64,
+    file_stats: &FileStatistics,
+    no_nulls: bool,
+    session: &VortexSession,
+) -> VortexResult<bool> {
+    let binder = FileStatsBinder {
+        file_stats,
+        no_nulls,
+    };
     let pruning_expr = bind_stats(pruning_expr, &binder)?;
 
     if let Some(result) = pruning_expr.as_opt::<Literal>() {
@@ -56,6 +101,8 @@ pub(crate) fn can_prune_file_stats(
 
 struct FileStatsBinder<'a> {
     file_stats: &'a FileStatistics,
+    /// Whether to bind every null count to zero, restricting a proof to the rows without nulls.
+    no_nulls: bool,
 }
 
 impl StatBinder for FileStatsBinder<'_> {
@@ -81,6 +128,10 @@ impl FileStatsBinder<'_> {
         aggregate_fn: &AggregateFnRef,
         stat_dtype: &DType,
     ) -> Option<BoundExpression> {
+        if self.no_nulls && Stat::from_aggregate_fn(aggregate_fn) == Some(Stat::NullCount) {
+            return Some(lit(Scalar::try_new(stat_dtype.clone(), Some(0u64.into())).ok()?));
+        }
+
         let (aggregates, _) = self.file_stats.get_by_path(field_path)?;
         let value = aggregates.get(aggregate_fn).into_inner()?;
         let value = if value.dtype() == stat_dtype {
