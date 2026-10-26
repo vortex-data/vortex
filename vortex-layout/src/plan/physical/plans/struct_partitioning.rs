@@ -395,7 +395,7 @@ mod tests {
     }
 
     #[test]
-    fn test_aa_greater_ba() -> VortexResult<()> {
+    fn test_nested_comparison() -> VortexResult<()> {
         let inner = struct_of(&[("a", i32())], Nullability::NonNullable);
         let scope = struct_of(
             &[("a", inner.clone()), ("b", inner)],
@@ -450,7 +450,7 @@ mod tests {
     }
 
     #[test]
-    fn test_abc_greater_abd() -> VortexResult<()> {
+    fn test_deeply_nested_comparison() -> VortexResult<()> {
         let leaf = struct_of(&[("c", i32()), ("d", i32())], Nullability::NonNullable);
         let middle = struct_of(&[("b", leaf)], Nullability::NonNullable);
         let scope = struct_of(&[("a", middle)], Nullability::NonNullable);
