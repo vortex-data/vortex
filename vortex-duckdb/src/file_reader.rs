@@ -31,7 +31,6 @@ use vortex::layout::LayoutReaderRef;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
 use vortex::layout::scan::v2::ScanFile;
-use vortex::layout::scan::v2::partition_row_range;
 use vortex::mask::Mask;
 use vortex::session::SessionExt as _;
 use vortex_utils::parallelism::get_available_parallelism;
@@ -236,17 +235,23 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
 }
 
 /// Splits the file's scanned rows into one V2 scan per available core, each over a contiguous
-/// row range on the executor's row blocks. The splits share the file's scan cache, so the file is
-/// planned once. A split's chunks run beside each other only as far as the engine's threads leave
-/// cores idle, like DataFusion's partitions.
+/// run of the layout's chunks. A split that ended inside a chunk would read and decode the whole
+/// chunk for a part of its rows, and so would its neighbour. The splits share the file's scan
+/// cache, so the file is planned once. A split's chunks run beside each other only as far as the
+/// engine's threads leave cores idle, like DataFusion's partitions.
 fn v2_splits(state: &FileScanState, global: &GlobalState) -> VortexResult<Vec<Split>> {
     let filter = &global.filter;
     let row_count = state.reader.row_count();
     let rows = filter.row_range.as_ref().map_or(0..row_count, |range| {
         range.start.min(row_count)..range.end.min(row_count)
     });
+    let boundaries = ScanBuilder::new(SESSION.clone(), Arc::clone(&state.reader))
+        .with_projection(global.projection.clone())
+        .with_some_filter(filter.filter.clone())
+        .full_file_splits()?;
     let parts = get_available_parallelism().unwrap_or(1) as u64;
-    split_row_ranges(rows, parts)
+    split_row_ranges(rows, &boundaries, parts)
+        .into_iter()
         .map(|rows| {
             let stream = V2ScanBuilder::new(SESSION.clone(), state.scan_file.clone())
                 .with_projection(global.projection.clone())
@@ -261,14 +266,31 @@ fn v2_splits(state: &FileScanState, global: &GlobalState) -> VortexResult<Vec<Sp
         .collect()
 }
 
-/// Cuts `rows` into up to `parts` non-empty, contiguous ranges that tile it.
-fn split_row_ranges(rows: Range<u64>, parts: u64) -> impl Iterator<Item = Range<u64>> {
-    let len = rows.end.saturating_sub(rows.start);
+/// Cuts `rows` into up to `parts` non-empty, contiguous ranges that tile it and end only on the
+/// sorted row `boundaries` or at the end of `rows`. Each range ends on the first boundary at or
+/// past its even share of the rows.
+fn split_row_ranges(rows: Range<u64>, boundaries: &[u64], parts: u64) -> Vec<Range<u64>> {
+    let len = u128::from(rows.end.saturating_sub(rows.start));
     let parts = parts.max(1);
-    (0..parts).filter_map(move |part| {
-        let split = partition_row_range(part..part + 1, parts, len);
-        (!split.is_empty()).then(|| rows.start + split.start..rows.start + split.end)
-    })
+    let mut ranges = Vec::new();
+    let mut start = rows.start;
+    for part in 1..parts {
+        let share = u64::try_from(len * u128::from(part) / u128::from(parts))
+            .vortex_expect("a share of the rows fits u64");
+        let target = rows.start + share;
+        let next = boundaries.partition_point(|&boundary| boundary < target.max(start + 1));
+        match boundaries.get(next) {
+            Some(&end) if end < rows.end => {
+                ranges.push(start..end);
+                start = end;
+            }
+            _ => break,
+        }
+    }
+    if start < rows.end {
+        ranges.push(start..rows.end);
+    }
+    ranges
 }
 
 /// What a thread's split yields next.
@@ -462,5 +484,31 @@ pub fn footer_get_statistics(footer: &Footer, column: &str) -> Option<ColumnStat
     match ColumnStatistics::try_from(stats, dtype.clone()) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ops::Range;
+
+    use rstest::rstest;
+
+    use super::split_row_ranges;
+
+    #[rstest]
+    #[case::even(0..400, &[0, 100, 200, 300, 400], 2, vec![0..200, 200..400])]
+    #[case::more_parts_than_chunks(0..250, &[0, 100, 200, 250], 8, vec![0..100, 100..200, 200..250])]
+    #[case::one_part(0..400, &[0, 100, 200, 300, 400], 1, vec![0..400])]
+    #[case::uneven_chunks(0..1000, &[0, 900, 1000], 4, vec![0..900, 900..1000])]
+    #[case::row_range_inside_chunks(150..350, &[0, 100, 200, 300, 400], 2, vec![150..300, 300..350])]
+    #[case::row_range_in_one_chunk(120..180, &[0, 100, 200], 4, vec![120..180])]
+    #[case::empty(50..50, &[0, 100], 4, vec![])]
+    fn split_row_ranges_end_on_boundaries(
+        #[case] rows: Range<u64>,
+        #[case] boundaries: &[u64],
+        #[case] parts: u64,
+        #[case] expected: Vec<Range<u64>>,
+    ) {
+        assert_eq!(split_row_ranges(rows, boundaries, parts), expected);
     }
 }
