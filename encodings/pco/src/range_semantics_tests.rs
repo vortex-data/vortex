@@ -109,7 +109,9 @@ fn large_public_compressor_selections() -> VortexResult<()> {
     );
     assert_arrays_eq!(
         encoded.slice(len - 1000..len - 1)?,
-        PrimitiveArray::from_iter((len - 1000..len - 1).map(|row| row as u32)),
+        PrimitiveArray::from_iter(
+            (len - 1000..len - 1).map(|row| u32::try_from(row).vortex_expect("fixture fits u32"))
+        ),
         &mut ctx
     );
     Ok(())
