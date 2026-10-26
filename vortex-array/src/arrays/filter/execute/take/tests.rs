@@ -27,8 +27,8 @@ use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::arrays::decimal::DecimalArrayExt;
+use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::assert_arrays_eq;
 use crate::buffer::BufferHandle;
 use crate::dtype::BigCast;
@@ -550,7 +550,8 @@ fn decimal_contiguous_take_preserves_storage_and_shares_buffer(
         (child, expected)
     });
     let original_ptr = child.buffer_handle().as_host_opt().unwrap().as_ptr();
-    let filter = FilterArray::new(child.into_array(), Mask::from_slices(5, vec![(1, 5)])).into_array();
+    let filter =
+        FilterArray::new(child.into_array(), Mask::from_slices(5, vec![(1, 5)])).into_array();
     let parent = DictArray::try_new(buffer![1u64, 2].into_array(), filter.clone())?.into_array();
     let mut ctx = SESSION.create_execution_ctx();
     let taken = execute_parent(&filter, &parent, 1, &mut ctx)?

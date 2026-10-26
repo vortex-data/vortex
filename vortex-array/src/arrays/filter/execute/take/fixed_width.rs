@@ -92,17 +92,15 @@ pub(in crate::arrays::filter) fn take_decimal(
 
     // SAFETY: Valid ranks copy existing decimal values, null ranks write zero placeholders that are
     // hidden by output validity, and the output validity was built for the take length.
-    Ok(
-        unsafe {
-            DecimalArray::new_unchecked_handle(
-                BufferHandle::new_host(taken),
-                values_type,
-                child.decimal_dtype(),
-                output_validity,
-            )
-        }
-        .into_array(),
-    )
+    Ok(unsafe {
+        DecimalArray::new_unchecked_handle(
+            BufferHandle::new_host(taken),
+            values_type,
+            child.decimal_dtype(),
+            output_validity,
+        )
+    }
+    .into_array())
 }
 
 /// Takes byte records with the array's required storage alignment.
