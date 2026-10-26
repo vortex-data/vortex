@@ -12,6 +12,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::plan::physical::Eval;
@@ -230,6 +231,7 @@ impl PlanParentReduceRule<Concat> for ExpressionConcatRule {
         child: &Plan<Concat>,
         parent: &Plan<Eval>,
         _child_idx: usize,
+        _session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
         let expression = parent.expression().clone();
         Ok(Some(

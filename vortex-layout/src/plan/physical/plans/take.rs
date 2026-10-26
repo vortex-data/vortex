@@ -16,6 +16,7 @@ use vortex_error::VortexResult;
 use vortex_expr::BoundLabels;
 use vortex_expr::label_bound_tree;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::plan::physical::Eval;
@@ -199,6 +200,7 @@ impl PlanParentReduceRule<Take> for ExpressionTakeRule {
         child: &Plan<Take>,
         parent: &Plan<Eval>,
         _child_idx: usize,
+        _session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
         let expression = parent.expression();
         // A dynamic comparison stays above the take: evaluated per batch it reads the latest

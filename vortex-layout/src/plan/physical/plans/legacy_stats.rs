@@ -12,6 +12,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::layouts::zoned::legacy_stats_to_aggregates;
@@ -156,7 +157,11 @@ impl PlanVTable for LegacyStats {
 pub(crate) struct LegacyStatsRule;
 
 impl PlanReduceRule<LegacyStats> for LegacyStatsRule {
-    fn reduce(&self, plan: &Plan<LegacyStats>) -> VortexResult<Option<PlanRef>> {
+    fn reduce(
+        &self,
+        plan: &Plan<LegacyStats>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<PlanRef>> {
         let data = plan.data_plan()?;
         if plan.zone_len() == 0 || data.is::<Zoned>() {
             return Ok(Some(data));
@@ -186,6 +191,7 @@ impl PlanParentReduceRule<LegacyStats> for ZonedLegacyStatsRule {
         child: &LegacyStatsPlan,
         parent: &ZonedPlan,
         child_idx: usize,
+        _session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
         if child_idx != DATA || parent.is_pruning() {
             return Ok(None);

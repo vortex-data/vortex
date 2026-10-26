@@ -29,6 +29,7 @@ use vortex_expr::descendent_bound_annotations;
 use vortex_expr::make_bound_free_field_annotator;
 use vortex_expr::transform::partition_bound;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::plan::physical::Eval;
@@ -330,6 +331,7 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
         child: &Plan<Pack>,
         parent: &Plan<Eval>,
         _child_idx: usize,
+        _session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
         if child.dtype().is_nullable() {
             return Ok(None);

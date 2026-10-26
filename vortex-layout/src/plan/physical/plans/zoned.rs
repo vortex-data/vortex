@@ -452,6 +452,7 @@ impl PlanParentReduceRule<Zoned> for ExpressionZonedRule {
         child: &ZonedPlan,
         parent: &Plan<Eval>,
         _child_idx: usize,
+        _session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
         let mut contains_stat = false;
         let mut contains_root = false;

@@ -14,6 +14,7 @@ pub use rules::PlanReduceRule;
 pub use rules::PlanReduceRuleAdapter;
 pub use rules::PlanRuleSet;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use super::Concat;
 use super::Eval;
@@ -66,14 +67,21 @@ static PARENT_RULES: PlanParentRuleSet = PlanParentRuleSet::new(&[
 ]);
 
 /// Attempts a static rewrite for `plan`.
-pub(crate) fn reduce_plan(plan: &PlanRef) -> VortexResult<Option<PlanRef>> {
-    PLAN_RULES.evaluate(plan)
+pub(crate) fn reduce_plan(
+    plan: &PlanRef,
+    session: &VortexSession,
+) -> VortexResult<Option<PlanRef>> {
+    PLAN_RULES.evaluate(plan, session)
 }
 
 /// Attempts a static rewrite for `parent` and its child at `child_idx`.
-pub(crate) fn reduce_parent(parent: &PlanRef, child_idx: usize) -> VortexResult<Option<PlanRef>> {
+pub(crate) fn reduce_parent(
+    parent: &PlanRef,
+    child_idx: usize,
+    session: &VortexSession,
+) -> VortexResult<Option<PlanRef>> {
     let Some(child) = parent.children().get_ref(child_idx)? else {
         return Ok(None);
     };
-    PARENT_RULES.evaluate(child, parent, child_idx)
+    PARENT_RULES.evaluate(child, parent, child_idx, session)
 }

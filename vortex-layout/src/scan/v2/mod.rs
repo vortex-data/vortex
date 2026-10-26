@@ -305,8 +305,10 @@ impl<A: 'static + Send> PreparedScan<A> {
             match cache.projection(&builder.projection) {
                 Some(plan) => plan,
                 None => {
-                    let plan =
-                        optimize(plan_row_idx_expression(builder.projection.clone(), root)?)?;
+                    let plan = optimize(
+                        plan_row_idx_expression(builder.projection.clone(), root)?,
+                        &builder.session,
+                    )?;
                     cache.insert_projection(builder.projection, plan)
                 }
             }

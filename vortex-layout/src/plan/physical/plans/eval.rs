@@ -17,6 +17,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::plan::physical::PackPlan;
@@ -154,7 +155,7 @@ fn validate_expression_child(expression: &BoundExpression, child: &PlanRef) -> V
 pub(crate) struct EvalIdentityRule;
 
 impl PlanReduceRule<Eval> for EvalIdentityRule {
-    fn reduce(&self, plan: &Plan<Eval>) -> VortexResult<Option<PlanRef>> {
+    fn reduce(&self, plan: &Plan<Eval>, _session: &VortexSession) -> VortexResult<Option<PlanRef>> {
         if plan.expression().is_root() {
             Ok(Some(plan.child_plan()?))
         } else {
@@ -173,6 +174,7 @@ impl PlanParentReduceRule<Eval> for EvalEvalRule {
         child: &Plan<Eval>,
         parent: &Plan<Eval>,
         _: usize,
+        _session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
         let child_expr = child.expression();
         let expr = parent.expression().clone().transform_down(|expr| {
@@ -196,7 +198,7 @@ impl PlanParentReduceRule<Eval> for EvalEvalRule {
 #[derive(Debug)]
 pub(crate) struct EvalPackRule;
 impl PlanReduceRule<Eval> for EvalPackRule {
-    fn reduce(&self, plan: &Plan<Eval>) -> VortexResult<Option<PlanRef>> {
+    fn reduce(&self, plan: &Plan<Eval>, _session: &VortexSession) -> VortexResult<Option<PlanRef>> {
         let Some(expr) = plan.expression.as_opt::<Pack>() else {
             return Ok(None);
         };

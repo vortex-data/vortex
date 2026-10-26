@@ -637,7 +637,7 @@ fn take_waits_for_whole_values_and_keeps_them(#[case] predicate: bool) -> Vortex
         let expression = gt(root(), lit("a"))
             .bind(plan.dtype())?
             .optimize_recursive()?;
-        plan = optimize(EvalPlan::try_new(expression, plan)?.into_plan())?;
+        plan = optimize(EvalPlan::try_new(expression, plan)?.into_plan(), &SESSION)?;
     }
     assert!(plan.is::<Take>());
 
@@ -703,7 +703,7 @@ fn eval_applies_expression_to_selected_rows() -> VortexResult<()> {
 
     let rows = 2..18;
     let mask = Sel::EveryOther.mask(16);
-    for plan in [plan.clone(), optimize(plan)?] {
+    for plan in [plan.clone(), optimize(plan, &SESSION)?] {
         let run = run(
             &store,
             &plan,
