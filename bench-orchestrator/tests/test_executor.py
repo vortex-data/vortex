@@ -5,6 +5,7 @@ import sys
 import textwrap
 from pathlib import Path
 
+import pytest
 from bench_orchestrator.config import Benchmark, Engine, Format
 from bench_orchestrator.runner.executor import BenchmarkExecutor
 
@@ -31,6 +32,26 @@ def test_build_command_adds_duckdb_cleanup_flag() -> None:
     assert cmd[cmd.index("--formats") + 1] == "parquet,vortex"
     assert "--delete-duckdb-database" in cmd
     assert cmd[cmd.index("--opt") + 1] == "scale-factor=1.0"
+
+
+@pytest.mark.parametrize(
+    ("engine", "benchmark", "expected"),
+    [
+        (Engine.DUCKDB, Benchmark.TPCDS, True),
+        (Engine.DUCKDB, Benchmark.CLICKBENCH, True),
+        (Engine.DUCKDB, Benchmark.TPCH, False),
+        (Engine.DATAFUSION, Benchmark.CLICKBENCH, False),
+    ],
+)
+def test_build_command_turns_on_duckdb_scan_v2(engine: Engine, benchmark: Benchmark, expected: bool) -> None:
+    executor = BenchmarkExecutor(Path("/tmp/bench"), engine)
+
+    cmd = executor.build_command(benchmark=benchmark, formats=[Format.VORTEX])
+
+    if expected:
+        assert cmd[cmd.index("--scan-v2") + 1] == "true"
+    else:
+        assert "--scan-v2" not in cmd
 
 
 def test_build_command_serializes_vortex_spatial_native_format() -> None:
