@@ -41,9 +41,8 @@ fn cast_and_execute(
 /// - Casting between string types (Utf8/Binary)
 /// - Edge cases like overflow behavior
 ///
-/// The tests of an encoding that supports nullable dtypes **must** also pass a partially valid
-/// array. Its cast to the non-nullable dtype fails, which checks the nullability contract of
-/// [`CastReduce`].
+/// An encoding that supports nullable dtypes **must** also pass a partially valid array, which
+/// checks the nullability contract of [`CastReduce`].
 ///
 /// [`CastReduce`]: crate::scalar_fn::fns::cast::CastReduce
 pub fn test_cast_conformance(array: &ArrayRef, ctx: &mut ExecutionCtx) {

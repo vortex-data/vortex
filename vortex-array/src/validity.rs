@@ -429,10 +429,8 @@ impl Validity {
 
     /// Convert into a variant compatible with the given nullability.
     ///
-    /// This is the execution-time half of the nullability-cast pair. A [`CastKernel`] calls this
-    /// method, which can execute the validity array to compute its minimum. The optimizer-time
-    /// half is [`Self::trivially_cast_nullability`]. [`CastReduce`] documents which cast rules
-    /// need the pair.
+    /// Unlike [`Self::trivially_cast_nullability`], this can execute the validity array, so a
+    /// [`CastKernel`] calls it. [`CastReduce`] documents when a cast rule needs the pair.
     ///
     /// Returns `Err` when nullability cannot be cast (for example, casting to non-nullable while
     /// invalid values are present).
@@ -456,11 +454,8 @@ impl Validity {
 
     /// Best-effort, non-executing variant of [`Self::cast_nullability`].
     ///
-    /// A [`CastReduce`] rule that builds a new [`Validity`] calls this method, because the rule
-    /// runs in the optimizer and cannot execute. When this method returns `Ok(None)`, the rule
-    /// returns `Ok(None)` and the [`CastKernel`] of the encoding handles the cast at execution. A
-    /// rule that pushes the cast into the children that hold its validity does not call this
-    /// method. [`CastReduce`] documents both forms of rule.
+    /// A [`CastReduce`] rule that builds a new [`Validity`] calls this, because a rule cannot
+    /// execute.
     ///
     /// Return values:
     /// - `Ok(Some(_))` — the cast is provably safe and the new [`Validity`] is returned.
@@ -479,7 +474,6 @@ impl Validity {
     /// };
     /// ```
     ///
-    /// [`CastKernel`]: crate::scalar_fn::fns::cast::CastKernel
     /// [`CastReduce`]: crate::scalar_fn::fns::cast::CastReduce
     #[inline]
     pub fn trivially_cast_nullability(
