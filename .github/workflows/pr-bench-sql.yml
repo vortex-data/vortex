@@ -11,6 +11,8 @@ concurrency:
   cancel-in-progress: true
 
 on:
+  push:
+    branches: ["ji/codex/benchmark-scan-v2-10799"]
   workflow_call:
     inputs:
       matrix_preset:
@@ -41,4 +43,4 @@ jobs:
     secrets: inherit
     with:
       mode: "pr"
-      matrix_preset: ${{ inputs.matrix_preset }}
+      matrix_preset: ${{ inputs.matrix_preset || 'pr' }}
