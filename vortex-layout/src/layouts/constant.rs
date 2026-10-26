@@ -8,7 +8,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::StreamExt as _;
 use futures::stream;
-use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::is_constant::is_constant;
@@ -16,6 +15,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::LayoutRef;
@@ -25,6 +25,7 @@ use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequenceId;
 use crate::sequence::SequencePointer;
+use crate::sequence::SequentialChunk;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt;
 
@@ -64,12 +65,14 @@ struct ConstantRun {
     sequence_id: SequenceId,
     scalar: Scalar,
     len: usize,
+    defined: Vec<Mask>,
 }
 
 impl ConstantRun {
-    fn into_item(self) -> (SequenceId, ArrayRef) {
+    fn into_item(self) -> VortexResult<SequentialChunk> {
         let array = ConstantArray::new(self.scalar, self.len).into_array();
-        (self.sequence_id, array)
+        let defined = Mask::concat(self.defined.iter())?;
+        Ok((self.sequence_id, array, defined))
     }
 }
 
@@ -97,7 +100,7 @@ impl LayoutStrategy for ConstantStrategy {
         let mut mismatch = None;
 
         while let Some(item) = stream.next().await {
-            let (sequence_id, chunk) = item?;
+            let (sequence_id, chunk, defined) = item?;
 
             // An empty chunk adds no rows. Drop its sequence ID now.
             if chunk.is_empty() {
@@ -105,7 +108,7 @@ impl LayoutStrategy for ConstantStrategy {
             }
 
             if !is_constant(&chunk, &mut exec_ctx)? {
-                mismatch = Some((sequence_id, chunk));
+                mismatch = Some((sequence_id, chunk, defined));
                 break;
             }
 
@@ -121,6 +124,7 @@ impl LayoutStrategy for ConstantStrategy {
                         sequence_id,
                         scalar,
                         len: chunk.len(),
+                        defined: vec![defined],
                     });
                 }
                 Some(current) if current.scalar == scalar => {
@@ -128,15 +132,16 @@ impl LayoutStrategy for ConstantStrategy {
                     // Replacing the sequence ID drops the earlier one.
                     current.sequence_id = sequence_id;
                     current.len += chunk.len();
+                    current.defined.push(defined);
                 }
                 Some(_) => {
-                    mismatch = Some((sequence_id, chunk));
+                    mismatch = Some((sequence_id, chunk, defined));
                     break;
                 }
             }
         }
 
-        let Some((sequence_id, chunk)) = mismatch else {
+        let Some((sequence_id, chunk, defined)) = mismatch else {
             // The stream ended, and all of its rows hold the same value.
             let Some(run) = run else {
                 return self
@@ -146,7 +151,7 @@ impl LayoutStrategy for ConstantStrategy {
             };
 
             let constant_stream =
-                SequentialStreamAdapter::new(dtype, stream::iter([Ok(run.into_item())])).sendable();
+                SequentialStreamAdapter::new(dtype, stream::iter([run.into_item()])).sendable();
 
             return self
                 .constant
@@ -156,11 +161,10 @@ impl LayoutStrategy for ConstantStrategy {
 
         // The column is not constant. The child gets the rows read so far, then the rest of the
         // stream.
-        let prefix = run
-            .map(ConstantRun::into_item)
-            .into_iter()
-            .chain([(sequence_id, chunk)])
-            .map(Ok);
+        let prefix =
+            run.map(ConstantRun::into_item)
+                .into_iter()
+                .chain([Ok((sequence_id, chunk, defined))]);
         let replayed =
             SequentialStreamAdapter::new(dtype, stream::iter(prefix).chain(stream)).sendable();
 
@@ -199,6 +203,7 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_array::ArrayContext;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;

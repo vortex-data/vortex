@@ -22,6 +22,7 @@ use vortex_array::dtype::DType;
 use vortex_array::stream::ArrayStream;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
 /// A hierarchical sequence identifier that exists within a shared universe.
@@ -285,7 +286,24 @@ impl Drop for WaitSequenceFuture<'_> {
     }
 }
 
-pub trait SequentialStream: Stream<Item = VortexResult<(SequenceId, ArrayRef)>> {
+/// A chunk of a [`SequentialStream`]: its position, its rows, and the definedness on its rows.
+///
+/// Container writers store their children unmasked: a struct field holds a value even in rows
+/// where the struct is null. The definedness is false in the rows an ancestor nulls out, so that
+/// writers recording statistics aggregate the logical column, null in those rows (see
+/// [`DynAccumulator::accumulate_defined`]). It has the length of the chunk, and is all true
+/// unless an ancestor nulls rows out.
+///
+/// [`DynAccumulator::accumulate_defined`]: vortex_array::aggregate_fn::DynAccumulator::accumulate_defined
+pub type SequentialChunk = (SequenceId, ArrayRef, Mask);
+
+/// A chunk whose every row is defined.
+pub fn fully_defined(sequence_id: SequenceId, array: ArrayRef) -> SequentialChunk {
+    let defined = Mask::new_true(array.len());
+    (sequence_id, array, defined)
+}
+
+pub trait SequentialStream: Stream<Item = VortexResult<SequentialChunk>> {
     fn dtype(&self) -> &DType;
 }
 
@@ -325,7 +343,7 @@ impl<S> SequentialStreamAdapter<S> {
 
 impl<S> SequentialStream for SequentialStreamAdapter<S>
 where
-    S: Stream<Item = VortexResult<(SequenceId, ArrayRef)>>,
+    S: Stream<Item = VortexResult<SequentialChunk>>,
 {
     fn dtype(&self) -> &DType {
         &self.dtype
@@ -334,20 +352,25 @@ where
 
 impl<S> Stream for SequentialStreamAdapter<S>
 where
-    S: Stream<Item = VortexResult<(SequenceId, ArrayRef)>>,
+    S: Stream<Item = VortexResult<SequentialChunk>>,
 {
-    type Item = VortexResult<(SequenceId, ArrayRef)>;
+    type Item = VortexResult<SequentialChunk>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.project();
         let array = futures::ready!(this.inner.poll_next(cx));
-        if let Some(Ok((_, array))) = array.as_ref() {
+        if let Some(Ok((_, array, defined))) = array.as_ref() {
             assert_eq!(
                 array.dtype(),
                 this.dtype,
                 "Sequential stream of {} got chunk of {}.",
                 array.dtype(),
                 this.dtype
+            );
+            debug_assert_eq!(
+                defined.len(),
+                array.len(),
+                "Definedness must have the length of its chunk"
             );
         }
 
@@ -368,7 +391,7 @@ pub trait SequentialArrayStreamExt: ArrayStream {
         Box::pin(SequentialStreamAdapter::new(
             self.dtype().clone(),
             StreamExt::map(self, move |item| {
-                item.map(|array| (pointer.advance(), array))
+                item.map(|array| fully_defined(pointer.advance(), array))
             }),
         ))
     }
