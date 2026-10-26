@@ -12,17 +12,19 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
+use vortex_session::registry::RESERVED_ARRAY_IDS;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayId;
 use crate::array::ArrayView;
-use crate::array::VTable;
 use crate::array::child_to_validity;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
+use crate::arrays::Constant;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::Extension;
@@ -67,85 +69,170 @@ use crate::match_each_native_ptype;
 use crate::matcher::Matcher;
 use crate::validity::Validity;
 
-/// An enum capturing the default uncompressed encodings for each [Vortex type](DType).
+/// Defines [`Canonical`] and [`CanonicalView`] from one table of variants, each with its owned
+/// array type and its vtable.
 ///
-/// Any array can be decoded into canonical form via the `to_canonical`
-/// trait method. This is the simplest encoding for a type, and will not be compressed but may
-/// contain compressed child arrays.
-///
-/// Canonical form is useful for doing type-specific compute where you need to know that all
-/// elements are laid out decompressed and contiguous in memory.
-///
-/// Each `Canonical` variant has a corresponding [`DType`] variant, with the notable exception of
-/// [`Canonical::VarBinView`], which is the canonical encoding for both [`DType::Utf8`] and
-/// [`DType::Binary`].
-///
-/// # Laziness
-///
-/// Canonical form is not recursive, so while a `StructArray` is the canonical format for any
-/// `Struct` type, individual column child arrays may still be compressed. This allows
-/// compute over Vortex arrays to push decoding as late as possible, and ideally many child arrays
-/// never need to be decoded into canonical form at all depending on the compute.
-///
-/// # Arrow interoperability
-///
-/// Most Vortex canonical encodings have an equivalent Arrow encoding that can be built zero-copy,
-/// and the corresponding Arrow array types can also be built directly. Map array Arrow transport is
-/// not implemented yet, and [`UnionArray`]'s independent top-level validity cannot be represented
-/// directly by an Arrow union.
-///
-/// The full list of canonical types and their equivalent Arrow array types are:
-///
-/// * `NullArray`: `arrow_array::NullArray`
-/// * `BoolArray`: `arrow_array::BooleanArray`
-/// * `PrimitiveArray`: `arrow_array::PrimitiveArray`
-/// * `DecimalArray`: `arrow_array::Decimal128Array` and `arrow_array::Decimal256Array`
-/// * `VarBinViewArray`: `arrow_array::GenericByteViewArray`
-/// * `ListViewArray`: `arrow_array::ListViewArray`
-/// * `MapArray`: Vortex `ListView<Struct<key, value>>` storage
-/// * `FixedSizeListArray`: `arrow_array::FixedSizeListArray`
-/// * `StructArray`: `arrow_array::StructArray`
-///
-/// Vortex uses a logical type system, unlike Arrow which uses physical encodings for its types.
-/// As an example, there are at least six valid physical encodings for a `Utf8` array. This can
-/// create ambiguity.
-/// Thus, if you receive an Arrow array, compress it using Vortex, and then
-/// decompress it later to pass to a compute kernel, there are multiple suitable Arrow array
-/// variants to hold the data.
-///
-/// To disambiguate, we choose a canonical physical encoding for every Vortex [`DType`], which
-/// will correspond to an arrow-rs `arrow_schema::DataType`.
-///
-/// # Views support
-///
-/// Binary and String views, also known as "German strings" are a better encoding format for
-/// nearly all use-cases. Variable-length binary views are part of the Apache Arrow spec, and are
-/// fully supported by the Datafusion query engine. We use them as our canonical string encoding
-/// for all `Utf8` and `Binary` typed arrays in Vortex. They provide considerably faster filter
-/// execution than the core `StringArray` and `BinaryArray` types, at the expense of potentially
-/// needing garbage collection (`arrow_array::GenericByteViewArray::gc`) to clear unreferenced items
-/// from memory.
-///
-/// # For Developers
-///
-/// If you add another variant to this enum, make sure to update `canonical_kinds!`,
-/// and the fuzzer in `fuzz/fuzz_targets/array_ops.rs`.
-#[derive(Debug, Clone)]
-pub enum Canonical {
-    Null(NullArray),
-    Bool(BoolArray),
-    Primitive(PrimitiveArray),
-    Decimal(DecimalArray),
-    VarBinView(VarBinViewArray),
-    List(ListViewArray),
-    Map(MapArray),
-    FixedSizeList(FixedSizeListArray),
-    Struct(StructArray),
-    Union(UnionArray),
+/// The variants must be listed in the order of the canonical [`RESERVED_ARRAY_IDS`], so a variant's
+/// position is its encoding ID's [`ArrayId::canonical_index`]. This keeps the enums, their
+/// conversions, and the dispatch from encoding ID to concrete vtable over the same types.
+macro_rules! canonical_encodings {
+    (
+        $(#[$canonical_meta:meta])*
+        pub enum Canonical;
+        $(#[$view_meta:meta])*
+        pub enum CanonicalView;
+        $($(#[$variant_meta:meta])* $variant:ident($array:ty, $vtable:ty)),+ $(,)?
+    ) => {
+        $(#[$canonical_meta])*
+        #[derive(Debug, Clone)]
+        pub enum Canonical {
+            $($(#[$variant_meta])* $variant($array)),+
+        }
+
+        $(#[$view_meta])*
+        #[derive(Debug, Clone, Copy)]
+        pub enum CanonicalView<'a> {
+            $($(#[$variant_meta])* $variant(ArrayView<'a, $vtable>)),+
+        }
+
+        // Every reserved ID but the last, the constant encoding's, is canonical.
+        const _: () = assert!([$(stringify!($variant)),+].len() == RESERVED_ARRAY_IDS.len() - 1);
+
+        /// The vtable each canonical reserved ID is reserved for, by canonical index.
+        const CANONICAL_VTABLE_TYPE_IDS: [TypeId; RESERVED_ARRAY_IDS.len() - 1] =
+            [$(TypeId::of::<$vtable>()),+];
+
+        /// Each canonical vtable's static ID, in variant order.
+        #[cfg(test)]
+        fn canonical_vtable_ids() -> Vec<Option<ArrayId>> {
+            vec![$(<$vtable as crate::array::VTable>::static_id()),+]
+        }
+
+        impl From<CanonicalView<'_>> for Canonical {
+            fn from(value: CanonicalView<'_>) -> Self {
+                match value {
+                    $(CanonicalView::$variant(a) => Canonical::$variant(a.into_owned())),+
+                }
+            }
+        }
+
+        impl<'a> CanonicalView<'a> {
+            /// Convert to a type-erased [`ArrayRef`].
+            pub fn to_array_ref(&self) -> ArrayRef {
+                match self {
+                    $(CanonicalView::$variant(a) => a.array().clone()),+
+                }
+            }
+
+            /// Views `array` through its concrete vtable if its encoding ID is a canonical
+            /// reserved ID.
+            #[inline]
+            fn of_reserved_id(array: &'a ArrayRef) -> Option<Self> {
+                let index = array.encoding_id().canonical_index()?;
+                let mut position = 0;
+                $(
+                    position += 1;
+                    if index + 1 == position {
+                        // SAFETY: construction rejects reserved IDs from any vtable other than
+                        // the one they are reserved for, and this variant's position is the
+                        // canonical index of its vtable's ID.
+                        return Some(CanonicalView::$variant(unsafe {
+                            array.as_typed_unchecked::<$vtable>()
+                        }));
+                    }
+                )+
+                None
+            }
+        }
+    };
+}
+
+canonical_encodings! {
+    /// An enum capturing the default uncompressed encodings for each [Vortex type](DType).
+    ///
+    /// Any array can be decoded into canonical form via the `to_canonical`
+    /// trait method. This is the simplest encoding for a type, and will not be compressed but may
+    /// contain compressed child arrays.
+    ///
+    /// Canonical form is useful for doing type-specific compute where you need to know that all
+    /// elements are laid out decompressed and contiguous in memory.
+    ///
+    /// Each `Canonical` variant has a corresponding [`DType`] variant, with the notable exception of
+    /// [`Canonical::VarBinView`], which is the canonical encoding for both [`DType::Utf8`] and
+    /// [`DType::Binary`].
+    ///
+    /// # Laziness
+    ///
+    /// Canonical form is not recursive, so while a `StructArray` is the canonical format for any
+    /// `Struct` type, individual column child arrays may still be compressed. This allows
+    /// compute over Vortex arrays to push decoding as late as possible, and ideally many child arrays
+    /// never need to be decoded into canonical form at all depending on the compute.
+    ///
+    /// # Arrow interoperability
+    ///
+    /// Most Vortex canonical encodings have an equivalent Arrow encoding that can be built zero-copy,
+    /// and the corresponding Arrow array types can also be built directly. Map array Arrow transport is
+    /// not implemented yet, and [`UnionArray`]'s independent top-level validity cannot be represented
+    /// directly by an Arrow union.
+    ///
+    /// The full list of canonical types and their equivalent Arrow array types are:
+    ///
+    /// * `NullArray`: `arrow_array::NullArray`
+    /// * `BoolArray`: `arrow_array::BooleanArray`
+    /// * `PrimitiveArray`: `arrow_array::PrimitiveArray`
+    /// * `DecimalArray`: `arrow_array::Decimal128Array` and `arrow_array::Decimal256Array`
+    /// * `VarBinViewArray`: `arrow_array::GenericByteViewArray`
+    /// * `ListViewArray`: `arrow_array::ListViewArray`
+    /// * `MapArray`: Vortex `ListView<Struct<key, value>>` storage
+    /// * `FixedSizeListArray`: `arrow_array::FixedSizeListArray`
+    /// * `StructArray`: `arrow_array::StructArray`
+    ///
+    /// Vortex uses a logical type system, unlike Arrow which uses physical encodings for its types.
+    /// As an example, there are at least six valid physical encodings for a `Utf8` array. This can
+    /// create ambiguity.
+    /// Thus, if you receive an Arrow array, compress it using Vortex, and then
+    /// decompress it later to pass to a compute kernel, there are multiple suitable Arrow array
+    /// variants to hold the data.
+    ///
+    /// To disambiguate, we choose a canonical physical encoding for every Vortex [`DType`], which
+    /// will correspond to an arrow-rs `arrow_schema::DataType`.
+    ///
+    /// # Views support
+    ///
+    /// Binary and String views, also known as "German strings" are a better encoding format for
+    /// nearly all use-cases. Variable-length binary views are part of the Apache Arrow spec, and are
+    /// fully supported by the Datafusion query engine. We use them as our canonical string encoding
+    /// for all `Utf8` and `Binary` typed arrays in Vortex. They provide considerably faster filter
+    /// execution than the core `StringArray` and `BinaryArray` types, at the expense of potentially
+    /// needing garbage collection (`arrow_array::GenericByteViewArray::gc`) to clear unreferenced items
+    /// from memory.
+    ///
+    /// # For Developers
+    ///
+    /// If you add another variant to this enum, make sure to update [`RESERVED_ARRAY_IDS`],
+    /// `match_each_canonical!` and the fuzzer in `fuzz/fuzz_targets/array_ops.rs`.
+    pub enum Canonical;
+
+    /// A view into a canonical array type.
+    ///
+    /// Uses `ArrayView<V>` because these are obtained by
+    /// downcasting through the `Matcher` trait which returns `ArrayView<V>`.
+    pub enum CanonicalView;
+
+    Null(NullArray, Null),
+    Bool(BoolArray, Bool),
+    Primitive(PrimitiveArray, Primitive),
+    Decimal(DecimalArray, Decimal),
+    VarBinView(VarBinViewArray, VarBinView),
+    List(ListViewArray, ListView),
+    Map(MapArray, Map),
+    FixedSizeList(FixedSizeListArray, FixedSizeList),
+    Struct(StructArray, Struct),
+    Union(UnionArray, Union),
     /// Canonical storage for extension dtypes, wrapping the canonical form of the storage dtype.
-    Extension(ExtensionArray),
+    Extension(ExtensionArray, Extension),
     /// Canonical storage for dynamic variant values, optionally with typed shredded paths.
-    Variant(VariantArray),
+    Variant(VariantArray, Variant),
 }
 
 /// Match on every canonical variant and evaluate a code block on all variants
@@ -1056,112 +1143,15 @@ impl Executable for VariantArray {
     }
 }
 
-/// A view into a canonical array type.
-///
-/// Uses `ArrayView<V>` because these are obtained by
-/// downcasting through the `Matcher` trait which returns `ArrayView<V>`.
-#[derive(Debug, Clone, Copy)]
-pub enum CanonicalView<'a> {
-    Null(ArrayView<'a, Null>),
-    Bool(ArrayView<'a, Bool>),
-    Primitive(ArrayView<'a, Primitive>),
-    Decimal(ArrayView<'a, Decimal>),
-    VarBinView(ArrayView<'a, VarBinView>),
-    List(ArrayView<'a, ListView>),
-    Map(ArrayView<'a, Map>),
-    FixedSizeList(ArrayView<'a, FixedSizeList>),
-    Struct(ArrayView<'a, Struct>),
-    Union(ArrayView<'a, Union>),
-    Extension(ArrayView<'a, Extension>),
-    Variant(ArrayView<'a, Variant>),
-}
-
-impl From<CanonicalView<'_>> for Canonical {
-    fn from(value: CanonicalView<'_>) -> Self {
-        match value {
-            CanonicalView::Null(a) => Canonical::Null(a.into_owned()),
-            CanonicalView::Bool(a) => Canonical::Bool(a.into_owned()),
-            CanonicalView::Primitive(a) => Canonical::Primitive(a.into_owned()),
-            CanonicalView::Decimal(a) => Canonical::Decimal(a.into_owned()),
-            CanonicalView::VarBinView(a) => Canonical::VarBinView(a.into_owned()),
-            CanonicalView::List(a) => Canonical::List(a.into_owned()),
-            CanonicalView::Map(a) => Canonical::Map(a.into_owned()),
-            CanonicalView::FixedSizeList(a) => Canonical::FixedSizeList(a.into_owned()),
-            CanonicalView::Struct(a) => Canonical::Struct(a.into_owned()),
-            CanonicalView::Union(a) => Canonical::Union(a.into_owned()),
-            CanonicalView::Extension(a) => Canonical::Extension(a.into_owned()),
-            CanonicalView::Variant(a) => Canonical::Variant(a.into_owned()),
-        }
+/// Returns the `TypeId` of the only vtable allowed to construct arrays with `id`, if `id` is one
+/// of the reserved canonical or constant encoding IDs.
+pub(crate) fn reserved_vtable_type_id(id: ArrayId) -> Option<TypeId> {
+    if id.is_constant() {
+        return Some(TypeId::of::<Constant>());
     }
-}
-
-impl CanonicalView<'_> {
-    /// Convert to a type-erased [`ArrayRef`].
-    pub fn to_array_ref(&self) -> ArrayRef {
-        match self {
-            CanonicalView::Null(a) => a.array().clone(),
-            CanonicalView::Bool(a) => a.array().clone(),
-            CanonicalView::Primitive(a) => a.array().clone(),
-            CanonicalView::Decimal(a) => a.array().clone(),
-            CanonicalView::VarBinView(a) => a.array().clone(),
-            CanonicalView::List(a) => a.array().clone(),
-            CanonicalView::Map(a) => a.array().clone(),
-            CanonicalView::FixedSizeList(a) => a.array().clone(),
-            CanonicalView::Struct(a) => a.array().clone(),
-            CanonicalView::Union(a) => a.array().clone(),
-            CanonicalView::Extension(a) => a.array().clone(),
-            CanonicalView::Variant(a) => a.array().clone(),
-        }
-    }
-}
-
-// Keep classification and checked conversion together so they use the same concrete types.
-macro_rules! canonical_kinds {
-    ($($kind:ident => $vtable:ty),+ $(,)?) => {
-        /// Canonical encoding classification derived from the concrete array vtable.
-        #[derive(Clone, Copy)]
-        pub(crate) enum CanonicalKind {
-            $($kind),+
-        }
-
-        impl CanonicalKind {
-            /// Classify a concrete vtable; monomorphization folds these type comparisons.
-            #[inline]
-            pub(crate) fn of<V: VTable>() -> Option<Self> {
-                $(if TypeId::of::<V>() == TypeId::of::<$vtable>() {
-                    return Some(Self::$kind);
-                })+
-                None
-            }
-
-            /// # Safety
-            /// `self` must be the kind returned by `of::<V>()` for the concrete vtable of `array`.
-            #[inline]
-            unsafe fn view(self, array: &ArrayRef) -> CanonicalView<'_> {
-                match self {
-                    // SAFETY: the caller guarantees `of::<V>()` matched `$vtable` by `TypeId`.
-                    $(Self::$kind => CanonicalView::$kind(unsafe {
-                        array.as_typed_unchecked::<$vtable>()
-                    })),+
-                }
-            }
-        }
-    };
-}
-
-canonical_kinds! {
-    Null => Null,
-    Bool => Bool,
-    Primitive => Primitive,
-    Decimal => Decimal,
-    Struct => Struct,
-    Union => Union,
-    List => ListView,
-    Map => Map,
-    FixedSizeList => FixedSizeList,
-    VarBinView => VarBinView,
-    Variant => Variant,
-    Extension => Extension,
+    CANONICAL_VTABLE_TYPE_IDS
+        .get(id.canonical_index()?)
+        .copied()
 }
 
 /// A matcher for any canonical array type.
@@ -1171,14 +1161,12 @@ impl Matcher for AnyCanonical {
 
     #[inline]
     fn matches(array: &ArrayRef) -> bool {
-        array.dyn_array().canonical_kind().is_some()
+        array.encoding_id().is_canonical()
     }
 
     #[inline]
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        let kind = array.dyn_array().canonical_kind()?;
-        // SAFETY: `kind` was computed from the concrete vtable of `array`.
-        Some(unsafe { kind.view(array) })
+        CanonicalView::of_reserved_id(array)
     }
 }
 
@@ -1221,6 +1209,15 @@ mod tests {
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
     use crate::scalar::Scalar;
+
+    #[test]
+    fn canonical_vtables_use_their_reserved_ids() {
+        for (index, id) in super::canonical_vtable_ids().into_iter().enumerate() {
+            let id = id.expect("canonical vtables have a static id");
+            assert_eq!(id.canonical_index(), Some(index), "{id}");
+        }
+        assert!(<Constant as crate::array::VTable>::static_id().is_some_and(|id| id.is_constant()));
+    }
 
     /// A shared session for these canonical tests, used to create execution contexts.
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);

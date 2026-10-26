@@ -199,8 +199,14 @@ impl VTable for DecimalByteParts {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
+    #[inline]
     fn id(&self) -> ArrayId {
         decimal_byte_parts_v2_id()
+    }
+
+    #[inline]
+    fn static_id() -> Option<ArrayId> {
+        Some(Self.id())
     }
 
     fn validate(
