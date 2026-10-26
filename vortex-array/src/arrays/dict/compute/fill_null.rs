@@ -16,6 +16,9 @@ use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNullKernel;
 use crate::scalar_fn::fns::operators::Operator;
@@ -54,19 +57,22 @@ impl FillNullKernel for Dict {
 
         // A dictionary can hold more values than its codes type can index, so the index of an
         // unreferenced fill value can exceed the range of the codes. Non-nullable codes need no
-        // fill code. For nullable codes, decline in that case, so that the generic path fills the
-        // decoded array. The first match has the smallest index, so no later match fits either.
+        // fill code. For nullable codes, widen the codes to the smallest unsigned type that can
+        // hold the fill index in that case. Codes are never negative, so the cast keeps them.
         let codes = array.codes();
         let codes = if codes.dtype().is_nullable() {
-            let codes_dtype = codes.dtype().as_nonnullable();
             let fill_index = existing_fill_value_index as u64;
-            if fill_index > codes_dtype.as_ptype().max_value_as_u64() {
-                return Ok(None);
-            }
+            let codes = if fill_index > codes.dtype().as_ptype().max_value_as_u64() {
+                let wide_ptype = PType::min_unsigned_ptype_for_value(fill_index);
+                codes
+                    .clone()
+                    .cast(DType::Primitive(wide_ptype, Nullability::Nullable))?
+            } else {
+                codes.clone()
+            };
 
-            codes
-                .clone()
-                .fill_null(Scalar::from(fill_index).cast(&codes_dtype)?)?
+            let codes_dtype = codes.dtype().as_nonnullable();
+            codes.fill_null(Scalar::from(fill_index).cast(&codes_dtype)?)?
         } else {
             codes.clone()
         };
@@ -99,12 +105,16 @@ mod tests {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::Dict;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::dict::DictArraySlotsExt;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::fns::fill_null::FillNullKernel;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -126,6 +136,37 @@ mod tests {
         )?;
 
         let filled = dict.into_array().fill_null(fill_value)?;
+        assert_arrays_eq!(filled, PrimitiveArray::from_iter([0, fill_value]), &mut ctx);
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::u8_to_u16(PrimitiveArray::from_option_iter([Some(0u8), None]), 256, PType::U16)]
+    #[case::u8_to_u16_truncation(PrimitiveArray::from_option_iter([Some(0u8), None]), 300, PType::U16)]
+    #[case::i8_to_u8(PrimitiveArray::from_option_iter([Some(0i8), None]), 128, PType::U8)]
+    #[case::i8_to_u16(PrimitiveArray::from_option_iter([Some(0i8), None]), 256, PType::U16)]
+    #[case::u16_to_u32(PrimitiveArray::from_option_iter([Some(0u16), None]), 65_536, PType::U32)]
+    fn fill_unreferenced_value_widens_codes(
+        #[case] codes: PrimitiveArray,
+        #[case] fill_value: i32,
+        #[case] wide_ptype: PType,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dict = DictArray::try_new(
+            codes.into_array(),
+            PrimitiveArray::from_iter(0..=fill_value).into_array(),
+        )?;
+
+        let filled = <Dict as FillNullKernel>::fill_null(
+            dict.as_view(),
+            &Scalar::from(fill_value),
+            &mut ctx,
+        )?
+        .vortex_expect("kernel should fill the dictionary codes");
+        let filled_dict = filled.as_::<Dict>();
+        assert_eq!(filled_dict.codes().dtype().as_ptype(), wide_ptype);
+        assert!(!filled_dict.codes().dtype().is_nullable());
         assert_arrays_eq!(filled, PrimitiveArray::from_iter([0, fill_value]), &mut ctx);
 
         Ok(())
