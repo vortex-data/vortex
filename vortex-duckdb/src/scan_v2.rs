@@ -20,9 +20,10 @@
 //! scan's chunks, is read once.
 //!
 //! A filter with dynamic comparisons, such as the top-N bound DuckDB tightens during the scan, is
-//! pruned again over each part when a thread takes it, as V1 prunes each split when it runs: a
-//! part taken once the bound has tightened skips the zones it excludes. The zone maps were read
-//! when the file was planned, so pruning a part again reads nothing.
+//! pruned over each part when a thread takes it instead of over the file when it is planned, as
+//! V1 prunes each split when it runs: a part taken once the bound has tightened skips the zones
+//! it excludes. A file is planned before the bound exists, so pruning it then would only delay
+//! its first part behind the zone map reads.
 //!
 //! Chunks end only on the file's own chunk boundaries, of the columns the scan reads, so no chunk
 //! of the file is decoded twice by two chunks of the scan. Spans between boundaries are merged up
@@ -95,8 +96,8 @@ enum Work {
 impl FileScan {
     /// Prepares `builder`, composes its planners, cutting chunks on `boundaries`, the sorted rows
     /// the file's chunks of the scanned columns end at, and runs the root planner to the end on
-    /// the calling thread, waiting for its pruning reads. With `dynamic`, each part is pruned
-    /// again when a thread takes it.
+    /// the calling thread, waiting for its pruning reads. With `dynamic`, each part is pruned when
+    /// a thread takes it instead.
     pub(crate) fn try_new(
         builder: ScanBuilder,
         boundaries: &[u64],
@@ -200,8 +201,9 @@ fn plan(root: &mut Run) -> VortexResult<VecDeque<Work>> {
     }
 }
 
-/// The planners of a scan, composed: with a filter, its pruning plans first over the scan's rows,
-/// continuing into the parts of the rows they keep; without, the parts directly.
+/// The planners of a scan, composed: with a static filter, its pruning plans first over the scan's
+/// rows, continuing into the parts of the rows they keep; otherwise, the parts directly, which
+/// prune themselves under a `dynamic` filter.
 fn compose(
     scan: &Arc<PreparedScan>,
     chunks: Vec<Range<u64>>,
@@ -222,7 +224,7 @@ fn compose(
             ))
         }
     };
-    if scan.filter().is_some() {
+    if scan.filter().is_some() && !dynamic {
         Box::new(PrunePlanner::new(Arc::clone(scan), rows, Box::new(parts)))
     } else {
         parts(None)
@@ -241,7 +243,7 @@ struct PartPlanner {
     kept: Option<Mask>,
     /// The chunks of each part, which tile the scan's rows.
     parts: std::vec::IntoIter<Vec<Range<u64>>>,
-    /// Whether each part is pruned again when it runs.
+    /// Whether each part is pruned when it runs.
     dynamic: bool,
 }
 
@@ -307,11 +309,8 @@ impl Planner for PartPlanner {
                     ChunkPlanner::with_chunks(scan, part, chunks, selection, kept).inline();
                 return Ok(PlannerOutput::Spawn(scope, Box::new(chunks)));
             }
-            let next = move |pruned: Option<Mask>| -> Box<dyn Planner> {
-                let kept = match (kept, pruned) {
-                    (Some(kept), Some(pruned)) => Some(kept & &pruned),
-                    (kept, pruned) => kept.or(pruned),
-                };
+            // A dynamic filter is not pruned over the file, so `kept` is `None` here.
+            let next = move |kept: Option<Mask>| -> Box<dyn Planner> {
                 Box::new(
                     ChunkPlanner::with_chunks(Arc::clone(&scan), part, chunks, selection, kept)
                         .inline(),
