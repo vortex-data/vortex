@@ -9,14 +9,19 @@ use std::collections::btree_map::Entry;
 use pco::data_types::Number;
 use pco::wrapped::ChunkDecompressor;
 use pco::wrapped::FileDecompressor;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
+use crate::Pco;
 use crate::array::vortex_err_from_pco;
+use crate::page_index::ChunkCursor;
+use crate::page_index::IndexedView;
 
 pub(crate) struct PageDecoder<T: Number> {
     file: FileDecompressor,
@@ -69,5 +74,53 @@ impl<T: Number + NativePType> PageDecoder<T> {
             .map_err(vortex_err_from_pco)?;
         decoder.read(output).map_err(vortex_err_from_pco)?;
         Ok(())
+    }
+}
+
+/// Operation-owned decoded pages for compact repeated/range selections. The physical
+/// descriptor is derived from the chosen mode only when a page is decoded for the first time.
+pub(crate) struct DecodedPages<T: Number> {
+    decoder: PageDecoder<T>,
+    chunks: ChunkCursor,
+    pages: BTreeMap<usize, PrimitiveArray>,
+}
+
+impl<T: Number + NativePType> DecodedPages<T> {
+    pub fn new(array: ArrayView<'_, Pco>) -> VortexResult<Self> {
+        Ok(Self {
+            decoder: PageDecoder::new(array.metadata.header.as_slice())?,
+            chunks: ChunkCursor::default(),
+            pages: BTreeMap::new(),
+        })
+    }
+    pub fn values(
+        &mut self,
+        view: IndexedView<'_>,
+        array: ArrayView<'_, Pco>,
+        page: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<&PrimitiveArray> {
+        let entry = match self.pages.entry(page) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => {
+                let info = view.physical(page, &mut self.chunks)?;
+                let buffer = array
+                    .pages
+                    .get(page)
+                    .ok_or_else(|| vortex_err!("Pco compressed page is missing"))?;
+                let chunk = array
+                    .chunk_metas
+                    .get(info.chunk)
+                    .ok_or_else(|| vortex_err!("Pco chunk metadata is missing"))?;
+                entry.insert(self.decoder.read(
+                    info.chunk,
+                    chunk.as_slice(),
+                    info.n_values,
+                    buffer.as_slice(),
+                    ctx,
+                )?)
+            }
+        };
+        Ok(entry)
     }
 }

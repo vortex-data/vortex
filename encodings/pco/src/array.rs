@@ -66,6 +66,7 @@ use crate::PcoLogicalRowPrefix;
 use crate::PcoMetadata;
 use crate::PcoPageInfo;
 use crate::page_index::PageIndex;
+use crate::take::slice as decode_slice;
 
 // Overall approach here:
 // Chunk the array into Pco chunks (currently using the default recommended size
@@ -278,6 +279,12 @@ impl VTable for Pco {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        if array.metadata.logical_row_prefix.is_some()
+            && (array.slice_start() != 0 || array.slice_stop() != array.unsliced_n_rows()) {
+            return Ok(ExecutionResult::done(
+                decode_slice(array.as_view(), ctx)?.into_array(),
+            ));
+        }
         let unsliced_validity = array.unsliced_validity();
         Ok(ExecutionResult::done(
             array
