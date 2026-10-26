@@ -22,7 +22,6 @@ use crate::ArrayRef;
 use crate::Columnar;
 use crate::IntoArray;
 use crate::array::ArrayView;
-use crate::arrays::ConstantArray;
 use crate::arrays::PiecewiseSequence;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
@@ -43,7 +42,6 @@ use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
-use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 /// The widened offset type used for a taken `VarBinArray`: offsets are widened to at least 32 bits
