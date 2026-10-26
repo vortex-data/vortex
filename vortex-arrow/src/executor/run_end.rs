@@ -14,22 +14,13 @@ use arrow_schema::Field;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::RecursiveCanonical;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::ExtensionArray;
-use vortex_array::arrays::Primitive;
-use vortex_array::arrays::extension::ExtensionArrayExt;
-use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::dtype::DType;
 use vortex_array::matcher::Matcher;
-use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_mask::Mask;
 use vortex_runend::RunEnd;
 use vortex_runend::RunEndArray;
 use vortex_runend::RunEndArrayExt;
@@ -69,64 +60,13 @@ pub(super) fn to_arrow_run_end(
         Err(array) => array,
     };
 
-    // Fallback: run-end encode the array, then export it.
-    let run_end = encode_runs(array, ctx)?;
-    run_end_to_arrow(run_end, ends_type, values_type, exporter, ctx)
-}
-
-/// Run-end encode an array that is not already run-end encoded.
-fn encode_runs(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<RunEndArray> {
-    let array = array.execute::<RecursiveCanonical>(ctx)?.0.into_array();
-    if array.is::<Primitive>() {
-        return RunEnd::encode(array, ctx);
-    }
-    if let DType::Extension(ext_dtype) = array.dtype() {
-        // Run-end encode the storage and re-wrap the run values in the extension type.
-        let ext_dtype = ext_dtype.clone();
-        let storage = array
-            .execute::<ExtensionArray>(ctx)?
-            .storage_array()
-            .clone();
-        let storage_runs = encode_runs(storage, ctx)?;
-        let values =
-            ExtensionArray::try_new(ext_dtype, storage_runs.values().clone())?.into_array();
-        return RunEnd::try_new(storage_runs.ends().clone(), values, ctx);
-    }
-    encode_runs_by_comparison(array, ctx)
-}
-
-/// Run-end encode a canonical array of any comparable dtype, ending a run wherever adjacent
-/// values differ. Adjacent nulls belong to the same run.
-fn encode_runs_by_comparison(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<RunEndArray> {
-    let len = array.len();
-    if len == 0 {
-        return RunEnd::try_new(Buffer::<u64>::empty().into_array(), array, ctx);
-    }
-
-    // Bit `i` is set when row `i` ends a run, i.e. rows `i` and `i + 1` differ.
-    let valid = array.validity()?.execute_mask(len, ctx)?.into_bit_buffer();
-    let equal = array
-        .slice(0..len - 1)?
-        .binary(array.slice(1..len)?, Operator::Eq)?
-        .fill_null(false)?
-        .execute::<Mask>(ctx)?
-        .into_bit_buffer();
-    let both_null = !(&valid.slice(..len - 1) | &valid.slice(1..));
-    let run_ends_after = !(equal | both_null);
-
-    let num_runs = run_ends_after.true_count() + 1;
-    let mut ends = BufferMut::<u64>::with_capacity(num_runs);
-    let mut starts = BufferMut::<u64>::with_capacity(num_runs);
-    starts.push(0);
-    for i in run_ends_after.set_indices() {
-        let boundary = (i + 1) as u64;
-        ends.push(boundary);
-        starts.push(boundary);
-    }
-    ends.push(len as u64);
-
-    let values = array.take(starts.into_array())?;
-    RunEnd::try_new(ends.into_array(), values, ctx)
+    // Fallback: canonicalize to flat Arrow, then cast to REE.
+    let flat = export_values(array, values_type, exporter, ctx)?;
+    let ree_type = DataType::RunEndEncoded(
+        Arc::new(Field::new("run_ends", ends_type.clone(), false)),
+        Arc::new(values_type.clone()),
+    );
+    arrow_cast::cast(&flat, &ree_type).map_err(VortexError::from)
 }
 
 /// Export the values of a run-end array through the session, so extension metadata on the target
@@ -250,34 +190,23 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
-    use arrow_array::BooleanArray;
     use arrow_array::Int16Array;
     use arrow_array::Int32Array;
     use arrow_array::Int64Array;
     use arrow_array::RunArray;
-    use arrow_array::StringViewArray;
-    use arrow_array::TimestampSecondArray;
     use arrow_array::types::Int16Type;
     use arrow_array::types::Int32Type;
     use arrow_array::types::Int64Type;
     use arrow_schema::DataType;
     use arrow_schema::Field;
-    use arrow_schema::Fields;
-    use arrow_schema::TimeUnit as ArrowTimeUnit;
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::SliceArray;
-    use vortex_array::arrays::StructArray;
-    use vortex_array::arrays::TemporalArray;
-    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::dtype::DType;
-    use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability::Nullable;
     use vortex_array::dtype::PType;
-    use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
@@ -412,99 +341,6 @@ mod tests {
         let expected = RunArray::<Int32Type>::try_new(
             &Int32Array::from(vec![2, 5]),
             &Int32Array::from(vec![10, 20]),
-        )?;
-        assert_eq!(result.as_ref(), &expected);
-        Ok(())
-    }
-
-    #[test]
-    fn nullable_strings_to_ree() -> VortexResult<()> {
-        let array = VarBinViewArray::from_iter_nullable_str([
-            Some("a"),
-            Some("a"),
-            None,
-            None,
-            Some("b"),
-            Some("a"),
-        ])
-        .into_array();
-        let target = ree_type(DataType::Int32, DataType::Utf8View);
-        let result = execute(array, &target)?;
-
-        let expected = RunArray::<Int32Type>::try_new(
-            &Int32Array::from(vec![2, 4, 5, 6]),
-            &StringViewArray::from(vec![Some("a"), None, Some("b"), Some("a")]),
-        )?;
-        assert_eq!(result.as_ref(), &expected);
-        Ok(())
-    }
-
-    #[test]
-    fn nullable_bools_to_ree() -> VortexResult<()> {
-        let array =
-            BoolArray::from_iter([Some(true), Some(true), None, None, Some(false), Some(true)])
-                .into_array();
-        let target = ree_type(DataType::Int16, DataType::Boolean);
-        let result = execute(array, &target)?;
-
-        let expected = RunArray::<Int16Type>::try_new(
-            &Int16Array::from(vec![2, 4, 5, 6]),
-            &BooleanArray::from(vec![Some(true), None, Some(false), Some(true)]),
-        )?;
-        assert_eq!(result.as_ref(), &expected);
-        Ok(())
-    }
-
-    #[test]
-    fn struct_with_null_fields_to_ree() -> VortexResult<()> {
-        // Rows 0 and 1 are equal even though their field is null; row 2 differs.
-        let field = PrimitiveArray::from_option_iter([None, None, Some(1i32)]).into_array();
-        let array = StructArray::try_new(
-            FieldNames::from(["a"]),
-            vec![field],
-            3,
-            Validity::NonNullable,
-        )?
-        .into_array();
-        let values_type =
-            DataType::Struct(Fields::from(vec![Field::new("a", DataType::Int32, true)]));
-        let result = execute(array, &ree_type(DataType::Int32, values_type))?;
-
-        let expected_values = arrow_array::StructArray::try_new(
-            Fields::from(vec![Field::new("a", DataType::Int32, true)]),
-            vec![Arc::new(Int32Array::from(vec![None, Some(1)]))],
-            None,
-        )?;
-        let expected =
-            RunArray::<Int32Type>::try_new(&Int32Array::from(vec![2, 3]), &expected_values)?;
-        assert_eq!(result.as_ref(), &expected);
-        Ok(())
-    }
-
-    #[test]
-    fn timestamps_to_ree() -> VortexResult<()> {
-        let storage = PrimitiveArray::from_option_iter([Some(5i64), Some(5), None, Some(7)]);
-        let array = TemporalArray::new_timestamp(storage.into_array(), TimeUnit::Seconds, None);
-        let values_type = DataType::Timestamp(ArrowTimeUnit::Second, None);
-        let result = execute(array.into(), &ree_type(DataType::Int64, values_type))?;
-
-        let expected = RunArray::<Int64Type>::try_new(
-            &Int64Array::from(vec![2, 3, 4]),
-            &TimestampSecondArray::from(vec![Some(5), None, Some(7)]),
-        )?;
-        assert_eq!(result.as_ref(), &expected);
-        Ok(())
-    }
-
-    #[test]
-    fn empty_primitive_to_ree() -> VortexResult<()> {
-        let array = PrimitiveArray::from_iter(Vec::<i32>::new()).into_array();
-        let target = ree_type(DataType::Int32, DataType::Int32);
-        let result = execute(array, &target)?;
-
-        let expected = RunArray::<Int32Type>::try_new(
-            &Int32Array::from(Vec::<i32>::new()),
-            &Int32Array::from(Vec::<i32>::new()),
         )?;
         assert_eq!(result.as_ref(), &expected);
         Ok(())

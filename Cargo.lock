@@ -11454,6 +11454,7 @@ version = "0.1.0"
 dependencies = [
  "arrow-array 59.3.2",
  "arrow-buffer 59.3.2",
+ "arrow-cast 59.3.2",
  "arrow-data 59.3.2",
  "arrow-schema 59.3.2",
  "codspeed-divan-compat",
@@ -11472,7 +11473,6 @@ dependencies = [
  "vortex-onpair",
  "vortex-runend",
  "vortex-session",
- "vortex-utils",
  "vortex-zstd",
 ]
 

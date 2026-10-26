@@ -21,6 +21,7 @@ workspace = true
 [dependencies]
 arrow-array = { workspace = true, features = ["ffi"] }
 arrow-buffer = { workspace = true }
+arrow-cast = { workspace = true }
 arrow-data = { workspace = true }
 arrow-schema = { workspace = true, features = ["canonical_extension_types"] }
 itertools = { workspace = true }
@@ -33,7 +34,6 @@ vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-runend = { workspace = true }
 vortex-session = { workspace = true }
-vortex-utils = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }
