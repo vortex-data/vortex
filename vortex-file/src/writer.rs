@@ -20,6 +20,8 @@ use vortex_array::ArrayContext;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTable;
+use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::iter::ArrayIterator;
@@ -345,6 +347,15 @@ impl VortexWriteOptions {
         // Assemble the Footer object now that we have all the segments.
         let statistics = if matches!(&self.file_statistics, Some(stats) if stats.is_empty()) {
             None
+        } else if !ctx.allows_aggregate(&Min.id()) {
+            // Editions before the aggregates (for example `core2025.10.0`) do not permit `Min`, so
+            // the nested statistics would have no min and max. Readers of these editions use only
+            // the legacy format, so write the statistics in that format only. Aggregates of other
+            // edition families, such as spatial ones, are then not written.
+            Some(FileStatistics::legacy_only(
+                file_stats.legacy_aggregate_stats()?.into(),
+                &dtype,
+            ))
         } else {
             Some(FileStatistics::new_with_dtype(
                 file_stats.aggregate_stats()?.into(),

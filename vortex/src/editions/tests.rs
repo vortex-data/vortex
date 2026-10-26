@@ -7,15 +7,23 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldName;
+use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::expr::col;
+use vortex_array::expr::gt_eq;
+use vortex_array::expr::lit;
+use vortex_array::expr::stats::Stat;
 use vortex_array::extension::datetime::Date;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::session::ArraySessionExt;
@@ -33,6 +41,7 @@ use vortex_edition::EditionMember;
 use vortex_edition::EditionSession;
 use vortex_edition::EditionSessionExt;
 use vortex_edition::test_harness::validate_edition;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_file::OpenOptionsSessionExt;
@@ -309,10 +318,8 @@ async fn default_session_writes_every_default_zone_aggregate() -> VortexResult<(
     let session = VortexSession::default();
     // Strings take the bounded min/max branch of the default aggregates, integers the plain
     // min/max branch, so one file exercises both.
-    let strings = || {
-        vortex_array::arrays::VarBinViewArray::from_iter_str((0..4096).map(|i| format!("row-{i}")))
-            .into_array()
-    };
+    let strings =
+        || VarBinViewArray::from_iter_str((0..4096).map(|i| format!("row-{i}"))).into_array();
     let array = StructArray::from_fields(&[
         ("numbers", sequential_integers().into_array()),
         (
@@ -724,12 +731,6 @@ async fn serialization_context_accepts_supported_compressor_output() -> VortexRe
 /// zone maps use the legacy `vortex.stats` layout, and the file has only `core2025.10.0` layouts.
 #[tokio::test]
 async fn core_2025_10_0_writes_legacy_zone_maps() -> VortexResult<()> {
-    use vortex_array::arrays::BoolArray;
-    use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::expr::col;
-    use vortex_array::expr::gt_eq;
-    use vortex_array::expr::lit;
-
     use crate::VortexSessionDefault;
 
     let session = VortexSession::default();
@@ -800,5 +801,29 @@ async fn core_2025_10_0_writes_legacy_zone_maps() -> VortexResult<()> {
         .read_all()
         .await?;
     assert_eq!(filtered.len(), 536);
+
+    // The editions permit no aggregates, so the file statistics use the legacy format only. All
+    // readers read them, by the paths of the top-level fields.
+    let statistics = file
+        .footer()
+        .statistics()
+        .vortex_expect("file has statistics");
+    let (int_stats, int_dtype) = statistics
+        .get_by_path(&FieldPath::from_name(FieldName::from("int")))
+        .vortex_expect("int column has statistics");
+    let int_stats = int_stats.to_stats_set();
+    assert!(
+        int_stats
+            .get_as::<i32>(Stat::Min, int_dtype)
+            .as_exact()
+            .is_some()
+    );
+    assert!(
+        int_stats
+            .get_as::<i32>(Stat::Max, int_dtype)
+            .as_exact()
+            .is_some()
+    );
+    assert_eq!(statistics.paths().len(), 5);
     Ok(())
 }
