@@ -6,7 +6,6 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::builtins::ArrayBuiltins;
@@ -48,8 +47,8 @@ fn build_with_validity(
     bit_width: u8,
     dtype: &DType,
     new_validity: Validity,
-) -> VortexResult<ArrayRef> {
-    Ok(BitPacked::try_new(
+) -> VortexResult<BitPackedArray> {
+    BitPacked::try_new(
         array.packed().clone(),
         dtype.as_ptype(),
         new_validity,
@@ -57,40 +56,6 @@ fn build_with_validity(
             .patches()
             .map(|patches| patches.map_values(|values| values.cast(dtype.clone())))
             .transpose()?,
-        bit_width,
-        array.len(),
-        array.offset(),
-    )?
-    .into_array())
-}
-
-/// The array with the unsigned ptype of the same width.
-///
-/// The packed values and patches are never negative, so they keep their value. Only the patch
-/// values are reinterpreted. The packed buffer is shared.
-fn unsigned_view_of(
-    array: ArrayView<'_, BitPacked>,
-    bit_width: u8,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<BitPackedArray> {
-    let ptype = array.dtype().as_ptype().to_unsigned();
-    let patches = array
-        .patches()
-        .map(|patches| {
-            patches.map_values(|values| {
-                Ok(values
-                    .execute::<PrimitiveArray>(ctx)?
-                    .reinterpret_cast(ptype)
-                    .into_array())
-            })
-        })
-        .transpose()?;
-
-    BitPacked::try_new(
-        array.packed().clone(),
-        ptype,
-        array.validity()?,
-        patches,
         bit_width,
         array.len(),
         array.offset(),
@@ -111,7 +76,9 @@ impl CastReduce for BitPacked {
         else {
             return Ok(None);
         };
-        build_with_validity(array, bit_width, dtype, new_validity).map(Some)
+        Ok(Some(
+            build_with_validity(array, bit_width, dtype, new_validity)?.into_array(),
+        ))
     }
 }
 
@@ -130,7 +97,9 @@ impl CastKernel for BitPacked {
                 array
                     .validity()?
                     .cast_nullability(dtype.nullability(), array.len(), ctx)?;
-            return build_with_validity(array, bit_width, dtype, new_validity).map(Some);
+            return Ok(Some(
+                build_with_validity(array, bit_width, dtype, new_validity)?.into_array(),
+            ));
         }
 
         // Widening integer cast, or a narrowing one whose target holds every packed value: unpack
@@ -155,11 +124,13 @@ impl CastKernel for BitPacked {
 
         // Bit-packing rejects negative values, so sign extension of a packed value is the same as
         // zero extension. A signed cast then gives the same bits as the unsigned cast of the same
-        // widths, and signed and unsigned casts share one set of kernels.
-        let unsigned_view;
+        // widths, and signed and unsigned casts share one set of kernels. The patch values are
+        // never negative either, so their cast to the unsigned ptype cannot fail.
+        let unsigned;
         let source = if src.is_signed_int() {
-            unsigned_view = unsigned_view_of(array, bit_width, ctx)?;
-            unsigned_view.as_view()
+            let unsigned_dtype = DType::Primitive(src.to_unsigned(), array.dtype().nullability());
+            unsigned = build_with_validity(array, bit_width, &unsigned_dtype, array.validity()?)?;
+            unsigned.as_view()
         } else {
             array
         };
