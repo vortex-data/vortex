@@ -102,9 +102,11 @@ fn compact_ranges(
     .into_array();
     assert_arrays_eq!(
         compressed.take(indices)?,
-        PrimitiveArray::from_option_iter(expected_indices.into_iter().map(|i| {
-            (i % 5 != 0).then(|| i64::try_from(i * i).unwrap())
-        })),
+        PrimitiveArray::from_option_iter(
+            expected_indices
+                .into_iter()
+                .map(|i| { (i % 5 != 0).then(|| i64::try_from(i * i).unwrap()) })
+        ),
         &mut ctx
     );
     Ok(())
