@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
-use futures::StreamExt;
 use object_store::registry::ObjectStoreRegistry;
 use url::Url;
 use vortex::array::ArrayRef;
@@ -33,7 +32,6 @@ use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
 use vortex::layout::scan::v2::ScanFile;
 use vortex::mask::Mask;
 use vortex::session::SessionExt as _;
-use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::REGISTRY;
 use crate::RUNTIME;
@@ -46,6 +44,7 @@ use crate::exporter::ArrayExporter;
 use crate::exporter::ConversionCache;
 use crate::projection::Filter;
 use crate::projection::extract_schema_from_dtype;
+use crate::scan_v2::FileScan;
 use crate::table_function::BindState;
 use crate::table_function::GlobalState;
 use crate::table_function::LocalState;
@@ -120,9 +119,11 @@ pub struct OpenFileReader {
 /// The state of an open file that the threads scanning it share.
 pub struct FileScanState {
     reader: LayoutReaderRef,
-    /// The file as the V2 executor reads it, with a scan cache that every split of the file
-    /// shares.
+    /// The file as the V2 executor reads it.
     scan_file: ScanFile,
+    /// The file's V2 scan, which every thread scanning the file drives. Set when the file is
+    /// initialized for a V2 scan.
+    v2: OnceLock<FileScan>,
     cache: ConversionCache,
 }
 
@@ -137,6 +138,7 @@ impl OpenFileReader {
             scan_state: Some(Arc::new(FileScanState {
                 reader: file.layout_reader()?,
                 scan_file,
+                v2: OnceLock::new(),
                 cache: ConversionCache::default(),
             })),
             splits: vec![],
@@ -209,23 +211,30 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
         return Ok(true);
     }
 
-    // Getting splits is non-trivial work so we prefer doing it here under file
-    // lock and not in reader_try_initialize_scan under global lock.
-    let mut splits = if global.scan_v2 {
-        v2_splits(file.scan_state(), global)?
-    } else {
-        let reader = Arc::clone(file.reader());
-        let filter = &global.filter;
-        let builder = ScanBuilder::new(SESSION.clone(), reader)
-            .with_projection(global.projection.clone())
-            .with_some_filter(filter.filter.clone())
-            .with_selection(filter.row_selection.clone());
-        let scan = builder.prepare()?;
-        scan.execute(filter.row_range.clone())?
-            .into_iter()
-            .map(Split::V1)
-            .collect()
-    };
+    // Getting splits, or planning a V2 scan, is non-trivial work so we prefer
+    // doing it here under file lock and not in reader_try_initialize_scan under
+    // global lock.
+    if global.scan_v2 {
+        let state = file.scan_state();
+        let scan = FileScan::try_new(v2_builder(state, global))?;
+        if state.v2.set(scan).is_err() {
+            vortex_panic!("file initialized twice");
+        }
+        return Ok(false);
+    }
+
+    let reader = Arc::clone(file.reader());
+    let filter = &global.filter;
+    let builder = ScanBuilder::new(SESSION.clone(), reader)
+        .with_projection(global.projection.clone())
+        .with_some_filter(filter.filter.clone())
+        .with_selection(filter.row_selection.clone());
+    let scan = builder.prepare()?;
+    let mut splits: Vec<Split> = scan
+        .execute(filter.row_range.clone())?
+        .into_iter()
+        .map(Split::V1)
+        .collect();
 
     // threads take last element of file.splits so we need to reverse
     splits.reverse();
@@ -234,63 +243,18 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
     Ok(false)
 }
 
-/// Splits the file's scanned rows into one V2 scan per available core, each over a contiguous
-/// run of the layout's chunks. A split that ended inside a chunk would read and decode the whole
-/// chunk for a part of its rows, and so would its neighbour. The splits share the file's scan
-/// cache, so the file is planned once. A split's chunks run beside each other only as far as the
-/// engine's threads leave cores idle, like DataFusion's partitions.
-fn v2_splits(state: &FileScanState, global: &GlobalState) -> VortexResult<Vec<Split>> {
+/// The V2 scan of the file's rows that the scan's row range and selection keep.
+fn v2_builder(state: &FileScanState, global: &GlobalState) -> V2ScanBuilder {
     let filter = &global.filter;
     let row_count = state.reader.row_count();
     let rows = filter.row_range.as_ref().map_or(0..row_count, |range| {
         range.start.min(row_count)..range.end.min(row_count)
     });
-    let boundaries = ScanBuilder::new(SESSION.clone(), Arc::clone(&state.reader))
+    V2ScanBuilder::new(SESSION.clone(), state.scan_file.clone())
         .with_projection(global.projection.clone())
         .with_some_filter(filter.filter.clone())
-        .full_file_splits()?;
-    let parts = get_available_parallelism().unwrap_or(1) as u64;
-    split_row_ranges(rows, &boundaries, parts)
-        .into_iter()
-        .map(|rows| {
-            let stream = V2ScanBuilder::new(SESSION.clone(), state.scan_file.clone())
-                .with_projection(global.projection.clone())
-                .with_some_filter(filter.filter.clone())
-                .with_selection(filter.row_selection.clone())
-                .with_row_range(rows)
-                .with_ordered(false)
-                .with_concurrency(1)
-                .into_stream()?;
-            Ok(Split::V2(stream))
-        })
-        .collect()
-}
-
-/// Cuts `rows` into up to `parts` non-empty, contiguous ranges that tile it and end only on the
-/// sorted row `boundaries` or at the end of `rows`. Each range ends on the first boundary at or
-/// past its even share of the rows.
-fn split_row_ranges(rows: Range<u64>, boundaries: &[u64], parts: u64) -> Vec<Range<u64>> {
-    let len = u128::from(rows.end.saturating_sub(rows.start));
-    let parts = parts.max(1);
-    let mut ranges = Vec::new();
-    let mut start = rows.start;
-    for part in 1..parts {
-        let share = u64::try_from(len * u128::from(part) / u128::from(parts))
-            .vortex_expect("a share of the rows fits u64");
-        let target = rows.start + share;
-        let next = boundaries.partition_point(|&boundary| boundary < target.max(start + 1));
-        match boundaries.get(next) {
-            Some(&end) if end < rows.end => {
-                ranges.push(start..end);
-                start = end;
-            }
-            _ => break,
-        }
-    }
-    if start < rows.end {
-        ranges.push(start..rows.end);
-    }
-    ranges
+        .with_selection(filter.row_selection.clone())
+        .with_row_range(rows)
 }
 
 /// What a thread's split yields next.
@@ -309,11 +273,16 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
         Some(Split::V1(task)) => Ok(RUNTIME
             .block_on(task)?
             .map_or(SplitItem::Empty, SplitItem::Array)),
-        Some(Split::V2(mut stream)) => {
-            let Some(array) = RUNTIME.block_on(stream.next()).transpose()? else {
+        Some(Split::V2) => {
+            let file = local.file.as_ref().vortex_expect("split without a file");
+            let scan = file
+                .v2
+                .get()
+                .vortex_expect("V2 split of a file without a V2 scan");
+            let Some(array) = scan.next_array(&mut local.run)? else {
                 return Ok(SplitItem::Done);
             };
-            local.split = Some(Split::V2(stream));
+            local.split = Some(Split::V2);
             Ok(if array.is_empty() {
                 SplitItem::Empty
             } else {
@@ -332,7 +301,14 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
 /// the global lock. It only moves references between the file and the local
 /// state, and reader_scan drops the retired ones.
 pub fn reader_try_initialize_scan(file: &mut OpenFileReader, local: &mut LocalState) -> bool {
-    let Some(split) = file.splits.pop() else {
+    // A V2 scan's threads take chunks from the file's scan until it has spawned
+    // them all, so the file has work for another thread until then.
+    let v2 = file
+        .scan_state
+        .as_ref()
+        .and_then(|state| state.v2.get())
+        .map(|scan| (!scan.is_exhausted()).then_some(Split::V2));
+    let Some(split) = v2.unwrap_or_else(|| file.splits.pop()) else {
         // DuckDB releases the file after this call, under the global lock.
         // Give the reference of the file to this thread so it drops outside.
         local.retired_files.extend(file.scan_state.take());
@@ -445,6 +421,9 @@ pub fn reader_get_statistics(
 /// Called from a separate thread (not related to threads for Vortex
 /// table function) under global lock.
 pub fn reader_get_progress_in_file(file: &OpenFileReader) -> f64 {
+    if let Some(scan) = file.scan_state.as_ref().and_then(|state| state.v2.get()) {
+        return scan.progress();
+    }
     let total = file.total_splits;
     let left = file.splits.len();
     let denom = total + (total == 0) as usize;
@@ -484,31 +463,5 @@ pub fn footer_get_statistics(footer: &Footer, column: &str) -> Option<ColumnStat
     match ColumnStatistics::try_from(stats, dtype.clone()) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::ops::Range;
-
-    use rstest::rstest;
-
-    use super::split_row_ranges;
-
-    #[rstest]
-    #[case::even(0..400, &[0, 100, 200, 300, 400], 2, vec![0..200, 200..400])]
-    #[case::more_parts_than_chunks(0..250, &[0, 100, 200, 250], 8, vec![0..100, 100..200, 200..250])]
-    #[case::one_part(0..400, &[0, 100, 200, 300, 400], 1, vec![0..400])]
-    #[case::uneven_chunks(0..1000, &[0, 900, 1000], 4, vec![0..900, 900..1000])]
-    #[case::row_range_inside_chunks(150..350, &[0, 100, 200, 300, 400], 2, vec![150..300, 300..350])]
-    #[case::row_range_in_one_chunk(120..180, &[0, 100, 200], 4, vec![120..180])]
-    #[case::empty(50..50, &[0, 100], 4, vec![])]
-    fn split_row_ranges_end_on_boundaries(
-        #[case] rows: Range<u64>,
-        #[case] boundaries: &[u64],
-        #[case] parts: u64,
-        #[case] expected: Vec<Range<u64>>,
-    ) {
-        assert_eq!(split_row_ranges(rows, boundaries, parts), expected);
     }
 }

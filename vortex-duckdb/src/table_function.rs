@@ -11,7 +11,6 @@ use std::sync::atomic::Ordering;
 
 use custom_labels::CURRENT_LABELSET;
 use futures::future::BoxFuture;
-use futures::stream::BoxStream;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use parking_lot::Mutex;
@@ -33,6 +32,7 @@ use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::scalar::Scalar;
+use vortex::scan::planning::driver::Run;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::convert::PushedAggregate;
@@ -163,8 +163,8 @@ assert_impl_all!(GlobalState: Send, Sync);
 pub enum Split {
     /// A V1 scan task yielding one array, or `None` if the filter removed every row.
     V1(BoxFuture<'static, VortexResult<Option<ArrayRef>>>),
-    /// A V2 scan over a row range of the file, yielding arrays until it ends.
-    V2(BoxStream<'static, VortexResult<ArrayRef>>),
+    /// Chunks of the file's V2 scan, taken by the thread until the scan has none left.
+    V2,
 }
 
 /// field position, accumulator
@@ -179,6 +179,8 @@ pub struct LocalState {
     /// Scan states that this thread no longer uses. They are dropped outside
     /// DuckDB's global multi-file lock; see `OpenFileReader`.
     pub(crate) retired_files: Vec<Arc<FileScanState>>,
+    /// The planning run on which this thread runs the chunks of V2 scans.
+    pub(crate) run: Run,
 
     /// Empty for non-aggregate scan
     pub partials: Partials,
@@ -380,6 +382,7 @@ pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
         split: None,
         file: None,
         retired_files: Vec::new(),
+        run: Run::new(),
         finished: false,
     }
 }
