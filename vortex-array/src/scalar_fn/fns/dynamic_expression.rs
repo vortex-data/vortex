@@ -350,5 +350,4 @@ mod tests {
         assert!(!is_currently_true(&expr));
         Ok(())
     }
-
 }

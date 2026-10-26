@@ -45,8 +45,8 @@ use vortex_array::scalar_fn::fns::list_contains::ListContains;
 use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_array::scalar_fn::internal::row_count::RowCount;
 use vortex_array::scalar_fn::fns::switch::Switch;
+use vortex_array::scalar_fn::internal::row_count::RowCount;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -56,8 +56,8 @@ use crate::stats::rewrite::StatsRewriteRule;
 use crate::stats::rewrite::dynamic_expression::StatsProof;
 use crate::stats::rewrite::dynamic_expression::dynamic_stats_proof;
 use crate::stats::rewrite::falsify;
-use crate::stats::rewrite::satisfy;
 use crate::stats::rewrite::like_variant::LikeVariant;
+use crate::stats::rewrite::satisfy;
 use crate::stats::session::StatsSession;
 
 /// Register built-in stats rewrite rules.

@@ -35,7 +35,6 @@ use vortex::expr::lit;
 use vortex::expr::root;
 use vortex::expr::stats::Stat;
 use vortex::file::VortexFile;
-use vortex::scalar::Scalar;
 use vortex::scalar_fn::fns::between::Between;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
@@ -432,8 +431,9 @@ fn column_min_max(file: &VortexFile, column: &FieldName) -> Option<(f64, f64)> {
         return None;
     }
     let stat = |stat: Stat| {
-        Scalar::try_new(dtype.clone(), Some(stats.get(stat).as_exact()?))
-            .ok()?
+        stats
+            .get(&stat.aggregate_fn()?)
+            .as_exact()?
             .as_primitive_opt()?
             .as_opt::<f64>()
             .flatten()
@@ -584,6 +584,7 @@ mod tests {
     use vortex::expr::or;
     use vortex::file::OpenOptionsSessionExt;
     use vortex::file::WriteOptionsSessionExt;
+    use vortex::scalar::Scalar;
     use vortex::session::VortexSession;
 
     use super::*;
