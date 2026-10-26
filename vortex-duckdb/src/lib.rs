@@ -45,6 +45,13 @@ mod copy;
 #[cfg(test)]
 mod e2e_test;
 
+/// The exporter internals that the benchmarks in `benches/` build on. This is not a stable API.
+#[doc(hidden)]
+pub mod _benchmarking {
+    pub use crate::exporter::ArrayExporter;
+    pub use crate::exporter::ConversionCache;
+}
+
 // A global runtime for Vortex operations within DuckDB.
 static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
 /// Process-wide registry, so repeated scans against the same bucket share one client.

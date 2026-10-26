@@ -31,6 +31,7 @@ use vortex::array::optimizer::kernels::KernelSession;
 use vortex::array::scalar::Scalar;
 use vortex::array::session::ArraySession;
 use vortex::dtype::DType;
+use vortex::dtype::DecimalDType;
 use vortex::dtype::PType;
 use vortex::encodings::alp;
 use vortex::encodings::alp::ALP;
@@ -40,6 +41,8 @@ use vortex::encodings::alp::alp_encode;
 use vortex::encodings::datetime_parts;
 use vortex::encodings::datetime_parts::DateTimeParts;
 use vortex::encodings::datetime_parts::split_temporal;
+use vortex::encodings::decimal_byte_parts;
+use vortex::encodings::decimal_byte_parts::DecimalByteParts;
 use vortex::encodings::fastlanes;
 use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::FoR;
@@ -77,6 +80,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .with::<MemorySession>();
     alp::initialize(&session);
     datetime_parts::initialize(&session);
+    decimal_byte_parts::initialize(&session);
     fastlanes::initialize(&session);
     fsst::initialize(&session);
     runend::initialize(&session);
@@ -433,6 +437,22 @@ mod setup {
         .unwrap()
         .into_array()
     }
+
+    /// Create DecimalByteParts <- BitPacked encoding tree, the tree that the compressor builds for
+    /// the golden `decimal_prices` column.
+    pub fn dbp_bp_i32() -> ArrayRef {
+        let mut rng = StdRng::seed_from_u64(115);
+        let msp =
+            PrimitiveArray::from_iter((0..NUM_VALUES).map(|_| rng.random_range(0..10_000_000i32)))
+                .into_array();
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let msp_bp = BitPacked::encode(&msp, 24, &mut ctx).unwrap();
+
+        DecimalByteParts::try_new(msp_bp.into_array(), DecimalDType::new(12, 2))
+            .unwrap()
+            .into_array()
+    }
 }
 
 // Complex encoding tree benchmarks
@@ -482,6 +502,7 @@ macro_rules! setup_fn {
         setup_fn!(setup::dict_fsst_varbin_string),
         setup_fn!(setup::dict_fsst_varbin_bp_string),
         setup_fn!(setup::datetime_for_bp),
+        setup_fn!(setup::dbp_bp_i32),
     ]
 )]
 fn decompress(bencher: Bencher, setup_fn: SetupFn) {

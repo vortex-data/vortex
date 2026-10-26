@@ -9,8 +9,12 @@ use vortex_mask::MaskValuesRef;
 use super::super::RowFnExecutionArgs;
 use super::super::args::BorrowedRowFnArgs;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::masked::mask_validity_canonical;
 use crate::builtins::ArrayBuiltins;
+use crate::canonical::AnyCanonical;
 use crate::scalar_fn::unstable::row::execute::DenseAttempt;
 use crate::validity::Validity;
 
@@ -107,7 +111,23 @@ impl RowFnExecutionArgs {
             Validity::NonNullable | Validity::AllValid => {
                 self.finalize_output(values, self.row_count)
             }
-            Validity::Array(valid) => self.finalize_output(values.mask(valid)?, self.row_count),
+            Validity::Array(valid) => {
+                // `values.mask(valid)` builds and optimizes a ScalarFnArray to dispatch through
+                // parent-reduce rules. Benchmarks motivated bypassing that setup here, keeping the
+                // exception internal instead of adding canonical-specific dispatch to the generic
+                // builtin. Remove this bypass if `.mask()` gains equivalent direct dispatch.
+                // https://github.com/vortex-data/vortex/pull/10742
+                let values = match values.as_opt::<AnyCanonical>() {
+                    Some(canonical) => mask_validity_canonical(
+                        Canonical::from(canonical),
+                        Validity::Array(valid),
+                        ctx,
+                    )?
+                    .into_array(),
+                    None => values.mask(valid)?,
+                };
+                self.finalize_output(values, self.row_count)
+            }
             Validity::AllInvalid => {
                 unreachable!("all-invalid validity is handled before dense row execution")
             }

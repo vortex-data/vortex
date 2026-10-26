@@ -10,9 +10,11 @@ import com.google.common.collect.Maps;
 import dev.vortex.spark.read.VortexScanBuilder;
 import dev.vortex.spark.write.VortexWriteBuilder;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.apache.spark.sql.connector.catalog.CatalogV2Util;
+import java.util.stream.Collectors;
+import org.apache.spark.sql.connector.catalog.Column;
 import org.apache.spark.sql.connector.catalog.SupportsRead;
 import org.apache.spark.sql.connector.catalog.SupportsWrite;
 import org.apache.spark.sql.connector.catalog.Table;
@@ -21,6 +23,7 @@ import org.apache.spark.sql.connector.expressions.Transform;
 import org.apache.spark.sql.connector.read.ScanBuilder;
 import org.apache.spark.sql.connector.write.LogicalWriteInfo;
 import org.apache.spark.sql.connector.write.WriteBuilder;
+import org.apache.spark.sql.types.Metadata;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 
@@ -60,7 +63,21 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
         opts.putAll(options);
         return new VortexScanBuilder(opts, partitionTransforms)
                 .addAllPaths(paths)
-                .addAllColumns(Arrays.asList(CatalogV2Util.structTypeToV2Columns(schema)));
+                .addAllColumns(toColumns(schema));
+    }
+
+    // Not CatalogV2Util.structTypeToV2Columns: Spark 4.2 changed its signature, and one jar serves 3.5 to 4.2.
+    private static List<Column> toColumns(StructType schema) {
+        return Arrays.stream(schema.fields())
+                .map(field -> Column.create(
+                        field.name(),
+                        field.dataType(),
+                        field.nullable(),
+                        field.getComment().getOrElse(() -> null),
+                        field.metadata().equals(Metadata.empty())
+                                ? null
+                                : field.metadata().json()))
+                .collect(Collectors.toList());
     }
 
     /**
