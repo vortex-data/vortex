@@ -74,8 +74,12 @@ forbids, or a custom strategy can choose an unsupported layout. The
 [write fails](versioning/using-editions.md#write-errors) when its serialized output violates the
 selection.
 
-[Draft editions](versioning/editions.md#draft-editions) have no frozen compatibility guarantee.
-Custom wire formats written with edition checks disabled also fall outside the edition guarantee.
+[Draft editions](versioning/editions.md#draft-editions) have no frozen compatibility guarantee,
+and their members can change or be removed. The
+[unstable edition](versioning/editions.md#unstable), `UNSTABLE`, is a draft that never
+freezes, so the wire contracts of its members can also change under existing IDs. It accepts
+plugin-defined members. Readers need matching implementations for those formats. Custom wire formats
+written with edition checks disabled also fall outside the guarantee.
 
 ## Upgrades
 

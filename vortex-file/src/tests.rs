@@ -88,6 +88,7 @@ use vortex_edition::EDITION_DECLARATIONS;
 use vortex_edition::EditionSession;
 use vortex_edition::EditionSessionExt;
 use vortex_edition::declarations::core::CORE_2026_08_3;
+use vortex_edition::declarations::unstable::UNSTABLE;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::VortexWrite;
@@ -306,7 +307,10 @@ async fn decimal_writer_uses_default_or_session_restrictions(
     }
     .build();
 
-    for disable_editions in [false, true] {
+    for (disable_editions, unstable) in [(false, false), (true, false), (false, true)] {
+        if unstable {
+            session.enable_edition(UNSTABLE)?;
+        }
         let mut options = session.write_options();
         if custom_strategy {
             options = options.with_strategy(Arc::clone(&strategy));
@@ -332,7 +336,7 @@ async fn decimal_writer_uses_default_or_session_restrictions(
                 .as_opt::<DecimalByteParts>()
                 .is_some_and(|parts| !parts.lower_parts().is_empty())
         });
-        assert_eq!(uses_v2, disable_editions && !custom_strategy);
+        assert_eq!(uses_v2, (disable_editions || unstable) && !custom_strategy);
         assert_arrays_eq!(array, actual, &mut session.create_execution_ctx());
     }
     Ok(())
