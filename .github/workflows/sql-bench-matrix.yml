@@ -239,7 +239,7 @@ jobs:
             -o sizes.json
           cat sizes.json >> results.json
 
-      - name: Compare Q28 scan versions
+      - name: Compare scan versions
         shell: bash
         env:
           TOKIO_WORKER_THREADS: "8"
@@ -252,11 +252,11 @@ jobs:
             if [ "$round" = 1 ]; then versions="true false"; fi
             for v2 in $versions; do
               target/release_debug/datafusion-bench tpcds --formats vortex \
-                --queries 28 --iterations 15 --scan-v2 "$v2" --hide-progress-bar \
+                --queries 13,28,41,49 --iterations 9 --scan-v2 "$v2" --hide-progress-bar \
                 --runner "${{ inputs.machine_type }}-scan-comparison-8workers" \
                 --display-format gh-json --opt scale-factor=${{ matrix.scale_factor }} \
-                --ingest-jsonl "q28-r${round}-v2-${v2}.jsonl" \
-                > "q28-r${round}-v2-${v2}.log" 2>&1
+                --ingest-jsonl "scan-r${round}-v2-${v2}.jsonl" \
+                > "scan-r${round}-v2-${v2}.log" 2>&1
             done
           done
 
@@ -266,8 +266,8 @@ jobs:
         with:
           name: scan-comparison-${{ matrix.id }}
           path: |
-            q28-*.jsonl
-            q28-*.log
+            scan-*.jsonl
+            scan-*.log
 
       - name: Compare results
         if: inputs.mode == 'pr'
