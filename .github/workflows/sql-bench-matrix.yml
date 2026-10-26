@@ -253,6 +253,7 @@ jobs:
             for v2 in $versions; do
               target/release_debug/datafusion-bench tpcds --formats vortex \
                 --queries 28 --iterations 15 --scan-v2 "$v2" --hide-progress-bar \
+                --runner "${{ inputs.machine_type }}-scan-comparison-8workers" \
                 --display-format gh-json --opt scale-factor=${{ matrix.scale_factor }} \
                 --ingest-jsonl "q28-r${round}-v2-${v2}.jsonl" \
                 > "q28-r${round}-v2-${v2}.log" 2>&1
