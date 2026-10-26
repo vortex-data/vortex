@@ -7,6 +7,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::sync::Arc;
 
 use pco::ChunkConfig;
 use pco::PagingSpec;
@@ -54,10 +55,12 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::PcoChunkInfo;
+use crate::PcoLogicalRowPrefix;
 use crate::PcoMetadata;
 use crate::PcoPageInfo;
 
@@ -89,11 +92,21 @@ impl ArrayHash for PcoData {
         self.unsliced_n_rows.hash(state);
         self.slice_start.hash(state);
         self.slice_stop.hash(state);
+        self.metadata.header.hash(state);
+        for chunk in &self.metadata.chunks {
+            chunk.pages.len().hash(state);
+            for page in &chunk.pages {
+                page.n_values.hash(state);
+            }
+        }
+        if let Some(index) = &self.metadata.logical_row_prefix {
+            index.logical_row_ends.hash(state);
+        }
         // Hash chunk_metas and pages using pointer-based hashing
-        for chunk_meta in &self.chunk_metas {
+        for chunk_meta in self.chunk_metas.iter() {
             chunk_meta.array_hash(state, accuracy);
         }
-        for page in &self.pages {
+        for page in self.pages.iter() {
             page.array_hash(state, accuracy);
         }
     }
@@ -106,15 +119,16 @@ impl ArrayEq for PcoData {
             || self.slice_stop != other.slice_stop
             || self.chunk_metas.len() != other.chunk_metas.len()
             || self.pages.len() != other.pages.len()
+            || self.metadata != other.metadata
         {
             return false;
         }
-        for (a, b) in self.chunk_metas.iter().zip(&other.chunk_metas) {
+        for (a, b) in self.chunk_metas.iter().zip(other.chunk_metas.iter()) {
             if !a.array_eq(b, accuracy) {
                 return false;
             }
         }
-        for (a, b) in self.pages.iter().zip(&other.pages) {
+        for (a, b) in self.pages.iter().zip(other.pages.iter()) {
             if !a.array_eq(b, accuracy) {
                 return false;
             }
@@ -180,11 +194,13 @@ impl VTable for Pco {
         data.chunk_metas = buffers[..chunk_metas_len]
             .iter()
             .map(|buffer| buffer.clone().try_to_host_sync())
-            .collect::<VortexResult<Vec<_>>>()?;
+            .collect::<VortexResult<Vec<_>>>()?
+            .into();
         data.pages = buffers[chunk_metas_len..]
             .iter()
             .map(|buffer| buffer.clone().try_to_host_sync())
-            .collect::<VortexResult<Vec<_>>>()?;
+            .collect::<VortexResult<Vec<_>>>()?
+            .into();
         Ok(ArrayParts::new(
             self.clone(),
             array.dtype().clone(),
@@ -198,7 +214,7 @@ impl VTable for Pco {
         array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(array.metadata.clone().encode_to_vec()))
+        Ok(Some(array.metadata.encode_to_vec()))
     }
 
     fn deserialize(
@@ -299,16 +315,16 @@ pub(crate) fn number_type_from_ptype(ptype: PType) -> NumberType {
 fn collect_valid(
     parray: ArrayView<'_, Primitive>,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray> {
+) -> VortexResult<(PrimitiveArray, Mask)> {
     let mask = parray
         .array()
         .validity()?
         .execute_mask(parray.array().len(), ctx)?;
     let result = parray
         .array()
-        .filter(mask)?
+        .filter(mask.clone())?
         .execute::<PrimitiveArray>(ctx)?;
-    Ok(result)
+    Ok((result, mask))
 }
 
 pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
@@ -387,9 +403,9 @@ impl<T: TypedArrayRef<Pco>> PcoArrayExt for T {}
 #[derive(Clone, Debug)]
 /// Encoding-specific data for a [`PcoArray`].
 pub struct PcoData {
-    pub(crate) chunk_metas: Vec<ByteBuffer>,
-    pub(crate) pages: Vec<ByteBuffer>,
-    pub(crate) metadata: PcoMetadata,
+    pub(crate) chunk_metas: Arc<[ByteBuffer]>,
+    pub(crate) pages: Arc<[ByteBuffer]>,
+    pub(crate) metadata: Arc<PcoMetadata>,
     ptype: PType,
     unsliced_n_rows: usize,
     slice_start: usize,
@@ -486,9 +502,9 @@ impl PcoData {
         len: usize,
     ) -> Self {
         Self {
-            chunk_metas,
-            pages,
-            metadata,
+            chunk_metas: chunk_metas.into(),
+            pages: pages.into(),
+            metadata: Arc::new(metadata),
             ptype,
             unsliced_n_rows: len,
             slice_start: 0,
@@ -531,7 +547,7 @@ impl PcoData {
             .with_compression_level(level)
             .with_paging_spec(PagingSpec::EqualPagesUpTo(values_per_page));
 
-        let values = collect_valid(parray, ctx)?;
+        let (values, mask) = collect_valid(parray, ctx)?;
         let n_values = values.len();
 
         let fc = FileCompressor::default();
@@ -572,9 +588,49 @@ impl PcoData {
             chunk_infos.push(PcoChunkInfo { pages: page_infos })
         }
 
+        let mut ends = Vec::with_capacity(page_buffers.len());
+        match &mask {
+            Mask::AllFalse(_) => {}
+            Mask::AllTrue(_) => {
+                let mut end = 0usize;
+                for page in chunk_infos.iter().flat_map(|chunk| &chunk.pages) {
+                    end = end
+                        .checked_add(page.n_values as usize)
+                        .ok_or_else(|| vortex_err!("Pco logical page prefix overflows usize"))?;
+                    ends.push(u64::try_from(end)?);
+                }
+            }
+            Mask::Values(mask) => {
+                let bits = mask.bit_buffer();
+                let mut start = 0usize;
+                for page in chunk_infos.iter().flat_map(|chunk| &chunk.pages) {
+                    if ends.len() + 1 == page_buffers.len() {
+                        // No search through trailing nulls is necessary for the final page.
+                        ends.push(u64::try_from(parray.len())?);
+                        break;
+                    }
+                    // Existing bitmap select scans words only up to the next page boundary.
+                    // Advancing the suffix avoids rescanning prefixes or visiting every null row.
+                    let offset = bits
+                        .slice(start..)
+                        .select(page.n_values as usize - 1)
+                        .ok_or_else(|| {
+                            vortex_err!("Pco compression validity has too few valid rows")
+                        })?;
+                    start = start
+                        .checked_add(offset)
+                        .and_then(|end| end.checked_add(1))
+                        .ok_or_else(|| vortex_err!("Pco logical page end overflows usize"))?;
+                    ends.push(u64::try_from(start)?);
+                }
+            }
+        }
         let metadata = PcoMetadata {
             header,
             chunks: chunk_infos,
+            logical_row_prefix: Some(PcoLogicalRowPrefix {
+                logical_row_ends: ends,
+            }),
         };
         // SAFETY: The compressor produced matching chunk metadata and pages from `parray`, with
         // the same ptype, logical length, and valid-value count.
@@ -658,7 +714,7 @@ impl PcoData {
         let mut page_idx = 0;
         let mut page_value_start = 0usize;
         let mut n_skipped_values = 0;
-        for (chunk_info, chunk_meta) in self.metadata.chunks.iter().zip(&self.chunk_metas) {
+        for (chunk_info, chunk_meta) in self.metadata.chunks.iter().zip(self.chunk_metas.iter()) {
             // lazily initialize chunk decompressor
             let mut chunk_decompressor: Option<ChunkDecompressor<T>> = None;
             for page_info in &chunk_info.pages {
@@ -787,6 +843,8 @@ impl OperationsVTable<Pco> for Pco {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use super::VALUES_PER_CHUNK;
     use std::sync::LazyLock;
 
     use vortex_array::IntoArray;
@@ -798,7 +856,6 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use super::VALUES_PER_CHUNK;
     use crate::Pco;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -849,14 +906,13 @@ mod tests {
         assert!(result.is_err());
         Ok(())
     }
-
     #[test]
     fn test_validate_rejects_oversized_chunk() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_iter([42u32]);
         let pco = Pco::from_primitive(values.as_view(), 0, 128, &mut ctx)?;
         let mut data = pco.data().clone();
-        data.metadata.chunks[0].pages[0].n_values = u32::try_from(VALUES_PER_CHUNK + 1)?;
+        Arc::make_mut(&mut data.metadata).chunks[0].pages[0].n_values = u32::try_from(VALUES_PER_CHUNK + 1)?;
 
         assert!(
             data.validate(pco.dtype(), pco.len(), &Validity::NonNullable)

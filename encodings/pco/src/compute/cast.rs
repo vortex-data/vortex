@@ -10,7 +10,6 @@ use vortex_error::VortexResult;
 
 use crate::Pco;
 use crate::PcoArrayExt;
-use crate::PcoData;
 
 impl CastReduce for Pco {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -35,18 +34,8 @@ impl CastReduce for Pco {
             return Ok(None);
         };
 
-        // SAFETY: The buffers and metadata come from a validated Pco array, the primitive type is
-        // unchanged, and `Pco::try_new` validates the adjusted nullability and slice below.
-        let data = unsafe {
-            PcoData::new_unchecked(
-                array.chunk_metas.clone(),
-                array.pages.clone(),
-                dtype.as_ptype(),
-                array.metadata.clone(),
-                array.unsliced_n_rows(),
-            )
-        }
-        ._slice(array.slice_start(), array.slice_stop());
+        // Only nullability changes; retain the same immutable page index and compressed owners.
+        let data = array.data().clone();
 
         Ok(Some(
             Pco::try_new(dtype.clone(), data, new_validity)?.into_array(),
