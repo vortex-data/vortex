@@ -3,7 +3,6 @@
 
 use itertools::Itertools;
 use num_traits::AsPrimitive;
-use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
@@ -19,14 +18,13 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
-use crate::arrays::ConstantArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PiecewiseSequence;
-use crate::arrays::PiecewiseSequenceArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::piecewise_sequence::constant_unsigned_usize;
+use crate::arrays::piecewise_sequence::contiguous_runs;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builders::ArrayBuilder;
@@ -536,25 +534,6 @@ fn gather_chunk(chunk: &ArrayRef, plan: ChunkGather) -> VortexResult<ArrayRef> {
         return chunk.slice(start..start + plan.total);
     }
     chunk.take(contiguous_runs(plan.starts, plan.lengths, plan.total))
-}
-
-/// Builds a `PiecewiseSequenceArray` of contiguous (unit multiplier) runs whose lengths sum to
-/// `total`.
-fn contiguous_runs(starts: Vec<u64>, lengths: Vec<u64>, total: usize) -> ArrayRef {
-    let count = starts.len();
-    debug_assert_eq!(count, lengths.len());
-    let starts = PrimitiveArray::new(Buffer::from(starts), Validity::NonNullable).into_array();
-    let lengths = match lengths.first() {
-        Some(&first) if lengths.iter().all(|&length| length == first) => {
-            ConstantArray::new(first, count).into_array()
-        }
-        _ => PrimitiveArray::new(Buffer::from(lengths), Validity::NonNullable).into_array(),
-    };
-    let multipliers = ConstantArray::new(1u64, count).into_array();
-    // SAFETY: starts, lengths, and multipliers are non-nullable u64 arrays of equal length, and
-    // `total` is the sum of the lengths.
-    unsafe { PiecewiseSequenceArray::new_unchecked(starts, lengths, multipliers, total) }
-        .into_array()
 }
 
 #[cfg(test)]
