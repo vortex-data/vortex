@@ -131,7 +131,9 @@ impl FileStatsBinder<'_> {
         let (aggregates, _) = self.file_stats.get_by_path(field_path)?;
 
         if self.no_nulls && Stat::from_aggregate_fn(aggregate_fn) == Some(Stat::NullCount) {
-            return Some(lit(Scalar::try_new(stat_dtype.clone(), Some(0u64.into())).ok()?));
+            return Some(lit(
+                Scalar::try_new(stat_dtype.clone(), Some(0u64.into())).ok()?
+            ));
         }
 
         let value = aggregates.get(aggregate_fn).into_inner()?;
