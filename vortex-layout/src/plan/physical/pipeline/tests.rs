@@ -14,6 +14,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -612,6 +613,37 @@ fn scan_keeps_the_selection_with_or_without_a_filter(#[case] sel: Sel) -> Vortex
         assert_view(&values, &rows, &mask, kept.arrays)?;
     }
     Ok(())
+}
+
+/// Splitting filtered dictionary codes to match another field preserves nulls and row order.
+#[rstest]
+#[case::alternating(Sel::EveryOther)]
+#[case::sparse(Sel::Rows(&[0, 4, 7, 10, 14, 19]))]
+fn pack_splits_filtered_dictionary_codes(
+    #[case] sel: Sel,
+    #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let values = PrimitiveArray::from_option_iter([Some(10_i32), None, Some(30)]).into_array();
+    let codes = PrimitiveArray::from_option_iter(
+        (0..ROWS).map(|row| (row % 5 != 0).then_some((row % 3) as u8)),
+    )
+    .into_array();
+    let dict = DictArray::try_new(codes.clone(), values.clone())?.into_array();
+    let other = PrimitiveArray::from_iter(0..ROWS as i64).into_array();
+    let expected = StructArray::from_fields(&[("dict", dict), ("other", other.clone())])?
+        .into_array();
+    let dictionary = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).into_layout();
+    let layout = StructLayout::new(
+        ROWS,
+        expected.dtype().clone(),
+        vec![dictionary, store.chunked(&other, &[7, 5, 8])?],
+    )
+    .into_layout();
+    let plan = lower(&layout)?;
+    let mask = sel.mask(ROWS as usize);
+    let run = run(&store, &plan, 0..ROWS, mask.clone(), delivery(order))?;
+    assert_view(&expected, &(0..ROWS), &mask, run.arrays)
 }
 
 /// A take reads its values over their whole domain and its codes over the selection, including
