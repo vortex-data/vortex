@@ -177,6 +177,7 @@ BENCHMARKS = (
         local_dir="vortex-bench/data/tpch/10.0",
         remote_key="tpch/10.0",
         runs={
+            "pr": DEFAULT,
             "pr-compact": COMPACT,
             "pr-full": STANDARD,
             "develop": STANDARD,
