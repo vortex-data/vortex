@@ -7,6 +7,7 @@ use std::ops::Range;
 
 use vortex_array::ArrayRef;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::DType;
 use vortex_array::serde::SerializedArray;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -21,6 +22,7 @@ use crate::plan::physical::operator::Source;
 use crate::plan::physical::operator::SourceBlocked;
 use crate::plan::physical::operator::SourceReady;
 use crate::plan::physical::operator::Step;
+use crate::plan::physical::pipeline::PrimitiveRead;
 use crate::segments::SegmentId;
 
 /// Decodes the whole of a scan's segment.
@@ -69,6 +71,62 @@ pub(crate) struct ScanSource {
 }
 
 impl ScanSource {
+    fn primitive_read(&self) -> Option<PrimitiveRead> {
+        let DType::Primitive(ptype, _) = self.plan.dtype() else {
+            return None;
+        };
+        if !ptype.is_int() || self.plan.dtype().is_nullable() || self.plan.array_tree().is_some() {
+            return None;
+        }
+        let width = ptype.byte_width();
+        let row_count = usize::try_from(self.plan.row_count()).ok()?;
+        let buffer_len = row_count.checked_mul(width)?;
+        if buffer_len < 64 * 1024 {
+            return None;
+        }
+        let slice = self.slice.clone().unwrap_or(0..row_count);
+        if slice.start > slice.end
+            || slice.end > row_count
+            || self
+                .filter
+                .as_ref()
+                .is_some_and(|mask| mask.len() != slice.len())
+        {
+            return None;
+        }
+        let selected = self
+            .filter
+            .as_ref()
+            .map_or_else(|| slice.len(), Mask::true_count);
+        if selected == 0 || selected > row_count / 8 {
+            return None;
+        }
+        let rows = match &self.filter {
+            Some(Mask::AllFalse(_)) => return None,
+            Some(Mask::Values(values)) => values.slices().to_vec(),
+            _ => vec![(0, slice.len())],
+        };
+        let mut ranges: Vec<Range<usize>> = Vec::new();
+        for (start, end) in rows {
+            let range = (slice.start + start) * width..(slice.start + end) * width;
+            if let Some(previous) = ranges.last_mut()
+                && range.start - previous.end <= 4096
+            {
+                previous.end = range.end;
+            } else {
+                ranges.push(range);
+            }
+        }
+        if ranges.len() > 32 || ranges.iter().map(Range::len).sum::<usize>() > buffer_len / 8 {
+            return None;
+        }
+        Some(PrimitiveRead {
+            array_ctx: self.plan.array_ctx().clone(),
+            buffer_len,
+            ranges,
+        })
+    }
+
     pub(crate) fn new(
         plan: SegmentScanPlan,
         slice: Option<Range<usize>>,
@@ -87,7 +145,11 @@ impl ScanSource {
 impl Source for ScanSource {
     fn ready(&mut self, cx: &mut Cx<'_>) -> VortexResult<SourceReady> {
         if let Some(segment) = self.unread.take() {
-            cx.request_read(segment);
+            if let Some(primitive) = self.primitive_read() {
+                cx.request_primitive(segment, primitive);
+            } else {
+                cx.request_read(segment);
+            }
             return Ok(SourceReady::Blocked(SourceBlocked::Io));
         }
         Ok(if self.done || cx.has_bytes() {

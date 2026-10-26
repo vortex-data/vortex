@@ -10,6 +10,7 @@
 
 mod adaptor;
 mod filter;
+mod primitive;
 mod projection;
 mod selection;
 
@@ -22,7 +23,7 @@ use vortex_scan::planning::planner::WorkScope;
 use vortex_session::VortexSession;
 
 pub(super) use self::filter::FilterPlans;
-pub(super) use self::selection::plan_selection;
+pub(super) use self::selection::FilePlanner;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::pipeline::ValueCache;
 
@@ -63,6 +64,8 @@ pub(super) struct ScanPlans {
     /// Whole values, such as dictionary values, shared by the splits of this scan. Their plans
     /// always read the same complete row domain, independently of a split's selection.
     pub(super) values: ValueCache,
+    /// Whether sparse primitive requests may omit unselected bytes.
+    pub(super) subsegment_reads: bool,
 }
 
 /// The rows of a split selected for projection.

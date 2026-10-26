@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
 use std::sync::Arc;
 use std::task::Poll;
 
@@ -15,6 +16,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_metrics::Counter;
 use vortex_metrics::Label;
 use vortex_metrics::MetricBuilder;
@@ -267,6 +269,26 @@ impl SegmentCacheSourceAdapter {
 }
 
 impl SegmentSource for SegmentCacheSourceAdapter {
+    fn supports_ranges(&self) -> bool {
+        self.source.supports_ranges()
+    }
+
+    fn request_range(&self, id: SegmentId, range: Range<usize>) -> SegmentFuture {
+        let cache = Arc::clone(&self.cache);
+        let source = Arc::clone(&self.source);
+        async move {
+            if let Ok(Some(bytes)) = cache.get(id).await {
+                vortex_ensure!(
+                    range.start <= range.end && range.end <= bytes.len(),
+                    "Segment range out of bounds"
+                );
+                return Ok(BufferHandle::new_host(bytes.slice(range)));
+            }
+            source.request_range(id, range).await
+        }
+        .boxed()
+    }
+
     fn request(&self, id: SegmentId) -> SegmentFuture {
         let cache = Arc::clone(&self.cache);
         let source = Arc::clone(&self.source);

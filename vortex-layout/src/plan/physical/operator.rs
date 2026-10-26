@@ -15,6 +15,7 @@ use vortex_session::VortexSession;
 use super::pipeline::Arena;
 use super::pipeline::Inlet;
 use super::pipeline::PortId;
+use super::pipeline::PrimitiveRead;
 use crate::segments::SegmentId;
 
 /// The output of one non-blocking compute call.
@@ -152,7 +153,7 @@ pub struct Cx<'a> {
     pub(super) arena: &'a mut Arena,
     pub(super) inlets: &'a [PortId],
     pub(super) bytes: &'a mut VecDeque<(SegmentId, BufferHandle)>,
-    pub(super) reads: &'a mut SmallVec<[SegmentId; 1]>,
+    pub(super) reads: &'a mut SmallVec<[(SegmentId, Option<PrimitiveRead>); 1]>,
     pub(super) session: &'a VortexSession,
     pub(super) exec: &'a mut ExecutionCtx,
     pub(super) touched: &'a mut InletSet,
@@ -172,7 +173,12 @@ impl Cx<'_> {
     /// `SourceReady::Blocked(SourceBlocked::Io)` after queuing the reads needed for
     /// this call.
     pub fn request_read(&mut self, segment: SegmentId) {
-        self.reads.push(segment);
+        self.reads.push((segment, None));
+    }
+
+    /// Queues a segment whose source will only observe the selected primitive bytes.
+    pub(crate) fn request_primitive(&mut self, segment: SegmentId, primitive: PrimitiveRead) {
+        self.reads.push((segment, Some(primitive)));
     }
 
     /// Whether a requested segment has arrived and can be taken.

@@ -255,7 +255,11 @@ impl Planner for FilterPlanner {
             self.active = Some((
                 index,
                 pruning,
-                ScanAdaptor::new(scan, Arc::clone(&self.plans.locations)),
+                ScanAdaptor::new(
+                    scan,
+                    Arc::clone(&self.plans.locations),
+                    self.plans.subsegment_reads,
+                ),
             ));
             return Ok(PlannerOutput::Continue);
         }

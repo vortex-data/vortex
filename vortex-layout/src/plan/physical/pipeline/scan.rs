@@ -20,6 +20,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use super::DEFAULT_CAPACITY;
 use super::compile::Chain;
@@ -54,6 +55,19 @@ pub struct ReadRequest {
     pub id: ReadId,
     /// The segment to read.
     pub segment_id: SegmentId,
+    /// Optional sparse primitive byte demand. Owners may ignore it and read the whole segment.
+    pub primitive: Option<PrimitiveRead>,
+}
+
+/// Byte demand for a non-null primitive segment, subject to verification of its encoding tree.
+#[derive(Clone, Debug)]
+pub struct PrimitiveRead {
+    /// Encoding registry used to identify the serialized array.
+    pub array_ctx: ReadContext,
+    /// Expected length of the primitive value buffer.
+    pub buffer_len: usize,
+    /// Sorted, disjoint ranges within that buffer. Only these rows will leave the scan source.
+    pub ranges: Vec<Range<usize>>,
 }
 
 /// A row range of the plan's domain, and the rows of it to produce.
@@ -139,7 +153,7 @@ fn drive(
     arena: &mut Arena,
     session: &VortexSession,
     exec: &mut ExecutionCtx,
-    reads: &mut SmallVec<[SegmentId; 1]>,
+    reads: &mut SmallVec<[(SegmentId, Option<PrimitiveRead>); 1]>,
 ) -> VortexResult<Progress> {
     let Pipeline {
         source,
@@ -405,8 +419,8 @@ impl Core {
             &mut self.exec,
             &mut reads,
         )?;
-        for segment_id in reads {
-            self.ask(id, segment_id);
+        for (segment_id, primitive) in reads {
+            self.ask(id, segment_id, primitive);
         }
         #[cfg(debug_assertions)]
         self.validate_progress(id, &progress);
@@ -429,8 +443,8 @@ impl Core {
     }
 
     /// Issues a read of `segment_id`, which pipeline `id`'s source asked for.
-    fn ask(&mut self, id: PipelineId, segment_id: SegmentId) {
-        self.read(id, segment_id);
+    fn ask(&mut self, id: PipelineId, segment_id: SegmentId, primitive: Option<PrimitiveRead>) {
+        self.read(id, segment_id, primitive);
         self.pipeline_mut(id).pending += 1;
     }
 
@@ -537,13 +551,14 @@ impl Core {
     }
 
     /// Issues a read of `segment` for pipeline `owner`.
-    fn read(&mut self, owner: PipelineId, segment_id: SegmentId) {
+    fn read(&mut self, owner: PipelineId, segment_id: SegmentId, primitive: Option<PrimitiveRead>) {
         let read = ReadId(self.next_read);
         self.next_read += 1;
         self.reads.insert(read, (Some(owner), segment_id));
         self.new_reads.push_back(ReadRequest {
             id: read,
             segment_id,
+            primitive,
         });
     }
 

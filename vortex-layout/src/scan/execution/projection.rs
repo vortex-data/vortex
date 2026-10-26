@@ -181,7 +181,11 @@ impl Morsel for ProjectionMorsel {
             )?
             .with_row_offset(plans.row_offset)
             .with_value_cache(plans.values);
-            self.adaptor = Some(ScanAdaptor::new(scan, plans.locations));
+            self.adaptor = Some(ScanAdaptor::new(
+                scan,
+                plans.locations,
+                plans.subsegment_reads,
+            ));
             return Ok(MorselOutput::Continue);
         };
         if adaptor.state() == State::Done {

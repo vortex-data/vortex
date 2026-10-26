@@ -358,25 +358,24 @@ impl VortexOpenOptions {
     }
 
     async fn read_footer(&self, read: &dyn VortexReadAt) -> VortexResult<FooterRead> {
-        // Fetch the file size and perform the initial read.
-        let file_size = match self.file_size {
-            None => read.size().await?,
-            Some(file_size) => file_size,
-        };
-        let mut initial_read_size = self
+        let initial_read_size = self
             .initial_read_size
             // Make sure we read enough to cover the postscript
             .max(MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE);
-        if let Ok(file_size) = usize::try_from(file_size) {
-            initial_read_size = initial_read_size.min(file_size);
-        }
-
-        let initial_offset = file_size - initial_read_size as u64;
-        let initial_read: ByteBuffer = read
-            .read_at(initial_offset, initial_read_size, Alignment::none())
-            .await?
-            .try_into_host()?
-            .await?;
+        let (file_size, initial_read) = match self.file_size {
+            None => {
+                read.read_suffix(initial_read_size, Alignment::none())
+                    .await?
+            }
+            Some(file_size) => {
+                let length = (initial_read_size as u64).min(file_size) as usize;
+                let buffer = read
+                    .read_at(file_size - length as u64, length, Alignment::none())
+                    .await?;
+                (file_size, buffer)
+            }
+        };
+        let initial_read = initial_read.try_into_host()?.await?;
 
         let mut deserializer = Footer::deserializer(initial_read, self.session.clone())
             .with_size(file_size)
@@ -520,6 +519,7 @@ mod tests {
     use allocator_api2::alloc::AllocError;
     use allocator_api2::alloc::Allocator;
     use allocator_api2::alloc::Global;
+    use futures::FutureExt;
     use futures::future::BoxFuture;
     use parking_lot::Mutex;
     use vortex_array::IntoArray;
@@ -588,6 +588,55 @@ mod tests {
     #[derive(Debug)]
     struct CountingAllocator {
         allocations: Arc<AtomicUsize>,
+    }
+
+    #[derive(Clone)]
+    struct SuffixRead(ByteBuffer);
+
+    impl VortexReadAt for SuffixRead {
+        fn concurrency(&self) -> usize {
+            self.0.concurrency()
+        }
+
+        fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+            async { vortex_bail!("Opening through suffix reads must not request the size") }.boxed()
+        }
+
+        fn read_suffix(
+            &self,
+            length: usize,
+            alignment: Alignment,
+        ) -> BoxFuture<'_, VortexResult<(u64, BufferHandle)>> {
+            self.0.read_suffix(length, alignment)
+        }
+
+        fn read_at(
+            &self,
+            offset: u64,
+            length: usize,
+            alignment: Alignment,
+        ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+            self.0.read_at(offset, length, alignment)
+        }
+    }
+
+    #[tokio::test]
+    async fn open_uses_suffix_size_without_separate_size_request() -> VortexResult<()> {
+        let session = test_session();
+        let mut bytes = ByteBufferMut::empty();
+        session
+            .write_options()
+            .write(
+                &mut bytes,
+                Buffer::from(vec![1_i32, 2, 3])
+                    .into_array()
+                    .to_array_stream(),
+            )
+            .await?;
+        let reader: Arc<dyn VortexReadAt> = Arc::new(SuffixRead(bytes.freeze()));
+        let file = session.open_options().open(reader).await?;
+        assert_eq!(file.row_count(), 3);
+        Ok(())
     }
 
     // SAFETY: this forwards memory operations to Global and only counts allocations.

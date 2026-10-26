@@ -160,6 +160,43 @@ async fn read_object_store_range(
 }
 
 impl VortexReadAt for ObjectStoreReadAt {
+    fn read_suffix(
+        &self,
+        length: usize,
+        alignment: Alignment,
+    ) -> BoxFuture<'_, VortexResult<(u64, BufferHandle)>> {
+        let store = Arc::clone(&self.store);
+        let path = self.path.clone();
+        let allocator = self.allocator.clone();
+        self.handle
+            .spawn_io(async move {
+                if length == 0 {
+                    let size = store.head(&path).await?.size;
+                    let buffer = allocator.with_capacity_aligned::<u8>(0, alignment);
+                    return Ok((size, BufferHandle::new_host(buffer.freeze())));
+                }
+                let response = store
+                    .get_opts(
+                        &path,
+                        GetOptions {
+                            range: Some(GetRange::Suffix(length as u64)),
+                            ..Default::default()
+                        },
+                    )
+                    .await?;
+                let size = response.meta.size;
+                let expected = usize::try_from(size).map_or(length, |size| size.min(length));
+                vortex_ensure_eq!(response.range.start, size - expected as u64);
+                vortex_ensure_eq!(response.range.end, size);
+                let bytes = response.bytes().await?;
+                vortex_ensure_eq!(bytes.len(), expected);
+                let mut buffer = allocator.with_capacity_aligned::<u8>(expected, alignment);
+                buffer.extend_from_slice(&bytes);
+                Ok((size, BufferHandle::new_host(buffer.freeze())))
+            })
+            .boxed()
+    }
+
     fn uri(&self) -> Option<&Arc<str>> {
         Some(&self.uri)
     }
@@ -263,6 +300,7 @@ mod tests {
 
     use object_store::PutPayload;
     use object_store::memory::InMemory;
+    use rstest::rstest;
 
     use super::*;
     use crate::runtime::AbortHandle;
@@ -270,6 +308,35 @@ mod tests {
     use crate::runtime::Executor;
 
     const TEST_DATA: &[u8] = b"object store test data";
+
+    #[rstest]
+    #[case(0)]
+    #[case(4)]
+    #[case(TEST_DATA.len())]
+    #[case(TEST_DATA.len() + 100)]
+    #[tokio::test]
+    async fn read_suffix_returns_size_and_clamped_aligned_bytes(
+        #[case] length: usize,
+    ) -> VortexResult<()> {
+        let executor = Arc::new(CountingExecutor::default());
+        let runtime = Arc::clone(&executor) as Arc<dyn Executor>;
+        let handle = Handle::new(Arc::downgrade(&runtime));
+        let store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let path = ObjectPath::from("suffix.bin");
+        store.put(&path, PutPayload::from_static(TEST_DATA)).await?;
+        let reader = Arc::new(ObjectStoreReadAt::new(store, path, handle));
+
+        let (size, buffer) = reader.read_suffix(length, Alignment::new(64)).await?;
+        let buffer = buffer.to_host().await;
+        assert_eq!(size, TEST_DATA.len() as u64);
+        assert_eq!(
+            buffer.as_slice(),
+            &TEST_DATA[TEST_DATA.len().saturating_sub(length)..]
+        );
+        assert_eq!(buffer.as_ptr() as usize % 64, 0);
+        assert_eq!(executor.spawn_io_count.load(Ordering::SeqCst), 1);
+        Ok(())
+    }
 
     #[derive(Default)]
     struct CountingExecutor {

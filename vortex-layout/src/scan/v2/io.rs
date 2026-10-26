@@ -35,14 +35,25 @@ use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 
 /// Byte ranges of a file's segments, keyed by `(offset, length)`, back to their segment ids.
-pub(super) type SegmentRanges = Arc<HashMap<(u64, usize), SegmentId>>;
+pub(super) struct SegmentRangeIndex {
+    exact: HashMap<(u64, usize), SegmentId>,
+    ordered: Vec<(u64, usize, SegmentId)>,
+}
+
+pub(super) type SegmentRanges = Arc<SegmentRangeIndex>;
 
 pub(super) fn segment_ranges(locations: &[SegmentLocation]) -> SegmentRanges {
     let ranges = locations.iter().enumerate().map(|(id, location)| {
         let id = SegmentId::from(u32::try_from(id).unwrap_or(u32::MAX));
         ((location.offset, location.length as usize), id)
     });
-    Arc::new(ranges.collect())
+    let exact: HashMap<_, _> = ranges.collect();
+    let mut ordered: Vec<_> = exact
+        .iter()
+        .map(|(&(offset, len), &id)| (offset, len, id))
+        .collect();
+    ordered.sort_unstable_by_key(|&(offset, ..)| offset);
+    Arc::new(SegmentRangeIndex { exact, ordered })
 }
 
 /// Serves splits from any [`SegmentSource`], by segment id.
@@ -114,8 +125,39 @@ impl IoSource for SegmentIoSource {
                     request.target
                 );
             };
+            if !self.ranges.exact.contains_key(&(offset, len)) {
+                let index = self
+                    .ranges
+                    .ordered
+                    .partition_point(|&(start, ..)| start <= offset);
+                let &(start, length, segment) = index
+                    .checked_sub(1)
+                    .and_then(|index| self.ranges.ordered.get(index))
+                    .ok_or_else(|| vortex_err!("No segment containing bytes {offset}+{len}"))?;
+                let relative = usize::try_from(offset - start)?;
+                let end = relative
+                    .checked_add(len)
+                    .filter(|end| *end <= length)
+                    .ok_or_else(|| vortex_err!("Subsegment range out of bounds"))?;
+                if request.intent != IoIntent::Fetch {
+                    vortex_bail!("Subsegment reads must be fetched directly");
+                }
+                let read = self.segments.request_range(segment, relative..end);
+                reads.push(
+                    async move {
+                        Completion {
+                            owner,
+                            request: request.request,
+                            result: read.await.map(IoResult::Bytes),
+                        }
+                    }
+                    .boxed(),
+                );
+                continue;
+            }
             let segment = *self
                 .ranges
+                .exact
                 .get(&(offset, len))
                 .ok_or_else(|| vortex_err!("No segment at bytes {offset}+{len}"))?;
             if request.intent == IoIntent::Announce {

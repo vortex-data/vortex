@@ -16,6 +16,8 @@ use futures::TryStreamExt;
 use futures::channel::oneshot;
 use futures::future::Shared;
 use futures::stream;
+use parking_lot::Condvar;
+use parking_lot::Mutex;
 use rstest::rstest;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
@@ -43,8 +45,12 @@ use vortex_arrow::ArrowSessionExt;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_scan::planning::planner::Planner;
+use vortex_scan::planning::planner::PlannerOutput;
+use vortex_scan::planning::planner::State;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 
@@ -54,7 +60,6 @@ use super::ROW_BLOCK_SIZE;
 use super::ScanBuilder;
 use super::ScanCache;
 use super::ScanFile;
-use super::row_chunks;
 use super::rows_per_chunk;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -65,8 +70,10 @@ use crate::layouts::row_idx::row_idx;
 use crate::layouts::table::TableStrategy;
 use crate::layouts::zoned::writer::ZonedLayoutOptions;
 use crate::layouts::zoned::writer::ZonedStrategy;
+use crate::scan::execution::FilePlanner;
 use crate::scan::execution::SegmentLocation;
 use crate::scan::scan_builder::ScanBuilder as V1ScanBuilder;
+use crate::scan::v2::split::SplitPlan;
 use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
@@ -80,6 +87,116 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 const CHUNK_ROWS: usize = 1000;
 const CHUNKS: usize = 4;
+
+struct RangeCountingSource {
+    inner: Arc<dyn SegmentSource>,
+    bytes: Arc<AtomicUsize>,
+}
+
+impl SegmentSource for RangeCountingSource {
+    fn supports_ranges(&self) -> bool {
+        true
+    }
+
+    fn request(&self, id: SegmentId) -> SegmentFuture {
+        let read = self.inner.request(id);
+        let bytes = Arc::clone(&self.bytes);
+        async move {
+            let buffer = read.await?;
+            bytes.fetch_add(buffer.len(), Ordering::Relaxed);
+            Ok(buffer)
+        }
+        .boxed()
+    }
+
+    fn request_range(&self, id: SegmentId, range: Range<usize>) -> SegmentFuture {
+        self.bytes.fetch_add(range.len(), Ordering::Relaxed);
+        self.inner.request_range(id, range)
+    }
+}
+
+#[rstest]
+#[case(false, vec![0, 1, 65535, 65536, 131071, 199999], true)]
+#[case(true, vec![0, 65535, 199999], false)]
+#[case(false, (0..50000).collect(), false)]
+#[tokio::test]
+async fn sparse_primitive_reads_preserve_rows_and_skip_bytes(
+    #[case] nullable: bool,
+    #[case] indices: Vec<u64>,
+    #[case] sparse: bool,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let values: Vec<i64> = (0..200000_i64)
+        .map(|value| value.wrapping_mul(7919) - 12345)
+        .collect();
+    let expected = PrimitiveArray::new(
+        indices
+            .iter()
+            .map(|&index| usize::try_from(index).map(|index| values[index]))
+            .collect::<Result<Buffer<_>, _>>()?,
+        if nullable {
+            Validity::AllValid
+        } else {
+            Validity::NonNullable
+        },
+    );
+    let array = PrimitiveArray::new(
+        Buffer::from(values),
+        if nullable {
+            Validity::AllValid
+        } else {
+            Validity::NonNullable
+        },
+    )
+    .into_array();
+    let segments = Arc::new(TestSegments::default());
+    let (mut sequence, eof) = SequenceId::root().split();
+    let layout = FlatLayoutStrategy::default()
+        .write_stream(
+            ArrayContext::empty().into(),
+            Arc::clone(&segments) as _,
+            SequentialStreamAdapter::new(
+                array.dtype().clone(),
+                stream::iter([Ok((sequence.advance(), array))]),
+            )
+            .sendable(),
+            eof,
+            &session,
+        )
+        .await?;
+    let id = layout.segment_ids()[0];
+    let length = segments.request(id).await?.len();
+    let bytes = Arc::new(AtomicUsize::new(0));
+    let source = Arc::new(RangeCountingSource {
+        inner: segments,
+        bytes: Arc::clone(&bytes),
+    });
+    let file = ScanFile {
+        layout,
+        locations: Arc::from([SegmentLocation {
+            offset: 8,
+            length: u32::try_from(length)?,
+            alignment: Alignment::new(8),
+        }]),
+        segments: source,
+        cache: None,
+    };
+    let dtype = file.layout.dtype().clone();
+    let actual = collect(
+        dtype,
+        ScanBuilder::new(session.clone(), file)
+            .with_row_indices(StrictSortedBuffer::try_new(Buffer::from(indices))?)
+            .into_stream()?,
+    )
+    .await?;
+    assert_arrays_eq!(actual, expected, &mut session.create_execution_ctx());
+    if sparse {
+        assert!(bytes.load(Ordering::Relaxed) < length / 8);
+    } else {
+        assert!(bytes.load(Ordering::Relaxed) >= length);
+    }
+    Ok(())
+}
 
 /// A table chunk of `CHUNK_ROWS` rows starting at row `start`: an integer, a nullable string and a
 /// list column.
@@ -316,8 +433,10 @@ impl Strategy {
 #[case::whole(None, None)]
 #[case::row_range(Some(250..3_100), None)]
 #[case::empty_row_range(Some(10..10), None)]
+#[case::empty_indices(None, Some(&[][..]))]
 #[case::row_indices(None, Some(&[0, 1, 999, 1000, 2500, 3999][..]))]
 #[case::row_range_and_indices(Some(900..2600), Some(&[0, 999, 1000, 2500, 3999][..]))]
+#[case::indices_outside_range(Some(900..2600), Some(&[0, 3999][..]))]
 #[tokio::test]
 async fn matches_v1(
     #[values(Strategy::Flat, Strategy::Table, Strategy::ZonedTable)] strategy: Strategy,
@@ -391,16 +510,6 @@ async fn arrow_stream_projects_across_chunks() -> VortexResult<()> {
 }
 
 #[rstest]
-#[case::whole(0..150_000, vec![0..65_536, 65_536..131_072, 131_072..150_000])]
-#[case::unaligned(10..140_000, vec![10..65_536, 65_536..131_072, 131_072..140_000])]
-#[case::boundary(65_536..131_072, vec![65_536..131_072])]
-#[case::empty(5..5, vec![])]
-#[case::near_max(u64::MAX - 3..u64::MAX, vec![u64::MAX - 3..u64::MAX])]
-fn fixed_row_chunks(#[case] rows: Range<u64>, #[case] expected: Vec<Range<u64>>) {
-    assert_eq!(row_chunks(rows, 65_536), expected);
-}
-
-#[rstest]
 #[case::empty(0, 0, 65_536)]
 #[case::single_chunk(1000, 100_000_000, 65_536)]
 #[case::no_bytes(100_000, 0, 65_536)]
@@ -416,17 +525,60 @@ fn chunk_byte_budget(#[case] rows: u64, #[case] bytes: u32, #[case] expected: us
     assert_eq!(rows_per_chunk(rows, &locations), expected);
 }
 
-#[test]
-fn smaller_chunks_keep_file_alignment() {
-    assert_eq!(
-        row_chunks(7500..33_000, 16_384),
-        [7500..16_384, 16_384..32_768, 32_768..33_000]
-    );
-}
-
 struct CountingSegments {
     inner: Arc<dyn SegmentSource>,
     reads: AtomicUsize,
+}
+
+struct ConcurrentSegments {
+    inner: Arc<dyn SegmentSource>,
+    started: Mutex<usize>,
+    ready: Condvar,
+}
+
+impl SegmentSource for ConcurrentSegments {
+    fn request(&self, id: SegmentId) -> SegmentFuture {
+        let mut started = self.started.lock();
+        *started += 1;
+        self.ready.notify_all();
+        let timeout =
+            self.ready
+                .wait_while_for(&mut started, |started| *started < 2, Duration::from_secs(5));
+        drop(started);
+        assert!(
+            !timeout.timed_out(),
+            "a second child must run while the first child is blocked"
+        );
+        self.inner.request(id)
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn file_planner_schedules_children_on_independent_workers() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write(&session, table().as_ref()).await?;
+    let segments = Arc::new(ConcurrentSegments {
+        inner: segments,
+        started: Mutex::new(0),
+        ready: Condvar::new(),
+    }) as Arc<dyn SegmentSource>;
+    let mut scan = PreparedScan::try_new(
+        builder(&session, &segments, &layout)?
+            .with_projection(get_item("ints", root()).bind(layout.dtype())?)
+            .with_row_indices(StrictSortedBuffer::try_new(Buffer::from(vec![7, 3007]))?),
+    )?;
+    scan.chunk_rows = CHUNK_ROWS;
+    let actual = collect(
+        scan.plans.projection.dtype().clone(),
+        scan.execute_stream()?,
+    )
+    .await?;
+    assert_arrays_eq!(
+        actual,
+        Buffer::from(vec![7_i32, 3007]).into_array(),
+        &mut session.create_execution_ctx()
+    );
+    Ok(())
 }
 
 impl SegmentSource for CountingSegments {
@@ -472,12 +624,18 @@ async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
     });
     let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
     let scan = PreparedScan::try_new(builder(&session, &segments, &layout)?)?;
-    let splits = scan.split_plans();
-    assert_eq!(
-        splits.len(),
-        (STORED_CHUNKS * STORED_CHUNK_ROWS).div_ceil(MAX_ROWS_PER_CHUNK)
+    let mut planner = FilePlanner::new(
+        scan.plans.clone(),
+        scan.rows.clone(),
+        scan.chunk_rows,
+        scan.selection.clone(),
     );
-    for (index, split) in splits.into_iter().enumerate() {
+    let splits = (STORED_CHUNKS * STORED_CHUNK_ROWS).div_ceil(MAX_ROWS_PER_CHUNK);
+    for index in 0..splits {
+        let PlannerOutput::Planner(scope, root) = planner.compute()? else {
+            vortex_bail!("all rows must have a projection planner");
+        };
+        let split = SplitPlan { scope, root };
         let rows = split.scope.rows.clone();
         let before = counted.reads.load(Ordering::Relaxed);
         let arrays = split.run(Arc::clone(&scan.io)).await?;
@@ -502,6 +660,7 @@ async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
             &mut session.create_execution_ctx()
         );
     }
+    assert_eq!(planner.state(), State::Done);
     Ok(())
 }
 
@@ -607,8 +766,8 @@ async fn unordered_yields_before_the_split_finishes() -> VortexResult<()> {
     });
     let mut scan =
         PreparedScan::try_new(builder(&session, &segments, &layout)?.with_ordered(false))?;
-    // Put both projection morsels in one split, as a dense filtered scan would.
-    scan.splits = std::iter::once(0..layout.row_count()).collect();
+    // Put both projection morsels in one chunk, as a dense filtered scan would.
+    scan.chunk_rows = usize::try_from(layout.row_count())?;
     let mut batches = scan.execute_stream()?;
     let first = batches.try_next().await;
     let _ = release.send(());
@@ -658,7 +817,7 @@ async fn work_chunks_ignore_layout_boundaries(
     let session = new_session().with_tokio();
     let (segments, layout) = write(&session, strategy.get().as_ref()).await?;
     let scan = PreparedScan::try_new(builder(&session, &segments, &layout)?)?;
-    assert_eq!(scan.splits, vec![0..(CHUNKS * CHUNK_ROWS) as u64]);
+    assert_eq!(scan.rows, 0..(CHUNKS * CHUNK_ROWS) as u64);
     let arrays: Vec<_> = scan.execute_stream()?.try_collect().await?;
     assert_eq!(arrays.len(), 1);
     assert_eq!(arrays[0].len(), CHUNKS * CHUNK_ROWS);
@@ -740,9 +899,36 @@ async fn selected_split_scope_is_bounded_before_projection() -> VortexResult<()>
         builder(&session, &segments, &layout)?
             .with_row_indices(StrictSortedBuffer::try_new(Buffer::from(vec![7, 2001]))?),
     )?;
-    let splits = scan.split_plans();
-    assert_eq!(splits.len(), 1);
-    assert_eq!(splits[0].scope.rows, 7..2002);
+    let mut planner = FilePlanner::new(scan.plans, scan.rows, scan.chunk_rows, scan.selection);
+    let PlannerOutput::Planner(scope, _) = planner.compute()? else {
+        vortex_bail!("selected chunk must have a projection planner");
+    };
+    assert_eq!(scope.rows, 7..2002);
+    assert_eq!(planner.state(), State::Done);
+    Ok(())
+}
+
+#[rstest]
+#[tokio::test]
+async fn dropping_file_planner_stream_releases_pending_work(
+    #[values(false, true)] consume_first: bool,
+    #[values(1, 4)] lookahead: usize,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write(&session, table().as_ref()).await?;
+    let scan = PreparedScan::try_new(builder(&session, &segments, &layout)?)?;
+    let locations = Arc::downgrade(&scan.plans.locations);
+    let mut children =
+        FilePlanner::new(scan.plans, scan.rows, 1, scan.selection).into_stream(lookahead);
+    if consume_first {
+        assert!(children.try_next().await?.is_some());
+    }
+    drop(children);
+    tokio::task::yield_now().await;
+    assert!(
+        locations.upgrade().is_none(),
+        "dropping the stream must cancel the producer and release queued planners"
+    );
     Ok(())
 }
 

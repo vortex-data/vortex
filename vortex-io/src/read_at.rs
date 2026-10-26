@@ -108,6 +108,24 @@ pub trait VortexReadAt: Send + Sync + 'static {
     /// Asynchronously get the number of bytes of the underlying source.
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>>;
 
+    /// Reads up to `length` bytes from the end, returning the source size and the bytes.
+    /// Sources that return their size with a range response can avoid a separate size request.
+    fn read_suffix(
+        &self,
+        length: usize,
+        alignment: Alignment,
+    ) -> BoxFuture<'_, VortexResult<(u64, BufferHandle)>> {
+        async move {
+            let size = self.size().await?;
+            let length = usize::try_from(size).map_or(length, |size| size.min(length));
+            let buffer = self
+                .read_at(size - length as u64, length, alignment)
+                .await?;
+            Ok((size, buffer))
+        }
+        .boxed()
+    }
+
     /// Request an asynchronous positional read. Results will be returned as a [`BufferHandle`].
     ///
     /// If the reader does not have the requested number of bytes, the returned Future will complete
@@ -140,6 +158,14 @@ pub trait VortexReadAt: Send + Sync + 'static {
 }
 
 impl VortexReadAt for Arc<dyn VortexReadAt> {
+    fn read_suffix(
+        &self,
+        length: usize,
+        alignment: Alignment,
+    ) -> BoxFuture<'_, VortexResult<(u64, BufferHandle)>> {
+        self.as_ref().read_suffix(length, alignment)
+    }
+
     fn uri(&self) -> Option<&Arc<str>> {
         self.as_ref().uri()
     }
@@ -171,6 +197,14 @@ impl VortexReadAt for Arc<dyn VortexReadAt> {
 }
 
 impl<R: VortexReadAt> VortexReadAt for Arc<R> {
+    fn read_suffix(
+        &self,
+        length: usize,
+        alignment: Alignment,
+    ) -> BoxFuture<'_, VortexResult<(u64, BufferHandle)>> {
+        self.as_ref().read_suffix(length, alignment)
+    }
+
     fn uri(&self) -> Option<&Arc<str>> {
         self.as_ref().uri()
     }
@@ -336,6 +370,21 @@ impl Drop for InnerMetrics {
 }
 
 impl<T: VortexReadAt + Clone> VortexReadAt for InstrumentedReadAt<T> {
+    fn read_suffix(
+        &self,
+        length: usize,
+        alignment: Alignment,
+    ) -> BoxFuture<'_, VortexResult<(u64, BufferHandle)>> {
+        async move {
+            let _timer = self.metrics.durations.time();
+            let (size, buffer) = self.read.read_suffix(length, alignment).await?;
+            self.metrics.sizes.update(buffer.len() as f64);
+            self.metrics.total_size.add(buffer.len() as u64);
+            Ok((size, buffer))
+        }
+        .boxed()
+    }
+
     fn uri(&self) -> Option<&Arc<str>> {
         self.read.uri()
     }
