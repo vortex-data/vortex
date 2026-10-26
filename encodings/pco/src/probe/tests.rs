@@ -110,3 +110,23 @@ fn probe_outlives_source_and_moves() -> VortexResult<()> {
     assert!(moved.0.execute_scalar(4096, &mut ctx).is_err());
     Ok(())
 }
+
+#[test]
+fn retained_all_null_probes_preserve_sliced_values() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let input = PrimitiveArray::new(vec![0i64; 100000], Validity::AllInvalid);
+    let encoded = Pco::from_primitive(input.as_view(), 3, 1024, &mut ctx)?.into_array();
+    let sliced = encoded.slice(17..145)?;
+    let mut probe = sliced.repeated_probe();
+    for index in [0, 127, 64, 0, 127] {
+        assert_eq!(
+            probe.execute_scalar(index, &mut ctx)?,
+            vortex_array::scalar::Scalar::null(input.dtype().clone())
+        );
+    }
+    assert_eq!(
+        probe.execute_scalar(0, &mut ctx)?,
+        vortex_array::scalar::Scalar::null(input.dtype().clone())
+    );
+    Ok(())
+}

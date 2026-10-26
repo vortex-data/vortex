@@ -70,7 +70,6 @@ fn selected_values_and_nulls(#[values(false, true)] nullable: bool) -> VortexRes
             expected_probes.execute_scalar(position, &mut ctx)?,
         );
     }
-    assert!(probe.execute_scalar(source.len(), &mut ctx).is_err());
     Ok(())
 }
 

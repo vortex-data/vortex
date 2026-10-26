@@ -65,3 +65,9 @@ mod tests;
 
 #[cfg(test)]
 mod selection_contract_tests;
+
+#[cfg(test)]
+mod selection_semantics_tests;
+
+#[cfg(test)]
+mod range_semantics_tests;
