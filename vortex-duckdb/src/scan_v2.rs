@@ -19,6 +19,11 @@
 //! IO session: a segment that spans several chunks, such as a column chunk longer than the
 //! scan's chunks, is read once.
 //!
+//! A filter with dynamic comparisons, such as the top-N bound DuckDB tightens during the scan, is
+//! pruned again over each part when a thread takes it, as V1 prunes each split when it runs: a
+//! part taken once the bound has tightened skips the zones it excludes. The zone maps were read
+//! when the file was planned, so pruning a part again reads nothing.
+//!
 //! Chunks end only on the file's own chunk boundaries, of the columns the scan reads, so no chunk
 //! of the file is decoded twice by two chunks of the scan. Spans between boundaries are merged up
 //! to the scan's chunk size, but no further than leaves a few chunks per thread: a filtered scan's
@@ -90,8 +95,13 @@ enum Work {
 impl FileScan {
     /// Prepares `builder`, composes its planners, cutting chunks on `boundaries`, the sorted rows
     /// the file's chunks of the scanned columns end at, and runs the root planner to the end on
-    /// the calling thread, waiting for its pruning reads.
-    pub(crate) fn try_new(builder: ScanBuilder, boundaries: &[u64]) -> VortexResult<Self> {
+    /// the calling thread, waiting for its pruning reads. With `dynamic`, each part is pruned
+    /// again when a thread takes it.
+    pub(crate) fn try_new(
+        builder: ScanBuilder,
+        boundaries: &[u64],
+        dynamic: bool,
+    ) -> VortexResult<Self> {
         let scan = Arc::new(builder.prepare()?);
         let io = scan.io();
         let rows = scan.rows().clone();
@@ -100,7 +110,7 @@ impl FileScan {
         let chunks = chunk_ranges(rows.clone(), boundaries, max_rows);
         let mut root = Run::new();
         root.admit(
-            compose(&scan, chunks, parts),
+            compose(&scan, chunks, parts, dynamic),
             WorkScope {
                 file_ordinal: 0,
                 rows,
@@ -192,13 +202,24 @@ fn plan(root: &mut Run) -> VortexResult<VecDeque<Work>> {
 
 /// The planners of a scan, composed: with a filter, its pruning plans first over the scan's rows,
 /// continuing into the parts of the rows they keep; without, the parts directly.
-fn compose(scan: &Arc<PreparedScan>, chunks: Vec<Range<u64>>, count: usize) -> Box<dyn Planner> {
+fn compose(
+    scan: &Arc<PreparedScan>,
+    chunks: Vec<Range<u64>>,
+    count: usize,
+    dynamic: bool,
+) -> Box<dyn Planner> {
     let rows = scan.rows().clone();
     let parts = {
         let scan = Arc::clone(scan);
         let rows = rows.clone();
         move |kept: Option<Mask>| -> Box<dyn Planner> {
-            Box::new(PartPlanner::new(scan, rows, kept, parts(chunks, count)))
+            Box::new(PartPlanner::new(
+                scan,
+                rows,
+                kept,
+                parts(chunks, count),
+                dynamic,
+            ))
         }
     };
     if scan.filter().is_some() {
@@ -209,7 +230,8 @@ fn compose(scan: &Arc<PreparedScan>, chunks: Vec<Range<u64>>, count: usize) -> B
 }
 
 /// Spawns a chunk planner per part of a scan's rows, in row order, which runs the part's chunks
-/// inline. A part is a run of whole chunks.
+/// inline, behind the part's own pruning when the filter is dynamic. A part is a run of whole
+/// chunks.
 struct PartPlanner {
     scan: Arc<PreparedScan>,
     selection: Selection,
@@ -219,6 +241,8 @@ struct PartPlanner {
     kept: Option<Mask>,
     /// The chunks of each part, which tile the scan's rows.
     parts: std::vec::IntoIter<Vec<Range<u64>>>,
+    /// Whether each part is pruned again when it runs.
+    dynamic: bool,
 }
 
 impl PartPlanner {
@@ -227,6 +251,7 @@ impl PartPlanner {
         rows: Range<u64>,
         kept: Option<Mask>,
         parts: Vec<Vec<Range<u64>>>,
+        dynamic: bool,
     ) -> Self {
         Self {
             selection: scan.selection().clone(),
@@ -234,6 +259,7 @@ impl PartPlanner {
             first_row: rows.start,
             kept,
             parts: parts.into_iter(),
+            dynamic,
         }
     }
 }
@@ -270,19 +296,30 @@ impl Planner for PartPlanner {
                 }
                 None => None,
             };
-            let chunks = ChunkPlanner::with_chunks(
-                Arc::clone(&self.scan),
-                part.clone(),
-                chunks,
-                self.selection.clone(),
-                kept,
-            )
-            .inline();
             let scope = WorkScope {
                 file_ordinal: 0,
-                rows: part,
+                rows: part.clone(),
             };
-            return Ok(PlannerOutput::Spawn(scope, Box::new(chunks)));
+            let scan = Arc::clone(&self.scan);
+            let selection = self.selection.clone();
+            if !self.dynamic {
+                let chunks =
+                    ChunkPlanner::with_chunks(scan, part, chunks, selection, kept).inline();
+                return Ok(PlannerOutput::Spawn(scope, Box::new(chunks)));
+            }
+            let next = move |pruned: Option<Mask>| -> Box<dyn Planner> {
+                let kept = match (kept, pruned) {
+                    (Some(kept), Some(pruned)) => Some(kept & &pruned),
+                    (kept, pruned) => kept.or(pruned),
+                };
+                Box::new(
+                    ChunkPlanner::with_chunks(Arc::clone(&scan), part, chunks, selection, kept)
+                        .inline(),
+                )
+            };
+            let pruning =
+                PrunePlanner::new(Arc::clone(&self.scan), scope.rows.clone(), Box::new(next));
+            return Ok(PlannerOutput::Spawn(scope, Box::new(pruning)));
         }
         Ok(PlannerOutput::Done)
     }

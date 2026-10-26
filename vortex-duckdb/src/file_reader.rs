@@ -12,6 +12,7 @@ use url::Url;
 use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::struct_::StructArrayExt as _;
+use vortex::array::scalar_fn::fns::dynamic::DynamicComparison;
 use vortex::dtype::FieldPath;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -218,7 +219,18 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
     // global lock.
     if global.scan_v2 {
         let state = file.scan_state();
-        let scan = FileScan::try_new(v2_builder(state, global), &v2_boundaries(state, global)?)?;
+        let dynamic = global
+            .filter
+            .filter
+            .as_ref()
+            .map(|filter| filter.contains::<DynamicComparison>())
+            .transpose()?
+            .unwrap_or(false);
+        let scan = FileScan::try_new(
+            v2_builder(state, global),
+            &v2_boundaries(state, global)?,
+            dynamic,
+        )?;
         if state.v2.set(scan).is_err() {
             vortex_panic!("file initialized twice");
         }

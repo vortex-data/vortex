@@ -1410,6 +1410,8 @@ fn query_i64_column(path: &str, query: &str) -> Result<Vec<i64>> {
 #[case::expression("SELECT a + b FROM ? WHERE a >= 50000 ORDER BY 1")]
 #[case::full_scan("SELECT a FROM ? ORDER BY a")]
 #[case::empty("SELECT a FROM ? WHERE b > 5000")]
+#[case::top_n("SELECT a FROM ? ORDER BY b DESC, a LIMIT 7")]
+#[case::filtered_top_n("SELECT a FROM ? WHERE b < 500 ORDER BY a DESC LIMIT 10")]
 fn test_vortex_scan_v2_matches_v1(#[case] query: &str) -> Result<()> {
     // Many row blocks, so the file is cut into several V2 splits.
     let rows = 100_000i64;
