@@ -56,8 +56,10 @@ impl FilterPlans {
             .conjuncts()
             .iter()
             .map(|expr| {
-                let plan =
-                    optimize(plan_row_idx_expression(expr.clone(), root.clone())?, session)?;
+                let plan = optimize(
+                    plan_row_idx_expression(expr.clone(), root.clone())?,
+                    session,
+                )?;
                 Ok(FilterPlan::new(plan).into_plan())
             })
             .collect::<VortexResult<_>>()?;
@@ -66,9 +68,7 @@ impl FilterPlans {
             .iter()
             .map(|expr| {
                 expr.falsify(session)?
-                    .map(|proof| {
-                        optimize(plan_row_idx_expression(proof, root.clone())?, session)
-                    })
+                    .map(|proof| optimize(plan_row_idx_expression(proof, root.clone())?, session))
                     .transpose()
             })
             .map(|plan| {

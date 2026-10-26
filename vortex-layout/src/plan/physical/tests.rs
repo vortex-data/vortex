@@ -1133,7 +1133,9 @@ fn multi_field_struct_expression_keeps_cross_field_refinement() -> VortexResult<
     ");
     assert_eq!(
         optimized.display_tree().to_string(),
-        optimize(optimized.clone(), &SESSION)?.display_tree().to_string()
+        optimize(optimized.clone(), &SESSION)?
+            .display_tree()
+            .to_string()
     );
     Ok(())
 }
@@ -1149,7 +1151,10 @@ fn negative_cost_part_of_expression_pushes_into_dictionary_values() -> VortexRes
         byte_length(root()),
         primitive(PType::I64, Nullability::NonNullable),
     );
-    let optimized = optimize(make_eval(expression, make_plan(dictionary)?)?.into_plan(), &SESSION)?;
+    let optimized = optimize(
+        make_eval(expression, make_plan(dictionary)?)?.into_plan(),
+        &SESSION,
+    )?;
 
     insta::assert_snapshot!(optimized.display_tree(), @"
     root: vortex.plan.eval(i64, rows=3) expr=cast($ as i64)
@@ -1194,7 +1199,10 @@ fn non_strict_expression_pushes_into_dictionary_without_null_codes() -> VortexRe
         flat(3, primitive(PType::U8, Nullability::NonNullable), 1),
     )
     .into_layout();
-    let optimized = optimize(make_eval(is_null(root()), make_plan(dictionary)?)?.into_plan(), &SESSION)?;
+    let optimized = optimize(
+        make_eval(is_null(root()), make_plan(dictionary)?)?.into_plan(),
+        &SESSION,
+    )?;
     let take = optimized
         .as_opt::<Take>()
         .ok_or_else(|| vortex_err!("is_null was not pushed into the dictionary: {optimized}"))?;
@@ -1304,7 +1312,10 @@ fn stats_expression_rewrites_to_zoned_pruning_plan() -> VortexResult<()> {
     assert_eq!(zoned.children().len(), 1);
 
     let mixed_expression = bound_and(falsifier, gt(root(), lit(0_i32)).bind(&dtype)?);
-    let mixed = optimize(EvalPlan::try_new(mixed_expression, source)?.into_plan(), &SESSION)?;
+    let mixed = optimize(
+        EvalPlan::try_new(mixed_expression, source)?.into_plan(),
+        &SESSION,
+    )?;
     let mixed = mixed
         .as_opt::<Eval>()
         .ok_or_else(|| vortex_err!("expression with a data reference was pushed into zones"))?;
@@ -1626,8 +1637,10 @@ fn dynamic_predicates_stay_above_dictionary_values() -> VortexResult<()> {
     };
 
     for predicate in [threshold(), and(gt(root(), lit(0_i32)), threshold())] {
-        let optimized =
-            optimize(make_eval(predicate, make_plan(Arc::clone(&layout))?)?.into_plan(), &SESSION)?;
+        let optimized = optimize(
+            make_eval(predicate, make_plan(Arc::clone(&layout))?)?.into_plan(),
+            &SESSION,
+        )?;
         let eval = optimized
             .as_opt::<Eval>()
             .ok_or_else(|| vortex_err!("dynamic predicate was pushed down"))?;
@@ -1687,7 +1700,10 @@ fn zoned_pruning_plan_with_new_zones_proves_them_again() -> VortexResult<()> {
         .bind(&dtype)?
         .falsify(&SESSION)?
         .ok_or_else(|| vortex_err!("filter has no falsifier"))?;
-    let pruning = optimize(EvalPlan::try_new(falsifier.clone(), source)?.into_plan(), &SESSION)?;
+    let pruning = optimize(
+        EvalPlan::try_new(falsifier.clone(), source)?.into_plan(),
+        &SESSION,
+    )?;
     let pruning = pruning
         .as_opt::<Zoned>()
         .ok_or_else(|| vortex_err!("predicate did not become a pruning plan"))?;
