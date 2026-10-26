@@ -104,34 +104,46 @@ pub fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrim
     length: u64,
     mask: &BitBuffer,
 ) -> VortexResult<(PrimitiveArray, Mask)> {
-    let mut filtered_run_ends = buffer_mut![R::zero(); run_ends.len()];
+    if mask.len() >= run_ends.len().saturating_mul(BULK_COUNT_MIN_RUN_LENGTH) {
+        let mut position = 0;
+        let mut counted = 0;
+        return filter_runs(run_ends, offset, length, |end| {
+            counted += mask.count_range(position, end);
+            position = end;
+            counted
+        });
+    }
+    let mut ranks = WordRanks::new(mask);
+    filter_runs(run_ends, offset, length, |end| ranks.rank(end))
+}
 
-    let mut run_start = 0u64;
+/// Filters run ends given `rank`, the set bits of the mask before each increasing run end.
+fn filter_runs<R: NativePType + AsPrimitive<u64>>(
+    run_ends: &[R],
+    offset: u64,
+    length: u64,
+    mut rank: impl FnMut(usize) -> usize,
+) -> VortexResult<(PrimitiveArray, Mask)> {
+    let mut filtered_run_ends = buffer_mut![R::zero(); run_ends.len()];
+    let mut run_start_rank = 0;
     let mut retained_run_count = 0;
-    let mut filtered_end = R::zero();
 
     let values_mask: Mask = BitBuffer::collect_bool(run_ends.len(), |run_idx| {
         let run_end = min(run_ends[run_idx].as_() - offset, length);
-
-        // Bulk popcount is SIMD-capable and avoids per-bit reads. The input contract and clamp prove
-        // `run_start_idx <= run_end_idx <= mask.len()`.
-        let run_start_idx = run_start
-            .try_into()
-            .vortex_expect("run start index must fit in usize");
-        let run_end_idx = run_end
-            .try_into()
-            .vortex_expect("run end index must fit in usize");
-        let selected_in_run = mask.count_range(run_start_idx, run_end_idx);
-        filtered_end += <R as NumCast>::from(selected_in_run)
-            .vortex_expect("run popcount must fit in run-end native type");
-        let retain_run = selected_in_run > 0;
+        let run_end_rank = rank(
+            run_end
+                .try_into()
+                .vortex_expect("run end index must fit in usize"),
+        );
+        let retain_run = run_end_rank > run_start_rank;
+        run_start_rank = run_end_rank;
 
         // Always write the current end, then advance only for a retained run. This keeps the loop
         // branchless.
-        filtered_run_ends[retained_run_count] = filtered_end;
+        filtered_run_ends[retained_run_count] = <R as NumCast>::from(run_end_rank)
+            .vortex_expect("run popcount must fit in run-end native type");
         retained_run_count += retain_run as usize;
 
-        run_start = run_end;
         retain_run
     })
     .into();
@@ -144,11 +156,58 @@ pub fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrim
     ))
 }
 
+/// Average run length from which one bulk SIMD popcount per run beats [`WordRanks`].
+const BULK_COUNT_MIN_RUN_LENGTH: usize = 256;
+
+/// Counts the set bits before increasing positions of a mask in one pass over its words.
+///
+/// A run's selected rows are the difference of the ranks at its ends, so each short run costs a
+/// word popcount rather than a bulk popcount call.
+struct WordRanks {
+    words: Vec<u64>,
+    /// The words whose bits `counted` covers.
+    word: usize,
+    /// Set bits in `words[..word]`.
+    counted: usize,
+}
+
+impl WordRanks {
+    fn new(mask: &BitBuffer) -> Self {
+        let chunks = mask.chunks();
+        let mut words: Vec<u64> = chunks.iter().collect();
+        if chunks.remainder_len() > 0 {
+            words.push(chunks.remainder_bits());
+        }
+        Self {
+            words,
+            word: 0,
+            counted: 0,
+        }
+    }
+
+    /// The set bits before `position`. Positions must not decrease between calls.
+    fn rank(&mut self, position: usize) -> usize {
+        let word = position / 64;
+        while self.word < word {
+            self.counted += self.words[self.word].count_ones() as usize;
+            self.word += 1;
+        }
+        let bits = position % 64;
+        if bits == 0 {
+            return self.counted;
+        }
+        self.counted + (self.words[word] & ((1u64 << bits) - 1)).count_ones() as usize
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+    use vortex_buffer::BitBuffer;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
+    use super::filter_run_end_primitive;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
@@ -212,6 +271,49 @@ mod tests {
             .collect();
         assert_arrays_eq!(executed, PrimitiveArray::from_iter(expected), &mut ctx);
 
+        Ok(())
+    }
+
+    /// Both ways of counting a run's selected rows agree with a bit-by-bit count, including masks
+    /// that start inside a byte, end inside a word, and run ends past the array's length.
+    #[rstest]
+    #[case::short_runs(3)]
+    #[case::word_runs(64)]
+    #[case::bulk_runs(300)]
+    fn filter_run_end_counts_runs(#[case] run_length: u32) -> VortexResult<()> {
+        let (offset, length, mask_offset) = (5u32, 1_000u32, 3usize);
+        let run_ends: Vec<u32> = (1..)
+            .map(|run| offset + run * run_length - run % 2)
+            .take_while(|&end| end < offset + length + run_length)
+            .collect();
+        let bits: Vec<bool> = (0..mask_offset + length as usize)
+            .map(|i| i % 7 == 0 || i % 5 == 1)
+            .collect();
+        let mask = BitBuffer::from(bits.clone()).slice(mask_offset..mask_offset + length as usize);
+
+        let (ends, values_mask) =
+            filter_run_end_primitive(&run_ends, offset.into(), length.into(), &mask)?;
+
+        let mut expected_ends = Vec::new();
+        let mut expected_values = Vec::new();
+        let (mut start, mut selected) = (0usize, 0u32);
+        for &end in &run_ends {
+            let end = ((end - offset) as usize).min(length as usize);
+            let in_run = u32::try_from(
+                bits[mask_offset + start..mask_offset + end]
+                    .iter()
+                    .filter(|&&bit| bit)
+                    .count(),
+            )?;
+            selected += in_run;
+            if in_run > 0 {
+                expected_ends.push(selected);
+            }
+            expected_values.push(in_run > 0);
+            start = end;
+        }
+        assert_eq!(ends.as_slice::<u32>(), expected_ends.as_slice());
+        assert_eq!(values_mask, Mask::from_iter(expected_values));
         Ok(())
     }
 }

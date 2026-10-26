@@ -5,8 +5,8 @@
 //!
 //! This measures the kernel directly rather than going through the lazy
 //! `ArrayRef::filter` (which only builds a `FilterArray` node and does not run
-//! the kernel). The hot work is a per-run popcount of the predicate mask, which
-//! now uses `BitBuffer::count_range` (SIMD) instead of a bit-by-bit walk.
+//! the kernel). The hot work is counting the predicate mask's set bits in each
+//! run, which ranks the run ends in one pass over the mask's words.
 
 #![expect(clippy::cast_possible_truncation)]
 #![expect(clippy::cast_precision_loss)]
@@ -80,6 +80,16 @@ const FILTER_ARGS: &[FilterBenchArgs] = &[
         length: 16_384,
         run_length: 16,
         density: 0.9,
+    },
+    FilterBenchArgs {
+        length: 65_536,
+        run_length: 4,
+        density: 0.3,
+    },
+    FilterBenchArgs {
+        length: 65_536,
+        run_length: 1_024,
+        density: 0.3,
     },
 ];
 
