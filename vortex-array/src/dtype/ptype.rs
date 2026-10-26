@@ -352,6 +352,59 @@ native_float_ptype!(f16, F16);
 native_float_ptype!(f32, F32);
 native_float_ptype!(f64, F64);
 
+/// Dispatches a [`PType`] to a compile-time byte width for structural kernels.
+///
+/// Accepts an owned or borrowed [`PType`], evaluated once, and specializes 1, 2, 4, and 8 bytes.
+/// Kernels can operate on `[u8; W]` records as bit patterns. Callers preserve the original dtype
+/// when rebuilding arrays, including signedness and floating-point interpretation.
+///
+/// The optional `widths = [...]` list and required fallback follow
+/// [`match_each_power_of_two_width!`](crate::match_each_power_of_two_width).
+///
+/// # Examples
+///
+/// ```
+/// use vortex_array::dtype::PType;
+/// use vortex_array::match_each_ptype_width;
+///
+/// let width = match_each_ptype_width!(PType::F32, |W| { W }, _ => { unreachable!() });
+/// assert_eq!(width, 4);
+/// ```
+///
+/// Decimal storage types use
+/// [`match_each_decimal_type_width!`](crate::match_each_decimal_type_width):
+///
+/// ```compile_fail
+/// use vortex_array::dtype::DecimalType;
+/// use vortex_array::match_each_ptype_width;
+///
+/// match_each_ptype_width!(DecimalType::I32, |W| { W }, _ => { unreachable!() });
+/// ```
+#[macro_export]
+macro_rules! match_each_ptype_width {
+    (
+        $ptype:expr,
+        widths = [$($width:literal),+ $(,)?],
+        |$W:ident| $body:block,
+        $other:pat => $fallback:block $(,)?
+    ) => {
+        $crate::match_each_power_of_two_width!(
+            $crate::dtype::PType::byte_width(&$ptype),
+            widths = [$($width),+],
+            |$W| $body,
+            $other => $fallback,
+        )
+    };
+    ($ptype:expr, |$W:ident| $body:block, $other:pat => $fallback:block $(,)?) => {
+        $crate::match_each_ptype_width!(
+            $ptype,
+            widths = [1, 2, 4, 8],
+            |$W| $body,
+            $other => $fallback,
+        )
+    };
+}
+
 /// Macro to match over each PType, binding the corresponding native type (from `NativePType`)
 #[macro_export]
 macro_rules! match_each_native_ptype {
