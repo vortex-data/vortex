@@ -551,8 +551,8 @@ fn decimal_contiguous_take_preserves_storage_and_shares_buffer(
     });
     let original_ptr = child.buffer_handle().as_host_opt().unwrap().as_ptr();
     let filter =
-        FilterArray::new(child.into_array(), Mask::from_slices(5, vec![(1, 5)])).into_array();
-    let parent = DictArray::try_new(buffer![1u64, 2].into_array(), filter.clone())?.into_array();
+        FilterArray::new(child.into_array(), Mask::from_slices(5, vec![(2, 5)])).into_array();
+    let parent = DictArray::try_new(buffer![0u64, 1].into_array(), filter.clone())?.into_array();
     let mut ctx = SESSION.create_execution_ctx();
     let taken = execute_parent(&filter, &parent, 1, &mut ctx)?
         .vortex_expect("decimal filter should execute its take parent")

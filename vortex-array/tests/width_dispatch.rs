@@ -162,7 +162,13 @@ mod tests {
             &[bits[0], bits[5], bits[2], bits[3], bits[0], bits[5]],
             &mut ctx,
         );
-        assert!(patched.buffer_handle().is_aligned_to(Alignment::new(64)));
+        assert!(
+            patched
+                .buffer_handle()
+                .as_host_opt()
+                .unwrap()
+                .is_aligned(Alignment::new(64))
+        );
         let output_ptr = patched.buffer_handle().as_host_opt().unwrap().as_ptr();
         if let Some(retained) = retained {
             assert_ne!(output_ptr, input_ptr);
