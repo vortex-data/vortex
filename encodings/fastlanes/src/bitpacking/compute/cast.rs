@@ -32,6 +32,14 @@ fn is_widening_int_cast(src: PType, tgt: PType) -> bool {
         && (src.is_unsigned_int() || tgt.is_signed_int())
 }
 
+/// Returns `true` if every value a patch-free array packed at `bit_width` can hold fits `tgt`.
+/// Packed values are non-negative and below `2^bit_width`.
+fn packed_values_fit(bit_width: u8, src: PType, tgt: PType) -> bool {
+    src.is_int()
+        && tgt.is_int()
+        && usize::from(bit_width) + usize::from(tgt.is_signed_int()) <= tgt.bit_width()
+}
+
 fn build_with_validity(
     array: ArrayView<'_, BitPacked>,
     bit_width: u8,
@@ -89,15 +97,17 @@ impl CastKernel for BitPacked {
             return build_with_validity(array, bit_width, dtype, new_validity).map(Some);
         }
 
-        // Widening integer cast: unpack each FastLanes chunk into a cache-resident scratch buffer
-        // and cast-copy straight into the wide output, avoiding a full-length intermediate buffer
-        // and the generic cast kernel's bounds-check scan (unnecessary when widening).
+        // Widening integer cast, or a narrowing one whose target holds every packed value: unpack
+        // each FastLanes chunk into a cache-resident scratch buffer and cast-copy straight into the
+        // output, avoiding a full-length intermediate buffer and the generic cast kernel's
+        // bounds-check scan (unnecessary when every value fits).
         let DType::Primitive(tgt, tgt_nullability) = dtype else {
             return Ok(None);
         };
         let (tgt, tgt_nullability) = (*tgt, *tgt_nullability);
         let src = array.dtype().as_ptype();
-        if !is_widening_int_cast(src, tgt) {
+        let fits = || array.patches().is_none() && packed_values_fit(bit_width, src, tgt);
+        if !is_widening_int_cast(src, tgt) && !fits() {
             return Ok(None);
         }
 
@@ -144,6 +154,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::BitPackedArray;
+    use crate::BitPackedArrayExt;
     use crate::BitPackedData;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -263,6 +274,39 @@ mod tests {
             }
         }
 
+        Ok(())
+    }
+
+    /// Narrowing casts of patch-free arrays whose bit width fits the target unpack directly and
+    /// match a plain primitive cast, including sliced and nullable inputs.
+    #[rstest]
+    #[case(PType::I64, PType::U8)]
+    #[case(PType::I64, PType::I8)]
+    #[case(PType::U64, PType::U16)]
+    #[case(PType::I32, PType::I16)]
+    fn test_cast_bitpacked_narrowing_fits(
+        #[case] src: PType,
+        #[case] tgt: PType,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let source = match_each_integer_ptype!(src, |S| {
+            PrimitiveArray::from_option_iter((0..2051usize).map(|i| {
+                (i % 11 != 5).then(|| {
+                    <S as num_traits::FromPrimitive>::from_usize(i % 128)
+                        .expect("test values fit every integer ptype")
+                })
+            }))
+        })
+        .into_array();
+        let packed = bp(&source, 7);
+        assert!(packed.patches().is_none());
+        let target = DType::Primitive(tgt, Nullability::Nullable);
+
+        let casted = packed.clone().into_array().cast(target.clone())?;
+        assert_arrays_eq!(casted, source.cast(target.clone())?, &mut ctx);
+
+        let sliced = packed.into_array().slice(500..1700)?.cast(target.clone())?;
+        assert_arrays_eq!(sliced, source.slice(500..1700)?.cast(target)?, &mut ctx);
         Ok(())
     }
 
