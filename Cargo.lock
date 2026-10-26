@@ -12662,7 +12662,7 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-session",
- "zstd 0.13.3",
+ "zstd 0.14.3",
 ]
 
 [[package]]
