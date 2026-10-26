@@ -2,11 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use anyhow::anyhow;
 use arrow_array::RecordBatch;
+use arrow_schema::Schema;
 use datafusion::assert_batches_eq;
 use datafusion::prelude::SessionContext;
+use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
 use datafusion_common::arrow::compute::concat_batches;
 use datafusion_common::config::ConfigOptions;
@@ -22,12 +26,16 @@ use datafusion_physical_plan::filter_pushdown::PushedDown;
 use rstest::rstest;
 use vortex::VortexSessionDefault;
 use vortex::buffer::ByteBufferMut;
+use vortex::expr::Expression;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
 use super::VortexDataSource;
+use super::source::VortexDataSourceBuilder;
+use crate::convert::DefaultExpressionConverter;
+use crate::convert::ExpressionConverter;
 
 async fn vortex_source() -> anyhow::Result<VortexDataSource> {
     let batch =
@@ -36,6 +44,10 @@ async fn vortex_source() -> anyhow::Result<VortexDataSource> {
 }
 
 async fn vortex_source_from_batch(batch: RecordBatch) -> anyhow::Result<VortexDataSource> {
+    Ok(vortex_source_builder(batch).await?.build().await?)
+}
+
+async fn vortex_source_builder(batch: RecordBatch) -> anyhow::Result<VortexDataSourceBuilder> {
     let session = VortexSession::default();
     let schema = batch.schema();
     let array = session.arrow().from_arrow_record_batch(batch, &schema)?;
@@ -45,10 +57,7 @@ async fn vortex_source_from_batch(batch: RecordBatch) -> anyhow::Result<VortexDa
         .write(&mut buffer, array.to_array_stream())
         .await?;
     let file = session.open_options().open_buffer(buffer)?;
-    Ok(VortexDataSource::builder(file.data_source()?, session)
-        .with_arrow_schema(schema)
-        .build()
-        .await?)
+    Ok(VortexDataSource::builder(file.data_source()?, session).with_arrow_schema(schema))
 }
 
 #[tokio::test]
@@ -155,5 +164,83 @@ async fn projection_preserves_arrow_types(
     };
     let actual = concat_batches(&expected_schema, &batches)?;
     assert_eq!(actual.columns(), expected.columns());
+    Ok(())
+}
+
+struct CountingConverter {
+    calls: Arc<AtomicUsize>,
+    inner: DefaultExpressionConverter,
+}
+
+impl ExpressionConverter for CountingConverter {
+    fn try_convert(
+        &self,
+        expression: &Arc<dyn PhysicalExpr>,
+        schema: &Schema,
+    ) -> DFResult<Option<Expression>> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.try_convert(expression, schema)
+    }
+}
+
+#[rstest]
+#[tokio::test]
+async fn expression_converter_survives_pushdown_updates(
+    #[values(false, true)] custom: bool,
+) -> anyhow::Result<()> {
+    let batch = arrow_array::record_batch!(("a", Int32, vec![Some(1), None, Some(3)]))?;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let builder = vortex_source_builder(batch).await?;
+    let builder = if custom {
+        builder.with_expression_converter(Arc::new(CountingConverter {
+            calls: Arc::clone(&calls),
+            inner: DefaultExpressionConverter::default(),
+        }))
+    } else {
+        builder
+    };
+    let source = builder.build().await?;
+    let source = source
+        .with_fetch(None)
+        .ok_or_else(|| anyhow!("fetch update was not supported"))?;
+    let projection = ProjectionExprs::from(vec![ProjectionExpr::new(
+        Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(df_expr::Column::new("a", 0)),
+            Operator::Plus,
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(1)))),
+        )),
+        "incremented",
+    )]);
+    let projected = source
+        .try_swapping_with_projection(&projection)?
+        .ok_or_else(|| anyhow!("projection was not swapped"))?;
+    assert_eq!(calls.load(Ordering::Relaxed), usize::from(custom));
+    let projected = projected
+        .repartitioned(2, 0, None)?
+        .ok_or_else(|| anyhow!("repartitioning was not supported"))?;
+    let filter: Arc<dyn PhysicalExpr> = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("incremented", 0)),
+        Operator::Gt,
+        Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(2)))),
+    ));
+    let pushed = projected.try_pushdown_filters(vec![filter], &ConfigOptions::new())?;
+    assert_eq!(calls.load(Ordering::Relaxed), 2 * usize::from(custom));
+    assert!(matches!(pushed.filters.as_slice(), [PushedDown::Yes]));
+    let updated = pushed
+        .updated_node
+        .ok_or_else(|| anyhow!("filter was not added to the source"))?;
+    let plan = Arc::new(DataSourceExec::new(updated)) as Arc<dyn ExecutionPlan>;
+    let context = SessionContext::new();
+    let batches = datafusion_physical_plan::collect(plan, context.task_ctx()).await?;
+    assert_batches_eq!(
+        [
+            "+-------------+",
+            "| incremented |",
+            "+-------------+",
+            "| 4           |",
+            "+-------------+",
+        ],
+        &batches
+    );
     Ok(())
 }

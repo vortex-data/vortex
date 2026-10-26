@@ -172,6 +172,7 @@ pub struct VortexDataSourceBuilder {
 
     arrow_schema: Option<SchemaRef>,
     projection: Option<Vec<usize>>,
+    expression_converter: Arc<dyn ExpressionConverter>,
 }
 
 impl VortexDataSourceBuilder {
@@ -199,6 +200,19 @@ impl VortexDataSourceBuilder {
     /// Like [`Self::with_projection`], but accepts an optional projection.
     pub fn with_some_projection(mut self, indices: Option<Vec<usize>>) -> Self {
         self.projection = indices;
+        self
+    }
+
+    /// Sets the converter used for filter and projection pushdown.
+    ///
+    /// Defaults to [`DefaultExpressionConverter`] using the builder's session.
+    /// Unsupported expressions remain in DataFusion. Custom converters must preserve
+    /// DataFusion values, nulls, and evaluation errors for expressions they accept.
+    pub fn with_expression_converter(
+        mut self,
+        expression_converter: Arc<dyn ExpressionConverter>,
+    ) -> Self {
+        self.expression_converter = expression_converter;
         self
     }
 
@@ -266,6 +280,7 @@ impl VortexDataSourceBuilder {
         Ok(VortexDataSource {
             data_source: self.data_source,
             session: self.session,
+            expression_converter: self.expression_converter,
             initial_schema: Arc::clone(&arrow_schema),
             initial_projection: projection.clone(),
             initial_statistics: statistics.clone(),
@@ -288,6 +303,7 @@ impl VortexDataSource {
     pub fn builder(data_source: DataSourceRef, session: VortexSession) -> VortexDataSourceBuilder {
         VortexDataSourceBuilder {
             data_source,
+            expression_converter: Arc::new(DefaultExpressionConverter::new(session.clone())),
             session,
             arrow_schema: None,
             projection: None,
@@ -317,6 +333,7 @@ pub struct VortexDataSource {
     data_source: DataSourceRef,
     /// Vortex session handle.
     session: VortexSession,
+    expression_converter: Arc<dyn ExpressionConverter>,
 
     // --- Phase 1: Initial (from the builder, before any optimizer pushdown) ---
     /// The Arrow schema of the data source before any DataFusion projection pushdown.
@@ -570,7 +587,7 @@ impl DataSource for VortexDataSource {
             projection
         );
 
-        let converter = DefaultExpressionConverter::new(self.session.clone());
+        let converter = &self.expression_converter;
         let input_schema = self.initial_schema.as_ref();
         let projected_schema = projection.project_schema(input_schema)?;
 
@@ -627,7 +644,7 @@ impl DataSource for VortexDataSource {
             ));
         }
 
-        let converter = DefaultExpressionConverter::new(self.session.clone());
+        let converter = &self.expression_converter;
         let filters = filters
             .into_iter()
             .map(|filter| {
