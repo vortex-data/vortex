@@ -13,9 +13,9 @@ use crate::DynLayout;
 use crate::LayoutBuildContext;
 use crate::LayoutChildType;
 use crate::LayoutChildren;
-use crate::LayoutEncoding;
 use crate::LayoutEncodingId;
-use crate::LayoutEncodingRef;
+use crate::LayoutPlugin;
+use crate::LayoutPluginRef;
 use crate::LayoutReaderRef;
 use crate::LayoutRef;
 use crate::segments::SegmentId;
@@ -33,7 +33,7 @@ impl ForeignLayoutEncoding {
     }
 }
 
-impl LayoutEncoding for ForeignLayoutEncoding {
+impl LayoutPlugin for ForeignLayoutEncoding {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -70,7 +70,7 @@ impl LayoutEncoding for ForeignLayoutEncoding {
 /// Placeholder layout used when deserializing an unknown layout encoding ID.
 #[derive(Clone, Debug)]
 pub(crate) struct ForeignLayout {
-    encoding: LayoutEncodingRef,
+    encoding: LayoutPluginRef,
     dtype: DType,
     row_count: u64,
     metadata: Vec<u8>,
@@ -87,8 +87,7 @@ impl ForeignLayout {
         segment_ids: Vec<SegmentId>,
         children: Vec<LayoutRef>,
     ) -> Self {
-        let encoding =
-            LayoutEncodingRef::new_arc(Arc::new(ForeignLayoutEncoding::new(encoding_id)));
+        let encoding = LayoutPluginRef::new_arc(Arc::new(ForeignLayoutEncoding::new(encoding_id)));
 
         Self {
             encoding,

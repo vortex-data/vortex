@@ -24,10 +24,12 @@ use crate::segments::SegmentId;
 
 /// Backwards-compatible name for a layout ID.
 pub type LayoutEncodingId = LayoutId;
-/// Shared reference to a registered layout-vtable plugin.
-pub type LayoutVTableRef = ArcRef<dyn LayoutVTablePlugin>;
-/// Backwards-compatible name for a layout-vtable reference.
-pub type LayoutEncodingRef = LayoutVTableRef;
+/// Shared reference to a registered layout plugin.
+pub type LayoutPluginRef = ArcRef<dyn LayoutPlugin>;
+/// Backwards-compatible name for a layout plugin reference.
+pub type LayoutVTableRef = LayoutPluginRef;
+/// Backwards-compatible name for a layout plugin reference.
+pub type LayoutEncodingRef = LayoutPluginRef;
 
 /// Common fields available while deserializing layout-specific data.
 pub struct LayoutDeserializeArgs<'a> {
@@ -82,7 +84,7 @@ impl LayoutSerialization {
 /// Every serialized ID is also registered for deserialization, so a plugin may read several
 /// historical IDs into the same in-memory layout. A reader that predates a newer ID has no
 /// registration for it and reports it as unknown.
-pub trait LayoutVTablePlugin: 'static + Send + Sync + Debug {
+pub trait LayoutPlugin: 'static + Send + Sync + Debug {
     /// Returns this plugin as [`Any`].
     fn as_any(&self) -> &dyn Any;
     /// Returns the ID of the in-memory layout handled by this plugin.
@@ -129,10 +131,12 @@ pub trait LayoutVTablePlugin: 'static + Send + Sync + Debug {
     }
 }
 
-/// Backwards-compatible name for the object-safe layout-vtable plugin.
-pub use LayoutVTablePlugin as LayoutEncoding;
+/// Backwards-compatible name for the layout plugin.
+pub use LayoutPlugin as LayoutEncoding;
+/// Backwards-compatible name for the layout plugin.
+pub use LayoutPlugin as LayoutVTablePlugin;
 
-impl<V: VTable> LayoutVTablePlugin for V {
+impl<V: VTable> LayoutPlugin for V {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -174,21 +178,21 @@ impl<V: VTable> LayoutVTablePlugin for V {
     }
 }
 
-impl Display for dyn LayoutVTablePlugin + '_ {
+impl Display for dyn LayoutPlugin + '_ {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.id())
     }
 }
 
-impl PartialEq for dyn LayoutVTablePlugin + '_ {
+impl PartialEq for dyn LayoutPlugin + '_ {
     fn eq(&self, other: &Self) -> bool {
         self.id() == other.id()
     }
 }
 
-impl Eq for dyn LayoutVTablePlugin + '_ {}
+impl Eq for dyn LayoutPlugin + '_ {}
 
-impl dyn LayoutVTablePlugin + '_ {
+impl dyn LayoutPlugin + '_ {
     /// Returns whether this plugin is vtable `V`.
     pub fn is<V: VTable>(&self) -> bool {
         self.as_opt::<V>().is_some()

@@ -12,9 +12,9 @@ use vortex_session::SessionVar;
 use vortex_session::registry::Id;
 
 use crate::DynLayout;
-use crate::LayoutEncoding;
-use crate::LayoutEncodingRef;
 use crate::LayoutId;
+use crate::LayoutPlugin;
+use crate::LayoutPluginRef;
 use crate::LayoutSerialization;
 use crate::layouts::chunked::Chunked;
 use crate::layouts::dict::Dict;
@@ -26,7 +26,7 @@ use crate::layouts::zoned::LegacyStats;
 use crate::layouts::zoned::Zoned;
 
 /// Registry of layout encodings.
-pub type LayoutRegistry = ArcSwapMap<Id, LayoutEncodingRef>;
+pub type LayoutRegistry = ArcSwapMap<Id, LayoutPluginRef>;
 
 /// Session state for layout encodings.
 #[derive(Clone, Debug)]
@@ -41,8 +41,8 @@ impl LayoutSession {
     /// Register a layout encoding and all of its serialized IDs in the session.
     ///
     /// This replaces any serializer with the same in-memory ID and any deserializer registered
-    /// under one of [`LayoutEncoding::serialized_ids`].
-    pub fn register(&self, layout_ref: impl Into<LayoutEncodingRef>) {
+    /// under one of [`LayoutPlugin::serialized_ids`].
+    pub fn register(&self, layout_ref: impl Into<LayoutPluginRef>) {
         let layout = layout_ref.into();
         self.serializers.insert(layout.id(), layout.clone());
         for serialized_id in layout.serialized_ids() {
@@ -51,7 +51,7 @@ impl LayoutSession {
     }
 
     /// Register layout encodings in the session, replacing any existing encodings with the same IDs.
-    pub fn register_many(&self, layouts: impl IntoIterator<Item = LayoutEncodingRef>) {
+    pub fn register_many(&self, layouts: impl IntoIterator<Item = LayoutPluginRef>) {
         for layout in layouts {
             self.register(layout);
         }
@@ -62,7 +62,7 @@ impl LayoutSession {
         &self.registry
     }
 
-    fn serializer(&self, id: &LayoutId) -> Option<LayoutEncodingRef> {
+    fn serializer(&self, id: &LayoutId) -> Option<LayoutPluginRef> {
         self.serializers.get(id)
     }
 }
@@ -75,14 +75,14 @@ impl Default for LayoutSession {
         };
 
         // Register the built-in layout encodings.
-        this.register(&Chunked as &dyn LayoutEncoding);
-        this.register(&Flat as &dyn LayoutEncoding);
-        this.register(&Struct as &dyn LayoutEncoding);
-        this.register(&Zoned as &dyn LayoutEncoding);
-        this.register(&LegacyStats as &dyn LayoutEncoding);
-        this.register(&Dict as &dyn LayoutEncoding);
-        this.register(&List as &dyn LayoutEncoding);
-        this.register(&Indexed as &dyn LayoutEncoding);
+        this.register(&Chunked as &dyn LayoutPlugin);
+        this.register(&Flat as &dyn LayoutPlugin);
+        this.register(&Struct as &dyn LayoutPlugin);
+        this.register(&Zoned as &dyn LayoutPlugin);
+        this.register(&LegacyStats as &dyn LayoutPlugin);
+        this.register(&Dict as &dyn LayoutPlugin);
+        this.register(&List as &dyn LayoutPlugin);
+        this.register(&Indexed as &dyn LayoutPlugin);
         this
     }
 }

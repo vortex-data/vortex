@@ -261,11 +261,11 @@ mod tests {
     use crate::LayoutChildren;
     use crate::LayoutContext;
     use crate::LayoutEncodingId;
-    use crate::LayoutEncodingRef;
     use crate::LayoutId;
+    use crate::LayoutPlugin;
+    use crate::LayoutPluginRef;
     use crate::LayoutRef;
     use crate::LayoutSerialization;
-    use crate::LayoutVTablePlugin;
     use crate::VTable;
     use crate::flatbuffers::layout as fbl;
     use crate::layouts::flat::Flat;
@@ -286,7 +286,7 @@ mod tests {
         declare_v0: bool,
     }
 
-    impl LayoutVTablePlugin for FlatV0 {
+    impl LayoutPlugin for FlatV0 {
         fn as_any(&self) -> &dyn Any {
             self
         }
@@ -324,7 +324,7 @@ mod tests {
             children: &dyn LayoutChildren,
             build_ctx: &LayoutBuildContext<'_>,
         ) -> VortexResult<LayoutRef> {
-            LayoutVTablePlugin::build(
+            LayoutPlugin::build(
                 &Flat,
                 VTable::id(&Flat),
                 dtype,
@@ -341,10 +341,8 @@ mod tests {
     /// reads it back.
     fn round_trip(plugin: FlatV0, layout_ctx: &LayoutContext) -> VortexResult<LayoutRef> {
         let session = VortexSession::empty().with::<LayoutSession>();
-        let plugin: Arc<dyn LayoutVTablePlugin> = Arc::new(plugin);
-        session
-            .layouts()
-            .register(LayoutEncodingRef::new_arc(plugin));
+        let plugin: Arc<dyn LayoutPlugin> = Arc::new(plugin);
+        session.layouts().register(LayoutPluginRef::new_arc(plugin));
         let layout = FlatLayout::new(
             10,
             DType::Primitive(PType::I32, Nullability::NonNullable),
