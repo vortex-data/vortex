@@ -534,21 +534,6 @@ pub fn dict_layout_supported(dtype: &DType) -> bool {
     )
 }
 
-#[derive(prost::Message)]
-pub struct DictLayoutMetadata {
-    #[prost(enumeration = "PType", tag = "1")]
-    // i32 is required for proto, use the generated getter to read this field.
-    codes_ptype: i32,
-}
-
-impl DictLayoutMetadata {
-    pub fn new(codes_ptype: PType) -> Self {
-        let mut metadata = Self::default();
-        metadata.set_codes_ptype(codes_ptype);
-        metadata
-    }
-}
-
 enum EncodingState {
     Continue((Box<dyn DictEncoder>, ArrayRef)),
     // (values, encoded, unencoded)
