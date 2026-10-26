@@ -187,7 +187,7 @@ fn transform_list(
     let list = if lambda.is_infallible() {
         trim_ends(list, ctx)?
     } else {
-        list.rebuild_with_referenced_valid_elements(ctx)?
+        list.compact(ctx)?
     };
     let values = lambda.evaluate(vec![list.elements().clone()], list.elements().len())?;
     vortex_ensure_eq!(values.len(), list.elements().len());
