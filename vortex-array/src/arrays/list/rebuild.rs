@@ -3,6 +3,7 @@
 
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
@@ -60,44 +61,55 @@ impl ListArray {
             &all
         };
 
-        // Keep the elements of each run, merging runs whose elements touch, and move each offset
-        // down by the elements dropped before it, so that null lists are empty.
-        let mut kept: Vec<(usize, usize)> = Vec::with_capacity(runs.len());
-        let mut ends = BufferMut::copy_from(offsets);
-        let mut dropped = offsets[0];
-        let mut null_from = 0;
-        for &(run_start, run_end) in runs {
-            let (start, stop): (usize, usize) = (offsets[run_start].as_(), offsets[run_end].as_());
-            match kept.last_mut() {
-                Some(range) if range.1 == start => range.1 = stop,
-                _ if start < stop => kept.push((start, stop)),
-                _ => {}
-            }
-            ends[null_from..run_start].fill(offsets[null_from] - dropped);
-            dropped += offsets[run_start] - offsets[null_from];
-            for end in &mut ends[run_start..run_end] {
-                *end = *end - dropped;
-            }
-            null_from = run_end;
-        }
-        ends[null_from..].fill(offsets[null_from] - dropped);
-
-        let mut bits = BitBufferMut::new_unset(self.elements().len());
-        for &(start, stop) in &kept {
-            bits.fill_range(start, stop, true);
-        }
-        // With the ranges cached on the mask, the filter slices one range and copies several range
-        // by range.
-        let elements = self
-            .elements()
-            .filter(Mask::from_buffer_with_slices(bits.freeze(), kept))?;
-        // SAFETY: the elements are the runs' elements in order, and every offset moved down by the
-        // elements dropped before it, so each valid list keeps its elements and each null list is
-        // empty.
+        let elements =
+            self.elements()
+                .filter(elements_of_runs(offsets, runs, self.elements().len()))?;
+        let offsets = offsets_over_runs(offsets, runs);
+        // SAFETY: the elements are the runs' elements in order, and the offsets moved down by the
+        // elements dropped before them, so each list in a run keeps its elements and each list
+        // between runs is empty.
         Ok(unsafe {
-            ListArray::new_unchecked(elements, ends.freeze().into_array(), self.list_validity())
+            ListArray::new_unchecked(elements, offsets.into_array(), self.list_validity())
         })
     }
+}
+
+/// The elements of the runs of lists, as a mask over `len` elements.
+fn elements_of_runs<O: IntegerPType>(offsets: &[O], runs: &[(usize, usize)], len: usize) -> Mask {
+    let mut ranges: Vec<(usize, usize)> = Vec::with_capacity(runs.len());
+    for &(run_start, run_end) in runs {
+        let (start, stop): (usize, usize) = (offsets[run_start].as_(), offsets[run_end].as_());
+        match ranges.last_mut() {
+            Some(range) if range.1 == start => range.1 = stop,
+            _ if start < stop => ranges.push((start, stop)),
+            _ => {}
+        }
+    }
+    let mut bits = BitBufferMut::new_unset(len);
+    for &(start, stop) in &ranges {
+        bits.fill_range(start, stop, true);
+    }
+    // With the ranges cached on the mask, a filter slices one range and copies several range by
+    // range.
+    Mask::from_buffer_with_slices(bits.freeze(), ranges)
+}
+
+/// The offsets once only the runs' elements remain: each offset moves down by the elements dropped
+/// before it, so that the lists between runs are empty.
+fn offsets_over_runs<O: IntegerPType>(offsets: &[O], runs: &[(usize, usize)]) -> Buffer<O> {
+    let mut shifted = BufferMut::copy_from(offsets);
+    let mut dropped = offsets[0];
+    let mut between_from = 0;
+    for &(run_start, run_end) in runs {
+        shifted[between_from..run_start].fill(offsets[between_from] - dropped);
+        dropped += offsets[run_start] - offsets[between_from];
+        for offset in &mut shifted[run_start..run_end] {
+            *offset = *offset - dropped;
+        }
+        between_from = run_end;
+    }
+    shifted[between_from..].fill(offsets[between_from] - dropped);
+    shifted.freeze()
 }
 
 /// Whether a null list holds elements, given which lists hold elements.

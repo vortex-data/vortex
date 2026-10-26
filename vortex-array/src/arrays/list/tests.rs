@@ -1079,6 +1079,13 @@ fn test_filter_sliced_list_array() -> VortexResult<()> {
     &[1, 2],
     &[0, 1, 1, 2, 2]
 )]
+#[case::an_empty_valid_list_between_null_lists(
+    &[9, 9, 1],
+    &[0, 1, 1, 2, 3],
+    &[false, true, false, true],
+    &[1],
+    &[0, 0, 0, 0, 1]
+)]
 #[case::every_list_null(&[9, 9], &[0, 1, 2], &[false, false], &[], &[0, 0, 0])]
 fn rebuild_with_referenced_valid_elements(
     #[case] elements: &[i32],
