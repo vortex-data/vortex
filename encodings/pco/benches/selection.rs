@@ -81,7 +81,7 @@ fn write(bencher: Bencher, nullable: bool) {
 fn full(bencher: Bencher, nullable: bool) {
     let source = compressed(nullable);
     let mut check = SESSION.create_execution_ctx();
-    assert_arrays_eq!(source.clone(), input(nullable), &mut check);
+    assert_arrays_eq!(source, input(nullable), &mut check);
     drop(check);
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
