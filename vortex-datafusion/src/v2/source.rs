@@ -531,8 +531,6 @@ impl DataSource for VortexDataSource {
     }
 
     fn partition_statistics(&self, _partition: Option<usize>) -> DFResult<Arc<Statistics>> {
-        // FIXME(ngates): this should be adjusted based on filters. See DuckDB for heuristics,
-        //  and in the future, store the selectivity stats in the session.
         let num_rows = estimate_to_df_precision(&self.data_source.row_count());
 
         // FIXME(ngates): byte size should be adjusted for the initial projection...
@@ -542,11 +540,19 @@ impl DataSource for VortexDataSource {
         // from the initial schema after try_swapping_with_projection adds computed columns.
         let column_statistics = self.leftover_statistics.clone();
 
-        Ok(Arc::new(Statistics {
+        let statistics = Statistics {
             num_rows,
             total_byte_size,
             column_statistics,
-        }))
+        };
+        // A filter can remove the rows that supplied an exact count or extremum.
+        let statistics = if self.filter.is_some() {
+            statistics.to_inexact()
+        } else {
+            statistics
+        };
+        // The adapter exposes one output partition, so fetch applies globally.
+        Ok(Arc::new(statistics.with_fetch(self.limit, 0, 1)?))
     }
 
     fn with_fetch(&self, limit: Option<usize>) -> Option<Arc<dyn DataSource>> {

@@ -10,6 +10,7 @@ use datafusion::prelude::SessionContext;
 use datafusion_common::ScalarValue;
 use datafusion_common::arrow::compute::concat_batches;
 use datafusion_common::config::ConfigOptions;
+use datafusion_common::stats::Precision;
 use datafusion_datasource::source::DataSource;
 use datafusion_datasource::source::DataSourceExec;
 use datafusion_expr::Operator;
@@ -155,5 +156,106 @@ async fn projection_preserves_arrow_types(
     };
     let actual = concat_batches(&expected_schema, &batches)?;
     assert_eq!(actual.columns(), expected.columns());
+    Ok(())
+}
+
+#[rstest]
+#[case(false, None, Precision::Exact(3), true)]
+#[case(false, Some(3), Precision::Exact(3), true)]
+#[case(false, Some(1), Precision::Exact(1), false)]
+#[case(false, Some(0), Precision::Exact(0), false)]
+#[case(true, None, Precision::Inexact(3), false)]
+#[case(true, Some(1), Precision::Inexact(1), false)]
+#[tokio::test]
+async fn subset_statistics_follow_filter_and_fetch(
+    #[case] filter: bool,
+    #[case] fetch: Option<usize>,
+    #[case] rows: Precision<usize>,
+    #[case] exact_columns: bool,
+) -> anyhow::Result<()> {
+    let batch = arrow_array::record_batch!(("a", Int32, vec![Some(1), None, Some(3)]))?;
+    let original = vortex_source_from_batch(batch).await?;
+    let source: Arc<dyn DataSource> = if filter {
+        let filter: Arc<dyn PhysicalExpr> = Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(df_expr::Column::new("a", 0)),
+            Operator::Gt,
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(1)))),
+        ));
+        original
+            .try_pushdown_filters(vec![filter], &ConfigOptions::new())?
+            .updated_node
+            .ok_or_else(|| anyhow!("comparison was not pushed down"))?
+    } else {
+        Arc::new(original.clone())
+    };
+    let source = source
+        .with_fetch(fetch)
+        .ok_or_else(|| anyhow!("fetch was not accepted"))?;
+    let statistics = source.partition_statistics(None)?;
+    assert_eq!(statistics.num_rows, rows);
+    assert_eq!(statistics.column_statistics.len(), 1);
+    let column = &statistics.column_statistics[0];
+    assert_eq!(column.min_value.is_exact(), Some(exact_columns));
+    assert_eq!(column.max_value.is_exact(), Some(exact_columns));
+    assert_eq!(column.null_count.is_exact(), Some(exact_columns));
+    assert_eq!(
+        column.min_value.get_value(),
+        Some(&ScalarValue::Int32(Some(1)))
+    );
+    assert_eq!(
+        column.max_value.get_value(),
+        Some(&ScalarValue::Int32(Some(3)))
+    );
+    assert_eq!(column.null_count.get_value(), Some(&1));
+    assert_eq!(
+        original.partition_statistics(None)?.num_rows,
+        Precision::Exact(3)
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn projected_statistics_retain_filter_and_fetch_state() -> anyhow::Result<()> {
+    let source = vortex_source().await?;
+    let filter: Arc<dyn PhysicalExpr> = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        Operator::Gt,
+        Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(1)))),
+    ));
+    let filtered = source
+        .try_pushdown_filters(vec![filter], &ConfigOptions::new())?
+        .updated_node
+        .ok_or_else(|| anyhow!("comparison was not pushed down"))?;
+    let fetched = filtered
+        .with_fetch(Some(1))
+        .ok_or_else(|| anyhow!("fetch was not accepted"))?;
+    let projection = ProjectionExprs::from(vec![ProjectionExpr::new(
+        Arc::new(df_expr::Column::new("b", 1)),
+        "renamed",
+    )]);
+    let projected = fetched
+        .try_swapping_with_projection(&projection)?
+        .ok_or_else(|| anyhow!("projection was not swapped"))?;
+    assert_eq!(projected.fetch(), Some(1));
+    let statistics = projected.partition_statistics(None)?;
+    assert_eq!(statistics.num_rows, Precision::Inexact(1));
+    assert_eq!(statistics.column_statistics.len(), 1);
+    assert_eq!(statistics.column_statistics[0].min_value, Precision::Absent);
+
+    let no_fetch = projected
+        .with_fetch(None)
+        .ok_or_else(|| anyhow!("fetch was not removed"))?;
+    assert_eq!(
+        no_fetch.partition_statistics(None)?.num_rows,
+        Precision::Inexact(3)
+    );
+    assert_eq!(
+        fetched.partition_statistics(None)?.num_rows,
+        Precision::Inexact(1)
+    );
+    assert_eq!(
+        source.partition_statistics(None)?.num_rows,
+        Precision::Exact(3)
+    );
     Ok(())
 }
