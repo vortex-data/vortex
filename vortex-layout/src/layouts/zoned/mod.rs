@@ -13,6 +13,7 @@
 
 pub mod aggregates;
 mod builder;
+mod legacy_builder;
 mod pruning;
 mod reader;
 mod schema;
@@ -24,6 +25,8 @@ use std::sync::Arc;
 
 pub(crate) use builder::AggregateStatsAccumulator;
 pub(crate) use builder::aggregate_partials;
+pub(crate) use legacy_builder::LegacyStatsAccumulator;
+pub(crate) use legacy_builder::legacy_stat_values;
 use prost::Message;
 pub use schema::MAX_IS_TRUNCATED;
 pub use schema::MIN_IS_TRUNCATED;
@@ -242,6 +245,42 @@ impl VTable for LegacyStats {
 }
 
 impl LegacyStatsLayout {
+    /// Create a legacy `vortex.stats` layout from a data child, a zone-map child, a zone length,
+    /// and the stats stored in the zone map.
+    ///
+    /// Write this layout only for readers that do not know `vortex.zoned`.
+    pub(crate) fn try_new(
+        data: LayoutRef,
+        zones: LayoutRef,
+        zone_len: NonZeroUsize,
+        stats: Arc<[Stat]>,
+    ) -> VortexResult<Self> {
+        let expected_dtype = legacy_stats_table_dtype(data.dtype(), &stats);
+        if zones.dtype() != &expected_dtype {
+            vortex_bail!(
+                "Invalid legacy zone map layout: zones dtype {} does not match expected dtype {}",
+                zones.dtype(),
+                expected_dtype
+            );
+        }
+
+        let dtype = data.dtype().clone();
+        let row_count = data.row_count();
+        Ok(LayoutParts::new(
+            LegacyStats,
+            dtype,
+            row_count,
+            Vec::new(),
+            OwnedLayoutChildren::layout_children(vec![data, zones]),
+            ZonedData {
+                zone_len: zone_len.get(),
+                zone_map_schema: ZoneMapSchema::LegacyStats(stats),
+                stats_table_dtype: expected_dtype,
+            },
+        )
+        .into_typed())
+    }
+
     fn zoned_reader(
         &self,
         name: Arc<str>,

@@ -20,6 +20,7 @@ def write(
     path: str,
     *,
     store: ObjectStore | None = None,
+    edition: str | None = None,
 ) -> None: ...
 
 class VortexWriteOptions:
@@ -27,6 +28,7 @@ class VortexWriteOptions:
     def default() -> VortexWriteOptions: ...
     @staticmethod
     def compact() -> VortexWriteOptions: ...
+    def with_edition(self, edition: str) -> VortexWriteOptions: ...
     @staticmethod
     def write(
         iter: IntoArrayIterator,

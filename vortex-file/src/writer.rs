@@ -262,6 +262,7 @@ impl VortexWriteOptions {
             .with_buffered_bytes_tracker(self.buffered_bytes.clone());
         let ctx = if enforce_editions {
             ctx.with_allowed_aggregates(edition_filter(&self.session, ComponentKind::Aggregate))
+                .with_allowed_layouts(edition_filter(&self.session, ComponentKind::Layout))
         } else {
             ctx
         };

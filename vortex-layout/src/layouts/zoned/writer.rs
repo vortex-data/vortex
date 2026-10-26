@@ -35,9 +35,15 @@ use vortex_utils::parallelism::get_available_parallelism;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
+use crate::VTable;
 use crate::layouts::zoned::AggregateStatsAccumulator;
+use crate::layouts::zoned::LegacyStats;
+use crate::layouts::zoned::LegacyStatsAccumulator;
+use crate::layouts::zoned::LegacyStatsLayout;
+use crate::layouts::zoned::Zoned;
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::aggregate_partials;
+use crate::layouts::zoned::legacy_stat_values;
 use crate::layouts::zoned::schema::default_bounded_stat_max_bytes;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -124,6 +130,22 @@ impl LayoutStrategy for ZonedStrategy {
                 .write_stream(ctx, segment_sink, stream, eof, session)
                 .await;
         }
+
+        // Readers before `vortex.zoned` only know the legacy `vortex.stats` layout. If the write
+        // does not permit either layout, the column gets no zone map.
+        if !ctx.allows_layout(&Zoned.id()) {
+            if ctx.allows_layout(&LegacyStats.id()) {
+                return self
+                    .write_legacy_stream(ctx, segment_sink, stream, eof, session)
+                    .await;
+            }
+
+            return self
+                .child
+                .write_stream(ctx, segment_sink, stream, eof, session)
+                .await;
+        }
+
         let compute_session = session.clone();
 
         let stats_accumulator = Arc::new(Mutex::new(AggregateStatsAccumulator::new(
@@ -209,6 +231,83 @@ impl LayoutStrategy for ZonedStrategy {
 
         Ok(
             ZonedLayout::try_new(data_layout, zones_layout, block_size, aggregate_fns)?
+                .into_layout(),
+        )
+    }
+}
+
+impl ZonedStrategy {
+    /// Writes the data child and a legacy `vortex.stats` zone map, which readers before
+    /// `vortex.zoned` can read.
+    async fn write_legacy_stream(
+        &self,
+        ctx: LayoutWriterContext,
+        segment_sink: SegmentSinkRef,
+        stream: SendableSequentialStream,
+        mut eof: SequencePointer,
+        session: &VortexSession,
+    ) -> VortexResult<LayoutRef> {
+        let stats_accumulator = Arc::new(Mutex::new(LegacyStatsAccumulator::new(stream.dtype())));
+        let stats = stats_accumulator.lock().stats();
+
+        let compute_session = session.clone();
+        let stream_dtype = stream.dtype().clone();
+        let concurrency = self.options.concurrency.get();
+        let stream = stream
+            .map(move |item| {
+                let stats = Arc::clone(&stats);
+                let session = compute_session.clone();
+                session.handle().spawn_cpu(move || {
+                    let (sequence_id, chunk) = item?;
+                    let values =
+                        legacy_stat_values(&chunk, &stats, &mut session.create_execution_ctx())?;
+                    Ok::<_, VortexError>((sequence_id, chunk, values))
+                })
+            })
+            .buffered(concurrency);
+
+        // Add the zone stats in stream order, so that the zone table rows align with the data
+        // child.
+        let stats_accumulator2 = Arc::clone(&stats_accumulator);
+        let stream = SequentialStreamAdapter::new(
+            stream_dtype,
+            stream.map(move |item| {
+                let (sequence_id, chunk, values) = item?;
+                stats_accumulator2.lock().push_values(values)?;
+                Ok((sequence_id, chunk))
+            }),
+        )
+        .sendable();
+
+        // The data child must come before the zone table in the file.
+        let data_eof = eof.split_off();
+        let data_layout = self
+            .child
+            .write_stream(
+                ctx.clone(),
+                Arc::clone(&segment_sink),
+                stream,
+                data_eof,
+                session,
+            )
+            .await?;
+
+        let mut exec_ctx = session.create_execution_ctx();
+        let Some((stats_array, stats)) = stats_accumulator.lock().as_array(&mut exec_ctx)? else {
+            return Ok(data_layout);
+        };
+
+        let stats_stream = stats_array
+            .into_array()
+            .to_array_stream()
+            .sequenced(eof.split_off());
+        let zones_layout = self
+            .stats
+            .write_stream(ctx, Arc::clone(&segment_sink), stats_stream, eof, session)
+            .await?;
+
+        Ok(
+            LegacyStatsLayout::try_new(data_layout, zones_layout, self.options.block_size, stats)?
                 .into_layout(),
         )
     }

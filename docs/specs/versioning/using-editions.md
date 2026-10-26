@@ -35,6 +35,17 @@ currently enables `core2026.08.3`. Calling `enable_edition` replaces the enabled
 same family. Set the selection before starting the write, because that is when the writer captures
 the permitted wire IDs.
 
+The default write strategy writes zone maps with the `vortex.zoned` layout. If the enabled
+editions do not permit `vortex.zoned` but permit the legacy `vortex.stats` layout, for example with
+`core2025.10.0`, the strategy writes legacy `vortex.stats` zone maps instead. Readers before
+`vortex.zoned`, such as Vortex 0.73, can read these files. If the enabled editions permit neither
+layout, the writer does not write zone maps.
+
+The Java and Python bindings can also select an edition. In Java, call
+`Session.enableEdition("core2025.10.0")` before you open a writer. In Python, use
+`vortex.io.VortexWriteOptions.default().with_edition("core2025.10.0")` or
+`vortex.io.write(..., edition="core2025.10.0")`.
+
 An edition declaration describes permitted formats, but registering it does not install the code to
 read or write those formats. When constructing a session without the defaults, register the required
 implementations and declarations, then enable the target editions. See

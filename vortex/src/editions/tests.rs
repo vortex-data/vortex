@@ -45,6 +45,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::Id;
 
 use super::CORE_2025_05_0;
+use super::CORE_2025_10_0;
 use super::CORE_2026_08_0;
 use super::CORE_2026_08_1;
 use super::CORE_2026_08_2;
@@ -716,5 +717,88 @@ async fn serialization_context_accepts_supported_compressor_output() -> VortexRe
         .await?;
 
     assert_written_values(&session, buffer, sequential_integers().into_array()).await?;
+    Ok(())
+}
+
+/// A writer that enables `core2025.10.0` writes files for readers before `vortex.zoned`. The
+/// zone maps use the legacy `vortex.stats` layout, and the file has only `core2025.10.0` layouts.
+#[tokio::test]
+async fn core_2025_10_0_writes_legacy_zone_maps() -> VortexResult<()> {
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::expr::col;
+    use vortex_array::expr::gt_eq;
+    use vortex_array::expr::lit;
+
+    use crate::VortexSessionDefault;
+
+    let session = VortexSession::default();
+    session.enable_edition(CORE_2025_10_0)?;
+
+    let len = 65_536usize;
+    let strings = VarBinViewArray::from_iter_nullable_str(
+        (0..len).map(|i| (i % 7 != 0).then(|| format!("row-{i:06}"))),
+    )
+    .into_array();
+    let lists = ListArray::try_new(
+        VarBinViewArray::from_iter_str((0..len * 2).map(|i| format!("item-{i}"))).into_array(),
+        PrimitiveArray::from_iter((0..=len as i64).map(|i| i * 2)).into_array(),
+        Validity::NonNullable,
+        &mut session.create_execution_ctx(),
+    )?
+    .into_array();
+    let nested = StructArray::from_fields(&[
+        ("a", PrimitiveArray::from_iter(0..len as i64).into_array()),
+        (
+            "b",
+            PrimitiveArray::from_option_iter((0..len).map(|i| (i % 3 != 0).then_some(i as f64)))
+                .into_array(),
+        ),
+    ])?
+    .into_array();
+    let array = StructArray::from_fields(&[
+        ("int", sequential_integers().into_array()),
+        (
+            "bool",
+            BoolArray::from_iter((0..len).map(|i| i % 2 == 0)).into_array(),
+        ),
+        ("string", strings),
+        ("list", lists),
+        ("nested", nested),
+    ])?
+    .into_array();
+
+    let buffer = write_with(&session, array.clone()).await?;
+
+    let written = written_layout_ids(&session, buffer.clone())?;
+    let permitted: Vec<Id> = session
+        .editions()
+        .components_in(&CORE_2025_10_0, ComponentKind::Layout)
+        .into_iter()
+        .map(|inclusion| inclusion.component_id)
+        .collect();
+    for id in &written {
+        assert!(
+            permitted.contains(id),
+            "layout {id} is not in core2025.10.0"
+        );
+    }
+    assert!(
+        written.iter().any(|id| id.as_str() == "vortex.stats"),
+        "no legacy zone map in {written:?}"
+    );
+
+    assert_written_values(&session, buffer.clone(), array).await?;
+
+    // The legacy zone maps prune: the filter keeps only the last zone.
+    let file = session.open_options().open_buffer(buffer)?;
+    let filter = gt_eq(col("int"), lit(65_000i32)).bind(file.dtype())?;
+    let filtered = file
+        .scan()?
+        .with_filter(filter)
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    assert_eq!(filtered.len(), 536);
     Ok(())
 }
