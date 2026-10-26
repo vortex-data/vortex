@@ -84,6 +84,7 @@ use crate::segments::TestSegments;
 use crate::sequence::SequenceId;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt as _;
+use crate::sequence::fully_defined;
 use crate::test::new_session;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -137,7 +138,12 @@ async fn write_chunks(
     let segments = Arc::new(TestSegments::default());
     let (mut sequence_id, eof) = SequenceId::root().split();
     let chunks = (0..count)
-        .map(|chunk| Ok((sequence_id.advance(), table_chunk(chunk * CHUNK_ROWS)?)))
+        .map(|chunk| {
+            Ok(fully_defined(
+                sequence_id.advance(),
+                table_chunk(chunk * CHUNK_ROWS)?,
+            ))
+        })
         .collect::<Vec<_>>();
     let dtype = table_chunk(0)?.dtype().clone();
     let layout = strategy
@@ -364,7 +370,7 @@ async fn large_filtered_chunks_match_v1(#[case] cutoff: i32) -> VortexResult<()>
             Arc::<TestSegments>::clone(&segments),
             SequentialStreamAdapter::new(
                 dtype.clone(),
-                stream::iter([Ok((sequence.advance(), values))]),
+                stream::iter([Ok(fully_defined(sequence.advance(), values))]),
             )
             .sendable(),
             eof,
@@ -583,8 +589,15 @@ async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
         .write_stream(
             ArrayContext::empty().into(),
             Arc::<TestSegments>::clone(&segments),
-            SequentialStreamAdapter::new(dtype, stream::iter(arrays.into_iter().map(Ok)))
-                .sendable(),
+            SequentialStreamAdapter::new(
+                dtype,
+                stream::iter(
+                    arrays
+                        .into_iter()
+                        .map(|(id, array)| Ok(fully_defined(id, array))),
+                ),
+            )
+            .sendable(),
             eof,
             &session,
         )
@@ -744,7 +757,7 @@ async fn chunked_ints(
     let (mut sequence, eof) = SequenceId::root().split();
     let arrays = (0..3i32)
         .map(|index| {
-            Ok((
+            Ok(fully_defined(
                 sequence.advance(),
                 PrimitiveArray::from_iter(index * 10..index * 10 + 10).into_array(),
             ))
