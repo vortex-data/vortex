@@ -71,4 +71,3 @@ impl<T: Number + NativePType> PageDecoder<T> {
         Ok(())
     }
 }
-

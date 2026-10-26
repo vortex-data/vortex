@@ -157,7 +157,6 @@ impl AccessState {
             mask: cached.mask.mask.slice(start_in_page..end_in_page),
         })
     }
-
 }
 pub(crate) struct PageSpan {
     pub page: usize,
