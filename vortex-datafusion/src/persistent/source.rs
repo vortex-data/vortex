@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Formatter;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
 use std::sync::Weak;
 
@@ -30,6 +32,7 @@ use datafusion_physical_plan::filter_pushdown::FilterPushdownPropagation;
 use datafusion_physical_plan::filter_pushdown::PushedDown;
 use datafusion_physical_plan::filter_pushdown::PushedDownPredicate;
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
+use object_store::ObjectMeta;
 use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::file::VORTEX_FILE_EXTENSION;
@@ -48,6 +51,38 @@ use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
 use crate::persistent::reader::DefaultVortexReaderFactory;
 use crate::persistent::reader::VortexReaderFactory;
+
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct FileVersion(pub ObjectMeta);
+
+impl Hash for FileVersion {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.location.hash(state);
+        self.0.last_modified.hash(state);
+        self.0.size.hash(state);
+        self.0.e_tag.hash(state);
+        self.0.version.hash(state);
+    }
+}
+
+#[derive(Default)]
+/// File state shared by concurrent scans of one object store. Weak entries release the
+/// plans and retained bytes when the last scan finishes.
+pub(crate) struct SharedScanState {
+    // Keep the store alive while its pointer identifies this state in the format's cache.
+    _object_store: Option<Arc<dyn ObjectStore>>,
+    segment_sources: Arc<DashMap<FileVersion, Weak<dyn SegmentSource>>>,
+    scan_caches: Arc<DashMap<FileVersion, WeakScanCache>>,
+}
+
+impl SharedScanState {
+    pub(super) fn for_store(object_store: Arc<dyn ObjectStore>) -> Self {
+        Self {
+            _object_store: Some(object_store),
+            ..Self::default()
+        }
+    }
+}
 
 /// File scan implementation for reading one or more `.vortex` files.
 ///
@@ -202,9 +237,7 @@ pub struct VortexSource {
     ///
     /// Sharing the readers allows us to only read every layout once from the file, even across partitions.
     layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
-    /// Shared V2 segment sources, keyed by path and alive only while a scan reads the file.
-    segment_sources: Arc<DashMap<Path, Weak<dyn SegmentSource>>>,
-    scan_caches: Arc<DashMap<Path, WeakScanCache>>,
+    scan_state: Arc<SharedScanState>,
     /// Shared full-file natural splits keyed by path.
     natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by path.
@@ -219,6 +252,11 @@ pub struct VortexSource {
 }
 
 impl VortexSource {
+    pub(super) fn with_scan_state(mut self, state: Arc<SharedScanState>) -> Self {
+        self.scan_state = state;
+        self
+    }
+
     /// Creates a new `VortexSource` for a table schema and [`VortexSession`].
     ///
     /// The new source starts with:
@@ -241,8 +279,7 @@ impl VortexSource {
             vortex_predicate: None,
             df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
-            segment_sources: Arc::new(DashMap::default()),
-            scan_caches: Arc::new(DashMap::default()),
+            scan_state: Arc::new(SharedScanState::default()),
             natural_splits: Arc::new(DashMap::default()),
             file_schemas: Arc::new(DashMap::default()),
             expression_converter,
@@ -368,8 +405,8 @@ impl VortexSource {
             metrics_registry: Arc::clone(&self.vx_metrics_registry),
             df_metrics: self.df_metrics.clone(),
             layout_readers: Arc::clone(&self.layout_readers),
-            segment_sources: Arc::clone(&self.segment_sources),
-            scan_caches: Arc::clone(&self.scan_caches),
+            segment_sources: Arc::clone(&self.scan_state.segment_sources),
+            scan_caches: Arc::clone(&self.scan_state.scan_caches),
             natural_splits: Arc::clone(&self.natural_splits),
             file_schemas: Arc::clone(&self.file_schemas),
             has_output_ordering: !base_config.output_ordering.is_empty() || self.ordered,

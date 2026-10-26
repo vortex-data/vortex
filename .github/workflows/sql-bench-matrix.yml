@@ -40,7 +40,7 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps([x for x in json.load(sys.stdin) if x["id"] == "tpcds-nvme"]))')"
+          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps([dict(x, id="tpcds-nvme-"+str(sf), name="TPC-DS SF="+str(sf)+" on NVME", scale_factor=float(sf)) for x in json.load(sys.stdin) if x["id"] == "tpcds-nvme" for sf in (10,30)]))')"
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   build:
@@ -239,6 +239,35 @@ jobs:
             -o sizes.json
           cat sizes.json >> results.json
 
+      - name: Compare Q28 scan versions
+        shell: bash
+        env:
+          TOKIO_WORKER_THREADS: "8"
+          DATAFUSION_EXECUTION_TARGET_PARTITIONS: "8"
+          RUST_LOG: warn
+        run: |
+          set -Eeuo pipefail
+          for round in 0 1 2; do
+            versions="false true"
+            if [ "$round" = 1 ]; then versions="true false"; fi
+            for v2 in $versions; do
+              target/release_debug/datafusion-bench tpcds --formats vortex \
+                --queries 28 --iterations 15 --scan-v2 "$v2" --hide-progress-bar \
+                --display-format gh-json --opt scale-factor=${{ matrix.scale_factor }} \
+                --ingest-jsonl "q28-r${round}-v2-${v2}.jsonl" \
+                > "q28-r${round}-v2-${v2}.log" 2>&1
+            done
+          done
+
+      - name: Upload scan comparison
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: scan-comparison-${{ matrix.id }}
+          path: |
+            q28-*.jsonl
+            q28-*.log
+
       - name: Compare results
         if: inputs.mode == 'pr'
         shell: bash
@@ -253,7 +282,7 @@ jobs:
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment PR
-        if: inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
+        if: inputs.mode == 'pr' && github.event.pull_request.number && github.event.pull_request.head.repo.fork == false
         uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
         with:
           file-path: comment.md
@@ -264,7 +293,7 @@ jobs:
           comment-tag: bench-pr-comment-${{ matrix.id }}-${{ inputs.matrix_preset }}
 
       - name: Comment PR on failure
-        if: failure() && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
+        if: failure() && inputs.mode == 'pr' && github.event.pull_request.number && github.event.pull_request.head.repo.fork == false
         uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
         with:
           message: |

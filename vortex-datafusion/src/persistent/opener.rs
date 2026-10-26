@@ -45,6 +45,7 @@ use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
+use object_store::ObjectMeta;
 use object_store::path::Path;
 use tracing::Instrument;
 use vortex::array::VortexSessionExecute;
@@ -77,6 +78,7 @@ use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
 use crate::persistent::reader::VortexReaderFactory;
+use crate::persistent::source::FileVersion;
 use crate::persistent::stream::PrunableStream;
 
 #[derive(Clone)]
@@ -114,10 +116,10 @@ pub(crate) struct VortexOpener {
     /// Partitions of one file read through one source, so a chunk straddling a partition
     /// boundary and the file's metadata segments are read once, as they are for V1 through the
     /// shared layout reader.
-    pub segment_sources: Arc<DashMap<Path, Weak<dyn SegmentSource>>>,
+    pub segment_sources: Arc<DashMap<FileVersion, Weak<dyn SegmentSource>>>,
     /// The V2 scan cache each open file's partitions share: its lowered layout, filter and
     /// projection plans, proved zones and dictionary values, built once per file.
-    pub scan_caches: Arc<DashMap<Path, WeakScanCache>>,
+    pub scan_caches: Arc<DashMap<FileVersion, WeakScanCache>>,
     /// Shared V1 full-file natural splits keyed by file path.
     pub natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by file path.
@@ -431,10 +433,10 @@ impl FileOpener for VortexOpener {
                 let mut scan_file = vxf.scan_file();
                 scan_file.segments = shared_segment_source(
                     &segment_sources,
-                    &file.object_meta.location,
+                    &file.object_meta,
                     scan_file.segments,
                 );
-                scan_file.cache = Some(shared_scan_cache(&scan_caches, &file.object_meta.location));
+                scan_file.cache = Some(shared_scan_cache(&scan_caches, &file.object_meta));
                 let mut builder = V2ScanBuilder::new(vxf.session().clone(), scan_file)
                     .with_projection(scan_projection)
                     .with_some_filter(native_filter)
@@ -661,10 +663,11 @@ fn contains_lambda(projection: &ProjectionExprs) -> DFResult<bool> {
     Ok(false)
 }
 
-/// Returns the scan cache other partitions of `path` are planning with, or registers a new one.
+/// Returns the scan cache for this object version, or registers a new one.
 /// A scan holds its cache until its stream ends, so the cache lives as long as one scan.
-fn shared_scan_cache(scan_caches: &DashMap<Path, WeakScanCache>, path: &Path) -> ScanCache {
-    match scan_caches.entry(path.clone()) {
+fn shared_scan_cache(scan_caches: &DashMap<FileVersion, WeakScanCache>, meta: &ObjectMeta) -> ScanCache {
+    let path = &meta.location;
+    match scan_caches.entry(FileVersion(meta.clone())) {
         Entry::Occupied(mut entry) => {
             if let Some(shared) = entry.get().upgrade() {
                 tracing::trace!("reusing scan cache for {path}");
@@ -683,14 +686,15 @@ fn shared_scan_cache(scan_caches: &DashMap<Path, WeakScanCache>, path: &Path) ->
     }
 }
 
-/// Returns the segment source other partitions of `path` are reading through, or registers
+/// Returns the segment source other scans of this object version read through, or registers
 /// `fresh` as that source. Like the layout readers, a source lives only as long as one scan.
 fn shared_segment_source(
-    segment_sources: &DashMap<Path, Weak<dyn SegmentSource>>,
-    path: &Path,
+    segment_sources: &DashMap<FileVersion, Weak<dyn SegmentSource>>,
+    meta: &ObjectMeta,
     fresh: Arc<dyn SegmentSource>,
 ) -> Arc<dyn SegmentSource> {
-    match segment_sources.entry(path.clone()) {
+    let path = &meta.location;
+    match segment_sources.entry(FileVersion(meta.clone())) {
         Entry::Occupied(mut entry) => {
             if let Some(shared) = entry.get().upgrade() {
                 tracing::trace!("reusing segment source for {path}");
