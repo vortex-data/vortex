@@ -94,6 +94,12 @@ fn full(bencher: Bencher, nullable: bool) {
 }
 
 const SELECTIONS: &[(&str, bool)] = &[
+    ("contiguous", false),
+    ("contiguous", true),
+    ("mixed", false),
+    ("mixed", true),
+    ("narrow_repeated", false),
+    ("narrow_repeated", true),
     ("sparse", false),
     ("sparse", true),
     ("broad", false),
@@ -109,7 +115,21 @@ const SELECTIONS: &[(&str, bool)] = &[
 #[divan::bench(args = SELECTIONS)]
 fn selection(bencher: Bencher, (kind, nullable): (&str, bool)) {
     let source = compressed(nullable);
+    let source = if kind == "narrow_repeated" {
+        source.slice(ROWS - 128..ROWS).vortex_expect("narrow view")
+    } else {
+        source
+    };
+
     let indices = match kind {
+        "contiguous" => PrimitiveArray::from_iter(1..ROWS as u64 - 1).into_array(),
+        "mixed" => PrimitiveArray::from_iter(
+            (0..524288u64).map(|i| if i < 2 { i } else { (i * 32749) % ROWS as u64 }),
+        )
+        .into_array(),
+        "narrow_repeated" => {
+            PrimitiveArray::from_iter((0..524288u64).map(|i| (i % 2) * 127)).into_array()
+        }
         "sparse" => {
             PrimitiveArray::from_iter((0..128u64).map(|i| (i * 32749) % ROWS as u64)).into_array()
         }
@@ -130,6 +150,13 @@ fn selection(bencher: Bencher, (kind, nullable): (&str, bool)) {
     };
     let mut check = SESSION.create_execution_ctx();
     let reference = input(nullable).into_array();
+    let reference = if kind == "narrow_repeated" {
+        reference
+            .slice(ROWS - 128..ROWS)
+            .vortex_expect("primitive narrow view")
+    } else {
+        reference
+    };
     let actual = if kind == "near_full" {
         source.slice(1..ROWS - 1)
     } else {
