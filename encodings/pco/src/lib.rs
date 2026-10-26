@@ -32,6 +32,7 @@ mod access;
 mod array;
 mod compute;
 mod decoder;
+mod indexed_probe;
 mod page_index;
 mod probe;
 mod rules;
