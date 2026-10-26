@@ -25,6 +25,7 @@ use vortex_array::aggregate_fn::fns::max::Max;
 use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::fns::null_count::NullCount;
+use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
@@ -49,8 +50,8 @@ use crate::sequence::SequentialStreamExt;
 
 /// Accumulates file statistics over `stream` as it passes through.
 ///
-/// `stats` are the aggregates to record for every field, or `None` for each field's default (see
-/// `default_pruning_aggregate_fns`). Only aggregates `ctx` allows are recorded in the nested
+/// `stats` are the aggregates to record for every field, or `None` for each field's built-in and
+/// session-registered defaults. Only aggregates `ctx` allows are recorded in the nested
 /// statistics: an explicitly requested aggregate it forbids fails, like it does for zone maps,
 /// while forbidden defaults are left out.
 ///
@@ -372,7 +373,19 @@ enum StatsNode {
 }
 
 impl StatsNode {
-    fn build(dtype: &DType, stats: Option<&[AggregateFnRef]>) -> Self {
+    fn build(dtype: &DType, stats: Option<&[AggregateFnRef]>, session: &VortexSession) -> Self {
+        let leaf = || {
+            let mut defaults;
+            let stats = match stats {
+                Some(stats) => stats,
+                None => {
+                    defaults = default_pruning_aggregate_fns(dtype);
+                    defaults.extend(session.aggregate_fns().file_stat_defaults(dtype));
+                    defaults.as_slice()
+                }
+            };
+            Self::Leaf(StatsAccumulator::new(dtype, Some(stats)))
+        };
         match dtype.as_struct_fields_opt() {
             Some(struct_fields) => {
                 let nullable = dtype.nullability() == Nullability::Nullable;
@@ -386,25 +399,21 @@ impl StatsNode {
                                 entries: postorder_stats_layout(&field_dtype).len(),
                             }
                         } else {
-                            Self::build(&field_dtype, stats)
+                            Self::build(&field_dtype, stats, session)
                         };
                         (Field::Name(name.clone()), child)
                     })
                     .collect();
                 // Only reached through non-nullable ancestors, so the struct's own validity is
                 // its full logical validity.
-                let own = if nullable {
-                    Self::Leaf(StatsAccumulator::new(dtype, stats))
-                } else {
-                    Self::Skipped
-                };
+                let own = if nullable { leaf() } else { Self::Skipped };
                 Self::Container {
                     children,
                     own: Box::new(own),
                 }
             }
             None if !supports_file_stats(dtype) => Self::Skipped,
-            None => Self::Leaf(StatsAccumulator::new(dtype, stats)),
+            None => leaf(),
         }
     }
 
@@ -512,10 +521,15 @@ impl FileStatsAccumulator {
             }
         }
 
-        let root = Arc::new(Mutex::new(StatsNode::build(dtype, stats.as_deref())));
+        let root = Arc::new(Mutex::new(StatsNode::build(
+            dtype,
+            stats.as_deref(),
+            session,
+        )));
 
         // Readers that predate nested stats reject a file whose legacy layout doesn't have one entry
         // per top-level field, so entries that aren't recorded are still written, empty.
+        // Plugin defaults are only accumulated in `root`: the legacy format cannot store them.
         let legacy = Arc::new(Mutex::new(match dtype.as_struct_fields_opt() {
             Some(struct_fields) => {
                 // The fields of a nullable root aren't recorded, like `StatsNode::Unrecorded`.
@@ -897,7 +911,7 @@ mod tests {
             StructArray::new(FieldNames::from(["a"]), [struct_a], 3, root_validity).into_array();
 
         let requested = [agg(Stat::NullCount), agg(Stat::Min), agg(Stat::Max)];
-        let mut node = StatsNode::build(root.dtype(), Some(&requested));
+        let mut node = StatsNode::build(root.dtype(), Some(&requested), &SESSION);
         node.push_chunk(&root, &mut ctx)?;
 
         let stats_sets = node_stats_sets(&node)?;
@@ -925,7 +939,7 @@ mod tests {
             StructArray::new(FieldNames::from(["s"]), [s], 3, Validity::NonNullable).into_array();
 
         let requested = [agg(Stat::NullCount), agg(Stat::Min), agg(Stat::Max)];
-        let mut node = StatsNode::build(root.dtype(), Some(&requested));
+        let mut node = StatsNode::build(root.dtype(), Some(&requested), &SESSION);
         node.push_chunk(&root, &mut ctx)?;
 
         let mut aggregates = Vec::new();
@@ -953,7 +967,7 @@ mod tests {
             StructArray::new(FieldNames::from(["s"]), [s], 3, Validity::NonNullable).into_array();
 
         let requested = [agg(Stat::NullCount), agg(Stat::Max)];
-        let mut node = StatsNode::build(root.dtype(), Some(&requested));
+        let mut node = StatsNode::build(root.dtype(), Some(&requested), &SESSION);
         node.push_chunk(&root, &mut ctx)?;
 
         let stats_sets = node_stats_sets(&node)?;
@@ -981,7 +995,7 @@ mod tests {
             .into_array();
 
         let requested = [agg(Stat::NullCount), agg(Stat::Min), agg(Stat::Max)];
-        let mut node = StatsNode::build(outer.dtype(), Some(&requested));
+        let mut node = StatsNode::build(outer.dtype(), Some(&requested), &SESSION);
         node.push_chunk(&outer, &mut ctx)?;
 
         let stats_sets = node_stats_sets(&node)?;

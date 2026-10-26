@@ -175,6 +175,12 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
         None
     }
 
+    /// If this aggregate should be computed as a default file statistic for `input_dtype`, return
+    /// the bound aggregate to store. Default: not a file-statistics default.
+    fn file_stat_default(&self, _input_dtype: &DType) -> Option<AggregateFnRef> {
+        None
+    }
+
     /// DType of the intermediate partial accumulator state.
     ///
     /// Use a struct dtype when multiple fields are needed

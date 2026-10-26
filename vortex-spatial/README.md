@@ -56,9 +56,11 @@ Most functions that need a general geometry algorithm use the row-function adapt
 
 Avoid per-row `scalar_at` or validity lookups in either path. Materialize coordinates, offsets, and validity once for the batch.
 
-## Chunk pruning
+## File statistics and chunk pruning
 
-`GeometryAabb` computes the two-dimensional axis-aligned bounding box (AABB) of a geometry column. The writer stores it as the default zone statistic for native geometry columns.
+`GeometryAabb` computes the two-dimensional axis-aligned bounding box (AABB) of a geometry column. After spatial initialization, the writer stores it by default in file statistics and zone maps for native geometry columns.
+
+File statistics accumulate the box across incoming batches and store the result in the footer, independently of the layout's zone maps. Consumers can select the column with `FileStatistics::get_by_path` and request `GeometryAabb.bind(EmptyOptions)` from its `AggregateStats`. The value is a native `geoarrow.box`; null or empty geometries contribute no extent. An explicit `with_file_statistics` configuration overrides these defaults.
 
 The current rules can prune:
 

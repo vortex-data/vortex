@@ -192,6 +192,21 @@ impl AggregateFnSession {
         })
     }
 
+    /// The default file statistics for a column of `input_dtype`, collected from every
+    /// registered aggregate's `file_stat_default`.
+    ///
+    /// This scans the plugin registry once per column when a file writer is initialized.
+    pub fn file_stat_defaults(&self, input_dtype: &DType) -> Vec<AggregateFnRef> {
+        self.registry.read(|registry| {
+            let mut fns: Vec<AggregateFnRef> = registry
+                .values()
+                .filter_map(|plugin| plugin.file_stat_default(input_dtype))
+                .collect();
+            fns.sort_by_key(|f| f.id());
+            fns
+        })
+    }
+
     /// Returns the aggregate kernel registered for `array_id` and `agg_fn_id`, if any.
     ///
     /// Lookup first checks for a kernel registered for the exact aggregate function, then falls

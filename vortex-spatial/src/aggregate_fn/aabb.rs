@@ -34,8 +34,8 @@ use crate::extension::flatten_coordinates;
 use crate::extension::is_native_geometry;
 
 /// Aggregates a native geometry column's 2D axis-aligned bounding box (AABB) as a native
-/// `geoarrow.box`, the spatial analogue of min/max. Also the default zone statistic for such
-/// columns (via `zone_stat_default`).
+/// `geoarrow.box`, the spatial analogue of min/max. Also the default file and zone statistic for
+/// such columns.
 #[derive(Clone, Debug)]
 pub struct GeometryAabb;
 
@@ -147,6 +147,10 @@ impl AggregateFnVTable for GeometryAabb {
     }
 
     fn zone_stat_default(&self, input_dtype: &DType) -> Option<AggregateFnRef> {
+        is_native_geometry(input_dtype).then(|| self.bind(EmptyOptions))
+    }
+
+    fn file_stat_default(&self, input_dtype: &DType) -> Option<AggregateFnRef> {
         is_native_geometry(input_dtype).then(|| self.bind(EmptyOptions))
     }
 
@@ -266,6 +270,7 @@ mod tests {
     use vortex_array::aggregate_fn::Accumulator;
     use vortex_array::aggregate_fn::AggregateDTypes;
     use vortex_array::aggregate_fn::AggregateFnVTable;
+    use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::DynAccumulator;
     use vortex_array::aggregate_fn::EmptyOptions;
     use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
@@ -488,13 +493,19 @@ mod tests {
         Ok(())
     }
 
-    /// After `initialize`, the registry yields a default zone statistic for every native geometry
-    /// type (so the zoned writer stores it) but none for ordinary numeric columns.
+    /// Initializing spatial opts native geometry columns into file and zone statistics.
     #[test]
-    fn registered_as_geometry_zone_default() -> VortexResult<()> {
+    fn registered_as_geometry_stat_default() -> VortexResult<()> {
+        let uninitialized = VortexSession::empty();
         let session = spatial_session();
 
         for column in every_native_column(&[(0.0, 0.0), (1.0, 1.0)])? {
+            assert!(
+                uninitialized
+                    .aggregate_fns()
+                    .file_stat_defaults(column.dtype())
+                    .is_empty()
+            );
             assert!(
                 !session
                     .aggregate_fns()
@@ -502,6 +513,10 @@ mod tests {
                     .is_empty(),
                 "a geometry zone-stat default should be discovered for {}",
                 column.dtype()
+            );
+            assert_eq!(
+                session.aggregate_fns().file_stat_defaults(column.dtype()),
+                vec![GeometryAabb.bind(EmptyOptions)]
             );
         }
         let i32_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
@@ -511,6 +526,12 @@ mod tests {
                 .zone_stat_defaults(&i32_dtype)
                 .is_empty(),
             "no geometry zone-stat default should apply to numeric columns"
+        );
+        assert!(
+            session
+                .aggregate_fns()
+                .file_stat_defaults(&i32_dtype)
+                .is_empty()
         );
         Ok(())
     }
