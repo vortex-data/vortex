@@ -31,7 +31,7 @@ use crate::plan::physical::optimizer::PlanParentReduceRule;
 use crate::plan::physical::optimizer::PlanReduceRule;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
-use crate::plan::physical::plans::zoned::is_zone_proof;
+use crate::plan::physical::plans::zoned::is_zone_pruning;
 
 const DATA: usize = 0;
 const ZONES: usize = 1;
@@ -181,7 +181,7 @@ impl PlanReduceRule<LegacyStats> for LegacyStatsRule {
     }
 }
 
-/// Converts the legacy stats beneath a zone proof in place, so the proof meets a [`Zoned`] plan
+/// Converts the legacy stats beneath a zone pruning plan in place, so the plan meets a [`Zoned`] plan
 /// before the data path optimizes the stats away.
 #[derive(Debug)]
 pub(crate) struct ExpressionLegacyStatsRule;
@@ -196,7 +196,7 @@ impl PlanParentReduceRule<LegacyStats> for ExpressionLegacyStatsRule {
         _child_idx: usize,
         session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
-        if !is_zone_proof(parent)? {
+        if !is_zone_pruning(parent)? {
             return Ok(None);
         }
         let Some(converted) = LegacyStatsRule.reduce(child, session)? else {
