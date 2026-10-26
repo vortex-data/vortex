@@ -743,6 +743,7 @@ mod tests {
     use vortex::dtype::FieldPath;
     use vortex::dtype::PType;
     use vortex::dtype::StructFields;
+    use vortex::error::VortexError;
     use vortex::file::OpenOptionsSessionExt;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::layout::scan::layout::LayoutReaderDataSource;
@@ -756,7 +757,6 @@ mod tests {
     use vortex::scan::PartitionStream;
     use vortex::session::VortexSession;
     use vortex_arrow::ArrowSessionExt;
-    use vortex_error::VortexError;
 
     use super::*;
     use crate::v2::VortexTable;
@@ -893,7 +893,7 @@ mod tests {
         }
 
         fn partition_count(&self) -> Precision<usize> {
-            Precision::exact(2)
+            Precision::Exact(2)
         }
 
         fn partitions(self: Box<Self>) -> PartitionStream {
