@@ -8,7 +8,7 @@ use std::fmt;
 use vortex_error::VortexError;
 use vortex_error::vortex_err;
 
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::operators::Operator;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 /// Binary element-wise operations.

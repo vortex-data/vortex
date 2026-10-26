@@ -80,23 +80,17 @@ mod tests {
     use crate::array::Array;
     use crate::array::ArrayParts;
     use crate::arrays::BoolArray;
-    use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::ScalarFnArray;
-    use crate::arrays::scalar_fn::ScalarFnArrayExt;
     use crate::arrays::scalar_fn::array::ScalarFnData;
     use crate::arrays::scalar_fn::vtable::ScalarFn;
     use crate::assert_arrays_eq;
-    use crate::dtype::DType;
-    use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::scalar::Scalar;
     use crate::scalar_fn::TypedScalarFnInstance;
-    use crate::scalar_fn::fns::binary::Binary;
-    use crate::scalar_fn::fns::list_contains::PreparedSet;
-    use crate::scalar_fn::fns::list_contains::PreparedSetData;
-    use crate::scalar_fn::fns::literal::Literal;
-    use crate::scalar_fn::fns::operators::Operator;
+    use crate::scalar_fn::builtin::binary::Binary;
+    use crate::scalar_fn::builtin::literal::Literal;
+    use crate::scalar_fn::builtin::operators::Operator;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -175,37 +169,6 @@ mod tests {
             err.to_string()
                 .contains("ScalarFnArray requires every child slot to be present")
         );
-    }
-
-    #[test]
-    fn test_scalar_fn_without_children_requires_explicit_len() -> VortexResult<()> {
-        let list = Scalar::list(
-            DType::Primitive(PType::I32, Nullability::NonNullable),
-            vec![Scalar::from(1i32)],
-            Nullability::NonNullable,
-        );
-        let scalar_fn =
-            TypedScalarFnInstance::new(PreparedSet, PreparedSetData::try_new(list.clone())?)
-                .erased();
-
-        let Err(err) = ScalarFnArray::try_new(scalar_fn.clone(), vec![]) else {
-            panic!("ScalarFnArray::try_new should reject zero children");
-        };
-        assert!(
-            err.to_string()
-                .contains("ScalarFnArray length cannot be inferred without children")
-        );
-
-        let scalar_fn_array = ScalarFnArray::try_new_with_len(scalar_fn, vec![], 3)?;
-        assert_eq!(scalar_fn_array.len(), 3);
-        assert_eq!(scalar_fn_array.child_count(), 0);
-        assert_arrays_eq!(
-            scalar_fn_array,
-            ConstantArray::new(list, 3),
-            &mut SESSION.create_execution_ctx()
-        );
-
-        Ok(())
     }
 
     #[test]

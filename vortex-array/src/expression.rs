@@ -12,8 +12,7 @@ use crate::arrays::ScalarFnArray;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
 use crate::expr::expression::unbound_variable;
-use crate::optimizer::ArrayOptimizer;
-use crate::scalar_fn::fns::literal::Literal;
+use crate::scalar_fn::builtin::literal::Literal;
 
 impl ArrayRef {
     /// Apply a bound expression to this array, producing a new array in constant time.
@@ -37,9 +36,7 @@ impl ArrayRef {
             .map(|child| self.clone().apply_bound(child))
             .collect::<VortexResult<SmallVec<[ArrayRef; 4]>>>()?;
 
-        let array = ScalarFnArray::try_new_with_len(scalar_fn.clone(), children, len)?.into_array();
-
-        array.optimize()
+        Ok(ScalarFnArray::try_new_with_len(scalar_fn.clone(), children, len)?.into_array())
     }
 
     /// Apply the expression to this array, producing a new array in constant time.
@@ -69,9 +66,6 @@ impl ArrayRef {
         let scalar_fn = expr
             .as_scalar()
             .vortex_expect("leaves and literals were handled above, so this is a scalar node");
-        let array = ScalarFnArray::try_new_with_len(scalar_fn.clone(), children, len)?.into_array();
-
-        // Optimize the resulting array's root.
-        array.optimize()
+        Ok(ScalarFnArray::try_new_with_len(scalar_fn.clone(), children, len)?.into_array())
     }
 }

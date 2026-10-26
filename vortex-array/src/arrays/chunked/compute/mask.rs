@@ -10,8 +10,8 @@ use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::chunked::ChunkedArrayExt;
-use crate::scalar_fn::fns::mask::Mask as MaskExpr;
-use crate::scalar_fn::fns::mask::MaskKernel;
+use crate::scalar_fn::builtin::mask::Mask as MaskExpr;
+use crate::scalar_fn::builtin::mask::MaskKernel;
 
 impl MaskKernel for Chunked {
     fn mask(

@@ -11,7 +11,7 @@ use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::listview::ListViewData;
-use crate::scalar_fn::fns::mask::MaskReduce;
+use crate::scalar_fn::builtin::mask::MaskReduce;
 use crate::validity::Validity;
 
 impl MaskReduce for ListView {

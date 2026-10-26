@@ -11,7 +11,7 @@ use crate::arrays::UnionArray;
 use crate::arrays::union::UnionArrayExt;
 use crate::arrays::union::UnionArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
-use crate::scalar_fn::fns::mask::MaskReduce;
+use crate::scalar_fn::builtin::mask::MaskReduce;
 
 impl MaskReduce for Union {
     fn mask(array: ArrayView<'_, Union>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {

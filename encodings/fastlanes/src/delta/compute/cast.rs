@@ -6,7 +6,7 @@ use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
-use vortex_array::scalar_fn::fns::cast::CastReduce;
+use vortex_array::scalar_fn::builtin::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::delta::Delta;
@@ -63,6 +63,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
@@ -129,7 +130,8 @@ mod tests {
 
         let casted = array
             .into_array()
-            .cast(DType::Primitive(PType::U32, Nullability::Nullable))?;
+            .cast(DType::Primitive(PType::U32, Nullability::Nullable))?
+            .optimize(&SESSION)?;
 
         assert_eq!(
             casted.dtype(),

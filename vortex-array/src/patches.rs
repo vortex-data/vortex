@@ -662,7 +662,7 @@ impl Patches {
     /// Unlike filter, this preserves the patch indices.
     /// Unlike mask on a single array, this does not set masked values to null.
     ///
-    /// Masking an array always yields a nullable result (see [`crate::scalar_fn::fns::mask`]),
+    /// Masking an array always yields a nullable result (see [`crate::scalar_fn::builtin::mask`]),
     /// so the surviving patch values are widened to nullable to match the masked parent. Callers
     /// therefore receive patches with the correct dtype and do not need to re-cast them.
     // TODO(joe): make this lazy and remove the ctx.

@@ -9,7 +9,6 @@ pub use array::ChunkedSlotsView;
 pub use vtable::ChunkedArray;
 
 pub(crate) mod compute;
-pub(crate) mod paired_chunks;
 
 mod vtable;
 pub use vtable::Chunked;

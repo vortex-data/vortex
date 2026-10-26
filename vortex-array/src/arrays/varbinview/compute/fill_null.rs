@@ -20,7 +20,7 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::fill_null::FillNullKernel;
+use crate::scalar_fn::builtin::fill_null::FillNullKernel;
 use crate::validity::Validity;
 
 // Points every null row at one view of the fill value. The data buffers are reused as they are,

@@ -12,8 +12,8 @@ use crate::arrays::ListViewArray;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::scalar_fn::fns::cast::CastKernel;
-use crate::scalar_fn::fns::cast::CastReduce;
+use crate::scalar_fn::builtin::cast::CastKernel;
+use crate::scalar_fn::builtin::cast::CastReduce;
 use crate::validity::Validity;
 
 fn build_with_validity(

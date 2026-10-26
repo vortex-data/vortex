@@ -9,7 +9,7 @@ use crate::array::ArrayView;
 use crate::arrays::List;
 use crate::arrays::ListArray;
 use crate::arrays::list::ListArraySlotsExt;
-use crate::scalar_fn::fns::mask::MaskReduce;
+use crate::scalar_fn::builtin::mask::MaskReduce;
 use crate::validity::Validity;
 
 impl MaskReduce for List {

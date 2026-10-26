@@ -78,7 +78,7 @@ impl fmt::Display for TimestampOptions {
 }
 
 /// Resolve an Arrow timestamp timezone, accepting IANA names and fixed offsets.
-pub(crate) fn resolve_time_zone(name: Option<&str>) -> VortexResult<TimeZone> {
+pub fn resolve_time_zone(name: Option<&str>) -> VortexResult<TimeZone> {
     Ok(match name {
         Some(name) if name.starts_with('+') || name.starts_with('-') => {
             DateTimeParser::new().parse_time_zone(name)?

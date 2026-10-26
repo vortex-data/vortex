@@ -25,6 +25,7 @@ use crate::compute::conformance::take::test_take_conformance;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -36,6 +37,7 @@ fn take(array: &UnionArray, indices: ArrayRef) -> VortexResult<UnionArray> {
         .clone()
         .into_array()
         .take(indices)?
+        .optimize(&SESSION)?
         .as_::<Union>()
         .into_owned())
 }

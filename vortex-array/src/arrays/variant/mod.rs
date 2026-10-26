@@ -10,11 +10,7 @@ use vortex_error::vortex_ensure;
 
 pub use self::vtable::Variant;
 pub use self::vtable::VariantArray;
-
-pub(crate) fn initialize(session: &vortex_session::VortexSession) {
-    vtable::initialize(session);
-}
-
+pub use self::vtable::merge_typed_scalar_as_variant;
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -92,18 +88,13 @@ mod tests {
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::StructArray;
     use crate::arrays::VariantArray;
     use crate::arrays::variant::VariantArraySlotsExt;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
-    use crate::dtype::PType;
-    use crate::expr::root;
-    use crate::expr::variant_get;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::fns::variant_get::VariantPath;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -375,72 +366,5 @@ mod tests {
         let masked = execute_variant(variant.into_array().mask(mask)?)?;
 
         assert_variant_core_rows(&masked, &[Some(1), None, None, Some(4)])
-    }
-
-    #[test]
-    fn variant_get_keeps_valid_shredded_rows_for_matching_dtype() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let core_storage = row_storage([1, 2, 3])?;
-        let shredded = StructArray::try_from_iter([(
-            "a",
-            PrimitiveArray::from_iter([10i32, 20, 30]).into_array(),
-        )])?;
-        let variant = VariantArray::try_new(core_storage, Some(shredded.into_array()))?;
-        let expr = variant_get(
-            root(),
-            VariantPath::field("a"),
-            Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
-        );
-
-        let result = variant.into_array().apply(&expr)?;
-
-        assert_arrays_eq!(
-            result,
-            PrimitiveArray::from_option_iter([Some(10i32), Some(20), Some(30)]),
-            &mut ctx
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn variant_get_treats_value_and_typed_value_as_logical_field_names() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let core_storage = row_storage([1, 2, 3])?;
-        let shredded = StructArray::try_from_iter([
-            (
-                "value",
-                PrimitiveArray::from_iter([10i32, 20, 30]).into_array(),
-            ),
-            (
-                "typed_value",
-                PrimitiveArray::from_iter([40i32, 50, 60]).into_array(),
-            ),
-        ])?;
-        let variant = VariantArray::try_new(core_storage, Some(shredded.into_array()))?;
-
-        let value_expr = variant_get(
-            root(),
-            VariantPath::field("value"),
-            Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
-        );
-        let value_result = variant.clone().into_array().apply(&value_expr)?;
-        assert_arrays_eq!(
-            value_result,
-            PrimitiveArray::from_option_iter([Some(10i32), Some(20), Some(30)]),
-            &mut ctx
-        );
-
-        let typed_value_expr = variant_get(
-            root(),
-            VariantPath::field("typed_value"),
-            Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
-        );
-        let typed_value_result = variant.into_array().apply(&typed_value_expr)?;
-        assert_arrays_eq!(
-            typed_value_result,
-            PrimitiveArray::from_option_iter([Some(40i32), Some(50), Some(60)]),
-            &mut ctx
-        );
-        Ok(())
     }
 }

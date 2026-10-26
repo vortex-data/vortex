@@ -173,7 +173,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::Nullable;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar_fn::fns::mask::Mask;
+    use vortex_array::scalar_fn::builtin::mask::Mask;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;

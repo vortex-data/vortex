@@ -15,17 +15,14 @@ use crate::arrays::ScalarFnArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
-use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
-use crate::scalar_fn::fns::cast::CastReduceAdaptor;
-use crate::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
-use crate::scalar_fn::fns::list_contains::ListContainsElementReduceAdaptor;
+use crate::scalar_fn::builtin::cast::CastReduceAdaptor;
+use crate::scalar_fn::builtin::fill_null::FillNullReduceAdaptor;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Chunked> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&CastReduceAdaptor(Chunked)),
     ParentRuleSet::lift(&ChunkedUnaryScalarFnPushDownRule),
-    ParentRuleSet::lift(&ListContainsElementReduceAdaptor(Chunked)),
     ParentRuleSet::lift(&ChunkedConstantScalarFnPushDownRule),
     ParentRuleSet::lift(&FillNullReduceAdaptor(Chunked)),
 ]);
@@ -48,10 +45,11 @@ impl ArrayParentReduceRule<Chunked> for ChunkedUnaryScalarFnPushDownRule {
 
         let new_chunks: Vec<_> = array
             .iter_chunks()
-            .map(|chunk| {
-                ScalarFnArray::try_new(parent.scalar_fn().clone(), vec![chunk.clone()])?
-                    .into_array()
-                    .optimize()
+            .map(|chunk| -> VortexResult<ArrayRef> {
+                Ok(
+                    ScalarFnArray::try_new(parent.scalar_fn().clone(), vec![chunk.clone()])?
+                        .into_array(),
+                )
             })
             .try_collect()?;
 
@@ -85,7 +83,7 @@ impl ArrayParentReduceRule<Chunked> for ChunkedConstantScalarFnPushDownRule {
         let mut offset = 0;
         let new_chunks: Vec<_> = array
             .iter_chunks()
-            .map(|chunk| {
+            .map(|chunk| -> VortexResult<ArrayRef> {
                 let range = offset..offset + chunk.len();
                 offset += chunk.len();
                 // Each sibling is sliced to the chunk's rows, so that every chunk shares what the
@@ -102,9 +100,7 @@ impl ArrayParentReduceRule<Chunked> for ChunkedConstantScalarFnPushDownRule {
                     })
                     .try_collect()?;
 
-                ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?
-                    .into_array()
-                    .optimize()
+                Ok(ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?.into_array())
             })
             .try_collect()?;
 

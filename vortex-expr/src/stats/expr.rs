@@ -18,9 +18,9 @@ use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
-pub use vortex_array::scalar_fn::fns::stat::StatFn;
-pub use vortex_array::scalar_fn::fns::stat::StatOptions;
 use vortex_error::VortexExpect;
+pub use vortex_functions::stat::StatFn;
+pub use vortex_functions::stat::StatOptions;
 
 /// Creates an expression that reads a stored aggregate statistic for `expr`.
 ///
@@ -184,6 +184,7 @@ mod tests {
     use vortex_array::expr::root;
     use vortex_array::expr::stats::Precision;
     use vortex_array::expr::stats::Stat;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar::ScalarValue;
     use vortex_array::validity::Validity;
@@ -267,7 +268,7 @@ mod tests {
         )?
         .into_array();
 
-        let result = chunked.apply(&sum(root()))?;
+        let result = chunked.apply(&sum(root()))?.optimize(&SESSION)?;
 
         let chunked_result = result
             .as_opt::<Chunked>()

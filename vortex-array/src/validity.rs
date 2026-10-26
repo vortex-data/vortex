@@ -30,11 +30,10 @@ use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
-use crate::optimizer::ArrayOptimizer;
 use crate::patches::Patches;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::builtin::binary::Binary;
+use crate::scalar_fn::builtin::operators::Operator;
 
 /// Validity information for an array.
 #[derive(Clone)]
@@ -309,11 +308,9 @@ impl Validity {
             | (Validity::AllValid, Validity::NonNullable)
             | (Validity::AllValid, Validity::AllValid) => Validity::AllValid,
             // Here we actually have to do some work
-            (Validity::Array(lhs), Validity::Array(rhs)) => Validity::Array(
-                Binary::try_new(lhs, rhs, Operator::And)?
-                    .into_array()
-                    .optimize()?,
-            ),
+            (Validity::Array(lhs), Validity::Array(rhs)) => {
+                Validity::Array(Binary::try_new(lhs, rhs, Operator::And)?.into_array())
+            }
         })
     }
 

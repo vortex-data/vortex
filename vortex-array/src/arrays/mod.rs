@@ -148,7 +148,6 @@ pub(crate) fn initialize(session: &VortexSession) {
     struct_::initialize(session);
     varbin::initialize(session);
     varbinview::initialize(session);
-    variant::initialize(session);
 }
 
 #[cfg(feature = "arbitrary")]

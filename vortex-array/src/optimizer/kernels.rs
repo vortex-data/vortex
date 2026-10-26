@@ -48,8 +48,9 @@ use crate::arrays::Struct;
 use crate::arrays::struct_::compute::rules::struct_cast_reduce_parent;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
+use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::fns::cast::Cast;
+use crate::scalar_fn::builtin::cast::Cast;
 
 /// Shared hasher used to combine `(outer, child)` tuples into registry keys.
 static FN_HASHER: LazyLock<DefaultHashBuilder> = LazyLock::new(DefaultHashBuilder::default);
@@ -64,6 +65,60 @@ static FN_HASHER: LazyLock<DefaultHashBuilder> = LazyLock::new(DefaultHashBuilde
 /// required of static parent-reduce rules.
 pub type ReduceParentFn =
     fn(child: &ArrayRef, parent: &ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>>;
+
+/// Type-erased parent-reduce rule stored in the session registry.
+pub trait DynReduceParentRule: Debug + Send + Sync + 'static {
+    /// Attempt to rewrite `parent` given its `child` at slot `child_idx`.
+    fn reduce_parent(
+        &self,
+        child: &ArrayRef,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>>;
+}
+
+pub(crate) type ReduceParentRuleRef = Arc<dyn DynReduceParentRule>;
+
+#[derive(Debug)]
+struct ReduceParentFnRule(ReduceParentFn);
+
+impl DynReduceParentRule for ReduceParentFnRule {
+    fn reduce_parent(
+        &self,
+        child: &ArrayRef,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        self.0(child, parent, child_idx)
+    }
+}
+
+#[derive(Debug)]
+struct RegisteredReduceParentRule<V, R> {
+    _child: V,
+    rule: R,
+}
+
+impl<V, R> DynReduceParentRule for RegisteredReduceParentRule<V, R>
+where
+    V: VTable,
+    R: ArrayParentReduceRule<V>,
+{
+    fn reduce_parent(
+        &self,
+        child: &ArrayRef,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let Some(child) = child.as_opt::<V>() else {
+            return Ok(None);
+        };
+        let Some(parent) = R::Parent::try_match(parent) else {
+            return Ok(None);
+        };
+        self.rule.reduce_parent(child, parent, child_idx)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 #[repr(transparent)]
@@ -172,8 +227,8 @@ impl Borrow<u64> for ExecuteParentFnId {
     }
 }
 
-/// Registry of [`ReduceParentFn`]s, keyed by hashed `(parent, child)` pair.
-type ReduceParentRegistry = ArcSwapMap<ReduceParentFnId, Arc<[ReduceParentFn]>>;
+/// Registry of [`ReduceParentRuleRef`]s, keyed by hashed `(parent, child)` pair.
+type ReduceParentRegistry = ArcSwapMap<ReduceParentFnId, Arc<[ReduceParentRuleRef]>>;
 /// Registry of [`ExecuteParentKernelRef`]s, keyed by hashed `(parent, child)` pair.
 type ExecuteParentRegistry = ArcSwapMap<ExecuteParentFnId, Arc<[ExecuteParentKernelRef]>>;
 
@@ -223,15 +278,46 @@ impl ArrayKernels {
     /// If functions have already been registered for the same pair, these functions are appended
     /// after them.
     pub fn register_reduce_parent(&self, parent: Id, child: Id, fns: &[ReduceParentFn]) {
+        let rules: Vec<ReduceParentRuleRef> = fns
+            .iter()
+            .map(|f| Arc::new(ReduceParentFnRule(*f)) as ReduceParentRuleRef)
+            .collect();
         self.reduce_parent
-            .extend(hash_fn_id(parent, child).into(), fns);
+            .extend(hash_fn_id(parent, child).into(), rules.as_slice());
     }
 
-    /// Look up the [`ReduceParentFn`]s registered for `(parent, child)`.
+    /// Register a typed [`ArrayParentReduceRule`] for `(parent, child.id())`, so a crate that
+    /// defines a scalar function can add parent-reduce rules for encodings it does not own.
+    ///
+    /// The rule applies when the child is a `V` array and the parent matches the rule's
+    /// [`Parent`](ArrayParentReduceRule::Parent) matcher. `parent` is usually the parent array's
+    /// encoding id. For `ScalarFnArray`, it is the scalar function id, for example `Cast.id()`.
+    ///
+    /// If rules have already been registered for the same pair, this rule is appended after them.
+    pub fn register_reduce_parent_rule<V, R>(&self, parent: Id, child: V, rule: R)
+    where
+        V: VTable,
+        R: ArrayParentReduceRule<V>,
+    {
+        let child_id = child.id();
+        self.reduce_parent.push(
+            hash_fn_id(parent, child_id).into(),
+            Arc::new(RegisteredReduceParentRule {
+                _child: child,
+                rule,
+            }) as ReduceParentRuleRef,
+        );
+    }
+
+    /// Look up the parent-reduce rules registered for `(parent, child)`.
     ///
     /// Returns an owned [`Arc`] so the session-variable borrow can be dropped before invoking the
-    /// functions.
-    pub fn find_reduce_parent(&self, parent: Id, child: Id) -> Option<Arc<[ReduceParentFn]>> {
+    /// rules.
+    pub(crate) fn find_reduce_parent(
+        &self,
+        parent: Id,
+        child: Id,
+    ) -> Option<Arc<[ReduceParentRuleRef]>> {
         self.reduce_parent.get(&hash_fn_id(parent, child))
     }
 
@@ -386,7 +472,7 @@ mod tests {
     use crate::ArrayVTable;
     use crate::arrays::Bool;
     use crate::scalar_fn::ScalarFnVTable;
-    use crate::scalar_fn::fns::binary::Binary;
+    use crate::scalar_fn::builtin::binary::Binary;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<KernelSession>());

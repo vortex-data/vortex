@@ -49,12 +49,12 @@ use vortex::array::builtins::ArrayBuiltins;
 use vortex::dtype::PType;
 use vortex::encodings::uuid::Uuid;
 use vortex::expr::between;
+use vortex::functions::between::BetweenOptions;
+use vortex::functions::between::StrictComparison;
+use vortex::functions::list_contains::ListContains;
 use vortex::scalar::Scalar;
-use vortex::scalar_fn::fns::between::BetweenOptions;
-use vortex::scalar_fn::fns::between::StrictComparison;
-use vortex::scalar_fn::fns::cast::Cast;
-use vortex::scalar_fn::fns::list_contains::ListContains;
-use vortex::scalar_fn::fns::literal::Literal;
+use vortex::scalar_fn::builtin::cast::Cast;
+use vortex::scalar_fn::builtin::literal::Literal;
 use vortex_array::assert_arrays_eq;
 
 use super::*;

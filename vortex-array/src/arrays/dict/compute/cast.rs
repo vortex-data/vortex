@@ -12,7 +12,7 @@ use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::scalar_fn::fns::cast::CastReduce;
+use crate::scalar_fn::builtin::cast::CastReduce;
 
 impl CastReduce for Dict {
     fn cast(array: ArrayView<'_, Dict>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -67,6 +67,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::optimizer::ArrayOptimizer;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -128,6 +129,8 @@ mod tests {
         let non_nullable = dict
             .into_array()
             .cast(DType::Primitive(PType::I32, Nullability::NonNullable))
+            .unwrap()
+            .optimize(&SESSION)
             .unwrap();
         assert_eq!(
             non_nullable.dtype(),
@@ -148,6 +151,8 @@ mod tests {
         // Cast to Nullable
         let nullable = non_nullable
             .cast(DType::Primitive(PType::I32, Nullability::Nullable))
+            .unwrap()
+            .optimize(&SESSION)
             .unwrap();
         assert_eq!(
             nullable.dtype(),
@@ -168,6 +173,8 @@ mod tests {
         // Cast back to NonNullable
         let back_to_non_nullable = nullable
             .cast(DType::Primitive(PType::I32, Nullability::NonNullable))
+            .unwrap()
+            .optimize(&SESSION)
             .unwrap();
         assert_eq!(
             back_to_non_nullable.dtype(),

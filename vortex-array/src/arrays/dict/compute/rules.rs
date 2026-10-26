@@ -25,21 +25,18 @@ use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::builtins::ArrayBuiltins;
-use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
-use crate::scalar_fn::fns::cast::Cast;
-use crate::scalar_fn::fns::cast::CastReduceAdaptor;
-use crate::scalar_fn::fns::like::LikeReduceAdaptor;
-use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
-use crate::scalar_fn::fns::pack::Pack;
+use crate::scalar_fn::builtin::cast::Cast;
+use crate::scalar_fn::builtin::cast::CastReduceAdaptor;
+use crate::scalar_fn::builtin::mask::MaskReduceAdaptor;
+use crate::scalar_fn::builtin::pack::Pack;
 use crate::validity::Validity;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Dict> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&FilterReduceAdaptor(Dict)),
     ParentRuleSet::lift(&CastReduceAdaptor(Dict)),
     ParentRuleSet::lift(&MaskReduceAdaptor(Dict)),
-    ParentRuleSet::lift(&LikeReduceAdaptor(Dict)),
     ParentRuleSet::lift(&DictionaryChunkedValuesPullUpRule),
     ParentRuleSet::lift(&DictionaryScalarFnValuesPushDownRule),
     ParentRuleSet::lift(&DictionaryScalarFnCodesPullUpRule),
@@ -174,9 +171,8 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
             }
         }
 
-        let transformed_values = ScalarFnArray::try_new(scalar_fn.clone(), value_children)?
-            .into_array()
-            .optimize()?;
+        let transformed_values =
+            ScalarFnArray::try_new(scalar_fn.clone(), value_children)?.into_array();
 
         // A non-strict function reaches this point only when the codes are all valid, but their
         // dtype may still be nullable. Remove that declared nullability while rebuilding the
@@ -252,9 +248,8 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnCodesPullUpRule {
             }
         }
 
-        let new_values = ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?
-            .into_array()
-            .optimize()?;
+        let new_values =
+            ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children)?.into_array();
 
         let new_dict =
             unsafe { DictArray::new_unchecked(array.codes().clone(), new_values) }.into_array();
@@ -288,9 +283,9 @@ mod tests {
     use crate::executor::VortexSessionExecute;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::fns::binary::Binary;
-    use crate::scalar_fn::fns::not::Not;
-    use crate::scalar_fn::fns::operators::Operator;
+    use crate::scalar_fn::builtin::binary::Binary;
+    use crate::scalar_fn::builtin::not::Not;
+    use crate::scalar_fn::builtin::operators::Operator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -304,7 +299,7 @@ mod tests {
         let array =
             ChunkedArray::try_new(vec![chunk0, chunk1], values.dtype().clone())?.into_array();
 
-        let optimized = array.optimize()?;
+        let optimized = array.optimize(&SESSION)?;
         let dict = optimized.as_::<Dict>();
         let codes = dict.codes().as_::<Chunked>();
 
@@ -331,7 +326,7 @@ mod tests {
         let array =
             ChunkedArray::try_new(vec![chunk0, chunk1], values0.dtype().clone())?.into_array();
 
-        let optimized = array.optimize()?;
+        let optimized = array.optimize(&SESSION)?;
 
         assert!(optimized.is::<Chunked>());
         let mut ctx = SESSION.create_execution_ctx();
@@ -355,7 +350,7 @@ mod tests {
         }
         .into_array();
 
-        let result = Not::try_new(dict)?.into_array().optimize()?;
+        let result = Not::try_new(dict)?.into_array().optimize(&SESSION)?;
         let result = result.as_::<Dict>();
 
         assert!(result.has_all_values_referenced());
@@ -380,7 +375,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         // Kleene AND: null AND false == false
         let expected = BoolArray::from_iter([false, false, false]).into_array();
-        let optimized = expr.optimize()?;
+        let optimized = expr.optimize(&SESSION)?;
         assert_arrays_eq!(optimized, expected, &mut ctx);
         Ok(())
     }
@@ -397,7 +392,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         // Kleene OR: null OR true == true
         let expected = BoolArray::from_iter([true, true, true]).into_array();
-        let optimized = expr.optimize()?;
+        let optimized = expr.optimize(&SESSION)?;
         assert_arrays_eq!(optimized, expected, &mut ctx);
         Ok(())
     }

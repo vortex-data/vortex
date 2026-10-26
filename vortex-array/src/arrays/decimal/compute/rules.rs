@@ -16,8 +16,8 @@ use crate::arrays::slice::SliceReduceAdaptor;
 use crate::match_each_decimal_value_type;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
-use crate::scalar_fn::fns::cast::CastReduceAdaptor;
-use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use crate::scalar_fn::builtin::cast::CastReduceAdaptor;
+use crate::scalar_fn::builtin::mask::MaskReduceAdaptor;
 
 pub(crate) static RULES: ParentRuleSet<Decimal> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DecimalMaskedValidityRule),
@@ -111,6 +111,7 @@ mod tests {
     use crate::dtype::DecimalDType;
     use crate::dtype::DecimalType;
     use crate::match_each_decimal_value_type;
+    use crate::optimizer::ArrayOptimizer;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -183,7 +184,7 @@ mod tests {
         let sliced = array.slice(1..5)?;
 
         let range = 1..3;
-        let nested = sliced.slice(range.clone())?;
+        let nested = sliced.slice(range.clone())?.optimize(&SESSION)?;
         let decimal = nested.as_::<Decimal>();
         let byte_width = values_type.byte_width();
         let original_range = range.start + 1..range.end + 1;

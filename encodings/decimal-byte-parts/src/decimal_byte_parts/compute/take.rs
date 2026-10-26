@@ -40,6 +40,7 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::i256;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
@@ -55,8 +56,8 @@ mod tests {
     });
 
     /// Taking pushes down into the parts during optimization, with no execution context in
-    /// play: `ArrayRef::take` wraps the array in a `Dict` and optimizes, and the reduce rule
-    /// must rewrite that into a `DecimalByteParts` of taken parts.
+    /// play: `ArrayRef::take` wraps the array in a `Dict`, and optimizing it must rewrite that
+    /// into a `DecimalByteParts` of taken parts.
     #[test]
     fn take_pushes_down_without_executing() -> VortexResult<()> {
         let decimal = DecimalArray::new(
@@ -67,7 +68,8 @@ mod tests {
         let indices = buffer![0u64, 2].into_array();
         let taken = DecimalByteParts::encode(&decimal, &mut SESSION.create_execution_ctx())?
             .into_array()
-            .take(indices)?;
+            .take(indices)?
+            .optimize(&SESSION)?;
 
         assert!(
             taken.is::<DecimalByteParts>(),

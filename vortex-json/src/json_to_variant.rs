@@ -23,12 +23,12 @@ use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
-use vortex_array::scalar_fn::fns::variant_get::VariantPath;
-use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_functions::variant_get::VariantPath;
+use vortex_functions::variant_get::VariantPathElement;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 

@@ -21,7 +21,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::root;
-use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::builtin::operators::Operator;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -631,12 +631,11 @@ mod tests {
     use vortex_array::expr::gt;
     use vortex_array::expr::is_not_null;
     use vortex_array::expr::is_null;
-    use vortex_array::expr::list_length;
     use vortex_array::expr::lit;
     use vortex_buffer::buffer;
+    use vortex_functions::expr::list_length;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
-    use vortex_session::VortexSession;
 
     use super::*;
     use crate::LayoutRef;

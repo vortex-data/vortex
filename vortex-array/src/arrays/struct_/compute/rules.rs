@@ -21,9 +21,9 @@ use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::cast::Cast;
-use crate::scalar_fn::fns::get_item::GetItem;
-use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use crate::scalar_fn::builtin::cast::Cast;
+use crate::scalar_fn::builtin::get_item::GetItem;
+use crate::scalar_fn::builtin::mask::MaskReduceAdaptor;
 use crate::validity::Validity;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Struct> = ParentRuleSet::new(&[
@@ -222,8 +222,10 @@ mod tests {
             Nullability::NonNullable,
         );
 
+        // Without the session-registered rule the cast stays a scalar function.
+        let session = VortexSession::empty().with_some(KernelSession::empty());
         let cast = source.cast(target).unwrap();
-        let optimized = cast.optimize().unwrap();
+        let optimized = cast.optimize(&session).unwrap();
         assert!(optimized.is::<ScalarFn>());
     }
 
@@ -248,10 +250,10 @@ mod tests {
         );
 
         let cast = source.cast(target).unwrap();
-        assert!(cast.optimize_ctx(&SESSION).unwrap().is::<Struct>());
+        assert!(cast.optimize(&SESSION).unwrap().is::<Struct>());
         let session = VortexSession::empty().with_some(KernelSession::empty());
 
-        let optimized = cast.optimize_ctx(&session).unwrap();
+        let optimized = cast.optimize(&session).unwrap();
         assert!(optimized.is::<ScalarFn>());
     }
 
@@ -273,7 +275,7 @@ mod tests {
         let result = source
             .into_array()
             .cast(DType::Primitive(PType::I32, Nullability::NonNullable))
-            .and_then(|arr| arr.optimize_ctx(&SESSION));
+            .and_then(|arr| arr.optimize(&SESSION));
 
         // Whether this errors or succeeds depends on execution, but the key invariant is that the
         // optimizer rule does not panic.
@@ -393,7 +395,7 @@ mod tests {
         let arr = source
             .into_array()
             .cast(target)
-            .and_then(|arr| arr.optimize_ctx(&SESSION));
+            .and_then(|arr| arr.optimize(&SESSION));
         assert!(arr.is_err());
     }
 }

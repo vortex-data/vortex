@@ -91,7 +91,7 @@ fn take_empty_fsl(
         FixedSizeListArray::new_unchecked(new_elements, array.list_size(), new_validity, new_len)
     }
     .into_array()
-    .optimize_ctx(ctx.session())
+    .optimize(ctx.session())
 }
 
 fn take_non_empty_fsl(
@@ -220,7 +220,7 @@ fn take_piecewise_fsl(
         FixedSizeListArray::new_unchecked(new_elements, array.list_size(), new_validity, new_len)
     }
     .into_array()
-    .optimize_ctx(ctx.session())
+    .optimize(ctx.session())
     .map(Some)
 }
 
@@ -254,7 +254,7 @@ fn take_non_empty_degenerate_fsl(
         )
     }
     .into_array()
-    .optimize_ctx(ctx.session())
+    .optimize(ctx.session())
 }
 
 fn take_non_empty_non_degenerate_fsl<I: IntegerPType>(
@@ -276,7 +276,7 @@ fn take_non_empty_non_degenerate_fsl<I: IntegerPType>(
         FixedSizeListArray::new_unchecked(new_elements, array.list_size(), new_validity, new_len)
     }
     .into_array()
-    .optimize_ctx(ctx.session())
+    .optimize(ctx.session())
 }
 
 fn take_non_empty_non_degenerate_elements<I: IntegerPType>(

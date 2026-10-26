@@ -6,14 +6,12 @@ use std::sync::LazyLock;
 
 use rstest::rstest;
 use vortex_buffer::buffer;
-use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use super::common::create_basic_listview;
 use super::common::create_large_listview;
 use super::common::create_nullable_listview;
-use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::is_constant::is_constant;
@@ -30,6 +28,7 @@ use crate::compute::conformance::mask::test_mask_conformance;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::optimizer::ArrayOptimizer;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -51,7 +50,7 @@ fn test_slice_comprehensive() {
         ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx).into_array();
 
     // Test basic slice [1..3] - middle portion.
-    let sliced = listview.slice(1..3).unwrap();
+    let sliced = listview.slice(1..3).unwrap().optimize(&SESSION).unwrap();
     let sliced_list = sliced.as_::<ListView>();
     assert_eq!(sliced_list.len(), 2, "Wrong slice length");
     assert_eq!(
@@ -76,7 +75,7 @@ fn test_slice_comprehensive() {
     );
 
     // Test full array slice [0..4].
-    let full = listview.slice(0..4).unwrap();
+    let full = listview.slice(0..4).unwrap().optimize(&SESSION).unwrap();
     let full_list = full.as_::<ListView>();
     assert_eq!(full_list.len(), 4, "Full slice should preserve length");
     for i in 0..4 {
@@ -95,7 +94,7 @@ fn test_slice_comprehensive() {
     }
 
     // Test single element slice [2..3].
-    let single = listview.slice(2..3).unwrap();
+    let single = listview.slice(2..3).unwrap().optimize(&SESSION).unwrap();
     let single_list = single.as_::<ListView>();
     assert_eq!(single_list.len(), 1, "Single element slice failed");
     assert_eq!(
@@ -123,7 +122,7 @@ fn test_slice_out_of_order() {
         ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx).into_array();
 
     // Slice [1..4] should maintain the out-of-order offsets.
-    let sliced = listview.slice(1..4).unwrap();
+    let sliced = listview.slice(1..4).unwrap().optimize(&SESSION).unwrap();
     let sliced_list = sliced.as_::<ListView>();
 
     assert_eq!(
@@ -198,7 +197,7 @@ fn test_slice_with_nulls() {
     .into_array();
 
     // Slice [1..3] should preserve nulls.
-    let sliced = listview.slice(1..3).unwrap();
+    let sliced = listview.slice(1..3).unwrap().optimize(&SESSION).unwrap();
     let sliced_list = sliced.as_::<ListView>();
 
     assert_eq!(sliced_list.len(), 2);
@@ -505,108 +504,6 @@ fn test_cast_large_dataset() {
         &mut ctx,
     );
     assert_arrays_eq!(result_list, expected, &mut SESSION.create_execution_ctx());
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// Zip tests
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
-#[test]
-fn test_zip_widens_false_element_nullability() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    // [[1, 2], [3], [4]]
-    let if_true = ListViewArray::new(
-        buffer![1i32, 2, 3, 4].into_array(),
-        buffer![0u32, 2, 3].into_array(),
-        buffer![2u32, 1, 1].into_array(),
-        Validity::NonNullable,
-        &mut ctx,
-    )
-    .into_array();
-    // [[10, null], [30], [40]]
-    let if_false = ListViewArray::new(
-        PrimitiveArray::from_option_iter([Some(10i32), None, Some(30), Some(40)]).into_array(),
-        buffer![0u32, 2, 3].into_array(),
-        buffer![2u32, 1, 1].into_array(),
-        Validity::NonNullable,
-        &mut ctx,
-    )
-    .into_array();
-    let mask = Mask::from_iter([false, true, false]);
-
-    let result = mask
-        .into_array()
-        .zip(if_true, if_false)?
-        .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())?;
-    assert!(result.is::<ListView>());
-    assert_eq!(
-        result.dtype(),
-        &DType::List(
-            Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
-            Nullability::NonNullable,
-        )
-    );
-
-    // [[10, null], [3], [40]]
-    let expected = ListViewArray::new(
-        PrimitiveArray::from_option_iter([Some(10i32), None, Some(3), Some(40)]).into_array(),
-        buffer![0u32, 2, 3].into_array(),
-        buffer![2u32, 1, 1].into_array(),
-        Validity::NonNullable,
-        &mut ctx,
-    )
-    .into_array();
-    assert_arrays_eq!(result, expected, &mut ctx);
-    Ok(())
-}
-
-#[test]
-fn test_zip_widens_true_element_nullability() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    // [[1, null], [3], [4]]
-    let if_true = ListViewArray::new(
-        PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4)]).into_array(),
-        buffer![0u32, 2, 3].into_array(),
-        buffer![2u32, 1, 1].into_array(),
-        Validity::NonNullable,
-        &mut ctx,
-    )
-    .into_array();
-    // [[10], [20], [30]]
-    let if_false = ListViewArray::new(
-        buffer![10i32, 20, 30].into_array(),
-        buffer![0u32, 1, 2].into_array(),
-        buffer![1u32, 1, 1].into_array(),
-        Validity::NonNullable,
-        &mut ctx,
-    )
-    .into_array();
-    let mask = Mask::from_iter([true, false, true]);
-
-    let result = mask
-        .into_array()
-        .zip(if_true, if_false)?
-        .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())?;
-    assert!(result.is::<ListView>());
-    assert_eq!(
-        result.dtype(),
-        &DType::List(
-            Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
-            Nullability::NonNullable,
-        )
-    );
-
-    // [[1, null], [20], [4]]
-    let expected = ListViewArray::new(
-        PrimitiveArray::from_option_iter([Some(1i32), None, Some(20), Some(4)]).into_array(),
-        buffer![0u32, 2, 3].into_array(),
-        buffer![2u32, 1, 1].into_array(),
-        Validity::NonNullable,
-        &mut ctx,
-    )
-    .into_array();
-    assert_arrays_eq!(result, expected, &mut ctx);
-    Ok(())
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

@@ -11,10 +11,10 @@ use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::arrays::dict::take::DictConstantCodesKernel;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::binary::CompareExecuteAdaptor;
-use crate::scalar_fn::fns::fill_null::FillNull;
-use crate::scalar_fn::fns::fill_null::FillNullExecuteAdaptor;
+use crate::scalar_fn::builtin::binary::Binary;
+use crate::scalar_fn::builtin::binary::CompareExecuteAdaptor;
+use crate::scalar_fn::builtin::fill_null::FillNull;
+use crate::scalar_fn::builtin::fill_null::FillNullExecuteAdaptor;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();

@@ -279,6 +279,8 @@ impl VTable for Chunked {
 
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
         Ok(match array.nchunks() {
+            // Variant has no empty canonical form; canonicalization handles empty variant chunks.
+            0 if matches!(array.dtype(), DType::Variant(_)) => None,
             0 => Some(Canonical::empty(array.dtype()).into_array()),
             1 => Some(array.chunk(0).clone()),
             _ => None,

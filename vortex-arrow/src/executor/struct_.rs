@@ -22,7 +22,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::matcher::Matcher;
-use vortex_array::scalar_fn::fns::pack::Pack;
+use vortex_array::scalar_fn::builtin::pack::Pack;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
@@ -234,7 +234,7 @@ mod tests {
     use vortex_array::arrays::StructArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::FieldNames;
-    use vortex_array::scalar_fn::fns::mask::Mask;
+    use vortex_array::scalar_fn::builtin::mask::Mask;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;

@@ -156,14 +156,6 @@ name = "kleene_bool"
 harness = false
 
 [[bench]]
-name = "like"
-harness = false
-
-[[bench]]
-name = "list_contains_set"
-harness = false
-
-[[bench]]
 name = "interleave"
 harness = false
 
@@ -198,11 +190,6 @@ harness = false
 [[bench]]
 name = "expr_large_struct_pack"
 path = "benches/expr/large_struct_pack.rs"
-harness = false
-
-[[bench]]
-name = "expr_case_when"
-path = "benches/expr/case_when_bench.rs"
 harness = false
 
 [[bench]]
@@ -242,27 +229,11 @@ name = "dict_unreferenced_mask"
 harness = false
 
 [[bench]]
-name = "varbinview_zip"
-harness = false
-
-[[bench]]
 name = "varbinview_try_new"
 harness = false
 
 [[bench]]
 name = "varbinview_fill_null"
-harness = false
-
-[[bench]]
-name = "bool_zip"
-harness = false
-
-[[bench]]
-name = "primitive_zip"
-harness = false
-
-[[bench]]
-name = "listview_zip"
 harness = false
 
 [[bench]]
@@ -307,14 +278,6 @@ harness = false
 
 [[bench]]
 name = "filter_list"
-harness = false
-
-[[bench]]
-name = "list_length"
-harness = false
-
-[[bench]]
-name = "list_sum"
 harness = false
 
 [[bench]]

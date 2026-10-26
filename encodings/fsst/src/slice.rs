@@ -23,9 +23,7 @@ impl SliceReduce for FSST {
                 FSST::new_unchecked_with_symbol_table(
                     array.dtype().clone(),
                     array.symbol_table(),
-                    array
-                        .codes()
-                        .slice(range.clone())?
+                    VarBin::_slice(array.codes().as_view(), range.clone())?
                         .try_downcast::<VarBin>()
                         .map_err(|_| vortex_err!("cannot fail conversion"))?,
                     array.uncompressed_lengths().slice(range)?,

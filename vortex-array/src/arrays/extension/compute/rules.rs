@@ -20,8 +20,8 @@ use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::cast::CastReduceAdaptor;
-use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use crate::scalar_fn::builtin::cast::CastReduceAdaptor;
+use crate::scalar_fn::builtin::mask::MaskReduceAdaptor;
 
 pub(crate) const RULES: ReduceRuleSet<Extension> = ReduceRuleSet::new(&[&ExtensionConstantRule]);
 
@@ -110,8 +110,8 @@ mod tests {
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
-    use crate::scalar_fn::fns::binary::Binary;
-    use crate::scalar_fn::fns::operators::Operator;
+    use crate::scalar_fn::builtin::binary::Binary;
+    use crate::scalar_fn::builtin::operators::Operator;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -166,7 +166,7 @@ mod tests {
         let filter_array = FilterArray::new(ext_array, mask).into_array();
 
         // Optimize should push the filter into the storage
-        let optimized = filter_array.optimize().unwrap();
+        let optimized = filter_array.optimize(&SESSION).unwrap();
 
         // The result should be an ExtensionArray, not a FilterArray
         assert!(
@@ -204,7 +204,7 @@ mod tests {
         let mask = Mask::from_iter([true, true, false, false, true]);
         let filter_array = FilterArray::new(ext_array, mask).into_array();
 
-        let optimized = filter_array.optimize().unwrap();
+        let optimized = filter_array.optimize(&SESSION).unwrap();
 
         assert!(optimized.as_opt::<Extension>().is_some());
         let ext_result = optimized.as_::<Extension>();
@@ -297,7 +297,7 @@ mod tests {
             .unwrap()
             .into_array();
 
-        let optimized = scalar_fn_array.optimize().unwrap();
+        let optimized = scalar_fn_array.optimize(&SESSION).unwrap();
 
         // The first child should still be an ExtensionArray (no pushdown happened)
         let scalar_fn = optimized.as_opt::<ScalarFn>().unwrap();
@@ -322,7 +322,7 @@ mod tests {
             .unwrap()
             .into_array();
 
-        let optimized = scalar_fn_array.optimize().unwrap();
+        let optimized = scalar_fn_array.optimize(&SESSION).unwrap();
 
         // No pushdown should happen because sibling is not a constant
         let scalar_fn = optimized.as_opt::<ScalarFn>().unwrap();
@@ -345,7 +345,7 @@ mod tests {
             .unwrap()
             .into_array();
 
-        let optimized = scalar_fn_array.optimize().unwrap();
+        let optimized = scalar_fn_array.optimize(&SESSION).unwrap();
 
         // No pushdown should happen because constant is not an extension scalar
         let scalar_fn = optimized.as_opt::<ScalarFn>().unwrap();

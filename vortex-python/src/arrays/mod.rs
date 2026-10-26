@@ -52,7 +52,7 @@ use vortex::error::VortexResult;
 use vortex::flatbuffers::WriteFlatBufferExt;
 use vortex::ipc::messages::EncoderMessage;
 use vortex::ipc::messages::MessageEncoder;
-use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scalar_fn::builtin::operators::Operator;
 use vortex_arrow::ArrowSessionExt;
 use vortex_python_abi::BUFFER_EXPORT_CAPSULE_NAME;
 use vortex_python_abi::VORTEX_BUFFER_EXPORT_VERSION;

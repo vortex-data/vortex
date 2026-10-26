@@ -6,7 +6,7 @@ use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
-use vortex_array::scalar_fn::fns::cast::CastReduce;
+use vortex_array::scalar_fn::builtin::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::ZigZag;
@@ -38,6 +38,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_session::VortexSession;
 
     use crate::ZigZagArray;
@@ -57,6 +58,8 @@ mod tests {
         let casted = zigzag
             .into_array()
             .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
+            .unwrap()
+            .optimize(&SESSION)
             .unwrap();
         assert_eq!(
             casted.dtype(),
@@ -87,6 +90,8 @@ mod tests {
         let casted = zigzag
             .into_array()
             .cast(DType::Primitive(PType::I16, Nullability::NonNullable))
+            .unwrap()
+            .optimize(&SESSION)
             .unwrap();
         assert_eq!(
             casted.encoding_id().as_ref(),
@@ -107,6 +112,8 @@ mod tests {
         let casted64 = zigzag16
             .into_array()
             .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
+            .unwrap()
+            .optimize(&SESSION)
             .unwrap();
         assert_eq!(
             casted64.encoding_id().as_ref(),

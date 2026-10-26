@@ -13,7 +13,7 @@ use crate::arrays::slice::SliceReduceAdaptor;
 use crate::builtins::ArrayBuiltins;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
-use crate::scalar_fn::fns::get_item::GetItem;
+use crate::scalar_fn::builtin::get_item::GetItem;
 
 pub(super) const PARENT_RULES: ParentRuleSet<Slice> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&SliceReduceAdaptor(Slice)),

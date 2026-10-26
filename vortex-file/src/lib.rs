@@ -169,6 +169,7 @@ mod forever_constant {
 /// Registration covers reading: a session can decode every encoding registered here. The
 /// writer is gated separately by the editions enabled on its session.
 pub fn register_default_encodings(session: &VortexSession) {
+    vortex_functions::initialize(session);
     vortex_bytebool::initialize(session);
     vortex_fsst::initialize(session);
     vortex_onpair::initialize(session);

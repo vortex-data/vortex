@@ -11,7 +11,7 @@ use crate::arrays::ChunkedArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::scalar_fn::fns::cast::CastReduce;
+use crate::scalar_fn::builtin::cast::CastReduce;
 
 impl CastReduce for Chunked {
     fn cast(array: ArrayView<'_, Chunked>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {

@@ -40,15 +40,15 @@ use vortex_array::dtype::DType;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::fns::variant_get::VariantGet;
-use vortex_array::scalar_fn::fns::variant_get::VariantPath;
-use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
 use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
+use vortex_functions::variant_get::VariantGet;
+use vortex_functions::variant_get::VariantPath;
+use vortex_functions::variant_get::VariantPathElement;
 use vortex_json::Json;
 use vortex_json::JsonToVariant;
 use vortex_mask::Mask;
@@ -326,15 +326,16 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::expr::root;
-    use vortex_array::expr::variant_get;
-    use vortex_array::scalar_fn::fns::variant_get::VariantPath;
-    use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::validity::Validity;
     use vortex_arrow::ArrowSessionExt;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_ensure;
     use vortex_error::vortex_err;
+    use vortex_functions::expr::variant_get;
+    use vortex_functions::variant_get::VariantPath;
+    use vortex_functions::variant_get::VariantPathElement;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
@@ -994,7 +995,7 @@ mod tests {
         expected: impl IntoIterator<Item = Option<i32>>,
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let executed = array.clone().execute::<ArrayRef>(&mut ctx)?;
+        let executed = array.optimize(&SESSION)?.execute::<ArrayRef>(&mut ctx)?;
         let executed_variant = executed.as_::<ParquetVariant>();
         let typed_value = executed_variant
             .typed_value()

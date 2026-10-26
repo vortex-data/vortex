@@ -42,6 +42,7 @@ vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-fsst = { workspace = true }
+vortex-functions = { workspace = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }

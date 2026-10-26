@@ -81,9 +81,9 @@ mod tests {
     use crate::expr::gt;
     use crate::expr::lit;
     use crate::expr::traversal::NodeExt;
-    use crate::scalar_fn::fns::binary::Binary;
-    use crate::scalar_fn::fns::literal::Literal;
-    use crate::scalar_fn::fns::operators::Operator;
+    use crate::scalar_fn::builtin::binary::Binary;
+    use crate::scalar_fn::builtin::literal::Literal;
+    use crate::scalar_fn::builtin::operators::Operator;
 
     struct AddFold;
     impl NodeFolderContext for AddFold {

@@ -53,10 +53,10 @@
 //! ```ignore
 //! use vortex_array::test_harness::trace::trace_op;
 //!
-//! let traced = trace_op(|| filter_array.optimize())?;
+//! let traced = trace_op(|| filter_array.optimize(&session))?;
 //! assert!(traced.output.is::<Primitive>());
 //! insta::assert_snapshot!(traced.trace.to_string(), @r"
-//! optimize root=vortex.filter(i32, len=4) session=false
+//! optimize root=vortex.filter(i32, len=4)
 //!   reduce TrivialFilterRule: vortex.filter(i32, len=4) -> vortex.primitive(i32, len=4)
 //!   done output=vortex.primitive(i32, len=4)
 //! ");
@@ -202,10 +202,10 @@ fn write_indent(f: &mut fmt::Formatter<'_>, depth: usize) -> fmt::Result {
 /// # Examples
 ///
 /// ```ignore
-/// let traced = trace_op(|| filter_array.optimize())?;
+/// let traced = trace_op(|| filter_array.optimize(&session))?;
 /// assert!(traced.output.is::<Primitive>());
 /// insta::assert_snapshot!(traced.trace.to_string(), @r"
-/// optimize root=vortex.filter(i32, len=4) session=false
+/// optimize root=vortex.filter(i32, len=4)
 ///   reduce TrivialFilterRule: vortex.filter(i32, len=4) -> vortex.primitive(i32, len=4)
 ///   done output=vortex.primitive(i32, len=4)
 /// ");
@@ -355,10 +355,9 @@ impl Display for ArraySummary {
     }
 }
 
-pub(crate) fn record_optimize_start(root: &ArrayRef, session: bool) {
+pub(crate) fn record_optimize_start(root: &ArrayRef) {
     record(TraceEvent::OptimizeStart {
         root: ArraySummary::new(root),
-        session,
     });
 }
 
@@ -877,7 +876,6 @@ impl TraceRecorder {
 enum TraceEvent {
     OptimizeStart {
         root: ArraySummary,
-        session: bool,
     },
     OptimizeLoopStart {
         array: ArraySummary,
@@ -1078,8 +1076,8 @@ impl TraceEvent {
 
     fn fmt_line(&self, f: &mut fmt::Formatter<'_>, resolution: TraceResolution) -> fmt::Result {
         match self {
-            TraceEvent::OptimizeStart { root, session } => {
-                write!(f, "optimize root={root} session={session}")
+            TraceEvent::OptimizeStart { root } => {
+                write!(f, "optimize root={root}")
             }
             TraceEvent::OptimizeLoopStart { array } => {
                 write!(f, "loop input={array}")
@@ -1215,9 +1213,9 @@ impl TraceEvent {
             } => match resolution {
                 TraceResolution::Attempts => write!(
                     f,
-                    "optimize_ctx input={input} output={output} changed={changed}"
+                    "optimize input={input} output={output} changed={changed}"
                 ),
-                TraceResolution::ExecutedOnly => write!(f, "optimize_ctx {input} -> {output}"),
+                TraceResolution::ExecutedOnly => write!(f, "optimize {input} -> {output}"),
             },
             TraceEvent::ExecuteEncoding { array } => {
                 write!(f, "execute encoding={array}")

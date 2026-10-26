@@ -344,6 +344,7 @@ mod tests {
     use crate::buffer::BufferHandle;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
     use crate::scalar_fn::EmptyOptions;
     use crate::scalar_fn::ScalarFnId;
@@ -468,7 +469,8 @@ mod tests {
             DType::Utf8(Nullability::NonNullable),
         )
         .into_array()
-        .slice(1..3)?;
+        .slice(1..3)?
+        .optimize(&SESSION)?;
         let mut ctx = SESSION.create_execution_ctx();
         let column = Utf8Column::decode(array, &mut ctx)?;
 

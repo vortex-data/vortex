@@ -197,23 +197,18 @@ impl Expression {
     /// # Example
     ///
     /// ```rust
-    /// # use vortex_array::dtype::{DType, Nullability, PType};
-    /// # use vortex_array::scalar_fn::fns::like::{Like, LikeOptions};
-    /// # use vortex_array::scalar_fn::ScalarFnVTableExt;
-    /// # use vortex_array::expr::{and, cast, eq, get_item, gt, lit, not, root, select};
+    /// # use vortex_array::dtype::Nullability;
+    /// # use vortex_array::expr::{and, eq, get_item, gt, is_not_null, lit, not, pack, root};
     /// // Build a complex nested expression
-    /// let complex_expr = select(
-    ///     ["result"],
-    ///     and(
+    /// let complex_expr = pack(
+    ///     [("result", and(
     ///         not(eq(get_item("status", root()), lit("inactive"))),
     ///         and(
-    ///             Like.new_expr(LikeOptions::default(), [get_item("name", root()), lit("%admin%")]),
-    ///             gt(
-    ///                 cast(get_item("score", root()), DType::Primitive(PType::F64, Nullability::NonNullable)),
-    ///                 lit(75.0)
-    ///             )
+    ///             is_not_null(get_item("name", root())),
+    ///             gt(get_item("score", root()), lit(75.0)),
     ///         )
-    ///     )
+    ///     ))],
+    ///     Nullability::NonNullable,
     /// );
     ///
     /// println!("{}", complex_expr.display_tree());
@@ -230,14 +225,12 @@ impl Expression {
     ///     │       │   └── Root
     ///     │       └── rhs: Literal(value: "inactive", dtype: utf8)
     ///     └── rhs: Binary(and)
-    ///         ├── lhs: Like
-    ///         │   ├── child: GetItem(name)
-    ///         │   │   └── Root
-    ///         │   └── pattern: Literal(value: "%admin%", dtype: utf8)
+    ///         ├── lhs: IsNotNull
+    ///         │   └── GetItem(name)
+    ///         │       └── Root
     ///         └── rhs: Binary(>)
-    ///             ├── lhs: Cast(target: f64)
-    ///             │   └── GetItem(score)
-    ///             │       └── Root
+    ///             ├── lhs: GetItem(score)
+    ///             │   └── Root
     ///             └── rhs: Literal(value: 75f64, dtype: f64)
     /// ```
     pub fn display_tree(&self) -> impl Display {
@@ -249,7 +242,7 @@ impl Expression {
     /// # Example
     ///
     /// ```rust
-    /// # use vortex_array::scalar_fn::fns::literal::Literal;
+    /// # use vortex_array::scalar_fn::builtin::literal::Literal;
     /// # use vortex_array::expr::{eq, lit, root};
     /// let expression = &eq(root(), lit(3u64));
     /// assert!(expression.contains::<Literal>().unwrap());

@@ -13,10 +13,8 @@ use crate::arrays::filter::FilterExecuteAdaptor;
 use crate::arrays::slice::SliceExecuteAdaptor;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::fns::mask::Mask;
-use crate::scalar_fn::fns::mask::MaskExecuteAdaptor;
-use crate::scalar_fn::fns::zip::Zip;
-use crate::scalar_fn::fns::zip::ZipExecuteAdaptor;
+use crate::scalar_fn::builtin::mask::Mask;
+use crate::scalar_fn::builtin::mask::MaskExecuteAdaptor;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
@@ -24,5 +22,4 @@ pub(crate) fn initialize(session: &VortexSession) {
     kernels.register_execute_parent_kernel(Mask.id(), Chunked, MaskExecuteAdaptor(Chunked));
     kernels.register_execute_parent_kernel(Slice.id(), Chunked, SliceExecuteAdaptor(Chunked));
     kernels.register_execute_parent_kernel(Dict.id(), Chunked, TakeExecuteAdaptor(Chunked));
-    kernels.register_execute_parent_kernel(Zip.id(), Chunked, ZipExecuteAdaptor(Chunked));
 }

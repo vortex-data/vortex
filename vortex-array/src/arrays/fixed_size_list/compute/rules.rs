@@ -4,8 +4,8 @@
 use crate::arrays::FixedSizeList;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ParentRuleSet;
-use crate::scalar_fn::fns::cast::CastReduceAdaptor;
-use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use crate::scalar_fn::builtin::cast::CastReduceAdaptor;
+use crate::scalar_fn::builtin::mask::MaskReduceAdaptor;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<FixedSizeList> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&CastReduceAdaptor(FixedSizeList)),

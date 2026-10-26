@@ -12,32 +12,16 @@ use vortex_session::registry::Id;
 
 use crate::scalar_fn::ScalarFnPluginRef;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::fns::between::Between;
-use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::byte_length::ByteLength;
-use crate::scalar_fn::fns::case_when::CaseWhen;
-use crate::scalar_fn::fns::cast::Cast;
-use crate::scalar_fn::fns::ext_storage::ExtStorage;
-use crate::scalar_fn::fns::fill_null::FillNull;
-use crate::scalar_fn::fns::get_item::GetItem;
-use crate::scalar_fn::fns::is_nan::IsNan;
-use crate::scalar_fn::fns::is_not_null::IsNotNull;
-use crate::scalar_fn::fns::is_null::IsNull;
-use crate::scalar_fn::fns::like::Like;
-use crate::scalar_fn::fns::list_contains::ListContains;
-use crate::scalar_fn::fns::list_contains::PreparedSet;
-use crate::scalar_fn::fns::list_length::ListLength;
-use crate::scalar_fn::fns::list_sum::ListSum;
-use crate::scalar_fn::fns::literal::Literal;
-use crate::scalar_fn::fns::mask::Mask;
-use crate::scalar_fn::fns::merge::Merge;
-use crate::scalar_fn::fns::not::Not;
-use crate::scalar_fn::fns::pack::Pack;
-use crate::scalar_fn::fns::replace_time_zone::ReplaceTimeZone;
-use crate::scalar_fn::fns::select::Select;
-use crate::scalar_fn::fns::stat::StatFn;
-use crate::scalar_fn::fns::variant_get::VariantGet;
-use crate::scalar_fn::fns::zip::Zip;
+use crate::scalar_fn::builtin::binary::Binary;
+use crate::scalar_fn::builtin::cast::Cast;
+use crate::scalar_fn::builtin::fill_null::FillNull;
+use crate::scalar_fn::builtin::get_item::GetItem;
+use crate::scalar_fn::builtin::is_not_null::IsNotNull;
+use crate::scalar_fn::builtin::is_null::IsNull;
+use crate::scalar_fn::builtin::literal::Literal;
+use crate::scalar_fn::builtin::mask::Mask;
+use crate::scalar_fn::builtin::not::Not;
+use crate::scalar_fn::builtin::pack::Pack;
 
 /// Registry of scalar function vtables.
 pub type ScalarFnRegistry = ArcSwapMap<Id, ScalarFnPluginRef>;
@@ -66,33 +50,18 @@ impl Default for ScalarFnSession {
             registry: ScalarFnRegistry::default(),
         };
 
-        // Register built-in expressions.
-        this.register(Between);
+        // Register the functions vortex-array is built on. `vortex_functions::initialize` registers
+        // the rest.
         this.register(Binary);
-        this.register(ByteLength);
-        this.register(CaseWhen);
         this.register(Cast);
-        this.register(ExtStorage);
         this.register(FillNull);
         this.register(GetItem);
-        this.register(IsNan);
         this.register(IsNotNull);
         this.register(IsNull);
-        this.register(Like);
-        this.register(ListContains);
-        this.register(PreparedSet);
-        this.register(ListLength);
-        this.register(ListSum);
         this.register(Literal);
         this.register(Mask);
-        this.register(Merge);
         this.register(Not);
         this.register(Pack);
-        this.register(ReplaceTimeZone);
-        this.register(Select);
-        this.register(StatFn);
-        this.register(VariantGet);
-        this.register(Zip);
 
         this
     }

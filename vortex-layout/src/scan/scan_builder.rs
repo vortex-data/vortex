@@ -494,7 +494,6 @@ mod test {
     use vortex_array::expr::BoundExpression;
     use vortex_array::expr::ExactBoundExpr;
     use vortex_array::expr::and;
-    use vortex_array::expr::between;
     use vortex_array::expr::col;
     use vortex_array::expr::eq;
     use vortex_array::expr::get_item;
@@ -503,11 +502,12 @@ mod test {
     use vortex_array::expr::lit;
     use vortex_array::expr::lt;
     use vortex_array::expr::root;
-    use vortex_array::scalar_fn::fns::between::BetweenOptions;
-    use vortex_array::scalar_fn::fns::between::StrictComparison;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_err;
+    use vortex_functions::between::BetweenOptions;
+    use vortex_functions::between::StrictComparison;
+    use vortex_functions::expr::between;
     use vortex_io::runtime::BlockingRuntime;
     use vortex_io::runtime::single::SingleThreadRuntime;
     use vortex_io::runtime::tokio::TokioRuntime;
