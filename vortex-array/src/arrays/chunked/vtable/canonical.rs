@@ -342,7 +342,6 @@ mod tests {
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::ListArray;
