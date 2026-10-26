@@ -6,6 +6,9 @@ use std::fs;
 use std::iter;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicI32;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use bytes::Bytes;
 use flatbuffers::FlatBufferBuilder;
@@ -50,6 +53,7 @@ use vortex_array::expr::Expression;
 use vortex_array::expr::and;
 use vortex_array::expr::cast;
 use vortex_array::expr::col;
+use vortex_array::expr::dynamic_expression;
 use vortex_array::expr::eq;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
@@ -70,6 +74,8 @@ use vortex_array::flatbuffers::WriteFlatBufferExt;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
+use vortex_array::scalar_fn::fns::dynamic_expression::input_field_name;
 use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_array::scalar_fn::fns::pack::PackOptions;
 use vortex_array::stream::ArrayStreamAdapter;
@@ -3138,6 +3144,129 @@ async fn test_can_prune_composite_predicates() -> VortexResult<()> {
     assert!(!file.can_prune(&eq(col("age"), lit(18)))?);
     assert!(!file.can_prune(&and(gt(col("age"), lit(20)), gt(col("price"), lit(100))))?);
 
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_is_satisfied_by_file_stats() -> VortexResult<()> {
+    let st = StructArray::from_fields(&[
+        ("age", buffer![15i32, 18, 22, 25].into_array()),
+        ("price", buffer![120i32, 130, 140, 150].into_array()),
+    ])?;
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, st.into_array().to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+
+    assert!(file.is_satisfied(&gt(col("age"), lit(10)))?);
+    assert!(file.is_satisfied(&and(gt(col("age"), lit(10)), lt(col("price"), lit(200))))?);
+
+    // Some rows fail these, so they must not be proven.
+    assert!(!file.is_satisfied(&gt(col("age"), lit(20)))?);
+    assert!(!file.is_satisfied(&lt(col("price"), lit(140)))?);
+
+    Ok(())
+}
+
+/// `input 0 < threshold`, where a threshold of `i32::MAX` means there is no bound yet.
+#[derive(Debug)]
+struct DynamicThreshold {
+    value: AtomicI32,
+    generation: AtomicU64,
+}
+
+impl DynamicThreshold {
+    fn new() -> Self {
+        Self {
+            value: AtomicI32::new(i32::MAX),
+            generation: AtomicU64::new(0),
+        }
+    }
+
+    fn set(&self, value: i32) {
+        self.value.store(value, Ordering::SeqCst);
+        self.generation.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+impl std::fmt::Display for DynamicThreshold {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "< {}", self.value.load(Ordering::SeqCst))
+    }
+}
+
+impl DynamicExpressionSource for DynamicThreshold {
+    fn generation(&self) -> u64 {
+        self.generation.load(Ordering::SeqCst)
+    }
+
+    fn current(&self, scope: &DType) -> VortexResult<BoundExpression> {
+        match self.value.load(Ordering::SeqCst) {
+            i32::MAX => lit(true).bind(scope),
+            value => lt(get_item(input_field_name(0), root()), lit(value)).bind(scope),
+        }
+    }
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_dynamic_expression_filter_follows_updates() -> VortexResult<()> {
+    let st =
+        StructArray::from_fields(&[("a", PrimitiveArray::from_iter(0i32..100_000).into_array())])?;
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, st.into_array().to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+
+    let threshold = Arc::new(DynamicThreshold::new());
+    let filter = bind_scan_expr(&file, dynamic_expression(threshold.clone(), [col("a")]));
+
+    // The same filter is scanned again after each update, so cached zone pruning must follow it.
+    for (value, expected_rows) in [(i32::MAX, 100_000), (10, 10), (20_000, 20_000), (0, 0)] {
+        if value != i32::MAX {
+            threshold.set(value);
+        }
+        let result = file
+            .scan()?
+            .with_filter(filter.clone())
+            .into_array_stream()?
+            .read_all()
+            .await?;
+        assert_eq!(result.len(), expected_rows, "threshold {value}");
+    }
+
+    // File statistics prove the current predicate true for every row only once it covers them.
+    assert!(!file.is_satisfied(&dynamic_expression(threshold.clone(), [col("a")]))?);
+    threshold.set(100_000);
+    assert!(file.is_satisfied(&dynamic_expression(threshold, [col("a")]))?);
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_is_satisfied_by_non_null_rows() -> VortexResult<()> {
+    let st = StructArray::from_fields(&[(
+        "age",
+        PrimitiveArray::from_option_iter([Some(15i32), None, Some(22), Some(25)]).into_array(),
+    )])?;
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, st.into_array().to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+
+    // The null row fails the comparison, so it only holds for the rows without nulls.
+    let bound = and(gt_eq(col("age"), lit(10)), lt_eq(col("age"), lit(30)));
+    assert!(!file.is_satisfied(&bound)?);
+    assert!(file.is_satisfied_by_non_null_rows(&bound)?);
+    assert!(!file.is_satisfied_by_non_null_rows(&gt(col("age"), lit(20)))?);
     Ok(())
 }
 

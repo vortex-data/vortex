@@ -50,11 +50,18 @@ pub(crate) fn split_exec(ctx: &TaskContext, read_mask: RowMask) -> VortexResult<
     let projection =
         ctx.reader
             .projection_evaluation(&row_range, &ctx.projection, filter_mask.clone())?;
+    let filter = Arc::clone(filter);
     Ok(async move {
-        if filter_mask.await?.all_false() {
+        let mask = filter_mask.await?;
+        if mask.all_false() {
             return Ok(None);
         }
-        projection.await.map(Some)
+        #[cfg(not(target_arch = "wasm32"))]
+        let start = std::time::Instant::now();
+        let array = projection.await?;
+        #[cfg(not(target_arch = "wasm32"))]
+        filter.report_projection_cost(mask.true_count(), start.elapsed());
+        Ok(Some(array))
     }
     .boxed())
 }
@@ -98,6 +105,10 @@ fn build_filter_mask(
                 return Ok(mask);
             }
 
+            if !filter.should_prune(idx) {
+                continue;
+            }
+
             // Store the latest version of the dynamic expression prior to pruning.
             // We will re-run the pruning later if the version has changed in the meantime.
             dynamic_versions[idx] = filter.dynamic_updates(idx).map(|du| du.version());
@@ -117,12 +128,21 @@ fn build_filter_mask(
             }
 
             let conjunct = &filter.conjuncts()[idx];
+            if !filter.should_evaluate(idx, mask.true_count()) {
+                continue;
+            }
+            if filter.wait_for_first_measurement(idx).await
+                && !filter.should_evaluate(idx, mask.true_count())
+            {
+                continue;
+            }
 
             // If the dynamic expression has changed since pruning, re-run the pruning.
             // Store the dynamic update once to avoid TOCTOU race condition.
             let current_version = filter.dynamic_updates(idx).map(|du| du.version());
             if let Some(dv) = current_version
                 && dynamic_versions[idx].is_none_or(|v| v < dv)
+                && filter.should_prune(idx)
             {
                 // The dynamic expression has changed, re-run the pruning.
                 dynamic_versions[idx] = Some(dv);
@@ -132,17 +152,25 @@ fn build_filter_mask(
                 mask = mask.bitand(&conjunct_mask);
             }
             if mask.all_false() {
+                // Pruning removed every row, so the conjunct evaluated none.
+                filter.report_evaluation(idx, 0, 0);
                 return Ok(mask);
             }
 
             let input_true_count = mask.true_count();
+            #[cfg(not(target_arch = "wasm32"))]
+            let start = std::time::Instant::now();
             let conjunct_mask = reader
                 .filter_evaluation(&filter_row_range, conjunct, MaskFuture::ready(mask))?
                 .await?;
+            #[cfg(not(target_arch = "wasm32"))]
+            filter.report_cost(idx, input_true_count, start.elapsed());
+            let output_true_count = conjunct_mask.true_count();
             filter.report_selectivity(
                 idx,
-                conditional_selectivity(input_true_count, conjunct_mask.true_count()),
+                conditional_selectivity(input_true_count, output_true_count),
             );
+            filter.report_evaluation(idx, input_true_count, output_true_count);
 
             // Filter evaluations return a mask already intersected with the input mask.
             mask = conjunct_mask;

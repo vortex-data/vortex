@@ -37,6 +37,7 @@ use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutReaderRef;
 use crate::scan::filter::FilterExpr;
+use crate::scan::filter::OptionalFilterBackoff;
 use crate::scan::limit::RowLimit;
 use crate::scan::limit::ScanLimit;
 use crate::scan::splits::Splits;
@@ -54,6 +55,8 @@ pub struct RepeatedScan<A> {
     layout_reader: LayoutReaderRef,
     projection: BoundExpression,
     filter: Option<BoundExpression>,
+    /// When to skip optional filter conjuncts that keep most rows.
+    optional_filter_backoff: Option<OptionalFilterBackoff>,
     ordered: bool,
     /// Optionally read a subset of the rows in the file.
     row_range: Option<Range<u64>>,
@@ -112,7 +115,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
             vortex_bail!("Split futures do not support row limits; use a scan stream or iterator");
         }
 
-        let ctx = self.task_context();
+        let ctx = self.task_context(row_range.as_ref());
         self.split_masks(row_range)
             .map(|row_mask| Ok(map_split(split_exec(&ctx, row_mask)?, &self.map_fn)))
             .collect()
@@ -132,6 +135,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         layout_reader: LayoutReaderRef,
         projection: BoundExpression,
         filter: Option<BoundExpression>,
+        optional_filter_backoff: Option<OptionalFilterBackoff>,
         ordered: bool,
         row_range: Option<Range<u64>>,
         selection: Selection,
@@ -146,6 +150,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
             layout_reader,
             projection,
             filter,
+            optional_filter_backoff,
             ordered,
             row_range,
             selection,
@@ -157,12 +162,25 @@ impl<A: 'static + Send> RepeatedScan<A> {
         }
     }
 
-    fn task_context(&self) -> Arc<TaskContext> {
+    fn task_context(&self, row_range: Option<&Range<u64>>) -> Arc<TaskContext> {
         Arc::new(TaskContext {
-            filter: self
-                .filter
-                .clone()
-                .map(|filter| Arc::new(FilterExpr::new(filter))),
+            filter: self.filter.clone().map(|filter| {
+                // A skipped conjunct keeps rows the caller removes again, which must not count
+                // towards a limit.
+                let backoff = self
+                    .optional_filter_backoff
+                    .filter(|_| self.limit.is_none())
+                    .map(|backoff| {
+                        let scan_rows =
+                            intersect_ranges(self.row_range.as_ref(), row_range.cloned())
+                                .map_or_else(
+                                    || self.layout_reader.row_count(),
+                                    |range| range.end - range.start,
+                                );
+                        backoff.for_scan_rows(scan_rows)
+                    });
+                Arc::new(FilterExpr::new(filter, backoff))
+            }),
             reader: Arc::clone(&self.layout_reader),
             projection: self.projection.clone(),
         })
@@ -243,7 +261,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         let concurrency = self.concurrency * get_available_parallelism().unwrap_or(1);
         let handle = self.session.handle();
         let ordered = self.ordered;
-        let ctx = self.task_context();
+        let ctx = self.task_context(row_range.as_ref());
 
         let map_fn = &self.map_fn;
 

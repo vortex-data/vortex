@@ -23,6 +23,7 @@ use datafusion_datasource::file_stream::FileOpenFuture;
 use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::CachedFileMetadataEntry;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
+use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::expressions::LambdaExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
@@ -45,15 +46,18 @@ use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
+use itertools::Itertools;
 use object_store::path::Path;
 use tracing::Instrument;
 use vortex::array::VortexSessionExecute;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::expr::and_collect;
+use vortex::expr::switch;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
+use vortex::layout::scan::OptionalFilterBackoff;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
 use vortex::layout::scan::v2::partition_row_range;
@@ -66,6 +70,11 @@ use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 
 use crate::VortexAccessPlan;
+use crate::convert::df_predicate::saves_decoding;
+use crate::convert::dynamic_filter::DataFusionDynamicFilter;
+use crate::convert::dynamic_filter::DynamicFilterConversions;
+use crate::convert::dynamic_filter::drop_unselective_ranges;
+use crate::convert::dynamic_filter::has_selectivity_estimate;
 use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::exprs::raw_projection;
@@ -125,6 +134,10 @@ pub(crate) struct VortexOpener {
     pub projection_pushdown: bool,
     pub scan_concurrency: Option<usize>,
     pub scan_v2: bool,
+    /// When the scan skips dynamic filter conjuncts that keep most rows.
+    pub optional_filter_backoff: Option<OptionalFilterBackoff>,
+    /// Conversions of the dynamic filters, shared by the openers of the scan.
+    pub dynamic_filter_conversions: Arc<DynamicFilterConversions>,
 }
 
 impl FileOpener for VortexOpener {
@@ -163,6 +176,8 @@ impl FileOpener for VortexOpener {
         let has_output_ordering = self.has_output_ordering;
         let scan_concurrency = self.scan_concurrency;
         let scan_v2 = self.scan_v2;
+        let optional_filter_backoff = self.optional_filter_backoff;
+        let dynamic_filter_conversions = Arc::clone(&self.dynamic_filter_conversions);
 
         let expr_converter = Arc::clone(&self.expression_converter);
         let projection_pushdown = self.projection_pushdown;
@@ -193,6 +208,20 @@ impl FileOpener for VortexOpener {
                 .map(|p| replace_columns_with_literals(p, &literal_value_cols))
                 .transpose()?;
         }
+
+        // Dynamic filters (hash join build-side bounds, TopK thresholds) are only reported to
+        // DataFusion as unsupported, so they are not part of `filter`. They are pushed into the
+        // scan for zone pruning and filtering.
+        let dynamic_filters = file_pruning_predicate
+            .as_ref()
+            .map(|predicate| {
+                split_conjunction(predicate)
+                    .into_iter()
+                    .filter(|expr| DynamicFilterTracking::classify(expr).contains_dynamic_filter())
+                    .cloned()
+                    .collect_vec()
+            })
+            .unwrap_or_default();
 
         Ok(async move {
             // FilePruner now has all the logic to figure out if its worthwhile, and will return `None` if not.
@@ -327,6 +356,77 @@ impl FileOpener for VortexOpener {
                     }
                 }
             }
+            // Dynamic filters only discard rows that cannot contribute to the result, so
+            // conjuncts Vortex cannot evaluate are dropped rather than evaluated as residuals,
+            // and the scan can skip conjuncts that keep most rows.
+            for predicate in dynamic_filters {
+                let adapted = dynamic_filter_conversions.adapted(
+                    &predicate,
+                    &this_file_schema,
+                    |predicate| expr_adapter.rewrite(predicate),
+                )?;
+                if dynamic_filter_conversions.is_complete(&predicate, &adapted) {
+                    // A complete filter, such as the bounds of a hash join whose build side has
+                    // finished, does not change again, so every partition of a file shares the
+                    // conjunction pushed for it. Its snapshot keeps every kernel of the scan.
+                    let file_filter = dynamic_filter_conversions.file_filter(
+                        &predicate,
+                        &file.object_meta.location,
+                        || {
+                            let conjuncts = dynamic_filter_conversions.conjuncts(
+                                &predicate,
+                                &adapted,
+                                expr_converter.as_ref(),
+                                &this_file_schema,
+                            )?;
+                            // The scan would skip ranges that keep most rows after sampling
+                            // them, so ranges whose statistics predict that are dropped up front,
+                            // before the costlier proofs below.
+                            let conjuncts = match optional_filter_backoff {
+                                Some(backoff) => drop_unselective_ranges(
+                                    conjuncts.iter().cloned(),
+                                    &vxf,
+                                    backoff.max_selectivity,
+                                ),
+                                None => conjuncts.to_vec(),
+                            };
+                            // Bounds that the file statistics prove for every row without nulls
+                            // would at most remove those nulls, which is not worth evaluating.
+                            let conjuncts = conjuncts.into_iter().filter(|expr| {
+                                has_selectivity_estimate(expr, &vxf)
+                                    || !vxf.is_satisfied_by_non_null_rows(expr).unwrap_or(false)
+                            });
+                            let projected = projection
+                                .column_indices()
+                                .into_iter()
+                                .map(|idx| this_file_schema.field(idx).name().as_str())
+                                .collect::<Vec<_>>();
+                            let conjuncts =
+                                conjuncts.filter(|expr| saves_decoding(expr, &projected));
+                            Ok(and_collect(conjuncts))
+                        },
+                    )?;
+                    // Every scan turns its own switch, as each measures the conjunction
+                    // itself. One switch over the whole conjunction lets the scan merge its
+                    // range comparisons into betweens.
+                    native_filters.extend(file_filter.map(switch));
+                } else {
+                    // A filter that can still change, such as a TopK threshold, is read again
+                    // by the scan each time it changes.
+                    native_filters.extend(
+                        and_collect(DataFusionDynamicFilter::expressions(
+                            predicate,
+                            adapted,
+                            Arc::clone(&dynamic_filter_conversions),
+                            Arc::clone(&expr_converter),
+                            Arc::clone(&this_file_schema),
+                            &vxf,
+                            optional_filter_backoff.map(|backoff| backoff.max_selectivity),
+                        ))
+                        .map(switch),
+                    );
+                }
+            }
             let residual_filter = conjunction_opt(residual_filters);
             let native_filter = and_collect(native_filters)
                 .map(|filter| filter.bind(vxf.dtype())?.optimize_recursive())
@@ -334,6 +434,9 @@ impl FileOpener for VortexOpener {
                 .map_err(|e| {
                     exec_datafusion_err!("Couldn't bind Vortex scan filter in {}: {e}", file.path())
                 })?;
+            if let Some(native_filter) = &native_filter {
+                tracing::debug!(path = %file.path(), %native_filter, "native scan filter");
+            }
 
             // Residual filters must see raw inputs before computed projections or aliases.
             let ProcessedProjection {
@@ -478,6 +581,7 @@ impl FileOpener for VortexOpener {
                 };
 
                 let mut scan_builder = ScanBuilder::new(vxf.session().clone(), layout_reader)
+                    .with_optional_filter_backoff(optional_filter_backoff)
                     .with_projection(scan_projection)
                     .with_some_filter(native_filter);
                 if let Some(vortex_plan) = file.extensions.get::<VortexAccessPlan>() {
@@ -771,6 +875,7 @@ mod tests {
     use datafusion::arrow::array::StringArray;
     use datafusion::arrow::array::StructArray;
     use datafusion::arrow::datatypes::DataType;
+    use datafusion::arrow::datatypes::Int32Type;
     use datafusion::arrow::datatypes::Schema;
     use datafusion::arrow::datatypes::UInt32Type;
     use datafusion::arrow::util::display::FormatOptions;
@@ -792,6 +897,7 @@ mod tests {
     use datafusion_expr::Operator;
     use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_expr::expressions as df_expr;
+    use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
     use datafusion_physical_expr::projection::ProjectionExpr;
     use futures::TryStreamExt;
     use insta::assert_snapshot;
@@ -1082,6 +1188,8 @@ mod tests {
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,
+            optional_filter_backoff: None,
+            dynamic_filter_conversions: Default::default(),
         }
     }
 
@@ -1490,6 +1598,8 @@ mod tests {
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,
+            optional_filter_backoff: None,
+            dynamic_filter_conversions: Default::default(),
         };
 
         let filter = col("a").lt(lit(100_i32));
@@ -1580,6 +1690,8 @@ mod tests {
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,
+            optional_filter_backoff: None,
+            dynamic_filter_conversions: Default::default(),
         };
 
         let stream = opener.open(file)?.await?;
@@ -1761,6 +1873,8 @@ mod tests {
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,
+            optional_filter_backoff: None,
+            dynamic_filter_conversions: Default::default(),
         };
 
         // This should succeed and return the correctly projected and cast data
@@ -1824,6 +1938,8 @@ mod tests {
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,
+            optional_filter_backoff: None,
+            dynamic_filter_conversions: Default::default(),
         }
     }
 
@@ -2038,6 +2154,8 @@ mod tests {
             projection_pushdown: false,
             scan_concurrency: None,
             scan_v2: false,
+            optional_filter_backoff: None,
+            dynamic_filter_conversions: Default::default(),
         };
 
         let file = PartitionedFile::new(file_path.to_string(), data_size);
@@ -2308,6 +2426,66 @@ mod tests {
             .try_collect::<Vec<_>>()
             .await?;
         assert_eq!(actual.iter().map(RecordBatch::num_rows).sum::<usize>(), 0);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::updated_after_open(false)]
+    #[case::complete_before_open(true)]
+    #[tokio::test]
+    async fn test_dynamic_filter_is_pushed_into_the_scan(
+        #[case] complete_before_open: bool,
+    ) -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "/path/file.vortex";
+        let row_count = 10;
+        let batch = record_batch!(("a", Int32, (0..row_count).map(Some).collect::<Vec<_>>()))?;
+        let data_size =
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
+        let schema = batch.schema();
+
+        let column: PhysicalExprRef = Arc::new(df_expr::Column::new("a", 0));
+        let dynamic_filter = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![Arc::clone(&column)],
+            df_expr::lit(true),
+        ));
+        let bound: PhysicalExprRef = Arc::new(df_expr::BinaryExpr::new(
+            column,
+            Operator::GtEq,
+            df_expr::lit(row_count - 3),
+        ));
+        if complete_before_open {
+            dynamic_filter.update(Arc::clone(&bound))?;
+            dynamic_filter.mark_complete();
+        }
+
+        let mut opener = make_test_opener(
+            Arc::clone(&object_store),
+            Arc::clone(&schema),
+            ProjectionExprs::from_indices(&[0], &schema),
+        );
+        opener.file_pruning_predicate = Some(Arc::clone(&dynamic_filter) as PhysicalExprRef);
+
+        let stream = opener
+            .open(PartitionedFile::new(file_path.to_string(), data_size))?
+            .await?;
+        // A filter that is not complete when the file opens is read again by the scan.
+        if !complete_before_open {
+            dynamic_filter.update(bound)?;
+        }
+        let data = stream.try_collect::<Vec<_>>().await?;
+
+        let values = data
+            .iter()
+            .flat_map(|batch| {
+                batch
+                    .column(0)
+                    .as_primitive::<Int32Type>()
+                    .values()
+                    .to_vec()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(values, (row_count - 3..row_count).collect::<Vec<_>>());
         Ok(())
     }
 }

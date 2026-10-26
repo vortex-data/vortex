@@ -36,6 +36,7 @@ use vortex_array::scalar_fn::fns::between::Between;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::cast::Cast;
 use vortex_array::scalar_fn::fns::dynamic::DynamicComparison;
+use vortex_array::scalar_fn::fns::dynamic_expression::DynamicExpression;
 use vortex_array::scalar_fn::fns::is_nan::IsNan;
 use vortex_array::scalar_fn::fns::is_not_null::IsNotNull;
 use vortex_array::scalar_fn::fns::is_null::IsNull;
@@ -44,6 +45,7 @@ use vortex_array::scalar_fn::fns::list_contains::ListContains;
 use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::scalar_fn::fns::switch::Switch;
 use vortex_array::scalar_fn::internal::row_count::RowCount;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -51,8 +53,11 @@ use vortex_session::VortexSession;
 
 use crate::stats::bound::stat;
 use crate::stats::rewrite::StatsRewriteRule;
+use crate::stats::rewrite::dynamic_expression::StatsProof;
+use crate::stats::rewrite::dynamic_expression::dynamic_stats_proof;
 use crate::stats::rewrite::falsify;
 use crate::stats::rewrite::like_variant::LikeVariant;
+use crate::stats::rewrite::satisfy;
 use crate::stats::session::StatsSession;
 
 /// Register built-in stats rewrite rules.
@@ -75,6 +80,8 @@ pub(crate) fn register_builtins(session: &StatsSession) {
     session.register_rewrite(ListContainsAllNonNanStatsRewrite);
     session.register_rewrite(DynamicComparisonNanCountStatsRewrite);
     session.register_rewrite(DynamicComparisonAllNonNanStatsRewrite);
+    session.register_rewrite(DynamicExpressionStatsRewrite);
+    session.register_rewrite(SwitchStatsRewrite);
 }
 
 fn row_count() -> BoundExpression {
@@ -127,6 +134,14 @@ impl StatsRewriteRule for BinaryNanCountStatsRewrite {
         session: &VortexSession,
     ) -> VortexResult<Option<BoundExpression>> {
         binary_falsify::<NanCountProof>(expr, session)
+    }
+
+    fn satisfy(
+        &self,
+        expr: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        binary_satisfy(expr, session)
     }
 }
 
@@ -221,6 +236,56 @@ fn binary_falsify<P: NonNanProof>(
     })
 }
 
+/// Proves a comparison true for every row: the bounds of the operands order every pair of
+/// values, and neither operand holds a null or a NaN, for which a comparison is not true.
+fn binary_satisfy(
+    expr: &BoundExpression,
+    session: &VortexSession,
+) -> VortexResult<Option<BoundExpression>> {
+    let operator = expr.as_::<Binary>();
+    let lhs = expr.child(0);
+    let rhs = expr.child(1);
+
+    let value_predicate = match operator {
+        Operator::Gt => min(lhs).zip(max(rhs)).map(|(a, b)| gt(a, b)),
+        Operator::Gte => min(lhs).zip(max(rhs)).map(|(a, b)| gt_eq(a, b)),
+        Operator::Lt => max(lhs).zip(min(rhs)).map(|(a, b)| lt(a, b)),
+        Operator::Lte => max(lhs).zip(min(rhs)).map(|(a, b)| lt_eq(a, b)),
+        Operator::And => {
+            return Ok(match (satisfy(lhs, session)?, satisfy(rhs, session)?) {
+                (Some(lhs), Some(rhs)) => Some(and(lhs, rhs)),
+                _ => None,
+            });
+        }
+        Operator::Or => {
+            return Ok(or_collect(
+                satisfy(lhs, session)?
+                    .into_iter()
+                    .chain(satisfy(rhs, session)?),
+            ));
+        }
+        Operator::Eq
+        | Operator::NotEq
+        | Operator::Add
+        | Operator::Sub
+        | Operator::Mul
+        | Operator::Div => None,
+    };
+    let Some(value_predicate) = value_predicate else {
+        return Ok(None);
+    };
+    let Some(null_checks) = [lhs, rhs]
+        .into_iter()
+        .map(|operand| null_count(operand).map(|count| eq(count, lit(0u64))))
+        .collect::<Option<Vec<_>>>()
+    else {
+        return Ok(None);
+    };
+    let guarded = and_collect(null_checks.into_iter().chain([value_predicate]))
+        .vortex_expect("at least one predicate");
+    with_non_nan_guards::<NanCountProof>([lhs, rhs], guarded)
+}
+
 #[derive(Debug)]
 struct BetweenStatsRewrite;
 
@@ -242,6 +307,21 @@ impl StatsRewriteRule for BetweenStatsRewrite {
         let lhs = binary(options.lower_strict.to_operator(), lower, arr.clone());
         let rhs = binary(options.upper_strict.to_operator(), arr, upper);
         falsify(&and(lhs, rhs), session)
+    }
+
+    fn satisfy(
+        &self,
+        expr: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        let options = expr.as_::<Between>();
+        let arr = expr.child(0).clone();
+        let lower = expr.child(1).clone();
+        let upper = expr.child(2).clone();
+
+        let lhs = binary(options.lower_strict.to_operator(), lower, arr.clone());
+        let rhs = binary(options.upper_strict.to_operator(), arr, upper);
+        satisfy(&and(lhs, rhs), session)
     }
 }
 
@@ -619,6 +699,58 @@ impl StatsRewriteRule for DynamicComparisonAllNonNanStatsRewrite {
         _session: &VortexSession,
     ) -> VortexResult<Option<BoundExpression>> {
         dynamic_comparison_falsify::<AllNonNanProof>(expr)
+    }
+}
+
+/// Applying the predicate of a switch is always permitted, so the proofs of the predicate prove
+/// the switch whether it is on or off.
+#[derive(Debug)]
+struct SwitchStatsRewrite;
+
+impl StatsRewriteRule for SwitchStatsRewrite {
+    fn scalar_fn_id(&self) -> ScalarFnId {
+        Switch.id()
+    }
+
+    fn falsify(
+        &self,
+        expr: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        falsify(expr.child(0), session)
+    }
+
+    fn satisfy(
+        &self,
+        expr: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        satisfy(expr.child(0), session)
+    }
+}
+
+#[derive(Debug)]
+struct DynamicExpressionStatsRewrite;
+
+impl StatsRewriteRule for DynamicExpressionStatsRewrite {
+    fn scalar_fn_id(&self) -> ScalarFnId {
+        DynamicExpression.id()
+    }
+
+    fn falsify(
+        &self,
+        expr: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        dynamic_stats_proof(expr, session, StatsProof::Falsify)
+    }
+
+    fn satisfy(
+        &self,
+        expr: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Option<BoundExpression>> {
+        dynamic_stats_proof(expr, session, StatsProof::Satisfy)
     }
 }
 

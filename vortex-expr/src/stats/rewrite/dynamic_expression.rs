@@ -1,0 +1,338 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! Stats proofs of dynamic expressions.
+
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::sync::Arc;
+
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::EmptyOptions as AggregateEmptyOptions;
+use vortex_array::aggregate_fn::fns::all_nan::AllNan;
+use vortex_array::aggregate_fn::fns::all_non_nan::AllNonNan;
+use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
+use vortex_array::aggregate_fn::fns::all_null::AllNull;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::StructFields;
+use vortex_array::expr::BoundExpression;
+use vortex_array::expr::bound::get_item;
+use vortex_array::expr::bound::lit;
+use vortex_array::expr::stats::Stat;
+use vortex_array::scalar_fn::EmptyOptions;
+use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::fns::dynamic_expression::DynamicExpression;
+use vortex_array::scalar_fn::fns::dynamic_expression::DynamicExpressionOptions;
+use vortex_array::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
+use vortex_array::scalar_fn::fns::dynamic_expression::input_field_name;
+use vortex_array::scalar_fn::fns::get_item::GetItem;
+use vortex_array::scalar_fn::fns::stat::StatFn;
+use vortex_array::scalar_fn::internal::row_count::RowCount;
+use vortex_error::VortexResult;
+use vortex_session::VortexSession;
+
+use crate::stats::bound::stat;
+use crate::stats::rewrite::BoundExpressionPruneExt;
+
+/// Which stats proof a [`StatsProofSource`] builds.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum StatsProof {
+    Falsify,
+    Satisfy,
+}
+
+/// Builds a dynamic stats proof for a dynamic expression.
+///
+/// Zone pruning builds and lowers the proof of a predicate once, then evaluates it again when a
+/// dynamic expression changes. Thus the proof is itself a dynamic expression. Its children are
+/// the statistics of the inputs that a proof can use, and the row count, so lowering binds them
+/// to the stats of each zone. Each generation proves the current predicate again.
+pub(crate) fn dynamic_stats_proof(
+    expr: &BoundExpression,
+    session: &VortexSession,
+    proof: StatsProof,
+) -> VortexResult<Option<BoundExpression>> {
+    let options = expr.as_::<DynamicExpression>();
+    let input_dtypes = expr
+        .children()
+        .iter()
+        .map(|child| child.dtype().clone())
+        .collect::<Vec<_>>();
+
+    let mut stats = Vec::new();
+    let mut children = Vec::new();
+    for (input_idx, input) in expr.children().iter().enumerate() {
+        for aggregate_fn in proof_aggregates() {
+            if aggregate_fn.return_dtype(input.dtype()).is_some() {
+                children.push(stat(input.clone(), aggregate_fn.clone()));
+                stats.push((input_idx, aggregate_fn));
+            }
+        }
+    }
+    children.push(RowCount.try_new_bound_expr(EmptyOptions, [])?);
+
+    let source = StatsProofSource {
+        predicate: options.clone(),
+        input_dtypes,
+        stats,
+        proof,
+        session: session.clone(),
+    };
+    Ok(Some(DynamicExpression.try_new_bound_expr(
+        DynamicExpressionOptions::new(Arc::new(source)),
+        children,
+    )?))
+}
+
+/// The statistics a proof of a dynamic expression can read.
+fn proof_aggregates() -> Vec<AggregateFnRef> {
+    [Stat::Min, Stat::Max, Stat::NullCount, Stat::NaNCount]
+        .into_iter()
+        .filter_map(|stat| stat.aggregate_fn())
+        .chain([
+            AllNull.bind(AggregateEmptyOptions),
+            AllNonNull.bind(AggregateEmptyOptions),
+            AllNan.bind(AggregateEmptyOptions),
+            AllNonNan.bind(AggregateEmptyOptions),
+        ])
+        .collect()
+}
+
+/// The source of a dynamic stats proof, see [`dynamic_stats_proof`].
+#[derive(Debug)]
+struct StatsProofSource {
+    predicate: DynamicExpressionOptions,
+    input_dtypes: Vec<DType>,
+    /// The input and aggregate of each statistic child, in child order. The row count follows.
+    stats: Vec<(usize, AggregateFnRef)>,
+    proof: StatsProof,
+    session: VortexSession,
+}
+
+impl StatsProofSource {
+    /// Replace the statistics and row count in `proof` by fields of `scope`. Returns `None` when
+    /// the proof reads a statistic that is not a child.
+    fn bind_children(
+        &self,
+        proof: &BoundExpression,
+        scope: &DType,
+    ) -> VortexResult<Option<BoundExpression>> {
+        if let Some(options) = proof.as_opt::<StatFn>() {
+            let child = proof.child(0);
+            let Some(field) = child.as_opt::<GetItem>() else {
+                return Ok(None);
+            };
+            if !child.child(0).is_root() {
+                return Ok(None);
+            }
+            let Some(stat_idx) = self.stats.iter().position(|(input_idx, aggregate_fn)| {
+                input_field_name(*input_idx) == *field && aggregate_fn == options.aggregate_fn()
+            }) else {
+                return Ok(None);
+            };
+            return Ok(Some(scope_field(stat_idx, scope)?));
+        }
+
+        if proof.is::<RowCount>() {
+            return Ok(Some(scope_field(self.stats.len(), scope)?));
+        }
+
+        if proof.is_root() {
+            return Ok(None);
+        }
+
+        let mut children = Vec::with_capacity(proof.children().len());
+        for child in proof.children() {
+            let Some(child) = self.bind_children(child, scope)? else {
+                return Ok(None);
+            };
+            children.push(child);
+        }
+        Ok(Some(proof.clone().with_children(children)?))
+    }
+}
+
+fn scope_field(idx: usize, scope: &DType) -> VortexResult<BoundExpression> {
+    Ok(get_item(
+        input_field_name(idx),
+        BoundExpression::new_root(scope.clone()),
+    ))
+}
+
+impl Display for StatsProofSource {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let proof = match self.proof {
+            StatsProof::Falsify => "falsify",
+            StatsProof::Satisfy => "satisfy",
+        };
+        write!(f, "{proof}({})", self.predicate)
+    }
+}
+
+impl DynamicExpressionSource for StatsProofSource {
+    fn generation(&self) -> u64 {
+        self.predicate.source().generation()
+    }
+
+    fn current(&self, scope: &DType) -> VortexResult<BoundExpression> {
+        let names = (0..self.input_dtypes.len())
+            .map(input_field_name)
+            .collect::<FieldNames>();
+        let input_scope = DType::Struct(
+            StructFields::new(names, self.input_dtypes.clone()),
+            Nullability::NonNullable,
+        );
+        let predicate = self.predicate.current(&input_scope)?;
+        let proof = match self.proof {
+            StatsProof::Falsify => predicate.falsify(&self.session)?,
+            StatsProof::Satisfy => predicate.satisfy(&self.session)?,
+        };
+
+        // A proof that is `false` proves nothing.
+        Ok(match proof {
+            Some(proof) => self
+                .bind_children(&proof, scope)?
+                .unwrap_or_else(|| lit(false)),
+            None => lit(false),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fmt::Debug;
+    use std::sync::LazyLock;
+    use std::sync::atomic::AtomicI32;
+    use std::sync::atomic::AtomicU64;
+    use std::sync::atomic::Ordering;
+
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::StructArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::builtins::ArrayBuiltins;
+    use vortex_array::dtype::PType;
+    use vortex_array::expr::col;
+    use vortex_array::expr::dynamic_expression;
+    use vortex_array::expr::get_item as unbound_get_item;
+    use vortex_array::expr::lit as unbound_lit;
+    use vortex_array::expr::lt;
+    use vortex_array::expr::root;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
+
+    use super::*;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    /// `input 0 < threshold`, where a threshold of zero means there is no bound yet.
+    #[derive(Debug, Default)]
+    struct Threshold {
+        value: AtomicI32,
+        generation: AtomicU64,
+    }
+
+    impl Threshold {
+        fn set(&self, value: i32) {
+            self.value.store(value, Ordering::SeqCst);
+            self.generation.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    impl Display for Threshold {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(f, "threshold({})", self.value.load(Ordering::SeqCst))
+        }
+    }
+
+    impl DynamicExpressionSource for Threshold {
+        fn generation(&self) -> u64 {
+            self.generation.load(Ordering::SeqCst)
+        }
+
+        fn current(&self, scope: &DType) -> VortexResult<BoundExpression> {
+            let value = self.value.load(Ordering::SeqCst);
+            if value == 0 {
+                return unbound_lit(true).bind(scope);
+            }
+            lt(
+                unbound_get_item(input_field_name(0), root()),
+                unbound_lit(value),
+            )
+            .bind(scope)
+        }
+    }
+
+    #[test]
+    fn falsify_follows_the_current_predicate() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let threshold = Arc::new(Threshold::default());
+        let scope = DType::Struct(
+            StructFields::new(
+                FieldNames::from(vec!["a"]),
+                vec![DType::Primitive(PType::I32, Nullability::NonNullable)],
+            ),
+            Nullability::NonNullable,
+        );
+        let expr = dynamic_expression(threshold.clone(), [col("a")]).bind(&scope)?;
+
+        let falsifier = expr
+            .falsify(&SESSION)?
+            .expect("dynamic expressions always have a dynamic falsifier");
+        assert!(falsifier.is::<DynamicExpression>());
+
+        // The statistics of a zone where `a` is in 7..=9 and has no nulls or NaNs.
+        let min = Stat::Min.aggregate_fn().expect("min");
+        let max = Stat::Max.aggregate_fn().expect("max");
+        let null_count = Stat::NullCount.aggregate_fn().expect("null count");
+        let stats_scope = falsifier
+            .children()
+            .iter()
+            .map(|child| {
+                if let Some(options) = child.as_opt::<StatFn>() {
+                    let aggregate_fn = options.aggregate_fn();
+                    if *aggregate_fn == min {
+                        return buffer![7i32].into_array();
+                    }
+                    if *aggregate_fn == max {
+                        return buffer![9i32].into_array();
+                    }
+                    if *aggregate_fn == null_count {
+                        return buffer![0u64].into_array();
+                    }
+                }
+                ConstantArray::new(Scalar::null(child.dtype().as_nullable()), 1).into_array()
+            })
+            .collect::<Vec<_>>();
+        let names = (0..stats_scope.len())
+            .map(input_field_name)
+            .collect::<FieldNames>();
+        let stats = StructArray::try_new(names, stats_scope, 1, Validity::NonNullable)?;
+        let predicate = falsifier
+            .as_::<DynamicExpression>()
+            .current(stats.dtype())?;
+
+        // Without a bound, nothing is proven.
+        let result = stats.clone().into_array().apply_bound(&predicate)?;
+        assert_arrays_eq!(result, BoolArray::from_iter([false]), &mut ctx);
+
+        // A bound below the minimum proves every row false.
+        threshold.set(5);
+        let predicate = falsifier
+            .as_::<DynamicExpression>()
+            .current(stats.dtype())?;
+        let result = stats.into_array().apply_bound(&predicate)?;
+        assert_arrays_eq!(
+            result.cast(DType::Bool(Nullability::Nullable))?,
+            BoolArray::from_iter([Some(true)]),
+            &mut ctx
+        );
+        Ok(())
+    }
+}

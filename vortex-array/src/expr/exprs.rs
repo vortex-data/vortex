@@ -33,6 +33,9 @@ use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::dynamic::DynamicComparison;
 use crate::scalar_fn::fns::dynamic::DynamicComparisonExpr;
 use crate::scalar_fn::fns::dynamic::Rhs;
+use crate::scalar_fn::fns::dynamic_expression::DynamicExpression;
+use crate::scalar_fn::fns::dynamic_expression::DynamicExpressionOptions;
+use crate::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
 use crate::scalar_fn::fns::ext_storage::ExtStorage;
 use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::get_item::GetItem;
@@ -58,6 +61,8 @@ use crate::scalar_fn::fns::replace_time_zone::ReplaceTimeZone;
 use crate::scalar_fn::fns::replace_time_zone::ReplaceTimeZoneOptions;
 use crate::scalar_fn::fns::select::FieldSelection;
 use crate::scalar_fn::fns::select::Select;
+use crate::scalar_fn::fns::switch::Switch;
+use crate::scalar_fn::fns::switch::SwitchState;
 use crate::scalar_fn::fns::variant_get::VariantGet;
 use crate::scalar_fn::fns::variant_get::VariantGetOptions;
 use crate::scalar_fn::fns::variant_get::VariantPath;
@@ -1135,6 +1140,45 @@ pub fn bound_dynamic(
     )
 }
 
+/// Creates a dynamic expression that evaluates the current predicate of `source`.
+///
+/// The `inputs` are the expressions that every predicate of the source can read. A predicate
+/// reads input `i` as the field named by
+/// [`input_field_name(i)`](crate::scalar_fn::fns::dynamic_expression::input_field_name) of its
+/// scope.
+pub fn dynamic_expression(
+    source: Arc<dyn DynamicExpressionSource>,
+    inputs: impl IntoIterator<Item = Expression>,
+) -> Expression {
+    DynamicExpression.new_expr(DynamicExpressionOptions::new(source), inputs)
+}
+
+/// Creates a bound dynamic expression that evaluates the current predicate of `source`.
+pub fn bound_dynamic_expression(
+    source: Arc<dyn DynamicExpressionSource>,
+    inputs: impl IntoIterator<Item = BoundExpression>,
+) -> BoundExpression {
+    DynamicExpression
+        .try_new_bound_expr(DynamicExpressionOptions::new(source), inputs)
+        .vortex_expect("dynamic expressions accept any inputs")
+}
+
+// ---- Switch ----
+
+/// Creates a switch, initially on, over a predicate that a scan may turn off: `on ⇒ predicate`.
+///
+/// See [`Switch`] for when a predicate may be turned off.
+pub fn switch(predicate: Expression) -> Expression {
+    Switch.new_expr(SwitchState::new(), [predicate])
+}
+
+/// Creates a bound switch, initially on, over a predicate that a scan may turn off.
+pub fn bound_switch(predicate: BoundExpression) -> BoundExpression {
+    Switch
+        .try_new_bound_expr(SwitchState::new(), [predicate])
+        .vortex_expect("switch expressions require a boolean predicate")
+}
+
 // ---- ListContains ----
 
 /// Creates an expression that checks whether a list contains a value.
@@ -1431,6 +1475,7 @@ pub mod bound {
     pub use super::bound_checked_add as checked_add;
     pub use super::bound_col as col;
     pub use super::bound_dynamic as dynamic;
+    pub use super::bound_dynamic_expression as dynamic_expression;
     pub use super::bound_dynamic_with_options as dynamic_with_options;
     pub use super::bound_eq as eq;
     pub use super::bound_ext_storage as ext_storage;
@@ -1466,6 +1511,7 @@ pub mod bound {
     pub use super::bound_root as root;
     pub use super::bound_select as select;
     pub use super::bound_select_exclude as select_exclude;
+    pub use super::bound_switch as switch;
     pub use super::bound_variant_get as variant_get;
     pub use super::bound_zip_expr as zip_expr;
 }
