@@ -143,6 +143,11 @@ jobs:
       # Same settings as the bench profile, which keeps the debug info that CodSpeed uses to
       # attribute native frames. See `profile.bench_python` in Cargo.toml.
       MATURIN_PEP517_ARGS: "--profile bench_python"
+      # pytest-codspeed records Python frames only through the CPython perf trampoline, which
+      # exists from Python 3.12. On the 3.11 interpreter from `.python-version`, every Python
+      # benchmark reported "no flamegraph". The extension is built for the stable ABI from 3.11,
+      # so the same build runs on 3.13.
+      UV_PYTHON: "3.13"
     steps:
       - uses: runs-on/action@v2
         if: github.repository == 'vortex-data/vortex'
