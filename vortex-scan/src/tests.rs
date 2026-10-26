@@ -64,10 +64,7 @@ fn lookup(
 fn legacy_statistics_preserve_precision_and_match_aggregate_options() -> VortexResult<()> {
     let source: DataSourceRef = Arc::new(LegacySource {
         dtype: DType::struct_(
-            [(
-                "value",
-                DType::Primitive(PType::I32, Nullability::NonNullable),
-            )],
+            [("value", DType::Primitive(PType::I32, Nullability::Nullable))],
             Nullability::NonNullable,
         ),
     });
