@@ -86,7 +86,7 @@
 //!     .open_options()
 //!     .open_buffer(bytes)?;
 //! let filter = gt(root(), lit(2u64))
-//!     .bind(file.dtype())?
+//!     .bind(file.dtype(), &session)?
 //!     .optimize_recursive()?;
 //! let filtered = file
 //!     .scan()?
@@ -347,6 +347,7 @@ impl VortexSessionDefault for VortexSession {
             .with::<CompressionSession>()
             .with::<RuntimeSession>();
         vortex_arrow::initialize(&session);
+        vortex_layout::initialize(&session);
         #[cfg(feature = "parquet-variant")]
         vortex_parquet_variant::initialize(&session);
         vortex_uuid::initialize(&session);
@@ -484,7 +485,7 @@ mod test {
         // [read]
         let file = session.open_options().open_path(path.clone()).await?;
         let filter = gt(root(), lit(2u64))
-            .bind(file.dtype())?
+            .bind(file.dtype(), &session)?
             .optimize_recursive()?;
         let array = file
             .scan()?
@@ -579,7 +580,7 @@ mod test {
         // Read the file back, but project down to just the "value" column.
         let file = session.open_options().open_path(path.clone()).await?;
         let projection = select(["value"], root())
-            .bind(file.dtype())?
+            .bind(file.dtype(), &session)?
             .optimize_recursive()?;
         let projected = file
             .scan()?

@@ -168,19 +168,20 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::FilterExpr;
+    use crate::test::SESSION;
 
     #[test]
     fn bound_conjuncts_preserve_order_and_types() -> VortexResult<()> {
         let expr = and(root(), and(not(root()), lit(true)));
         let dtype = DType::Bool(Nullability::Nullable);
-        let bound = expr.bind(&dtype)?;
+        let bound = expr.bind(&dtype, &SESSION)?;
         let filter = FilterExpr::new(bound);
         let conjuncts = filter.conjuncts();
 
         let expected = vec![
-            root().bind(&dtype)?,
-            not(root()).bind(&dtype)?,
-            lit(true).bind(&dtype)?,
+            root().bind(&dtype, &SESSION)?,
+            not(root()).bind(&dtype, &SESSION)?,
+            lit(true).bind(&dtype, &SESSION)?,
         ];
         assert_eq!(conjuncts, expected.as_slice());
         assert_eq!(
@@ -200,7 +201,7 @@ mod tests {
     #[test]
     fn waits_for_all_conjuncts_before_reordering() -> VortexResult<()> {
         let dtype = DType::Bool(Nullability::Nullable);
-        let bound = and(root(), not(root())).bind(&dtype)?;
+        let bound = and(root(), not(root())).bind(&dtype, &SESSION)?;
         let filter = FilterExpr::new(bound);
 
         filter.report_selectivity(0, 0.9);

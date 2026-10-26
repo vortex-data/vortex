@@ -288,6 +288,8 @@ fn replace_root_dtype(expr: BoundExpression, root_dtype: DType) -> VortexResult<
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::dtype::DType;
@@ -302,9 +304,12 @@ mod tests {
     use vortex_array::expr::merge;
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::analysis::make_bound_free_field_annotator;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[fixture]
     fn dtype() -> DType {
@@ -337,11 +342,11 @@ mod tests {
         let fields = dtype.as_struct_fields_opt().unwrap();
 
         let expr = root();
-        let partitioned = partition_by_field(expr.bind(&dtype).unwrap(), &dtype).unwrap();
+        let partitioned = partition_by_field(expr.bind(&dtype, &SESSION).unwrap(), &dtype).unwrap();
 
         // An un-expanded root expression is annotated by all fields, but since it is a single node
         assert_eq!(partitioned.partitions.len(), 0);
-        assert_eq!(partitioned.root, root().bind(&dtype).unwrap());
+        assert_eq!(partitioned.root, root().bind(&dtype, &SESSION).unwrap());
 
         // Instead, callers must expand the root expression themselves.
         let expr = pack(
@@ -351,12 +356,12 @@ mod tests {
                 .map(|name| (name.clone(), col(name.clone()))),
             NonNullable,
         );
-        let partitioned = partition_by_field(expr.bind(&dtype).unwrap(), &dtype).unwrap();
+        let partitioned = partition_by_field(expr.bind(&dtype, &SESSION).unwrap(), &dtype).unwrap();
 
         assert_eq!(partitioned.partitions.len(), fields.names().len());
         for name in fields.names().iter() {
             let expected = pack([(format!("{name}_0"), col(name.clone()))], NonNullable)
-                .bind(&dtype)
+                .bind(&dtype, &SESSION)
                 .unwrap();
             assert_eq!(partitioned.find_partition(name), Some(&expected));
         }
@@ -366,13 +371,13 @@ mod tests {
     fn test_expr_top_level_ref_get_item_and_split(dtype: DType) {
         let expr = get_item("y", get_item("a", root()));
 
-        let partitioned = partition_by_field(expr.bind(&dtype).unwrap(), &dtype).unwrap();
+        let partitioned = partition_by_field(expr.bind(&dtype, &SESSION).unwrap(), &dtype).unwrap();
         let root_dtype =
             partition_root_dtype(&partitioned.partition_names, &partitioned.partitions);
         assert_eq!(
             partitioned.root,
             get_item("a_0", get_item("a", root()))
-                .bind(&root_dtype)
+                .bind(&root_dtype, &SESSION)
                 .unwrap()
         );
     }
@@ -387,7 +392,7 @@ mod tests {
             ],
             NonNullable,
         );
-        let partitioned = partition_by_field(expr.bind(&dtype).unwrap(), &dtype).unwrap();
+        let partitioned = partition_by_field(expr.bind(&dtype, &SESSION).unwrap(), &dtype).unwrap();
 
         let split_a = partitioned.find_partition(&"a".into()).unwrap();
         assert_eq!(
@@ -399,7 +404,7 @@ mod tests {
                 ],
                 NonNullable
             )
-            .bind(&dtype)
+            .bind(&dtype, &SESSION)
             .unwrap()
         );
     }
@@ -407,37 +412,43 @@ mod tests {
     #[rstest]
     fn test_expr_top_level_ref_get_item_add(dtype: DType) {
         let expr = checked_add(get_item("y", get_item("a", root())), lit(1));
-        let partitioned = partition_by_field(expr.bind(&dtype).unwrap(), &dtype).unwrap();
+        let partitioned = partition_by_field(expr.bind(&dtype, &SESSION).unwrap(), &dtype).unwrap();
 
         // Whole expr is a single split
         assert_eq!(partitioned.partitions.len(), 1);
-        let expected = pack([("a_0", expr)], NonNullable).bind(&dtype).unwrap();
+        let expected = pack([("a_0", expr)], NonNullable)
+            .bind(&dtype, &SESSION)
+            .unwrap();
         assert_eq!(partitioned.find_partition(&"a".into()), Some(&expected));
         let root_dtype =
             partition_root_dtype(&partitioned.partition_names, &partitioned.partitions);
         assert_eq!(
             partitioned.root,
-            get_item("a_0", col("a")).bind(&root_dtype).unwrap()
+            get_item("a_0", col("a"))
+                .bind(&root_dtype, &SESSION)
+                .unwrap()
         );
     }
 
     #[rstest]
     fn test_expr_top_level_ref_get_item_add_cannot_split(dtype: DType) {
         let expr = checked_add(get_item("y", get_item("a", root())), get_item("b", root()));
-        let partitioned = partition_by_field(expr.bind(&dtype).unwrap(), &dtype).unwrap();
+        let partitioned = partition_by_field(expr.bind(&dtype, &SESSION).unwrap(), &dtype).unwrap();
 
         // One for id.a and id.b
         assert_eq!(partitioned.partitions.len(), 2);
         let expected_a = pack([("a_0", get_item("y", col("a")))], NonNullable)
-            .bind(&dtype)
+            .bind(&dtype, &SESSION)
             .unwrap();
-        let expected_b = pack([("b_0", col("b"))], NonNullable).bind(&dtype).unwrap();
+        let expected_b = pack([("b_0", col("b"))], NonNullable)
+            .bind(&dtype, &SESSION)
+            .unwrap();
         assert_eq!(partitioned.find_partition(&"a".into()), Some(&expected_a));
         assert_eq!(partitioned.find_partition(&"b".into()), Some(&expected_b));
         let root_dtype =
             partition_root_dtype(&partitioned.partition_names, &partitioned.partitions);
         let expected_root = checked_add(get_item("a_0", col("a")), get_item("b_0", col("b")))
-            .bind(&root_dtype)
+            .bind(&root_dtype, &SESSION)
             .unwrap();
         assert_eq!(partitioned.root, expected_root);
     }
@@ -446,13 +457,13 @@ mod tests {
     fn test_expr_merge(dtype: DType) {
         let expr = merge([col("a"), pack([("b", col("b"))], NonNullable)]);
 
-        let partitioned = partition_by_field(expr.bind(&dtype).unwrap(), &dtype).unwrap();
+        let partitioned = partition_by_field(expr.bind(&dtype, &SESSION).unwrap(), &dtype).unwrap();
         let expected = merge([get_item("a_0", col("a")), get_item("b_0", col("b"))]);
         let root_dtype =
             partition_root_dtype(&partitioned.partition_names, &partitioned.partitions);
         assert_eq!(
             partitioned.root,
-            expected.bind(&root_dtype).unwrap(),
+            expected.bind(&root_dtype, &SESSION).unwrap(),
             "{} {}",
             partitioned.root,
             expected
@@ -464,7 +475,7 @@ mod tests {
         let expected_a = pack([("a_0", col("a"))], NonNullable);
         assert_eq!(
             part_a,
-            &expected_a.bind(&dtype).unwrap(),
+            &expected_a.bind(&dtype, &SESSION).unwrap(),
             "{part_a} {expected_a}"
         );
 
@@ -472,16 +483,16 @@ mod tests {
         let expected_b = pack([("b_0", pack([("b", col("b"))], NonNullable))], NonNullable);
         assert_eq!(
             part_b,
-            &expected_b.bind(&dtype).unwrap(),
+            &expected_b.bind(&dtype, &SESSION).unwrap(),
             "{part_b} {expected_b}"
         );
     }
 
     #[rstest]
     fn replacing_partitions_refreshes_root_dtype(dtype: DType) -> VortexResult<()> {
-        let mut partitioned = partition_by_field(col("b").bind(&dtype)?, &dtype)?;
+        let mut partitioned = partition_by_field(col("b").bind(&dtype, &SESSION)?, &dtype)?;
         let field_dtype = DType::Primitive(I32, Nullable);
-        let replacement = pack([("b_0", root())], NonNullable).bind(&field_dtype)?;
+        let replacement = pack([("b_0", root())], NonNullable).bind(&field_dtype, &SESSION)?;
 
         partitioned.replace_partitions(vec![replacement].into_boxed_slice())?;
 

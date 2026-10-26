@@ -59,7 +59,7 @@ impl<V: ByteLengthKernel> ExecuteParentKernel<V> for ByteLengthExecuteAdaptor<V>
 }
 
 /// Byte length of each element in a Utf8 or Binary array.
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct ByteLength;
 
 impl ScalarFnVTable for ByteLength {
@@ -198,7 +198,7 @@ mod tests {
         #[case] expected_lens: Vec<u64>,
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let result = array.apply(&byte_length(root()))?;
+        let result = array.apply(&byte_length(root()), &SESSION)?;
         let expected = PrimitiveArray::from_iter(expected_lens);
         assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
@@ -208,7 +208,7 @@ mod tests {
     fn test_varbinview_byte_length() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let array = VarBinViewArray::from_iter_str(["short", "a longer string here"]).into_array();
-        let result = array.apply(&byte_length(root()))?;
+        let result = array.apply(&byte_length(root()), &SESSION)?;
         let expected = PrimitiveArray::from_iter(vec![5u64, 20]);
         assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
@@ -218,7 +218,7 @@ mod tests {
     fn test_nullable_string_byte_length() -> VortexResult<()> {
         let array = VarBinArray::from_nullable_strs(vec![Some("hello"), None, Some("Пуховички")])
             .into_array();
-        let result = array.apply(&byte_length(root()))?;
+        let result = array.apply(&byte_length(root()), &SESSION)?;
 
         let mut ctx = SESSION.create_execution_ctx();
         assert!(result.is_valid(0, &mut ctx)?);
@@ -244,7 +244,7 @@ mod tests {
     fn test_null_scalar_byte_length() -> VortexResult<()> {
         let null_scalar = Scalar::null(DType::Utf8(Nullability::Nullable));
         let array = ConstantArray::new(null_scalar, 2).into_array();
-        let result = array.apply(&byte_length(root()))?;
+        let result = array.apply(&byte_length(root()), &SESSION)?;
         let mut ctx = SESSION.create_execution_ctx();
         assert!(!result.is_valid(0, &mut ctx)?);
         assert!(!result.is_valid(1, &mut ctx)?);

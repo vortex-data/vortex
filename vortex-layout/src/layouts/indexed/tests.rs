@@ -71,6 +71,7 @@ use crate::segments::SegmentSource;
 use crate::segments::TestSegments;
 use crate::sequence::SequenceId;
 use crate::sequence::SequentialArrayStreamExt;
+use crate::test::SESSION;
 use crate::test::new_session;
 
 /// The only index kind these tests attach, standing in for a real plugin.
@@ -201,7 +202,7 @@ async fn prune_mask(
 ) -> VortexResult<Mask> {
     let reader = text_reader(session, layout, segments)?;
     let row_count = reader.row_count();
-    let filter = like(root(), lit(format!("%{needle}%"))).bind(reader.dtype())?;
+    let filter = like(root(), lit(format!("%{needle}%"))).bind(reader.dtype(), &SESSION)?;
 
     reader
         .pruning_evaluation(
@@ -225,7 +226,7 @@ async fn exact_mask(
 ) -> VortexResult<Mask> {
     let reader = text_reader(session, layout, segments)?;
     let row_count = reader.row_count();
-    let filter = eq(root(), lit(value)).bind(reader.dtype())?;
+    let filter = eq(root(), lit(value)).bind(reader.dtype(), &SESSION)?;
 
     reader
         .filter_evaluation(&(0..row_count), &filter, input)?
@@ -239,7 +240,7 @@ async fn scan_matching(
     needle: &str,
 ) -> VortexResult<Vec<String>> {
     let reader = text_reader(session, layout, segments)?;
-    let filter = like(root(), lit(format!("%{needle}%"))).bind(reader.dtype())?;
+    let filter = like(root(), lit(format!("%{needle}%"))).bind(reader.dtype(), &SESSION)?;
 
     let text = ScanBuilder::new(session.clone(), reader)
         .with_filter(filter)
@@ -430,7 +431,7 @@ async fn multiple_superset_claims_intersect() -> VortexResult<()> {
     let reader = text_reader(&session, &layout, segments)?;
     let row_count = reader.row_count();
     // `FixedSupersetIndex` claims unconditionally, so any bound Utf8 conjunct exercises it.
-    let filter = eq(root(), lit("irrelevant")).bind(reader.dtype())?;
+    let filter = eq(root(), lit("irrelevant")).bind(reader.dtype(), &SESSION)?;
     let mask = reader
         .pruning_evaluation(
             &(0..row_count),
@@ -466,7 +467,7 @@ async fn exact_claim_discards_a_preceding_superset_claim() -> VortexResult<()> {
 
     let reader = text_reader(&session, &layout, segments)?;
     let row_count = reader.row_count();
-    let filter = eq(root(), lit(ROWS[2])).bind(reader.dtype())?;
+    let filter = eq(root(), lit(ROWS[2])).bind(reader.dtype(), &SESSION)?;
     let mask = reader
         .pruning_evaluation(
             &(0..row_count),
@@ -486,7 +487,7 @@ fn i64_dtype() -> DType {
 /// The pruning mask for a Utf8 conjunct `FixedSupersetIndex` claims unconditionally.
 async fn superset_prune_mask(reader: &LayoutReaderRef) -> VortexResult<Mask> {
     let row_count = reader.row_count();
-    let filter = eq(root(), lit("irrelevant")).bind(reader.dtype())?;
+    let filter = eq(root(), lit("irrelevant")).bind(reader.dtype(), &SESSION)?;
     reader
         .pruning_evaluation(
             &(0..row_count),
@@ -640,7 +641,7 @@ fn expected_rows(row_range: &Range<u64>, value: &str) -> VortexResult<Mask> {
 }
 
 fn eq_filter(reader: &LayoutReaderRef, value: &str) -> VortexResult<BoundExpression> {
-    eq(root(), lit(value)).bind(reader.dtype())
+    eq(root(), lit(value)).bind(reader.dtype(), &SESSION)
 }
 
 /// Index content and metadata for the first (only) index on `layout`.
@@ -1089,9 +1090,8 @@ mod exact_value {
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::StructFields;
     use vortex_array::expr::BoundExpression;
-    use vortex_array::expr::col;
-    use vortex_array::expr::eq;
-    use vortex_array::expr::lit;
+    use vortex_array::expr::bound;
+    use vortex_array::scalar_fn::ScalarFnVTableExt;
     use vortex_array::scalar_fn::fns::binary::Binary;
     use vortex_array::scalar_fn::fns::literal::Literal;
     use vortex_array::scalar_fn::fns::operators::Operator;
@@ -1223,7 +1223,13 @@ mod exact_value {
 
             Ok(Some(IndexQueryPlan {
                 exactness: IndexExactness::Exact,
-                filter: eq(col(KEY_FIELD), lit(value.clone())).bind(index_dtype)?,
+                filter: Binary.try_new_bound_expr(
+                    Operator::Eq,
+                    [
+                        bound::col(KEY_FIELD, index_dtype.clone()),
+                        bound::lit(value.clone()),
+                    ],
+                )?,
                 query: value,
             }))
         }
@@ -1486,9 +1492,10 @@ mod fixed_superset {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::expr::BoundExpression;
-    use vortex_array::expr::eq;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::root;
+    use vortex_array::expr::bound;
+    use vortex_array::scalar_fn::ScalarFnVTableExt;
+    use vortex_array::scalar_fn::fns::binary::Binary;
+    use vortex_array::scalar_fn::fns::operators::Operator;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -1588,7 +1595,10 @@ mod fixed_superset {
         ) -> VortexResult<Option<IndexQueryPlan<RoaringBitmap>>> {
             Ok(Some(IndexQueryPlan {
                 exactness: IndexExactness::Superset,
-                filter: eq(root(), lit(self.probe)).bind(index_dtype)?,
+                filter: Binary.try_new_bound_expr(
+                    Operator::Eq,
+                    [bound::root(index_dtype.clone()), bound::lit(self.probe)],
+                )?,
                 query: self.rows.clone(),
             }))
         }

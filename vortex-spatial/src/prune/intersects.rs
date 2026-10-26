@@ -51,6 +51,8 @@ impl StatsRewriteRule for SpatialIntersectsPrune {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::VortexSessionExecute;
     use vortex_array::dtype::DType;
@@ -65,6 +67,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
     use vortex_expr::stats::rewrite::StatsRewriteRule;
+    use vortex_session::VortexSession;
 
     use super::SpatialIntersectsPrune;
     use crate::prune::test_harness::aabb_zone_map;
@@ -72,6 +75,12 @@ mod tests {
     use crate::scalar_fn::intersects::SpatialIntersects;
     use crate::test_harness::point_column;
     use crate::test_harness::spatial_session;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     /// Run the intersects rule against `SpatialIntersects(root, point(1.0, 0.5))`, operands swapped
     /// when `geom_first` is false.
@@ -88,7 +97,7 @@ mod tests {
         };
         let predicate = SpatialIntersects
             .new_expr(EmptyOptions, operands)
-            .bind(&scope)?;
+            .bind(&scope, &SESSION)?;
         SpatialIntersectsPrune.falsify(&predicate, &session)
     }
 
@@ -119,7 +128,7 @@ mod tests {
         let scope = DType::Primitive(PType::F64, Nullability::NonNullable);
         let query = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
         let predicate = SpatialIntersects.new_expr(EmptyOptions, [root(), lit(query)]);
-        assert!(predicate.bind(&scope).is_err());
+        assert!(predicate.bind(&scope, &SESSION).is_err());
         Ok(())
     }
 
@@ -133,7 +142,7 @@ mod tests {
         let null_query = Scalar::null(scope.as_nullable());
         let predicate = SpatialIntersects
             .new_expr(EmptyOptions, [root(), lit(null_query)])
-            .bind(&scope)?;
+            .bind(&scope, &SESSION)?;
 
         assert!(
             SpatialIntersectsPrune
@@ -165,7 +174,7 @@ mod tests {
         let query = point_column(vec![1.0], vec![0.5])?.execute_scalar(0, &mut ctx)?;
         let predicate = SpatialIntersects.new_expr(EmptyOptions, [root(), lit(query)]);
         let proof = predicate
-            .bind(&point_dtype)?
+            .bind(&point_dtype, &SESSION)?
             .falsify(&session)?
             .expect("intersects filter should be falsifiable");
 
@@ -186,7 +195,7 @@ mod tests {
         let query = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
         let proof = SpatialIntersects
             .new_expr(EmptyOptions, [root(), lit(query)])
-            .bind(&point_dtype)?
+            .bind(&point_dtype, &SESSION)?
             .falsify(&session)?
             .expect("intersects filter should be falsifiable");
 

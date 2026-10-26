@@ -33,7 +33,7 @@ use crate::scalar_fn::ScalarFnVTable;
 use crate::validity::Validity;
 
 /// Pack zero or more expressions into a structure with named fields.
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct Pack;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -178,7 +178,10 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
+    use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::StructFields;
     use crate::expr::col;
     use crate::expr::pack;
     use crate::scalar_fn::ScalarFnVTableExt;
@@ -232,7 +235,7 @@ mod tests {
         );
 
         let test_array = test_array();
-        let actual_array = test_array.clone().apply(&expr).unwrap();
+        let actual_array = test_array.clone().apply(&expr, &SESSION).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         let nfields = actual_array
             .execute::<StructArray>(&mut ctx)
@@ -254,7 +257,7 @@ mod tests {
         );
 
         let actual_array = test_array()
-            .apply(&expr)
+            .apply(&expr, &SESSION)
             .unwrap()
             .execute::<StructArray>(&mut ctx)
             .unwrap();
@@ -301,7 +304,7 @@ mod tests {
         );
 
         let actual_array = test_array()
-            .apply(&expr)
+            .apply(&expr, &SESSION)
             .unwrap()
             .execute::<StructArray>(&mut ctx)
             .unwrap();
@@ -342,7 +345,7 @@ mod tests {
         );
 
         let actual_array = test_array()
-            .apply(&expr)
+            .apply(&expr, &SESSION)
             .unwrap()
             .execute::<StructArray>(&mut ctx)
             .unwrap();
@@ -369,7 +372,20 @@ mod tests {
             [("id", col("user_id")), ("name", col("username"))],
             Nullability::NonNullable,
         );
-        assert_eq!(expr.to_string(), "pack(id: $.user_id, name: $.username)");
+        let scope = DType::Struct(
+            StructFields::from_iter([
+                (
+                    "user_id",
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                ),
+                ("username", DType::Utf8(Nullability::NonNullable)),
+            ]),
+            Nullability::NonNullable,
+        );
+        assert_eq!(
+            expr.bind(&scope, &SESSION).unwrap().to_string(),
+            "pack(id: $.user_id, name: $.username)"
+        );
 
         let expr2 = Pack.new_expr(
             PackOptions {
@@ -378,6 +394,16 @@ mod tests {
             },
             [col("a"), col("b")],
         );
-        assert_eq!(expr2.to_string(), "pack(x: $.a, y: $.b)?");
+        let scope = DType::Struct(
+            StructFields::from_iter([
+                ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                ("b", DType::Primitive(PType::I32, Nullability::NonNullable)),
+            ]),
+            Nullability::NonNullable,
+        );
+        assert_eq!(
+            expr2.bind(&scope, &SESSION).unwrap().to_string(),
+            "pack(x: $.a, y: $.b)?"
+        );
     }
 }

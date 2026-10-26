@@ -87,12 +87,16 @@ fn make_plan(layout: LayoutRef) -> VortexResult<PlanRef> {
 }
 
 fn make_eval(expression: Expression, child: PlanRef) -> VortexResult<EvalPlan> {
-    let expression = expression.bind(child.dtype())?.optimize_recursive()?;
+    let expression = expression
+        .bind(child.dtype(), &SESSION)?
+        .optimize_recursive()?;
     EvalPlan::try_new(expression, child)
 }
 
 fn make_row_idx_plan(expression: Expression, child: PlanRef) -> VortexResult<PlanRef> {
-    let expression = expression.bind(child.dtype())?.optimize_recursive()?;
+    let expression = expression
+        .bind(child.dtype(), &SESSION)?
+        .optimize_recursive()?;
     plan_row_idx_expression(expression, child)
 }
 
@@ -355,7 +359,7 @@ fn with_children_replaces_children_in_order() -> VortexResult<()> {
 
 #[test]
 fn eval_try_new_validates_expression_root_dtype() -> VortexResult<()> {
-    let expression = root().bind(&primitive(PType::I32, Nullability::NonNullable))?;
+    let expression = root().bind(&primitive(PType::I32, Nullability::NonNullable), &SESSION)?;
     let child = make_plan(flat(3, primitive(PType::I64, Nullability::NonNullable), 0))?;
 
     let error = EvalPlan::try_new(expression, child)
@@ -373,7 +377,7 @@ fn eval_try_new_validates_expression_root_dtype() -> VortexResult<()> {
 #[test]
 fn optimize_drops_identity_expressions() -> VortexResult<()> {
     let child = make_plan(flat(3, primitive(PType::I32, Nullability::NonNullable), 0))?;
-    let expression = root().bind(child.dtype())?;
+    let expression = root().bind(child.dtype(), &SESSION)?;
     let plan: PlanRef = EvalPlan::try_new(expression, child)?.into_plan();
 
     assert!(optimize(plan)?.is::<Filter>());
@@ -394,7 +398,8 @@ fn optimize_rewrites_nested_children() -> VortexResult<()> {
     // Wrap the first chunk in an identity expression, which optimization should remove without
     // any chunked-specific rule.
     let chunk = child_of(&chunked, 0)?;
-    let identity: PlanRef = EvalPlan::try_new(root().bind(chunk.dtype())?, chunk)?.into_plan();
+    let identity: PlanRef =
+        EvalPlan::try_new(root().bind(chunk.dtype(), &SESSION)?, chunk)?.into_plan();
     let wrapped = chunked.with_children(vec![identity, child_of(&chunked, 1)?])?;
 
     let optimized = optimize(wrapped)?;
@@ -417,7 +422,7 @@ fn plan_display_matches_array_tree_display_shape() -> VortexResult<()> {
     )
     .into_layout();
     let child = make_plan(layout)?;
-    let expression = get_item("a", root()).bind(child.dtype())?;
+    let expression = get_item("a", root()).bind(child.dtype(), &SESSION)?;
     let plan = EvalPlan::try_new(expression, child)?;
 
     assert_eq!(plan.to_string(), "vortex.plan.eval(i32, rows=3) expr=$.a");
@@ -1274,7 +1279,7 @@ fn stats_expression_rewrites_to_zoned_pruning_plan() -> VortexResult<()> {
     let session = VortexSession::empty();
     let filter = gt(root(), lit(5_i32));
     let falsifier = filter
-        .bind(&dtype)?
+        .bind(&dtype, &SESSION)?
         .falsify(&session)?
         .ok_or_else(|| vortex_err!("filter has no falsifier"))?;
     let source = make_plan(layout)?;
@@ -1303,7 +1308,7 @@ fn stats_expression_rewrites_to_zoned_pruning_plan() -> VortexResult<()> {
     assert!(zoned.data_plan()?.is_none());
     assert_eq!(zoned.children().len(), 1);
 
-    let mixed_expression = bound_and(falsifier, gt(root(), lit(0_i32)).bind(&dtype)?);
+    let mixed_expression = bound_and(falsifier, gt(root(), lit(0_i32)).bind(&dtype, &SESSION)?);
     let mixed = optimize(EvalPlan::try_new(mixed_expression, source)?.into_plan())?;
     let mixed = mixed
         .as_opt::<Eval>()
@@ -1355,7 +1360,7 @@ fn pruning_expression_partitions_across_row_idx_and_zoned_struct_field() -> Vort
         gt(get_item("a", root()), lit(5_i32)),
     );
     let falsifier = filter
-        .bind(&struct_dtype)?
+        .bind(&struct_dtype, &SESSION)?
         .falsify(&session)?
         .ok_or_else(|| vortex_err!("filter has no falsifier"))?;
 
@@ -1504,7 +1509,7 @@ fn legacy_stats_rewrite_to_zoned_over_converted_zones() -> VortexResult<()> {
     assert_eq!(zones.dtype(), &zones_dtype);
 
     let falsifier = gt(root(), lit(5_i32))
-        .bind(&dtype)?
+        .bind(&dtype, &SESSION)?
         .falsify(&SESSION)?
         .ok_or_else(|| vortex_err!("filter has no falsifier"))?;
     let pruning = optimize(EvalPlan::try_new(falsifier, legacy)?.into_plan())?;
@@ -1536,11 +1541,11 @@ fn converted_legacy_zones_prune() -> VortexResult<()> {
 
     let converted = table
         .into_array()
-        .apply_bound(&conversion.bind(&table_dtype)?)?
+        .apply_bound(&conversion)?
         .execute::<StructArray>(&mut SESSION.create_execution_ctx())?;
     let zone_map = ZoneMap::try_new(dtype.clone(), converted, aggregate_fns, 3, 5)?;
     let falsifier = gt(root(), lit(5_i32))
-        .bind(&dtype)?
+        .bind(&dtype, &SESSION)?
         .falsify(&SESSION)?
         .ok_or_else(|| vortex_err!("filter has no falsifier"))?;
     // Only the first zone's max proves no row exceeds 5.
@@ -1684,7 +1689,7 @@ fn zoned_pruning_plan_with_new_zones_proves_them_again() -> VortexResult<()> {
     )
     .into_plan();
     let falsifier = gt(root(), lit(5_i32))
-        .bind(&dtype)?
+        .bind(&dtype, &SESSION)?
         .falsify(&SESSION)?
         .ok_or_else(|| vortex_err!("filter has no falsifier"))?;
     let pruning = optimize(EvalPlan::try_new(falsifier.clone(), source)?.into_plan())?;

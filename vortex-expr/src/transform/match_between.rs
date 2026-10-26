@@ -344,7 +344,10 @@ mod tests {
     )]
     fn finds_between(#[case] expr: Expression, #[case] expected: Expression) -> VortexResult<()> {
         let scope = scope();
-        assert_eq!(find_between(expr.bind(&scope)?)?, expected.bind(&scope)?);
+        assert_eq!(
+            find_between(expr.bind(&scope, &SESSION)?)?,
+            expected.bind(&scope, &SESSION)?
+        );
         Ok(())
     }
 
@@ -371,7 +374,10 @@ mod tests {
         };
         let expected = and(and(range("x"), range("y")), range("z"));
 
-        assert_eq!(find_between(expr.bind(&scope)?)?, expected.bind(&scope)?);
+        assert_eq!(
+            find_between(expr.bind(&scope, &SESSION)?)?,
+            expected.bind(&scope, &SESSION)?
+        );
         Ok(())
     }
 
@@ -390,11 +396,11 @@ mod tests {
 
         let before = data
             .clone()
-            .apply(&expr)?
+            .apply(&expr, &SESSION)?
             .execute::<BoolArray>(ctx)?
             .opt_bool_vec(ctx);
 
-        let rewritten = find_between(expr.bind(data.dtype())?)?;
+        let rewritten = find_between(expr.bind(data.dtype(), &SESSION)?)?;
         let after = data
             .apply_bound(&rewritten)?
             .execute::<BoolArray>(ctx)?

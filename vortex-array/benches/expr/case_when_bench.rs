@@ -20,6 +20,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::expr::Expression;
 use vortex_array::expr::case_when;
 use vortex_array::expr::case_when_no_else;
 use vortex_array::expr::eq;
@@ -101,6 +102,26 @@ fn bench_branches(bencher: Bencher, run_length: usize, lhs: ArrayRef, rhs: Array
         .bench_refs(|ctx| array.clone().execute::<Canonical>(ctx).unwrap());
 }
 
+/// Binds and optimizes `expr` against `array` once, as a scan does, and times applying the bound
+/// expression and executing the result.
+fn bench_bound(bencher: Bencher, expr: &Expression, array: &ArrayRef) {
+    let bound = expr
+        .bind(array.dtype(), &SESSION)
+        .unwrap()
+        .optimize_recursive()
+        .unwrap();
+    bencher
+        .with_inputs(|| SESSION.create_execution_ctx())
+        .bench_refs(|ctx| {
+            array
+                .clone()
+                .apply_bound(&bound)
+                .unwrap()
+                .execute::<Canonical>(ctx)
+                .unwrap()
+        });
+}
+
 fn make_struct_array(size: usize) -> ArrayRef {
     let data: Buffer<i32> = (0..size as i32).collect();
     let field = data.into_array();
@@ -137,16 +158,7 @@ fn case_when_simple(bencher: Bencher, size: usize) {
         lit(0i32),
     );
 
-    bencher
-        .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
-        .bench_refs(|(expr, array, ctx)| {
-            array
-                .clone()
-                .apply(expr)
-                .unwrap()
-                .execute::<Canonical>(ctx)
-                .unwrap()
-        });
+    bench_bound(bencher, &expr, &array);
 }
 
 /// Benchmark n-ary CASE WHEN with 3 conditions.
@@ -164,16 +176,7 @@ fn case_when_nary_3_conditions(bencher: Bencher, size: usize) {
         Some(lit(0i32)),
     );
 
-    bencher
-        .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
-        .bench_refs(|(expr, array, ctx)| {
-            array
-                .clone()
-                .apply(expr)
-                .unwrap()
-                .execute::<Canonical>(ctx)
-                .unwrap()
-        });
+    bench_bound(bencher, &expr, &array);
 }
 
 /// Benchmark n-ary CASE WHEN with 10 conditions.
@@ -192,16 +195,7 @@ fn case_when_nary_10_conditions(bencher: Bencher, size: usize) {
         .collect();
     let expr = nested_case_when(pairs, Some(lit(0i32)));
 
-    bencher
-        .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
-        .bench_refs(|(expr, array, ctx)| {
-            array
-                .clone()
-                .apply(expr)
-                .unwrap()
-                .execute::<Canonical>(ctx)
-                .unwrap()
-        });
+    bench_bound(bencher, &expr, &array);
 }
 
 /// Benchmark n-ary CASE WHEN with equality conditions (lookup-table style).
@@ -215,16 +209,7 @@ fn case_when_nary_equality_lookup(bencher: Bencher, size: usize) {
         .collect();
     let expr = nested_case_when(pairs, Some(lit(-1i32)));
 
-    bencher
-        .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
-        .bench_refs(|(expr, array, ctx)| {
-            array
-                .clone()
-                .apply(expr)
-                .unwrap()
-                .execute::<Canonical>(ctx)
-                .unwrap()
-        });
+    bench_bound(bencher, &expr, &array);
 }
 
 /// Benchmark CASE WHEN without ELSE clause (result is nullable).
@@ -235,16 +220,7 @@ fn case_when_without_else(bencher: Bencher, size: usize) {
     // CASE WHEN value > 500 THEN 100 END
     let expr = case_when_no_else(gt(get_item("value", root()), lit(500i32)), lit(100i32));
 
-    bencher
-        .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
-        .bench_refs(|(expr, array, ctx)| {
-            array
-                .clone()
-                .apply(expr)
-                .unwrap()
-                .execute::<Canonical>(ctx)
-                .unwrap()
-        });
+    bench_bound(bencher, &expr, &array);
 }
 
 /// Benchmark CASE WHEN where all conditions are true.
@@ -259,16 +235,7 @@ fn case_when_all_true(bencher: Bencher, size: usize) {
         lit(0i32),
     );
 
-    bencher
-        .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
-        .bench_refs(|(expr, array, ctx)| {
-            array
-                .clone()
-                .apply(expr)
-                .unwrap()
-                .execute::<Canonical>(ctx)
-                .unwrap()
-        });
+    bench_bound(bencher, &expr, &array);
 }
 
 /// Benchmark n-ary CASE WHEN where the first branch dominates (~90% of rows).
@@ -292,16 +259,7 @@ fn case_when_nary_early_dominant(bencher: Bencher, size: usize) {
         Some(lit(4i32)),
     );
 
-    bencher
-        .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
-        .bench_refs(|(expr, array, ctx)| {
-            array
-                .clone()
-                .apply(expr)
-                .unwrap()
-                .execute::<Canonical>(ctx)
-                .unwrap()
-        });
+    bench_bound(bencher, &expr, &array);
 }
 
 /// Benchmark CASE WHEN where all conditions are false.
@@ -316,16 +274,7 @@ fn case_when_all_false(bencher: Bencher, size: usize) {
         lit(0i32),
     );
 
-    bencher
-        .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
-        .bench_refs(|(expr, array, ctx)| {
-            array
-                .clone()
-                .apply(expr)
-                .unwrap()
-                .execute::<Canonical>(ctx)
-                .unwrap()
-        });
+    bench_bound(bencher, &expr, &array);
 }
 
 /// Benchmark compact CASE WHEN assembly with three interleaved branches.
@@ -343,14 +292,5 @@ fn case_when_fragmented(bencher: Bencher, size: usize) {
         Some(lit(2i32)),
     );
 
-    bencher
-        .with_inputs(|| (&expr, &array, SESSION.create_execution_ctx()))
-        .bench_refs(|(expr, array, ctx)| {
-            array
-                .clone()
-                .apply(expr)
-                .unwrap()
-                .execute::<Canonical>(ctx)
-                .unwrap()
-        });
+    bench_bound(bencher, &expr, &array);
 }

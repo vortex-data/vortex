@@ -91,6 +91,8 @@ fn null_expr(dtype: DType) -> VortexResult<BoundExpression> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
@@ -103,10 +105,13 @@ mod tests {
     use vortex_array::expr::root;
     use vortex_array::expr::stats::Stat;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::stats::all_non_nan;
     use crate::stats::nan_count;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     struct TestBinder {
         input_scope: DType,
@@ -149,7 +154,7 @@ mod tests {
 
             if stat == Stat::NaNCount && self.bind_nan_count {
                 Ok(Some(
-                    get_item("f_nan_count", root()).bind(&self.stats_scope)?,
+                    get_item("f_nan_count", root()).bind(&self.stats_scope, &SESSION)?,
                 ))
             } else {
                 Ok(None)
@@ -161,9 +166,15 @@ mod tests {
     fn nan_count_binds_to_direct_stat_slot() -> VortexResult<()> {
         let binder = TestBinder::new(true);
 
-        let bound = bind_stats(nan_count(col("f")).bind(&binder.input_scope)?, &binder)?;
+        let bound = bind_stats(
+            nan_count(col("f")).bind(&binder.input_scope, &SESSION)?,
+            &binder,
+        )?;
 
-        assert_eq!(bound, col("f_nan_count").bind(&binder.stats_scope)?);
+        assert_eq!(
+            bound,
+            col("f_nan_count").bind(&binder.stats_scope, &SESSION)?
+        );
         Ok(())
     }
 
@@ -171,11 +182,15 @@ mod tests {
     fn all_non_nan_does_not_derive_from_nan_count() -> VortexResult<()> {
         let binder = TestBinder::new(true);
 
-        let bound = bind_stats(all_non_nan(col("f")).bind(&binder.input_scope)?, &binder)?;
+        let bound = bind_stats(
+            all_non_nan(col("f")).bind(&binder.input_scope, &SESSION)?,
+            &binder,
+        )?;
 
         assert_eq!(
             bound,
-            lit(Scalar::null(DType::Bool(Nullability::Nullable))).bind(&binder.stats_scope)?
+            lit(Scalar::null(DType::Bool(Nullability::Nullable)))
+                .bind(&binder.stats_scope, &SESSION)?
         );
         Ok(())
     }
@@ -186,21 +201,24 @@ mod tests {
         let null_bool = lit(Scalar::null(DType::Bool(Nullability::Nullable)));
 
         let bound = bind_stats(
-            and(lit(false), all_non_nan(col("f"))).bind(&binder.input_scope)?,
+            and(lit(false), all_non_nan(col("f"))).bind(&binder.input_scope, &SESSION)?,
             &binder,
         )?;
 
         assert_eq!(
             bound,
-            and(lit(false), null_bool.clone()).bind(&binder.stats_scope)?
+            and(lit(false), null_bool.clone()).bind(&binder.stats_scope, &SESSION)?
         );
 
         let bound = bind_stats(
-            or(lit(true), all_non_nan(col("f"))).bind(&binder.input_scope)?,
+            or(lit(true), all_non_nan(col("f"))).bind(&binder.input_scope, &SESSION)?,
             &binder,
         )?;
 
-        assert_eq!(bound, or(lit(true), null_bool).bind(&binder.stats_scope)?);
+        assert_eq!(
+            bound,
+            or(lit(true), null_bool).bind(&binder.stats_scope, &SESSION)?
+        );
         Ok(())
     }
 
@@ -208,9 +226,15 @@ mod tests {
     fn unrelated_expressions_are_preserved() -> VortexResult<()> {
         let binder = TestBinder::new(false);
 
-        let bound = bind_stats(is_null(col("f")).bind(&binder.input_scope)?, &binder)?;
+        let bound = bind_stats(
+            is_null(col("f")).bind(&binder.input_scope, &SESSION)?,
+            &binder,
+        )?;
 
-        assert_eq!(bound, is_null(col("f")).bind(&binder.input_scope)?);
+        assert_eq!(
+            bound,
+            is_null(col("f")).bind(&binder.input_scope, &SESSION)?
+        );
         Ok(())
     }
 }

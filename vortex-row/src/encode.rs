@@ -44,7 +44,7 @@ use crate::size::compute_sizes;
 /// This scalar function is public for session registration and row-encoding work.
 /// Most callers should use [`RowEncoder`](crate::RowEncoder) rather than invoking the scalar
 /// function directly.
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct RowEncode;
 
 impl ScalarFnVTable for RowEncode {

@@ -346,7 +346,7 @@ mod test {
             let reader = layout
                 .new_reader("".into(), segments, &session, &Default::default())
                 .unwrap();
-            let expr = root().bind(reader.dtype()).unwrap();
+            let expr = root().bind(reader.dtype(), &SESSION).unwrap();
             let result = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -374,7 +374,7 @@ mod test {
                 .unwrap();
 
             // Choose a prune-able expression
-            let expr = gt(root(), lit(7)).bind(reader.dtype()).unwrap();
+            let expr = gt(root(), lit(7)).bind(reader.dtype(), &SESSION).unwrap();
 
             let result = reader
                 .pruning_evaluation(
@@ -440,7 +440,7 @@ mod test {
                 .new_reader("".into(), segments, &session, &Default::default())
                 .unwrap();
 
-            let expr = is_not_null(root()).bind(reader.dtype()).unwrap();
+            let expr = is_not_null(root()).bind(reader.dtype(), &SESSION).unwrap();
             let result = reader
                 .pruning_evaluation(
                     &(0..row_count),
@@ -504,7 +504,7 @@ mod test {
             let reader =
                 legacy_layout.new_reader("".into(), segments, &session, &Default::default())?;
 
-            let expr = gt(root(), lit(7)).bind(reader.dtype())?;
+            let expr = gt(root(), lit(7)).bind(reader.dtype(), &SESSION)?;
             let result = reader
                 .pruning_evaluation(
                     &(0..row_count),
@@ -515,7 +515,7 @@ mod test {
 
             assert_eq!(result, Mask::from_iter(expected));
 
-            let root = root().bind(reader.dtype())?;
+            let root = root().bind(reader.dtype(), &SESSION)?;
             let projected = reader
                 .projection_evaluation(
                     &(0..row_count),

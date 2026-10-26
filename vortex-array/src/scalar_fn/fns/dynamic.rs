@@ -40,7 +40,7 @@ use crate::scalar_fn::fns::operators::Operator;
 /// A dynamic comparison expression can be used to capture a comparison to a value that can change
 /// during the execution of a query, such as when a compute engine pushes down an ORDER BY + LIMIT
 /// operation and is able to progressively tighten the bounds of the filter.
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct DynamicComparison;
 
 impl ScalarFnVTable for DynamicComparison {
@@ -329,7 +329,7 @@ mod tests {
             root(),
         );
 
-        assert!(!expr.as_scalar().is_some_and(|f| f.signature().is_strict()));
+        assert!(!DynamicComparison.is_strict(expr.as_::<DynamicComparison>()));
     }
 
     #[test]
@@ -343,7 +343,7 @@ mod tests {
         );
         let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         assert_eq!(
-            expr.return_dtype(&input_dtype)?,
+            expr.bind(&input_dtype, &SESSION)?.dtype().clone(),
             DType::Bool(Nullability::NonNullable)
         );
         Ok(())
@@ -360,7 +360,7 @@ mod tests {
             true,
             root(),
         );
-        let result = input.apply(&expr)?;
+        let result = input.apply(&expr, &SESSION)?;
         assert_arrays_eq!(result, BoolArray::from_iter([true, false, false]), &mut ctx);
         Ok(())
     }
@@ -376,7 +376,7 @@ mod tests {
             true,
             root(),
         );
-        let result = input.apply(&expr)?;
+        let result = input.apply(&expr, &SESSION)?;
         assert_arrays_eq!(result, BoolArray::from_iter([true, true, true]), &mut ctx);
         Ok(())
     }
@@ -392,7 +392,7 @@ mod tests {
             false,
             root(),
         );
-        let result = input.apply(&expr)?;
+        let result = input.apply(&expr, &SESSION)?;
         assert_arrays_eq!(
             result,
             BoolArray::from_iter([false, false, false]),
@@ -415,11 +415,11 @@ mod tests {
         );
         let input = buffer![1i32, 5, 10].into_array();
 
-        let result = input.clone().apply(&expr)?;
+        let result = input.clone().apply(&expr, &SESSION)?;
         assert_arrays_eq!(result, BoolArray::from_iter([true, false, false]), &mut ctx);
 
         threshold.store(10, Ordering::SeqCst);
-        let result = input.apply(&expr)?;
+        let result = input.apply(&expr, &SESSION)?;
         assert_arrays_eq!(result, BoolArray::from_iter([true, true, false]), &mut ctx);
 
         Ok(())

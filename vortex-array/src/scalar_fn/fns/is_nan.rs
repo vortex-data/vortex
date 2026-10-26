@@ -59,11 +59,15 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::StructFields;
     use crate::expr::get_item;
     use crate::expr::is_nan;
     use crate::expr::lit;
     use crate::expr::root;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::EmptyOptions;
+    use crate::scalar_fn::ScalarFnVTable;
+    use crate::scalar_fn::fns::is_nan::IsNan;
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -72,14 +76,24 @@ mod tests {
     fn dtype() {
         assert_eq!(
             is_nan(root())
-                .return_dtype(&DType::Primitive(PType::F32, Nullability::Nullable))
-                .unwrap(),
+                .bind(
+                    &DType::Primitive(PType::F32, Nullability::Nullable),
+                    &SESSION
+                )
+                .unwrap()
+                .dtype()
+                .clone(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
             is_nan(root())
-                .return_dtype(&DType::Primitive(PType::F64, Nullability::NonNullable))
-                .unwrap(),
+                .bind(
+                    &DType::Primitive(PType::F64, Nullability::NonNullable),
+                    &SESSION
+                )
+                .unwrap()
+                .dtype()
+                .clone(),
             DType::Bool(Nullability::NonNullable)
         );
     }
@@ -88,12 +102,15 @@ mod tests {
     fn dtype_rejects_non_float() {
         assert!(
             is_nan(root())
-                .return_dtype(&DType::Primitive(PType::I32, Nullability::NonNullable))
+                .bind(
+                    &DType::Primitive(PType::I32, Nullability::NonNullable),
+                    &SESSION
+                )
                 .is_err()
         );
         assert!(
             is_nan(root())
-                .return_dtype(&DType::Bool(Nullability::NonNullable))
+                .bind(&DType::Bool(Nullability::NonNullable), &SESSION)
                 .is_err()
         );
     }
@@ -110,7 +127,7 @@ mod tests {
         .into_array();
         let expected = [Some(false), Some(true), None, Some(false), Some(true)];
 
-        let result = test_array.clone().apply(&is_nan(root())).unwrap();
+        let result = test_array.clone().apply(&is_nan(root()), &SESSION).unwrap();
 
         assert_eq!(result.len(), test_array.len());
         assert_eq!(result.dtype(), &DType::Bool(Nullability::Nullable));
@@ -137,7 +154,7 @@ mod tests {
         .into_array();
         let expected = [false, true, false, true];
 
-        let result = test_array.clone().apply(&is_nan(root())).unwrap();
+        let result = test_array.clone().apply(&is_nan(root()), &SESSION).unwrap();
 
         assert_eq!(result.len(), test_array.len());
         assert_eq!(result.dtype(), &DType::Bool(Nullability::NonNullable));
@@ -155,7 +172,7 @@ mod tests {
     fn evaluate_all_null_floats() {
         let test_array = PrimitiveArray::from_option_iter([None::<f32>, None, None]).into_array();
 
-        let result = test_array.clone().apply(&is_nan(root())).unwrap();
+        let result = test_array.clone().apply(&is_nan(root()), &SESSION).unwrap();
 
         assert_eq!(result.len(), test_array.len());
         for i in 0..result.len() {
@@ -184,7 +201,10 @@ mod tests {
         ];
 
         for (expr_child, expected_value) in cases {
-            let result = test_array.clone().apply(&is_nan(expr_child)).unwrap();
+            let result = test_array
+                .clone()
+                .apply(&is_nan(expr_child), &SESSION)
+                .unwrap();
             for i in 0..result.len() {
                 let expected_scalar = match expected_value {
                     Some(value) => Scalar::bool(value, Nullability::Nullable),
@@ -203,7 +223,7 @@ mod tests {
     #[test]
     fn evaluate_rejects_non_float() {
         let test_array = buffer![1i32, 2, 3].into_array();
-        assert!(test_array.apply(&is_nan(root())).is_err());
+        assert!(test_array.apply(&is_nan(root()), &SESSION).is_err());
     }
 
     #[test]
@@ -214,7 +234,7 @@ mod tests {
             .unwrap();
         let expected = [true, false, true];
 
-        let result = test_array.clone().apply(&is_nan(root())).unwrap();
+        let result = test_array.clone().apply(&is_nan(root()), &SESSION).unwrap();
 
         assert_eq!(result.len(), test_array.len());
         for (i, expected_value) in expected.iter().enumerate() {
@@ -230,18 +250,33 @@ mod tests {
     #[test]
     fn test_display() {
         let expr = is_nan(get_item("name", root()));
-        assert_eq!(expr.to_string(), "vortex.is_nan($.name)");
+        let scope = DType::Struct(
+            StructFields::from_iter([(
+                "name",
+                DType::Primitive(PType::F32, Nullability::NonNullable),
+            )]),
+            Nullability::NonNullable,
+        );
+        assert_eq!(
+            expr.bind(&scope, &SESSION).unwrap().to_string(),
+            "vortex.is_nan($.name)"
+        );
 
         let expr2 = is_nan(root());
-        assert_eq!(expr2.to_string(), "vortex.is_nan($)");
+        assert_eq!(
+            expr2
+                .bind(
+                    &DType::Primitive(PType::F32, Nullability::NonNullable),
+                    &SESSION
+                )
+                .unwrap()
+                .to_string(),
+            "vortex.is_nan($)"
+        );
     }
 
     #[test]
     fn test_is_nan_is_strict() {
-        assert!(
-            is_nan(root())
-                .as_scalar()
-                .is_some_and(|f| f.signature().is_strict())
-        );
+        assert!(IsNan.is_strict(&EmptyOptions));
     }
 }

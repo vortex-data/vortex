@@ -34,6 +34,7 @@ use vortex::metrics::tracing::get_global_labels;
 use vortex::scalar::Scalar;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::SESSION;
 use crate::convert::PushedAggregate;
 use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_projection_aggregate;
@@ -311,7 +312,9 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
 fn aggregate_input_dtype(field: &DuckdbField, scope: &DType) -> VortexResult<DType> {
     match &field.projection_expr {
         None => Ok(field.dtype.clone()),
-        Some(expr) => expr.return_dtype(scope),
+        Some(expr) => expr
+            .bind(scope, &SESSION)
+            .map(|bound| bound.dtype().clone()),
     }
 }
 
@@ -452,7 +455,10 @@ pub fn pushdown_projection_expression(
         }
         Some(vx_expr) => {
             debug!(%expr, "pushed down expression");
-            let Ok(out_dtype) = vx_expr.return_dtype(&bind_data.dtype) else {
+            let Ok(out_dtype) = vx_expr
+                .bind(&bind_data.dtype, &SESSION)
+                .map(|bound| bound.dtype().clone())
+            else {
                 return Ok(false);
             };
             let field = &mut bind_data.columns[projection_id];

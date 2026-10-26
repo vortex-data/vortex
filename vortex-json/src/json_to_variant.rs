@@ -65,7 +65,7 @@ use crate::Json;
 /// - Unicode escape sequences are normalized (e.g. `A` becomes `A`).
 ///
 /// [Parquet Variant shredding]: https://github.com/apache/parquet-format/blob/master/VariantShredding.md
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct JsonToVariant;
 
 impl JsonToVariant {
@@ -356,7 +356,7 @@ mod tests {
     fn expression_roundtrip_serialization() -> VortexResult<()> {
         let spec = ShreddingSpec::try_new([(VariantPath::field("a"), i64_dtype())])?;
         let expr: Expression = json_to_variant(root(), spec);
-        let proto = expr.serialize_proto()?;
+        let proto = expr.serialize_proto(&session())?;
         let actual = Expression::from_proto(&proto, &session())?;
 
         assert_eq!(actual, expr);

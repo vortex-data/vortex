@@ -77,9 +77,9 @@ session.write_options()
     .write(&mut file, array_stream)
     .await?;
 
-// Scanning a layout
+// Scanning a layout: binding resolves the expression's scalar functions in the session
 let filter = expr
-    .bind(layout_reader.dtype())?
+    .bind(layout_reader.dtype(), &session)?
     .optimize_recursive()?;
 ScanBuilder::new(session.clone(), layout_reader)
     .with_filter(filter)

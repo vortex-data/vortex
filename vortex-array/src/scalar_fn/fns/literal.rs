@@ -26,7 +26,7 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 
 /// Expression that represents a literal scalar value.
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct Literal;
 
 impl ScalarFnVTable for Literal {
@@ -111,6 +111,10 @@ impl ScalarFnVTable for Literal {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
+    use vortex_session::VortexSession;
+
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -119,26 +123,34 @@ mod tests {
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn dtype() {
         let dtype = test_harness::struct_dtype();
 
         assert_eq!(
-            lit(10).return_dtype(&dtype).unwrap(),
+            lit(10).bind(&dtype, &SESSION).unwrap().dtype().clone(),
             DType::Primitive(PType::I32, Nullability::NonNullable)
         );
         assert_eq!(
-            lit(i64::MAX).return_dtype(&dtype).unwrap(),
+            lit(i64::MAX)
+                .bind(&dtype, &SESSION)
+                .unwrap()
+                .dtype()
+                .clone(),
             DType::Primitive(PType::I64, Nullability::NonNullable)
         );
         assert_eq!(
-            lit(true).return_dtype(&dtype).unwrap(),
+            lit(true).bind(&dtype, &SESSION).unwrap().dtype().clone(),
             DType::Bool(Nullability::NonNullable)
         );
         assert_eq!(
             lit(Scalar::null(DType::Bool(Nullability::Nullable)))
-                .return_dtype(&dtype)
-                .unwrap(),
+                .bind(&dtype, &SESSION)
+                .unwrap()
+                .dtype()
+                .clone(),
             DType::Bool(Nullability::Nullable)
         );
 
@@ -157,8 +169,10 @@ mod tests {
                 sdtype.clone(),
                 vec![Scalar::from(32_u32), Scalar::from("rufus".to_string())]
             ))
-            .return_dtype(&dtype)
-            .unwrap(),
+            .bind(&dtype, &SESSION)
+            .unwrap()
+            .dtype()
+            .clone(),
             sdtype
         );
     }

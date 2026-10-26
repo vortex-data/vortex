@@ -46,7 +46,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     let expected_array = {
         let bool_mask = array_data
             .clone()
-            .apply(&filter_expr.clone().unwrap_or_else(|| lit(true)))
+            .apply(&filter_expr.clone().unwrap_or_else(|| lit(true)), &SESSION)
             .vortex_expect("filter expression evaluation should succeed in fuzz test");
         let bool_mask_bool = bool_mask
             .execute::<BoolArray>(&mut ctx)
@@ -56,7 +56,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             .filter(mask)
             .vortex_expect("filter operation should succeed in fuzz test");
         filtered
-            .apply(&projection_expr.clone().unwrap_or_else(root))
+            .apply(&projection_expr.clone().unwrap_or_else(root), &SESSION)
             .vortex_expect("projection expression evaluation should succeed in fuzz test")
     };
 
@@ -83,13 +83,13 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         .vortex_expect("open_buffer should succeed in fuzz test");
     let projection = projection_expr
         .unwrap_or_else(root)
-        .bind(file.dtype())
+        .bind(file.dtype(), &SESSION)
         .and_then(|expr| expr.optimize_recursive())
         .vortex_expect("projection should bind in fuzz test");
     let filter = filter_expr
         .map(|filter| {
             filter
-                .bind(file.dtype())
+                .bind(file.dtype(), &SESSION)
                 .and_then(|expr| expr.optimize_recursive())
         })
         .transpose()

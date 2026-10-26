@@ -84,7 +84,7 @@ impl fmt::Display for CaseWhenOptions {
 /// An n-ary CASE WHEN expression.
 ///
 /// Children are in order: `[when_0, then_0, when_1, then_1, ..., else?]`.
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct CaseWhen;
 
 impl ScalarFnVTable for CaseWhen {
@@ -781,7 +781,7 @@ mod tests {
     }
 
     fn apply_expr(expr: &Expression, array: &ArrayRef) -> ArrayRef {
-        array.clone().apply(expr).unwrap()
+        array.clone().apply(expr, &SESSION).unwrap()
     }
 
     fn apply_bound_expr(expr: &BoundExpression, array: &ArrayRef) -> ArrayRef {
@@ -849,7 +849,7 @@ mod tests {
             .map(|value| (eq(col("value"), lit(value)), lit(value)))
             .collect();
         let expression = nested_case_when(branches, has_else.then(|| lit(42u32)));
-        let bytes = expression.serialize_proto()?.encode_to_vec();
+        let bytes = expression.serialize_proto(&SESSION)?.encode_to_vec();
         let proto = pb::Expr::decode(bytes.as_slice())?;
         assert_eq!(proto.id, "vortex.case_when");
         assert_eq!(Expression::from_proto(&proto, &SESSION)?, expression);
@@ -861,7 +861,14 @@ mod tests {
     #[test]
     fn test_display_with_else() {
         let expr = case_when(gt(col("value"), lit(0i32)), lit(100i32), lit(0i32));
-        let display = format!("{}", expr);
+        let scope = DType::Struct(
+            StructFields::from_iter([(
+                "value",
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+            )]),
+            Nullability::NonNullable,
+        );
+        let display = expr.bind(&scope, &SESSION).unwrap().to_string();
         assert!(display.contains("CASE"));
         assert!(display.contains("WHEN"));
         assert!(display.contains("THEN"));
@@ -872,7 +879,14 @@ mod tests {
     #[test]
     fn test_display_no_else() {
         let expr = case_when_no_else(gt(col("value"), lit(0i32)), lit(100i32));
-        let display = format!("{}", expr);
+        let scope = DType::Struct(
+            StructFields::from_iter([(
+                "value",
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+            )]),
+            Nullability::NonNullable,
+        );
+        let display = expr.bind(&scope, &SESSION).unwrap().to_string();
         assert!(display.contains("CASE"));
         assert!(display.contains("WHEN"));
         assert!(display.contains("THEN"));
@@ -890,7 +904,14 @@ mod tests {
             ],
             Some(lit("low")),
         );
-        let display = format!("{}", expr);
+        let scope = DType::Struct(
+            StructFields::from_iter([(
+                "x",
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+            )]),
+            Nullability::NonNullable,
+        );
+        let display = expr.bind(&scope, &SESSION).unwrap().to_string();
         assert_eq!(display.matches("CASE").count(), 1);
         assert_eq!(display.matches("WHEN").count(), 2);
         assert_eq!(display.matches("THEN").count(), 2);
@@ -902,7 +923,7 @@ mod tests {
     fn test_return_dtype_with_else() {
         let expr = case_when(lit(true), lit(100i32), lit(0i32));
         let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let result_dtype = expr.return_dtype(&input_dtype).unwrap();
+        let result_dtype = expr.bind(&input_dtype, &SESSION).unwrap().dtype().clone();
         assert_eq!(
             result_dtype,
             DType::Primitive(PType::I32, Nullability::NonNullable)
@@ -920,7 +941,7 @@ mod tests {
             ))),
         );
         let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let result_dtype = expr.return_dtype(&input_dtype).unwrap();
+        let result_dtype = expr.bind(&input_dtype, &SESSION).unwrap().dtype().clone();
         assert_eq!(
             result_dtype,
             DType::Primitive(PType::I32, Nullability::Nullable)
@@ -931,7 +952,7 @@ mod tests {
     fn test_return_dtype_without_else_is_nullable() {
         let expr = case_when_no_else(lit(true), lit(100i32));
         let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let result_dtype = expr.return_dtype(&input_dtype).unwrap();
+        let result_dtype = expr.bind(&input_dtype, &SESSION).unwrap().dtype().clone();
         assert_eq!(
             result_dtype,
             DType::Primitive(PType::I32, Nullability::Nullable)
@@ -946,7 +967,7 @@ mod tests {
             lit(100i32),
             lit(0i32),
         );
-        let result_dtype = expr.return_dtype(&dtype).unwrap();
+        let result_dtype = expr.bind(&dtype, &SESSION).unwrap().dtype().clone();
         assert_eq!(
             result_dtype,
             DType::Primitive(PType::I32, Nullability::NonNullable)
@@ -957,7 +978,7 @@ mod tests {
     fn test_return_dtype_mismatched_then_else_errors() {
         let expr = case_when(lit(true), lit(100i32), lit("zero"));
         let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let err = expr.return_dtype(&input_dtype).unwrap_err();
+        let err = expr.bind(&input_dtype, &SESSION).unwrap_err();
         assert!(
             err.to_string()
                 .contains("THEN and ELSE dtypes must match (ignoring nullability)")
@@ -1045,7 +1066,7 @@ mod tests {
             Some(lit(0i32)),
         );
         let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let err = expr.return_dtype(&input_dtype).unwrap_err();
+        let err = expr.bind(&input_dtype, &SESSION).unwrap_err();
         assert!(err.to_string().contains("THEN dtypes must match"));
     }
 
@@ -1063,7 +1084,7 @@ mod tests {
             Some(lit(0i32)),
         );
         let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let result = expr.return_dtype(&input_dtype).unwrap();
+        let result = expr.bind(&input_dtype, &SESSION).unwrap().dtype().clone();
         assert_eq!(result, DType::Primitive(PType::I32, Nullability::Nullable));
     }
 
@@ -1074,7 +1095,7 @@ mod tests {
             None,
         );
         let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let result = expr.return_dtype(&input_dtype).unwrap();
+        let result = expr.bind(&input_dtype, &SESSION).unwrap().dtype().clone();
         assert_eq!(result, DType::Primitive(PType::I32, Nullability::Nullable));
     }
 
@@ -1603,7 +1624,7 @@ mod tests {
         // CASE WHEN is_null(x) THEN 0 ELSE x END  ==>  fill_null(x, 0)
         let expr = case_when(is_null(col("x")), lit(0i64), col("x"));
         let optimized = expr
-            .bind(&nullable_i64_scope(&["x"]))?
+            .bind(&nullable_i64_scope(&["x"]), &SESSION)?
             .optimize_recursive()?;
         assert!(
             optimized.to_string().starts_with("vortex.fill_null"),
@@ -1617,7 +1638,7 @@ mod tests {
         // CASE WHEN is_not_null(x) THEN x ELSE 0 END  ==>  fill_null(x, 0)
         let expr = case_when(is_not_null(col("x")), col("x"), lit(0i64));
         let optimized = expr
-            .bind(&nullable_i64_scope(&["x"]))?
+            .bind(&nullable_i64_scope(&["x"]), &SESSION)?
             .optimize_recursive()?;
         assert!(
             optimized.to_string().starts_with("vortex.fill_null"),
@@ -1631,7 +1652,7 @@ mod tests {
         // The is_null operand (x) and the ELSE (y) are different columns: not a COALESCE.
         let expr = case_when(is_null(col("x")), lit(0i64), col("y"));
         let optimized = expr
-            .bind(&nullable_i64_scope(&["x", "y"]))?
+            .bind(&nullable_i64_scope(&["x", "y"]), &SESSION)?
             .optimize_recursive()?;
         let s = optimized.to_string();
         assert!(s.contains("CASE"), "expected CASE WHEN to remain, got {s}");
@@ -1645,7 +1666,7 @@ mod tests {
         // fill value, so the rewrite must not fire.
         let expr = case_when(is_null(col("x")), col("c"), col("x"));
         let optimized = expr
-            .bind(&nullable_i64_scope(&["x", "c"]))?
+            .bind(&nullable_i64_scope(&["x", "c"]), &SESSION)?
             .optimize_recursive()?;
         let s = optimized.to_string();
         assert!(s.contains("CASE"), "expected CASE WHEN to remain, got {s}");
@@ -1670,7 +1691,7 @@ mod tests {
             case_when(is_not_null(col("x")), col("x"), null_fill()),
         ] {
             let optimized = expr
-                .bind(&nullable_i64_scope(&["x"]))?
+                .bind(&nullable_i64_scope(&["x"]), &SESSION)?
                 .optimize_recursive()?;
             assert_eq!(
                 optimized.to_string(),
@@ -1693,7 +1714,7 @@ mod tests {
         )));
 
         let original = case_when(is_null(root()), null_fill, root());
-        let optimized = original.bind(&scope)?.optimize_recursive()?;
+        let optimized = original.bind(&scope, &SESSION)?.optimize_recursive()?;
         assert_eq!(
             optimized.to_string(),
             "$",
@@ -1710,7 +1731,7 @@ mod tests {
     fn test_simplify_does_not_fire_without_else() -> VortexResult<()> {
         let expr = case_when_no_else(is_null(col("x")), lit(0i64));
         let optimized = expr
-            .bind(&nullable_i64_scope(&["x"]))?
+            .bind(&nullable_i64_scope(&["x"]), &SESSION)?
             .optimize_recursive()?;
         assert!(
             !optimized.to_string().contains("fill_null"),
@@ -1729,7 +1750,7 @@ mod tests {
             Some(col("x")),
         );
         let optimized = expr
-            .bind(&nullable_i64_scope(&["x"]))?
+            .bind(&nullable_i64_scope(&["x"]), &SESSION)?
             .optimize_recursive()?;
         assert!(
             !optimized.to_string().contains("fill_null"),
@@ -1746,7 +1767,7 @@ mod tests {
         let scope = DType::Primitive(PType::I64, Nullability::Nullable);
 
         let original = case_when(is_null(root()), lit(0i64), root());
-        let optimized = original.bind(&scope)?.optimize_recursive()?;
+        let optimized = original.bind(&scope, &SESSION)?.optimize_recursive()?;
         assert!(
             optimized.to_string().starts_with("vortex.fill_null"),
             "expected fill_null, got {optimized}"
@@ -1776,7 +1797,7 @@ mod tests {
             case_when(is_null(root()), lit("fallback"), root()),
             case_when(is_not_null(root()), root(), lit("fallback")),
         ] {
-            let optimized = expr.bind(input.dtype())?.optimize_recursive()?;
+            let optimized = expr.bind(input.dtype(), &SESSION)?.optimize_recursive()?;
             assert!(optimized.is::<FillNull>(), "{optimized}");
             let result = input.clone().apply_bound(&optimized)?;
             assert_arrays_eq!(
@@ -1809,7 +1830,7 @@ mod tests {
         );
 
         let optimized = case_when(is_null(root()), lit(fill.clone()), root())
-            .bind(input.dtype())?
+            .bind(input.dtype(), &SESSION)?
             .optimize_recursive()?;
         assert!(optimized.is::<CaseWhen>(), "{optimized}");
         let result = input

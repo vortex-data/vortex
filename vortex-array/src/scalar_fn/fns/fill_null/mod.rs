@@ -40,7 +40,7 @@ use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::is_not_null_node;
 
 /// An expression that replaces null values in the input with a fill value.
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct FillNull;
 
 impl FillNull {
@@ -296,7 +296,11 @@ mod tests {
     fn dtype() {
         let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
         assert_eq!(
-            fill_null(root(), lit(0i32)).return_dtype(&dtype).unwrap(),
+            fill_null(root(), lit(0i32))
+                .bind(&dtype, &SESSION)
+                .unwrap()
+                .dtype()
+                .clone(),
             DType::Primitive(PType::I32, Nullability::NonNullable)
         );
     }
@@ -318,7 +322,7 @@ mod tests {
                 .into_array();
 
         let expr = fill_null(root(), lit(42i32));
-        let result = test_array.apply(&expr).unwrap();
+        let result = test_array.apply(&expr, &SESSION).unwrap();
 
         assert_eq!(
             result.dtype(),
@@ -449,7 +453,7 @@ mod tests {
         .into_array();
 
         let expr = fill_null(get_item("a", root()), lit(0i32));
-        let result = test_array.apply(&expr).unwrap();
+        let result = test_array.apply(&expr, &SESSION).unwrap();
 
         assert_eq!(
             result.dtype(),
@@ -463,7 +467,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let test_array = buffer![1i32, 2, 3].into_array();
         let expr = fill_null(root(), lit(0i32));
-        let result = test_array.apply(&expr).unwrap();
+        let result = test_array.apply(&expr, &SESSION).unwrap();
         assert_arrays_eq!(result, PrimitiveArray::from_iter([1i32, 2, 3]), &mut ctx);
     }
 
@@ -521,6 +525,16 @@ mod tests {
     #[test]
     fn test_display() {
         let expr = fill_null(get_item("value", root()), lit(0i32));
-        assert_eq!(expr.to_string(), "vortex.fill_null($.value, 0i32)");
+        let scope = DType::Struct(
+            StructFields::from_iter([(
+                "value",
+                DType::Primitive(PType::I32, Nullability::Nullable),
+            )]),
+            Nullability::NonNullable,
+        );
+        assert_eq!(
+            expr.bind(&scope, &SESSION).unwrap().to_string(),
+            "vortex.fill_null($.value, 0i32)"
+        );
     }
 }

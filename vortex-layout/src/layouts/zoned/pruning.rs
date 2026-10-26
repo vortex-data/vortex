@@ -20,7 +20,6 @@ use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
-use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexExpect;
@@ -107,13 +106,13 @@ impl PruningState {
                         Some(
                             async move {
                                 let zone_map = zone_map.await?;
-                                let lowered = zone_map.lower_stats(predicate.clone()).and_then(
-                                    |lowered_predicate| {
+                                let lowered = zone_map
+                                    .lower_stats(predicate.clone(), &session)
+                                    .and_then(|lowered_predicate| {
                                         let mask =
                                             zone_map.prune_lowered(&lowered_predicate, &session)?;
                                         Ok((lowered_predicate, mask))
-                                    },
-                                );
+                                    });
                                 let (lowered_predicate, initial_mask) = lowered.map_err(|err| {
                                     err.with_context(format!(
                                         "While evaluating pruning predicate {} (derived from {})",
@@ -162,9 +161,7 @@ impl PruningState {
                     .lazy_children
                     .get(1)
                     .vortex_expect("failed to get zone child");
-                let root = root()
-                    .bind(zones_reader.dtype())
-                    .vortex_expect("root must bind against the zone-map dtype");
+                let root = BoundExpression::new_root(zones_reader.dtype().clone());
                 let zones_eval = zones_reader
                     .projection_evaluation(
                         &(0..zone_count as u64),

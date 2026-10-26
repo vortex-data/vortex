@@ -39,12 +39,14 @@ use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
+use vortex_array::expr::bound;
 use vortex_array::expr::col;
 use vortex_array::expr::eq;
 use vortex_array::expr::lit;
 use vortex_array::memory::BufferAllocatorRef;
 use vortex_array::memory::MemorySessionExt;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::scalar_fn::fns::operators::Operator;
@@ -198,7 +200,13 @@ impl IndexVTable for ReverseIndex {
 
         Ok(Some(IndexQueryPlan {
             exactness: IndexExactness::Exact,
-            filter: eq(col(KEY_FIELD), lit(target.clone())).bind(index_dtype)?,
+            filter: Binary.try_new_bound_expr(
+                Operator::Eq,
+                [
+                    bound::col(KEY_FIELD, index_dtype.clone()),
+                    bound::lit(target.clone()),
+                ],
+            )?,
             query: target,
         }))
     }
@@ -442,7 +450,7 @@ async fn main() -> VortexResult<()> {
     let bytes = bytes.freeze();
 
     let file = session.open_options().open_buffer(bytes)?;
-    let filter = eq(col(VALUE_FIELD), lit(20)).bind(file.dtype())?;
+    let filter = eq(col(VALUE_FIELD), lit(20)).bind(file.dtype(), &session)?;
     let result = file
         .scan()?
         .with_filter(filter)

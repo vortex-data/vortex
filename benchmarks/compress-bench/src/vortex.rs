@@ -92,7 +92,7 @@ async fn vortex_decompress_read(data: Bytes) -> Result<()> {
         // Columns are named "0".."num_columns-1"; project the given subset.
         let names: FieldNames = cols.iter().map(|i| i.to_string()).collect();
         let projection = select(names, root())
-            .bind(&source_dtype)?
+            .bind(&source_dtype, &SESSION)?
             .optimize_recursive()?;
         scan = scan.with_projection(projection);
     }

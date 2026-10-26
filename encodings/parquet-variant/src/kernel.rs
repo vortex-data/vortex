@@ -533,7 +533,7 @@ mod tests {
     ) -> VortexResult<ArrayRef> {
         let expr = variant_get(root(), parse_path(path)?, dtype);
         array
-            .apply(&expr)?
+            .apply(&expr, &SESSION)?
             .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())
     }
 

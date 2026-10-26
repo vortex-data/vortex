@@ -46,7 +46,7 @@ pub enum FieldSelection {
     Exclude(FieldNames),
 }
 
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct Select;
 
 impl ScalarFnVTable for Select {
@@ -391,7 +391,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let st = test_array();
         let select = select(vec![FieldName::from("a")], root());
-        let selected = st.into_array().apply(&select).unwrap();
+        let selected = st.into_array().apply(&select, &SESSION).unwrap();
         let selected_names = selected.dtype().as_struct_fields().names();
         assert_eq!(selected_names.as_ref(), &["a"]);
         assert_arrays_eq!(
@@ -406,7 +406,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let st = test_array();
         let select = select_exclude(vec![FieldName::from("a")], root());
-        let selected = st.into_array().apply(&select).unwrap();
+        let selected = st.into_array().apply(&select, &SESSION).unwrap();
         let selected_names = selected.dtype().as_struct_fields().names();
         assert_eq!(selected_names.as_ref(), &["b"]);
         assert_arrays_eq!(
@@ -429,7 +429,10 @@ mod tests {
                 .unwrap(),
             Nullability::NonNullable,
         );
-        assert_eq!(select_expr.return_dtype(&dtype).unwrap(), expected_dtype);
+        assert_eq!(
+            select_expr.bind(&dtype, &SESSION).unwrap().dtype().clone(),
+            expected_dtype
+        );
 
         let select_expr_exclude = select_exclude(
             vec![
@@ -441,7 +444,11 @@ mod tests {
             root(),
         );
         assert_eq!(
-            select_expr_exclude.return_dtype(&dtype).unwrap(),
+            select_expr_exclude
+                .bind(&dtype, &SESSION)
+                .unwrap()
+                .dtype()
+                .clone(),
             expected_dtype
         );
 
@@ -450,7 +457,11 @@ mod tests {
             root(),
         );
         assert_eq!(
-            select_expr_exclude.return_dtype(&dtype).unwrap(),
+            select_expr_exclude
+                .bind(&dtype, &SESSION)
+                .unwrap()
+                .dtype()
+                .clone(),
             DType::Struct(
                 dtype
                     .as_struct_fields_opt()
@@ -523,7 +534,11 @@ mod tests {
         );
         let e = select(["a", "b"], root());
 
-        let result = e.bind(&dtype).unwrap().optimize_recursive().unwrap();
+        let result = e
+            .bind(&dtype, &SESSION)
+            .unwrap()
+            .optimize_recursive()
+            .unwrap();
 
         assert_eq!(result.dtype(), &dtype);
     }
@@ -541,7 +556,11 @@ mod tests {
         );
         let e = select_exclude(["c"], root());
 
-        let result = e.bind(&dtype).unwrap().optimize_recursive().unwrap();
+        let result = e
+            .bind(&dtype, &SESSION)
+            .unwrap()
+            .optimize_recursive()
+            .unwrap();
 
         // Should exclude "c" and include "a" and "b"
         let result_dtype = result.dtype();

@@ -53,7 +53,7 @@ use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::is_not_null_node;
 
 /// A cast expression that converts values to a target data type.
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct Cast;
 
 impl Cast {
@@ -257,6 +257,7 @@ mod tests {
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::StructFields;
     use crate::expr::Expression;
     use crate::expr::cast;
     use crate::expr::get_item;
@@ -274,8 +275,10 @@ mod tests {
         let dtype = test_harness::struct_dtype();
         assert_eq!(
             cast(root(), DType::Bool(Nullability::NonNullable))
-                .return_dtype(&dtype)
-                .unwrap(),
+                .bind(&dtype, &SESSION)
+                .unwrap()
+                .dtype()
+                .clone(),
             DType::Bool(Nullability::NonNullable)
         );
     }
@@ -302,7 +305,7 @@ mod tests {
             get_item("a", root()),
             DType::Primitive(PType::I64, Nullability::NonNullable),
         );
-        let result = test_array.apply(&expr).unwrap();
+        let result = test_array.apply(&expr, &SESSION).unwrap();
 
         assert_eq!(
             result.dtype(),
@@ -321,7 +324,9 @@ mod tests {
             lit(3i32),
             DType::Primitive(PType::F64, Nullability::NonNullable),
         );
-        let optimized = expr.bind(&test_harness::struct_dtype())?.optimize()?;
+        let optimized = expr
+            .bind(&test_harness::struct_dtype(), &SESSION)?
+            .optimize()?;
 
         let scalar = optimized
             .as_opt::<Literal>()
@@ -341,7 +346,9 @@ mod tests {
             lit(decimal),
             DType::Primitive(PType::F64, Nullability::NonNullable),
         );
-        let optimized = expr.bind(&test_harness::struct_dtype())?.optimize()?;
+        let optimized = expr
+            .bind(&test_harness::struct_dtype(), &SESSION)?
+            .optimize()?;
 
         let scalar = optimized
             .as_opt::<Literal>()
@@ -363,7 +370,9 @@ mod tests {
             ))),
             target.clone(),
         );
-        let optimized = expr.bind(&test_harness::struct_dtype())?.optimize()?;
+        let optimized = expr
+            .bind(&test_harness::struct_dtype(), &SESSION)?
+            .optimize()?;
 
         assert!(optimized.as_opt::<Literal>().is_none());
         assert_eq!(optimized.as_opt::<Cast>(), Some(&target));
@@ -376,9 +385,25 @@ mod tests {
             get_item("value", root()),
             DType::Primitive(PType::I64, Nullability::NonNullable),
         );
-        assert_eq!(expr.to_string(), "cast($.value as i64)");
+        let scope = DType::Struct(
+            StructFields::from_iter([(
+                "value",
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+            )]),
+            Nullability::NonNullable,
+        );
+        assert_eq!(
+            expr.bind(&scope, &SESSION).unwrap().to_string(),
+            "cast($.value as i64)"
+        );
 
         let expr2 = cast(root(), DType::Bool(Nullability::Nullable));
-        assert_eq!(expr2.to_string(), "cast($ as bool?)");
+        assert_eq!(
+            expr2
+                .bind(&DType::Bool(Nullability::NonNullable), &SESSION)
+                .unwrap()
+                .to_string(),
+            "cast($ as bool?)"
+        );
     }
 }

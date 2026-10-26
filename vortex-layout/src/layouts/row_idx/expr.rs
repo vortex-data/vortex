@@ -20,7 +20,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::registry::CachedId;
 
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct RowIdx;
 
 impl ScalarFnVTable for RowIdx {
@@ -89,7 +89,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("lambda (x) can only read its parameters, not #row_idx"),
+                .contains("lambda (x) can only read its parameters, not vortex.row_idx()"),
             "{error}"
         );
     }

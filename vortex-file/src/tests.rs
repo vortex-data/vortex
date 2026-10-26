@@ -151,7 +151,7 @@ fn strict_sorted(indices: Buffer<u64>) -> StrictSortedBuffer<u64> {
 }
 
 fn bind_scan_expr(file: &VortexFile, expr: Expression) -> BoundExpression {
-    expr.bind(file.dtype())
+    expr.bind(file.dtype(), &SESSION)
         .and_then(|expr| expr.optimize_recursive())
         .vortex_expect("scan expression should bind")
 }
@@ -1650,7 +1650,7 @@ async fn scan_empty_fields() -> VortexResult<()> {
             },
             [],
         )
-        .bind(array.dtype())?
+        .bind(array.dtype(), &SESSION)?
         .optimize_recursive()?;
 
     let result = round_trip(&array.clone().into_array(), |scan| {
@@ -2605,7 +2605,9 @@ async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let file = SESSION.open_options().open_buffer(buf)?;
-    let filter = filter_expr.bind(file.dtype())?.optimize_recursive()?;
+    let filter = filter_expr
+        .bind(file.dtype(), &SESSION)?
+        .optimize_recursive()?;
     let mut stream = file.scan()?.with_filter(filter).into_array_stream()?;
     let result = stream.try_next().await;
 
@@ -2654,7 +2656,9 @@ async fn timestamp_unit_mismatch_errors_with_constant_children()
     );
 
     let file = SESSION.open_options().open_buffer(buf)?;
-    let filter = filter_expr.bind(file.dtype())?.optimize_recursive()?;
+    let filter = filter_expr
+        .bind(file.dtype(), &SESSION)?
+        .optimize_recursive()?;
     let stream = file.scan()?.with_filter(filter).into_array_stream()?;
     let results = stream.try_collect::<Vec<_>>().await;
 
@@ -3266,7 +3270,7 @@ async fn repro_8166_binary_gt_all_ff_max() -> VortexResult<()> {
     );
 
     let file = SESSION.open_options().open_buffer(buf)?;
-    let filter = filter.bind(file.dtype())?.optimize_recursive()?;
+    let filter = filter.bind(file.dtype(), &SESSION)?.optimize_recursive()?;
     let result = file
         .scan()?
         .with_filter(filter)

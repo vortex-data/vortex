@@ -29,7 +29,7 @@ use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 
 /// Expression that logically inverts boolean values.
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct Not;
 
 impl Not {
@@ -132,22 +132,22 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::dtype::StructFields;
     use crate::expr::col;
     use crate::expr::get_item;
     use crate::expr::not;
     use crate::expr::root;
     use crate::expr::test_harness;
+    use crate::scalar_fn::EmptyOptions;
+    use crate::scalar_fn::ScalarFnVTable;
     use crate::scalar_fn::fns::not::BoolArray;
+    use crate::scalar_fn::fns::not::Not;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn is_strict() {
-        assert!(
-            not(root())
-                .as_scalar()
-                .is_some_and(|f| f.signature().is_strict())
-        );
+        assert!(Not.is_strict(&EmptyOptions));
     }
 
     #[test]
@@ -155,7 +155,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let input = BoolArray::from_iter([Some(false), None, Some(true)]).into_array();
 
-        let result = input.apply(&not(root()))?;
+        let result = input.apply(&not(root()), &SESSION)?;
 
         assert_arrays_eq!(
             result,
@@ -170,7 +170,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let not_expr = not(root());
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
-        let result = bools.into_array().apply(&not_expr).unwrap();
+        let result = bools.into_array().apply(&not_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             result,
             BoolArray::from_iter([true, false, true, true, false, false]),
@@ -183,8 +183,16 @@ mod tests {
         let a = not(get_item("a", root()));
         let b = get_item("a", not(root()));
         assert_ne!(a.to_string(), b.to_string());
-        assert_eq!(a.to_string(), "vortex.not($.a)");
-        assert_eq!(b.to_string(), "vortex.not($).a");
+        let scope = DType::Struct(
+            StructFields::from_iter([("a", DType::Bool(Nullability::NonNullable))]),
+            Nullability::NonNullable,
+        );
+        assert_eq!(
+            a.bind(&scope, &SESSION).unwrap().to_string(),
+            "vortex.not($.a)"
+        );
+        // `b` cannot bind: `not` of a struct. Unbound, it is a call of `get_item` on `not`.
+        assert_eq!(b.to_string(), "vortex.get_item(vortex.not($), opts=a)");
     }
 
     #[test]
@@ -192,13 +200,17 @@ mod tests {
         let not_expr = not(root());
         let dtype = DType::Bool(Nullability::NonNullable);
         assert_eq!(
-            not_expr.return_dtype(&dtype).unwrap(),
+            not_expr.bind(&dtype, &SESSION).unwrap().dtype().clone(),
             DType::Bool(Nullability::NonNullable)
         );
 
         let dtype = test_harness::struct_dtype();
         assert_eq!(
-            not(col("bool1")).return_dtype(&dtype).unwrap(),
+            not(col("bool1"))
+                .bind(&dtype, &SESSION)
+                .unwrap()
+                .dtype()
+                .clone(),
             DType::Bool(Nullability::NonNullable)
         );
     }

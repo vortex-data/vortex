@@ -571,7 +571,7 @@ mod test {
             let reader = layout
                 .new_reader("".into(), segments, &SESSION, &Default::default())
                 .unwrap();
-            let expr = root().bind(reader.dtype()).unwrap();
+            let expr = root().bind(reader.dtype(), &SESSION).unwrap();
             let result = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -596,7 +596,7 @@ mod test {
             let reader = layout
                 .new_reader("".into(), segments, &SESSION, &Default::default())
                 .unwrap();
-            let expr = root().bind(reader.dtype()).unwrap();
+            let expr = root().bind(reader.dtype(), &SESSION).unwrap();
             reader
                 .projection_evaluation(&(0..layout.row_count()), &expr, mask)
                 .unwrap()

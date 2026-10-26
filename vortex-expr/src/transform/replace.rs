@@ -49,6 +49,9 @@ mod test {
         let needle = lit(2);
         let replacement = lit(42);
         let replaced_expr = replace(e, &needle, replacement);
-        assert_eq!(replaced_expr.to_string(), "pack(a: 1i32, b: 42i32)");
+        assert_eq!(
+            replaced_expr,
+            pack([("a", lit(1)), ("b", lit(42))], NonNullable)
+        );
     }
 }

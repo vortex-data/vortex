@@ -60,7 +60,7 @@ use crate::scalar_fn::fns::operators::Operator;
 use crate::scalar_fn::is_not_null_node;
 use crate::validity::Validity;
 
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct ListContains;
 
 /// Options for [`ListContains`].
@@ -857,6 +857,7 @@ mod tests {
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::PValue;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::ScalarFnVTable;
     use crate::scalar_fn::fns::list_contains::ListContains;
     use crate::scalar_fn::fns::list_contains::ListContainsOptions;
     use crate::scalar_fn::fns::list_contains::PreparedSet;
@@ -883,7 +884,7 @@ mod tests {
         let arr = test_array();
 
         let expr = list_contains(root(), lit(1));
-        let item = arr.apply(&expr).unwrap();
+        let item = arr.apply(&expr, &SESSION).unwrap();
 
         assert_eq!(
             item.execute_scalar(0, &mut SESSION.create_execution_ctx())
@@ -902,7 +903,7 @@ mod tests {
         let arr = test_array();
 
         let expr = list_contains(root(), lit(2));
-        let item = arr.apply(&expr).unwrap();
+        let item = arr.apply(&expr, &SESSION).unwrap();
 
         assert_eq!(
             item.execute_scalar(0, &mut SESSION.create_execution_ctx())
@@ -921,7 +922,7 @@ mod tests {
         let arr = test_array();
 
         let expr = list_contains(root(), lit(4));
-        let item = arr.apply(&expr).unwrap();
+        let item = arr.apply(&expr, &SESSION).unwrap();
 
         assert_eq!(
             item.execute_scalar(0, &mut SESSION.create_execution_ctx())
@@ -948,7 +949,7 @@ mod tests {
         .into_array();
 
         let expr = list_contains(root(), lit(2));
-        let item = arr.apply(&expr).unwrap();
+        let item = arr.apply(&expr, &SESSION).unwrap();
 
         assert_eq!(
             item.execute_scalar(0, &mut SESSION.create_execution_ctx())
@@ -975,7 +976,7 @@ mod tests {
         .into_array();
 
         let expr = list_contains(root(), lit(2));
-        let item = arr.apply(&expr).unwrap();
+        let item = arr.apply(&expr, &SESSION).unwrap();
 
         assert_eq!(
             item.execute_scalar(0, &mut SESSION.create_execution_ctx())
@@ -1006,7 +1007,7 @@ mod tests {
 
         // Expect nullable, although scope is non-nullable
         assert_eq!(
-            expr.return_dtype(&scope).unwrap(),
+            expr.bind(&scope, &SESSION).unwrap().dtype().clone(),
             DType::Bool(Nullability::Nullable)
         );
     }
@@ -1014,10 +1015,35 @@ mod tests {
     #[test]
     pub fn test_display() {
         let expr = list_contains(get_item("tags", root()), lit("urgent"));
-        assert_eq!(expr.to_string(), "vortex.list.contains($.tags, \"urgent\")");
+        let scope = DType::Struct(
+            StructFields::from_iter([(
+                "tags",
+                DType::List(
+                    Arc::new(DType::Utf8(Nullability::NonNullable)),
+                    Nullability::NonNullable,
+                ),
+            )]),
+            Nullability::NonNullable,
+        );
+        assert_eq!(
+            expr.bind(&scope, &SESSION).unwrap().to_string(),
+            "vortex.list.contains($.tags, \"urgent\")"
+        );
 
         let expr2 = list_contains(root(), lit(42));
-        assert_eq!(expr2.to_string(), "vortex.list.contains($, 42i32)");
+        assert_eq!(
+            expr2
+                .bind(
+                    &DType::List(
+                        Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
+                        Nullability::NonNullable
+                    ),
+                    &SESSION
+                )
+                .unwrap()
+                .to_string(),
+            "vortex.list.contains($, 42i32)"
+        );
     }
 
     #[test]
@@ -1033,7 +1059,7 @@ mod tests {
 
         // Test contains true
         let expr = list_contains(lit(list_scalar.clone()), lit(2i32));
-        let result = arr.clone().apply(&expr).unwrap();
+        let result = arr.clone().apply(&expr, &SESSION).unwrap();
         assert_eq!(
             result
                 .execute_scalar(0, &mut SESSION.create_execution_ctx())
@@ -1043,7 +1069,7 @@ mod tests {
 
         // Test contains false
         let expr = list_contains(lit(list_scalar), lit(42i32));
-        let result = arr.apply(&expr).unwrap();
+        let result = arr.apply(&expr, &SESSION).unwrap();
         assert_eq!(
             result
                 .execute_scalar(0, &mut SESSION.create_execution_ctx())
@@ -1062,14 +1088,14 @@ mod tests {
         let needle = Scalar::null(DType::Primitive(I32, Nullability::Nullable));
 
         let expr = list_contains(lit(list.clone()), lit(needle.clone()));
-        let result = array.clone().apply(&expr)?;
+        let result = array.clone().apply(&expr, &SESSION)?;
         assert_eq!(
             result.execute_scalar(0, &mut ctx)?,
             Scalar::bool(false, Nullability::Nullable)
         );
 
         let expr = list_contains(lit(list), lit(2i32));
-        let result = array.clone().apply(&expr)?;
+        let result = array.clone().apply(&expr, &SESSION)?;
         assert_eq!(
             result.execute_scalar(0, &mut ctx)?,
             Scalar::bool(false, Nullability::NonNullable)
@@ -1077,7 +1103,7 @@ mod tests {
 
         let list = Scalar::null(DType::List(dtype, Nullability::Nullable));
         let expr = list_contains(lit(list), lit(needle));
-        let result = array.apply(&expr)?;
+        let result = array.apply(&expr, &SESSION)?;
         assert!(result.execute_scalar(0, &mut ctx)?.is_null());
         Ok(())
     }
@@ -1184,7 +1210,7 @@ mod tests {
         };
         let elem = ConstantArray::new(scalar, list_array.len());
         let expr = list_contains(root(), lit(elem.scalar().clone()));
-        let result = list_array.apply(&expr).unwrap();
+        let result = list_array.apply(&expr, &SESSION).unwrap();
         assert_arrays_eq!(result, expected, &mut ctx);
     }
 
@@ -1202,7 +1228,7 @@ mod tests {
         .into_array();
 
         let expr = list_contains(root(), lit(2i32));
-        let contains = list_array.apply(&expr).unwrap();
+        let contains = list_array.apply(&expr, &SESSION).unwrap();
         let expected = BoolArray::from_iter([true, true]);
         assert_arrays_eq!(contains, expected, &mut ctx);
     }
@@ -1220,7 +1246,7 @@ mod tests {
         .into_array();
 
         let expr = list_contains(root(), lit(2i32));
-        let contains = list_array.apply(&expr).unwrap();
+        let contains = list_array.apply(&expr, &SESSION).unwrap();
 
         let expected = BoolArray::new(
             [false, false, false, false, false].into_iter().collect(),
@@ -1240,7 +1266,7 @@ mod tests {
 
         let arr = (0..7).collect::<PrimitiveArray>().into_array();
         let expr = list_contains(lit(list_scalar), root());
-        let contains = arr.apply(&expr).unwrap();
+        let contains = arr.apply(&expr, &SESSION).unwrap();
 
         let expected = BoolArray::from_iter([false, true, false, true, false, false, true]);
         assert_arrays_eq!(contains, expected, &mut ctx);
@@ -1264,7 +1290,7 @@ mod tests {
         };
 
         let expr = list_contains(root(), lit(42i32));
-        let result = list_array.into_array().apply(&expr).unwrap();
+        let result = list_array.into_array().apply(&expr, &SESSION).unwrap();
 
         let expected = BoolArray::from_iter([false, false, false, false]);
         assert_arrays_eq!(result, expected, &mut ctx);
@@ -1290,7 +1316,11 @@ mod tests {
         // Searching for null
         let null_scalar = Scalar::null(DType::Primitive(I32, Nullability::Nullable));
         let expr = list_contains(root(), lit(null_scalar));
-        let result = list_array.clone().into_array().apply(&expr).unwrap();
+        let result = list_array
+            .clone()
+            .into_array()
+            .apply(&expr, &SESSION)
+            .unwrap();
 
         let expected = BoolArray::new(
             [false, false, false].into_iter().collect(),
@@ -1300,7 +1330,7 @@ mod tests {
 
         // Searching for non-null
         let expr2 = list_contains(root(), lit(42i32));
-        let result2 = list_array.into_array().apply(&expr2).unwrap();
+        let result2 = list_array.into_array().apply(&expr2, &SESSION).unwrap();
 
         let expected2 = BoolArray::from_iter([false, false, false]);
         assert_arrays_eq!(result2, expected2, &mut ctx);
@@ -1323,13 +1353,17 @@ mod tests {
         );
 
         let expr = list_contains(root(), lit(2i32));
-        let result = list_array.clone().into_array().apply(&expr).unwrap();
+        let result = list_array
+            .clone()
+            .into_array()
+            .apply(&expr, &SESSION)
+            .unwrap();
 
         let expected = BoolArray::from_iter([false, true, false, false]);
         assert_arrays_eq!(result, expected, &mut ctx);
 
         let expr5 = list_contains(root(), lit(5i32));
-        let result5 = list_array.into_array().apply(&expr5).unwrap();
+        let result5 = list_array.into_array().apply(&expr5, &SESSION).unwrap();
 
         let expected5 = BoolArray::from_iter([false, false, true, false]);
         assert_arrays_eq!(result5, expected5, &mut ctx);
@@ -1351,13 +1385,17 @@ mod tests {
         );
 
         let expr = list_contains(root(), lit(255i32));
-        let result = list_array.clone().into_array().apply(&expr).unwrap();
+        let result = list_array
+            .clone()
+            .into_array()
+            .apply(&expr, &SESSION)
+            .unwrap();
 
         let expected = BoolArray::from_iter([false, false, false, true]);
         assert_arrays_eq!(result, expected, &mut ctx);
 
         let expr_zero = list_contains(root(), lit(0i32));
-        let result_zero = list_array.into_array().apply(&expr_zero).unwrap();
+        let result_zero = list_array.into_array().apply(&expr_zero, &SESSION).unwrap();
 
         let expected_zero = BoolArray::from_iter([true, false, false, false]);
         assert_arrays_eq!(result_zero, expected_zero, &mut ctx);
@@ -1387,7 +1425,7 @@ mod tests {
         )?
         .into_array();
         assert_result(
-            lists.apply(&list_contains_opts(root(), lit(7i32), options)),
+            lists.apply(&list_contains_opts(root(), lit(7i32), options), &SESSION),
             [null_element_result, Some(true), Some(false), Some(false)],
         )
     }
@@ -1406,7 +1444,7 @@ mod tests {
         )?
         .into_array();
         assert_result(
-            lists.apply(&list_contains_opts(root(), lit(9i32), options)),
+            lists.apply(&list_contains_opts(root(), lit(9i32), options), &SESSION),
             [Some(false), None],
         )
     }
@@ -1433,12 +1471,12 @@ mod tests {
         let dtype = DType::Utf8(Nullability::NonNullable);
         assert!(
             list_contains_opts(list.clone(), root(), options)
-                .bind(&dtype)
+                .bind(&dtype, &SESSION)
                 .is_err()
         );
         assert!(
             list_contains_opts(list, lit("1"), options)
-                .bind(&dtype)
+                .bind(&dtype, &SESSION)
                 .is_err()
         );
     }
@@ -1506,7 +1544,7 @@ mod tests {
         .into_array();
         let set = f64_set(vec![1.0, f64::NAN, -0.0]);
         assert_result(
-            needles.apply(&list_contains(lit(set), root())),
+            needles.apply(&list_contains(lit(set), root()), &SESSION),
             [
                 Some(true),
                 Some(true),
@@ -1524,7 +1562,7 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(1), Some(2), None, Some(4)]).into_array();
         let set = i32_set(vec![Some(2), None, Some(4)]);
         assert_result(
-            needles.apply(&list_contains(lit(set), root())),
+            needles.apply(&list_contains(lit(set), root()), &SESSION),
             [Some(false), Some(true), None, Some(true)],
         )
     }
@@ -1537,11 +1575,13 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(1), Some(2), None, Some(4)]).into_array();
         let set = i32_set(vec![Some(2), None, Some(4)]);
         assert_result(
-            needles.clone().apply(&in_list(root(), lit(set.clone()))),
+            needles
+                .clone()
+                .apply(&in_list(root(), lit(set.clone())), &SESSION),
             [None, Some(true), None, Some(true)],
         )?;
         assert_result(
-            needles.apply(&crate::expr::not(in_list(root(), lit(set)))),
+            needles.apply(&crate::expr::not(in_list(root(), lit(set))), &SESSION),
             [None, Some(false), None, Some(false)],
         )
     }
@@ -1551,7 +1591,7 @@ mod tests {
         let needles = PrimitiveArray::from_option_iter([Some(1), Some(2), None]).into_array();
         let set = i32_set(vec![Some(2)]);
         assert_result(
-            needles.apply(&in_list(root(), lit(set))),
+            needles.apply(&in_list(root(), lit(set)), &SESSION),
             [Some(false), Some(true), None],
         )
     }
@@ -1576,16 +1616,20 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let null = Scalar::null(DType::Primitive(I32, Nullability::Nullable));
 
-        let scalar = ConstantArray::new(null, 2)
-            .into_array()
-            .apply(&list_contains_opts(lit(empty_i32_list()), root(), options))?;
+        let scalar = ConstantArray::new(null, 2).into_array().apply(
+            &list_contains_opts(lit(empty_i32_list()), root(), options),
+            &SESSION,
+        )?;
         assert_eq!(
             scalar.execute_scalar(0, &mut ctx)?.as_bool().value(),
             expected
         );
 
         let needles = PrimitiveArray::from_option_iter([Some(1), None]).into_array();
-        let column = needles.apply(&list_contains_opts(lit(empty_i32_list()), root(), options))?;
+        let column = needles.apply(
+            &list_contains_opts(lit(empty_i32_list()), root(), options),
+            &SESSION,
+        )?;
         assert_eq!(
             column.execute_scalar(1, &mut ctx)?.as_bool().value(),
             expected
@@ -1615,7 +1659,7 @@ mod tests {
         .into_array();
         let null = Scalar::null(DType::Primitive(I32, Nullability::Nullable));
         assert_result(
-            lists.apply(&list_contains_opts(root(), lit(null), options)),
+            lists.apply(&list_contains_opts(root(), lit(null), options), &SESSION),
             expected,
         )
     }
@@ -1709,7 +1753,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let result = PrimitiveArray::from_iter(needles)
             .into_array()
-            .apply(&list_contains(lit(list), root()))?;
+            .apply(&list_contains(lit(list), root()), &SESSION)?;
         assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
@@ -1751,9 +1795,9 @@ mod tests {
         let flat =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(4), Some(2), None, Some(9)])
                 .into_array()
-                .apply(&expr)?
+                .apply(&expr, &SESSION)?
                 .execute::<BoolArray>(&mut ctx)?;
-        assert_rows_agree(chunked.apply(&expr)?, flat)
+        assert_rows_agree(chunked.apply(&expr, &SESSION)?, flat)
     }
 
     #[test]
@@ -1770,7 +1814,7 @@ mod tests {
         let chunked = ChunkedArray::try_new(chunks, dtype)?.into_array();
         let set = utf8_set(vec![Some("a"), Some("a value longer than twelve bytes")]);
         assert_rows_agree(
-            chunked.apply(&list_contains(lit(set), root()))?,
+            chunked.apply(&list_contains(lit(set), root()), &SESSION)?,
             BoolArray::from_iter([Some(true), None, Some(true), Some(false)]),
         )
     }
@@ -1779,12 +1823,8 @@ mod tests {
     fn strict_only_under_sql_semantics() {
         let default = list_contains(lit(empty_i32_list()), root());
         let sql = in_list(root(), lit(empty_i32_list()));
-        assert!(
-            !default
-                .as_scalar()
-                .is_some_and(|f| f.signature().is_strict())
-        );
-        assert!(sql.as_scalar().is_some_and(|f| f.signature().is_strict()));
+        assert!(!ListContains.is_strict(default.as_::<ListContains>()));
+        assert!(ListContains.is_strict(sql.as_::<ListContains>()));
     }
 
     #[test]
@@ -1796,10 +1836,13 @@ mod tests {
         assert_result(
             needles
                 .clone()
-                .apply(&list_contains(lit(set.clone()), root())),
+                .apply(&list_contains(lit(set.clone()), root()), &SESSION),
             [Some(false), None],
         )?;
-        assert_result(needles.apply(&in_list(root(), lit(set))), [None, None])
+        assert_result(
+            needles.apply(&in_list(root(), lit(set)), &SESSION),
+            [None, None],
+        )
     }
 
     #[test]
@@ -1816,7 +1859,7 @@ mod tests {
             ],
             Nullability::NonNullable,
         );
-        let result = needles.apply(&list_contains(lit(set), root()))?;
+        let result = needles.apply(&list_contains(lit(set), root()), &SESSION)?;
         assert_eq!(result.dtype(), &DType::Bool(Nullability::NonNullable));
         assert_rows_agree(result, BoolArray::from_iter([true, false]))
     }
@@ -1835,10 +1878,13 @@ mod tests {
         assert_result(
             needles
                 .clone()
-                .apply(&list_contains(lit(set.clone()), root())),
+                .apply(&list_contains(lit(set.clone()), root()), &SESSION),
             [Some(false), None],
         )?;
-        assert_result(needles.apply(&in_list(root(), lit(set))), [None, None])
+        assert_result(
+            needles.apply(&in_list(root(), lit(set)), &SESSION),
+            [None, None],
+        )
     }
 
     #[test]
@@ -1855,12 +1901,14 @@ mod tests {
         .into_array();
         let set = utf8_set(vec![Some("a"), Some(long)]);
         assert_result(
-            needles.clone().apply(&list_contains(lit(set), root())),
+            needles
+                .clone()
+                .apply(&list_contains(lit(set), root()), &SESSION),
             [Some(true), Some(true), Some(false), Some(false), None],
         )?;
         let set_with_null = utf8_set(vec![Some("a"), None]);
         assert_result(
-            needles.apply(&in_list(root(), lit(set_with_null))),
+            needles.apply(&in_list(root(), lit(set_with_null)), &SESSION),
             [Some(true), None, None, None, None],
         )
     }
@@ -1874,7 +1922,7 @@ mod tests {
         .into_array();
         let set = utf8_set(vec![Some("a"), Some("c")]);
         assert_result(
-            needles.apply(&list_contains(lit(set), root())),
+            needles.apply(&list_contains(lit(set), root()), &SESSION),
             [Some(true), Some(false), None],
         )
     }
@@ -1895,11 +1943,11 @@ mod tests {
         assert_result(
             needles
                 .clone()
-                .apply(&list_contains(lit(set.clone()), root())),
+                .apply(&list_contains(lit(set.clone()), root()), &SESSION),
             [Some(true), Some(false), None],
         )?;
         assert_result(
-            needles.apply(&in_list(root(), lit(set))),
+            needles.apply(&in_list(root(), lit(set)), &SESSION),
             [Some(true), None, None],
         )
     }
@@ -1916,17 +1964,19 @@ mod tests {
         )?
         .into_array();
         assert_result(
-            lists.clone().apply(&list_contains(root(), lit(5))),
+            lists
+                .clone()
+                .apply(&list_contains(root(), lit(5)), &SESSION),
             [Some(false), Some(false), Some(false), Some(false)],
         )?;
         assert_result(
             lists
                 .clone()
-                .apply(&list_contains_opts(root(), lit(5), SQL)),
+                .apply(&list_contains_opts(root(), lit(5), SQL), &SESSION),
             [None, Some(false), Some(false), Some(false)],
         )?;
         assert_result(
-            lists.apply(&list_contains_opts(root(), lit(1), SQL)),
+            lists.apply(&list_contains_opts(root(), lit(1), SQL), &SESSION),
             [Some(true), Some(false), Some(false), Some(false)],
         )
     }
@@ -1937,14 +1987,14 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let hit = ConstantArray::new(Scalar::primitive(2i32, Nullability::Nullable), 1)
             .into_array()
-            .apply(&in_list(root(), lit(set.clone())))?;
+            .apply(&in_list(root(), lit(set.clone())), &SESSION)?;
         assert_eq!(
             hit.execute_scalar(0, &mut ctx)?.as_bool().value(),
             Some(true)
         );
         let miss = ConstantArray::new(Scalar::primitive(3i32, Nullability::Nullable), 1)
             .into_array()
-            .apply(&in_list(root(), lit(set)))?;
+            .apply(&in_list(root(), lit(set)), &SESSION)?;
         assert!(miss.execute_scalar(0, &mut ctx)?.is_null());
         Ok(())
     }
@@ -1960,11 +2010,17 @@ mod tests {
         );
         let set = lit(i32_set(vec![Some(1)]));
         assert_eq!(
-            list_contains(set.clone(), col("a")).return_dtype(&dtype)?,
+            list_contains(set.clone(), col("a"))
+                .bind(&dtype, &SESSION)?
+                .dtype()
+                .clone(),
             DType::Bool(Nullability::NonNullable)
         );
         assert_eq!(
-            in_list(col("a"), set).return_dtype(&dtype)?,
+            in_list(col("a"), set)
+                .bind(&dtype, &SESSION)?
+                .dtype()
+                .clone(),
             DType::Bool(Nullability::Nullable)
         );
         Ok(())
@@ -1972,7 +2028,6 @@ mod tests {
 
     #[test]
     fn options_round_trip_through_serde() -> VortexResult<()> {
-        use crate::scalar_fn::ScalarFnVTable;
         for options in [ListContainsOptions::default(), SQL] {
             let bytes = ListContains
                 .serialize(&options)?
@@ -2003,7 +2058,7 @@ mod tests {
         };
 
         let expr = list_contains_opts(lit(set.clone()), lit(needle.clone()), options)
-            .bind(&DType::Primitive(I32, Nullability::Nullable))?
+            .bind(&DType::Primitive(I32, Nullability::Nullable), &SESSION)?
             .optimize()?;
         assert_eq!(expr.as_opt::<Literal>(), Some(&expected));
 
@@ -2023,7 +2078,7 @@ mod tests {
         // Off SQL null semantics the needle alone decides validity. Under them a null element
         // makes validity depend on the lookup, which only the fallback computes.
         let dtype = DType::Primitive(I32, Nullability::Nullable);
-        let bound = |expr: Expression| expr.bind(&dtype);
+        let bound = |expr: Expression| expr.bind(&dtype, &SESSION);
         let needle = bound(root())?;
         let with_null = lit(i32_set(vec![Some(2), None]));
         let without_null = lit(i32_set(vec![Some(2)]));
@@ -2052,7 +2107,9 @@ mod tests {
         // looks up in, and a prepared set is left alone, so optimization reaches a fixed point.
         let dtype = DType::Primitive(I32, Nullability::Nullable);
         let set = i32_set(vec![Some(2), None]);
-        let expr = in_list(root(), lit(set.clone())).bind(&dtype)?.optimize()?;
+        let expr = in_list(root(), lit(set.clone()))
+            .bind(&dtype, &SESSION)?
+            .optimize()?;
         assert_eq!(
             expr.child(0)
                 .as_opt::<PreparedSet>()
@@ -2082,7 +2139,7 @@ mod tests {
         let dtype = DType::Primitive(I32, Nullability::Nullable);
         let null_list = Scalar::null(DType::List(Arc::new(dtype.clone()), Nullability::Nullable));
         let expr = list_contains(lit(null_list.clone()), root())
-            .bind(&dtype)?
+            .bind(&dtype, &SESSION)?
             .optimize()?;
         assert_eq!(expr.child(0).as_opt::<Literal>(), Some(&null_list));
         Ok(())

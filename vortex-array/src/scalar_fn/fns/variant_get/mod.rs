@@ -41,7 +41,7 @@ use crate::scalar_fn::ScalarFnVTableExt;
 /// requested dtype, results are returned as nullable Variant values; with one, results are cast to
 /// that dtype with nullable nullability. Encodings may serve perfectly shredded paths directly,
 /// but must fall back to the core Variant value for paths not represented by shredded storage.
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct VariantGet;
 
 impl VariantGet {
@@ -563,7 +563,7 @@ mod tests {
     ) -> VortexResult<ArrayRef> {
         let expr = variant_get(root(), parse_path(path)?, dtype);
         array
-            .apply(&expr)?
+            .apply(&expr, &SESSION)?
             .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())
     }
 
@@ -588,8 +588,10 @@ mod tests {
     fn variant_get_return_dtype_is_nullable_variant_without_requested_dtype() {
         let expr = variant_get(root(), VariantPath::field("data"), None);
         let dtype = expr
-            .return_dtype(&DType::Variant(Nullability::NonNullable))
-            .unwrap();
+            .bind(&DType::Variant(Nullability::NonNullable), &SESSION)
+            .unwrap()
+            .dtype()
+            .clone();
 
         assert_eq!(dtype, DType::Variant(Nullability::Nullable));
     }
@@ -599,8 +601,10 @@ mod tests {
         let requested = DType::Primitive(PType::I64, Nullability::NonNullable);
         let expr = variant_get(root(), VariantPath::field("data"), Some(requested));
         let dtype = expr
-            .return_dtype(&DType::Variant(Nullability::NonNullable))
-            .unwrap();
+            .bind(&DType::Variant(Nullability::NonNullable), &SESSION)
+            .unwrap()
+            .dtype()
+            .clone();
 
         assert_eq!(dtype, DType::Primitive(PType::I64, Nullability::Nullable));
     }
@@ -609,7 +613,7 @@ mod tests {
     fn variant_get_rejects_non_variant_input() {
         let expr = variant_get(root(), VariantPath::field("data"), None);
         let err = expr
-            .return_dtype(&DType::Utf8(Nullability::NonNullable))
+            .bind(&DType::Utf8(Nullability::NonNullable), &SESSION)
             .unwrap_err();
 
         assert!(err.to_string().contains("VariantGet input must be Variant"));
@@ -623,7 +627,12 @@ mod tests {
             Some(DType::Utf8(Nullability::NonNullable)),
         );
 
-        assert_eq!(expr.to_string(), "variant_get($, \"$.data[1].a\", utf8)");
+        assert_eq!(
+            expr.bind(&DType::Variant(Nullability::NonNullable), &SESSION)
+                .unwrap()
+                .to_string(),
+            "variant_get($, \"$.data[1].a\", utf8)"
+        );
     }
 
     #[test]
@@ -649,7 +658,7 @@ mod tests {
             parse_path("$.data[1].a").unwrap(),
             Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
         );
-        let proto = expr.serialize_proto().unwrap();
+        let proto = expr.serialize_proto(&SESSION).unwrap();
         let actual = Expression::from_proto(&proto, &SESSION).unwrap();
 
         assert_eq!(actual, expr);

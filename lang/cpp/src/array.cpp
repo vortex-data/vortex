@@ -264,9 +264,9 @@ Array Array::slice(size_t begin, size_t end) const {
     return Access::adopt<Array>(out);
 }
 
-Array Array::apply(const Expression &expr) const {
+Array Array::apply(const Session &session, const Expression &expr) const {
     vx_error *error = nullptr;
-    const vx_array *out = vx_array_apply(handle_.get(), Access::c_ptr(expr), &error);
+    const vx_array *out = vx_array_apply(Access::c_ptr(session), handle_.get(), Access::c_ptr(expr), &error);
     throw_on_error(error);
     return Access::adopt<Array>(out);
 }

@@ -9,18 +9,19 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::sync::Arc;
 
-use itertools::Itertools;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
-use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::expr::display::DisplayTreeExpr;
+use crate::expr::display::fmt_call;
 use crate::expr::traversal::TraversalOrder;
 use crate::expr::traversal::pre_order_visit_down;
+use crate::scalar_fn::ErasedOptions;
+use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
 
@@ -29,18 +30,24 @@ const NO_CHILDREN: &[Expression] = &[];
 
 /// A node in a Vortex expression tree.
 ///
-/// Most nodes are a scalar function applied to child expressions. The other two are leaves that
-/// name a value rather than compute one: [`Expression::Root`], the scope itself, and
-/// [`Expression::Variable`], a parameter of an enclosing lambda. They are language primitives
-/// rather than registered functions, because their dtype comes from where they appear rather than
-/// from children and they are not executable. A [`ScalarFnVTable`] can answer neither of those, so
-/// they are variants instead.
+/// Most nodes call a scalar function on child expressions. The node holds the function's id and
+/// its options, not the function itself: the function is looked up in a session's registry when
+/// the expression is [bound](Expression::bind), so an expression can be built without the session,
+/// or the crate, that defines the functions it calls.
+///
+/// The other two nodes are leaves that name a value rather than compute one: [`Expression::Root`],
+/// the scope itself, and [`Expression::Variable`], a parameter of an enclosing lambda. They are
+/// language primitives rather than registered functions, because their dtype comes from where they
+/// appear rather than from children and they are not executable. A [`ScalarFnVTable`] can answer
+/// neither of those, so they are variants instead.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Expression {
     /// A scalar function applied to child expressions.
     Scalar {
-        /// The scalar fn for this node.
-        scalar_fn: ScalarFnRef,
+        /// The id of the scalar function this node calls.
+        id: ScalarFnId,
+        /// The options the function is called with, of its own options type.
+        options: ErasedOptions,
         /// Any children of this expression.
         children: Arc<Vec<Expression>>,
     },
@@ -54,7 +61,33 @@ pub enum Expression {
 }
 
 impl Expression {
-    /// Create a new expression node from a scalar_fn expression and its children.
+    /// Create a node calling the scalar function registered under `id` with `options`.
+    ///
+    /// Nothing is checked here. The function is looked up, and `options` and the number of
+    /// children are checked against it, when the expression is [bound](Expression::bind). Use
+    /// [`ScalarFnVTableExt::try_new_expr`](crate::scalar_fn::ScalarFnVTableExt::try_new_expr) when
+    /// the vtable is at hand, which checks the arity up front.
+    pub fn new(
+        id: ScalarFnId,
+        options: ErasedOptions,
+        children: impl IntoIterator<Item = Expression>,
+    ) -> Self {
+        Self::Scalar {
+            id,
+            options,
+            children: Arc::new(Vec::from_iter(children)),
+        }
+    }
+
+    /// Create a node calling `scalar_fn`, a function already built with its options, on
+    /// `children`.
+    ///
+    /// The node keeps the function's id and options. Binding it looks the function up again in
+    /// the session the expression is bound against.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the number of children does not match the function's arity.
     pub fn try_new(
         scalar_fn: ScalarFnRef,
         children: impl IntoIterator<Item = Expression>,
@@ -68,10 +101,11 @@ impl Expression {
             children.len()
         );
 
-        Ok(Self::Scalar {
-            scalar_fn,
-            children: children.into(),
-        })
+        Ok(Self::new(
+            scalar_fn.id(),
+            scalar_fn.options().to_erased(),
+            children,
+        ))
     }
 
     /// Whether this expression is the scope root.
@@ -79,22 +113,37 @@ impl Expression {
         matches!(self, Self::Root)
     }
 
-    /// Returns the scalar fn for this expression, or `None` if it is not a scalar node.
-    pub fn as_scalar(&self) -> Option<&ScalarFnRef> {
+    /// The id of the scalar function this node calls, or `None` if it is a leaf.
+    pub fn id(&self) -> Option<ScalarFnId> {
         match self {
-            Self::Scalar { scalar_fn, .. } => Some(scalar_fn),
+            Self::Scalar { id, .. } => Some(*id),
             Self::Root | Self::Variable(_) => None,
         }
     }
 
-    /// Whether this expression's scalar fn is of the given vtable type.
-    pub fn is<V: ScalarFnVTable>(&self) -> bool {
-        self.as_scalar().is_some_and(|sf| sf.is::<V>())
+    /// The options of the scalar function this node calls, or `None` if it is a leaf.
+    pub fn options(&self) -> Option<&ErasedOptions> {
+        match self {
+            Self::Scalar { options, .. } => Some(options),
+            Self::Root | Self::Variable(_) => None,
+        }
     }
 
-    /// The typed options for this expression if its scalar fn matches the given vtable type.
-    pub fn as_opt<V: ScalarFnVTable>(&self) -> Option<&V::Options> {
-        self.as_scalar().and_then(|sf| sf.as_opt::<V>())
+    /// Whether this node calls the scalar function with vtable `V`: its id is `V`'s and its
+    /// options are of `V`'s options type.
+    pub fn is<V: ScalarFnVTable + Default>(&self) -> bool {
+        self.as_opt::<V>().is_some()
+    }
+
+    /// The typed options for this expression if it calls the scalar function with vtable `V`.
+    pub fn as_opt<V: ScalarFnVTable + Default>(&self) -> Option<&V::Options> {
+        let Self::Scalar { id, options, .. } = self else {
+            return None;
+        };
+        if *id != ScalarFnVTable::id(&V::default()) {
+            return None;
+        }
+        options.downcast_ref::<V::Options>()
     }
 
     /// The typed options for this expression.
@@ -102,7 +151,7 @@ impl Expression {
     /// # Panics
     ///
     /// Panics if the vtable type does not match.
-    pub fn as_<V: ScalarFnVTable>(&self) -> &V::Options {
+    pub fn as_<V: ScalarFnVTable + Default>(&self) -> &V::Options {
         self.as_opt::<V>()
             .vortex_expect("Expression options type mismatch")
     }
@@ -121,6 +170,9 @@ impl Expression {
     }
 
     /// Replace the children of this expression with the provided new children.
+    ///
+    /// The number of children is checked against the function's arity when the expression is
+    /// bound.
     pub fn with_children(
         self,
         children: impl IntoIterator<Item = Expression>,
@@ -143,48 +195,22 @@ impl Expression {
                 );
                 Ok(Self::Variable(name.clone()))
             }
-            Self::Scalar { scalar_fn, .. } => {
-                vortex_ensure!(
-                    scalar_fn.signature().arity().matches(children.len()),
-                    "Expression arity mismatch: expected {} children but got {}",
-                    scalar_fn.signature().arity(),
-                    children.len()
-                );
-                Ok(Self::Scalar {
-                    scalar_fn: scalar_fn.clone(),
-                    children: children.into(),
-                })
-            }
-        }
-    }
-
-    /// Computes the return dtype of this expression given the input dtype.
-    pub fn return_dtype(&self, scope: &DType) -> VortexResult<DType> {
-        match self {
-            Self::Root => Ok(scope.clone()),
-            Self::Variable(name) => Err(unbound_variable(name)),
-            Self::Scalar {
-                scalar_fn,
-                children,
-            } => {
-                let dtypes: Vec<_> = children
-                    .iter()
-                    .map(|c| c.return_dtype(scope))
-                    .try_collect()?;
-                scalar_fn.return_dtype(&dtypes)
-            }
+            Self::Scalar { id, options, .. } => Ok(Self::new(*id, options.clone(), children)),
         }
     }
 
     /// Format the expression as a compact string.
     ///
+    /// An unbound expression does not know its functions, so every node is formatted as a call
+    /// of its function's id: `id(child, ..., opts=options)`. Binding the expression gives each
+    /// function its own formatting.
+    ///
     /// Since this is a recursive formatter, it is exposed on the public Expression type.
-    /// See fmt_data that is only implemented on the vtable trait.
     pub fn fmt_sql(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Root => write!(f, "$"),
             Self::Variable(name) => write!(f, "@{name}"),
-            Self::Scalar { scalar_fn, .. } => scalar_fn.fmt_sql(self, f),
+            Self::Scalar { id, options, .. } => fmt_call(*id, options, self, f),
         }
     }
 
@@ -192,53 +218,27 @@ impl Expression {
     ///
     /// This provides a hierarchical view of the expression that shows the relationships
     /// between parent and child expressions, making complex nested expressions easier
-    /// to understand and debug.
+    /// to understand and debug. Children of an unbound expression are numbered, since their
+    /// names come from the function; bind the expression to see them.
     ///
     /// # Example
     ///
     /// ```rust
     /// # use vortex_array::dtype::{DType, Nullability, PType};
-    /// # use vortex_array::scalar_fn::fns::like::{Like, LikeOptions};
-    /// # use vortex_array::scalar_fn::ScalarFnVTableExt;
-    /// # use vortex_array::expr::{and, cast, eq, get_item, gt, lit, not, root, select};
-    /// // Build a complex nested expression
-    /// let complex_expr = select(
-    ///     ["result"],
-    ///     and(
-    ///         not(eq(get_item("status", root()), lit("inactive"))),
-    ///         and(
-    ///             Like.new_expr(LikeOptions::default(), [get_item("name", root()), lit("%admin%")]),
-    ///             gt(
-    ///                 cast(get_item("score", root()), DType::Primitive(PType::F64, Nullability::NonNullable)),
-    ///                 lit(75.0)
-    ///             )
-    ///         )
-    ///     )
-    /// );
+    /// # use vortex_array::expr::{eq, get_item, lit, not, root};
+    /// let expr = not(eq(get_item("status", root()), lit("inactive")));
     ///
-    /// println!("{}", complex_expr.display_tree());
+    /// println!("{}", expr.display_tree());
     /// ```
     ///
     /// This produces output like:
     ///
     /// ```text
-    /// Select(include): {result}
-    /// └── Binary(and)
-    ///     ├── lhs: Not
-    ///     │   └── Binary(=)
-    ///     │       ├── lhs: GetItem(status)
-    ///     │       │   └── Root
-    ///     │       └── rhs: Literal(value: "inactive", dtype: utf8)
-    ///     └── rhs: Binary(and)
-    ///         ├── lhs: Like
-    ///         │   ├── child: GetItem(name)
-    ///         │   │   └── Root
-    ///         │   └── pattern: Literal(value: "%admin%", dtype: utf8)
-    ///         └── rhs: Binary(>)
-    ///             ├── lhs: Cast(target: f64)
-    ///             │   └── GetItem(score)
-    ///             │       └── Root
-    ///             └── rhs: Literal(value: 75f64, dtype: f64)
+    /// vortex.not()
+    /// └── arg0: vortex.binary(=)
+    ///     ├── arg0: vortex.get_item(status)
+    ///     │   └── arg0: vortex.root()
+    ///     └── arg1: vortex.literal("inactive")
     /// ```
     pub fn display_tree(&self) -> impl Display {
         DisplayTreeExpr(self)
@@ -256,7 +256,7 @@ impl Expression {
     /// let expression = root();
     /// assert!(!expression.contains::<Literal>().unwrap());
     /// ```
-    pub fn contains<E: ScalarFnVTable>(&self) -> VortexResult<bool> {
+    pub fn contains<E: ScalarFnVTable + Default>(&self) -> VortexResult<bool> {
         let mut contains = false;
         pre_order_visit_down(self, |node| {
             if node.is::<E>() {
@@ -342,9 +342,20 @@ impl Drop for Expression {
 mod tests {
     use std::thread;
 
+    use vortex_session::VortexSession;
+    use vortex_session::registry::CachedId;
+
     use super::*;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::expr::cast;
     use crate::expr::lit;
     use crate::expr::not;
+    use crate::expr::root;
+    use crate::scalar_fn::EmptyOptions;
+    use crate::scalar_fn::fns::cast::Cast;
+    use crate::scalar_fn::fns::not::Not;
 
     fn deep_expression(depth: usize) -> Expression {
         let mut expr = lit(true);
@@ -379,5 +390,61 @@ mod tests {
         drop(expr);
 
         assert_eq!(shared.children(), &[lit(true)]);
+    }
+
+    #[test]
+    fn a_node_built_from_an_id_matches_the_constructor() -> VortexResult<()> {
+        static CAST: CachedId = CachedId::new("vortex.cast");
+        let target = DType::Primitive(PType::I64, Nullability::Nullable);
+
+        let expr = Expression::new(*CAST, ErasedOptions::new(target.clone()), [root()]);
+        assert_eq!(expr, cast(root(), target.clone()));
+        assert_eq!(expr.id(), Some(*CAST));
+        assert!(expr.is::<Cast>());
+        assert_eq!(expr.as_opt::<Cast>(), Some(&target));
+        assert!(!expr.is::<Not>());
+
+        let scope = DType::Primitive(PType::I32, Nullability::Nullable);
+        let bound = expr.bind(&scope, &VortexSession::empty())?;
+        assert_eq!(bound.dtype(), &target);
+        assert_eq!(
+            bound,
+            cast(root(), target).bind(&scope, &VortexSession::empty())?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn options_of_the_wrong_type_are_not_the_function() {
+        static CAST: CachedId = CachedId::new("vortex.cast");
+        let expr = Expression::new(*CAST, ErasedOptions::new(EmptyOptions), [root()]);
+        assert!(!expr.is::<Cast>());
+        assert_eq!(expr.id(), Some(*CAST));
+
+        let err = expr
+            .bind(
+                &DType::Bool(Nullability::NonNullable),
+                &VortexSession::empty(),
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("takes options of type"), "{err}");
+    }
+
+    #[test]
+    fn binding_checks_the_function_and_arity() {
+        static MISSING: CachedId = CachedId::new("vortex.test.no_such_function");
+        let scope = DType::Bool(Nullability::NonNullable);
+
+        let err = Expression::new(*MISSING, ErasedOptions::new(EmptyOptions), [root()])
+            .bind(&scope, &VortexSession::empty())
+            .unwrap_err();
+        assert!(err.to_string().contains("unknown scalar function"), "{err}");
+
+        let err = not(root())
+            .with_children([root(), root()])
+            .unwrap()
+            .bind(&scope, &VortexSession::empty())
+            .unwrap_err();
+        assert!(err.to_string().contains("arity mismatch"), "{err}");
     }
 }

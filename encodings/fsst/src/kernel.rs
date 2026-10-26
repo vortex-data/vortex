@@ -239,7 +239,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let compressor = fsst_train_compressor(&varbin, &mut ctx)?;
         let fsst = fsst_compress(&varbin, &compressor, &mut ctx)?.into_array();
-        let result = fsst.apply(&byte_length(root()))?;
+        let result = fsst.apply(&byte_length(root()), &SESSION)?;
         let expected = PrimitiveArray::from_iter(vec![5u64, 7, 18, 0]);
         assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())

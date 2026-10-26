@@ -23,7 +23,7 @@ TEST_CASE("Expression copy", "[expr]") {
     Session session;
     const std::vector<uint8_t> ages = {10, 20, 30};
     Array input = make_struct({{"age", Array::primitive<uint8_t>(ages)}});
-    auto values = input.apply(another).values<uint8_t>(session);
+    auto values = input.apply(session, another).values<uint8_t>(session);
     REQUIRE(values.size() == ages.size());
     for (size_t i = 0; i < ages.size(); ++i) {
         REQUIRE(values.values()[i] == ages[i]);
@@ -35,7 +35,7 @@ TEST_CASE("Apply root()", "[expr]") {
     std::vector<int32_t> data = {10, 20, 30, 40, 50};
     Array array = Array::primitive<int32_t>(data);
 
-    Array applied = array.apply(expr::root());
+    Array applied = array.apply(session, expr::root());
 
     REQUIRE(applied.size() == data.size());
     REQUIRE(applied.is_primitive(I32));
@@ -56,7 +56,7 @@ TEST_CASE("Apply projection", "[expr]") {
         {"height", Array::primitive<uint16_t>(heights)},
     });
 
-    Array projected = struct_arr.apply(expr::col("age"));
+    Array projected = struct_arr.apply(session, expr::col("age"));
     REQUIRE(projected.size() == ages.size());
     REQUIRE(projected.is_primitive(U8));
     auto values = projected.values<uint8_t>(session);
@@ -71,7 +71,7 @@ TEST_CASE("Apply arithmetic", "[expr]") {
     Array array = Array::primitive<int32_t>(data);
 
     Expression e = expr::add(expr::root(), expr::lit<int32_t>(10));
-    Array applied = array.apply(e);
+    Array applied = array.apply(session, e);
 
     REQUIRE(applied.is_primitive(I32));
     auto values = applied.values<int32_t>(session);
@@ -87,7 +87,7 @@ TEST_CASE("Operator overloading", "[expr]") {
     std::vector<uint32_t> data = {1, 2, 2, 7};
     Array array = Array::primitive<uint32_t>(data);
 
-    Array applied = array.apply(expr::root() == expr::lit<uint32_t>(2));
+    Array applied = array.apply(session, expr::root() == expr::lit<uint32_t>(2));
     PrimitiveView<bool> view = applied.bools(session);
     REQUIRE(view.size() == data.size());
     BoolView values = view.values();
@@ -98,11 +98,12 @@ TEST_CASE("Operator overloading", "[expr]") {
 }
 
 TEST_CASE("Apply error", "[expr]") {
+    Session session;
     std::vector<uint8_t> data = {1, 2, 3};
     Array array = Array::primitive<uint8_t>(data);
 
     Expression bad = expr::add(expr::root(), expr::lit<int32_t>(1));
-    REQUIRE_THROWS_AS(array.apply(bad), VortexException);
+    REQUIRE_THROWS_AS(array.apply(session, bad), VortexException);
 }
 
 TEST_CASE("Empty conjunction", "[expr]") {

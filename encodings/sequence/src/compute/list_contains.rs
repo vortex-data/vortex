@@ -131,7 +131,7 @@ mod tests {
                 .into_array();
 
             let expr = list_contains(lit(list_scalar.clone()), root());
-            let result = array.into_array().apply(&expr).unwrap();
+            let result = array.into_array().apply(&expr, &SESSION).unwrap();
             let expected = BoolArray::from_iter([Some(true), Some(false), Some(true)]);
             assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
         }
@@ -145,7 +145,7 @@ mod tests {
                 .into_array();
 
             let expr = list_contains(lit(list_scalar), root());
-            let result = array.into_array().apply(&expr).unwrap();
+            let result = array.into_array().apply(&expr, &SESSION).unwrap();
             let expected = BoolArray::from_iter([Some(true), Some(true), Some(false)]);
             assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
         }
@@ -155,9 +155,9 @@ mod tests {
     fn apply_list_contains(array: ArrayRef, set: Scalar, optimize: bool) -> VortexResult<ArrayRef> {
         let expr = list_contains(lit(set), root());
         if !optimize {
-            return array.apply(&expr);
+            return array.apply(&expr, &SESSION);
         }
-        let expr = expr.bind(array.dtype())?.optimize()?;
+        let expr = expr.bind(array.dtype(), &SESSION)?.optimize()?;
         array.apply_bound(&expr)
     }
 
@@ -191,7 +191,7 @@ mod tests {
 
         let null_list = Scalar::null(DType::List(Arc::new(I32.into()), Nullability::Nullable));
         let expr = list_contains(lit(null_list), root());
-        let result = array.apply(&expr).unwrap();
+        let result = array.apply(&expr, &SESSION).unwrap();
         let expected = BoolArray::from_iter([None::<bool>, None, None]);
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
     }
@@ -215,7 +215,7 @@ mod tests {
 
         let result = array
             .clone()
-            .apply(&list_contains(lit(set.clone()), root()))
+            .apply(&list_contains(lit(set.clone()), root()), &SESSION)
             .unwrap();
         let expected = BoolArray::from_iter([true, false, false]);
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
@@ -224,7 +224,7 @@ mod tests {
             sql_null_semantics: true,
         };
         let result = array
-            .apply(&list_contains_opts(lit(set), root(), sql))
+            .apply(&list_contains_opts(lit(set), root(), sql), &SESSION)
             .unwrap();
         let expected = BoolArray::from_iter([Some(true), None, None]);
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
@@ -243,7 +243,7 @@ mod tests {
             .into_array();
 
         let expr = list_contains(lit(list_scalar), root());
-        let result = array.apply(&expr).unwrap();
+        let result = array.apply(&expr, &SESSION).unwrap();
         let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]);
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
     }

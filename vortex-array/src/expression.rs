@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use smallvec::SmallVec;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -11,7 +11,6 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArray;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
-use crate::expr::expression::unbound_variable;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::fns::literal::Literal;
 
@@ -43,35 +42,11 @@ impl ArrayRef {
     }
 
     /// Apply the expression to this array, producing a new array in constant time.
-    pub fn apply(self, expr: &Expression) -> VortexResult<ArrayRef> {
-        // If the expression is a root, return self.
-        if expr.is_root() {
-            return Ok(self);
-        }
-        if let Expression::Variable(name) = expr {
-            return Err(unbound_variable(name));
-        }
-
-        // Manually convert literals to ConstantArray.
-        if let Some(scalar) = expr.as_opt::<Literal>() {
-            return Ok(ConstantArray::new(scalar.clone(), self.len()).into_array());
-        }
-
-        // Otherwise, collect the child arrays.
-        let len = self.len();
-        let children = expr
-            .children()
-            .iter()
-            .map(|e| self.clone().apply(e))
-            .collect::<VortexResult<SmallVec<[ArrayRef; 4]>>>()?;
-
-        // And wrap the scalar function up in an array.
-        let scalar_fn = expr
-            .as_scalar()
-            .vortex_expect("leaves and literals were handled above, so this is a scalar node");
-        let array = ScalarFnArray::try_new_with_len(scalar_fn.clone(), children, len)?.into_array();
-
-        // Optimize the resulting array's root.
-        array.optimize()
+    ///
+    /// The expression is bound against this array's dtype, resolving the scalar functions it
+    /// calls in `session`.
+    pub fn apply(self, expr: &Expression, session: &VortexSession) -> VortexResult<ArrayRef> {
+        let bound = expr.bind(self.dtype(), session)?;
+        self.apply_bound(&bound)
     }
 }

@@ -621,10 +621,10 @@ fn scan_builder(
 ) -> VortexResult<ScanBuilder<ArrayRef>> {
     let projection = projection
         .unwrap_or_else(root)
-        .bind(vxf.dtype())?
+        .bind(vxf.dtype(), session())?
         .optimize_recursive()?;
     let expr = expr
-        .map(|expr| expr.bind(vxf.dtype())?.optimize_recursive())
+        .map(|expr| expr.bind(vxf.dtype(), session())?.optimize_recursive())
         .transpose()?;
     let mut builder = vxf
         .scan()?

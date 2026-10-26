@@ -39,7 +39,7 @@ use crate::scalar_fn::fns::operators::Operator;
 /// This is computed purely from the list's offsets (`ListArray`), sizes (`ListViewArray`), or
 /// dtype (`FixedSizeListArray`) without reading the element *values*. Validity is carried over
 /// from the original array.
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct ListLength;
 
 impl ScalarFnVTable for ListLength {
@@ -233,7 +233,7 @@ mod tests {
         let elements = create_list_elements();
         let list =
             ListArray::try_new(elements, offsets, Validity::NonNullable, &mut ctx)?.into_array();
-        let result = list.apply(&list_length(root()))?;
+        let result = list.apply(&list_length(root()), &SESSION)?;
         let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(result, PrimitiveArray::from_iter([2u64, 3, 0, 2]), &mut ctx);
         Ok(())
@@ -252,7 +252,7 @@ mod tests {
             &mut ctx,
         )?
         .into_array();
-        let result = list.apply(&list_length(root()))?;
+        let result = list.apply(&list_length(root()), &SESSION)?;
 
         let mut ctx = SESSION.create_execution_ctx();
 
@@ -270,7 +270,7 @@ mod tests {
             Nullability::Nullable,
         ));
         let array = ConstantArray::new(null_scalar, 2).into_array();
-        let result = array.apply(&list_length(root()))?;
+        let result = array.apply(&list_length(root()), &SESSION)?;
 
         let mut ctx = SESSION.create_execution_ctx();
         assert!(!result.is_valid(0, &mut ctx)?);
@@ -295,7 +295,7 @@ mod tests {
             &mut ctx,
         )
         .into_array();
-        let result = lv.apply(&list_length(root()))?;
+        let result = lv.apply(&list_length(root()), &SESSION)?;
         let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(result, PrimitiveArray::from_iter([2u64, 3, 0, 2]), &mut ctx);
         Ok(())
@@ -313,7 +313,7 @@ mod tests {
             &mut ctx,
         )
         .into_array();
-        let result = lv.apply(&list_length(root()))?;
+        let result = lv.apply(&list_length(root()), &SESSION)?;
 
         let mut ctx = SESSION.create_execution_ctx();
 
@@ -335,7 +335,7 @@ mod tests {
         .into_array();
         let taken = list.take(buffer![3u64, 0, 2].into_array())?;
 
-        let result = taken.apply(&list_length(root()))?;
+        let result = taken.apply(&list_length(root()), &SESSION)?;
         let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(result, PrimitiveArray::from_iter([2u64, 2, 0]), &mut ctx);
         Ok(())
@@ -350,7 +350,7 @@ mod tests {
     #[test]
     fn test_fixed_size_list_length() -> VortexResult<()> {
         let fsl = create_fixed_size_list(Validity::NonNullable);
-        let result = fsl.apply(&list_length(root()))?;
+        let result = fsl.apply(&list_length(root()), &SESSION)?;
 
         let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(result, PrimitiveArray::from_iter([2u64, 2, 2, 2]), &mut ctx);
@@ -362,7 +362,7 @@ mod tests {
         let fsl = create_fixed_size_list(Validity::Array(
             BoolArray::from_iter([true, false, true, false]).into_array(),
         ));
-        let result = fsl.apply(&list_length(root()))?;
+        let result = fsl.apply(&list_length(root()), &SESSION)?;
 
         let mut ctx = SESSION.create_execution_ctx();
 
@@ -382,7 +382,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let lengths = fsl.apply(&list_length(cast(root(), failing_cast_dtype)))?;
+        let lengths = fsl.apply(&list_length(cast(root(), failing_cast_dtype)), &SESSION)?;
 
         let mut ctx = SESSION.create_execution_ctx();
         let result = lengths.execute::<ArrayRef>(&mut ctx);

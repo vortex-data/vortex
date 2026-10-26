@@ -125,6 +125,8 @@ fn distance_prune_proof(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::VortexSessionExecute;
     use vortex_array::dtype::DType;
@@ -143,6 +145,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
     use vortex_expr::stats::rewrite::StatsRewriteRule;
+    use vortex_session::VortexSession;
 
     use super::SpatialDistancePrune;
     use crate::prune::test_harness::aabb_zone_map;
@@ -150,6 +153,12 @@ mod tests {
     use crate::scalar_fn::distance::SpatialDistance;
     use crate::test_harness::point_column;
     use crate::test_harness::spatial_session;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     /// Run the rule against `SpatialDistance(root, origin) <operator> radius`, operands swapped when
     /// `geom_first` is false. The radius is any literal scalar, matching the uncoerced filter
@@ -172,7 +181,7 @@ mod tests {
         let distance = SpatialDistance.new_expr(EmptyOptions, operands);
         let predicate = Binary
             .new_expr(operator, [distance, lit(radius.into())])
-            .bind(&scope)?;
+            .bind(&scope, &SESSION)?;
 
         SpatialDistancePrune.falsify(&predicate, &session)
     }
@@ -188,7 +197,7 @@ mod tests {
         let distance = SpatialDistance.new_expr(EmptyOptions, [root(), lit(null_query)]);
         let predicate = Binary
             .new_expr(Operator::Lte, [distance, lit(0.5f64)])
-            .bind(&scope)?;
+            .bind(&scope, &SESSION)?;
 
         assert!(
             SpatialDistancePrune
@@ -307,7 +316,7 @@ mod tests {
         let origin = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
         let distance = SpatialDistance.new_expr(EmptyOptions, [root(), lit(origin)]);
         let predicate = lt_eq(distance, lit(0.5f64));
-        assert!(predicate.bind(&scope).is_err());
+        assert!(predicate.bind(&scope, &SESSION).is_err());
         Ok(())
     }
 
@@ -317,7 +326,7 @@ mod tests {
         let session = spatial_session();
         let scope = point_column(vec![0.0], vec![0.0])?.dtype().clone();
 
-        let predicate = lt_eq(lit(1.0f64), lit(2.0f64)).bind(&scope)?;
+        let predicate = lt_eq(lit(1.0f64), lit(2.0f64)).bind(&scope, &SESSION)?;
         assert!(
             SpatialDistancePrune
                 .falsify(&predicate, &session)?
@@ -343,7 +352,7 @@ mod tests {
         let distance = SpatialDistance.new_expr(EmptyOptions, [root(), lit(origin)]);
         let predicate = lt_eq(distance, lit(0.5f64));
         let proof = predicate
-            .bind(&point_dtype)?
+            .bind(&point_dtype, &SESSION)?
             .falsify(&session)?
             .expect("distance filter should be falsifiable");
 
@@ -369,7 +378,7 @@ mod tests {
         let distance = SpatialDistance.new_expr(EmptyOptions, [root(), lit(origin)]);
         let predicate = lt_eq(distance, lit(1.0f64));
         let proof = predicate
-            .bind(&point_dtype)?
+            .bind(&point_dtype, &SESSION)?
             .falsify(&session)?
             .expect("distance filter should be falsifiable");
 
@@ -401,7 +410,7 @@ mod tests {
         let origin = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
         let distance = SpatialDistance.new_expr(EmptyOptions, [root(), lit(origin)]);
         let proof = gt_eq(distance, lit(2.0f64))
-            .bind(&point_dtype)?
+            .bind(&point_dtype, &SESSION)?
             .falsify(&session)?
             .expect("distance filter should be falsifiable");
 
@@ -422,7 +431,7 @@ mod tests {
         let origin = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
         let distance = SpatialDistance.new_expr(EmptyOptions, [root(), lit(origin)]);
         let proof = lt_eq(distance, lit(0.5f64))
-            .bind(&point_dtype)?
+            .bind(&point_dtype, &SESSION)?
             .falsify(&session)?
             .expect("distance filter should be falsifiable");
 

@@ -12,6 +12,7 @@ use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_session::VortexSession;
 
 use crate::dtype::DType;
 use crate::expr::Expression;
@@ -28,6 +29,7 @@ use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::is_not_null::IsNotNull;
+use crate::scalar_fn::session::ScalarFnSessionExt;
 
 /// An [`Expression`] that has been type-checked against a [`Scope`].
 ///
@@ -117,14 +119,21 @@ impl BoundExpression {
     }
 
     /// Create a bound scalar node from a scalar function and already-bound children.
+    ///
+    /// Options that hold an expression, such as a lambda, must already be bound: there is no
+    /// session here to bind them with. Bind an [`Expression`] instead to bind them.
     pub fn try_new(
         scalar_fn: ScalarFnRef,
         children: impl IntoIterator<Item = BoundExpression>,
     ) -> VortexResult<Self> {
-        Self::try_new_vec(scalar_fn, children.into_iter().collect())
+        Self::try_new_vec(scalar_fn, children.into_iter().collect(), None)
     }
 
-    fn try_new_vec(scalar_fn: ScalarFnRef, children: Vec<BoundExpression>) -> VortexResult<Self> {
+    fn try_new_vec(
+        scalar_fn: ScalarFnRef,
+        children: Vec<BoundExpression>,
+        session: Option<&VortexSession>,
+    ) -> VortexResult<Self> {
         vortex_ensure!(
             scalar_fn.signature().arity().matches(children.len()),
             "Expression arity mismatch: expected {} children but got {}",
@@ -136,7 +145,7 @@ impl BoundExpression {
             .iter()
             .map(|child| child.dtype().clone())
             .collect_vec();
-        let scalar_fn = scalar_fn.bind_options(&arg_dtypes)?;
+        let scalar_fn = scalar_fn.bind_options(&arg_dtypes, session)?;
         let dtype = scalar_fn.return_dtype(&arg_dtypes)?;
 
         Ok(Self::Scalar {
@@ -161,7 +170,7 @@ impl BoundExpression {
             return Ok(self);
         };
 
-        Self::try_new_vec(scalar_fn.clone(), children)
+        Self::try_new_vec(scalar_fn.clone(), children, None)
     }
 
     /// The dtype this expression evaluates to.
@@ -285,33 +294,39 @@ impl Display for BoundExpression {
 }
 
 impl Expression {
-    /// Bind this expression against a root dtype, type-checking every node in a single walk.
+    /// Bind this expression against a root dtype, resolving every node's scalar function in
+    /// `session` and type-checking the tree in a single walk.
     ///
     /// The returned tree carries a dtype on each node, so callers needing types at more than one
-    /// node should bind once and read fields rather than calling
-    /// [`return_dtype`](Expression::return_dtype) repeatedly.
-    pub fn bind(&self, dtype: &DType) -> VortexResult<BoundExpression> {
-        self.bind_scope(&Scope::new(dtype.clone()))
+    /// node should bind once and read fields.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a node calls a function `session` does not register, holds options of
+    /// another type than that function takes, or has the wrong number of children for it, or if
+    /// the tree does not type-check.
+    pub fn bind(&self, dtype: &DType, session: &VortexSession) -> VortexResult<BoundExpression> {
+        self.bind_scope(&Scope::new(dtype.clone(), session.clone()))
     }
 
     /// Bind this expression against an explicit [`Scope`].
     pub fn bind_scope(&self, scope: &Scope) -> VortexResult<BoundExpression> {
-        if self.is_root() {
-            return Ok(BoundExpression::new_root(scope.root().clone()));
-        }
-        if let Expression::Variable(name) = self {
-            return Err(unbound_variable(name));
-        }
+        let (id, options, children) = match self {
+            Expression::Root => return Ok(BoundExpression::new_root(scope.root().clone())),
+            Expression::Variable(name) => return Err(unbound_variable(name)),
+            Expression::Scalar {
+                id,
+                options,
+                children,
+            } => (*id, options, children),
+        };
 
-        let children: Vec<_> = self
-            .children()
+        let children: Vec<_> = children
             .iter()
             .map(|child| child.bind_scope(scope))
             .try_collect()?;
-        let scalar_fn = self
-            .as_scalar()
-            .vortex_expect("leaves were handled above, so this is a scalar node");
-        BoundExpression::try_new(scalar_fn.clone(), children)
+        let scalar_fn = scope.session().resolve_scalar_fn(id, options)?;
+        BoundExpression::try_new_vec(scalar_fn, children, Some(scope.session()))
     }
 }
 
@@ -351,7 +366,11 @@ mod tests {
     use crate::scalar_fn::fns::literal::Literal;
 
     fn scope() -> Scope {
-        Scope::new(struct_dtype())
+        Scope::new(struct_dtype(), VortexSession::empty())
+    }
+
+    fn session() -> VortexSession {
+        VortexSession::empty()
     }
 
     #[test]
@@ -380,7 +399,7 @@ mod tests {
     }
 
     #[test]
-    fn bind_agrees_with_return_dtype() -> VortexResult<()> {
+    fn bind_types_every_kind_of_node() -> VortexResult<()> {
         for (expr, expected) in [
             (root(), struct_dtype()),
             (
@@ -394,14 +413,9 @@ mod tests {
             (lit(true), DType::Bool(Nullability::NonNullable)),
         ] {
             assert_eq!(
-                expr.bind(&struct_dtype())?.dtype(),
+                expr.bind(&struct_dtype(), &session())?.dtype(),
                 &expected,
                 "binding {expr}"
-            );
-            assert_eq!(
-                expr.return_dtype(&struct_dtype())?,
-                expected,
-                "return dtype of {expr}"
             );
         }
         Ok(())
@@ -418,27 +432,28 @@ mod tests {
     #[test]
     fn bound_to_checks_every_root() -> VortexResult<()> {
         let dtype = struct_dtype();
-        let bound = eq(col("a"), col("a")).bind(&dtype)?;
+        let bound = eq(col("a"), col("a")).bind(&dtype, &session())?;
         assert!(bound.is_root_bound_to(&dtype));
         assert!(!bound.is_root_bound_to(&DType::Bool(Nullability::NonNullable)));
         assert!(
             lit(true)
-                .bind(&dtype)?
+                .bind(&dtype, &session())?
                 .is_root_bound_to(&DType::Bool(Nullability::NonNullable))
         );
         Ok(())
     }
 
     #[test]
-    fn bound_display_matches_unbound() -> VortexResult<()> {
-        for expr in [root(), col("a"), eq(col("a"), lit(1_i32)), lit(true)] {
-            let bound = expr.bind_scope(&scope())?;
-            assert_eq!(bound.to_string(), expr.to_string());
-            assert_eq!(
-                bound.display_tree().to_string(),
-                expr.display_tree().to_string()
-            );
-        }
+    fn binding_gives_functions_their_own_display() -> VortexResult<()> {
+        let expr = eq(col("a"), lit(1_i32));
+        assert_eq!(
+            expr.to_string(),
+            "vortex.binary(vortex.get_item($, opts=a), vortex.literal(opts=1i32), opts==)"
+        );
+        assert_eq!(expr.bind_scope(&scope())?.to_string(), "($.a = 1i32)");
+        assert_eq!(root().bind_scope(&scope())?.to_string(), "$");
+        assert_eq!(lit(true).to_string(), "vortex.literal(opts=true)");
+        assert_eq!(lit(true).bind_scope(&scope())?.to_string(), "true");
         Ok(())
     }
 

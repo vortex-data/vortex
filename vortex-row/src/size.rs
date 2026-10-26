@@ -164,7 +164,7 @@ pub(crate) fn compute_sizes(
 /// This scalar function is public for session registration and row-encoding work.
 /// Most callers should use [`RowEncoder::row_sizes`](crate::RowEncoder::row_sizes) rather
 /// than invoking the scalar function directly.
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct RowSize;
 
 /// Returns the [`FieldNames`] used by the [`RowSize`] output struct.

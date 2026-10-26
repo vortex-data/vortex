@@ -37,6 +37,8 @@ use crate::stats::null_count;
 use crate::stats::rewrite::BoundExpressionPruneExt;
 use crate::stats::stat as stat_expr;
 
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
 static STATS_SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<StatsSession>());
 
@@ -50,8 +52,11 @@ fn test_is_null_falsification() -> VortexResult<()> {
     let dtype = test_harness::struct_dtype();
 
     assert_eq!(
-        expr.bind(&dtype)?.falsify(&STATS_SESSION)?,
-        Some(or(eq(null_count(col("a")), lit(0u64)), all_non_null(col("a")),).bind(&dtype)?)
+        expr.bind(&dtype, &SESSION)?.falsify(&STATS_SESSION)?,
+        Some(
+            or(eq(null_count(col("a")), lit(0u64)), all_non_null(col("a")),)
+                .bind(&dtype, &SESSION)?
+        )
     );
     Ok(())
 }
@@ -62,13 +67,13 @@ fn test_is_not_null_falsification() -> VortexResult<()> {
     let dtype = test_harness::struct_dtype();
 
     assert_eq!(
-        expr.bind(&dtype)?.falsify(&STATS_SESSION)?,
+        expr.bind(&dtype, &SESSION)?.falsify(&STATS_SESSION)?,
         Some(
             or(
                 eq(null_count(col("a")), RowCount.new_expr(EmptyOptions, []),),
                 all_null(col("a")),
             )
-            .bind(&dtype)?
+            .bind(&dtype, &SESSION)?
         )
     );
     Ok(())
@@ -93,7 +98,7 @@ pub fn list_falsification() -> VortexResult<()> {
     );
 
     assert_eq!(
-        expr.bind(&scope)?.falsify(&STATS_SESSION)?,
+        expr.bind(&scope, &SESSION)?.falsify(&STATS_SESSION)?,
         Some(
             and(
                 and(
@@ -111,7 +116,7 @@ pub fn list_falsification() -> VortexResult<()> {
                     gt(stat(col("a"), Stat::Min), lit(3i32)),
                 )
             )
-            .bind(&scope)?
+            .bind(&scope, &SESSION)?
         )
     );
     Ok(())

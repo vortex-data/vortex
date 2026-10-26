@@ -124,6 +124,8 @@ impl NodeFolderContext for ReferencedFieldPaths {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType::I32;
@@ -134,9 +136,12 @@ mod tests {
     use vortex_array::expr::root;
     use vortex_array::expr::select;
     use vortex_array::expr::select_exclude;
+    use vortex_session::VortexSession;
     use vortex_utils::aliases::hash_set::HashSet;
 
     use super::*;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn scope() -> DType {
         DType::Struct(
@@ -153,7 +158,7 @@ mod tests {
 
     /// Collects the prefix-minimal field paths referenced by `expr` against [`scope`].
     fn referenced(expr: &Expression) -> VortexResult<HashSet<FieldPath>> {
-        Ok(referenced_field_paths(&expr.bind(&scope())?)?
+        Ok(referenced_field_paths(&expr.bind(&scope(), &SESSION)?)?
             .into_iter()
             .collect())
     }
@@ -230,7 +235,7 @@ mod tests {
     #[test]
     fn invalid_get_item_path_returns_error() {
         let result = get_item("missing", root())
-            .bind(&scope())
+            .bind(&scope(), &SESSION)
             .and_then(|expr| referenced_field_paths(&expr));
         assert!(result.is_err());
     }

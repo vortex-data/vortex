@@ -11,11 +11,8 @@ use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::Expression;
-use vortex_array::expr::cast;
-use vortex_array::expr::get_item;
-use vortex_array::expr::pack;
-use vortex_array::expr::root;
+use vortex_array::expr::BoundExpression;
+use vortex_array::expr::bound;
 use vortex_array::expr::stats::Stat;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -199,8 +196,9 @@ pub(crate) fn legacy_stats_to_aggregates(
     column_dtype: &DType,
     table_dtype: &DType,
     stats: &[Stat],
-) -> (Arc<[AggregateFnRef]>, Expression) {
+) -> (Arc<[AggregateFnRef]>, BoundExpression) {
     let fields = table_dtype.as_struct_fields_opt();
+    let root = bound::root(table_dtype.clone());
     let mut aggregate_fns = Vec::with_capacity(stats.len());
     let mut elements = Vec::with_capacity(stats.len());
     for stat in stats {
@@ -217,18 +215,20 @@ pub(crate) fn legacy_stats_to_aggregates(
         if !stored.eq_ignore_nullability(&state) {
             continue;
         }
-        let value = get_item(stat.name(), root());
+        // The field exists in the table and differs from the state at most in nullability, so
+        // these cannot fail to bind.
+        let value = bound::get_item(stat.name(), root.clone());
         let value = if stored == state {
             value
         } else {
-            cast(value, state)
+            bound::cast(value, state)
         };
         elements.push((aggregate_fn.to_string(), value));
         aggregate_fns.push(aggregate_fn);
     }
     (
         aggregate_fns.into(),
-        pack(elements, Nullability::NonNullable),
+        bound::pack(elements, Nullability::NonNullable),
     )
 }
 

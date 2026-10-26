@@ -16,6 +16,7 @@ use vortex_array::expr::get_item;
 use vortex_array::expr::lit;
 use vortex_array::expr::or;
 use vortex_array::expr::root;
+use vortex_session::VortexSession;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -44,6 +45,8 @@ fn build_or_chain(n: usize) -> Expression {
 #[divan::bench(args = [200])]
 fn optimize_or_chain(bencher: Bencher, n: usize) {
     let scope = struct_scope();
-    let expr = build_or_chain(n).bind(&scope).unwrap();
+    let expr = build_or_chain(n)
+        .bind(&scope, &VortexSession::empty())
+        .unwrap();
     bencher.bench(|| expr.optimize_recursive().unwrap());
 }

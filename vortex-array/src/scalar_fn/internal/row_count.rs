@@ -42,7 +42,7 @@ use vortex_session::registry::CachedId;
 ///
 /// Calling [`ScalarFnVTable::execute`] directly returns an error because this
 /// node is only a marker in a lazy expression tree.
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct RowCount;
 
 impl ScalarFnVTable for RowCount {
@@ -152,20 +152,30 @@ pub fn substitute_row_count(array: ArrayRef, replacement: &ArrayRef) -> VortexRe
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_session::VortexSession;
 
     use crate::scalar_fn::EmptyOptions;
     use crate::scalar_fn::internal::row_count::RowCount;
     use crate::scalar_fn::vtable::ScalarFnVTableExt;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn row_count_helper_dtype() {
         let expr = RowCount.new_expr(EmptyOptions, []);
         assert_eq!(
-            expr.return_dtype(&DType::Primitive(PType::I32, Nullability::Nullable))
-                .unwrap(),
+            expr.bind(
+                &DType::Primitive(PType::I32, Nullability::Nullable),
+                &SESSION
+            )
+            .unwrap()
+            .dtype()
+            .clone(),
             DType::Primitive(PType::U64, Nullability::NonNullable),
         );
     }

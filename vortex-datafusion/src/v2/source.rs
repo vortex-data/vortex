@@ -241,7 +241,11 @@ impl VortexDataSourceBuilder {
             ));
         }
 
-        let DType::Struct(fields, ..) = projection.return_dtype(self.data_source.dtype())? else {
+        let projection_dtype = projection
+            .bind(self.data_source.dtype(), &self.session)?
+            .dtype()
+            .clone();
+        let DType::Struct(fields, ..) = projection_dtype else {
             vortex_bail!("Projection does not evaluate to a struct");
         };
 
@@ -589,7 +593,8 @@ impl DataSource for VortexDataSource {
 
         // Retain Arrow storage types and metadata required by the leftover expressions.
         let scan_dtype = scan_projection
-            .return_dtype(self.data_source.dtype())
+            .bind(self.data_source.dtype(), &self.session)
+            .map(|bound| bound.dtype().clone())
             .map_err(|e| DataFusionError::External(Box::new(e)))?;
         let scan_output_schema = Arc::new(calculate_physical_schema(
             &scan_dtype,

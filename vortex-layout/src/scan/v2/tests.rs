@@ -76,7 +76,7 @@ use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt as _;
 use crate::test::new_session;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(new_session);
 
 const CHUNK_ROWS: usize = 1000;
 const CHUNKS: usize = 4;
@@ -261,7 +261,7 @@ async fn large_filtered_chunks_match_v1(#[case] cutoff: i32) -> VortexResult<()>
     let segments: Arc<dyn SegmentSource> = segments;
     assert_same_as_v1(&session, || {
         Ok(builder(&session, &segments, &layout)?
-            .with_some_filter(Some(gt(root(), lit(cutoff)).bind(&dtype)?)))
+            .with_some_filter(Some(gt(root(), lit(cutoff)).bind(&dtype, &SESSION)?)))
     })
     .await
 }
@@ -287,9 +287,9 @@ async fn filter_matches_v1(
         let mut scan = builder(&session, &segments, &layout)?
             .with_projection(
                 pack([("strings", get_item("strings", root()))], false.into())
-                    .bind(layout.dtype())?,
+                    .bind(layout.dtype(), &SESSION)?,
             )
-            .with_some_filter(Some(filter.bind(layout.dtype())?))
+            .with_some_filter(Some(filter.bind(layout.dtype(), &SESSION)?))
             .with_row_range(900..3100)
             .with_row_offset(100);
         if sparse {
@@ -358,7 +358,7 @@ async fn projection_matches_v1(
             false.into(),
         );
         Ok(builder(&session, &segments, &layout)?
-            .with_projection(projection.bind(&dtype)?)
+            .with_projection(projection.bind(&dtype, &SESSION)?)
             .with_row_offset(100))
     })
     .await
@@ -369,7 +369,7 @@ async fn arrow_stream_projects_across_chunks() -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write(&session, table().as_ref()).await?;
     let projection =
-        pack([("value", get_item("ints", root()))], false.into()).bind(layout.dtype())?;
+        pack([("value", get_item("ints", root()))], false.into()).bind(layout.dtype(), &SESSION)?;
     let scan = builder(&session, &segments, &layout)?
         .with_projection(projection)
         .with_row_range(990..1010);
@@ -528,7 +528,7 @@ async fn projection_skips_unsupported_unselected_layouts() -> VortexResult<()> {
     let (segments, layout) = write(&session, &strategy).await?;
     assert_same_as_v1(&session, || {
         Ok(builder(&session, &segments, &layout)?
-            .with_projection(get_item("ints", root()).bind(layout.dtype())?))
+            .with_projection(get_item("ints", root()).bind(layout.dtype(), &SESSION)?))
     })
     .await
 }
@@ -633,7 +633,7 @@ async fn primitive_column() -> VortexResult<()> {
     let dtype = layout.dtype().clone();
     let scan = PreparedScan::try_new(
         builder(&session, &segments, &layout)?
-            .with_projection(get_item("ints", root()).bind(&dtype)?)
+            .with_projection(get_item("ints", root()).bind(&dtype, &SESSION)?)
             .with_row_range(990..1010),
     )?;
     let actual = collect(
@@ -763,7 +763,7 @@ async fn repeated_projections_reuse_their_values() -> VortexResult<()> {
     let mut file = scan_file(&segments, &layout)?;
     file.cache = Some(ScanCache::default());
 
-    let projection = gt(root(), lit(15i32)).bind(layout.dtype())?;
+    let projection = gt(root(), lit(15i32)).bind(layout.dtype(), &SESSION)?;
     let mut reads = Vec::new();
     for _ in 0..3 {
         let before = counted.reads.load(Ordering::Relaxed);

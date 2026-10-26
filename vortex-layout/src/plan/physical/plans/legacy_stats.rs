@@ -167,7 +167,7 @@ impl PlanReduceRule<LegacyStats> for LegacyStatsRule {
         if aggregate_fns.is_empty() {
             return Ok(Some(data));
         }
-        let zones = EvalPlan::try_new(conversion.bind(zones.dtype())?, zones)?.into_plan();
+        let zones = EvalPlan::try_new(conversion, zones)?.into_plan();
         let zoned = ZonedPlan::new(data, zones, plan.zone_len(), aggregate_fns);
         Ok(Some(zoned.into_plan()))
     }

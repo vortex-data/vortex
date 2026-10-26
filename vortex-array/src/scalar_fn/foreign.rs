@@ -33,6 +33,16 @@ impl ForeignScalarFnOptions {
     pub fn new(metadata: Vec<u8>, arity: usize) -> Self {
         Self { metadata, arity }
     }
+
+    /// The serialized options of the unknown function, kept as they were read.
+    pub fn metadata(&self) -> &[u8] {
+        &self.metadata
+    }
+
+    /// The number of children the unknown function was read with.
+    pub fn arity(&self) -> usize {
+        self.arity
+    }
 }
 
 impl Display for ForeignScalarFnOptions {

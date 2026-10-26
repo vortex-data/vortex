@@ -12,6 +12,12 @@ such as whether the function is strict, and the actual logic for executing the f
 The built-in scalar functions can be found in the `vortex-array::expr` module, with additional use-case specific
 functions provided by integration and plugin crates.
 
+An expression node holds the id of the function it calls and the options it is called with, not the function
+itself. Building an expression therefore needs neither a session nor the crate that defines the function. Binding
+the expression against a scope dtype and a `VortexSession` looks each function up in the session's scalar function
+registry, checks the options and the number of children against it, and type-checks the tree. The resulting bound
+expression is what scans optimize and execute, and what gives each function its own display.
+
 In the future, we plan to add full support for spatial functions, date-time functions, and more.
 
 ## Scalar Function Arrays

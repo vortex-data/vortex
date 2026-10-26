@@ -62,7 +62,7 @@ impl Display for LikeOptions {
 }
 
 /// Expression that performs SQL LIKE pattern matching.
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct Like;
 
 impl Like {
@@ -434,12 +434,14 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::dtype::StructFields;
     use crate::expr::get_item;
     use crate::expr::like;
     use crate::expr::lit;
     use crate::expr::not_ilike;
     use crate::expr::root;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::ScalarFnVTable;
     use crate::scalar_fn::fns::like::Like;
     use crate::scalar_fn::fns::like::LikeOptions;
     use crate::scalar_fn::fns::like::is_ascii;
@@ -647,7 +649,7 @@ mod tests {
         let dtype = DType::Utf8(Nullability::NonNullable);
         let like_expr = like(root(), lit("%test%"));
         assert_eq!(
-            like_expr.return_dtype(&dtype).unwrap(),
+            like_expr.bind(&dtype, &SESSION).unwrap().dtype().clone(),
             DType::Bool(Nullability::NonNullable)
         );
     }
@@ -655,25 +657,30 @@ mod tests {
     #[test]
     fn signature() {
         let like_expr = like(root(), lit("%test%"));
-        assert!(
-            like_expr
-                .as_scalar()
-                .is_some_and(|f| f.signature().is_strict())
-        );
-        assert!(
-            like_expr
-                .as_scalar()
-                .is_some_and(|f| f.signature().is_infallible())
-        );
+        assert!(Like.is_strict(like_expr.as_::<Like>()));
+        assert!(Like.is_infallible(like_expr.as_::<Like>()));
     }
 
     #[test]
     fn test_display() {
         let expr = like(get_item("name", root()), lit("%john%"));
-        assert_eq!(expr.to_string(), "$.name like \"%john%\"");
+        let scope = DType::Struct(
+            StructFields::from_iter([("name", DType::Utf8(Nullability::NonNullable))]),
+            Nullability::NonNullable,
+        );
+        assert_eq!(
+            expr.bind(&scope, &SESSION).unwrap().to_string(),
+            "$.name like \"%john%\""
+        );
 
         let expr2 = not_ilike(root(), lit("test*"));
-        assert_eq!(expr2.to_string(), "$ not ilike \"test*\"");
+        assert_eq!(
+            expr2
+                .bind(&DType::Utf8(Nullability::NonNullable), &SESSION)
+                .unwrap()
+                .to_string(),
+            "$ not ilike \"test*\""
+        );
     }
 
     #[test]

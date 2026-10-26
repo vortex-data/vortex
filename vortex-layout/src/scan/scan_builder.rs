@@ -553,8 +553,8 @@ mod test {
     #[test]
     fn bound_setters_preserve_identity() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let projection = eq(root(), lit(1_i32)).bind(&dtype)?;
-        let filter = eq(root(), lit(2_i32)).bind(&dtype)?;
+        let projection = eq(root(), lit(1_i32)).bind(&dtype, &SESSION)?;
+        let filter = eq(root(), lit(2_i32)).bind(&dtype, &SESSION)?;
         let expected_projection = ExactBoundExpr(projection.clone());
         let expected_filter = ExactBoundExpr(filter.clone());
         let reader = Arc::new(CountingLayoutReader::new(Arc::new(AtomicUsize::new(0))));
@@ -571,7 +571,7 @@ mod test {
     #[test]
     fn root_projection_produces_all_mask() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let projection = root().bind(&dtype)?;
+        let projection = root().bind(&dtype, &SESSION)?;
 
         assert_eq!(referenced_field_masks(&projection, None)?, [FieldMask::All]);
         Ok(())
@@ -580,8 +580,8 @@ mod test {
     #[test]
     fn nested_projection_preserves_field_path_in_split_mask() -> VortexResult<()> {
         let dtype = nested_dtype();
-        let projection = get_item("1", get_item("a", root())).bind(&dtype)?;
-        let filter = eq(get_item("2", get_item("a", root())), lit(0_i32)).bind(&dtype)?;
+        let projection = get_item("1", get_item("a", root())).bind(&dtype, &SESSION)?;
+        let filter = eq(get_item("2", get_item("a", root())), lit(0_i32)).bind(&dtype, &SESSION)?;
 
         let field_masks = referenced_field_masks(&projection, Some(&filter))?;
 
@@ -594,8 +594,8 @@ mod test {
     #[test]
     fn filter_path_covers_nested_projection_path() -> VortexResult<()> {
         let dtype = nested_dtype();
-        let projection = get_item("1", get_item("a", root())).bind(&dtype)?;
-        let filter = is_not_null(get_item("a", root())).bind(&dtype)?;
+        let projection = get_item("1", get_item("a", root())).bind(&dtype, &SESSION)?;
+        let filter = is_not_null(get_item("a", root())).bind(&dtype, &SESSION)?;
 
         let field_masks = referenced_field_masks(&projection, Some(&filter))?;
 
@@ -606,8 +606,8 @@ mod test {
     #[test]
     fn parent_projection_path_covers_nested_filter_path() -> VortexResult<()> {
         let dtype = nested_dtype();
-        let projection = get_item("a", root()).bind(&dtype)?;
-        let filter = is_not_null(get_item("1", get_item("a", root()))).bind(&dtype)?;
+        let projection = get_item("a", root()).bind(&dtype, &SESSION)?;
+        let filter = is_not_null(get_item("1", get_item("a", root()))).bind(&dtype, &SESSION)?;
 
         let field_masks = referenced_field_masks(&projection, Some(&filter))?;
 
@@ -886,7 +886,7 @@ mod test {
 
         let runtime = TokioRuntime::new(tokio::runtime::Handle::current());
         let session = session_with_handle(runtime.handle());
-        let filter = is_not_null(root()).bind(reader.dtype())?;
+        let filter = is_not_null(root()).bind(reader.dtype(), &SESSION)?;
         let builder = ScanBuilder::new(session, reader);
         let mut stream = if filtered {
             // Drive the prepared stream directly so its first poll must construct a split.
@@ -961,7 +961,7 @@ mod test {
                 .with_split_size(2)
                 .with_keep_row(keep_row),
         );
-        let filter = root().bind(reader.dtype())?;
+        let filter = root().bind(reader.dtype(), &SESSION)?;
 
         let stream = ScanBuilder::new(session, reader)
             .with_filter(filter)
@@ -981,7 +981,7 @@ mod test {
         let runtime = SingleThreadRuntime::default();
         let session = session_with_handle(runtime.handle());
         let reader = Arc::new(TestLayoutReader::new(12).with_split_size(4));
-        let filter = root().bind(reader.dtype())?;
+        let filter = root().bind(reader.dtype(), &SESSION)?;
 
         let stream = ScanBuilder::new(session, reader)
             .with_filter(filter)
@@ -1005,7 +1005,7 @@ mod test {
         let runtime = SingleThreadRuntime::default();
         let session = session_with_handle(runtime.handle());
         let reader = Arc::new(TestLayoutReader::new(8).with_split_size(2));
-        let filter = root().bind(reader.dtype())?;
+        let filter = root().bind(reader.dtype(), &SESSION)?;
 
         let rows = ScanBuilder::new(session, reader)
             .with_filter(filter)
@@ -1036,7 +1036,7 @@ mod test {
         } else {
             reader.with_fail_first_projection()
         });
-        let filter = root().bind(reader.dtype())?;
+        let filter = root().bind(reader.dtype(), &SESSION)?;
         let stream = ScanBuilder::new(session, reader)
             .with_filter(filter)
             .with_some_limit(limit)
@@ -1074,7 +1074,7 @@ mod test {
                 .with_projection_masks(Arc::clone(&projection_masks))
                 .with_projection_error(),
         );
-        let filter = root().bind(reader.dtype())?;
+        let filter = root().bind(reader.dtype(), &SESSION)?;
         let stream = ScanBuilder::new(session, reader)
             .with_filter(filter)
             .with_limit(1)
@@ -1096,7 +1096,7 @@ mod test {
                 .with_split_size(2)
                 .with_keep_row(keep_odd),
         );
-        let filter = root().bind(reader.dtype())?;
+        let filter = root().bind(reader.dtype(), &SESSION)?;
 
         let scan = ScanBuilder::new(session, reader)
             .with_filter(filter)
@@ -1120,11 +1120,12 @@ mod test {
                 .with_dtype(dtype.clone())
                 .with_filter_exprs(Arc::clone(&filter_exprs)),
         );
-        let filter = and(gt_eq(col("b"), lit(2_i32)), lt(col("b"), lit(5_i32))).bind(&dtype)?;
+        let filter =
+            and(gt_eq(col("b"), lit(2_i32)), lt(col("b"), lit(5_i32))).bind(&dtype, &SESSION)?;
 
         let values = collect_scan_values(
             ScanBuilder::new(session, reader)
-                .with_projection(col("b").bind(&dtype)?)
+                .with_projection(col("b").bind(&dtype, &SESSION)?)
                 .with_filter(filter)
                 .into_array_iter(&runtime)?,
         )?;
@@ -1140,7 +1141,7 @@ mod test {
                 upper_strict: StrictComparison::Strict,
             },
         )
-        .bind(&dtype)?;
+        .bind(&dtype, &SESSION)?;
         assert_eq!(filter_exprs.lock().as_slice(), [expected]);
         Ok(())
     }
@@ -1156,7 +1157,7 @@ mod test {
                 .with_keep_row(keep_odd)
                 .with_projection_masks(Arc::clone(&projection_masks)),
         );
-        let filter = root().bind(reader.dtype())?;
+        let filter = root().bind(reader.dtype(), &SESSION)?;
         let scan = ScanBuilder::new(session, reader)
             .with_filter(filter)
             .prepare()?;

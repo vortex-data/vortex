@@ -142,11 +142,17 @@ fn bench_compare_sliced_dict_primitive(
     let dict = dict.into_array().slice(0..codes_len).unwrap();
     let value = primitive_arr.as_slice::<i32>()[0];
 
+    let expr = eq(root(), lit(value))
+        .bind(dict.dtype(), &SESSION)
+        .unwrap()
+        .optimize_recursive()
+        .unwrap();
+
     bencher
         .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
         .bench_refs(|(dict, ctx)| {
             dict.clone()
-                .apply(&eq(root(), lit(value)))
+                .apply_bound(&expr)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()
@@ -165,11 +171,17 @@ fn bench_compare_sliced_dict_varbinview(
     let const_bytes = varbin_arr.bytes_at(0, &mut ctx);
     let value = unsafe { str::from_utf8_unchecked(const_bytes.as_slice()) };
 
+    let expr = eq(root(), lit(value))
+        .bind(dict.dtype(), &SESSION)
+        .unwrap()
+        .optimize_recursive()
+        .unwrap();
+
     bencher
         .with_inputs(|| (&dict, SESSION.create_execution_ctx()))
         .bench_refs(|(dict, ctx)| {
             dict.clone()
-                .apply(&eq(root(), lit(value)))
+                .apply_bound(&expr)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()

@@ -157,12 +157,16 @@ pub fn bound_get_item(field: impl Into<FieldName>, child: BoundExpression) -> Bo
 /// to bind.
 ///
 /// ```rust
+/// # use vortex_session::VortexSession;
 /// # use vortex_array::dtype::{DType, Nullability, PType};
 /// # use vortex_array::expr::{checked_add, lit, var};
 /// let expr = checked_add(var("x"), lit(1_i32));
-/// assert_eq!(expr.to_string(), "(@x + 1i32)");
+/// assert_eq!(
+///     expr.to_string(),
+///     "vortex.binary(@x, vortex.literal(opts=1i32), opts=+)"
+/// );
 /// // Outside a lambda body, nothing gives `x` a value.
-/// assert!(expr.bind(&DType::Primitive(PType::I32, Nullability::NonNullable)).is_err());
+/// assert!(expr.bind(&DType::Primitive(PType::I32, Nullability::NonNullable), &VortexSession::empty()).is_err());
 /// ```
 pub fn var(name: impl Into<FieldName>) -> Expression {
     Expression::Variable(name.into())
@@ -342,7 +346,7 @@ pub fn bound_binary(
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{eq, root, lit};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = xs.into_array().apply(&eq(root(), lit(3))).unwrap();
+/// let result = xs.into_array().apply(&eq(root(), lit(3)), &VortexSession::empty()).unwrap();
 /// let mut ctx = VortexSession::empty().create_execution_ctx();
 ///
 /// assert_eq!(
@@ -375,7 +379,7 @@ pub fn bound_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{root, lit, not_eq};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = xs.into_array().apply(&not_eq(root(), lit(3))).unwrap();
+/// let result = xs.into_array().apply(&not_eq(root(), lit(3)), &VortexSession::empty()).unwrap();
 /// let mut ctx = VortexSession::empty().create_execution_ctx();
 ///
 /// assert_eq!(
@@ -408,7 +412,7 @@ pub fn bound_not_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpressi
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{gt_eq, root, lit};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = xs.into_array().apply(&gt_eq(root(), lit(3))).unwrap();
+/// let result = xs.into_array().apply(&gt_eq(root(), lit(3)), &VortexSession::empty()).unwrap();
 /// let mut ctx = VortexSession::empty().create_execution_ctx();
 ///
 /// assert_eq!(
@@ -441,7 +445,7 @@ pub fn bound_gt_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpressio
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{gt, root, lit};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = xs.into_array().apply(&gt(root(), lit(2))).unwrap();
+/// let result = xs.into_array().apply(&gt(root(), lit(2)), &VortexSession::empty()).unwrap();
 /// let mut ctx = VortexSession::empty().create_execution_ctx();
 ///
 /// assert_eq!(
@@ -474,7 +478,7 @@ pub fn bound_gt(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{root, lit, lt_eq};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = xs.into_array().apply(&lt_eq(root(), lit(2))).unwrap();
+/// let result = xs.into_array().apply(&lt_eq(root(), lit(2)), &VortexSession::empty()).unwrap();
 /// let mut ctx = VortexSession::empty().create_execution_ctx();
 ///
 /// assert_eq!(
@@ -507,7 +511,7 @@ pub fn bound_lt_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpressio
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{root, lit, lt};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = xs.into_array().apply(&lt(root(), lit(3))).unwrap();
+/// let result = xs.into_array().apply(&lt(root(), lit(3)), &VortexSession::empty()).unwrap();
 /// let mut ctx = VortexSession::empty().create_execution_ctx();
 ///
 /// assert_eq!(
@@ -538,7 +542,7 @@ pub fn bound_lt(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
 /// # use vortex_session::VortexSession;
 /// # use vortex_array::expr::{root, lit, or};
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
-/// let result = xs.into_array().apply(&or(root(), lit(false))).unwrap();
+/// let result = xs.into_array().apply(&or(root(), lit(false)), &VortexSession::empty()).unwrap();
 /// let mut ctx = VortexSession::empty().create_execution_ctx();
 ///
 /// assert_eq!(
@@ -590,7 +594,7 @@ where
 /// # use vortex_session::VortexSession;
 /// # use vortex_array::expr::{and, root, lit};
 /// let xs = BoolArray::from_iter(vec![true, false, true]).into_array();
-/// let result = xs.apply(&and(root(), lit(true))).unwrap();
+/// let result = xs.apply(&and(root(), lit(true)), &VortexSession::empty()).unwrap();
 /// let mut ctx = VortexSession::empty().create_execution_ctx();
 ///
 /// assert_eq!(
@@ -643,7 +647,7 @@ where
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{checked_add, lit, root};
 /// let xs = buffer![1, 2, 3].into_array();
-/// let result = xs.apply(&checked_add(root(), lit(5))).unwrap();
+/// let result = xs.apply(&checked_add(root(), lit(5)), &VortexSession::empty()).unwrap();
 ///
 /// let mut ctx = VortexSession::empty().create_execution_ctx();
 /// let result = result.execute::<PrimitiveArray>(&mut ctx).unwrap();
@@ -1195,9 +1199,11 @@ pub fn in_list(needle: Expression, list: Expression) -> Expression {
 /// ```rust
 /// # use vortex_array::dtype::{DType, Nullability, PType};
 /// # use vortex_array::expr::{in_list_of, root};
+/// # use vortex_session::VortexSession;
 /// let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-/// let expr = in_list_of(root(), dtype, vec![3i32.into(), 1i32.into(), 2i32.into()])?;
-/// assert_eq!(expr.to_string(), "(1i32 <= $ <= 3i32)");
+/// let expr = in_list_of(root(), dtype.clone(), vec![3i32.into(), 1i32.into(), 2i32.into()])?;
+/// let bound = expr.bind(&dtype, &VortexSession::empty())?;
+/// assert_eq!(bound.to_string(), "(1i32 <= $ <= 3i32)");
 /// # Ok::<(), vortex_error::VortexError>(())
 /// ```
 pub fn in_list_of(

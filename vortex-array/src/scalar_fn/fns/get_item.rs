@@ -37,7 +37,7 @@ use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::pack::Pack;
 
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct GetItem;
 
 impl GetItem {
@@ -257,6 +257,7 @@ mod tests {
     use crate::expr::pack;
     use crate::expr::root;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::ScalarFnVTable;
     use crate::scalar_fn::fns::get_item::StructArray;
     use crate::validity::Validity;
 
@@ -274,12 +275,8 @@ mod tests {
     fn get_item_by_name() {
         let st = test_array();
         let get_item = get_item("a", root());
-        assert!(
-            get_item
-                .as_scalar()
-                .is_some_and(|f| f.signature().is_strict())
-        );
-        let item = st.into_array().apply(&get_item).unwrap();
+        assert!(GetItem.is_strict(get_item.as_::<GetItem>()));
+        let item = st.into_array().apply(&get_item, &SESSION).unwrap();
         assert_eq!(item.dtype(), &DType::from(PType::I32));
         assert_arrays_eq!(
             item,
@@ -292,7 +289,7 @@ mod tests {
     fn get_item_by_name_none() {
         let st = test_array();
         let get_item = get_item("c", root());
-        assert!(st.into_array().apply(&get_item).is_err());
+        assert!(st.into_array().apply(&get_item, &SESSION).is_err());
     }
 
     #[test]
@@ -307,7 +304,7 @@ mod tests {
         .into_array();
 
         let get_item_expr = get_item("a", root());
-        let item = st.apply(&get_item_expr).unwrap();
+        let item = st.apply(&get_item_expr, &SESSION).unwrap();
         // The dtype should be nullable since it inherits struct validity
         assert_eq!(
             item.dtype(),
@@ -330,7 +327,7 @@ mod tests {
         )?
         .into_array();
 
-        let item = st.apply(&get_item("a", root()))?;
+        let item = st.apply(&get_item("a", root()), &SESSION)?;
         assert_eq!(
             item.dtype(),
             &DType::Primitive(PType::I32, Nullability::Nullable)
@@ -439,11 +436,11 @@ mod tests {
 
         let dtype = DType::Struct(StructFields::empty(), NonNullable);
         let result = get_item_expr
-            .bind(&dtype)
+            .bind(&dtype, &SESSION)
             .and_then(|expr| expr.optimize_recursive())
             .unwrap();
 
-        assert_eq!(result, lit(2).bind(&dtype).unwrap());
+        assert_eq!(result, lit(2).bind(&dtype, &SESSION).unwrap());
     }
 
     #[test]
@@ -456,8 +453,12 @@ mod tests {
 
         let dtype = DType::Primitive(PType::I32, NonNullable);
 
-        let result = get_z.bind(&dtype).unwrap().optimize_recursive().unwrap();
-        assert_eq!(result, lit(4).bind(&dtype).unwrap());
+        let result = get_z
+            .bind(&dtype, &SESSION)
+            .unwrap()
+            .optimize_recursive()
+            .unwrap();
+        assert_eq!(result, lit(4).bind(&dtype, &SESSION).unwrap());
     }
 
     #[test]
@@ -477,11 +478,11 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, NonNullable);
 
         let result = get_final
-            .bind(&dtype)
+            .bind(&dtype, &SESSION)
             .unwrap()
             .optimize_recursive()
             .unwrap();
-        assert_eq!(result, lit(42).bind(&dtype).unwrap());
+        assert_eq!(result, lit(42).bind(&dtype, &SESSION).unwrap());
     }
 
     #[test]
@@ -496,11 +497,11 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, NonNullable);
 
         let result = get_result
-            .bind(&dtype)
+            .bind(&dtype, &SESSION)
             .unwrap()
             .optimize_recursive()
             .unwrap();
-        let expected = checked_add(lit(1), lit(10)).bind(&dtype).unwrap();
+        let expected = checked_add(lit(1), lit(10)).bind(&dtype, &SESSION).unwrap();
         assert_eq!(&result, &expected);
     }
 
@@ -535,7 +536,10 @@ mod tests {
         )
         .unwrap();
 
-        let result = st.into_array().apply(&get_item("data", root())).unwrap();
+        let result = st
+            .into_array()
+            .apply(&get_item("data", root()), &SESSION)
+            .unwrap();
         let expected = ListArray::try_new(
             buffer![2f32, 3., 4., 5.].into_array(),
             buffer![0u64, 2, 4].into_array(),

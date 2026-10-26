@@ -59,7 +59,7 @@ impl Dataset for TPCHLCommentChunked {
         let path = ensure_lineitem(Format::OnDiskVortex).await?;
         let file = SESSION.open_options().open_path(path).await?;
         let projection = pack(vec![("l_comment", col("l_comment"))], NonNullable)
-            .bind(file.dtype())?
+            .bind(file.dtype(), &SESSION)?
             .optimize_recursive()?;
         let chunks: Vec<_> = file
             .scan()?

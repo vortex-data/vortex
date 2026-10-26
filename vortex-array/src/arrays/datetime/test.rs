@@ -236,7 +236,7 @@ fn comparison_rejects_mismatched_timestamp_units() -> VortexResult<()> {
 
     let error = temporal
         .into_array()
-        .apply(&filter_expr)?
+        .apply(&filter_expr, &SESSION)?
         .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
         .unwrap_err();
     assert!(

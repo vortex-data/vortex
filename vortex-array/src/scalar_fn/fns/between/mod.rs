@@ -182,7 +182,7 @@ fn between_canonical(
 ///
 /// NOTE: this expression will shortly be removed in favor of pipelined computation of two
 /// separate comparisons combined with a logical AND.
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct Between;
 
 impl Between {
@@ -354,6 +354,7 @@ mod tests {
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::StructFields;
     use crate::expr::between;
     use crate::expr::col;
     use crate::expr::get_item;
@@ -386,7 +387,10 @@ mod tests {
         let hi = PrimitiveArray::from_option_iter([Some(5), Some(50), Some(5)]).into_array();
 
         let data = StructArray::from_fields(&[("x", x), ("lo", lo), ("hi", hi)])?.into_array();
-        let lazy = data.apply(&between(col("x"), col("lo"), col("hi"), NON_STRICT))?;
+        let lazy = data.apply(
+            &between(col("x"), col("lo"), col("hi"), NON_STRICT),
+            &SESSION,
+        )?;
 
         let Validity::Array(validity) = lazy.validity()? else {
             vortex_bail!("non-lazy validity");
@@ -420,11 +424,11 @@ mod tests {
 
         let executed = data
             .clone()
-            .apply(&expr)?
+            .apply(&expr, &SESSION)?
             .execute::<BoolArray>(ctx)?
             .opt_bool_vec(ctx);
 
-        let validity_expr = expr.bind(data.dtype())?.validity()?;
+        let validity_expr = expr.bind(data.dtype(), &SESSION)?.validity()?;
         let declared = data
             .apply_bound(&validity_expr)?
             .execute::<BoolArray>(ctx)?
@@ -451,7 +455,7 @@ mod tests {
             },
         );
 
-        assert!(!expr.as_scalar().is_some_and(|f| f.signature().is_strict()));
+        assert!(!Between.is_strict(expr.as_::<Between>()));
     }
 
     #[test]
@@ -465,7 +469,17 @@ mod tests {
                 upper_strict: StrictComparison::Strict,
             },
         );
-        assert_eq!(expr.to_string(), "(10i32 <= $.score < 50i32)");
+        let scope = DType::Struct(
+            StructFields::from_iter([(
+                "score",
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+            )]),
+            Nullability::NonNullable,
+        );
+        assert_eq!(
+            expr.bind(&scope, &SESSION).unwrap().to_string(),
+            "(10i32 <= $.score < 50i32)"
+        );
 
         let expr2 = between(
             root(),
@@ -476,7 +490,16 @@ mod tests {
                 upper_strict: StrictComparison::NonStrict,
             },
         );
-        assert_eq!(expr2.to_string(), "(0i32 < $ <= 100i32)");
+        assert_eq!(
+            expr2
+                .bind(
+                    &DType::Primitive(PType::I32, Nullability::NonNullable),
+                    &SESSION
+                )
+                .unwrap()
+                .to_string(),
+            "(0i32 < $ <= 100i32)"
+        );
     }
 
     #[rstest]

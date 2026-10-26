@@ -19,6 +19,7 @@ use std::hash::Hasher;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -28,6 +29,7 @@ use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ArrayReduceNode;
 use crate::scalar_fn::ChildName;
+use crate::scalar_fn::ErasedOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ExpressionReduceNode;
 use crate::scalar_fn::ReduceNodeValidity;
@@ -81,7 +83,11 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     // Bound methods — options accessed from self
     fn execute(&self, args: &dyn ExecutionArgs, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
     fn return_dtype(&self, arg_types: &[DType]) -> VortexResult<DType>;
-    fn bind_options(&self, arg_types: &[DType]) -> VortexResult<Option<ScalarFnRef>>;
+    fn bind_options(
+        &self,
+        arg_types: &[DType],
+        session: Option<&VortexSession>,
+    ) -> VortexResult<Option<ScalarFnRef>>;
     fn reduce_expression<'a>(
         &self,
         node: &ExpressionReduceNode<'a>,
@@ -109,6 +115,7 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
 
     // Options operations — self-contained
     fn options_serialize(&self) -> VortexResult<Option<Vec<u8>>>;
+    fn options_erased(&self) -> ErasedOptions;
     fn options_eq(&self, other_options: &dyn Any) -> bool;
     fn options_hash(&self, hasher: &mut dyn Hasher);
     fn options_display(&self, f: &mut Formatter<'_>) -> fmt::Result;
@@ -170,9 +177,15 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
         V::return_dtype(&self.vtable, &self.options, arg_dtypes)
     }
 
-    fn bind_options(&self, arg_dtypes: &[DType]) -> VortexResult<Option<ScalarFnRef>> {
-        Ok(V::bind_options(&self.vtable, &self.options, arg_dtypes)?
-            .map(|options| TypedScalarFnInstance::new(self.vtable.clone(), options).erased()))
+    fn bind_options(
+        &self,
+        arg_dtypes: &[DType],
+        session: Option<&VortexSession>,
+    ) -> VortexResult<Option<ScalarFnRef>> {
+        Ok(
+            V::bind_options(&self.vtable, &self.options, arg_dtypes, session)?
+                .map(|options| TypedScalarFnInstance::new(self.vtable.clone(), options).erased()),
+        )
     }
 
     fn reduce_expression<'a>(
@@ -229,6 +242,10 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
 
     fn options_serialize(&self) -> VortexResult<Option<Vec<u8>>> {
         V::serialize(&self.vtable, &self.options)
+    }
+
+    fn options_erased(&self) -> ErasedOptions {
+        ErasedOptions::new(self.options.clone())
     }
 
     fn options_eq(&self, other_options: &dyn Any) -> bool {

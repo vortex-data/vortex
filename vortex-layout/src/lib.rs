@@ -25,6 +25,8 @@ pub use reader::*;
 pub use reader_context::*;
 pub use serde::*;
 pub use strategy::*;
+use vortex_array::scalar_fn::session::ScalarFnSessionExt;
+use vortex_session::VortexSession;
 use vortex_session::registry::Interner;
 pub use vtable::*;
 pub mod aliases;
@@ -43,6 +45,14 @@ pub mod session;
 mod strategy;
 #[cfg(test)]
 mod test;
+
+/// Registers this crate's scalar functions with `session`, so that expressions calling them bind.
+///
+/// Today that is [`row_idx`](layouts::row_idx::row_idx), which scans replace with the row
+/// index before anything runs.
+pub fn initialize(session: &VortexSession) {
+    session.scalar_fns().register(layouts::row_idx::RowIdx);
+}
 mod vtable;
 
 pub type LayoutContext = Interner;

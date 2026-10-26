@@ -697,7 +697,7 @@ impl PyArray {
     pub fn apply(slf: Bound<Self>, expr: PyExpr) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
 
-        let inner = slf.apply(&expr)?;
+        let inner = slf.apply(&expr, session())?;
 
         Ok(PyArrayRef::from(inner))
     }

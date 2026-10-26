@@ -635,7 +635,7 @@ fn take_waits_for_whole_values_and_keeps_them(#[case] predicate: bool) -> Vortex
     };
     if predicate {
         let expression = gt(root(), lit("a"))
-            .bind(plan.dtype())?
+            .bind(plan.dtype(), &SESSION)?
             .optimize_recursive()?;
         plan = optimize(EvalPlan::try_new(expression, plan)?.into_plan())?;
     }
@@ -697,7 +697,7 @@ fn take_waits_for_whole_values_and_keeps_them(#[case] predicate: bool) -> Vortex
 fn eval_applies_expression_to_selected_rows() -> VortexResult<()> {
     let mut store = Store::default();
     let (plan, _) = two_columns(&mut store)?;
-    let expression = gt(get_item("a", root()), lit(4_i32)).bind(plan.dtype())?;
+    let expression = gt(get_item("a", root()), lit(4_i32)).bind(plan.dtype(), &SESSION)?;
     let expected = BoolArray::from_iter((0..ROWS).map(|row| row > 4)).into_array();
     let plan = EvalPlan::try_new(expression, plan)?.into_plan();
 

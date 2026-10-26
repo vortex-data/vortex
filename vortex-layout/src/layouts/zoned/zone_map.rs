@@ -148,7 +148,7 @@ impl ZoneMap {
         predicate: &BoundExpression,
         session: &VortexSession,
     ) -> VortexResult<Mask> {
-        let predicate = self.lower_stats(predicate.clone())?;
+        let predicate = self.lower_stats(predicate.clone(), session)?;
         self.prune_lowered(&predicate, session)
     }
 
@@ -177,9 +177,17 @@ impl ZoneMap {
         null_as_false_mask(substituted, &mut ctx)
     }
 
-    /// Rewrite the stats references in `predicate` into expressions over the stats table.
-    pub(super) fn lower_stats(&self, predicate: BoundExpression) -> VortexResult<BoundExpression> {
-        let binder = ZoneMapStatsBinder { zone_map: self };
+    /// Rewrite the stats references in `predicate` into expressions over the stats table, whose
+    /// scalar functions `session` resolves.
+    pub(super) fn lower_stats(
+        &self,
+        predicate: BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<BoundExpression> {
+        let binder = ZoneMapStatsBinder {
+            zone_map: self,
+            session,
+        };
         bind_stats(predicate, &binder)
     }
 }
@@ -213,6 +221,7 @@ fn null_as_false_mask(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<M
 
 struct ZoneMapStatsBinder<'a> {
     zone_map: &'a ZoneMap,
+    session: &'a VortexSession,
 }
 
 impl StatBinder for ZoneMapStatsBinder<'_> {
@@ -281,7 +290,7 @@ impl StatBinder for ZoneMapStatsBinder<'_> {
 
 impl ZoneMapStatsBinder<'_> {
     fn bind_target(&self, expr: Expression) -> VortexResult<BoundExpression> {
-        expr.bind(self.zone_map.array.dtype())
+        expr.bind(self.zone_map.array.dtype(), self.session)
     }
 }
 
@@ -453,7 +462,7 @@ mod tests {
     use crate::test::SESSION;
 
     fn falsify(expr: &Expression, dtype: DType) -> BoundExpression {
-        expr.bind(&dtype)
+        expr.bind(&dtype, &SESSION)
             .unwrap()
             .falsify(&SESSION)
             .unwrap()
@@ -461,7 +470,7 @@ mod tests {
     }
 
     fn prune(zone_map: &ZoneMap, predicate: &Expression) -> VortexResult<Mask> {
-        zone_map.prune(&predicate.bind(&zone_map.column_dtype)?, &SESSION)
+        zone_map.prune(&predicate.bind(&zone_map.column_dtype, &SESSION)?, &SESSION)
     }
 
     fn default_bounded_stat_max_bytes() -> NonZeroUsize {
@@ -827,7 +836,7 @@ mod tests {
     fn non_float_nan_stat_fns_fail_to_bind() {
         let dtype = DType::from(PType::I32);
         for expr in [all_nan(root()), all_non_nan(root())] {
-            let error = expr.bind(&dtype).unwrap_err();
+            let error = expr.bind(&dtype, &SESSION).unwrap_err();
             assert!(
                 error
                     .to_string()
@@ -1133,7 +1142,7 @@ mod tests {
 
         // Lower once, as the zoned reader does, and evaluate the lowered predicate after each
         // update of the dynamic value.
-        let lowered = zone_map.lower_stats(falsify(&expr, PType::I32.into()))?;
+        let lowered = zone_map.lower_stats(falsify(&expr, PType::I32.into()), &SESSION)?;
 
         // A > 5 => A.max <= 5
         let mask = zone_map.prune_lowered(&lowered, &SESSION)?;

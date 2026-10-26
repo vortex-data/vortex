@@ -52,7 +52,7 @@ box_wrapper!(
 /// const vx_array* array = ...;
 /// vx_expression* root = vx_expression_root();
 /// const vx_error* error = NULL;
-/// vx_array* applied_array = vx_array_apply(array, root, &error);
+/// vx_array* applied_array = vx_array_apply(session, array, root, &error);
 /// // array and applied_array are identical
 /// vx_array_free(applied_array);
 /// vx_expression_free(root);
@@ -342,6 +342,8 @@ mod tests {
     use crate::expression::vx_expression_select;
     use crate::scalar::vx_scalar_free;
     use crate::scalar::vx_scalar_new_i32;
+    use crate::session::vx_session_free;
+    use crate::session::vx_session_new;
     use crate::string::vx_view;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -365,6 +367,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let (array, names_array, ages_array) = struct_array();
         unsafe {
+            let session = vx_session_new();
             let root = vx_expression_root();
             let column = vx_expression_get_item(vx_view::from_str("age"), root);
             assert_ne!(column, ptr::null_mut());
@@ -372,7 +375,7 @@ mod tests {
             let array = vx_array::new(array.into_array());
             let mut error = ptr::null_mut();
 
-            let applied_array = vx_array_apply(array, column, &raw mut error);
+            let applied_array = vx_array_apply(session, array, column, &raw mut error);
             assert!(!applied_array.is_null());
             assert!(error.is_null());
             {
@@ -386,13 +389,13 @@ mod tests {
             let column = vx_expression_get_item(vx_view::from_str("ololo"), root);
             assert_ne!(column, ptr::null_mut());
 
-            let applied_array = vx_array_apply(array, column, &raw mut error);
+            let applied_array = vx_array_apply(session, array, column, &raw mut error);
             assert!(applied_array.is_null());
             assert!(!error.is_null());
             vx_error_free(error);
 
             let names_array_vx = vx_array::new(names_array.into_array());
-            let applied_array = vx_array_apply(names_array_vx, column, &raw mut error);
+            let applied_array = vx_array_apply(session, names_array_vx, column, &raw mut error);
             assert!(applied_array.is_null());
             assert!(!error.is_null());
             vx_error_free(error);
@@ -402,6 +405,7 @@ mod tests {
 
             vx_array_free(array);
             vx_expression_free(root);
+            vx_session_free(session);
         }
     }
 
@@ -413,6 +417,7 @@ mod tests {
             PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable).into_array();
 
         unsafe {
+            let session = vx_session_new();
             let array = vx_array::new(array);
 
             let value = 2i32;
@@ -425,7 +430,7 @@ mod tests {
             assert!(!expr.is_null());
             vx_scalar_free(scalar);
 
-            let applied = vx_array_apply(array, expr, &raw mut error);
+            let applied = vx_array_apply(session, array, expr, &raw mut error);
             assert!(error.is_null());
             assert!(!applied.is_null());
 
@@ -448,6 +453,7 @@ mod tests {
             }
 
             vx_array_free(array);
+            vx_session_free(session);
         }
     }
 
@@ -457,6 +463,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let (array, ..) = struct_array();
         unsafe {
+            let session = vx_session_new();
             let root = vx_expression_root();
 
             let array = vx_array::new(array.into_array());
@@ -466,7 +473,7 @@ mod tests {
             assert_ne!(column, ptr::null_mut());
 
             let mut error = ptr::null_mut();
-            let applied_array = vx_array_apply(array, column, &raw mut error);
+            let applied_array = vx_array_apply(session, array, column, &raw mut error);
             assert!(!applied_array.is_null());
             assert!(error.is_null());
             {
@@ -479,7 +486,7 @@ mod tests {
 
             let columns = [vx_view::from_str("age"), vx_view::from_str("ololo")];
             let column = vx_expression_select(columns.as_ptr(), 2, root);
-            let applied_array = vx_array_apply(array, column, &raw mut error);
+            let applied_array = vx_array_apply(session, array, column, &raw mut error);
             assert!(applied_array.is_null());
             assert!(!error.is_null());
             vx_error_free(error);
@@ -487,6 +494,7 @@ mod tests {
 
             vx_array_free(array);
             vx_expression_free(root);
+            vx_session_free(session);
         }
     }
 
@@ -502,6 +510,7 @@ mod tests {
         let array = StructArray::try_new(names, fields, 4, Validity::NonNullable);
 
         unsafe {
+            let session = vx_session_new();
             let array = vx_array::new(array.unwrap().into_array());
 
             let root = vx_expression_root();
@@ -525,7 +534,7 @@ mod tests {
             let expressions_ptr = expressions.as_ptr() as *const *const vx_expression;
             let expression_and123 = vx_expression_and(expressions_ptr, 2);
             assert!(!expression_and123.is_null());
-            let applied_array = vx_array_apply(array, expression_and123, &raw mut error);
+            let applied_array = vx_array_apply(session, array, expression_and123, &raw mut error);
             assert!(error.is_null());
             assert!(!applied_array.is_null());
             {
@@ -537,7 +546,7 @@ mod tests {
 
             let expression_or123 = vx_expression_or(expressions_ptr, 2);
             assert!(!expression_or123.is_null());
-            let applied_array = vx_array_apply(array, expression_or123, &raw mut error);
+            let applied_array = vx_array_apply(session, array, expression_or123, &raw mut error);
             assert!(error.is_null());
             assert!(!applied_array.is_null());
             {
@@ -556,6 +565,7 @@ mod tests {
             vx_expression_free(root);
 
             vx_array_free(array);
+            vx_session_free(session);
         }
     }
 
@@ -568,6 +578,7 @@ mod tests {
         let array = ListArray::try_new(elements, offsets, Validity::NonNullable, &mut ctx).unwrap();
 
         unsafe {
+            let session = vx_session_new();
             let root = vx_expression_root();
             let array = vx_array::new(array.into_array());
             let value = vx_scalar_new_i32(1, false);
@@ -580,7 +591,7 @@ mod tests {
             assert!(!expression.is_null());
 
             let mut error = ptr::null_mut();
-            let applied = vx_array_apply(array, expression, &raw mut error);
+            let applied = vx_array_apply(session, array, expression, &raw mut error);
             assert!(error.is_null());
             assert!(!applied.is_null());
             {
@@ -594,6 +605,7 @@ mod tests {
             vx_array_free(array);
 
             vx_expression_free(root);
+            vx_session_free(session);
         }
     }
 }

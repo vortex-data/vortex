@@ -61,7 +61,7 @@ fn json_input(storage: ArrayRef) -> VortexResult<ArrayRef> {
 fn execute_json_to_variant(input: ArrayRef, shredding: ShreddingSpec) -> VortexResult<ArrayRef> {
     let expr = json_to_variant(root(), shredding);
     input
-        .apply(&expr)?
+        .apply(&expr, &SESSION)?
         .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())
 }
 
@@ -220,11 +220,10 @@ fn shredding_produces_typed_value_child() -> VortexResult<()> {
     assert!(shredded.unmasked_field_by_name_opt("a").is_some());
 
     // Typed extraction must serve shredded rows and fall back for mismatched rows.
-    let typed = result.clone().apply(&variant_get(
-        root(),
-        VariantPath::field("a"),
-        Some(i64_dtype()),
-    ))?;
+    let typed = result.clone().apply(
+        &variant_get(root(), VariantPath::field("a"), Some(i64_dtype())),
+        &SESSION,
+    )?;
     assert_arrays_eq!(
         typed,
         PrimitiveArray::from_option_iter([Some(1i64), Some(2), None, None]),
@@ -233,11 +232,14 @@ fn shredding_produces_typed_value_child() -> VortexResult<()> {
 
     // Mismatched rows keep their original value through the variant fallback.
     let untyped = result
-        .apply(&variant_get(
-            root(),
-            VariantPath::field("a"),
-            Some(DType::Utf8(Nullability::Nullable)),
-        ))?
+        .apply(
+            &variant_get(
+                root(),
+                VariantPath::field("a"),
+                Some(DType::Utf8(Nullability::Nullable)),
+            ),
+            &SESSION,
+        )?
         .execute::<ArrayRef>(&mut ctx)?;
     let row2 = untyped.execute_scalar(2, &mut ctx)?;
     assert_eq!(
@@ -259,11 +261,10 @@ fn shredding_preserves_null_rows() -> VortexResult<()> {
     assert_eq!(result.dtype(), &DType::Variant(Nullability::Nullable));
     let mut ctx = SESSION.create_execution_ctx();
     assert_nth_scalar_is_null!(result, 1, &mut ctx);
-    let typed = result.apply(&variant_get(
-        root(),
-        VariantPath::field("a"),
-        Some(i64_dtype()),
-    ))?;
+    let typed = result.apply(
+        &variant_get(root(), VariantPath::field("a"), Some(i64_dtype())),
+        &SESSION,
+    )?;
     assert_arrays_eq!(
         typed,
         PrimitiveArray::from_option_iter([Some(1i64), None, Some(3)]),

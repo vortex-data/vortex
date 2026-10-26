@@ -52,7 +52,7 @@ use super::BloomOptions;
 use crate::layouts::zoned::aggregates::bloom_filter::BloomPartial;
 use crate::layouts::zoned::aggregates::bloom_filter::is_bloom_valid_dtype;
 
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 struct BloomContains;
 
 impl ScalarFnVTable for BloomContains {

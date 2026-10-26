@@ -258,10 +258,10 @@ mod tests {
                 ConstantArray::new(Some(1u64), 0).into_array(),
                 PrimitiveArray::from_iter(vec![2u64])
                     .into_array()
-                    .apply(&cast(
-                        root(),
-                        DType::Primitive(PType::U64, Nullability::Nullable),
-                    ))
+                    .apply(
+                        &cast(root(), DType::Primitive(PType::U64, Nullability::Nullable)),
+                        &SESSION,
+                    )
                     .vortex_expect("casted"),
             ],
             DType::Primitive(PType::U64, Nullability::Nullable),
@@ -270,7 +270,9 @@ mod tests {
         .into_array();
 
         let expr = is_null(root());
-        let result = array.apply(&expr).vortex_expect("expr evaluation");
+        let result = array
+            .apply(&expr, &SESSION)
+            .vortex_expect("expr evaluation");
         assert_arrays_eq!(
             result,
             BoolArray::from_iter([false]),
@@ -284,12 +286,12 @@ mod tests {
         let validity = BoolArray::from_iter([true, false, true]).into_array();
 
         assert_arrays_eq!(
-            validity.clone().apply(&is_null(root()))?,
+            validity.clone().apply(&is_null(root()), &SESSION)?,
             ConstantArray::new(false, 3),
             ctx
         );
         assert_arrays_eq!(
-            validity.clone().apply(&is_not_null(root()))?,
+            validity.clone().apply(&is_not_null(root()), &SESSION)?,
             ConstantArray::new(true, 3),
             ctx
         );
@@ -297,8 +299,16 @@ mod tests {
         let buffer = buffer![1, 2, 3];
         let nullable = PrimitiveArray::new(buffer, Validity::Array(validity.clone())).into_array();
 
-        assert_arrays_eq!(nullable.clone().apply(&is_not_null(root()))?, validity, ctx);
-        assert_arrays_eq!(nullable.apply(&is_null(root()))?, validity.not()?, ctx);
+        assert_arrays_eq!(
+            nullable.clone().apply(&is_not_null(root()), &SESSION)?,
+            validity,
+            ctx
+        );
+        assert_arrays_eq!(
+            nullable.apply(&is_null(root()), &SESSION)?,
+            validity.not()?,
+            ctx
+        );
 
         Ok(())
     }

@@ -26,6 +26,7 @@ use vortex::VortexSessionDefault;
 use vortex::array::VortexSessionExecute;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
+use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
@@ -274,10 +275,33 @@ impl DefaultExpressionConverter {
             .map_err(|_| Unconverted::Unsupported)?;
         let converted = self.convert_expr(expr, schema, &input_dtype)?;
         let expected_dtype = self.arrow_dtype(expr.return_field(schema)?.as_ref())?;
-        if !converted_dtype(&converted, &input_dtype)?.eq_ignore_nullability(&expected_dtype) {
+        if !self
+            .converted_dtype(&converted, &input_dtype)?
+            .eq_ignore_nullability(&expected_dtype)
+        {
             return Err(Unconverted::Unsupported);
         }
         Ok(converted)
+    }
+
+    /// Whether evaluating `expr` cannot fail, so Vortex may evaluate it on rows DataFusion skips.
+    ///
+    /// An expression that does not bind is not infallible; it is unsupported either way.
+    fn is_infallible(&self, expr: &Expression, input_dtype: &DType) -> bool {
+        fn bound_is_infallible(expr: &BoundExpression) -> bool {
+            expr.as_scalar()
+                .is_none_or(|scalar_fn| scalar_fn.signature().is_infallible())
+                && expr.children().iter().all(bound_is_infallible)
+        }
+        expr.bind(input_dtype, &self.session)
+            .is_ok_and(|bound| bound_is_infallible(&bound))
+    }
+
+    /// The Vortex return dtype of a converted expression; unresolvable dtypes are unsupported.
+    fn converted_dtype(&self, expr: &Expression, input_dtype: &DType) -> Conversion<DType> {
+        expr.bind(input_dtype, &self.session)
+            .map(|bound| bound.dtype().clone())
+            .map_err(|_| Unconverted::Unsupported)
     }
 
     fn convert_expr(
@@ -305,11 +329,15 @@ impl DefaultExpressionConverter {
             let left = self.convert_expr(binary_expr.left(), schema, input_dtype)?;
             let right = self.convert_expr(binary_expr.right(), schema, input_dtype)?;
             // DataFusion may evaluate the RHS only on rows selected by the LHS.
-            if boolean_operator && !(is_infallible(&left) && is_infallible(&right)) {
+            if boolean_operator
+                && !(self.is_infallible(&left, input_dtype)
+                    && self.is_infallible(&right, input_dtype))
+            {
                 return Err(Unconverted::Unsupported);
             }
-            if !converted_dtype(&left, input_dtype)?
-                .eq_ignore_nullability(&converted_dtype(&right, input_dtype)?)
+            if !self
+                .converted_dtype(&left, input_dtype)?
+                .eq_ignore_nullability(&self.converted_dtype(&right, input_dtype)?)
             {
                 return Err(Unconverted::Unsupported);
             }
@@ -350,7 +378,7 @@ impl DefaultExpressionConverter {
             let cast_dtype = self
                 .arrow_dtype(cast_expr.target_field())?
                 .with_nullability(Nullability::from(cast_expr.nullable(schema)?));
-            let child_dtype = converted_dtype(&child, input_dtype)?;
+            let child_dtype = self.converted_dtype(&child, input_dtype)?;
             return match pushdown {
                 // Matching Arrow types do not imply matching Vortex dtypes, e.g. for extensions.
                 CastPushdown::Drop if child_dtype.eq_ignore_nullability(&cast_dtype) => Ok(child),
@@ -437,10 +465,10 @@ impl DefaultExpressionConverter {
         }
         let value = self.convert_expr(in_list.expr(), schema, input_dtype)?;
         // Boolean rewrites may skip evaluating the input, particularly for all-null lists.
-        if !is_infallible(&value) {
+        if !self.is_infallible(&value, input_dtype) {
             return Err(Unconverted::Unsupported);
         }
-        let value_dtype = converted_dtype(&value, input_dtype)?;
+        let value_dtype = self.converted_dtype(&value, input_dtype)?;
 
         let elements = in_list
             .list()
@@ -590,19 +618,6 @@ impl ExpressionConverter for DefaultExpressionConverter {
             Err(Unconverted::Failed(error)) => Err(error),
         }
     }
-}
-
-/// Whether evaluating `expr` cannot fail, so Vortex may evaluate it on rows DataFusion skips.
-fn is_infallible(expr: &Expression) -> bool {
-    expr.as_scalar()
-        .is_none_or(|scalar_fn| scalar_fn.signature().is_infallible())
-        && expr.children().iter().all(is_infallible)
-}
-
-/// The Vortex return dtype of a converted expression; unresolvable dtypes are unsupported.
-fn converted_dtype(expr: &Expression, input_dtype: &DType) -> Conversion<DType> {
-    expr.return_dtype(input_dtype)
-        .map_err(|_| Unconverted::Unsupported)
 }
 
 /// How a supported DataFusion cast is converted.

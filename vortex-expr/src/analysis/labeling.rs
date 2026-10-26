@@ -69,19 +69,24 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::expr::col;
     use vortex_array::expr::eq;
     use vortex_array::expr::lit;
     use vortex_array::expr::test_harness::struct_dtype;
+    use vortex_session::VortexSession;
 
     use super::*;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_tree_depth() -> VortexResult<()> {
         // Expression: $.col1 = 5
         // Tree: eq(get_item(root(), "col1"), lit(5))
         // Depth: root = 1, get_item = 2, lit = 1, eq = 3
-        let expr = eq(col("col1"), lit(5u16)).bind(&struct_dtype())?;
+        let expr = eq(col("col1"), lit(5u16)).bind(&struct_dtype(), &SESSION)?;
         let depths = label_bound_tree(
             &expr,
             |_node| 1, // Each node has depth 1 by itself
@@ -98,7 +103,7 @@ mod tests {
         // Count total nodes in subtree (including self)
         // Tree: eq(get_item(root(), "col1"), lit(5))
         // Nodes: eq, get_item, root, lit = 4
-        let expr = eq(col("col1"), lit(5u16)).bind(&struct_dtype())?;
+        let expr = eq(col("col1"), lit(5u16)).bind(&struct_dtype(), &SESSION)?;
         let counts = label_bound_tree(
             &expr,
             |_node| 1, // Each node counts as 1

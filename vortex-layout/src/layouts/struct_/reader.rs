@@ -939,7 +939,7 @@ mod tests {
             eq(col("a"), lit(7)),
             or(eq(col("b"), lit(5)), eq(col("a"), lit(3))),
         )
-        .bind(reader.dtype())
+        .bind(reader.dtype(), &SESSION)
         .unwrap();
         let result = block_on(|_| {
             reader
@@ -959,7 +959,7 @@ mod tests {
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()))
-            .bind(reader.dtype())
+            .bind(reader.dtype(), &SESSION)
             .unwrap();
         let result = block_on(|_| {
             reader
@@ -980,7 +980,7 @@ mod tests {
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()))
-            .bind(reader.dtype())
+            .bind(reader.dtype(), &SESSION)
             .unwrap();
         let result = block_on(|_| {
             reader
@@ -1009,7 +1009,7 @@ mod tests {
             [("a", get_item("a", root())), ("b", get_item("b", root()))],
             Nullability::NonNullable,
         )
-        .bind(reader.dtype())
+        .bind(reader.dtype(), &SESSION)
         .unwrap();
         let result = block_on(|_| {
             reader
@@ -1062,7 +1062,7 @@ mod tests {
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
-        let expr = expr.bind(reader.dtype())?;
+        let expr = expr.bind(reader.dtype(), &SESSION)?;
         let future = reader.projection_evaluation(
             &(0..3),
             &expr,
@@ -1094,7 +1094,9 @@ mod tests {
         let reader = layout
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
-        let expr = get_item("a", root()).bind(reader.dtype()).unwrap();
+        let expr = get_item("a", root())
+            .bind(reader.dtype(), &SESSION)
+            .unwrap();
         let project = reader
             .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))
             .unwrap();
@@ -1122,7 +1124,7 @@ mod tests {
         #[from(null_struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) -> VortexResult<()> {
         let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
-        let filter = is_not_null(root()).bind(reader.dtype())?;
+        let filter = is_not_null(root()).bind(reader.dtype(), &SESSION)?;
         let result = block_on(|_| {
             reader
                 .filter_evaluation(&(0..3), &filter, MaskFuture::new_true(3))
@@ -1137,7 +1139,7 @@ mod tests {
         #[from(null_struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) -> VortexResult<()> {
         let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
-        let filter = eq(get_item("a", root()), lit(7)).bind(reader.dtype())?;
+        let filter = eq(get_item("a", root()), lit(7)).bind(reader.dtype(), &SESSION)?;
         let result = block_on(|_| {
             reader
                 .filter_evaluation(&(0..3), &filter, MaskFuture::new_true(3))
@@ -1153,7 +1155,7 @@ mod tests {
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
-        let expr = is_null(root()).bind(reader.dtype())?;
+        let expr = is_null(root()).bind(reader.dtype(), &SESSION)?;
         let result = block_on(|_| {
             reader
                 .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))
@@ -1170,7 +1172,7 @@ mod tests {
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
-        let expr = pack([("x", lit(1))], false.into()).bind(reader.dtype())?;
+        let expr = pack([("x", lit(1))], false.into()).bind(reader.dtype(), &SESSION)?;
 
         let result = block_on(|_| {
             reader
@@ -1195,7 +1197,7 @@ mod tests {
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
-        let expr = root().bind(reader.dtype())?;
+        let expr = root().bind(reader.dtype(), &SESSION)?;
         let result = block_on(|_| {
             reader
                 .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))
@@ -1245,7 +1247,7 @@ mod tests {
         })?;
 
         let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
-        let expr = get_item("__vortex_validity", root()).bind(reader.dtype())?;
+        let expr = get_item("__vortex_validity", root()).bind(reader.dtype(), &SESSION)?;
         let future = reader.projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))?;
         let result = block_on(move |_| future)?;
 
@@ -1349,14 +1351,14 @@ mod tests {
         mask: Mask,
     ) -> VortexResult<ArrayRef> {
         let reader = nested_validity_reader(root_nullable)?;
-        let expr = expr.bind(reader.dtype())?;
+        let expr = expr.bind(reader.dtype(), &SESSION)?;
         let future = reader.projection_evaluation(&(0..6), &expr, MaskFuture::ready(mask))?;
         block_on(move |_| future)
     }
 
     fn nested_validity_filter(root_nullable: bool, expr: Expression) -> VortexResult<Mask> {
         let reader = nested_validity_reader(root_nullable)?;
-        let expr = expr.bind(reader.dtype())?;
+        let expr = expr.bind(reader.dtype(), &SESSION)?;
         let future = reader.filter_evaluation(&(0..6), &expr, MaskFuture::new_true(6))?;
         block_on(move |_| future)
     }
@@ -1625,7 +1627,7 @@ mod tests {
         })?;
         let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
 
-        let expr = col(RESERVED_VALIDITY_FIELD_NAME).bind(reader.dtype())?;
+        let expr = col(RESERVED_VALIDITY_FIELD_NAME).bind(reader.dtype(), &SESSION)?;
         let future = reader.projection_evaluation(&(0..2), &expr, MaskFuture::new_true(2))?;
         let result = block_on(move |_| future)?;
 
@@ -1650,7 +1652,7 @@ mod tests {
             async move {
                 let reader =
                     layout.new_reader("".into(), segments, &session, &Default::default())?;
-                let expr = expr.bind(reader.dtype())?;
+                let expr = expr.bind(reader.dtype(), &SESSION)?;
                 reader
                     .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))?
                     .await
@@ -1711,7 +1713,7 @@ mod tests {
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
         let expr = pack(Vec::<(String, Expression)>::new(), Nullability::Nullable)
-            .bind(reader.dtype())
+            .bind(reader.dtype(), &SESSION)
             .unwrap();
 
         let project = reader
@@ -1774,7 +1776,7 @@ mod tests {
         // DType mismatch: "age" is u8 but literal is i32
         let filt = eq(col("age"), lit(67i32));
 
-        let result = filt.bind(reader.dtype());
+        let result = filt.bind(reader.dtype(), &SESSION);
         assert!(result.is_err());
         let err = result.err().unwrap().to_string();
         assert!(err.contains("Cannot compare different DTypes"), "{err}");

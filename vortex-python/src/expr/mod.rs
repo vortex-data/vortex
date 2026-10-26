@@ -430,7 +430,7 @@ impl PyExpr {
     /// True
     /// ```
     fn serialize<'py>(self_: PyRef<'py, Self>) -> PyVortexResult<Bound<'py, PyBytes>> {
-        let proto = self_.inner.serialize_proto()?;
+        let proto = self_.inner.serialize_proto(session())?;
         Ok(PyBytes::new(self_.py(), &proto.encode_to_vec()))
     }
 
@@ -442,7 +442,7 @@ impl PyExpr {
         self_: PyRef<'py, Self>,
     ) -> PyVortexResult<(Bound<'py, PyAny>, (Bound<'py, PyBytes>,))> {
         let py = self_.py();
-        let proto = self_.inner.serialize_proto()?;
+        let proto = self_.inner.serialize_proto(session())?;
         let bytes = PyBytes::new(py, &proto.encode_to_vec());
 
         let module = PyModule::import(py, "vortex._lib.expr")?;

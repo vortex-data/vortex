@@ -104,7 +104,7 @@ pub(crate) fn reduce_null<T: ReduceNode>(is_null: bool, node: &T) -> VortexResul
 }
 
 /// Expression that checks for non-null values.
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct IsNotNull;
 
 impl IsNotNull {
@@ -213,6 +213,9 @@ mod tests {
     use crate::expr::root;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::EmptyOptions;
+    use crate::scalar_fn::ScalarFnVTable;
+    use crate::scalar_fn::fns::is_not_null::IsNotNull;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -220,7 +223,11 @@ mod tests {
     fn dtype() {
         let dtype = test_harness::struct_dtype();
         assert_eq!(
-            is_not_null(root()).return_dtype(&dtype).unwrap(),
+            is_not_null(root())
+                .bind(&dtype, &SESSION)
+                .unwrap()
+                .dtype()
+                .clone(),
             DType::Bool(Nullability::NonNullable)
         );
     }
@@ -235,7 +242,7 @@ mod tests {
     }
 
     fn optimized(expr: Expression, scope: &DType) -> VortexResult<BoundExpression> {
-        expr.bind(scope)?.optimize()
+        expr.bind(scope, &SESSION)?.optimize()
     }
 
     #[test]
@@ -243,11 +250,11 @@ mod tests {
         let dtype = bool_dtype();
         assert_eq!(
             optimized(is_not_null(col("b")), &dtype)?,
-            lit(true).bind(&dtype)?
+            lit(true).bind(&dtype, &SESSION)?
         );
         assert_eq!(
             optimized(is_null(col("b")), &dtype)?,
-            lit(false).bind(&dtype)?
+            lit(false).bind(&dtype, &SESSION)?
         );
         Ok(())
     }
@@ -257,19 +264,19 @@ mod tests {
         let dtype = bool_dtype();
         assert_eq!(
             optimized(is_not_null(and(col("a"), col("b"))), &dtype)?,
-            or(is_not_null(col("a")), not(col("b"))).bind(&dtype)?
+            or(is_not_null(col("a")), not(col("b"))).bind(&dtype, &SESSION)?
         );
         assert_eq!(
             optimized(is_not_null(or(col("a"), col("b"))), &dtype)?,
-            or(is_not_null(col("a")), col("b")).bind(&dtype)?
+            or(is_not_null(col("a")), col("b")).bind(&dtype, &SESSION)?
         );
         assert_eq!(
             optimized(is_null(and(col("a"), col("b"))), &dtype)?,
-            and(is_null(col("a")), col("b")).bind(&dtype)?
+            and(is_null(col("a")), col("b")).bind(&dtype, &SESSION)?
         );
         assert_eq!(
             optimized(is_null(or(col("a"), col("b"))), &dtype)?,
-            and(is_null(col("a")), not(col("b"))).bind(&dtype)?
+            and(is_null(col("a")), not(col("b"))).bind(&dtype, &SESSION)?
         );
         Ok(())
     }
@@ -281,7 +288,10 @@ mod tests {
                 .into_array();
         let expected = [true, false, true, false, true];
 
-        let result = test_array.clone().apply(&is_not_null(root())).unwrap();
+        let result = test_array
+            .clone()
+            .apply(&is_not_null(root()), &SESSION)
+            .unwrap();
 
         assert_eq!(result.len(), test_array.len());
         assert_eq!(result.dtype(), &DType::Bool(Nullability::NonNullable));
@@ -300,7 +310,10 @@ mod tests {
     fn evaluate_all_true() {
         let test_array = buffer![1, 2, 3, 4, 5].into_array();
 
-        let result = test_array.clone().apply(&is_not_null(root())).unwrap();
+        let result = test_array
+            .clone()
+            .apply(&is_not_null(root()), &SESSION)
+            .unwrap();
 
         assert_eq!(result.len(), test_array.len());
         for i in 0..result.len() {
@@ -319,7 +332,10 @@ mod tests {
             PrimitiveArray::from_option_iter(vec![None::<i32>, None, None, None, None])
                 .into_array();
 
-        let result = test_array.clone().apply(&is_not_null(root())).unwrap();
+        let result = test_array
+            .clone()
+            .apply(&is_not_null(root()), &SESSION)
+            .unwrap();
 
         assert_eq!(result.len(), test_array.len());
         for i in 0..result.len() {
@@ -345,7 +361,7 @@ mod tests {
 
         let result = test_array
             .clone()
-            .apply(&is_not_null(get_item("a", root())))
+            .apply(&is_not_null(get_item("a", root())), &SESSION)
             .unwrap();
 
         assert_eq!(result.len(), test_array.len());
@@ -364,18 +380,27 @@ mod tests {
     #[test]
     fn test_display() {
         let expr = is_not_null(get_item("name", root()));
-        assert_eq!(expr.to_string(), "is_not_null($.name)");
+        let scope = DType::Struct(
+            StructFields::from_iter([("name", DType::Utf8(Nullability::Nullable))]),
+            Nullability::NonNullable,
+        );
+        assert_eq!(
+            expr.bind(&scope, &SESSION).unwrap().to_string(),
+            "is_not_null($.name)"
+        );
 
         let expr2 = is_not_null(root());
-        assert_eq!(expr2.to_string(), "is_not_null($)");
+        assert_eq!(
+            expr2
+                .bind(&DType::Utf8(Nullability::Nullable), &SESSION)
+                .unwrap()
+                .to_string(),
+            "is_not_null($)"
+        );
     }
 
     #[test]
     fn test_is_not_null_is_not_strict() {
-        assert!(
-            !is_not_null(col("a"))
-                .as_scalar()
-                .is_some_and(|f| f.signature().is_strict())
-        );
+        assert!(!IsNotNull.is_strict(&EmptyOptions));
     }
 }

@@ -259,6 +259,7 @@ mod test {
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
+    use crate::test::SESSION;
     use crate::test::new_session;
 
     #[test]
@@ -287,7 +288,7 @@ mod test {
             );
 
             let reader = layout.new_reader("".into(), segments, &session, &Default::default())?;
-            let expr = root().bind(reader.dtype())?;
+            let expr = root().bind(reader.dtype(), &SESSION)?;
             let result = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -327,7 +328,9 @@ mod test {
             let reader = layout
                 .new_reader("".into(), segments, &session, &Default::default())
                 .unwrap();
-            let expr = gt(root(), lit(3i32)).bind(reader.dtype()).unwrap();
+            let expr = gt(root(), lit(3i32))
+                .bind(reader.dtype(), &SESSION)
+                .unwrap();
             let result = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -367,7 +370,7 @@ mod test {
             let reader = layout
                 .new_reader("".into(), segments, &session, &Default::default())
                 .unwrap();
-            let expr = root().bind(reader.dtype()).unwrap();
+            let expr = root().bind(reader.dtype(), &SESSION).unwrap();
             let result = reader
                 .projection_evaluation(&(2..4), &expr, MaskFuture::new_true(2))
                 .unwrap()

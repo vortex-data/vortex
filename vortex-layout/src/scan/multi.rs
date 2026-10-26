@@ -303,7 +303,7 @@ impl DataSource for MultiLayoutDataSource {
             }
         }
 
-        let request = BoundScanRequest::try_new(scan_request, &self.dtype)?;
+        let request = BoundScanRequest::try_new(scan_request, &self.dtype, &self.session)?;
         let dtype = request.projection.dtype().clone();
 
         // Only unordered scans share a limit across external partitions: reservation order is
@@ -344,7 +344,7 @@ struct BoundScanRequest {
 }
 
 impl BoundScanRequest {
-    fn try_new(request: ScanRequest, dtype: &DType) -> VortexResult<Self> {
+    fn try_new(request: ScanRequest, dtype: &DType, session: &VortexSession) -> VortexResult<Self> {
         let ScanRequest {
             projection,
             filter,
@@ -357,9 +357,9 @@ impl BoundScanRequest {
         } = request;
 
         Ok(Self {
-            projection: projection.bind(dtype)?.optimize_recursive()?,
+            projection: projection.bind(dtype, session)?.optimize_recursive()?,
             filter: filter
-                .map(|expr| expr.bind(dtype)?.optimize_recursive())
+                .map(|expr| expr.bind(dtype, session)?.optimize_recursive())
                 .transpose()
                 .map_err(Arc::new),
             row_range,
@@ -681,7 +681,7 @@ mod tests {
             ..ScanRequest::default()
         };
 
-        let request = BoundScanRequest::try_new(request, &dtype)?;
+        let request = BoundScanRequest::try_new(request, &dtype, &new_session())?;
 
         assert_eq!(request.projection.dtype(), &dtype);
         assert!(request.filter.is_err());

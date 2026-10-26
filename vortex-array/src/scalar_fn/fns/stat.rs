@@ -76,7 +76,7 @@ impl Display for StatOptions {
 /// — `min`, `max`, `all_null`, `all_non_null`, bloom filters, etc. Non-idempotent aggregates like
 /// `sum`, `count`, `mean`, `null_count`, and `nan_count` still produce a meaningful per-chunk
 /// value but do **not** bound any single row.
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct StatFn;
 
 impl ScalarFnVTable for StatFn {

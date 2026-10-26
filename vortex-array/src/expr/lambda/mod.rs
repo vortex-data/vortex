@@ -25,6 +25,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -42,6 +43,7 @@ use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::Transformed;
 use crate::expr::traversal::TraversalOrder;
 use crate::expr::traversal::pre_order_visit_down;
+use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::internal::row_count::RowCount;
 use crate::validity::Validity;
 
@@ -54,7 +56,10 @@ use crate::validity::Validity;
 /// ```rust
 /// # use vortex_array::expr::{Lambda, checked_add, lit, var};
 /// let lambda = Lambda::new(["x"], checked_add(var("x"), lit(1_i32))).unwrap();
-/// assert_eq!(lambda.to_string(), "(x) -> (@x + 1i32)");
+/// assert_eq!(
+///     lambda.to_string(),
+///     "(x) -> vortex.binary(@x, vortex.literal(opts=1i32), opts=+)"
+/// );
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Lambda {
@@ -98,41 +103,22 @@ impl Lambda {
         &self.body
     }
 
-    /// The dtype of the body, given the parameters' dtypes, without binding it.
-    pub fn return_dtype(&self, param_dtypes: &[DType]) -> VortexResult<DType> {
-        let inputs = inputs_dtype(self.param_fields(param_dtypes)?);
-        self.body_over_inputs().return_dtype(&inputs)
-    }
-
     /// Bind the body to these parameter dtypes: `@x` becomes `$.x`, a field of the struct of the
-    /// lambda's inputs.
+    /// lambda's inputs. The functions the body calls are resolved in `session`.
     ///
-    /// A function that takes a lambda calls this from its `bind_options`, so the body is bound
-    /// once, with the node that holds it, and never while the function runs.
-    pub fn bind(&self, param_dtypes: &[DType]) -> VortexResult<BoundLambda> {
+    /// A function that takes a lambda calls this from its `bind_options`, with the session the
+    /// expression holding it is bound against, so the body is bound once, with the node that holds
+    /// it, and never while the function runs.
+    pub fn bind(
+        &self,
+        param_dtypes: &[DType],
+        session: &VortexSession,
+    ) -> VortexResult<BoundLambda> {
         let params = self.param_fields(param_dtypes)?;
         let body = self
             .body_over_inputs()
-            .bind(&inputs_dtype(params.clone()))?;
+            .bind(&inputs_dtype(params.clone()), session)?;
         Ok(BoundLambda { params, body })
-    }
-
-    /// Whether nothing in the body can fail, so that the body may run over values whose results
-    /// are never read, such as dictionary values that no row uses.
-    pub fn is_infallible(&self) -> bool {
-        let mut infallible = true;
-        pre_order_visit_down(&self.body, |node: &Expression| {
-            infallible &= node
-                .as_scalar()
-                .is_none_or(|scalar_fn| scalar_fn.signature().is_infallible());
-            Ok(if infallible {
-                TraversalOrder::Continue
-            } else {
-                TraversalOrder::Stop
-            })
-        })
-        .vortex_expect("expression traversal cannot fail");
-        infallible
     }
 
     fn param_fields(&self, param_dtypes: &[DType]) -> VortexResult<StructFields> {
@@ -283,8 +269,8 @@ fn reads_outside_lambda(node: &Expression, params: &[FieldName]) -> bool {
         Expression::Root => true,
         Expression::Variable(name) => !params.contains(name),
         // `row_idx` is defined in vortex-layout, so it is recognized by its id.
-        Expression::Scalar { scalar_fn, .. } => {
-            scalar_fn.is::<RowCount>() || scalar_fn.id().as_ref() == "vortex.row_idx"
+        Expression::Scalar { id, .. } => {
+            *id == ScalarFnVTable::id(&RowCount) || id.as_ref() == "vortex.row_idx"
         }
     }
 }

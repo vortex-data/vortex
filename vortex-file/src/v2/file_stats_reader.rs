@@ -263,7 +263,7 @@ mod tests {
                 FileStatsLayoutReader::new(child, test_file_stats(0, 100), SESSION.clone());
 
             // col > 200 should be prunable since max is 100.
-            let expr = gt(get_item("col", root()), lit(200i32)).bind(reader.dtype())?;
+            let expr = gt(get_item("col", root()), lit(200i32)).bind(reader.dtype(), &SESSION)?;
             let mask = Mask::new_true(5);
             let result = reader.pruning_evaluation(&(0..5), &expr, mask)?.await?;
             assert_eq!(result, Mask::new_false(5));
@@ -302,7 +302,7 @@ mod tests {
                 FileStatsLayoutReader::new(child, test_file_stats(0, 100), SESSION.clone());
 
             // col > 50 should NOT be prunable since max is 100 (some rows could match).
-            let expr = gt(get_item("col", root()), lit(50i32)).bind(reader.dtype())?;
+            let expr = gt(get_item("col", root()), lit(50i32)).bind(reader.dtype(), &SESSION)?;
             let mask = Mask::new_true(5);
             let result = reader.pruning_evaluation(&(0..5), &expr, mask)?.await?;
             // Should delegate to child, which returns the mask unchanged (struct reader doesn't prune).
@@ -340,7 +340,7 @@ mod tests {
                 FileStatsLayoutReader::new(child, test_file_stats(0, 100), SESSION.clone());
 
             let expr = gt(checked_add(get_item("col", root()), lit(5i32)), lit(102i32))
-                .bind(reader.dtype())?;
+                .bind(reader.dtype(), &SESSION)?;
             let mask = Mask::new_true(2);
             let result = reader.pruning_evaluation(&(0..2), &expr, mask)?.await?;
 
@@ -401,7 +401,7 @@ mod tests {
             let reader = FileStatsLayoutReader::new(child, file_stats, SESSION.clone());
 
             // `is_null(deleted_at)` — should NOT panic or error due to dtype mismatch.
-            let expr = is_null(get_item("deleted_at", root())).bind(reader.dtype())?;
+            let expr = is_null(get_item("deleted_at", root())).bind(reader.dtype(), &SESSION)?;
             let mask = Mask::new_true(3);
             let result = reader.pruning_evaluation(&(0..3), &expr, mask)?.await?;
             // null_count is 1 (non-zero), so is_null is not falsified => not pruned.
@@ -445,7 +445,7 @@ mod tests {
             let reader =
                 FileStatsLayoutReader::new(child, test_file_null_count_stats(5), SESSION.clone());
 
-            let expr = is_not_null(get_item("col", root())).bind(reader.dtype())?;
+            let expr = is_not_null(get_item("col", root())).bind(reader.dtype(), &SESSION)?;
             let mask = Mask::new_true(5);
             let result = reader.pruning_evaluation(&(0..5), &expr, mask)?.await?;
             assert_eq!(result, Mask::new_false(5));

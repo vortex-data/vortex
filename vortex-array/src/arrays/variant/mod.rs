@@ -392,7 +392,7 @@ mod tests {
             Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
         );
 
-        let result = variant.into_array().apply(&expr)?;
+        let result = variant.into_array().apply(&expr, &SESSION)?;
 
         assert_arrays_eq!(
             result,
@@ -423,7 +423,7 @@ mod tests {
             VariantPath::field("value"),
             Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
         );
-        let value_result = variant.clone().into_array().apply(&value_expr)?;
+        let value_result = variant.clone().into_array().apply(&value_expr, &SESSION)?;
         assert_arrays_eq!(
             value_result,
             PrimitiveArray::from_option_iter([Some(10i32), Some(20), Some(30)]),
@@ -435,7 +435,7 @@ mod tests {
             VariantPath::field("typed_value"),
             Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
         );
-        let typed_value_result = variant.into_array().apply(&typed_value_expr)?;
+        let typed_value_result = variant.into_array().apply(&typed_value_expr, &SESSION)?;
         assert_arrays_eq!(
             typed_value_result,
             PrimitiveArray::from_option_iter([Some(40i32), Some(50), Some(60)]),

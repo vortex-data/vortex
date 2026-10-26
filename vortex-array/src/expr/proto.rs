@@ -10,13 +10,17 @@ use vortex_session::VortexSession;
 use crate::expr::Expression;
 use crate::expr::expression::unbound_variable;
 use crate::proto::expr as pb;
-use crate::scalar_fn::ForeignScalarFnVTable;
+use crate::scalar_fn::ErasedOptions;
+use crate::scalar_fn::ForeignScalarFnOptions;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::session::ScalarFnSessionExt;
 
 pub trait ExprSerializeProtoExt {
     /// Serialize the expression to its protobuf representation.
-    fn serialize_proto(&self) -> VortexResult<pb::Expr>;
+    ///
+    /// The scalar functions the expression calls are looked up in `session` to serialize their
+    /// options.
+    fn serialize_proto(&self, session: &VortexSession) -> VortexResult<pb::Expr>;
 }
 
 /// The wire id for [`Expression::Root`], retained from when `Root` was a scalar function so that
@@ -24,34 +28,40 @@ pub trait ExprSerializeProtoExt {
 pub(crate) const ROOT_ID: &str = "vortex.root";
 
 impl ExprSerializeProtoExt for Expression {
-    fn serialize_proto(&self) -> VortexResult<pb::Expr> {
-        if let Expression::Variable(name) = self {
-            return Err(unbound_variable(name));
-        }
-        let Some(scalar_fn) = self.as_scalar() else {
-            return Ok(pb::Expr {
-                id: ROOT_ID.to_string(),
-                children: vec![],
-                metadata: Some(vec![]),
-            });
+    fn serialize_proto(&self, session: &VortexSession) -> VortexResult<pb::Expr> {
+        let (id, options, children) = match self {
+            Expression::Variable(name) => return Err(unbound_variable(name)),
+            Expression::Root => {
+                return Ok(pb::Expr {
+                    id: ROOT_ID.to_string(),
+                    children: vec![],
+                    metadata: Some(vec![]),
+                });
+            }
+            Expression::Scalar {
+                id,
+                options,
+                children,
+            } => (*id, options, children),
         };
 
-        let children = self
-            .children()
+        let children = children
             .iter()
-            .map(|child| child.serialize_proto())
+            .map(|child| child.serialize_proto(session))
             .try_collect()?;
 
-        let metadata = scalar_fn.options().serialize()?.ok_or_else(|| {
-            vortex_err!(
-                "Expression '{}' is not serializable: {}",
-                scalar_fn.id(),
-                self
-            )
-        })?;
+        // Options read for an unknown id are written back as they were read.
+        let metadata = match options.downcast_ref::<ForeignScalarFnOptions>() {
+            Some(foreign) => Some(foreign.metadata().to_vec()),
+            None => session
+                .scalar_fn_plugin(id)?
+                .serialize_any(options.as_any())?,
+        };
+        let metadata =
+            metadata.ok_or_else(|| vortex_err!("Expression '{id}' is not serializable: {self}"))?;
 
         Ok(pb::Expr {
-            id: scalar_fn.id().to_string(),
+            id: id.to_string(),
             children,
             metadata: Some(metadata),
         })
@@ -78,15 +88,19 @@ impl Expression {
             .map(|e| Expression::from_proto(e, session))
             .collect::<VortexResult<Vec<_>>>()?;
 
-        let scalar_fn = if let Some(vtable) = session.scalar_fns().registry().get(&expr_id) {
-            vtable.deserialize(expr.metadata(), session)?
+        if let Some(plugin) = session.scalar_fns().registry().get(&expr_id) {
+            let scalar_fn = plugin.deserialize(expr.metadata(), session)?;
+            Expression::try_new(scalar_fn, children)
         } else if session.allows_unknown() {
-            ForeignScalarFnVTable::make_scalar_fn(expr_id, expr.metadata().to_vec(), children.len())
+            let options = ForeignScalarFnOptions::new(expr.metadata().to_vec(), children.len());
+            Ok(Expression::new(
+                expr_id,
+                ErasedOptions::new(options),
+                children,
+            ))
         } else {
-            return Err(vortex_err!("unknown expression id: {}", expr_id));
-        };
-
-        Expression::try_new(scalar_fn, children)
+            Err(vortex_err!("unknown expression id: {}", expr_id))
+        }
     }
 }
 
@@ -107,6 +121,8 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::ExprSerializeProtoExt;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
     use crate::expr::Expression;
     use crate::expr::and;
     use crate::expr::between;
@@ -116,9 +132,14 @@ mod tests {
     use crate::expr::or;
     use crate::expr::root;
     use crate::proto::expr as pb;
+    use crate::scalar_fn::ForeignScalarFnVTable;
     use crate::scalar_fn::fns::between::BetweenOptions;
     use crate::scalar_fn::fns::between::StrictComparison;
     use crate::scalar_fn::session::ScalarFnSession;
+
+    fn root_dtype() -> DType {
+        DType::Bool(Nullability::NonNullable)
+    }
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty().with::<ScalarFnSession>();
@@ -144,7 +165,7 @@ mod tests {
             eq(lit(1), root()),
         );
 
-        let s_expr = expr.serialize_proto().unwrap();
+        let s_expr = expr.serialize_proto(&SESSION).unwrap();
         let buf = s_expr.encode_to_vec();
         let s_expr = pb::Expr::decode(buf.as_slice()).unwrap();
         let deser_expr = Expression::from_proto(&s_expr, &VortexSession::empty()).unwrap();
@@ -157,16 +178,19 @@ mod tests {
         let expr_proto = pb::Expr {
             id: "vortex.test.foreign_scalar_fn".to_string(),
             metadata: Some(vec![1, 2, 3, 4]),
-            children: vec![root().serialize_proto().unwrap()],
+            children: vec![root().serialize_proto(&SESSION).unwrap()],
         };
 
         let expr = Expression::from_proto(&expr_proto, &SESSION).unwrap();
         assert_eq!(
-            expr.as_scalar().map(|f| f.id().as_ref().to_string()),
+            expr.id().map(|id| id.as_ref().to_string()),
             Some("vortex.test.foreign_scalar_fn".to_string())
         );
+        // The placeholder binds, so the rest of the expression can be type-checked.
+        let bound = expr.bind(&root_dtype(), &SESSION).unwrap();
+        assert!(bound.is::<ForeignScalarFnVTable>());
 
-        let roundtrip = expr.serialize_proto().unwrap();
+        let roundtrip = expr.serialize_proto(&SESSION).unwrap();
         assert_eq!(roundtrip.id, expr_proto.id);
         assert_eq!(roundtrip.metadata(), expr_proto.metadata());
         assert_eq!(roundtrip.children, expr_proto.children);

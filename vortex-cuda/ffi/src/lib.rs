@@ -297,7 +297,7 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream_projected(
                 .with_read_at_options(options.read_at_options)
                 .open_path(path),
         )?;
-        let scan = projected_scan(&file, columns, options.batch_rows)?;
+        let scan = projected_scan(session, &file, columns, options.batch_rows)?;
         let array_stream = scan.into_array_stream()?.boxed();
         let ctx = scan_export_ctx(session)?;
         let device_stream = ArrowDeviceArrayStream::new(array_stream, ctx, ffi_runtime());
@@ -346,13 +346,16 @@ unsafe fn scan_columns(columns: *const vx_view, ncolumns: usize) -> VortexResult
 }
 
 fn projected_scan(
+    session: &VortexSession,
     file: &VortexFile,
     columns: FieldNames,
     batch_rows: usize,
 ) -> VortexResult<ScanBuilder<ArrayRef>> {
     let mut scan = file.scan()?;
     if !columns.is_empty() {
-        let projection = select(columns, root()).bind(file.dtype())?.optimize()?;
+        let projection = select(columns, root())
+            .bind(file.dtype(), session)?
+            .optimize()?;
         scan = scan.with_projection(projection);
     }
     let split_by = if batch_rows == 0 {
@@ -930,7 +933,7 @@ mod tests {
         // Exceed the default scan split cap to catch accidentally leaving it enabled.
         let file = flat_ids_file(&session, 1_000_000)?;
         for columns in [names(&[])?, names(&["ids"])?] {
-            let splits = projected_scan(&file, columns, 0)?.full_file_splits()?;
+            let splits = projected_scan(&session, &file, columns, 0)?.full_file_splits()?;
             assert_eq!(splits, [0, 1_000_000]);
         }
         Ok(())
@@ -942,7 +945,7 @@ mod tests {
         let file = flat_ids_file(&session, 10)?;
         for columns in [names(&[])?, names(&["ids"])?] {
             let batches: Vec<ArrayRef> = ffi_runtime().block_on(
-                projected_scan(&file, columns, 3)?
+                projected_scan(&session, &file, columns, 3)?
                     .into_array_stream()?
                     .try_collect(),
             )?;
@@ -982,7 +985,7 @@ mod tests {
         });
         let file = file.with_segment_source(Arc::<RejectSegments>::clone(&source));
         let actual = ffi_runtime().block_on(
-            projected_scan(&file, columns, 2)?
+            projected_scan(&session, &file, columns, 2)?
                 .into_array_stream()?
                 .read_all(),
         )?;
@@ -991,7 +994,7 @@ mod tests {
         // The same reader must fail without projection, proving the guard actually observes reads.
         assert_error(
             ffi_runtime().block_on(
-                projected_scan(&file, names(&[])?, 0)?
+                projected_scan(&session, &file, names(&[])?, 0)?
                     .into_array_stream()?
                     .read_all(),
             ),

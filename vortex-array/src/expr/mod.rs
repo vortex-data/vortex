@@ -10,11 +10,20 @@
 //!
 //! # Scalar functions
 //!
-//! Each node references a scalar function defined by a
-//! [`ScalarFnVTable`](crate::scalar_fn::ScalarFnVTable). The vtable declares the function signature,
-//! properties such as strictness, and the logic that executes it over input arrays. Built-in
-//! functions live in [`crate::scalar_fn`]; integration and plugin crates supply additional,
-//! use-case-specific functions.
+//! Each node names a scalar function by its id and holds the options it is called with. The
+//! function itself is defined by a [`ScalarFnVTable`](crate::scalar_fn::ScalarFnVTable), which
+//! declares the function signature, properties such as strictness, and the logic that executes it
+//! over input arrays. Built-in functions live in [`crate::scalar_fn`]; integration and plugin
+//! crates supply additional, use-case-specific functions, registered with a
+//! [`VortexSession`](vortex_session::VortexSession).
+//!
+//! # Binding
+//!
+//! An expression is built without a session, so it can call functions defined in crates it does
+//! not depend on. [Binding](Expression::bind) it against a scope dtype and a session looks each
+//! function up in the session's registry, checks the options and children against it, and
+//! type-checks the tree, giving a [`BoundExpression`] that can be optimized, executed, and
+//! displayed with each function's own formatting.
 //!
 //! # Deferred execution
 //!
@@ -141,6 +150,7 @@ mod tests {
     use vortex_array::expr::eq;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::dtype::DType;
@@ -162,6 +172,7 @@ mod tests {
     use crate::expr::or;
     use crate::expr::select;
     use crate::expr::select_exclude;
+    use crate::expr::test_harness::struct_dtype;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::literal::Literal;
 
@@ -201,92 +212,83 @@ mod tests {
         );
 
         let unbound = case_when(gt(col("value"), lit(5i32)), col("value"), lit(5i32));
-        assert_eq!(unbound.bind(&scope)?, case);
+        assert_eq!(unbound.bind(&scope, &VortexSession::empty())?, case);
         Ok(())
     }
 
     #[test]
     fn expr_display() {
-        assert_eq!(col("a").to_string(), "$.a");
-        assert_eq!(root().to_string(), "$");
+        let session = VortexSession::empty();
+        let display = |expr: Expression| expr.bind(&struct_dtype(), &session).unwrap().to_string();
+
+        assert_eq!(display(col("a")), "$.a");
+        assert_eq!(display(root()), "$");
 
         let col1: Expression = col("col1");
         let col2: Expression = col("col2");
+        let bool1: Expression = col("bool1");
+        let bool2: Expression = col("bool2");
         assert_eq!(
-            and(col1.clone(), col2.clone()).to_string(),
-            "($.col1 and $.col2)"
+            display(and(bool1.clone(), bool2.clone())),
+            "($.bool1 and $.bool2)"
         );
+        assert_eq!(display(or(bool1.clone(), bool2)), "($.bool1 or $.bool2)");
+        assert_eq!(display(eq(col1.clone(), col2.clone())), "($.col1 = $.col2)");
         assert_eq!(
-            or(col1.clone(), col2.clone()).to_string(),
-            "($.col1 or $.col2)"
-        );
-        assert_eq!(
-            eq(col1.clone(), col2.clone()).to_string(),
-            "($.col1 = $.col2)"
-        );
-        assert_eq!(
-            not_eq(col1.clone(), col2.clone()).to_string(),
+            display(not_eq(col1.clone(), col2.clone())),
             "($.col1 != $.col2)"
         );
+        assert_eq!(display(gt(col1.clone(), col2.clone())), "($.col1 > $.col2)");
         assert_eq!(
-            gt(col1.clone(), col2.clone()).to_string(),
-            "($.col1 > $.col2)"
-        );
-        assert_eq!(
-            gt_eq(col1.clone(), col2.clone()).to_string(),
+            display(gt_eq(col1.clone(), col2.clone())),
             "($.col1 >= $.col2)"
         );
+        assert_eq!(display(lt(col1.clone(), col2.clone())), "($.col1 < $.col2)");
         assert_eq!(
-            lt(col1.clone(), col2.clone()).to_string(),
-            "($.col1 < $.col2)"
-        );
-        assert_eq!(
-            lt_eq(col1.clone(), col2.clone()).to_string(),
+            display(lt_eq(col1.clone(), col2.clone())),
             "($.col1 <= $.col2)"
         );
 
         assert_eq!(
-            or(lt(col1.clone(), col2.clone()), not_eq(col1.clone(), col2),).to_string(),
+            display(or(lt(col1.clone(), col2.clone()), not_eq(col1, col2))),
             "(($.col1 < $.col2) or ($.col1 != $.col2))"
         );
 
-        assert_eq!(not(col1).to_string(), "vortex.not($.col1)");
+        assert_eq!(display(not(bool1)), "vortex.not($.bool1)");
 
         assert_eq!(
-            select(vec![FieldName::from("col1")], root()).to_string(),
+            display(select(vec![FieldName::from("col1")], root())),
             "${col1}"
         );
         assert_eq!(
-            select(
+            display(select(
                 vec![FieldName::from("col1"), FieldName::from("col2")],
                 root()
-            )
-            .to_string(),
+            )),
             "${col1, col2}"
         );
         assert_eq!(
-            select_exclude(
+            display(select_exclude(
                 vec![FieldName::from("col1"), FieldName::from("col2")],
                 root()
-            )
-            .to_string(),
+            )),
             "${~ col1, col2}"
         );
 
-        assert_eq!(lit(Scalar::from(0u8)).to_string(), "0u8");
-        assert_eq!(lit(Scalar::from(0.0f32)).to_string(), "0f32");
+        assert_eq!(display(lit(Scalar::from(0u8))), "0u8");
+        assert_eq!(display(lit(Scalar::from(0.0f32))), "0f32");
         assert_eq!(
-            lit(Scalar::from(i64::MAX)).to_string(),
+            display(lit(Scalar::from(i64::MAX))),
             "9223372036854775807i64"
         );
-        assert_eq!(lit(Scalar::from(true)).to_string(), "true");
+        assert_eq!(display(lit(Scalar::from(true))), "true");
         assert_eq!(
-            lit(Scalar::null(DType::Bool(Nullability::Nullable))).to_string(),
+            display(lit(Scalar::null(DType::Bool(Nullability::Nullable)))),
             "null"
         );
 
         assert_eq!(
-            lit(Scalar::struct_(
+            display(lit(Scalar::struct_(
                 DType::Struct(
                     StructFields::new(
                         FieldNames::from(["dog", "cat"]),
@@ -298,10 +300,20 @@ mod tests {
                     Nullability::NonNullable
                 ),
                 vec![Scalar::from(32_u32), Scalar::from("rufus".to_string())]
-            ))
-            .to_string(),
+            ))),
             "{dog: 32u32, cat: \"rufus\"}"
         );
+    }
+
+    /// Unbound, every node is a call of its function's id.
+    #[test]
+    fn unbound_expr_display() {
+        assert_eq!(col("a").to_string(), "vortex.get_item($, opts=a)");
+        assert_eq!(
+            and(col("bool1"), lit(true)).to_string(),
+            "vortex.binary(vortex.get_item($, opts=bool1), vortex.literal(opts=true), opts=and)"
+        );
+        assert_eq!(not(root()).to_string(), "vortex.not($)");
     }
 
     #[test]

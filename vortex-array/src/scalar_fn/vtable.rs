@@ -12,6 +12,7 @@ use arcref::ArcRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_utils::iter::ReduceBalancedIterExt;
@@ -27,7 +28,9 @@ use crate::expr::BoundExpression;
 use crate::expr::Expression;
 use crate::expr::bound;
 use crate::expr::display::ExprDisplay;
+use crate::expr::display::fmt_call;
 use crate::scalar::Scalar;
+use crate::scalar_fn::ErasedOptions;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::TypedScalarFnInstance;
@@ -131,19 +134,7 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         expr: &dyn ExprDisplay,
         f: &mut Formatter<'_>,
     ) -> fmt::Result {
-        write!(f, "{}(", self.id())?;
-        let nchildren = expr.display_children_count();
-        for i in 0..nchildren {
-            Display::fmt(expr.display_child(i), f)?;
-            if i + 1 < nchildren {
-                write!(f, ", ")?;
-            }
-        }
-        let opts = format!("{}", options);
-        if !opts.is_empty() {
-            write!(f, ", opts={}", opts)?;
-        }
-        write!(f, ")")
+        fmt_call(self.id(), options, expr, f)
     }
 
     /// Compute the return [`DType`] of the expression if evaluated over the given input types.
@@ -151,11 +142,9 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     /// # Preconditions
     ///
     /// The length of `args` must match the [`Arity`] of this function. Callers are responsible
-    /// for validating this (e.g., [`Expression::try_new`] checks arity at construction time).
+    /// for validating this (e.g., [`BoundExpression::try_new`] checks arity at construction time).
     /// Implementations may assume correct arity and will panic or return nonsensical results if
     /// violated.
-    ///
-    /// [`Expression::try_new`]: crate::expr::Expression::try_new
     fn return_dtype(&self, options: &Self::Options, args: &[DType]) -> VortexResult<DType>;
 
     /// Bind whatever in the options depends on the argument dtypes, such as the body of a
@@ -167,13 +156,18 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     /// A rebuilt node calls it again, possibly with other dtypes: options that are already bound
     /// must be checked against these dtypes, returning `None` if they fit and an error if they
     /// don't. Return `None` to keep the options as they are, which the default does.
+    ///
+    /// `session` is the session an [`Expression`] is being bound against, which binding an
+    /// expression held in the options, such as a lambda's body, needs. It is `None` when a bound
+    /// node is rebuilt or a [`ScalarFnArray`] is built, where such options are already bound.
     #[doc(hidden)]
     fn bind_options(
         &self,
         options: &Self::Options,
         args: &[DType],
+        session: Option<&VortexSession>,
     ) -> VortexResult<Option<Self::Options>> {
-        _ = (options, args);
+        _ = (options, args, session);
         Ok(None)
     }
 
@@ -617,12 +611,30 @@ pub trait ScalarFnVTableExt: ScalarFnVTable {
     }
 
     /// Try to create a new expression with this vtable and the given options and children.
+    ///
+    /// The expression holds this vtable's id and the options; binding it looks the function up
+    /// again in the session it is bound against.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the number of children does not match the function's arity.
     fn try_new_expr(
         &self,
         options: Self::Options,
         children: impl IntoIterator<Item = Expression>,
     ) -> VortexResult<Expression> {
-        Expression::try_new(self.bind(options), children)
+        let children = Vec::from_iter(children);
+        let arity = self.arity(&options);
+        vortex_ensure!(
+            arity.matches(children.len()),
+            "Expression arity mismatch: expected {arity} children but got {}",
+            children.len()
+        );
+        Ok(Expression::new(
+            self.id(),
+            ErasedOptions::new(options),
+            children,
+        ))
     }
 
     /// Try to create a bound expression with this vtable, the given options, and bound children.

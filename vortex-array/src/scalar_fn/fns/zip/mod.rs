@@ -47,7 +47,7 @@ use crate::validity::Validity;
 /// Null values in the mask are treated as false (selecting `if_false`). This follows
 /// SQL semantics (DuckDB, Trino) where a null condition falls through to the ELSE branch,
 /// rather than Arrow's `if_else` which propagates null conditions to the output.
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct Zip;
 
 impl Zip {
@@ -378,7 +378,7 @@ mod tests {
     fn dtype() {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let expr = zip_expr(lit(true), root(), lit(0i32));
-        let result_dtype = expr.return_dtype(&dtype).unwrap();
+        let result_dtype = expr.bind(&dtype, &SESSION).unwrap().dtype().clone();
         assert_eq!(
             result_dtype,
             DType::Primitive(PType::I32, Nullability::NonNullable)
@@ -388,7 +388,15 @@ mod tests {
     #[test]
     fn test_display() {
         let expr = zip_expr(lit(true), root(), lit(0i32));
-        assert_eq!(expr.to_string(), "zip($, 0i32, true)");
+        assert_eq!(
+            expr.bind(
+                &DType::Primitive(PType::I32, Nullability::NonNullable),
+                &SESSION
+            )
+            .unwrap()
+            .to_string(),
+            "zip($, 0i32, true)"
+        );
     }
 
     #[test]

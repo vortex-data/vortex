@@ -67,7 +67,7 @@ impl fmt::Display for ReplaceTimeZoneOptions {
 /// Replace a timestamp's timezone, preserving its local wall time.
 ///
 /// The second child selects `raise`, `earliest`, `latest`, or `null` for ambiguous times.
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct ReplaceTimeZone;
 
 impl ScalarFnVTable for ReplaceTimeZone {
@@ -473,7 +473,7 @@ mod tests {
             },
         );
         let scope = DType::Struct(StructFields::empty(), Nullability::NonNullable);
-        let optimized = expr.bind(&scope)?.optimize()?;
+        let optimized = expr.bind(&scope, &SESSION)?.optimize()?;
 
         // Stats pruning only matches bare literal operands, so the replacement must fold.
         let scalar = optimized
@@ -527,14 +527,17 @@ mod tests {
         let array =
             StructArray::from_fields(&[("t", input.into_array()), ("p", policies.into_array())])?
                 .into_array();
-        let result = array.apply(&replace_time_zone(
-            get_item("t", root()),
-            get_item("p", root()),
-            ReplaceTimeZoneOptions {
-                time_zone: Some("America/New_York".into()),
-                null_on_non_existent: false,
-            },
-        ))?;
+        let result = array.apply(
+            &replace_time_zone(
+                get_item("t", root()),
+                get_item("p", root()),
+                ReplaceTimeZoneOptions {
+                    time_zone: Some("America/New_York".into()),
+                    null_on_non_existent: false,
+                },
+            ),
+            &SESSION,
+        )?;
 
         let expected = ExtensionArray::new(
             timestamp(Some("America/New_York")),

@@ -548,7 +548,7 @@ fn test_expr_from_df_column() -> DFResult<()> {
 
     assert_snapshot!(result.display_tree().to_string(), @r"
     vortex.get_item(test_column)
-    └── input: vortex.root()
+    └── arg0: vortex.root()
     ");
     Ok(())
 }
@@ -726,9 +726,9 @@ fn test_expr_from_df_binary() -> DFResult<()> {
 
     assert_snapshot!(result.display_tree().to_string(), @r"
     vortex.binary(=)
-    ├── lhs: vortex.get_item(left)
-    │   └── input: vortex.root()
-    └── rhs: vortex.literal(42i32)
+    ├── arg0: vortex.get_item(left)
+    │   └── arg0: vortex.root()
+    └── arg1: vortex.literal(42i32)
     ");
     Ok(())
 }
@@ -790,9 +790,9 @@ fn test_expr_from_df_octet_length(test_schema: Schema) -> DFResult<()> {
 
     assert_snapshot!(result.display_tree().to_string(), @r"
     vortex.cast(i32?)
-    └── input: vortex.byte_length()
-        └── input: vortex.get_item(name)
-            └── input: vortex.root()
+    └── arg0: vortex.byte_length()
+        └── arg0: vortex.get_item(name)
+            └── arg0: vortex.root()
     ");
     Ok(())
 }
@@ -806,9 +806,9 @@ fn test_expr_from_df_array_length(test_schema: Schema) -> DFResult<()> {
 
     assert_snapshot!(result.display_tree().to_string(), @r"
     vortex.cast(u64?)
-    └── input: vortex.list.length()
-        └── input: vortex.get_item(tags)
-            └── input: vortex.root()
+    └── arg0: vortex.list.length()
+        └── arg0: vortex.get_item(tags)
+            └── arg0: vortex.root()
     ");
     Ok(())
 }
@@ -1316,7 +1316,7 @@ fn assert_native_matches(expr: Arc<dyn PhysicalExpr>, batch: RecordBatch) -> any
                 input = ConstantArray::new(input.execute_scalar(0, &mut ctx)?, 1).into_array();
             }
             let actual = input
-                .apply(&converted)?
+                .apply(&converted, &session)?
                 .execute::<Canonical>(&mut ctx)
                 .map(IntoArray::into_array);
             let expected = expr
@@ -1834,7 +1834,7 @@ fn test_native_nested_get_field(
         .arrow()
         .from_arrow_record_batch(batch.clone(), &batch.schema())?;
     assert_arrays_eq!(
-        input.apply(&converted)?,
+        input.apply(&converted, &session)?,
         PrimitiveArray::from_option_iter(expected),
         &mut session.create_execution_ctx()
     );
@@ -1979,7 +1979,7 @@ fn test_native_nested_list_length(
             .arrow()
             .from_arrow_record_batch(batch.clone(), &batch.schema())?;
         assert_arrays_eq!(
-            input.apply(&converted)?,
+            input.apply(&converted, &session)?,
             PrimitiveArray::from_option_iter([Some(1u64), None, None]),
             &mut session.create_execution_ctx()
         );

@@ -43,7 +43,7 @@ use crate::scalar_fn::is_not_null_node;
 ///
 /// Where the mask is true, the input value is retained; where the mask is false, the output is
 /// null. In other words, this performs an intersection of the input's validity with the mask.
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct Mask;
 
 impl Mask {
@@ -197,7 +197,10 @@ fn execute_canonical(
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use vortex_error::VortexExpect;
+    use vortex_session::VortexSession;
 
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
@@ -207,6 +210,8 @@ mod test {
     use crate::expr::mask;
     use crate::scalar::Scalar;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_simplify() {
         let input_expr = lit(42u32);
@@ -215,17 +220,19 @@ mod test {
 
         let mask_true_expr = mask(input_expr.clone(), true_mask_expr);
         let simplified_true = mask_true_expr
-            .bind(&DType::Null)
+            .bind(&DType::Null, &SESSION)
             .and_then(|expr| expr.optimize())
             .vortex_expect("Simplification");
         assert_eq!(
             &simplified_true,
-            &input_expr.bind(&DType::Null).vortex_expect("bind")
+            &input_expr
+                .bind(&DType::Null, &SESSION)
+                .vortex_expect("bind")
         );
 
         let mask_false_expr = mask(input_expr, false_mask_expr);
         let simplified_false = mask_false_expr
-            .bind(&DType::Null)
+            .bind(&DType::Null, &SESSION)
             .and_then(|expr| expr.optimize())
             .vortex_expect("Simplification");
         let expected_null_expr = bound::lit(Scalar::null(DType::Primitive(PType::U32, Nullable)));

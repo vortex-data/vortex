@@ -76,7 +76,7 @@ fn random_i64(len: usize) -> (Vec<i64>, Vec<i64>) {
 fn bench_in_set(bencher: Bencher, set: Scalar, needles: ArrayRef) {
     // Optimized as a scan optimizes it, so the set arrives normalized.
     let expr = list_contains(lit(set), root())
-        .bind(needles.dtype())
+        .bind(needles.dtype(), &SESSION)
         .unwrap()
         .optimize_recursive()
         .unwrap();

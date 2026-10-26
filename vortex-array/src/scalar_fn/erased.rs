@@ -14,6 +14,7 @@ use std::sync::Arc;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 use vortex_utils::debug_with::DebugWith;
 
 use crate::ArrayRef;
@@ -124,8 +125,12 @@ impl ScalarFnRef {
 
     /// Bind whatever in the options depends on the argument types, or keep this function if
     /// nothing does. See [`ScalarFnVTable::bind_options`].
-    pub(crate) fn bind_options(self, arg_types: &[DType]) -> VortexResult<ScalarFnRef> {
-        Ok(self.0.bind_options(arg_types)?.unwrap_or(self))
+    pub(crate) fn bind_options(
+        self,
+        arg_types: &[DType],
+        session: Option<&VortexSession>,
+    ) -> VortexResult<ScalarFnRef> {
+        Ok(self.0.bind_options(arg_types, session)?.unwrap_or(self))
     }
 
     /// Symbolic validity of this node in an expression tree

@@ -245,14 +245,18 @@ fn like_substr_high_match(bencher: Bencher) {
         .unwrap()
         .into_array();
     let pattern = format!("%{HIGH_MATCH_DOMAIN}%");
-    let expr = like(root(), lit(pattern.as_str()));
+    let expr = like(root(), lit(pattern.as_str()))
+        .bind(fsst_array.dtype(), &SESSION)
+        .unwrap()
+        .optimize_recursive()
+        .unwrap();
 
     bencher
         .with_inputs(|| (&fsst_array, SESSION.create_execution_ctx()))
         .bench_refs(|(fsst_array, ctx)| {
             fsst_array
                 .clone()
-                .apply(&expr)
+                .apply_bound(&expr)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()
@@ -269,14 +273,18 @@ fn like_substr_low_match(bencher: Bencher) {
         .unwrap()
         .into_array();
     let pattern = format!("%{LOW_MATCH_DOMAIN}%");
-    let expr = like(root(), lit(pattern.as_str()));
+    let expr = like(root(), lit(pattern.as_str()))
+        .bind(fsst_array.dtype(), &SESSION)
+        .unwrap()
+        .optimize_recursive()
+        .unwrap();
 
     bencher
         .with_inputs(|| (&fsst_array, SESSION.create_execution_ctx()))
         .bench_refs(|(fsst_array, ctx)| {
             fsst_array
                 .clone()
-                .apply(&expr)
+                .apply_bound(&expr)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()

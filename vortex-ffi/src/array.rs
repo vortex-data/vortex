@@ -703,18 +703,22 @@ pub unsafe extern "C-unwind" fn vx_array_data_ptr_bool(
 /// Apply the expression to the array, wrapping it with a ScalarFnArray.
 /// This operation takes constant time as it doesn't execute the underlying
 /// array. Executing the underlying array still takes O(n) time.
+///
+/// The expression's scalar functions are resolved in the session.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_array_apply(
+    session: *const vx_session,
     array: *const vx_array,
     expression: *const vx_expression,
     error: *mut *mut vx_error,
 ) -> *const vx_array {
     try_or_default(error, || {
+        let session = unsafe { vx_session_ref(session) }?;
         vortex_ensure!(!array.is_null());
         vortex_ensure!(!expression.is_null());
         let array = vx_array::as_ref(array);
         let expression = vx_expression::as_ref(expression);
-        Ok(vx_array::new(array.clone().apply(expression)?))
+        Ok(vx_array::new(array.clone().apply(expression, session)?))
     })
 }
 
@@ -1000,15 +1004,16 @@ mod tests {
 
         unsafe {
             let mut error = ptr::null_mut();
+            let session = vx_session_new();
 
-            let res = vx_array_apply(ptr::null(), ptr::null(), &raw mut error);
+            let res = vx_array_apply(session, ptr::null(), ptr::null(), &raw mut error);
             assert!(res.is_null());
             assert!(!error.is_null());
             vx_error_free(error);
 
             let array = vx_array::new(primitive.into_array());
 
-            let res = vx_array_apply(array, ptr::null(), &raw mut error);
+            let res = vx_array_apply(session, array, ptr::null(), &raw mut error);
             assert!(res.is_null());
             assert!(!error.is_null());
             vx_error_free(error);
@@ -1018,12 +1023,17 @@ mod tests {
             let expression = eq(root(), lit(3i32));
             let expression = vx_expression::new(expression);
 
-            let res = vx_array_apply(ptr::null(), expression, &raw mut error);
+            let res = vx_array_apply(session, ptr::null(), expression, &raw mut error);
             assert!(res.is_null());
             assert!(!error.is_null());
             vx_error_free(error);
 
-            let res = vx_array_apply(array, expression, &raw mut error);
+            let res = vx_array_apply(ptr::null(), array, expression, &raw mut error);
+            assert!(res.is_null());
+            assert!(!error.is_null());
+            vx_error_free(error);
+
+            let res = vx_array_apply(session, array, expression, &raw mut error);
             assert_no_error(error);
             assert!(!res.is_null());
             {

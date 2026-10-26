@@ -11,6 +11,7 @@ use vortex_utils::tree::write_branch_tree;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
 use crate::scalar_fn::ChildName;
+use crate::scalar_fn::ScalarFnId;
 
 pub enum DisplayFormat {
     Compact,
@@ -27,6 +28,35 @@ pub trait ExprDisplay: Display {
 
     /// Return the number of children in this node.
     fn display_children_count(&self) -> usize;
+}
+
+/// Format a node as a call of its function's id: `id(child, ..., opts=options)`, leaving the
+/// options out when they display as nothing.
+///
+/// This is the default [`ScalarFnVTable::fmt_sql`](crate::scalar_fn::ScalarFnVTable::fmt_sql),
+/// and how every node of an unbound [`Expression`] is formatted.
+pub(crate) fn fmt_call(
+    id: ScalarFnId,
+    options: &dyn Display,
+    expr: &dyn ExprDisplay,
+    f: &mut Formatter<'_>,
+) -> fmt::Result {
+    write!(f, "{id}(")?;
+    let nchildren = expr.display_children_count();
+    for i in 0..nchildren {
+        if i > 0 {
+            write!(f, ", ")?;
+        }
+        Display::fmt(expr.display_child(i), f)?;
+    }
+    let opts = options.to_string();
+    if !opts.is_empty() {
+        if nchildren > 0 {
+            write!(f, ", ")?;
+        }
+        write!(f, "opts={opts}")?;
+    }
+    write!(f, ")")
 }
 
 impl ExprDisplay for Expression {
@@ -67,7 +97,8 @@ impl DisplayTreeNode for Expression {
 
     fn tree_child_name(&self, index: usize) -> ChildName {
         match self {
-            Expression::Scalar { scalar_fn, .. } => scalar_fn.signature().child_name(index),
+            // The function, and so the children's names, are known once the expression is bound.
+            Expression::Scalar { .. } => ChildName::new_arc(format!("arg{index}").into()),
             Expression::Root => unreachable!("the scope root has no children"),
             Expression::Variable(_) => unreachable!("a variable has no children"),
         }
@@ -75,7 +106,7 @@ impl DisplayTreeNode for Expression {
 
     fn fmt_tree_node(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Expression::Scalar { scalar_fn, .. } => Display::fmt(scalar_fn, f),
+            Expression::Scalar { id, options, .. } => write!(f, "{id}({options})"),
             Expression::Root => write!(f, "{ROOT_DISPLAY}"),
             Expression::Variable(name) => write!(f, "@{name}"),
         }
@@ -139,9 +170,14 @@ impl<T: DisplayTreeNode> Display for DisplayTreeExpr<'_, T> {
 
 #[cfg(test)]
 mod tests {
+    use insta::assert_snapshot;
+    use vortex_session::VortexSession;
+
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::StructFields;
+    use crate::expr::Expression;
     use crate::expr::and;
     use crate::expr::between;
     use crate::expr::cast;
@@ -157,25 +193,65 @@ mod tests {
     use crate::scalar_fn::fns::between::BetweenOptions;
     use crate::scalar_fn::fns::between::StrictComparison;
 
+    fn i32_() -> DType {
+        DType::Primitive(PType::I32, Nullability::NonNullable)
+    }
+
+    /// The scope the test expressions are bound against.
+    fn scope() -> DType {
+        DType::Struct(
+            StructFields::from_iter([
+                ("my_field", i32_()),
+                ("x", i32_()),
+                ("name", DType::Utf8(Nullability::NonNullable)),
+                ("age", i32_()),
+                ("value", i32_()),
+                ("active", DType::Bool(Nullability::NonNullable)),
+                ("score", i32_()),
+                ("answer", i32_()),
+                ("internal_id", i32_()),
+                ("metadata", DType::Utf8(Nullability::NonNullable)),
+            ]),
+            Nullability::NonNullable,
+        )
+    }
+
+    /// The tree display of `expr` bound against the test scope, with each function's own
+    /// formatting and child names.
+    fn bound_tree(expr: &Expression) -> String {
+        expr.bind(&scope(), &VortexSession::empty())
+            .unwrap_or_else(|e| panic!("{expr} binds against the test scope: {e}"))
+            .display_tree()
+            .to_string()
+    }
+
+    #[test]
+    fn test_display_tree_unbound() {
+        let expr = gt(get_item("x", root()), lit(10));
+        assert_snapshot!(expr.display_tree().to_string(), @r"
+        vortex.binary(>)
+        ├── arg0: vortex.get_item(x)
+        │   └── arg0: vortex.root()
+        └── arg1: vortex.literal(10i32)
+        ");
+    }
+
     #[test]
     fn test_display_tree_root() {
-        use insta::assert_snapshot;
-        let root_expr = root();
-        assert_snapshot!(root_expr.display_tree().to_string(), @"vortex.root()");
+        assert_snapshot!(bound_tree(&root()), @"vortex.root()");
+        assert_snapshot!(root().display_tree().to_string(), @"vortex.root()");
     }
 
     #[test]
     fn test_display_tree_literal() {
-        use insta::assert_snapshot;
-        let lit_expr = lit(42);
-        assert_snapshot!(lit_expr.display_tree().to_string(), @"vortex.literal(42i32)");
+        assert_snapshot!(bound_tree(&lit(42)), @"vortex.literal(42i32)");
+        assert_snapshot!(lit(42).display_tree().to_string(), @"vortex.literal(42i32)");
     }
 
     #[test]
     fn test_display_tree_get_item() {
-        use insta::assert_snapshot;
         let get_item_expr = get_item("my_field", root());
-        assert_snapshot!(get_item_expr.display_tree().to_string(), @r"
+        assert_snapshot!(bound_tree(&get_item_expr), @r"
         vortex.get_item(my_field)
         └── input: vortex.root()
         ");
@@ -183,9 +259,8 @@ mod tests {
 
     #[test]
     fn test_display_tree_binary() {
-        use insta::assert_snapshot;
         let binary_expr = gt(get_item("x", root()), lit(10));
-        assert_snapshot!(binary_expr.display_tree().to_string(), @r"
+        assert_snapshot!(bound_tree(&binary_expr), @r"
         vortex.binary(>)
         ├── lhs: vortex.get_item(x)
         │   └── input: vortex.root()
@@ -195,12 +270,11 @@ mod tests {
 
     #[test]
     fn test_display_tree_complex_binary() {
-        use insta::assert_snapshot;
         let complex_binary = and(
             eq(get_item("name", root()), lit("alice")),
             gt(get_item("age", root()), lit(18)),
         );
-        assert_snapshot!(complex_binary.display_tree().to_string(), @r#"
+        assert_snapshot!(bound_tree(&complex_binary), @r#"
         vortex.binary(and)
         ├── lhs: vortex.binary(=)
         │   ├── lhs: vortex.get_item(name)
@@ -215,9 +289,8 @@ mod tests {
 
     #[test]
     fn test_display_tree_select() {
-        use insta::assert_snapshot;
         let select_expr = select(["name", "age"], root());
-        assert_snapshot!(select_expr.display_tree().to_string(), @r"
+        assert_snapshot!(bound_tree(&select_expr), @r"
         vortex.select({name, age})
         └── child: vortex.root()
         ");
@@ -225,9 +298,8 @@ mod tests {
 
     #[test]
     fn test_display_tree_select_exclude() {
-        use insta::assert_snapshot;
         let select_exclude_expr = select_exclude(["internal_id", "metadata"], root());
-        assert_snapshot!(select_exclude_expr.display_tree().to_string(), @r"
+        assert_snapshot!(bound_tree(&select_exclude_expr), @r"
         vortex.select(~{internal_id, metadata})
         └── child: vortex.root()
         ");
@@ -235,12 +307,11 @@ mod tests {
 
     #[test]
     fn test_display_tree_cast() {
-        use insta::assert_snapshot;
         let cast_expr = cast(
             get_item("value", root()),
             DType::Primitive(PType::I64, Nullability::NonNullable),
         );
-        assert_snapshot!(cast_expr.display_tree().to_string(), @r"
+        assert_snapshot!(bound_tree(&cast_expr), @r"
         vortex.cast(i64)
         └── input: vortex.get_item(value)
             └── input: vortex.root()
@@ -249,9 +320,8 @@ mod tests {
 
     #[test]
     fn test_display_tree_not() {
-        use insta::assert_snapshot;
         let not_expr = not(eq(get_item("active", root()), lit(true)));
-        assert_snapshot!(not_expr.display_tree().to_string(), @r"
+        assert_snapshot!(bound_tree(&not_expr), @r"
         vortex.not()
         └── input: vortex.binary(=)
             ├── lhs: vortex.get_item(active)
@@ -262,7 +332,6 @@ mod tests {
 
     #[test]
     fn test_display_tree_between() {
-        use insta::assert_snapshot;
         let between_expr = between(
             get_item("score", root()),
             lit(0),
@@ -272,7 +341,7 @@ mod tests {
                 upper_strict: StrictComparison::NonStrict,
             },
         );
-        assert_snapshot!(between_expr.display_tree().to_string(), @r"
+        assert_snapshot!(bound_tree(&between_expr), @r"
         vortex.between(lower_strict: <=, upper_strict: <=)
         ├── array: vortex.get_item(score)
         │   └── input: vortex.root()
@@ -283,25 +352,21 @@ mod tests {
 
     #[test]
     fn test_display_tree_nested() {
-        use insta::assert_snapshot;
-        let nested_expr = select(
-            ["result"],
-            cast(
-                between(
-                    get_item("score", root()),
-                    lit(50),
-                    lit(100),
-                    BetweenOptions {
-                        lower_strict: StrictComparison::Strict,
-                        upper_strict: StrictComparison::NonStrict,
-                    },
-                ),
-                DType::Bool(Nullability::NonNullable),
+        let nested_expr = not(cast(
+            between(
+                get_item("score", root()),
+                lit(50),
+                lit(100),
+                BetweenOptions {
+                    lower_strict: StrictComparison::Strict,
+                    upper_strict: StrictComparison::NonStrict,
+                },
             ),
-        );
-        assert_snapshot!(nested_expr.display_tree().to_string(), @r"
-        vortex.select({result})
-        └── child: vortex.cast(bool)
+            DType::Bool(Nullability::NonNullable),
+        ));
+        assert_snapshot!(bound_tree(&nested_expr), @r"
+        vortex.not()
+        └── input: vortex.cast(bool)
             └── input: vortex.between(lower_strict: <, upper_strict: <=)
                 ├── array: vortex.get_item(score)
                 │   └── input: vortex.root()
@@ -312,7 +377,6 @@ mod tests {
 
     #[test]
     fn test_display_tree_pack() {
-        use insta::assert_snapshot;
         let select_from_pack_expr = select(
             ["fizz", "buzz"],
             pack(
@@ -324,7 +388,7 @@ mod tests {
                 Nullability::Nullable,
             ),
         );
-        assert_snapshot!(select_from_pack_expr.display_tree().to_string(), @r"
+        assert_snapshot!(bound_tree(&select_from_pack_expr), @r"
         vortex.select({fizz, buzz})
         └── child: vortex.pack(names: [fizz, bar, buzz], nullability: Nullable)
             ├── fizz: vortex.root()

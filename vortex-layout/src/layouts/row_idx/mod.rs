@@ -377,6 +377,7 @@ mod tests {
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
+    use crate::test::SESSION;
     use crate::test::new_session;
 
     #[test]
@@ -407,7 +408,7 @@ mod tests {
                     .unwrap(),
                 session.clone(),
             );
-            let expr = expr.bind(reader.dtype()).unwrap();
+            let expr = expr.bind(reader.dtype(), &SESSION).unwrap();
             let result = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -454,7 +455,7 @@ mod tests {
                     .unwrap(),
                 session.clone(),
             );
-            let expr = expr.bind(reader.dtype()).unwrap();
+            let expr = expr.bind(reader.dtype(), &SESSION).unwrap();
             let result = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -505,7 +506,7 @@ mod tests {
                     .unwrap(),
                 session.clone(),
             );
-            let expr = expr.bind(reader.dtype()).unwrap();
+            let expr = expr.bind(reader.dtype(), &SESSION).unwrap();
             let result = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -528,7 +529,10 @@ mod tests {
     fn row_idx_array_all_true_keeps_sequence() {
         block_on(|_| async {
             let expr = root()
-                .bind(&DType::Primitive(PType::U64, Nullability::NonNullable))
+                .bind(
+                    &DType::Primitive(PType::U64, Nullability::NonNullable),
+                    &SESSION,
+                )
                 .unwrap();
 
             let result = super::row_idx_array_future(
@@ -553,7 +557,10 @@ mod tests {
     fn row_idx_array_all_false_returns_empty() {
         block_on(|_| async {
             let expr = root()
-                .bind(&DType::Primitive(PType::U64, Nullability::NonNullable))
+                .bind(
+                    &DType::Primitive(PType::U64, Nullability::NonNullable),
+                    &SESSION,
+                )
                 .unwrap();
 
             let result = super::row_idx_array_future(

@@ -923,15 +923,16 @@ mod tests {
     }
 
     fn falsify(expr: &Expression) -> VortexResult<Option<BoundExpression>> {
-        expr.bind(&test_scope())?.falsify(&SESSION)
+        expr.bind(&test_scope(), &SESSION)?.falsify(&SESSION)
     }
 
     fn satisfy(expr: &Expression) -> VortexResult<Option<BoundExpression>> {
-        expr.bind(&test_scope())?.satisfy(&SESSION)
+        expr.bind(&test_scope(), &SESSION)?.satisfy(&SESSION)
     }
 
     fn bind_expected(expr: Option<Expression>) -> VortexResult<Option<BoundExpression>> {
-        expr.map(|expr| expr.bind(&test_scope())).transpose()
+        expr.map(|expr| expr.bind(&test_scope(), &SESSION))
+            .transpose()
     }
 
     fn all_null(expr: &Expression) -> Expression {
@@ -1049,7 +1050,7 @@ mod tests {
         let expr = (1..16).fold(eq(col("a"), lit(0)), |chain, i| {
             or(chain, eq(col("a"), lit(i)))
         });
-        let falsifier = expr.bind(&test_scope())?.falsify(&session)?;
+        let falsifier = expr.bind(&test_scope(), &SESSION)?.falsify(&session)?;
         assert!(falsifier.is_some());
 
         // One visit per `Binary` node: 16 comparisons plus 15 `or`s.

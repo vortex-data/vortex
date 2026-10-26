@@ -35,7 +35,7 @@ use crate::scalar_fn::ScalarFnVTable;
 /// NaN handling for float elements is controlled by [`NumericalAggregateOpts`]: with
 /// `skip_nans` (the default) NaN values contribute nothing, otherwise any NaN poisons the
 /// list's sum to NaN.
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct ListSum;
 
 impl ScalarFnVTable for ListSum {
@@ -194,7 +194,7 @@ mod tests {
         let elements = create_list_elements();
         let list =
             ListArray::try_new(elements, offsets, Validity::NonNullable, &mut ctx)?.into_array();
-        let result = list.apply(&list_sum(root()))?;
+        let result = list.apply(&list_sum(root()), &SESSION)?;
         let mut ctx = SESSION.create_execution_ctx();
         // [1, 2] = 3; [3, 4, 5] = 12; [] = null; [6, null] = 6 (nulls skipped).
         let expected =
@@ -214,7 +214,7 @@ mod tests {
             &mut ctx,
         )?
         .into_array();
-        let result = list.apply(&list_sum(root()))?;
+        let result = list.apply(&list_sum(root()), &SESSION)?;
 
         let mut ctx = SESSION.create_execution_ctx();
         // Row 1 and 3 are null lists; row 2 is a valid but empty list.
@@ -234,7 +234,7 @@ mod tests {
             &mut ctx,
         )?
         .into_array();
-        let result = list.apply(&list_sum(root()))?;
+        let result = list.apply(&list_sum(root()), &SESSION)?;
 
         let mut ctx = SESSION.create_execution_ctx();
         let expected = PrimitiveArray::from_option_iter::<i64, _>([None, Some(1)]);
@@ -253,7 +253,7 @@ mod tests {
             &mut ctx,
         )?
         .into_array();
-        let result = list.apply(&list_sum(root()))?;
+        let result = list.apply(&list_sum(root()), &SESSION)?;
 
         let mut ctx = SESSION.create_execution_ctx();
         let expected = PrimitiveArray::from_option_iter::<i64, _>([None, Some(3)]);
@@ -272,7 +272,7 @@ mod tests {
             &mut ctx,
         )?
         .into_array();
-        let result = list.apply(&list_sum(root()))?;
+        let result = list.apply(&list_sum(root()), &SESSION)?;
 
         let mut ctx = SESSION.create_execution_ctx();
         let expected = PrimitiveArray::from_option_iter::<u64, _>([Some(6)]);
@@ -291,7 +291,7 @@ mod tests {
             &mut ctx,
         )?
         .into_array();
-        let result = list.apply(&list_sum(root()))?;
+        let result = list.apply(&list_sum(root()), &SESSION)?;
 
         let mut ctx = SESSION.create_execution_ctx();
         let expected = PrimitiveArray::from_option_iter::<u64, _>([Some(2), Some(1)]);
@@ -310,7 +310,7 @@ mod tests {
             &mut ctx,
         )?
         .into_array();
-        let result = list.apply(&list_sum(root()))?;
+        let result = list.apply(&list_sum(root()), &SESSION)?;
 
         let mut ctx = SESSION.create_execution_ctx();
         let expected = PrimitiveArray::from_option_iter::<f64, _>([Some(3.0)]);
@@ -332,7 +332,7 @@ mod tests {
             &mut ctx,
         )?
         .into_array();
-        let result = list.apply(&list_sum(root()))?;
+        let result = list.apply(&list_sum(root()), &SESSION)?;
 
         let mut ctx = SESSION.create_execution_ctx();
         let expected = PrimitiveArray::from_option_iter::<f64, _>([Some(0.0)]);
@@ -351,10 +351,10 @@ mod tests {
             &mut ctx,
         )?
         .into_array();
-        let result = list.apply(&list_sum_opts(
-            root(),
-            NumericalAggregateOpts::include_nans(),
-        ))?;
+        let result = list.apply(
+            &list_sum_opts(root(), NumericalAggregateOpts::include_nans()),
+            &SESSION,
+        )?;
 
         let mut ctx = SESSION.create_execution_ctx();
         assert!(result.is_valid(0, &mut ctx)?);
@@ -376,7 +376,7 @@ mod tests {
             &mut ctx,
         )
         .into_array();
-        let result = lv.apply(&list_sum(root()))?;
+        let result = lv.apply(&list_sum(root()), &SESSION)?;
 
         let mut ctx = SESSION.create_execution_ctx();
         // [6, null] = 6; [1, 2, 3] = 6; [] = null; [2, 3] = 5.
@@ -395,7 +395,7 @@ mod tests {
     #[test]
     fn test_fixed_size_list_sum() -> VortexResult<()> {
         let fsl = create_fixed_size_list(Validity::NonNullable);
-        let result = fsl.apply(&list_sum(root()))?;
+        let result = fsl.apply(&list_sum(root()), &SESSION)?;
 
         let mut ctx = SESSION.create_execution_ctx();
         let expected =
@@ -409,7 +409,7 @@ mod tests {
         let fsl = create_fixed_size_list(Validity::Array(
             BoolArray::from_iter([true, false, true, false]).into_array(),
         ));
-        let result = fsl.apply(&list_sum(root()))?;
+        let result = fsl.apply(&list_sum(root()), &SESSION)?;
 
         let mut ctx = SESSION.create_execution_ctx();
         let expected = PrimitiveArray::from_option_iter::<i64, _>([Some(3), None, Some(11), None]);
@@ -430,7 +430,7 @@ mod tests {
         .into_array();
         let taken = list.take(buffer![3u64, 0, 2].into_array())?;
 
-        let result = taken.apply(&list_sum(root()))?;
+        let result = taken.apply(&list_sum(root()), &SESSION)?;
         let mut ctx = SESSION.create_execution_ctx();
         let expected = PrimitiveArray::from_option_iter::<i64, _>([Some(6), Some(3), None]);
         assert_arrays_eq!(result, expected, &mut ctx);
@@ -450,7 +450,7 @@ mod tests {
         .into_array();
         let sliced = list.slice(1..4)?;
 
-        let result = sliced.apply(&list_sum(root()))?;
+        let result = sliced.apply(&list_sum(root()), &SESSION)?;
         let mut ctx = SESSION.create_execution_ctx();
         let expected = PrimitiveArray::from_option_iter::<i64, _>([Some(12), None, Some(6)]);
         assert_arrays_eq!(result, expected, &mut ctx);
@@ -468,7 +468,7 @@ mod tests {
             &mut ctx,
         )?
         .into_array();
-        let result = list.apply(&list_sum(root()))?;
+        let result = list.apply(&list_sum(root()), &SESSION)?;
 
         let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(
@@ -494,7 +494,7 @@ mod tests {
         let scalar = list.execute_scalar(1, &mut ctx)?;
 
         let constant = ConstantArray::new(scalar, 3).into_array();
-        let result = constant.apply(&list_sum(root()))?;
+        let result = constant.apply(&list_sum(root()), &SESSION)?;
         let expected = PrimitiveArray::from_option_iter::<i64, _>([Some(12), Some(12), Some(12)]);
         assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
@@ -507,7 +507,7 @@ mod tests {
             Nullability::Nullable,
         ));
         let array = ConstantArray::new(null_scalar, 2).into_array();
-        let result = array.apply(&list_sum(root()))?;
+        let result = array.apply(&list_sum(root()), &SESSION)?;
 
         let mut ctx = SESSION.create_execution_ctx();
         assert!(!result.is_valid(0, &mut ctx)?);
@@ -561,7 +561,7 @@ mod tests {
             list_sum(root()),
             list_sum_opts(root(), NumericalAggregateOpts::include_nans()),
         ] {
-            let proto = expr.serialize_proto()?;
+            let proto = expr.serialize_proto(&SESSION)?;
             let buf = proto.encode_to_vec();
             let decoded = pb::Expr::decode(buf.as_slice())?;
             let deser = Expression::from_proto(&decoded, &SESSION)?;

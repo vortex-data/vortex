@@ -49,7 +49,7 @@ mod primitive_operand;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
 
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct Binary;
 
 impl Binary {
@@ -372,26 +372,26 @@ mod tests {
 
         insta::assert_snapshot!(and_collect(values.into_iter()).unwrap().display_tree(), @r"
         vortex.binary(and)
-        ├── lhs: vortex.binary(and)
-        │   ├── lhs: vortex.literal(1i32)
-        │   └── rhs: vortex.literal(2i32)
-        └── rhs: vortex.binary(and)
-            ├── lhs: vortex.binary(and)
-            │   ├── lhs: vortex.literal(3i32)
-            │   └── rhs: vortex.literal(4i32)
-            └── rhs: vortex.literal(5i32)
+        ├── arg0: vortex.binary(and)
+        │   ├── arg0: vortex.literal(1i32)
+        │   └── arg1: vortex.literal(2i32)
+        └── arg1: vortex.binary(and)
+            ├── arg0: vortex.binary(and)
+            │   ├── arg0: vortex.literal(3i32)
+            │   └── arg1: vortex.literal(4i32)
+            └── arg1: vortex.literal(5i32)
         ");
 
         // 4 elements: and(and(1, 2), and(3, 4)) - perfectly balanced
         let values = vec![lit(1), lit(2), lit(3), lit(4)];
         insta::assert_snapshot!(and_collect(values.into_iter()).unwrap().display_tree(), @r"
         vortex.binary(and)
-        ├── lhs: vortex.binary(and)
-        │   ├── lhs: vortex.literal(1i32)
-        │   └── rhs: vortex.literal(2i32)
-        └── rhs: vortex.binary(and)
-            ├── lhs: vortex.literal(3i32)
-            └── rhs: vortex.literal(4i32)
+        ├── arg0: vortex.binary(and)
+        │   ├── arg0: vortex.literal(1i32)
+        │   └── arg1: vortex.literal(2i32)
+        └── arg1: vortex.binary(and)
+            ├── arg0: vortex.literal(3i32)
+            └── arg1: vortex.literal(4i32)
         ");
 
         // 1 element: just the element
@@ -409,12 +409,12 @@ mod tests {
         let values = vec![lit(1), lit(2), lit(3), lit(4)];
         insta::assert_snapshot!(or_collect(values.into_iter()).unwrap().display_tree(), @r"
         vortex.binary(or)
-        ├── lhs: vortex.binary(or)
-        │   ├── lhs: vortex.literal(1i32)
-        │   └── rhs: vortex.literal(2i32)
-        └── rhs: vortex.binary(or)
-            ├── lhs: vortex.literal(3i32)
-            └── rhs: vortex.literal(4i32)
+        ├── arg0: vortex.binary(or)
+        │   ├── arg0: vortex.literal(1i32)
+        │   └── arg1: vortex.literal(2i32)
+        └── arg1: vortex.binary(or)
+            ├── arg0: vortex.literal(3i32)
+            └── arg1: vortex.literal(4i32)
         ");
     }
 
@@ -425,12 +425,18 @@ mod tests {
         let bool2: Expression = col("bool2");
         assert_eq!(
             and(bool1.clone(), bool2.clone())
-                .return_dtype(&dtype)
-                .unwrap(),
+                .bind(&dtype, &SESSION)
+                .unwrap()
+                .dtype()
+                .clone(),
             DType::Bool(Nullability::NonNullable)
         );
         assert_eq!(
-            or(bool1, bool2).return_dtype(&dtype).unwrap(),
+            or(bool1, bool2)
+                .bind(&dtype, &SESSION)
+                .unwrap()
+                .dtype()
+                .clone(),
             DType::Bool(Nullability::NonNullable)
         );
 
@@ -438,40 +444,60 @@ mod tests {
         let col2: Expression = col("col2");
 
         assert_eq!(
-            eq(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
+            eq(col1.clone(), col2.clone())
+                .bind(&dtype, &SESSION)
+                .unwrap()
+                .dtype()
+                .clone(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
             not_eq(col1.clone(), col2.clone())
-                .return_dtype(&dtype)
-                .unwrap(),
+                .bind(&dtype, &SESSION)
+                .unwrap()
+                .dtype()
+                .clone(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            gt(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
+            gt(col1.clone(), col2.clone())
+                .bind(&dtype, &SESSION)
+                .unwrap()
+                .dtype()
+                .clone(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
             gt_eq(col1.clone(), col2.clone())
-                .return_dtype(&dtype)
-                .unwrap(),
+                .bind(&dtype, &SESSION)
+                .unwrap()
+                .dtype()
+                .clone(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            lt(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
+            lt(col1.clone(), col2.clone())
+                .bind(&dtype, &SESSION)
+                .unwrap()
+                .dtype()
+                .clone(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
             lt_eq(col1.clone(), col2.clone())
-                .return_dtype(&dtype)
-                .unwrap(),
+                .bind(&dtype, &SESSION)
+                .unwrap()
+                .dtype()
+                .clone(),
             DType::Bool(Nullability::Nullable)
         );
 
         assert_eq!(
             or(lt(col1.clone(), col2.clone()), not_eq(col1, col2))
-                .return_dtype(&dtype)
-                .unwrap(),
+                .bind(&dtype, &SESSION)
+                .unwrap()
+                .dtype()
+                .clone(),
             DType::Bool(Nullability::Nullable)
         );
     }
@@ -489,8 +515,8 @@ mod tests {
         );
 
         assert_eq!(
-            expr.bind(&dtype)?.optimize_recursive()?,
-            lit(Scalar::null(DType::Bool(Nullability::Nullable))).bind(&dtype)?
+            expr.bind(&dtype, &SESSION)?.optimize_recursive()?,
+            lit(Scalar::null(DType::Bool(Nullability::Nullable))).bind(&dtype, &SESSION)?
         );
         Ok(())
     }
@@ -503,12 +529,12 @@ mod tests {
             lit(Scalar::null(DType::Utf8(Nullability::Nullable))),
         );
 
-        assert!(expr.bind(&dtype).is_err());
+        assert!(expr.bind(&dtype, &SESSION).is_err());
     }
 
     #[test]
     fn test_display_print() {
-        let expr = gt(lit(1), lit(2));
+        let expr = gt(lit(1), lit(2)).bind(&DType::Null, &SESSION).unwrap();
         assert_eq!(format!("{expr}"), "(1i32 > 2i32)");
     }
 
@@ -580,7 +606,7 @@ mod tests {
         .into_array();
 
         let expr = or(col("a"), col("b"));
-        let result = struct_arr.apply(&expr).unwrap();
+        let result = struct_arr.apply(&expr, &SESSION).unwrap();
 
         assert_arrays_eq!(
             result,

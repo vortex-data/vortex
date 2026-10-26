@@ -219,17 +219,17 @@ mod tests {
         let session = VortexSession::empty();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         session.stats().register_rewrite(StaticNotRule {
-            falsifier: Some(lit(false).bind(&dtype)?),
+            falsifier: Some(lit(false).bind(&dtype, &SESSION)?),
             satisfier: None,
         });
         session.stats().register_rewrite(StaticNotRule {
-            falsifier: Some(lit(true).bind(&dtype)?),
+            falsifier: Some(lit(true).bind(&dtype, &SESSION)?),
             satisfier: None,
         });
 
         assert_eq!(
-            not(lit(true)).bind(&dtype)?.falsify(&session)?,
-            Some(or(lit(false), lit(true)).bind(&dtype)?)
+            not(lit(true)).bind(&dtype, &SESSION)?.falsify(&session)?,
+            Some(or(lit(false), lit(true)).bind(&dtype, &SESSION)?)
         );
         Ok(())
     }
@@ -240,16 +240,16 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         session.stats().register_rewrite(StaticNotRule {
             falsifier: None,
-            satisfier: Some(lit(false).bind(&dtype)?),
+            satisfier: Some(lit(false).bind(&dtype, &SESSION)?),
         });
         session.stats().register_rewrite(StaticNotRule {
             falsifier: None,
-            satisfier: Some(lit(true).bind(&dtype)?),
+            satisfier: Some(lit(true).bind(&dtype, &SESSION)?),
         });
 
         assert_eq!(
-            not(lit(true)).bind(&dtype)?.satisfy(&session)?,
-            Some(or(lit(false), lit(true)).bind(&dtype)?)
+            not(lit(true)).bind(&dtype, &SESSION)?.satisfy(&session)?,
+            Some(or(lit(false), lit(true)).bind(&dtype, &SESSION)?)
         );
         Ok(())
     }
@@ -258,7 +258,7 @@ mod tests {
     fn unregistered_expression_has_no_rewrite() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
 
-        let expr = not(lit(true)).bind(&dtype)?;
+        let expr = not(lit(true)).bind(&dtype, &SESSION)?;
         assert_eq!(expr.falsify(&SESSION)?, None);
         assert_eq!(expr.satisfy(&SESSION)?, None);
         Ok(())
@@ -268,7 +268,7 @@ mod tests {
     fn non_predicate_expression_errors() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
 
-        let expr = lit(7).bind(&dtype)?;
+        let expr = lit(7).bind(&dtype, &SESSION)?;
         assert!(expr.falsify(&SESSION).is_err());
         assert!(expr.satisfy(&SESSION).is_err());
         Ok(())

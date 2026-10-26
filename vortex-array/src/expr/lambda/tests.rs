@@ -45,12 +45,18 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::internal::row_count::RowCount;
+use crate::scalar_fn::session::ScalarFnSessionExt;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+/// A session that knows `apply`, so expressions calling it bind.
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty();
+    session.scalar_fns().register(Apply);
+    session
+});
 
 /// `apply(value, lambda)` gives the lambda's one parameter the value of `value`, row by row: the
 /// smallest function that takes a lambda.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct Apply;
 
 /// `apply`'s lambda, as written or bound to the value's dtype.
@@ -85,20 +91,29 @@ impl ScalarFnVTable for Apply {
         ChildName::from("value")
     }
 
-    fn return_dtype(&self, options: &ApplyOptions, args: &[DType]) -> VortexResult<DType> {
-        Ok(match options {
-            ApplyOptions::Lambda(lambda) => lambda.return_dtype(args)?,
-            ApplyOptions::Bound(lambda) => lambda.dtype().clone(),
-        })
+    fn return_dtype(&self, options: &ApplyOptions, _args: &[DType]) -> VortexResult<DType> {
+        match options {
+            ApplyOptions::Lambda(lambda) => vortex_bail!("apply's lambda {lambda} is not bound"),
+            ApplyOptions::Bound(lambda) => Ok(lambda.dtype().clone()),
+        }
     }
 
     fn bind_options(
         &self,
         options: &ApplyOptions,
         args: &[DType],
+        session: Option<&VortexSession>,
     ) -> VortexResult<Option<ApplyOptions>> {
         match options {
-            ApplyOptions::Lambda(lambda) => Ok(Some(ApplyOptions::Bound(lambda.bind(args)?))),
+            ApplyOptions::Lambda(lambda) => {
+                let Some(session) = session else {
+                    vortex_bail!(
+                        "binding apply's lambda {lambda} needs a session: bind the expression \
+                         that holds it"
+                    );
+                };
+                Ok(Some(ApplyOptions::Bound(lambda.bind(args, session)?)))
+            }
             ApplyOptions::Bound(lambda) => {
                 vortex_ensure!(
                     lambda.is_bound_to(args),
@@ -123,7 +138,8 @@ impl ScalarFnVTable for Apply {
 
     fn is_infallible(&self, options: &ApplyOptions) -> bool {
         match options {
-            ApplyOptions::Lambda(lambda) => lambda.is_infallible(),
+            // The body's functions are known once it is bound.
+            ApplyOptions::Lambda(_) => false,
             ApplyOptions::Bound(lambda) => lambda.is_infallible(),
         }
     }
@@ -149,7 +165,7 @@ fn rows() -> VortexResult<ArrayRef> {
 
 fn assert_applies(expr: &Expression, expected: ArrayRef) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    assert_arrays_eq!(rows()?.apply(expr)?, expected, &mut ctx);
+    assert_arrays_eq!(rows()?.apply(expr, &SESSION)?, expected, &mut ctx);
     Ok(())
 }
 
@@ -164,7 +180,11 @@ fn new_keeps_params_and_body() -> VortexResult<()> {
         lambda.body(),
         &eq(checked_add(var("x"), lit(1_i32)), get_item("k", var("p")))
     );
-    assert_eq!(lambda.to_string(), "(x, p) -> ((@x + 1i32) = @p.k)");
+    assert_eq!(
+        lambda.to_string(),
+        "(x, p) -> vortex.binary(vortex.binary(@x, vortex.literal(opts=1i32), opts=+), \
+         vortex.get_item(@p, opts=k), opts==)"
+    );
     Ok(())
 }
 
@@ -173,7 +193,7 @@ fn new_keeps_params_and_body() -> VortexResult<()> {
 #[case::column(checked_add(var("x"), col("a")), "not $;")]
 #[case::other_variable(checked_add(var("x"), var("p")), "not @p;")]
 #[case::field_of_another_variable(get_item("k", var("p")), "not @p;")]
-#[case::function_of_the_scan(RowCount.new_expr(EmptyOptions, []), "not row_count();")]
+#[case::function_of_the_scan(RowCount.new_expr(EmptyOptions, []), "not vortex.row_count();")]
 fn a_body_reads_only_its_parameters(#[case] body: Expression, #[case] read: &str) {
     let error = Lambda::new(["x"], body).expect_err("reads from outside");
     let message = error.to_string();
@@ -196,8 +216,8 @@ fn duplicate_parameters_are_rejected() {
 fn apply_runs_the_body_per_row() -> VortexResult<()> {
     let expr = apply(col("a"), "x", checked_add(var("x"), lit(1_i32)))?;
     assert_eq!(
-        expr.to_string(),
-        "vortex.test.apply($.a, opts=(x) -> (@x + 1i32))"
+        expr.bind(rows()?.dtype(), &SESSION)?.to_string(),
+        "vortex.test.apply($.a, opts=(x) -> ($.x + 1i32))"
     );
     assert_applies(&expr, buffer![2_i32, 3, 4].into_array())
 }
@@ -223,8 +243,8 @@ fn nested_lambdas_read_their_own_parameters() -> VortexResult<()> {
     )?;
     let expr = apply(col("s"), "p", inner)?;
     assert_eq!(
-        expr.to_string(),
-        "vortex.test.apply($.s, opts=(p) -> vortex.test.apply(@p.i, opts=(y) -> (@y + 1i32)))"
+        expr.bind(rows()?.dtype(), &SESSION)?.to_string(),
+        "vortex.test.apply($.s, opts=(p) -> vortex.test.apply($.p.i, opts=(y) -> ($.y + 1i32)))"
     );
     assert_applies(&expr, buffer![11_i32, 21, 31].into_array())
 }
@@ -242,10 +262,9 @@ fn an_inner_parameter_shadows_an_outer_one() -> VortexResult<()> {
 }
 
 #[rstest]
-#[case::bind(|expr: &Expression, rows: ArrayRef| expr.bind(rows.dtype()).map(drop))]
-#[case::return_dtype(|expr: &Expression, rows: ArrayRef| expr.return_dtype(rows.dtype()).map(drop))]
-#[case::apply(|expr: &Expression, rows: ArrayRef| rows.apply(expr).map(drop))]
-#[case::serialize(|expr: &Expression, _rows: ArrayRef| expr.serialize_proto().map(drop))]
+#[case::bind(|expr: &Expression, rows: ArrayRef| expr.bind(rows.dtype(), &SESSION).map(drop))]
+#[case::apply(|expr: &Expression, rows: ArrayRef| rows.apply(expr, &SESSION).map(drop))]
+#[case::serialize(|expr: &Expression, _rows: ArrayRef| expr.serialize_proto(&SESSION).map(drop))]
 fn a_variable_outside_a_lambda_is_an_error(
     #[case] use_expr: fn(&Expression, ArrayRef) -> VortexResult<()>,
 ) -> VortexResult<()> {
@@ -263,8 +282,7 @@ fn a_variable_outside_a_lambda_is_an_error(
 #[test]
 fn binding_types_the_body_by_its_parameters() -> VortexResult<()> {
     let lambda = Lambda::new(["x"], checked_add(var("x"), lit(1_i32)))?;
-    assert_eq!(lambda.return_dtype(&[i32_()])?, i32_());
-    let bound = lambda.bind(&[i32_()])?;
+    let bound = lambda.bind(&[i32_()], &SESSION)?;
     assert_eq!(bound.dtype(), &i32_());
     assert!(bound.is_bound_to(&[i32_()]));
     // The body reads the struct of the lambda's inputs: `@x` became `$.x`.
@@ -275,23 +293,19 @@ fn binding_types_the_body_by_its_parameters() -> VortexResult<()> {
     );
     assert_eq!(
         bound.body(),
-        &checked_add(col("x"), lit(1_i32)).bind(&inputs)?
+        &checked_add(col("x"), lit(1_i32)).bind(&inputs, &SESSION)?
     );
     assert_eq!(
-        lambda.bind(&[i32_().as_nullable()])?.dtype(),
+        lambda.bind(&[i32_().as_nullable()], &SESSION)?.dtype(),
         &i32_().as_nullable()
     );
-    for error in [
-        lambda.return_dtype(&[]).expect_err("x has no dtype"),
-        lambda.bind(&[]).expect_err("x has no dtype"),
-    ] {
-        assert!(
-            error
-                .to_string()
-                .contains("lambda (x) -> (@x + 1i32) needs one dtype per parameter, got 0"),
-            "{error}"
-        );
-    }
+    let error = lambda.bind(&[], &SESSION).expect_err("x has no dtype");
+    assert!(
+        error
+            .to_string()
+            .contains("needs one dtype per parameter, got 0"),
+        "{error}"
+    );
     Ok(())
 }
 
@@ -299,7 +313,7 @@ fn binding_types_the_body_by_its_parameters() -> VortexResult<()> {
 fn binding_an_expression_binds_its_lambdas() -> VortexResult<()> {
     let expr = apply(col("a"), "x", checked_add(var("x"), lit(1_i32)))?;
     assert!(matches!(expr.as_::<Apply>(), ApplyOptions::Lambda(_)));
-    let bound = expr.bind(rows()?.dtype())?;
+    let bound = expr.bind(rows()?.dtype(), &SESSION)?;
     assert!(matches!(
         bound.as_::<Apply>(),
         ApplyOptions::Bound(lambda) if lambda.is_bound_to(&[i32_()])
@@ -309,8 +323,8 @@ fn binding_an_expression_binds_its_lambdas() -> VortexResult<()> {
 
 #[test]
 fn evaluate_runs_the_bound_body() -> VortexResult<()> {
-    let lambda =
-        Lambda::new(["x"], checked_add(var("x"), lit(1_i32)))?.bind(&[i32_().as_nullable()])?;
+    let lambda = Lambda::new(["x"], checked_add(var("x"), lit(1_i32)))?
+        .bind(&[i32_().as_nullable()], &SESSION)?;
     let x = PrimitiveArray::from_option_iter([Some(1_i32), None]).into_array();
     let mut ctx = SESSION.create_execution_ctx();
     assert_arrays_eq!(
@@ -340,7 +354,9 @@ fn infallibility_comes_from_the_body(
     #[case] infallible: bool,
 ) -> VortexResult<()> {
     let lambda = Lambda::new(["x"], body)?;
-    assert_eq!(lambda.is_infallible(), infallible);
-    assert_eq!(lambda.bind(&[i32_()])?.is_infallible(), infallible);
+    assert_eq!(
+        lambda.bind(&[i32_()], &SESSION)?.is_infallible(),
+        infallible
+    );
     Ok(())
 }

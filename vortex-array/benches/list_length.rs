@@ -126,12 +126,17 @@ fn make_listview(num_lists: usize) -> ArrayRef {
 /// Apply `list_length(root())` and materialize the result.
 fn run(bencher: Bencher, array: ArrayRef) {
     let expr = list_length(root());
+    let expr = expr
+        .bind(array.dtype(), &SESSION)
+        .unwrap()
+        .optimize_recursive()
+        .unwrap();
     bencher
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
         .bench_refs(|(array, ctx)| {
             array
                 .clone()
-                .apply(&expr)
+                .apply_bound(&expr)
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()

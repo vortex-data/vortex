@@ -859,8 +859,13 @@ vx_bool_view vx_array_data_ptr_bool(const vx_array *array, vx_error **error_out)
  * Apply the expression to the array, wrapping it with a ScalarFnArray.
  * This operation takes constant time as it doesn't execute the underlying
  * array. Executing the underlying array still takes O(n) time.
+ *
+ * The expression's scalar functions are resolved in the session.
  */
-const vx_array *vx_array_apply(const vx_array *array, const vx_expression *expression, vx_error **error);
+const vx_array *vx_array_apply(const vx_session *session,
+                               const vx_array *array,
+                               const vx_expression *expression,
+                               vx_error **error);
 
 /**
  * Free a vx_data_source
@@ -1072,7 +1077,7 @@ void vx_expression_free(const vx_expression *ptr);
  * const vx_array* array = ...;
  * vx_expression* root = vx_expression_root();
  * const vx_error* error = NULL;
- * vx_array* applied_array = vx_array_apply(array, root, &error);
+ * vx_array* applied_array = vx_array_apply(session, array, root, &error);
  * // array and applied_array are identical
  * vx_array_free(applied_array);
  * vx_expression_free(root);

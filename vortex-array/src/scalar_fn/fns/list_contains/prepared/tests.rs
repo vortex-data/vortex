@@ -547,7 +547,7 @@ fn test_optimized_expression_over_chunked_needles() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let needles = chunked_needles()?;
     let expr = list_contains(lit(set_with_null()), root())
-        .bind(needles.dtype())?
+        .bind(needles.dtype(), &SESSION)?
         .optimize()?;
 
     let array = needles.apply_bound(&expr)?;

@@ -41,7 +41,7 @@ use crate::validity::Validity;
 ///
 /// NOTE: Fields are not recursively merged, i.e. the later field REPLACES the earlier field.
 /// This makes struct fields behaviour consistent with other dtypes.
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct Merge;
 
 impl ScalarFnVTable for Merge {
@@ -273,6 +273,7 @@ mod tests {
     use crate::dtype::PType::I64;
     use crate::dtype::PType::U32;
     use crate::dtype::PType::U64;
+    use crate::dtype::StructFields;
     use crate::expr::Expression;
     use crate::expr::get_item;
     use crate::expr::merge;
@@ -351,7 +352,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = test_array.apply(&expr).unwrap();
+        let actual_array = test_array.apply(&expr, &SESSION).unwrap();
 
         assert_eq!(
             actual_array.dtype().as_struct_fields().names(),
@@ -405,7 +406,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        expr.return_dtype(test_array.dtype()).unwrap();
+        expr.bind(test_array.dtype(), &SESSION).unwrap();
     }
 
     #[test]
@@ -428,7 +429,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        test_array.apply(&expr).unwrap();
+        test_array.apply(&expr, &SESSION).unwrap();
     }
 
     #[test]
@@ -438,7 +439,7 @@ mod tests {
         let test_array = StructArray::from_fields(&[("a", buffer![0, 1, 2].into_array())])
             .unwrap()
             .into_array();
-        let actual_array = test_array.clone().apply(&expr).unwrap();
+        let actual_array = test_array.clone().apply(&expr, &SESSION).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         let expected = StructArray::try_new(
             Default::default(),
@@ -490,7 +491,7 @@ mod tests {
         .into_array();
         let mut ctx = SESSION.create_execution_ctx();
         let actual_array = test_array
-            .apply(&expr)
+            .apply(&expr, &SESSION)
             .unwrap()
             .execute::<StructArray>(&mut ctx)
             .unwrap();
@@ -540,7 +541,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = test_array.apply(&expr).unwrap();
+        let actual_array = test_array.apply(&expr, &SESSION).unwrap();
 
         assert_eq!(
             actual_array.dtype().as_struct_fields().names(),
@@ -559,13 +560,45 @@ mod tests {
     #[test]
     pub fn test_display() {
         let expr = merge([get_item("struct1", root()), get_item("struct2", root())]);
+        let scope = DType::Struct(
+            StructFields::from_iter([
+                (
+                    "struct1",
+                    DType::Struct(
+                        StructFields::from_iter([("a", DType::Primitive(I32, NonNullable))]),
+                        NonNullable,
+                    ),
+                ),
+                (
+                    "struct2",
+                    DType::Struct(
+                        StructFields::from_iter([("b", DType::Primitive(I32, NonNullable))]),
+                        NonNullable,
+                    ),
+                ),
+            ]),
+            NonNullable,
+        );
         assert_eq!(
-            expr.to_string(),
+            expr.bind(&scope, &SESSION).unwrap().to_string(),
             "vortex.merge($.struct1, $.struct2, opts=Error)"
         );
 
         let expr2 = merge(vec![get_item("a", root())]);
-        assert_eq!(expr2.to_string(), "vortex.merge($.a, opts=Error)");
+        let scope = DType::Struct(
+            StructFields::from_iter([(
+                "a",
+                DType::Struct(
+                    StructFields::from_iter([("a", DType::Primitive(I32, NonNullable))]),
+                    NonNullable,
+                ),
+            )]),
+            NonNullable,
+        );
+        assert_eq!(
+            expr2.bind(&scope, &SESSION).unwrap().to_string(),
+            "vortex.merge($.a, opts=Error)"
+        );
     }
 
     #[test]
@@ -583,7 +616,7 @@ mod tests {
             DuplicateHandling::RightMost,
         );
 
-        let result = e.bind(&dtype).unwrap().optimize().unwrap();
+        let result = e.bind(&dtype, &SESSION).unwrap().optimize().unwrap();
 
         assert!(result.is::<Pack>());
         assert_eq!(

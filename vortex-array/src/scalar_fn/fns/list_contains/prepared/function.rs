@@ -48,7 +48,7 @@ use crate::scalar_fn::ScalarFnVTableExt;
 /// [`ListContains`]: crate::scalar_fn::fns::list_contains::ListContains
 /// [`ListContainsElementKernel`]: crate::scalar_fn::fns::list_contains::ListContainsElementKernel
 /// [`ListContainsElementReduce`]: crate::scalar_fn::fns::list_contains::ListContainsElementReduce
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct PreparedSet;
 
 impl PreparedSet {

@@ -171,7 +171,7 @@ mod tests {
             ),
             Nullability::NonNullable,
         );
-        let optimized = expr.bind(&scope)?.optimize_recursive()?;
+        let optimized = expr.bind(&scope, &SESSION)?.optimize_recursive()?;
 
         let data =
             StructArray::from_fields(&[("x", buffer![0i32, 1, 2, 3].into_array())])?.into_array();
@@ -200,7 +200,7 @@ mod tests {
             ),
             Nullability::NonNullable,
         );
-        let optimized = expr.bind(&scope)?.optimize_recursive()?;
+        let optimized = expr.bind(&scope, &SESSION)?.optimize_recursive()?;
 
         // Prune rules pattern-match a bare Literal on the comparison RHS; a cast wrapper
         // silently disables pruning.
@@ -235,8 +235,8 @@ mod tests {
         #[case] expr: Expression,
         #[case] scope: DType,
     ) -> VortexResult<()> {
-        let original = expr.bind(&scope)?;
-        let optimized = expr.bind(&scope)?.optimize_recursive()?;
+        let original = expr.bind(&scope, &SESSION)?;
+        let optimized = expr.bind(&scope, &SESSION)?.optimize_recursive()?;
         assert_eq!(optimized.dtype(), original.dtype());
 
         Ok(())
@@ -293,9 +293,9 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let expected = expected.bind(&scope)?;
+        let expected = expected.bind(&scope, &SESSION)?;
 
-        let optimized = expr.bind(&scope)?.optimize_recursive()?;
+        let optimized = expr.bind(&scope, &SESSION)?.optimize_recursive()?;
         assert_eq!(optimized, expected, "got {optimized}");
         assert_eq!(optimized.optimize_recursive()?, expected);
 
@@ -317,9 +317,9 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let expected = expected.bind(&scope)?;
+        let expected = expected.bind(&scope, &SESSION)?;
 
-        let optimized = expr.bind(&scope)?.optimize_recursive()?;
+        let optimized = expr.bind(&scope, &SESSION)?.optimize_recursive()?;
         assert_eq!(optimized, expected, "got {optimized}");
         assert_eq!(optimized.optimize_recursive()?, expected);
 

@@ -21,7 +21,7 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 
 /// Extract the storage values from an extension array.
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct ExtStorage;
 
 impl ScalarFnVTable for ExtStorage {
@@ -129,7 +129,7 @@ mod tests {
         let array =
             ExtensionArray::new(ext_dtype(Nullability::NonNullable), storage.clone()).into_array();
 
-        let result = array.apply(&ext_storage(root()))?;
+        let result = array.apply(&ext_storage(root()), &SESSION)?;
 
         assert_eq!(
             result.dtype(),
@@ -145,7 +145,7 @@ mod tests {
         let array =
             ExtensionArray::new(ext_dtype(Nullability::Nullable), storage.clone()).into_array();
 
-        let result = array.apply(&ext_storage(root()))?;
+        let result = array.apply(&ext_storage(root()), &SESSION)?;
 
         assert_eq!(
             result.dtype(),
@@ -162,7 +162,7 @@ mod tests {
             Scalar::extension_ref(ext_dtype(Nullability::NonNullable), storage_scalar.clone());
         let array = ConstantArray::new(scalar, 3).into_array();
 
-        let result = array.apply(&ext_storage(root()))?;
+        let result = array.apply(&ext_storage(root()), &SESSION)?;
 
         assert_eq!(
             result.dtype(),
@@ -179,7 +179,7 @@ mod tests {
     #[test]
     fn rejects_non_extension_input() {
         let dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
-        let err = ext_storage(root()).return_dtype(&dtype).unwrap_err();
+        let err = ext_storage(root()).bind(&dtype, &SESSION).unwrap_err();
         assert!(err.to_string().contains("requires Extension"));
     }
 

@@ -261,7 +261,7 @@ fn f64_dtype() -> DType {
 }
 
 fn falsify(expr: Expression, column_dtype: &DType) -> BoundExpression {
-    expr.bind(column_dtype)
+    expr.bind(column_dtype, &SESSION)
         .unwrap()
         .falsify(&SESSION)
         .unwrap()

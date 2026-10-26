@@ -10,6 +10,7 @@ use ratatui::widgets::ListState;
 use vortex::array::ArrayRef;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect;
+use vortex::expr::BoundExpression;
 use vortex::file::Footer;
 use vortex::file::SegmentSpec;
 use vortex::file::VortexFile;
@@ -359,7 +360,6 @@ impl AppState {
     pub(crate) async fn load_flat_data(&mut self) {
         use vortex::array::MaskFuture;
         use vortex::array::serde::SerializedArray;
-        use vortex::expr::root;
 
         let layout = &Arc::clone(self.cursor.layout());
         let row_count = layout.row_count();
@@ -373,9 +373,7 @@ impl AppState {
                 &Default::default(),
             )
             .vortex_expect("Failed to create reader");
-        let expr = root()
-            .bind(reader.dtype())
-            .vortex_expect("root must bind against the layout dtype");
+        let expr = BoundExpression::new_root(reader.dtype().clone());
         let array = reader
             .projection_evaluation(
                 &(0..row_count),

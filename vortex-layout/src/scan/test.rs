@@ -36,9 +36,11 @@ use crate::session::LayoutSession;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 pub fn new_session() -> VortexSession {
-    VortexSession::empty()
+    let session = VortexSession::empty()
         .with::<LayoutSession>()
-        .with::<RuntimeSession>()
+        .with::<RuntimeSession>();
+    crate::initialize(&session);
+    session
 }
 
 pub fn session_with_handle(handle: Handle) -> VortexSession {
