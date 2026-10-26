@@ -21,6 +21,7 @@ use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::Chunked;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -693,6 +694,51 @@ async fn primitive_column() -> VortexResult<()> {
     assert_arrays_eq!(
         actual,
         PrimitiveArray::from_iter(990i32..1010),
+        &mut session.create_execution_ctx()
+    );
+    Ok(())
+}
+
+/// Stored chunks within one projection morsel are emitted as separate batches rather than one
+/// chunked array, which the Arrow export would concatenate.
+#[tokio::test]
+async fn large_projection_pieces_are_separate_batches() -> VortexResult<()> {
+    const PIECE_ROWS: usize = MAX_ROWS_PER_CHUNK / 4;
+    let session = new_session().with_tokio();
+    let segments = Arc::new(TestSegments::default());
+    let (mut sequence, eof) = SequenceId::root().split();
+    let arrays = (0..4)
+        .map(|index| {
+            let start = i32::try_from(index * PIECE_ROWS)?;
+            Ok((
+                sequence.advance(),
+                PrimitiveArray::from_iter(start..start + i32::try_from(PIECE_ROWS)?).into_array(),
+            ))
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+    let dtype = arrays[0].1.dtype().clone();
+    let layout = chunked_flat()
+        .write_stream(
+            ArrayContext::empty().into(),
+            Arc::<TestSegments>::clone(&segments),
+            SequentialStreamAdapter::new(dtype, stream::iter(arrays.into_iter().map(Ok)))
+                .sendable(),
+            eof,
+            &session,
+        )
+        .await?;
+    let segments: Arc<dyn SegmentSource> = segments;
+    let scan = ScanRun::try_new(builder(&session, &segments, &layout)?)?;
+    let batches: Vec<_> = scan.execute_stream()?.try_collect().await?;
+    assert_eq!(
+        batches.iter().map(|batch| batch.len()).collect::<Vec<_>>(),
+        vec![PIECE_ROWS; 4]
+    );
+    assert!(batches.iter().all(|batch| !batch.is::<Chunked>()));
+    let total = i32::try_from(4 * PIECE_ROWS)?;
+    assert_arrays_eq!(
+        ChunkedArray::try_new(batches, layout.dtype().clone())?,
+        PrimitiveArray::from_iter(0..total),
         &mut session.create_execution_ctx()
     );
     Ok(())
