@@ -129,7 +129,7 @@ cc = "1.2"
 cfg-if = "1.0.4"
 chrono = "0.4.45"
 clap = "4.5"
-criterion = { package = "codspeed-criterion-compat-walltime", version = "5.0.0" }
+criterion = { package = "codspeed-criterion-compat-walltime", version = "6.0.0" }
 crossbeam-channel = "0.5.16"
 crossterm = "0.29"
 custom-labels = "0.4.4"
