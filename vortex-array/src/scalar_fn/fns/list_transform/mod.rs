@@ -26,6 +26,7 @@ use crate::arrays::list::ListArrayExt;
 use crate::arrays::list::ListArraySlotsExt;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
+use crate::arrays::listview::ListViewRebuildMode;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::expr::BoundLambda;
@@ -208,7 +209,7 @@ fn transform_list_view(
     let view = if lambda.is_infallible() {
         view
     } else {
-        view.rebuild_with_referenced_valid_elements(ctx)?
+        view.rebuild(ListViewRebuildMode::MakeExactWithEmptyNulls, ctx)?
     };
     let values = lambda.evaluate(vec![view.elements().clone()], view.elements().len())?;
     vortex_ensure_eq!(values.len(), view.elements().len());
