@@ -1,0 +1,123 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+name: S3 Model Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: "Paired samples per query/cache state (at least 3)"
+        type: number
+        default: 5
+      format:
+        description: "Identical format for both backends"
+        type: choice
+        options: [vortex, parquet]
+        default: vortex
+  push:
+    branches: ["ji/ci-s3-model-validation"]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: s3-model-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    timeout-minutes: 60
+    runs-on: runs-on=${{ github.run_id }}/runner=bench-dedicated/family=c8gd.8xlarge/image=ubuntu24-full-arm64-pre-v2/tag=s3-build/extras=s3-cache
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
+      - name: Build validator and data generator
+        env:
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+        run: cargo build --locked -p datafusion-bench --bin s3-validate -p vortex-bench --bin data-gen --profile release_debug
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: s3-validation-binaries
+          path: |
+            target/release_debug/s3-validate
+            target/release_debug/data-gen
+
+  compare:
+    needs: build
+    timeout-minutes: 360
+    runs-on: runs-on=${{ github.run_id }}/runner=bench-dedicated/family=c8gd.16xlarge/image=ubuntu24-full-arm64-pre-v2/tag=s3-compare
+    env:
+      AWS_REGION: us-east-1
+      REMOTE_ROOT: s3://vortex-ci-benchmark-datasets/s3-model-validation/${{ github.run_id }}-${{ github.run_attempt }}
+      ITERATIONS: ${{ inputs.iterations || 5 }}
+      BENCH_FORMAT: ${{ inputs.format || 'vortex' }}
+      RUST_BACKTRACE: "1"
+    steps:
+      - uses: runs-on/action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/system-info
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: s3-validation-binaries
+          path: target/release_debug
+      - name: Prepare binaries
+        run: chmod +x target/release_debug/s3-validate target/release_debug/data-gen
+      - name: Generate both SF10 datasets once
+        run: |
+          target/release_debug/data-gen tpch --formats "$BENCH_FORMAT" --opt scale-factor=10
+          target/release_debug/data-gen tpcds --formats "$BENCH_FORMAT" --opt scale-factor=10
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+          role-duration-seconds: 7200
+      - name: Verify bucket region and runner location
+        run: |
+          set -Eeuo pipefail
+          region=$(aws s3api get-bucket-location --bucket vortex-ci-benchmark-datasets --query LocationConstraint --output text)
+          test "$region" = None
+          token=$(curl --fail --silent --show-error --max-time 5 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' http://169.254.169.254/latest/api/token)
+          runner_region=$(curl --fail --silent --show-error --max-time 5 -H "X-aws-ec2-metadata-token: $token" http://169.254.169.254/latest/meta-data/placement/region)
+          test "$runner_region" = "$AWS_REGION"
+      - name: Upload canonical objects to this run's unique prefix
+        run: |
+          aws s3 cp --recursive vortex-bench/data/tpch/10/ "$REMOTE_ROOT/tpch/"
+          aws s3 cp --recursive vortex-bench/data/tpcds/10/ "$REMOTE_ROOT/tpcds/"
+      - name: Setup benchmark environment
+        run: sudo bash scripts/setup-benchmark.sh
+      - name: Measure initial model and calibrate requests
+        run: |
+          python3 benchmarks/s3-validation/run.py --source-root "$REMOTE_ROOT" \
+            --iterations "$ITERATIONS" --format "$BENCH_FORMAT" --phase initial
+      - name: Refresh AWS credentials for validation
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+          role-duration-seconds: 7200
+      - name: Validate tuned model against fresh real S3 samples
+        run: |
+          python3 benchmarks/s3-validation/run.py --source-root "$REMOTE_ROOT" \
+            --iterations "$ITERATIONS" --format "$BENCH_FORMAT" --phase tuned
+      - name: Publish available reports
+        if: always()
+        run: |
+          for report in s3-validation-results/initial.md s3-validation-results/tuned.md; do
+            if [ -f "$report" ]; then cat "$report" >> "$GITHUB_STEP_SUMMARY"; fi
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        if: always()
+        with:
+          name: s3-validation-results
+          path: s3-validation-results/
+          retention-days: 30
+      - name: Remove this run's dataset copies
+        if: always()
+        run: aws s3 rm --recursive "$REMOTE_ROOT/"

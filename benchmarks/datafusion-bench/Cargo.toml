@@ -21,8 +21,14 @@ test = false
 [lib]
 test = false
 
+[[bin]]
+name = "s3-validate"
+path = "src/s3_validate/main.rs"
+
 [dependencies]
 anyhow = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 custom-labels = { workspace = true }
 datafusion = { workspace = true, features = [
@@ -40,6 +46,9 @@ opentelemetry.workspace = true
 opentelemetry-otlp.workspace = true
 opentelemetry_sdk.workspace = true
 parking_lot = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sysinfo = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "files", "tokio"] }

@@ -2804,6 +2804,8 @@ name = "datafusion-bench"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
+ "bytes",
  "clap",
  "custom-labels",
  "datafusion 55.2.0",
@@ -2816,6 +2818,9 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "parking_lot",
+ "serde",
+ "serde_json",
+ "sysinfo",
  "tokio",
  "url",
  "vortex",
