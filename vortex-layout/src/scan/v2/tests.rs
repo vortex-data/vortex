@@ -880,7 +880,8 @@ async fn pruned_rows_get_no_chunk(
 }
 
 /// Scans of one file that share a cache share their filter plans, so the pruning plans run once:
-/// the second scan with the same filter re-reads the data it needs but never the zone maps.
+/// the second scan with the same filter re-reads the data it needs but never the zone maps. Each
+/// scan binds its own filter and projection, as each partition of an engine does.
 #[tokio::test]
 async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
     let session = new_session().with_tokio();
@@ -894,22 +895,23 @@ async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
     // Without retained segments, so only the proved zones come from the cache.
     let cache = ScanCache::with_retained_bytes(0);
     file.cache = Some(cache.clone());
-    let filter = gt(get_item("ints", root()), lit(2_999i32)).bind(layout.dtype())?;
-    let projection = get_item("ints", root()).bind(layout.dtype())?;
-    assert!(cache.filter_plans(&filter).is_none());
+    let filter = || gt(get_item("ints", root()), lit(2_999i32)).bind(layout.dtype());
+    let projection = || get_item("ints", root()).bind(layout.dtype());
+    assert!(cache.filter_plans(&filter()?).is_none());
 
     let mut reads = Vec::new();
     for _ in 0..2 {
         let before = counted.reads.load(Ordering::Relaxed);
+        let projection = projection()?;
         let scan = ScanBuilder::new(session.clone(), file.clone())
             .with_projection(projection.clone())
-            .with_some_filter(Some(filter.clone()));
+            .with_some_filter(Some(filter()?));
         let actual = collect_scan(projection.dtype().clone(), scan).await?;
         assert_eq!(actual.len(), 1_000);
         reads.push(counted.reads.load(Ordering::Relaxed) - before);
     }
     let plans = cache
-        .filter_plans(&filter)
+        .filter_plans(&filter()?)
         .expect("the first scan kept its filter plans");
     assert_eq!(plans.pruning().count(), 1);
     // Each scan reads the one chunk pruning keeps; only the first reads the zone map.
