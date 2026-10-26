@@ -42,6 +42,7 @@ termtree = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 tracing = { workspace = true }
 twox-hash = { workspace = true }
+vortex-aggregates = { workspace = true }
 vortex-array = { workspace = true }
 vortex-arrow = { workspace = true }
 vortex-btrblocks = { workspace = true }

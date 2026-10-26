@@ -4,13 +4,13 @@
 use std::ops::Range;
 
 use rstest::rstest;
+use vortex_aggregates::sum::Sum;
+use vortex_aggregates::sum_v2::SumV2;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::sum::Sum;
-use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;

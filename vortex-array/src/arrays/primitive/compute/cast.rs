@@ -18,13 +18,13 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::aggregate_fn;
 use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::PrimitiveArrayExt;
+use crate::arrays::primitive::integer_bounds;
 use crate::dtype::BigCast;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
@@ -638,14 +638,19 @@ fn values_fit_in(
     if !compute {
         return false;
     }
-    aggregate_fn::fns::min_max::min_max(
-        array.array(),
-        ctx,
-        aggregate_fn::NumericalAggregateOpts::default(),
-    )
-    .ok()
-    .flatten()
-    .is_none_or(|mm| mm.min.cast(&target_dtype).is_ok() && mm.max.cast(&target_dtype).is_ok())
+    if !(array.ptype().is_int() && target_ptype.is_int()) {
+        return array.ptype() == target_ptype;
+    }
+    let (target_min, target_max) = match_each_integer_ptype!(target_ptype, |T| {
+        (
+            <i128 as From<T>>::from(T::MIN),
+            <i128 as From<T>>::from(T::MAX),
+        )
+    });
+    integer_bounds(array.array(), ctx)
+        .ok()
+        .flatten()
+        .is_none_or(|bounds| bounds.min >= target_min && bounds.max <= target_max)
 }
 
 /// Cached-only check: returns `Some(fits)` if both `Min` and `Max` are present as `Exact` in the

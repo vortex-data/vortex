@@ -19,6 +19,7 @@ parking_lot = { workspace = true }
 rand = { workspace = true }
 rustc-hash = { workspace = true }
 tracing = { workspace = true, features = ["std", "attributes"] }
+vortex-aggregates = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }

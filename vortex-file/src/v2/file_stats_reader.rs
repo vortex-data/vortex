@@ -151,14 +151,14 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
+    use vortex_aggregates::max::Max;
+    use vortex_aggregates::min::Min;
+    use vortex_aggregates::null_count::NullCount;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray as _;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::EmptyOptions;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
-    use vortex_array::aggregate_fn::fns::max::Max;
-    use vortex_array::aggregate_fn::fns::min::Min;
-    use vortex_array::aggregate_fn::fns::null_count::NullCount;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::datetime::TemporalData;

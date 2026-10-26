@@ -9,9 +9,6 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::RecursiveCanonical;
-use crate::aggregate_fn::NumericalAggregateOpts;
-use crate::aggregate_fn::fns::min_max::MinMaxResult;
-use crate::aggregate_fn::fns::min_max::min_max;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -259,12 +256,15 @@ fn test_cast_to_primitive(
     test_round_trip: bool,
     ctx: &mut ExecutionCtx,
 ) {
-    let maybe_min_max = min_max(array, ctx, NumericalAggregateOpts::default())
-        .vortex_expect("cast should succeed in conformance test");
+    let out_of_range = (0..array.len())
+        .map(|idx| {
+            array
+                .execute_scalar(idx, ctx)
+                .vortex_expect("scalar_at should succeed in conformance test")
+        })
+        .find(|value| !value.is_null() && !fits(value, target_ptype));
 
-    if let Some(MinMaxResult { min, max }) = maybe_min_max
-        && (!fits(&min, target_ptype) || !fits(&max, target_ptype))
-    {
+    if let Some(value) = out_of_range {
         cast_and_execute(
             &array.clone(),
             DType::Primitive(target_ptype, array.dtype().nullability()),
@@ -273,10 +273,9 @@ fn test_cast_to_primitive(
         .err()
         .unwrap_or_else(|| {
             vortex_panic!(
-                "Cast must fail because some values are out of bounds. {} {:?} {:?} {} {}",
+                "Cast must fail because value {:?} is out of bounds for {}. {} {}",
+                value,
                 target_ptype,
-                min,
-                max,
                 array,
                 array.display_values(ctx),
             )

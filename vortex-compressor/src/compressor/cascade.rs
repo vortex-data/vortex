@@ -3,14 +3,14 @@
 
 //! Core cascading compression flow.
 
+use vortex_aggregates::uncompressed_size_in_bytes::UncompressedSizeInBytes;
+use vortex_aggregates::uncompressed_size_in_bytes::UncompressedSizeOpts;
+use vortex_aggregates::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::CanonicalValidity;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
-use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
-use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;

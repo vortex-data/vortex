@@ -18,8 +18,6 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::ExecutionCtx;
-use crate::aggregate_fn::NumericalAggregateOpts;
-use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -27,6 +25,8 @@ use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::array_slots;
 use crate::arrays::VarBin;
+use crate::arrays::primitive::integer_bounds;
+use crate::arrays::primitive::integer_is_sorted;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -289,47 +289,24 @@ impl VarBinData {
         bytes_len: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        // Offsets must be sorted (but not strictly sorted, empty values are allowed)
-        let Some(is_sorted) = offsets.statistics().compute_is_sorted(ctx) else {
-            vortex_bail!(InvalidArgument: "offsets must report is_sorted statistic");
+        // Offsets must be sorted (but not strictly sorted, empty values are allowed), must not be
+        // negative, and must not exceed the length of the bytes buffer.
+        vortex_ensure!(
+            integer_is_sorted(offsets, ctx)?,
+            InvalidArgument: "offsets must be sorted"
+        );
+        let Some(bounds) = integer_bounds(offsets, ctx)? else {
+            vortex_bail!(InvalidArgument: "offsets must have at least one valid value");
         };
-        vortex_ensure!(is_sorted, InvalidArgument: "offsets must be sorted");
-
-        // Validate that offsets min is non-negative, and max does not exceed the length of
-        // the bytes buffer.
-        let Some(min_max) = min_max(offsets, ctx, NumericalAggregateOpts::default())? else {
-            vortex_bail!(
-                InvalidArgument: "offsets array with encoding {} must support min_max compute function",
-                offsets.encoding_id()
-            );
-        };
-
-        match_each_integer_ptype!(offsets.dtype().as_ptype(), |P| {
-            #[allow(clippy::absurd_extreme_comparisons, unused_comparisons)]
-            {
-                let max = min_max
-                    .max
-                    .as_primitive()
-                    .as_::<P>()
-                    .vortex_expect("offsets type must fit offsets values");
-                let min = min_max
-                    .min
-                    .as_primitive()
-                    .as_::<P>()
-                    .vortex_expect("offsets type must fit offsets values");
-
-                vortex_ensure!(
-                    min >= 0,
-                    InvalidArgument: "offsets minimum {min} outside valid range [0, {max}]"
-                );
-
-                // An offset type too narrow for the bytes length cannot exceed it.
-                vortex_ensure!(
-                    P::try_from(bytes_len).ok().is_none_or(|len| max <= len),
-                    InvalidArgument: "Max offset {max} is beyond the length of the bytes buffer {bytes_len}"
-                );
-            }
-        });
+        let (min, max) = (bounds.min, bounds.max);
+        vortex_ensure!(
+            min >= 0,
+            InvalidArgument: "offsets minimum {min} outside valid range [0, {max}]"
+        );
+        vortex_ensure!(
+            max <= bytes_len as i128,
+            InvalidArgument: "Max offset {max} is beyond the length of the bytes buffer {bytes_len}"
+        );
 
         Ok(())
     }

@@ -15,10 +15,6 @@ use divan::counter::ItemsCount;
 use mimalloc::MiMalloc;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::aggregate_fn::AggregateFnVTableExt;
-use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::count::Count;
-use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
@@ -187,26 +183,4 @@ fn stats_merge_ordered(bencher: Bencher) {
                 black_box(set.merge_ordered(&right, &dtype));
             }
         });
-}
-
-#[divan::bench]
-fn accumulator_sum_v2(bencher: Bencher) {
-    let dtype = DType::Primitive(PType::I64, Nullability::Nullable);
-    let aggregate_fn = SumV2.bind(NumericalAggregateOpts::default());
-    bencher.counter(ItemsCount::new(N)).bench_local(|| {
-        for _ in 0..N {
-            black_box(aggregate_fn.accumulator(black_box(&dtype)).unwrap());
-        }
-    });
-}
-
-#[divan::bench]
-fn accumulator_count_struct8(bencher: Bencher) {
-    let dtype = struct8_dtype();
-    let aggregate_fn = Count.bind(NumericalAggregateOpts::default());
-    bencher.counter(ItemsCount::new(N)).bench_local(|| {
-        for _ in 0..N {
-            black_box(aggregate_fn.accumulator(black_box(&dtype)).unwrap());
-        }
-    });
 }

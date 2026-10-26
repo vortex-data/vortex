@@ -18,6 +18,7 @@ all-features = true
 itertools = { workspace = true }
 pco = { workspace = true, optional = true }
 rand = { workspace = true }
+vortex-aggregates = { workspace = true }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }

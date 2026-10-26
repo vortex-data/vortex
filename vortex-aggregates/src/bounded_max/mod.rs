@@ -1,0 +1,589 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::num::NonZeroUsize;
+use std::sync::LazyLock;
+
+use vortex_array::ArrayRef;
+use vortex_array::Columnar;
+use vortex_array::ExecutionCtx;
+use vortex_array::aggregate_fn::AggregateArgs;
+use vortex_array::aggregate_fn::AggregateFnId;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnSatisfaction;
+use vortex_array::aggregate_fn::AggregateFnVTable;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::StructFields;
+use vortex_array::partial_ord::partial_max;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarTruncation;
+use vortex_array::scalar::upper_bound;
+use vortex_buffer::BufferString;
+use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
+use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
+
+use crate::max::Max;
+use crate::min_max::MinMax;
+use crate::min_max::columnar_min_max;
+
+/// Field name for the bounded maximum upper-bound value in the partial state.
+pub const BOUNDED_MAX_BOUND: &str = "bound";
+/// Field name for whether the partial state represents an unknown upper bound.
+pub const BOUNDED_MAX_UNKNOWN: &str = "unknown";
+
+static NAMES: LazyLock<FieldNames> =
+    LazyLock::new(|| FieldNames::from([BOUNDED_MAX_BOUND, BOUNDED_MAX_UNKNOWN]));
+
+/// Options for [`BoundedMax`].
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct BoundedMaxOptions {
+    /// Maximum byte length for UTF8/Binary bounds.
+    pub max_bytes: NonZeroUsize,
+}
+
+impl Display for BoundedMaxOptions {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.max_bytes.get())
+    }
+}
+
+/// Compute a byte-bounded upper bound for the maximum non-null value of a UTF8/Binary array.
+#[derive(Clone, Debug)]
+pub struct BoundedMax;
+
+enum BoundedMaxState {
+    Empty,
+    Value(Scalar),
+    Unknown,
+}
+
+/// Partial accumulator state for the bounded maximum aggregate.
+pub struct BoundedMaxPartial {
+    state: BoundedMaxState,
+}
+
+impl BoundedMaxPartial {
+    fn merge_bound(&mut self, max: Scalar) {
+        if max.is_null() {
+            return;
+        }
+
+        self.state = match std::mem::replace(&mut self.state, BoundedMaxState::Empty) {
+            BoundedMaxState::Empty => BoundedMaxState::Value(max),
+            BoundedMaxState::Value(current) => BoundedMaxState::Value(
+                partial_max(max, current).vortex_expect("incomparable bounded max scalars"),
+            ),
+            BoundedMaxState::Unknown => BoundedMaxState::Unknown,
+        };
+    }
+
+    fn unknown(&mut self) {
+        self.state = BoundedMaxState::Unknown;
+    }
+
+    fn final_scalar(&self, args: AggregateArgs<'_, BoundedMaxOptions>) -> VortexResult<Scalar> {
+        let dtype = args.return_dtype.clone();
+        match &self.state {
+            BoundedMaxState::Value(max) => max.cast(&dtype),
+            BoundedMaxState::Empty | BoundedMaxState::Unknown => Ok(Scalar::null(dtype)),
+        }
+    }
+}
+
+/// Return the serialized partial-state dtype for [`BoundedMax`].
+///
+/// A null struct means the partial is empty. A non-null struct with a null `bound` and
+/// `unknown = true` means the input has a non-null maximum but no finite upper bound could be
+/// represented within the configured byte limit.
+pub fn make_bounded_max_partial_dtype(element_dtype: &DType) -> DType {
+    DType::Struct(
+        StructFields::new(
+            NAMES.clone(),
+            vec![
+                element_dtype.as_nullable(),
+                DType::Bool(Nullability::NonNullable),
+            ],
+        ),
+        Nullability::Nullable,
+    )
+}
+
+impl AggregateFnVTable for BoundedMax {
+    type Options = BoundedMaxOptions;
+    type Partial = BoundedMaxPartial;
+
+    fn id(&self) -> AggregateFnId {
+        static ID: CachedId = CachedId::new("vortex.bounded_max");
+        *ID
+    }
+
+    fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        let max_bytes = u64::try_from(options.max_bytes.get())?;
+        Ok(Some(max_bytes.to_le_bytes().to_vec()))
+    }
+
+    fn deserialize(
+        &self,
+        metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        vortex_ensure_eq!(
+            metadata.len(),
+            size_of::<u64>(),
+            "BoundedMax options have the wrong byte length"
+        );
+        let mut bytes = [0u8; size_of::<u64>()];
+        bytes.copy_from_slice(metadata);
+        let max_bytes = usize::try_from(u64::from_le_bytes(bytes))?;
+        vortex_ensure!(max_bytes > 0, "BoundedMax requires max_bytes > 0");
+        Ok(BoundedMaxOptions {
+            max_bytes: NonZeroUsize::new(max_bytes).vortex_expect("checked non-zero max_bytes"),
+        })
+    }
+
+    fn return_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
+        supported_dtype(options, input_dtype).map(DType::as_nullable)
+    }
+
+    fn can_satisfy(
+        &self,
+        options: &Self::Options,
+        requested: &AggregateFnRef,
+    ) -> AggregateFnSatisfaction {
+        if let Some(other) = requested.as_opt::<Self>() {
+            return if other == options {
+                AggregateFnSatisfaction::Exact
+            } else if options.max_bytes >= other.max_bytes {
+                AggregateFnSatisfaction::Approximate
+            } else {
+                AggregateFnSatisfaction::No
+            };
+        }
+
+        // The stored bound skips NaNs, so it cannot stand in for a NaN-including maximum.
+        if requested
+            .as_opt::<Max>()
+            .is_some_and(|options| options.skip_nans)
+        {
+            AggregateFnSatisfaction::Approximate
+        } else {
+            AggregateFnSatisfaction::No
+        }
+    }
+
+    fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
+        supported_dtype(options, input_dtype).map(make_bounded_max_partial_dtype)
+    }
+
+    fn empty_partial(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+    ) -> VortexResult<Self::Partial> {
+        Ok(BoundedMaxPartial {
+            state: BoundedMaxState::Empty,
+        })
+    }
+
+    fn partial_from_scalar(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        scalar: &Scalar,
+    ) -> VortexResult<Self::Partial> {
+        // A null partial means the producing accumulator saw nothing valid.
+        let state = if scalar.is_null() {
+            BoundedMaxState::Empty
+        } else {
+            let Some(fields) = scalar.as_struct_opt() else {
+                vortex_bail!(
+                    "BoundedMax partial must be a struct, got {}",
+                    scalar.dtype()
+                );
+            };
+            let Some(bound) = fields.field_by_idx(0) else {
+                vortex_bail!("BoundedMax partial is missing its bound field");
+            };
+            let Some(unknown) = fields
+                .field_by_idx(1)
+                .and_then(|unknown| unknown.as_bool().value())
+            else {
+                vortex_bail!("BoundedMax partial is missing its non-null unknown field");
+            };
+
+            if unknown {
+                BoundedMaxState::Unknown
+            } else if bound.is_null() {
+                BoundedMaxState::Empty
+            } else {
+                BoundedMaxState::Value(bound)
+            }
+        };
+        Ok(BoundedMaxPartial { state })
+    }
+
+    fn merge_partials(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        mut first: Self::Partial,
+        second: Self::Partial,
+    ) -> VortexResult<Self::Partial> {
+        match second.state {
+            BoundedMaxState::Empty => {}
+            BoundedMaxState::Value(max) => first.merge_bound(max),
+            BoundedMaxState::Unknown => first.unknown(),
+        }
+        Ok(first)
+    }
+
+    fn to_scalar(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
+        let dtype = args.partial_dtype.clone();
+        let bound_dtype = args.dtype.as_nullable();
+        match &partial.state {
+            BoundedMaxState::Empty => Ok(Scalar::null(dtype)),
+            BoundedMaxState::Value(max) => Ok(Scalar::struct_(
+                dtype,
+                vec![
+                    max.cast(&bound_dtype)?,
+                    Scalar::bool(false, Nullability::NonNullable),
+                ],
+            )),
+            BoundedMaxState::Unknown => Ok(Scalar::struct_(
+                dtype,
+                vec![
+                    Scalar::null(bound_dtype),
+                    Scalar::bool(true, Nullability::NonNullable),
+                ],
+            )),
+        }
+    }
+
+    fn is_saturated(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        partial: &Self::Partial,
+    ) -> bool {
+        matches!(partial.state, BoundedMaxState::Unknown)
+    }
+
+    fn accumulate(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        partial: &mut Self::Partial,
+        batch: &Columnar,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        // Delegate to the existing min_max implementation for now. A dedicated bounded-max
+        // aggregate would avoid computing min when only max is needed.
+        let Some(result) = columnar_min_max(batch, NumericalAggregateOpts::default(), ctx)? else {
+            return Ok(());
+        };
+        match truncate_max(result.max, args.options.max_bytes.get())? {
+            Some(bound) => partial.merge_bound(bound),
+            None => partial.unknown(),
+        }
+        Ok(())
+    }
+
+    fn finalize(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        partials: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
+        partials.get_item(BOUNDED_MAX_BOUND)
+    }
+
+    fn finalize_scalar(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
+        partial.final_scalar(args)
+    }
+}
+
+fn supported_dtype<'a>(_options: &BoundedMaxOptions, input_dtype: &'a DType) -> Option<&'a DType> {
+    MinMax
+        .return_dtype(&NumericalAggregateOpts::default(), input_dtype)
+        .map(|_| input_dtype)
+}
+
+fn truncate_max(value: Scalar, max_bytes: usize) -> VortexResult<Option<Scalar>> {
+    let nullability = value.dtype().nullability();
+    match value.dtype() {
+        DType::Utf8(_) => {
+            Ok(
+                upper_bound(BufferString::from_scalar(value)?, max_bytes, nullability)
+                    .map(|(bound, _)| bound),
+            )
+        }
+        DType::Binary(_) => {
+            Ok(
+                upper_bound(ByteBuffer::from_scalar(value)?, max_bytes, nullability)
+                    .map(|(bound, _)| bound),
+            )
+        }
+        _ => Ok(Some(value)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroUsize;
+    use std::sync::LazyLock;
+
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::Accumulator;
+    use vortex_array::aggregate_fn::AggregateFnSatisfaction;
+    use vortex_array::aggregate_fn::AggregateFnVTable;
+    use vortex_array::aggregate_fn::AggregateFnVTableExt;
+    use vortex_array::aggregate_fn::DynAccumulator;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use crate::bounded_max::BoundedMax;
+    use crate::bounded_max::BoundedMaxOptions;
+    use crate::bounded_max::BoundedMaxPartial;
+    use crate::bounded_max::BoundedMaxState;
+    use crate::max::Max;
+    use crate::min::Min;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    fn max_bytes(value: usize) -> NonZeroUsize {
+        NonZeroUsize::new(value).vortex_expect("non-zero max_bytes")
+    }
+
+    fn fresh_session() -> VortexSession {
+        SESSION.clone()
+    }
+
+    #[test]
+    fn bounded_max_truncates_utf8_to_upper_bound() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = VarBinViewArray::from_iter_str(["aardvark", "char🪩"]).into_array();
+        let mut acc = Accumulator::try_new(
+            BoundedMax,
+            BoundedMaxOptions {
+                max_bytes: max_bytes(5),
+            },
+            array.dtype().clone(),
+        )?;
+
+        acc.accumulate(&array, &mut ctx)?;
+
+        assert_eq!(acc.finish()?, Scalar::utf8("chas", Nullability::Nullable));
+        Ok(())
+    }
+
+    #[test]
+    fn bounded_max_unknown_upper_bound_returns_null() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = VarBinViewArray::from_iter_bin([&[255u8, 255, 255][..]]).into_array();
+        let mut acc = Accumulator::try_new(
+            BoundedMax,
+            BoundedMaxOptions {
+                max_bytes: max_bytes(2),
+            },
+            array.dtype().clone(),
+        )?;
+
+        acc.accumulate(&array, &mut ctx)?;
+
+        assert_eq!(acc.finish()?, Scalar::null(array.dtype().as_nullable()));
+        Ok(())
+    }
+
+    #[test]
+    fn bounded_max_empty_does_not_poison_later_values() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let empty = VarBinViewArray::from_iter_bin(Vec::<&[u8]>::new()).into_array();
+        let values = VarBinViewArray::from_iter_bin([&[1u8][..]]).into_array();
+        let mut acc = Accumulator::try_new(
+            BoundedMax,
+            BoundedMaxOptions {
+                max_bytes: max_bytes(2),
+            },
+            empty.dtype().clone(),
+        )?;
+
+        acc.accumulate(&empty, &mut ctx)?;
+        acc.accumulate(&values, &mut ctx)?;
+
+        assert_eq!(
+            acc.finish()?,
+            Scalar::binary(buffer![1u8], Nullability::Nullable)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn bounded_max_unknown_poisons_later_values() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let unknown = VarBinViewArray::from_iter_bin([&[255u8, 255, 255][..]]).into_array();
+        let values = VarBinViewArray::from_iter_bin([&[1u8][..]]).into_array();
+        let mut acc = Accumulator::try_new(
+            BoundedMax,
+            BoundedMaxOptions {
+                max_bytes: max_bytes(2),
+            },
+            unknown.dtype().clone(),
+        )?;
+
+        acc.accumulate(&unknown, &mut ctx)?;
+        acc.accumulate(&values, &mut ctx)?;
+
+        assert_eq!(acc.finish()?, Scalar::null(unknown.dtype().as_nullable()));
+        Ok(())
+    }
+
+    #[test]
+    fn bounded_max_empty_partial_does_not_poison_existing_bound() -> VortexResult<()> {
+        let mut ctx = fresh_session().create_execution_ctx();
+        let values = VarBinViewArray::from_iter_bin([&[1u8][..]]).into_array();
+        let mut acc = Accumulator::try_new(
+            BoundedMax,
+            BoundedMaxOptions {
+                max_bytes: max_bytes(2),
+            },
+            values.dtype().clone(),
+        )?;
+
+        acc.accumulate(&values, &mut ctx)?;
+        let empty = acc.empty_partial()?;
+        acc.fold_partial(empty)?;
+
+        assert_eq!(
+            acc.finish()?,
+            Scalar::binary(buffer![1u8], Nullability::Nullable)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn bounded_max_unknown_partial_poisons_existing_bound() -> VortexResult<()> {
+        let mut ctx = fresh_session().create_execution_ctx();
+        let values = VarBinViewArray::from_iter_bin([&[1u8][..]]).into_array();
+        let mut acc = Accumulator::try_new(
+            BoundedMax,
+            BoundedMaxOptions {
+                max_bytes: max_bytes(2),
+            },
+            values.dtype().clone(),
+        )?;
+
+        acc.accumulate(&values, &mut ctx)?;
+        acc.fold_partial(BoundedMaxPartial {
+            state: BoundedMaxState::Unknown,
+        })?;
+
+        assert_eq!(acc.finish()?, Scalar::null(values.dtype().as_nullable()));
+        Ok(())
+    }
+
+    #[test]
+    fn bounded_max_keeps_fixed_width_values_exact() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = PrimitiveArray::new(buffer![10i32, 20, 5], Validity::NonNullable).into_array();
+        let mut acc = Accumulator::try_new(
+            BoundedMax,
+            BoundedMaxOptions {
+                max_bytes: max_bytes(9),
+            },
+            array.dtype().clone(),
+        )?;
+
+        acc.accumulate(&array, &mut ctx)?;
+
+        assert_eq!(
+            acc.finish()?,
+            Scalar::primitive(20i32, Nullability::Nullable)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn bounded_max_satisfies_max_bounds() {
+        let stored = BoundedMax.bind(BoundedMaxOptions {
+            max_bytes: max_bytes(5),
+        });
+        let same = BoundedMax.bind(BoundedMaxOptions {
+            max_bytes: max_bytes(5),
+        });
+        let looser_bounded = BoundedMax.bind(BoundedMaxOptions {
+            max_bytes: max_bytes(4),
+        });
+        let tighter_bounded = BoundedMax.bind(BoundedMaxOptions {
+            max_bytes: max_bytes(6),
+        });
+
+        assert_eq!(stored.can_satisfy(&same), AggregateFnSatisfaction::Exact);
+        assert_eq!(
+            stored.can_satisfy(&looser_bounded),
+            AggregateFnSatisfaction::Approximate
+        );
+        assert_eq!(
+            stored.can_satisfy(&tighter_bounded),
+            AggregateFnSatisfaction::No
+        );
+        assert_eq!(
+            stored.can_satisfy(&Max.bind(NumericalAggregateOpts::default())),
+            AggregateFnSatisfaction::Approximate
+        );
+        assert_eq!(
+            stored.can_satisfy(&Max.bind(NumericalAggregateOpts::include_nans())),
+            AggregateFnSatisfaction::No
+        );
+        assert_eq!(
+            Max.bind(NumericalAggregateOpts::include_nans())
+                .can_satisfy(&stored),
+            AggregateFnSatisfaction::No
+        );
+        assert_eq!(
+            Max.bind(NumericalAggregateOpts::default())
+                .can_satisfy(&stored),
+            AggregateFnSatisfaction::Approximate
+        );
+        assert_eq!(
+            stored.can_satisfy(&Min.bind(NumericalAggregateOpts::default())),
+            AggregateFnSatisfaction::No
+        );
+    }
+
+    #[test]
+    fn bounded_max_options_round_trip() -> VortexResult<()> {
+        let options = BoundedMaxOptions {
+            max_bytes: max_bytes(64),
+        };
+        let metadata = BoundedMax
+            .serialize(&options)?
+            .expect("serializable options");
+        let roundtrip = BoundedMax.deserialize(&metadata, &SESSION)?;
+
+        assert_eq!(roundtrip, options);
+        Ok(())
+    }
+}

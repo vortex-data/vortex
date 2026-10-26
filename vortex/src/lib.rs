@@ -101,6 +101,7 @@
 //! ```
 
 // vortex::compute is deprecated and will be ported over to expressions.
+pub use vortex_aggregates as aggregates;
 pub use vortex_array::aggregate_fn;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
 pub use vortex_array::compute;
@@ -354,6 +355,7 @@ impl VortexSessionDefault for VortexSession {
             .with::<MemorySession>()
             .with::<CompressionSession>()
             .with::<RuntimeSession>();
+        vortex_aggregates::initialize(&session);
         vortex_functions::initialize(&session);
         vortex_arrow::initialize(&session);
         #[cfg(feature = "parquet-variant")]

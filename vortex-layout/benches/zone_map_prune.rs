@@ -14,16 +14,17 @@ use std::sync::LazyLock;
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use parking_lot::Mutex;
+use vortex_aggregates::max::Max;
+use vortex_aggregates::min::Min;
+use vortex_aggregates::nan_count::NanCount;
+use vortex_aggregates::null_count::NullCount;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::max::Max;
-use vortex_array::aggregate_fn::fns::min::Min;
-use vortex_array::aggregate_fn::fns::nan_count::NanCount;
-use vortex_array::aggregate_fn::fns::null_count::NullCount;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
@@ -56,10 +57,13 @@ fn main() {
 }
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    VortexSession::empty()
+    let session = VortexSession::empty()
         .with::<KernelSession>()
+        .with::<AggregateFnSession>()
         .with::<MemorySession>()
-        .with::<StatsSession>()
+        .with::<StatsSession>();
+    vortex_aggregates::initialize(&session);
+    session
 });
 
 /// Zone counts to sweep. The small case exposes per-call fixed cost, the large case exposes

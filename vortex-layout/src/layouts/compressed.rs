@@ -5,12 +5,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
+use vortex_aggregates::uncompressed_size_in_bytes::UncompressedSizeInBytes;
+use vortex_aggregates::uncompressed_size_in_bytes::UncompressedSizeOpts;
+use vortex_aggregates::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
-use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
-use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
-use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::expr::stats::Stat;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_error::VortexResult;

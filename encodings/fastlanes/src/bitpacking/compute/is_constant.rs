@@ -6,13 +6,13 @@ use std::ops::Range;
 
 use itertools::Itertools;
 use lending_iterator::LendingIterator;
+use vortex_aggregates::is_constant::IsConstant;
+use vortex_aggregates::is_constant::primitive::IS_CONST_LANE_WIDTH;
+use vortex_aggregates::is_constant::primitive::compute_is_constant;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::aggregate_fn::AggregateFnRef;
-use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
-use vortex_array::aggregate_fn::fns::is_constant::primitive::IS_CONST_LANE_WIDTH;
-use vortex_array::aggregate_fn::fns::is_constant::primitive::compute_is_constant;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::IntegerPType;
@@ -193,9 +193,9 @@ fn apply_patches_idx_typed<T: BitPackedUnpack, I: IntegerPType>(
 mod tests {
     use std::sync::LazyLock;
 
+    use vortex_aggregates::is_constant::is_constant;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::aggregate_fn::fns::is_constant::is_constant;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;

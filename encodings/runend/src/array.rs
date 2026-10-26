@@ -29,6 +29,7 @@ use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
+use vortex_array::arrays::primitive::integer_is_strict_sorted;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -339,12 +340,9 @@ impl RunEndData {
             // Run ends must be strictly sorted for binary search to work correctly.
             let pre_validation = ends.statistics().to_owned();
 
-            let is_sorted = ends
-                .statistics()
-                .compute_is_strict_sorted(ctx)
-                .unwrap_or(false);
+            let is_sorted = integer_is_strict_sorted(ends, ctx)?;
 
-            // Preserve the original statistics since compute_is_strict_sorted may have mutated them.
+            // Preserve the original statistics since computing sortedness may have cached new ones.
             // We don't want to run with different stats in debug mode and outside.
             ends.statistics().inherit(pre_validation.iter());
             debug_assert!(is_sorted);

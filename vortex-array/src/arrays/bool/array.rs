@@ -27,6 +27,7 @@ use crate::array::validity_to_child;
 use crate::array_slots;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
+use crate::arrays::bool::bool_bounds;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::validity::Validity;
@@ -118,7 +119,7 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
         let all_valid = match &BoolArrayExt::validity(self) {
             Validity::NonNullable | Validity::AllValid => true,
             Validity::AllInvalid => false,
-            Validity::Array(a) => a.statistics().compute_min::<bool>(ctx).unwrap_or(false),
+            Validity::Array(a) => bool_bounds(a, ctx)?.is_some_and(|bounds| bounds.all_true),
         };
         Ok(all_valid.then(|| Mask::from_buffer(self.to_bit_buffer())))
     }

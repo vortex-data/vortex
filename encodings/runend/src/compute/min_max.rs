@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_aggregates::min_max::MinMax;
+use vortex_aggregates::min_max::make_minmax_dtype;
+use vortex_aggregates::min_max::min_max;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::aggregate_fn::AggregateFnRef;
-use vortex_array::aggregate_fn::fns::min_max::MinMax;
-use vortex_array::aggregate_fn::fns::min_max::make_minmax_dtype;
-use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;

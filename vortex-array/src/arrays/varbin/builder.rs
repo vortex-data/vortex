@@ -29,6 +29,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinView;
+#[cfg(debug_assertions)]
 use crate::arrays::varbin::VarBinArrayExt;
 use crate::arrays::varbin::VarBinArraySlotsExt;
 use crate::arrays::varbinview::VarBinViewArrayExt;

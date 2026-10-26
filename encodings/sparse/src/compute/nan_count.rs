@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_aggregates::nan_count::NanCount;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -9,7 +10,6 @@ use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTable as _;
 use vortex_array::aggregate_fn::DynAccumulator;
 use vortex_array::aggregate_fn::EmptyOptions;
-use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::scalar::Scalar;
@@ -73,9 +73,9 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_aggregates::nan_count::nan_count;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::aggregate_fn::fns::nan_count::nan_count;
     use vortex_array::scalar::Scalar;
     use vortex_array::session::ArraySessionExt;
     use vortex_buffer::buffer;

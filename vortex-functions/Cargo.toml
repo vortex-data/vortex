@@ -23,6 +23,7 @@ prost = { workspace = true }
 regex = { workspace = true }
 regex-syntax = { workspace = true }
 tracing = { workspace = true }
+vortex-aggregates = { workspace = true }
 vortex-array = { workspace = true, features = ["unstable_row_fns"] }
 vortex-buffer = { workspace = true }
 vortex-compute = { workspace = true }

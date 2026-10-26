@@ -100,18 +100,6 @@ vortex-array = { path = ".", features = [
 vortex-bench-support = { workspace = true }
 
 [[bench]]
-name = "aggregate_max"
-harness = false
-
-[[bench]]
-name = "aggregate_sum"
-harness = false
-
-[[bench]]
-name = "aggregate_grouped"
-harness = false
-
-[[bench]]
 name = "cast_primitive"
 harness = false
 

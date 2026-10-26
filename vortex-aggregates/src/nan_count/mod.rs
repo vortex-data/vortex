@@ -1,0 +1,349 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+mod primitive;
+
+use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::Columnar;
+use vortex_array::ExecutionCtx;
+use vortex_array::aggregate_fn::Accumulator;
+use vortex_array::aggregate_fn::AggregateArgs;
+use vortex_array::aggregate_fn::AggregateDTypes;
+use vortex_array::aggregate_fn::AggregateFnId;
+use vortex_array::aggregate_fn::AggregateFnVTable;
+use vortex_array::aggregate_fn::DynAccumulator;
+use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::aggregate_fn::stat_aggregates;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability::NonNullable;
+use vortex_array::dtype::PType;
+use vortex_array::expr::stats::Precision;
+use vortex_array::expr::stats::Stat;
+use vortex_array::expr::stats::StatsProvider;
+use vortex_array::scalar::Scalar;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_session::VortexSession;
+
+use self::primitive::accumulate_primitive;
+
+/// Return the number of NaN values in an array.
+///
+/// Null values are not NaN and are not counted.
+///
+/// See [`NanCount`] for details.
+pub fn nan_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
+    // Short-circuit using cached array statistics.
+    if let Precision::Exact(nan_count_scalar) = array.statistics().get(Stat::NaNCount) {
+        return usize::try_from(&nan_count_scalar)
+            .map_err(|e| vortex_err!("Failed to convert NaN count stat to usize: {e}"));
+    }
+
+    // Short-circuit for non-float types.
+    if NanCount
+        .return_dtype(&EmptyOptions, array.dtype())
+        .is_none()
+    {
+        return Ok(0);
+    }
+
+    // Short-circuit for empty arrays or all-null arrays.
+    if array.is_empty() || array.valid_count(ctx)? == 0 {
+        return Ok(0);
+    }
+
+    // Compute using Accumulator<NanCount>.
+    let mut acc = Accumulator::try_new(NanCount, EmptyOptions, array.dtype().clone())?;
+    acc.accumulate(array, ctx)?;
+    let result = acc.finish()?;
+
+    let count = result
+        .as_primitive()
+        .typed_value::<u64>()
+        .vortex_expect("nan_count result should not be null");
+    // The accumulator caches the NaN count on `array` as a statistic.
+    Ok(usize::try_from(count).vortex_expect("Cannot be more nans than usize::MAX"))
+}
+
+/// Count the NaN values of an already-executed batch without touching any statistics.
+///
+/// Aggregates that delegate to [`NanCount`] use this on the columnar form of their input, so that
+/// results are only ever cached on the array the aggregate was requested for, never on a
+/// temporary canonical array.
+pub(crate) fn columnar_nan_count(batch: &Columnar, ctx: &mut ExecutionCtx) -> VortexResult<u64> {
+    // Non-float types have no NaN values.
+    if NanCount
+        .return_dtype(&EmptyOptions, batch.dtype())
+        .is_none()
+    {
+        return Ok(0);
+    }
+
+    let dtypes = AggregateDTypes::try_new(&NanCount, &EmptyOptions, batch.dtype().clone())?;
+    let args = dtypes.args(&EmptyOptions);
+    let mut count = NanCount.empty_partial(args)?;
+    NanCount.accumulate(args, &mut count, batch, ctx)?;
+    Ok(count)
+}
+
+/// Count the number of NaN values in an array.
+///
+/// Only applies to floating-point primitive types. Returns a `u64` count.
+/// Null values are not NaN, so if the array is all-invalid, the NaN count is zero.
+#[derive(Clone, Debug)]
+pub struct NanCount;
+
+impl AggregateFnVTable for NanCount {
+    type Options = EmptyOptions;
+    type Partial = u64;
+
+    fn id(&self) -> AggregateFnId {
+        *stat_aggregates::NAN_COUNT_ID
+    }
+
+    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
+    }
+
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        Ok(EmptyOptions)
+    }
+
+    fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
+        if let DType::Primitive(ptype, ..) = input_dtype
+            && ptype.is_float()
+        {
+            Some(DType::Primitive(PType::U64, NonNullable))
+        } else {
+            None
+        }
+    }
+
+    fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
+        self.return_dtype(options, input_dtype)
+    }
+
+    fn empty_partial(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+    ) -> VortexResult<Self::Partial> {
+        Ok(0)
+    }
+
+    fn partial_from_scalar(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        scalar: &Scalar,
+    ) -> VortexResult<Self::Partial> {
+        Ok(scalar
+            .as_primitive()
+            .typed_value::<u64>()
+            .vortex_expect("nan_count partial should not be null"))
+    }
+
+    fn merge_partials(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        first: Self::Partial,
+        second: Self::Partial,
+    ) -> VortexResult<Self::Partial> {
+        Ok(first + second)
+    }
+
+    fn to_scalar(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
+        Ok(Scalar::primitive(*partial, NonNullable))
+    }
+
+    #[inline]
+    fn is_saturated(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        _partial: &Self::Partial,
+    ) -> bool {
+        false
+    }
+
+    fn accumulate(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        partial: &mut Self::Partial,
+        batch: &Columnar,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        match batch {
+            Columnar::Constant(c) => {
+                if c.scalar().is_null() {
+                    // Null values are not NaN.
+                    return Ok(());
+                }
+                if c.scalar().as_primitive().is_nan() {
+                    *partial += c.len() as u64;
+                }
+                Ok(())
+            }
+            Columnar::Canonical(c) => match c {
+                Canonical::Primitive(p) => accumulate_primitive(partial, p, ctx),
+                _ => vortex_bail!(
+                    "Unsupported canonical type for nan_count: {}",
+                    batch.dtype()
+                ),
+            },
+        }
+    }
+
+    fn finalize(
+        &self,
+        _args: AggregateArgs<'_, Self::Options>,
+        partials: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
+        Ok(partials)
+    }
+
+    fn finalize_scalar(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        partial: &Self::Partial,
+    ) -> VortexResult<Scalar> {
+        self.to_scalar(args, partial)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use std::sync::LazyLock;
+
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::Accumulator;
+    use vortex_array::aggregate_fn::AggregateDTypes;
+    use vortex_array::aggregate_fn::AggregateFnVTable;
+    use vortex_array::aggregate_fn::DynAccumulator;
+    use vortex_array::aggregate_fn::EmptyOptions;
+    use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use crate::nan_count::NanCount;
+    use crate::nan_count::nan_count;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
+
+    #[test]
+    fn nan_count_multi_batch() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+        let mut acc = Accumulator::try_new(NanCount, EmptyOptions, dtype)?;
+
+        let batch1 =
+            PrimitiveArray::new(buffer![f64::NAN, 1.0f64, f64::NAN], Validity::NonNullable)
+                .into_array();
+        acc.accumulate(&batch1, &mut ctx)?;
+
+        let batch2 =
+            PrimitiveArray::new(buffer![2.0f64, f64::NAN], Validity::NonNullable).into_array();
+        acc.accumulate(&batch2, &mut ctx)?;
+
+        let result = acc.finish()?;
+        assert_eq!(result.as_primitive().typed_value::<u64>(), Some(3));
+        Ok(())
+    }
+
+    #[test]
+    fn nan_count_finish_resets_state() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+        let mut acc = Accumulator::try_new(NanCount, EmptyOptions, dtype)?;
+
+        let batch1 =
+            PrimitiveArray::new(buffer![f64::NAN, 1.0f64], Validity::NonNullable).into_array();
+        acc.accumulate(&batch1, &mut ctx)?;
+        let result1 = acc.finish()?;
+        assert_eq!(result1.as_primitive().typed_value::<u64>(), Some(1));
+
+        let batch2 = PrimitiveArray::new(buffer![f64::NAN, f64::NAN, 2.0], Validity::NonNullable)
+            .into_array();
+        acc.accumulate(&batch2, &mut ctx)?;
+        let result2 = acc.finish()?;
+        assert_eq!(result2.as_primitive().typed_value::<u64>(), Some(2));
+        Ok(())
+    }
+
+    #[test]
+    fn nan_count_state_merge() -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+        let dtypes = AggregateDTypes::try_new(&NanCount, &EmptyOptions, dtype)?;
+
+        let state = NanCount.merge_partials(dtypes.args(&EmptyOptions), 5, 3)?;
+
+        let result = NanCount.to_scalar(dtypes.args(&EmptyOptions), &state)?;
+        assert_eq!(result.as_primitive().typed_value::<u64>(), Some(8));
+        Ok(())
+    }
+
+    #[test]
+    fn nan_count_constant_nan() -> VortexResult<()> {
+        let array = ConstantArray::new(f64::NAN, 10);
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_eq!(nan_count(&array.into_array(), &mut ctx)?, 10);
+        Ok(())
+    }
+
+    #[test]
+    fn nan_count_constant_non_nan() -> VortexResult<()> {
+        let array = ConstantArray::new(1.0f64, 10);
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_eq!(nan_count(&array.into_array(), &mut ctx)?, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn nan_count_empty() -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+        let mut acc = Accumulator::try_new(NanCount, EmptyOptions, dtype)?;
+        let result = acc.finish()?;
+        assert_eq!(result.as_primitive().typed_value::<u64>(), Some(0));
+        Ok(())
+    }
+
+    #[test]
+    fn nan_count_chunked() -> VortexResult<()> {
+        let chunk1 = PrimitiveArray::from_option_iter([Some(f64::NAN), None, Some(1.0)]);
+        let chunk2 = PrimitiveArray::from_option_iter([Some(f64::NAN), Some(f64::NAN), None]);
+        let dtype = chunk1.dtype().clone();
+        let chunked = ChunkedArray::try_new(vec![chunk1.into_array(), chunk2.into_array()], dtype)?;
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_eq!(nan_count(&chunked.into_array(), &mut ctx)?, 3);
+        Ok(())
+    }
+
+    #[test]
+    fn nan_count_all_null() -> VortexResult<()> {
+        let p = PrimitiveArray::new(buffer![f64::NAN, f64::NAN, f64::NAN], Validity::AllInvalid);
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_eq!(nan_count(&p.into_array(), &mut ctx)?, 0);
+        Ok(())
+    }
+}

@@ -16,13 +16,11 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
-    use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
 
     use crate::Canonical;
     use crate::IntoArray as _;
     use crate::VortexSessionExecute;
-    use crate::aggregate_fn::fns::is_constant::is_constant;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
@@ -319,15 +317,6 @@ mod tests {
             expected(Validity::AllValid, Validity::NonNullable, true),
             &mut ctx
         );
-    }
-
-    #[test]
-    fn test_empty_struct_is_constant() {
-        let array = StructArray::new_fieldless_with_len(2);
-        let mut ctx = SESSION.create_execution_ctx();
-        let result = is_constant(&array.into_array(), &mut ctx)
-            .vortex_expect("operation should succeed in test");
-        assert!(result);
     }
 
     #[test]

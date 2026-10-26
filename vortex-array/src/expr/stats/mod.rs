@@ -22,14 +22,17 @@ pub use bound::*;
 pub use precision::*;
 pub use provider::*;
 pub use stat_bound::*;
+use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
-use crate::aggregate_fn;
+use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
-use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::AggregateFnVTableExt;
-use crate::aggregate_fn::EmptyOptions;
 use crate::aggregate_fn::NumericalAggregateOpts;
-use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
+use crate::aggregate_fn::session::AggregateFnSessionExt;
+use crate::aggregate_fn::stat_aggregates;
+use crate::aggregate_fn::stat_aggregates::IsSortedOptions;
+use crate::aggregate_fn::stat_aggregates::UncompressedSizeOpts;
+use crate::dtype::PType;
 
 #[derive(
     Debug,
@@ -175,72 +178,81 @@ impl Stat {
             Self::Max => data_type.clone(),
             Self::Min if matches!(data_type, DType::Null) => return None,
             Self::Min => data_type.clone(),
-            Self::NullCount => {
-                return aggregate_fn::fns::null_count::NullCount
-                    .return_dtype(&EmptyOptions, data_type);
-            }
+            Self::NullCount => DType::Primitive(PType::U64, NonNullable),
             Self::UncompressedSizeInBytes => {
-                return aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
-                    .return_dtype(&UncompressedSizeOpts::exact(), data_type);
+                return stat_aggregates::supports_uncompressed_size_in_bytes(data_type)
+                    .then_some(DType::Primitive(PType::U64, NonNullable));
             }
             Self::NaNCount => {
-                return aggregate_fn::fns::nan_count::NanCount
-                    .return_dtype(&EmptyOptions, data_type);
+                return matches!(data_type, DType::Primitive(ptype, _) if ptype.is_float())
+                    .then_some(DType::Primitive(PType::U64, NonNullable));
             }
-            Self::Sum => {
-                // Statistics follow NaN-skipping semantics; request it explicitly.
-                return aggregate_fn::fns::sum::Sum
-                    .return_dtype(&NumericalAggregateOpts::skip_nans(), data_type);
-            }
+            Self::Sum => return stat_aggregates::sum_return_dtype(data_type),
         })
     }
 
-    /// Return the built-in aggregate function corresponding to this statistic, if one exists.
-    pub fn aggregate_fn(&self) -> Option<AggregateFnRef> {
-        // Statistics follow NaN-skipping semantics; request it explicitly rather than the default.
-        Some(match self {
-            Self::Max => aggregate_fn::fns::max::Max.bind(NumericalAggregateOpts::skip_nans()),
-            Self::Min => aggregate_fn::fns::min::Min.bind(NumericalAggregateOpts::skip_nans()),
-            Self::Sum => aggregate_fn::fns::sum::Sum.bind(NumericalAggregateOpts::skip_nans()),
-            Self::NullCount => aggregate_fn::fns::null_count::NullCount.bind(EmptyOptions),
-            Self::NaNCount => aggregate_fn::fns::nan_count::NanCount.bind(EmptyOptions),
-            // The stat slot holds the exact size, so the statistic measures referenced bytes.
-            Self::UncompressedSizeInBytes => {
-                aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
-                    .bind(UncompressedSizeOpts::exact())
-            }
-            Self::IsConstant | Self::IsSorted | Self::IsStrictSorted => return None,
-        })
+    /// The ID of the aggregate function that computes this statistic.
+    pub fn aggregate_fn_id(&self) -> AggregateFnId {
+        **match self {
+            Self::IsConstant => &stat_aggregates::IS_CONSTANT_ID,
+            Self::IsSorted | Self::IsStrictSorted => &stat_aggregates::IS_SORTED_ID,
+            Self::Max => &stat_aggregates::MAX_ID,
+            Self::Min => &stat_aggregates::MIN_ID,
+            Self::NullCount => &stat_aggregates::NULL_COUNT_ID,
+            Self::UncompressedSizeInBytes => &stat_aggregates::UNCOMPRESSED_SIZE_IN_BYTES_ID,
+            Self::Sum => &stat_aggregates::SUM_ID,
+            Self::NaNCount => &stat_aggregates::NAN_COUNT_ID,
+        }
+    }
+
+    /// The serialized options the aggregate function computing this statistic is bound to.
+    ///
+    /// Min/max/sum statistics skip NaN values, and the uncompressed size statistic is exact.
+    pub fn aggregate_fn_options(&self) -> Vec<u8> {
+        match self {
+            Self::Max | Self::Min | Self::Sum => NumericalAggregateOpts::skip_nans().serialize(),
+            Self::UncompressedSizeInBytes => UncompressedSizeOpts::exact().serialize(),
+            Self::IsSorted => IsSortedOptions { strict: false }.serialize(),
+            Self::IsStrictSorted => IsSortedOptions { strict: true }.serialize(),
+            Self::IsConstant | Self::NullCount | Self::NaNCount => vec![],
+        }
+    }
+
+    /// Resolve the aggregate function computing this statistic from the session's registry.
+    ///
+    /// Returns `None` if no aggregate function with this statistic's ID is registered.
+    pub fn resolve_aggregate_fn(
+        &self,
+        session: &VortexSession,
+    ) -> VortexResult<Option<AggregateFnRef>> {
+        let Some(plugin) = session.aggregate_fns().find_plugin(&self.aggregate_fn_id()) else {
+            return Ok(None);
+        };
+        plugin
+            .deserialize(&self.aggregate_fn_options(), session)
+            .map(Some)
     }
 
     /// Return the statistic represented by `aggregate_fn`, if it has a legacy stat slot.
     ///
-    /// Min/max/sum statistics skip NaN values, so NaN-including configurations of those
-    /// aggregates have no stat slot. The uncompressed size statistic is exact, so the inexact
-    /// configuration of that aggregate has no stat slot either.
+    /// The aggregate must have this statistic's ID and options. Min/max/sum statistics skip NaN
+    /// values, so NaN-including configurations of those aggregates have no stat slot. The
+    /// uncompressed size statistic is exact, so the inexact configuration of that aggregate has
+    /// no stat slot either. Sortedness and constancy have no stat slot.
     pub fn from_aggregate_fn(aggregate_fn: &AggregateFnRef) -> Option<Self> {
-        if let Some(options) = aggregate_fn.as_opt::<aggregate_fn::fns::sum::Sum>() {
-            return options.skip_nans.then_some(Self::Sum);
-        }
-        if aggregate_fn.is::<aggregate_fn::fns::nan_count::NanCount>() {
-            return Some(Self::NaNCount);
-        }
-        if aggregate_fn.is::<aggregate_fn::fns::null_count::NullCount>() {
-            return Some(Self::NullCount);
-        }
-        if let Some(options) = aggregate_fn.as_opt::<aggregate_fn::fns::min::Min>() {
-            return options.skip_nans.then_some(Self::Min);
-        }
-        if let Some(options) = aggregate_fn.as_opt::<aggregate_fn::fns::max::Max>() {
-            return options.skip_nans.then_some(Self::Max);
-        }
-        if let Some(options) =
-            aggregate_fn
-                .as_opt::<aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes>()
-        {
-            return options.is_exact().then_some(Self::UncompressedSizeInBytes);
-        }
-        None
+        let id = aggregate_fn.id();
+        let stat = [
+            Self::Min,
+            Self::Max,
+            Self::Sum,
+            Self::NullCount,
+            Self::NaNCount,
+            Self::UncompressedSizeInBytes,
+        ]
+        .into_iter()
+        .find(|stat| stat.aggregate_fn_id() == id)?;
+        let options = aggregate_fn.options().serialize().ok()??;
+        (options == stat.aggregate_fn_options()).then_some(stat)
     }
 
     pub fn name(&self) -> &str {

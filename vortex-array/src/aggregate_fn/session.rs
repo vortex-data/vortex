@@ -14,46 +14,14 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnPluginRef;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::ExtensionStoragePushdown;
-use crate::aggregate_fn::fns::all_nan::AllNan;
 use crate::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
-use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
-use crate::aggregate_fn::fns::all_non_null::AllNonNull;
-use crate::aggregate_fn::fns::all_null::AllNull;
-use crate::aggregate_fn::fns::bounded_max::BoundedMax;
-use crate::aggregate_fn::fns::bounded_min::BoundedMin;
-use crate::aggregate_fn::fns::count::Count;
-use crate::aggregate_fn::fns::count::CountGroupedKernel;
-use crate::aggregate_fn::fns::first::First;
-use crate::aggregate_fn::fns::is_constant::IsConstant;
-use crate::aggregate_fn::fns::is_sorted::IsSorted;
-use crate::aggregate_fn::fns::last::Last;
-use crate::aggregate_fn::fns::max::Max;
-use crate::aggregate_fn::fns::min::Min;
-use crate::aggregate_fn::fns::min_max::MinMax;
-use crate::aggregate_fn::fns::nan_count::NanCount;
-use crate::aggregate_fn::fns::null_count::NullCount;
-use crate::aggregate_fn::fns::sum::PrimitiveGroupedSumEncodingKernel;
-use crate::aggregate_fn::fns::sum::Sum;
-use crate::aggregate_fn::fns::sum_v2::PrimitiveGroupedSumV2EncodingKernel;
-use crate::aggregate_fn::fns::sum_v2::SumV2;
-use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
 use crate::array::ArrayId;
 use crate::array::VTable;
 use crate::arrays::Chunked;
-use crate::arrays::Dict;
-use crate::arrays::Primitive;
 use crate::arrays::chunked::compute::aggregate::ChunkedArrayAggregate;
-use crate::arrays::dict::compute::is_constant::DictIsConstantKernel;
-use crate::arrays::dict::compute::is_sorted::DictIsSortedKernel;
-use crate::arrays::dict::compute::min_max::DictMinMaxKernel;
 use crate::dtype::DType;
-use crate::dtype::extension::ExtVTable;
-use crate::extension::datetime::Date;
-use crate::extension::datetime::Time;
-use crate::extension::datetime::Timestamp;
 
 /// Session state for aggregate functions and encoding-specific aggregate kernels.
 ///
@@ -101,51 +69,11 @@ impl Default for AggregateFnSession {
             grouped_encoding_kernels: GroupedEncodingKernelRegistry::default(),
         };
 
-        // Register the built-in aggregate functions
+        // Register the built-in aggregate functions.
         this.register(AllNonDistinct);
-        this.register(AllNonNan);
-        this.register(AllNonNull);
-        this.register(AllNan);
-        this.register(AllNull);
-        this.register(BoundedMax);
-        this.register(BoundedMin);
-        this.register(First);
-        this.register(IsConstant);
-        this.register(IsSorted);
-        this.register(Last);
-        this.register(Max);
-        this.register(Min);
-        this.register(MinMax);
-        this.register(NanCount);
-        this.register(NullCount);
-        this.register(Sum);
-        this.register(SumV2);
-        this.register(UncompressedSizeInBytes);
-
-        // Temporal extension types compare like their integer storage, so comparison-based
-        // aggregates are pushed down into it.
-        this.register_storage_ordered(Date);
-        this.register_storage_ordered(Time);
-        this.register_storage_ordered(Timestamp);
 
         // Register the built-in aggregate kernels.
         this.register_aggregate_kernel(Chunked.id(), None::<AggregateFnId>, &ChunkedArrayAggregate);
-        this.register_aggregate_kernel(Dict.id(), Some(MinMax.id()), &DictMinMaxKernel);
-        this.register_aggregate_kernel(Dict.id(), Some(IsConstant.id()), &DictIsConstantKernel);
-        this.register_aggregate_kernel(Dict.id(), Some(IsSorted.id()), &DictIsSortedKernel);
-
-        // Register the built-in grouped aggregate kernels.
-        this.register_grouped_kernel(Count.id(), &CountGroupedKernel);
-        this.register_grouped_encoding_kernel(
-            Primitive.id(),
-            Sum.id(),
-            &PrimitiveGroupedSumEncodingKernel,
-        );
-        this.register_grouped_encoding_kernel(
-            Primitive.id(),
-            SumV2.id(),
-            &PrimitiveGroupedSumV2EncodingKernel,
-        );
 
         this
     }
@@ -163,17 +91,6 @@ impl AggregateFnSession {
         let id = vtable.id();
         let pluginref = Arc::new(vtable) as AggregateFnPluginRef;
         self.registry.insert(id, pluginref);
-    }
-
-    /// Push the comparison-based aggregates `is_sorted` and `min_max` down into the storage of
-    /// extension type `ext`, through [`ExtensionStoragePushdown`].
-    ///
-    /// Only call this when comparing two values of `ext` is the same as comparing their storage,
-    /// as for the temporal types and for UUIDs, which are stored big-endian. See
-    /// [`ExtensionStoragePushdown`] for how to check.
-    pub fn register_storage_ordered<E: ExtVTable>(&self, ext: E) {
-        self.register(ExtensionStoragePushdown::new(IsSorted, ext.clone()));
-        self.register(ExtensionStoragePushdown::new(MinMax, ext));
     }
 
     /// The default per-chunk zone statistics for a column of `input_dtype`, collected from every

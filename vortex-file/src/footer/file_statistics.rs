@@ -302,7 +302,7 @@ fn aggregates_from_array_stats(
         stats_set
             .iter()
             .filter_map(|(stat, value)| {
-                let aggregate_fn = stat.aggregate_fn()?;
+                let aggregate_fn = vortex_aggregates::stat_aggregate_fn(*stat)?;
                 let stat_dtype = stat.dtype(dtype)?;
                 let value = value
                     .clone()
@@ -539,19 +539,20 @@ impl WriteFlatBuffer for FileStatistics {
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroUsize;
+    use std::sync::LazyLock;
 
     use flatbuffers::FlatBufferBuilder;
     use rstest::rstest;
+    use vortex_aggregates::bounded_max::BoundedMax;
+    use vortex_aggregates::bounded_max::BoundedMaxOptions;
+    use vortex_aggregates::max::Max;
+    use vortex_aggregates::min::Min;
+    use vortex_aggregates::null_count::NullCount;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::EmptyOptions;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
-    use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
-    use vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
-    use vortex_array::aggregate_fn::fns::max::Max;
-    use vortex_array::aggregate_fn::fns::min::Min;
-    use vortex_array::aggregate_fn::fns::null_count::NullCount;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::dtype::FieldPath;
     use vortex_array::dtype::Nullability;
@@ -562,6 +563,13 @@ mod tests {
     use vortex_array::scalar::ScalarValue;
 
     use super::*;
+
+    /// Reading statistics back resolves their aggregate functions through the session.
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        vortex_aggregates::initialize(&session);
+        session
+    });
 
     fn i32_dtype() -> DType {
         DType::Primitive(PType::I32, Nullability::NonNullable)
@@ -598,7 +606,7 @@ mod tests {
         let bytes = file_stats.write_flatbuffer_bytes()?;
         let fb = flatbuffers::root::<fb::FileStatistics>(bytes.as_ref())
             .vortex_expect("valid flatbuffer");
-        FileStatistics::from_flatbuffer(&fb, file_dtype, &VortexSession::empty())
+        FileStatistics::from_flatbuffer(&fb, file_dtype, &SESSION)
     }
 
     #[test]
@@ -742,7 +750,7 @@ mod tests {
         let mut accumulator = bounded_max.accumulator(&field_dtype)?;
         accumulator.accumulate(
             &VarBinViewArray::from_iter_str(["a value past the bound"]).into_array(),
-            &mut VortexSession::empty().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )?;
         let partial = accumulator.partial_scalar()?;
         let file_stats = FileStatistics::new_with_dtype(
@@ -820,7 +828,7 @@ mod tests {
 
     fn read_raw(bytes: &[u8], file_dtype: &DType) -> VortexResult<FileStatistics> {
         let fb = flatbuffers::root::<fb::FileStatistics>(bytes).vortex_expect("valid flatbuffer");
-        FileStatistics::from_flatbuffer(&fb, file_dtype, &VortexSession::empty())
+        FileStatistics::from_flatbuffer(&fb, file_dtype, &SESSION)
     }
 
     /// The options of `min` and its partial state for `value`, length-prefixed as in `partials`.

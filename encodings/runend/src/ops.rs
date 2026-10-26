@@ -78,9 +78,9 @@ pub fn find_physical_index(
 mod tests {
     use std::sync::LazyLock;
 
+    use vortex_aggregates::is_constant::is_constant;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::aggregate_fn::fns::is_constant::is_constant;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
