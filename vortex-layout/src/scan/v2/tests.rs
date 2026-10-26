@@ -1000,3 +1000,35 @@ async fn shared_cache_proves_zones_once() -> VortexResult<()> {
     assert_eq!(reads, vec![2, 1]);
     Ok(())
 }
+
+#[rstest]
+#[case::equivalent(false, false, false)]
+#[case::different_filter(false, true, true)]
+#[case::different_projection(true, false, true)]
+#[tokio::test]
+async fn preparation_coordinates_equivalent_scans(
+    #[case] different_projection: bool,
+    #[case] different_filter: bool,
+    #[case] independent: bool,
+) -> VortexResult<()> {
+    let dtype = DType::Primitive(vortex_array::dtype::PType::I32, false.into());
+    let cache = ScanCache::default();
+    let projection = root().bind(&dtype)?;
+    let filter = gt(root(), lit(1i32)).bind(&dtype)?;
+    let guard = cache
+        .preparation(&projection, Some(&filter))
+        .lock_arc()
+        .await;
+
+    let projection = if different_projection {
+        gt(root(), lit(0i32)).bind(&dtype)?
+    } else {
+        root().bind(&dtype)?
+    };
+    let filter = gt(root(), lit(if different_filter { 2i32 } else { 1i32 })).bind(&dtype)?;
+    let preparation = cache.preparation(&projection, Some(&filter));
+    assert_eq!(preparation.try_lock_arc().is_some(), independent);
+    drop(guard);
+    assert!(preparation.try_lock_arc().is_some());
+    Ok(())
+}

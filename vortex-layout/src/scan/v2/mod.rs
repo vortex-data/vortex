@@ -239,11 +239,20 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     /// Runs the scan on the session's runtime, preparing it on the first poll.
     /// Preparation errors are returned as stream items.
-    pub fn into_stream(self) -> VortexResult<BoxStream<'static, VortexResult<A>>> {
+    pub fn into_stream(mut self) -> VortexResult<BoxStream<'static, VortexResult<A>>> {
         let handle = self.session.handle();
         Ok(stream::once(async move {
+            let preparation = self
+                .file
+                .cache
+                .get_or_insert_with(ScanCache::default)
+                .preparation(&self.projection, self.filter.as_ref());
+            let guard = preparation.lock_arc().await;
             handle
-                .spawn_cpu(move || ScanRun::try_new(self)?.execute_stream())
+                .spawn_cpu(move || {
+                    let _guard = guard;
+                    ScanRun::try_new(self)?.execute_stream()
+                })
                 .await
         })
         .try_flatten()
