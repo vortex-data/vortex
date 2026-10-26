@@ -280,7 +280,8 @@ impl VTable for Pco {
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         if array.metadata.logical_row_prefix.is_some()
-            && (array.slice_start() != 0 || array.slice_stop() != array.unsliced_n_rows()) {
+            && (array.slice_start() != 0 || array.slice_stop() != array.unsliced_n_rows())
+        {
             return Ok(ExecutionResult::done(
                 decode_slice(array.as_view(), ctx)?.into_array(),
             ));
