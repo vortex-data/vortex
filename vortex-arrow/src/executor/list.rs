@@ -11,12 +11,10 @@ use arrow_schema::FieldRef;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
-use vortex_array::arrays::Chunked;
 use vortex_array::arrays::List;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListView;
 use vortex_array::arrays::ListViewArray;
-use vortex_array::arrays::chunked::ChunkedArrayExt;
 use vortex_array::arrays::list::ListArraySlotsExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::arrays::listview::ListViewDataParts;
@@ -32,7 +30,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::ArrowExporter;
-use crate::concat::concat;
 use crate::executor::validity::to_arrow_null_buffer;
 
 /// Matches the encodings [`to_arrow_list`] requires for export.
@@ -42,7 +39,7 @@ impl Matcher for ArrowListExportable {
     type Match<'a> = &'a ArrayRef;
 
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        (array.is::<List>() || array.is::<Chunked>() || array.is::<ListView>()).then_some(array)
+        (array.is::<List>() || array.is::<ListView>()).then_some(array)
     }
 }
 
@@ -67,24 +64,10 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
         return list_to_list::<O>(&list.into_owned(), elements_field, exporter, ctx);
     }
 
-    // Converting each chunk individually, then using the fast concat logic from arrow
-    if let Some(chunked) = array.as_opt::<Chunked>() {
-        let mut arrow_chunks: Vec<ArrowArrayRef> = Vec::with_capacity(chunked.nchunks());
-        for chunk in chunked.chunks() {
-            arrow_chunks.push(to_arrow_list::<O>(
-                chunk.clone(),
-                elements_field,
-                exporter,
-                ctx,
-            )?);
-        }
-
-        let refs = arrow_chunks.iter().map(|a| a.as_ref()).collect::<Vec<_>>();
-        return concat(&refs);
-    }
-
     // Otherwise the array is canonical: a ListViewArray, which we rebuild to ZCTL if needed.
-    // Note: arrow-cast's cast supports ListView → List (apache/arrow-rs#8735), but it
+    // Chunked lists canonicalize to a zero-copy ListView over chunked elements, so they take
+    // this path without an intermediate Arrow concatenation.
+    // Note: arrow_cast::cast supports ListView → List (apache/arrow-rs#8735), but it
     // unconditionally uses take. Our rebuild uses a heuristic that picks list-by-list
     // for large lists, which avoids materializing a large index buffer.
     let list_view = array
@@ -227,12 +210,14 @@ mod tests {
     use arrow_array::GenericListArray;
     use arrow_array::Int32Array;
     use arrow_array::Int64Array;
+    use arrow_buffer::OffsetBuffer;
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::SliceArray;
     use vortex_array::dtype::DType;
@@ -249,6 +234,39 @@ mod tests {
 
     /// A shared session for these list-executor tests, used to create execution contexts.
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[test]
+    fn chunked_list_exports() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let first = ListArray::try_new(
+            buffer![1i32, 2, 3].into_array(),
+            buffer![0i32, 2, 3].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?;
+        let second = ListArray::try_new(
+            buffer![4i32, 5].into_array(),
+            buffer![0i32, 0, 2].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?;
+        let dtype = first.dtype().clone();
+        let chunked = ChunkedArray::try_new(vec![first.into_array(), second.into_array()], dtype)?;
+
+        let field = Field::new("item", DataType::Int32, false);
+        let actual = chunked
+            .into_array()
+            .execute_arrow(Some(&DataType::List(field.clone().into())), &mut ctx)?;
+
+        let expected = GenericListArray::<i32>::try_new(
+            field.into(),
+            OffsetBuffer::new(vec![0, 2, 3, 3, 5].into()),
+            Arc::new(Int32Array::from(vec![1, 2, 3, 4, 5])),
+            None,
+        )?;
+        assert_eq!(&expected as &dyn Array, actual.as_ref());
+        Ok(())
+    }
 
     #[test]
     fn test_to_arrow_list_i32() -> VortexResult<()> {

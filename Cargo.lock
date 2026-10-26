@@ -11472,6 +11472,7 @@ dependencies = [
  "vortex-onpair",
  "vortex-runend",
  "vortex-session",
+ "vortex-utils",
  "vortex-zstd",
 ]
 

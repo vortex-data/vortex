@@ -18,7 +18,6 @@
 
 use vortex_session::VortexSession;
 
-mod concat;
 pub mod convert;
 mod datum;
 pub mod dtype;
