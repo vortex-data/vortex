@@ -27,6 +27,18 @@ use vortex_buffer::BitBuffer;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    // The first call initializes process-wide state, such as the session id interner, which
+    // reads the CPU quota from the file system. Without this call, those system calls land in the
+    // single measured iteration of the first benchmark under the CodSpeed simulation.
+    let length = 4_096;
+    filter_run_end_primitive::<u32>(
+        &build_run_ends(length, 16),
+        0,
+        length as u64,
+        &build_mask(length, 0.5),
+    )
+    .expect("filter");
+
     divan::main();
 }
 
