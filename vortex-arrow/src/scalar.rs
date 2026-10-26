@@ -29,6 +29,7 @@ use vortex_error::VortexError;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
+use crate::concat::concat;
 use crate::dtype::to_data_type_naive;
 
 /// Arrow represents scalars as single-element arrays. This constant is the length of those arrays.
@@ -239,7 +240,7 @@ fn concat_scalar_arrays(
         .iter()
         .map(|scalar| scalar.get().0)
         .collect::<Vec<_>>();
-    Ok(arrow_select::concat::concat(&arrays)?)
+    concat(&arrays)
 }
 
 /// Convert an [`ExtScalar`] to an Arrow [`Datum`].

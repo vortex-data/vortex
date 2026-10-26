@@ -11,15 +11,22 @@ use arrow_array::new_null_array;
 use arrow_array::types::*;
 use arrow_schema::DataType;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::Primitive;
+use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::dict::DictArraySlotsExt;
+use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::builders::dict::dict_encode;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
 use vortex_array::matcher::Matcher;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -55,14 +62,43 @@ pub(super) fn to_arrow_dictionary(
         Err(array) => array,
     };
 
-    // Otherwise, we should try and build a dictionary.
-    // Arrow hides this functionality inside the cast module!
-    let array = execute_arrow_naive(array, Some(values_type), exporter, ctx)?;
-    arrow_cast::cast(
-        &array,
-        &DataType::Dictionary(Box::new(codes_type.clone()), Box::new(values_type.clone())),
-    )
-    .map_err(VortexError::from)
+    // Otherwise, dictionary-encode the array ourselves.
+    let dict = encode_dict(array, ctx)?;
+    dict_to_dict(dict, codes_type, values_type, exporter, ctx)
+}
+
+/// Dictionary-encode a primitive, binary or string array, or an extension array over one.
+///
+/// Nulls are carried by the codes rather than by a null dictionary value, matching how Arrow
+/// builds dictionaries.
+fn encode_dict(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<DictArray> {
+    let canonical = array.execute::<Canonical>(ctx)?.into_array();
+    let validity = canonical.is_not_null()?;
+
+    let storage = match canonical.dtype() {
+        DType::Extension(_) => canonical
+            .clone()
+            .execute::<ExtensionArray>(ctx)?
+            .storage_array()
+            .clone(),
+        _ => canonical.clone(),
+    };
+    if !(storage.is::<Primitive>() || storage.is::<VarBinView>()) {
+        vortex_bail!(
+            "Cannot dictionary-encode Vortex array with dtype {} for Arrow export",
+            canonical.dtype()
+        );
+    }
+
+    let dict = dict_encode(&storage, ctx)?;
+    let values = match canonical.dtype() {
+        DType::Extension(ext_dtype) => {
+            ExtensionArray::try_new(ext_dtype.clone(), dict.values().clone())?.into_array()
+        }
+        _ => dict.values().clone(),
+    };
+    let codes = dict.codes().clone().mask(validity)?;
+    DictArray::try_new(codes, values)
 }
 
 /// Convert a constant array to a dictionary with a single entry.
@@ -160,7 +196,8 @@ mod tests {
     use std::sync::LazyLock;
 
     use arrow_array::DictionaryArray as ArrowDictArray;
-    use arrow_array::StringArray;
+    use arrow_array::Int32Array;
+    use arrow_array::UInt8Array;
     use arrow_array::types::UInt8Type;
     use arrow_array::types::UInt32Type;
     use arrow_schema::DataType;
@@ -250,6 +287,25 @@ mod tests {
     }
 
     #[test]
+    fn nullable_primitive_fallback() -> VortexResult<()> {
+        let array = PrimitiveArray::from_option_iter([Some(7i32), None, Some(9), Some(7)]).into_array();
+        let actual = execute(array, &dict_type(DataType::UInt8, DataType::Int32))?;
+
+        let expected: ArrowDictArray<UInt8Type> = ArrowDictArray::try_new(
+            UInt8Array::from(vec![Some(0), None, Some(1), Some(0)]),
+            Arc::new(Int32Array::from(vec![7, 9])),
+        )?;
+        assert_eq!(&expected as &dyn arrow_array::Array, actual.as_ref());
+        Ok(())
+    }
+
+    #[test]
+    fn unsupported_fallback_errors() {
+        let array = BoolArray::from_iter([true, false, true]).into_array();
+        assert!(execute(array, &dict_type(DataType::UInt8, DataType::Boolean)).is_err());
+    }
+
+    #[test]
     fn mask_wrapped_dict_exports() -> VortexResult<()> {
         // Dictionary behind a lazy `mask` scalar-fn — the shape a scan produces when a row
         // mask is applied to a dict-encoded column.
@@ -261,10 +317,9 @@ mod tests {
         let masked = Mask::try_new(dict.into_array(), mask.into_array())?.into_array();
 
         let actual = execute(masked, &dict_type(DataType::UInt8, DataType::Utf8))?;
-        let flat = arrow_cast::cast(&actual, &DataType::Utf8)?;
-
-        let expected = StringArray::from(vec![Some("a"), None, Some("a")]);
-        assert_eq!(flat.as_ref(), &expected as &dyn arrow_array::Array);
+        let expected: ArrowDictArray<UInt8Type> =
+            vec![Some("a"), None, Some("a")].into_iter().collect();
+        assert_eq!(&expected as &dyn arrow_array::Array, actual.as_ref());
         Ok(())
     }
 }

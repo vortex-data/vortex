@@ -32,6 +32,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::ArrowExporter;
+use crate::concat::concat;
 use crate::executor::validity::to_arrow_null_buffer;
 
 /// Matches the encodings [`to_arrow_list`] requires for export.
@@ -79,11 +80,11 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
         }
 
         let refs = arrow_chunks.iter().map(|a| a.as_ref()).collect::<Vec<_>>();
-        return Ok(arrow_select::concat::concat(&refs)?);
+        return concat(&refs);
     }
 
     // Otherwise the array is canonical: a ListViewArray, which we rebuild to ZCTL if needed.
-    // Note: arrow_cast::cast supports ListView → List (apache/arrow-rs#8735), but it
+    // Note: arrow-cast's cast supports ListView → List (apache/arrow-rs#8735), but it
     // unconditionally uses take. Our rebuild uses a heuristic that picks list-by-list
     // for large lists, which avoids materializing a large index buffer.
     let list_view = array

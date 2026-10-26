@@ -16,11 +16,14 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::matcher::Matcher;
-use vortex_error::VortexError;
+use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_runend::RunEnd;
 use vortex_runend::RunEndArray;
 use vortex_runend::RunEndArrayExt;
@@ -60,13 +63,43 @@ pub(super) fn to_arrow_run_end(
         Err(array) => array,
     };
 
-    // Fallback: canonicalize to flat Arrow, then cast to REE.
-    let flat = export_values(array, values_type, exporter, ctx)?;
-    let ree_type = DataType::RunEndEncoded(
-        Arc::new(Field::new("run_ends", ends_type.clone(), false)),
-        Arc::new(values_type.clone()),
-    );
-    arrow_cast::cast(&flat, &ree_type).map_err(VortexError::from)
+    // Fallback: run-end encode the array, then export it.
+    let run_end = encode_runs(array, ctx)?;
+    run_end_to_arrow(run_end, ends_type, values_type, exporter, ctx)
+}
+
+/// Run-end encode an array of any comparable dtype by splitting it wherever adjacent values
+/// differ. Adjacent nulls belong to the same run.
+fn encode_runs(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<RunEndArray> {
+    let len = array.len();
+    let validity = array.validity()?.execute_mask(len, ctx)?;
+
+    let mut ends = BufferMut::<u64>::empty();
+    let mut starts = BufferMut::<u64>::empty();
+    if len > 0 {
+        starts.push(0);
+        if len > 1 && !validity.all_false() {
+            // Nested values with null children may compare as null; treating those as distinct
+            // only splits a run, which still yields a valid encoding.
+            let equal = array
+                .slice(0..len - 1)?
+                .binary(array.slice(1..len)?, Operator::Eq)?
+                .fill_null(false)?
+                .execute::<Mask>(ctx)?;
+            for i in 0..len - 1 {
+                let both_null = !validity.value(i) && !validity.value(i + 1);
+                if !equal.value(i) && !both_null {
+                    let end = (i + 1) as u64;
+                    ends.push(end);
+                    starts.push(end);
+                }
+            }
+        }
+        ends.push(len as u64);
+    }
+
+    let values = array.take(starts.into_array())?;
+    RunEndArray::try_new(ends.into_array(), values, ctx)
 }
 
 /// Export the values of a run-end array through the session, so extension metadata on the target
@@ -194,6 +227,7 @@ mod tests {
     use arrow_array::Int32Array;
     use arrow_array::Int64Array;
     use arrow_array::RunArray;
+    use arrow_array::StringViewArray;
     use arrow_array::types::Int16Type;
     use arrow_array::types::Int32Type;
     use arrow_array::types::Int64Type;
@@ -204,6 +238,7 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::SliceArray;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::Nullable;
     use vortex_array::dtype::PType;
@@ -341,6 +376,42 @@ mod tests {
         let expected = RunArray::<Int32Type>::try_new(
             &Int32Array::from(vec![2, 5]),
             &Int32Array::from(vec![10, 20]),
+        )?;
+        assert_eq!(result.as_ref(), &expected);
+        Ok(())
+    }
+
+    #[test]
+    fn nullable_strings_to_ree() -> VortexResult<()> {
+        let array = VarBinViewArray::from_iter_nullable_str([
+            Some("a"),
+            Some("a"),
+            None,
+            None,
+            Some("b"),
+            Some("a"),
+        ])
+        .into_array();
+        let target = ree_type(DataType::Int32, DataType::Utf8View);
+        let result = execute(array, &target)?;
+
+        let expected = RunArray::<Int32Type>::try_new(
+            &Int32Array::from(vec![2, 4, 5, 6]),
+            &StringViewArray::from(vec![Some("a"), None, Some("b"), Some("a")]),
+        )?;
+        assert_eq!(result.as_ref(), &expected);
+        Ok(())
+    }
+
+    #[test]
+    fn empty_primitive_to_ree() -> VortexResult<()> {
+        let array = PrimitiveArray::from_iter(Vec::<i32>::new()).into_array();
+        let target = ree_type(DataType::Int32, DataType::Int32);
+        let result = execute(array, &target)?;
+
+        let expected = RunArray::<Int32Type>::try_new(
+            &Int32Array::from(Vec::<i32>::new()),
+            &Int32Array::from(Vec::<i32>::new()),
         )?;
         assert_eq!(result.as_ref(), &expected);
         Ok(())
