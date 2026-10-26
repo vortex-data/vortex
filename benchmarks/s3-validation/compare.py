@@ -65,22 +65,38 @@ def calibrate(records: list[Record]) -> Record:
         small = [r["first_byte_ms"] for r in requests if r["bytes"] <= 65536]
     if not small:
         raise ValueError("No small S3 requests available to estimate TTFB")
-    ttfb = max(0.01, statistics.median(small))
+    observed_ttfb = statistics.median(small)
+    timer_overheads = [
+        request["first_byte_ms"]
+        - record["model"]["ttfb_ms"]
+        - request["bytes"] / 1048576 / record["model"]["request_mib_per_sec"] * 1000
+        for record in records
+        if record.get("kind") == "sample" and record["backend"] == "model" and not record["error"]
+        for request in record["requests"]
+        if request["operation"] == "GET"
+        and request["bytes"] <= 65536
+        and request["first_byte_ms"] is not None
+        and request["inflight_at_start"] <= 4
+    ]
+    timer_overhead = max(0.0, statistics.median(timer_overheads)) if timer_overheads else 0.0
+    ttfb = max(0.0, observed_ttfb - timer_overhead)
     rates = [
-        r["bytes"] / 1048576 / ((r["duration_ms"] - ttfb) / 1000)
+        r["bytes"] / 1048576 / ((r["duration_ms"] - observed_ttfb) / 1000)
         for r in requests
-        if r["bytes"] >= 262144 and r["duration_ms"] > ttfb + 0.1 and r["inflight_at_start"] <= 4
+        if r["bytes"] >= 262144 and r["duration_ms"] > observed_ttfb + 0.1 and r["inflight_at_start"] <= 4
     ]
     if not rates:
         rates = [
-            r["bytes"] / 1048576 / ((r["duration_ms"] - ttfb) / 1000)
+            r["bytes"] / 1048576 / ((r["duration_ms"] - observed_ttfb) / 1000)
             for r in requests
-            if r["bytes"] >= 262144 and r["duration_ms"] > ttfb + 0.1
+            if r["bytes"] >= 262144 and r["duration_ms"] > observed_ttfb + 0.1
         ]
     if not rates:
         raise ValueError("No large S3 requests available to estimate throughput")
     return {
         "ttfb_ms": round(ttfb, 3),
+        "observed_s3_ttfb_ms": round(observed_ttfb, 3),
+        "timer_overhead_ms": round(timer_overhead, 3),
         "request_mib_per_sec": round(min(10000.0, max(1.0, quantile(rates, 0.75))), 3),
         # Observed concurrency alone does not establish a service-side limit.
         "max_inflight": 0,
@@ -133,23 +149,29 @@ def compare(records: list[Record], iterations: int, suites: list[str]) -> Record
                     real.append(a["seconds"])
                     model.append(b["seconds"])
                 ratio = statistics.median(model) / statistics.median(real) if real else None
-                representative = samples.get(("real", 0), {})
-                rows.append(
-                    {
-                        "suite": suite,
-                        "query": query,
-                        "cache": cache,
-                        "real_median_ms": statistics.median(real) * 1000 if real else None,
-                        "model_median_ms": statistics.median(model) * 1000 if model else None,
-                        "real_p90_ms": quantile(real, 0.9) * 1000 if real else None,
-                        "model_p90_ms": quantile(model, 0.9) * 1000 if model else None,
-                        "ratio": ratio,
-                        "outside_band": ratio is None or not 0.7 <= ratio <= 1.3,
-                        "requests_match": not failures,
-                        "failures": "; ".join(sorted(set(failures))),
-                        "real_counts": representative.get("counts"),
-                    }
-                )
+                row = {
+                    "suite": suite,
+                    "query": query,
+                    "cache": cache,
+                    "real_median_ms": statistics.median(real) * 1000 if real else None,
+                    "model_median_ms": statistics.median(model) * 1000 if model else None,
+                    "real_p90_ms": quantile(real, 0.9) * 1000 if real else None,
+                    "model_p90_ms": quantile(model, 0.9) * 1000 if model else None,
+                    "ratio": ratio,
+                    "outside_band": ratio is None or not 0.7 <= ratio <= 1.3,
+                    "requests_match": not failures,
+                    "failures": "; ".join(sorted(set(failures))),
+                }
+                for backend in ("real", "model"):
+                    observed = [s for (b, _), s in samples.items() if b == backend and not s["error"]]
+                    for field in ("get", "put", "list", "head", "bytes", "peak_inflight"):
+                        row[f"{backend}_{field}"] = (
+                            statistics.median(s["counts"][field] for s in observed) if observed else None
+                        )
+                    row[f"{backend}_avg_inflight"] = (
+                        statistics.median(s.get("avg_inflight", 0) for s in observed) if observed else None
+                    )
+                rows.append(row)
     correlations = {}
     for suite in [*suites, "all"]:
         for cache in ("cold", "warm"):
@@ -168,7 +190,16 @@ def compare(records: list[Record], iterations: int, suites: list[str]) -> Record
     adequate &= all(c is not None and c >= 0.95 for c in correlations.values())
     adequate &= all(not e.get("local_smoke") and e["scale_factor"] in ("10", "10.0") for e in environments)
     adequate &= iterations >= 3 and set(suites) == {"tpch", "tpcds"} and len(environments) == len(suites)
-    return {"adequate": adequate, "correlations": correlations, "rows": rows, "environments": environments}
+    provenance = ("ci_run_id", "sha", "region", "instance_id", "format", "cpus", "total_memory", "adaptive_io")
+    adequate &= all(all(e.get(key) is not None for key in provenance) for e in environments)
+    adequate &= len({tuple(e.get(key) for key in provenance) for e in environments}) == 1
+    return {
+        "adequate": adequate,
+        "default_ci_recommended": adequate and all(e.get("adaptive_io") for e in environments),
+        "correlations": correlations,
+        "rows": rows,
+        "environments": environments,
+    }
 
 
 def markdown(result: Record) -> str:
@@ -177,12 +208,14 @@ def markdown(result: Record) -> str:
         "",
         "Recommendation: "
         + (
-            "the model meets the default CI gate for this engine, format and runner."
+            "use the model as the default for this measured engine, format and runner."
+            if result["default_ci_recommended"]
+            else "use the model for the fixed-read profile; keep real S3 for adaptive SQL CI benchmarks."
             if result["adequate"]
             else "keep real S3 as the reference; the model has not met the default CI gate."
         ),
         "",
-        "Gate: complete TPC-H/TPC-DS SF10 coverage, at least three paired samples per cache state, exact "
+        "Fit gate: complete TPC-H/TPC-DS SF10 coverage, at least three paired samples per cache state, exact "
         "request/byte/row-count agreement, every median ratio in 0.7–1.3, and Spearman ≥0.95 per suite/cache "
         "state.",
         "",
@@ -190,6 +223,11 @@ def markdown(result: Record) -> str:
         "in that session. Registration is outside the query timer and its request counts are checked "
         "separately. Both stores retain the same immutable RAM snapshot during measurements. The real backend "
         "uses a reused S3 HTTP client; cold does not mean a new TLS connection or a cleared S3 service cache.",
+        "",
+        "The fixed-read validation profile disables opportunistic read coalescing, file repartitioning, "
+        "dynamic filter pushdown and Vortex predicate pushdown for both backends. DataFusion evaluates "
+        "filters after the scan. Query operators and intra-file scans remain parallel. A successful fit "
+        "is conditional on this profile and does not validate adaptive scans.",
         "",
         "Request metrics count object-store API operations. The snapshot has fewer than 1,000 objects, so "
         "flat LISTs need one S3 page; internal HTTP retries and 503 responses retried by the S3 client are "
@@ -258,12 +296,7 @@ def main():
         args.output.write_text(json.dumps(calibrate(records), indent=2) + "\n")
         return
     result = compare(records, args.iterations, args.suites)
-    args.output.with_suffix(".json").write_text(json.dumps(result, indent=2) + "\n")
-    args.output.write_text(markdown(result))
-    with args.output.with_suffix(".csv").open("w") as output:
-        writer = csv.DictWriter(output, fieldnames=result["rows"][0].keys())
-        writer.writeheader()
-        writer.writerows(result["rows"])
+    write_reports(result, args.output)
     print(
         json.dumps(
             {
@@ -274,6 +307,15 @@ def main():
             }
         )
     )
+
+
+def write_reports(result: Record, path: Path):
+    path.with_suffix(".json").write_text(json.dumps(result, indent=2) + "\n")
+    path.write_text(markdown(result))
+    with path.with_suffix(".csv").open("w") as output:
+        writer = csv.DictWriter(output, fieldnames=result["rows"][0].keys())
+        writer.writeheader()
+        writer.writerows(result["rows"])
 
 
 if __name__ == "__main__":

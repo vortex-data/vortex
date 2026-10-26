@@ -54,12 +54,18 @@ def main():
             ]
             print("Running", command, flush=True)
             with (args.output / f"{phase}-{suite}.log").open("w") as log:
-                subprocess.run(command, stderr=log, check=True)
+                with subprocess.Popen(command, stderr=subprocess.PIPE, text=True) as process:
+                    if process.stderr is None:
+                        raise RuntimeError("Missing validator log stream")
+                    for line in process.stderr:
+                        log.write(line)
+                        print(line, end="", flush=True)
+                    if process.wait():
+                        raise subprocess.CalledProcessError(process.returncode, command)
             paths.append(output)
         records = compare.read(paths)
         result = compare.compare(records, args.iterations, ["tpch", "tpcds"])
-        (args.output / f"{phase}.json").write_text(json.dumps(result, indent=2) + "\n")
-        (args.output / f"{phase}.md").write_text(compare.markdown(result))
+        compare.write_reports(result, args.output / f"{phase}.md")
         print(phase, json.dumps({"adequate": result["adequate"], "correlations": result["correlations"]}), flush=True)
         if phase == "initial":
             # A request mismatch invalidates latency tuning; preserve the evidence and stop.

@@ -65,6 +65,7 @@ use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
 use super::cache::CachedVortexMetadata;
+use super::reader::VortexReaderFactory;
 use super::sink::VortexSink;
 use super::source::VortexSource;
 use crate::PrecisionExt as _;
@@ -126,12 +127,14 @@ pub struct VortexFormat {
     session: VortexSession,
     opts: VortexTableOptions,
     expression_converter: Option<Arc<dyn ExpressionConverter>>,
+    reader_factory: Option<Arc<dyn VortexReaderFactory>>,
 }
 
 impl Debug for VortexFormat {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("VortexFormat")
             .field("opts", &self.opts)
+            .field("has_reader_factory", &self.reader_factory.is_some())
             .field(
                 "has_expression_converter",
                 &self.expression_converter.is_some(),
@@ -451,6 +454,7 @@ impl VortexFormat {
             session,
             opts,
             expression_converter: None,
+            reader_factory: None,
         }
     }
 
@@ -458,6 +462,14 @@ impl VortexFormat {
     /// [`VortexSource`] created for a scan.
     pub fn options(&self) -> &VortexTableOptions {
         &self.opts
+    }
+
+    /// Overrides the reader factory used by scans created by this format.
+    ///
+    /// Schema and statistics inference continue to use the registered object store.
+    pub fn with_vortex_reader_factory(mut self, factory: Arc<dyn VortexReaderFactory>) -> Self {
+        self.reader_factory = Some(factory);
+        self
     }
 
     /// Sets the [`ExpressionConverter`] used by every [`VortexSource`] created by this format.
@@ -761,6 +773,9 @@ impl FileFormat for VortexFormat {
         if let Some(expression_converter) = &self.expression_converter {
             source = source.with_expression_converter(Arc::clone(expression_converter));
         }
+        if let Some(factory) = &self.reader_factory {
+            source = source.with_vortex_reader_factory(Arc::clone(factory));
+        }
         Arc::new(source) as _
     }
 }
@@ -802,6 +817,7 @@ mod tests {
     use datafusion_physical_expr::expressions as df_expr;
     use datafusion_physical_expr::projection::ProjectionExprs;
     use datafusion_physical_plan::filter_pushdown::PushedDown;
+    use object_store::memory::InMemory;
     use rstest::rstest;
     use vortex::array::stats::StatsSet;
     use vortex::dtype::Nullability;
@@ -814,6 +830,25 @@ mod tests {
     use crate::convert::DefaultExpressionConverter;
     use crate::convert::ProcessedProjection;
     use crate::convert::scalar_from_df;
+    use crate::reader::DefaultVortexReaderFactory;
+
+    #[test]
+    fn format_reader_factory_reaches_file_source() -> VortexResult<()> {
+        let factory: Arc<dyn VortexReaderFactory> =
+            Arc::new(DefaultVortexReaderFactory::new(Arc::new(InMemory::new())));
+        let format = VortexFormat::new(VortexSession::default())
+            .with_vortex_reader_factory(Arc::clone(&factory));
+        let source = format.file_source(TableSchema::from(expression_converter_test_schema()));
+        let source = source
+            .downcast_ref::<VortexSource>()
+            .ok_or_else(|| vortex_err!("Expected VortexSource"))?;
+        let actual = source
+            .vortex_reader_factory
+            .as_ref()
+            .ok_or_else(|| vortex_err!("Missing reader factory"))?;
+        assert!(Arc::ptr_eq(actual, &factory));
+        Ok(())
+    }
 
     #[test]
     fn lossy_bound_cast_does_not_prove_constant() -> VortexResult<()> {

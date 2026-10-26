@@ -81,11 +81,10 @@ jobs:
       - name: Verify bucket region and runner location
         run: |
           set -Eeuo pipefail
-          region=$(aws s3api get-bucket-location --bucket vortex-ci-benchmark-datasets --query LocationConstraint --output text)
-          test "$region" = None
-          token=$(curl --fail --silent --show-error --max-time 5 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' http://169.254.169.254/latest/api/token)
-          runner_region=$(curl --fail --silent --show-error --max-time 5 -H "X-aws-ec2-metadata-token: $token" http://169.254.169.254/latest/meta-data/placement/region)
-          test "$runner_region" = "$AWS_REGION"
+          region=$(curl --silent --show-error --head --max-time 20 https://vortex-ci-benchmark-datasets.s3.amazonaws.com/ |
+            awk 'tolower($1) == "x-amz-bucket-region:" {gsub("\r", "", $2); print $2}')
+          test "$region" = "$AWS_REGION"
+          test "$RUNS_ON_AWS_REGION" = "$AWS_REGION"
       - name: Upload canonical objects to this run's unique prefix
         run: |
           aws s3 cp --recursive vortex-bench/data/tpch/10/ "$REMOTE_ROOT/tpch/"
@@ -93,9 +92,18 @@ jobs:
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
       - name: Measure initial model and calibrate requests
+        id: initial
         run: |
           python3 benchmarks/s3-validation/run.py --source-root "$REMOTE_ROOT" \
             --iterations "$ITERATIONS" --format "$BENCH_FORMAT" --phase initial
+      - name: Preserve initial measurements before validation
+        if: always() && steps.initial.outcome != 'skipped'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: s3-validation-initial
+          path: |
+            s3-validation-results/initial*
+            s3-validation-results/parameters.json
       - name: Refresh AWS credentials for validation
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
         with:

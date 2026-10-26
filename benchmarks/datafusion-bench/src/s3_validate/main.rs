@@ -3,6 +3,7 @@
 
 //! Paired real S3 and deterministic RAM-backed S3 measurements on one host.
 
+mod reader;
 mod store;
 
 use std::fs::File;
@@ -65,25 +66,47 @@ struct Args {
     /// Allows a local filesystem source for development smoke runs.
     #[arg(long)]
     allow_local: bool,
+    /// Retain normal coalescing, repartitioning and predicate pushdown for diagnostic runs.
+    #[arg(long)]
+    adaptive_io: bool,
 }
 
 async fn session(
     benchmark: &dyn Benchmark,
     format: Format,
     store: Arc<Store>,
+    adaptive_io: bool,
 ) -> anyhow::Result<SessionContext> {
     let session = datafusion_bench::get_session_context();
-    session.register_object_store(benchmark.data_url(), store);
+    session.register_object_store(benchmark.data_url(), Arc::<Store>::clone(&store));
+    if !adaptive_io {
+        session
+            .sql("SET datafusion.optimizer.enable_dynamic_filter_pushdown = false")
+            .await?
+            .collect()
+            .await?;
+        session
+            .sql("SET datafusion.optimizer.repartition_file_scans = false")
+            .await?
+            .collect()
+            .await?;
+    }
     for sql in benchmark.engine_init_sql(Engine::DataFusion) {
         session.sql(&sql).await?.collect().await?;
     }
     // A fresh Vortex session also clears footer and segment caches between cold runs.
     let vortex = VortexSession::default().with_tokio();
     let mut options = VortexTableOptions::default();
-    options.predicate_pushdown = true;
+    options.predicate_pushdown = adaptive_io;
     options.projection_pushdown = true;
     let file_format = match format {
-        Format::OnDiskVortex => Arc::new(VortexFormat::new_with_options(vortex, options)) as _,
+        Format::OnDiskVortex => {
+            let mut format = VortexFormat::new_with_options(vortex, options);
+            if !adaptive_io {
+                format = format.with_vortex_reader_factory(Arc::new(reader::ReaderFactory(store)));
+            }
+            Arc::new(format) as _
+        }
         Format::Parquet => datafusion_bench::format_to_df_format(format)?,
         _ => anyhow::bail!("Only vortex and parquet are supported"),
     };
@@ -155,7 +178,8 @@ async fn main() -> anyhow::Result<()> {
         "model": model, "iterations": args.iterations, "cpus": system.cpus().len(),
         "total_memory": system.total_memory(), "available_memory": system.available_memory(),
         "ci_run_id": std::env::var("GITHUB_RUN_ID").ok(), "sha": std::env::var("GITHUB_SHA").ok(),
-        "region": std::env::var("AWS_REGION").ok(), "local_smoke": args.allow_local }),
+        "region": std::env::var("AWS_REGION").ok(), "instance_id": std::env::var("RUNS_ON_INSTANCE_ID").ok(),
+        "local_smoke": args.allow_local, "adaptive_io": args.adaptive_io }),
     )?;
     writeln!(writer)?;
     let queries = benchmark.queries()?;
@@ -178,7 +202,13 @@ async fn main() -> anyhow::Result<()> {
             for (backend, store) in pair {
                 store.reset()?;
                 let setup_start = Instant::now();
-                let session = session(benchmark.as_ref(), args.format, Arc::clone(store)).await?;
+                let session = session(
+                    benchmark.as_ref(),
+                    args.format,
+                    Arc::clone(store),
+                    args.adaptive_io,
+                )
+                .await?;
                 let setup_seconds = setup_start.elapsed().as_secs_f64();
                 let (setup_counts, _) = store.take()?;
                 for cache in ["cold", "warm"] {

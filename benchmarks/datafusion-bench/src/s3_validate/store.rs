@@ -117,6 +117,7 @@ impl Drop for Guard {
 #[derive(Debug)]
 pub(super) struct Object {
     meta: ObjectMeta,
+    list_meta: ObjectMeta,
     attributes: Attributes,
     data: Bytes,
 }
@@ -127,6 +128,10 @@ pub(super) type Snapshot = Arc<BTreeMap<Path, Object>>;
 pub(super) async fn snapshot(store: &dyn ObjectStore, prefix: &Path) -> anyhow::Result<Snapshot> {
     let objects: Vec<ObjectMeta> = store.list(Some(prefix)).try_collect().await?;
     anyhow::ensure!(!objects.is_empty(), "No objects under {prefix}");
+    anyhow::ensure!(
+        objects.len() < 1000,
+        "Validation requires single-page flat listings"
+    );
     let size: u64 = objects.iter().map(|m| m.size).sum();
     let system = sysinfo::System::new_all();
     let available = system.available_memory();
@@ -153,6 +158,7 @@ pub(super) async fn snapshot(store: &dyn ObjectStore, prefix: &Path) -> anyhow::
         result.insert(
             meta.location.clone(),
             Object {
+                list_meta: meta,
                 meta: actual_meta,
                 attributes,
                 data,
@@ -247,7 +253,7 @@ impl Store {
                 _permit: permit,
             }
         };
-        if let Some(model) = self.model {
+        if let Some(model) = self.model.filter(|m| m.ttfb_ms > 0.0) {
             tokio::time::sleep(Duration::from_secs_f64(model.ttfb_ms / 1000.0)).await;
         }
         Ok(guard)
@@ -258,6 +264,7 @@ impl Store {
         location: &Path,
         options: &GetOptions,
         objects: &Snapshot,
+        request_start: Instant,
     ) -> Result<GetResult> {
         let object = objects
             .get(location)
@@ -296,7 +303,7 @@ impl Store {
             object.data.slice(start..end)
         };
         let model = self.model;
-        let start = tokio::time::Instant::now();
+        let start = tokio::time::Instant::from_std(request_start);
         let payload = stream::try_unfold((data, 0usize), move |(data, offset)| async move {
             if offset == data.len() {
                 return Ok(None);
@@ -305,7 +312,10 @@ impl Store {
             if let Some(model) = model {
                 // Absolute deadlines avoid adding a timer tick for each response chunk.
                 let deadline = start
-                    + Duration::from_secs_f64(end as f64 / (model.request_mib_per_sec * 1048576.0));
+                    + Duration::from_secs_f64(
+                        model.ttfb_ms / 1000.0
+                            + end as f64 / (model.request_mib_per_sec * 1048576.0),
+                    );
                 tokio::time::sleep_until(deadline).await;
             }
             Ok(Some((data.slice(offset..end), (data, end))))
@@ -344,7 +354,7 @@ impl ObjectStore for Store {
             )
             .await?;
         let result = match &self.snapshot {
-            Some(objects) => self.ram_get(location, &options, objects),
+            Some(objects) => self.ram_get(location, &options, objects, guard.start),
             None => self.source.get_opts(location, options).await,
         };
         let response = match result {
@@ -427,7 +437,7 @@ impl ObjectStore for Store {
                     },
                 }
             };
-            if let Some(model) = model {
+            if let Some(model) = model.filter(|m| m.ttfb_ms > 0.0) {
                 tokio::time::sleep(Duration::from_secs_f64(model.ttfb_ms / 1000.0)).await;
             }
             let inner = match objects {
@@ -439,7 +449,7 @@ impl ObjectStore for Store {
                                 .as_ref()
                                 .is_none_or(|p| o.meta.location.prefix_matches(p))
                         })
-                        .map(|o| Ok(o.meta.clone()))
+                        .map(|o| Ok(o.list_meta.clone()))
                         .collect::<Vec<_>>(),
                 )
                 .boxed(),

@@ -13,6 +13,14 @@ an immutable RAM snapshot. Both backends use the same URLs, object metadata, byt
 file sizes and partitioning. The snapshot stays resident for both backends. Preloading checks
 available RAM and reserves 60% for working memory. Only one suite's snapshot is resident at a time.
 
+Validation uses fixed file partitions and disables opportunistic read coalescing, dynamic filter
+pushdown, and Vortex predicate pushdown for both stores. DataFusion evaluates the filters after
+reading the required columns. Query operators and intra-file scans retain parallel execution.
+The normal scan path can issue different physical requests even between repeated real-backend
+executions because speculative reads may be cancelled. `--adaptive-io` restores normal scan
+behavior for diagnostics. A successful fixed-read fit does not establish equivalent behavior for
+adaptive scans; that limits any recommendation to change the default CI storage backend.
+
 Each of five iterations creates fresh DataFusion and Vortex sessions, registers tables, runs the
 query cold, then immediately runs it warm. Query timers include planning and execution; table
 registration has separate timings and request counters. The S3 HTTP client stays alive across
@@ -22,7 +30,7 @@ The initial deterministic model uses 25 ms per request, 100 MiB/s per request an
 cap. Sleeps use Tokio timers and response streams retain their semaphore permit until completed
 or cancelled. Transfer waits use absolute deadlines to avoid accumulating a timer tick per chunk.
 No randomness is used. Calibration estimates TTFB from small S3 requests and throughput from
-large S3 requests, preferring low concurrency. It uses request traces, without adjusting query
+large S3 requests, preferring low concurrency. The programmed delay accounts for the measured model timer overhead, which is reported separately. It uses request traces, without adjusting query
 results or applying per-query runtime factors. A second complete paired run tests these parameters
 against fresh S3 samples on the same runner.
 
