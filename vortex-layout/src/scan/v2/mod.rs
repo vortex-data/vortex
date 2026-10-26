@@ -18,11 +18,12 @@
 //! serialized bytes per row are high.
 //!
 //! A [`ScanFile`] carrying a [`ScanCache`] shares its lowered plan, filter plans and pruned
-//! zones, segment index, and dictionary values with every other scan of that file, like a cached
-//! layout reader does for V1 scans.
+//! zones, segment index, dictionary values, and recently read segments with every other scan of
+//! that file, like a cached layout reader does for V1 scans.
 
 mod cache;
 pub(crate) mod io;
+mod retain;
 #[cfg(test)]
 mod tests;
 
@@ -206,7 +207,7 @@ impl ScanBuilder {
             session: self.session,
             rows: self.row_range.unwrap_or(0..row_count),
             selection: self.selection,
-            segments: file.segments,
+            segments: cache.retaining(file.segments),
             ranges,
             cache,
             locations: file.locations,
