@@ -28,6 +28,7 @@ use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::dtype::DType;
+use crate::scalar::Scalar;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSet;
 use crate::stats::StatsSetRef;
@@ -412,11 +413,7 @@ impl<V: VTable> Array<V> {
     }
 
     /// Execute the array to extract a scalar at the given index.
-    pub fn execute_scalar(
-        &self,
-        index: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<crate::scalar::Scalar> {
+    pub fn execute_scalar(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
         self.inner.execute_scalar(index, ctx)
     }
 
@@ -466,7 +463,7 @@ impl<V: VTable> Array<V> {
     }
 
     /// Returns the scalar value when this array is known to be constant.
-    pub fn as_constant(&self) -> Option<&crate::scalar::Scalar> {
+    pub fn as_constant(&self) -> Option<&Scalar> {
         self.inner.as_constant()
     }
 
