@@ -19,6 +19,8 @@ pub mod pipeline;
 mod plans;
 pub(crate) mod selection;
 mod slots;
+pub(crate) use plans::register_row_idx_partition_rules;
+pub(crate) use plans::struct_partitioning::register_struct_partition_rules;
 mod typed;
 mod vtable;
 

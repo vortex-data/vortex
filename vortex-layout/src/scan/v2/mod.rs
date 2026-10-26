@@ -222,7 +222,7 @@ impl ScanBuilder {
             Some(plan) => plan,
             None => {
                 let plan = optimize(
-                    plan_row_idx_expression(self.projection.clone(), root)?,
+                    plan_row_idx_expression(self.projection.clone(), root, &self.session)?,
                     &self.session,
                 )?;
                 cache.insert_projection(self.projection, plan)
