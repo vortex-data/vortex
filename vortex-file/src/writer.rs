@@ -23,6 +23,8 @@ use vortex_array::ArrayContext;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTable;
+use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::iter::ArrayIterator;
@@ -321,11 +323,17 @@ impl VortexWriteOptions {
         // When unset, `accumulate_stats` resolves each leaf's own default from its dtype, the way
         // `default_zoned_aggregate_fns` does for zoned layouts (e.g. bounded min/max for
         // variable-length columns), rather than a single dtype-blind default applied uniformly.
+        // Editions before the aggregates (for example `core2025.10.0`) do not permit `Min`, so the
+        // nested statistics would have no min and max. Readers of these editions use only the
+        // legacy format, so these editions get the legacy statistics only.
+        let write_nested_statistics =
+            self.write_nested_statistics && ctx.allows_aggregate(&Min.id());
+
         let (file_stats, stream) = accumulate_stats(
             stream,
             file_statistics,
             &self.session,
-            self.write_nested_statistics,
+            write_nested_statistics,
             self.write_legacy_statistics,
             &ctx,
         )?;
@@ -371,7 +379,7 @@ impl VortexWriteOptions {
         // Assemble the Footer object now that we have all the segments.
         let statistics = if omit_statistics {
             None
-        } else if self.write_nested_statistics {
+        } else if write_nested_statistics {
             Some(FileStatistics::new_with_dtype(
                 file_stats.aggregate_stats()?.into(),
                 file_stats.legacy_aggregate_stats()?.into(),
