@@ -27,9 +27,6 @@ pub mod row_mask;
 pub mod selection;
 pub mod strict_sorted_buffer;
 
-#[cfg(test)]
-mod tests;
-
 use std::any::Any;
 use std::ops::Range;
 use std::sync::Arc;
@@ -43,7 +40,6 @@ use vortex_array::dtype::FieldPath;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
 use vortex_array::expr::stats::Precision;
-use vortex_array::expr::stats::Stat;
 use vortex_array::scalar::Scalar;
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::SendableArrayStream;
@@ -128,40 +124,22 @@ pub trait DataSource: 'static + Send + Sync {
     /// Returns the statistics for a given field.
     async fn field_statistics(&self, field_path: &FieldPath) -> VortexResult<StatsSet>;
 
-    /// Returns a stored aggregate result over the unfiltered source field.
+    /// Returns a stored aggregate partial over the unfiltered source field.
     ///
-    /// The aggregate's identity and options determine the requested statistic. The returned
-    /// scalar has the aggregate's result dtype, rather than its accumulator partial dtype.
-    /// Implementations may combine stored partials, but must not scan payloads to compute a
-    /// missing statistic. Missing coverage, unsupported aggregates, and incompatible stored
-    /// definitions return [`Precision::Absent`]. An exact null result is an exact null scalar,
-    /// not an absent statistic.
+    /// The scalar has the aggregate's `partial_dtype`; callers merge partials and finalize
+    /// through the requested aggregate. Identity includes bound options. Missing partials,
+    /// incomplete coverage, and incompatible aggregates return [`Precision::Absent`], as
+    /// does the default implementation. Finalized legacy statistics are not partials.
     ///
-    /// An inexact result follows the requested aggregate's approximation contract. Callers must
-    /// not use it to answer an exact aggregate or enforce a row predicate without a valid proof.
-    /// Filters, selections, and limits on a later scan do not change this source-level result.
-    ///
-    /// The default implementation exposes compatible built-in statistics from
-    /// [`Self::field_statistics`]. Sources with additional aggregate statistics can override it.
+    /// Lookup must not scan payloads. Precision describes the partial state; consumers must
+    /// respect the aggregate's approximation contract. Later scan filters and limits do not
+    /// change this source-level partial. A stored null partial is distinct from absence.
     async fn field_statistic(
         &self,
-        field_path: &FieldPath,
-        aggregate_fn: &AggregateFnRef,
+        _field_path: &FieldPath,
+        _aggregate_fn: &AggregateFnRef,
     ) -> VortexResult<Precision<Scalar>> {
-        let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) else {
-            return Ok(Precision::Absent);
-        };
-        let Some(input_dtype) = field_path.resolve(self.dtype().clone()) else {
-            return Ok(Precision::Absent);
-        };
-        let Some(result_dtype) = aggregate_fn.return_dtype(&input_dtype) else {
-            return Ok(Precision::Absent);
-        };
-        self.field_statistics(field_path)
-            .await?
-            .get(stat)
-            .map(|value| Scalar::try_new(result_dtype, Some(value)))
-            .transpose()
+        Ok(Precision::Absent)
     }
 }
 

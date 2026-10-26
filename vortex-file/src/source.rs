@@ -76,13 +76,11 @@ impl DataSource for FileDataSource {
         else {
             return Ok(Precision::Absent);
         };
-        // AggregateStats::get omits nulls for pruning; the Scan API retains exact null results.
-        if let Some(statistic) = statistics
+        Ok(statistics
             .iter()
             .find(|statistic| statistic.aggregate_fn() == aggregate_fn)
-        {
-            return Ok(statistic.value().clone());
-        }
-        Ok(statistics.get(aggregate_fn))
+            .and_then(|statistic| statistic.partial())
+            .cloned()
+            .map_or(Precision::Absent, Precision::Exact))
     }
 }

@@ -23,8 +23,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
-use vortex_array::aggregate_fn::fns::min_max::MinMax;
-use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
+use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
@@ -103,28 +102,20 @@ use vortex_layout::DynLayout;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
-use vortex_layout::layouts::file_stats::AggregateStat;
 use vortex_layout::layouts::file_stats::AggregateStats;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::struct_::StructStrategy;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::LegacyStats;
 use vortex_layout::layouts::zoned::Zoned;
-use vortex_layout::scan::layout::LayoutReaderDataSource;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::split_by::DEFAULT_MAX_SPLIT_ROWS;
 use vortex_layout::scan::split_by::SplitBy;
-use vortex_layout::segments::SegmentFuture;
-use vortex_layout::segments::SegmentId;
-use vortex_layout::segments::SegmentSource;
 use vortex_layout::session::LayoutSession;
-use vortex_scan::DataSource;
-use vortex_scan::ScanRequest;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 use vortex_zigzag::ZigZag;
 
-use crate::FileStatistics;
 use crate::MAX_POSTSCRIPT_SIZE;
 use crate::OpenOptionsSessionExt;
 use crate::V1_FOOTER_FBS_SIZE;
@@ -133,7 +124,6 @@ use crate::VortexFile;
 use crate::WriteOptionsSessionExt;
 use crate::flatbuffers::footer as fb;
 use crate::footer::SegmentSpec;
-use crate::source::FileDataSource;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty()
         .with::<LayoutSession>()
@@ -2301,166 +2291,30 @@ async fn unreadable_file_statistics_do_not_fail_the_open() -> VortexResult<()> {
     Ok(())
 }
 
-struct NoPayloadReads;
-
-impl SegmentSource for NoPayloadReads {
-    fn request(&self, _id: SegmentId) -> SegmentFuture {
-        panic!("source statistics must not read payloads")
-    }
-}
-
 #[tokio::test]
-async fn file_data_source_exposes_structured_aggregate_metadata() -> VortexResult<()> {
-    let numbers = PrimitiveArray::from_option_iter([Some(5_i32), None, Some(-3)]).into_array();
-    let nulls = PrimitiveArray::from_option_iter([None::<i32>; 3]).into_array();
+async fn file_data_source_returns_mergeable_partials() -> VortexResult<()> {
+    let sum = SumV2.bind(NumericalAggregateOpts::default());
     let array =
-        StructArray::from_fields(&[("numbers", numbers.clone()), ("nulls", nulls.clone())])?
-            .into_array();
-    let min_max = MinMax.bind(NumericalAggregateOpts::default());
-    let min = Stat::Min.aggregate_fn().vortex_expect("min aggregate");
+        StructArray::from_fields(&[("numbers", buffer![1_i32, 2, 3].into_array())])?.into_array();
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
         .disable_editions()
-        .with_file_statistics(vec![min.clone()])
+        .with_file_statistics(vec![sum.clone()])
         .write(&mut buf, array.to_array_stream())
         .await?;
-    let file = SESSION
-        .open_options()
-        .open_buffer(buf)?
-        .with_segment_source(Arc::new(NoPayloadReads));
-    // MinMax is not serializable yet; supply its metadata alongside the reopened min statistic.
-    let mut ctx = SESSION.create_execution_ctx();
-    let mut numbers_acc = min_max.accumulator(numbers.dtype())?;
-    numbers_acc.accumulate(&numbers, &mut ctx)?;
-    let mut nulls_acc = min_max.accumulator(nulls.dtype())?;
-    nulls_acc.accumulate(&nulls, &mut ctx)?;
-    let mut number_stats = file
-        .file_stats()
-        .vortex_expect("stored stats")
-        .get_by_path(&field_path!(numbers))
-        .vortex_expect("numbers stats")
-        .0
-        .iter()
-        .cloned()
-        .collect::<Vec<_>>();
-    number_stats.push(AggregateStat::try_from_partial(
-        min_max.clone(),
-        numbers_acc.partial_scalar()?,
-        numbers.dtype(),
-    )?);
-    let statistics = FileStatistics::new(
-        Arc::new([
-            AggregateStats::new(number_stats),
-            AggregateStats::new(vec![AggregateStat::try_from_partial(
-                min_max.clone(),
-                nulls_acc.partial_scalar()?,
-                nulls.dtype(),
-            )?]),
-        ]),
-        Arc::new([numbers.dtype().clone(), nulls.dtype().clone()]),
-        Arc::new([field_path!(numbers), field_path!(nulls)]),
-    );
-    let source = FileDataSource::new(
-        LayoutReaderDataSource::new(file.layout_reader()?, SESSION.clone()),
-        Some(statistics),
-    );
-    assert_eq!(source.dtype(), file.dtype());
-    assert_eq!(source.row_count(), Precision::Exact(3));
-    assert_eq!(source.byte_size(), Precision::Absent);
-    assert!(source.serialize()?.is_none());
-
-    let path = field_path!(numbers);
-    let result = source.field_statistic(&path, &min_max).await?;
-    let result = result
-        .as_exact()
-        .vortex_expect("exact structured aggregate");
-    let extrema = MinMaxResult::from_scalar(&result)?.vortex_expect("non-null extrema");
-    assert_eq!(extrema.min, Scalar::from(-3_i32));
-    assert_eq!(extrema.max, Scalar::from(5_i32));
-    assert_eq!(
-        source.field_statistics(&path).await?.get(Stat::Min),
-        Precision::Exact(ScalarValue::from(-3_i32))
-    );
-    let null = source
-        .field_statistic(&field_path!(nulls), &min_max)
-        .await?;
-    assert!(
-        null.as_exact()
-            .vortex_expect("exact null aggregate")
-            .is_null()
-    );
-
-    let sum = Stat::Sum.aggregate_fn().vortex_expect("sum aggregate");
-    assert_eq!(
-        source.field_statistic(&path, &sum).await?,
-        Precision::Absent
-    );
-    assert_eq!(
-        source
-            .field_statistic(&field_path!(missing), &min_max)
-            .await?,
-        Precision::Absent
-    );
-    assert!(
-        source
-            .field_statistics(&field_path!(missing))
-            .await?
-            .is_empty()
-    );
-    Ok(())
-}
-
-#[rstest]
-#[tokio::test]
-async fn file_data_source_preserves_scans_with_optional_statistics(
-    #[values(false, true)] statistics: bool,
-) -> VortexResult<()> {
-    let array =
-        StructArray::from_fields(&[("numbers", buffer![1_i32, 2, 3].into_array())])?.into_array();
-    let min = Stat::Min.aggregate_fn().vortex_expect("min aggregate");
-    let mut buf = ByteBufferMut::empty();
-    SESSION
-        .write_options()
-        .with_file_statistics(if statistics {
-            vec![min.clone()]
-        } else {
-            Vec::new()
-        })
-        .write(&mut buf, array.clone().to_array_stream())
-        .await?;
-    let file = SESSION.open_options().open_buffer(buf)?;
-    assert_eq!(file.file_stats().is_some(), statistics);
-    let source = file.data_source()?;
-    let result = source.field_statistic(&field_path!(numbers), &min).await?;
-    assert_eq!(
-        result,
-        if statistics {
-            Precision::Exact(Scalar::primitive(1_i32, Nullability::Nullable))
-        } else {
-            Precision::Absent
-        }
-    );
-    assert_eq!(
-        source
-            .field_statistics(&field_path!(numbers))
-            .await?
-            .is_empty(),
-        !statistics
-    );
-    let chunks = source
-        .scan(ScanRequest::default())
+    let source = SESSION.open_options().open_buffer(buf)?.data_source()?;
+    let partial = source
+        .field_statistic(&field_path!(numbers), &sum)
         .await?
-        .partitions()
-        .and_then(|partition| async move { partition.execute() })
-        .try_flatten()
-        .try_collect::<Vec<_>>()
-        .await?;
-    let mut ctx = SESSION.create_execution_ctx();
-    assert_arrays_eq!(
-        ChunkedArray::try_new(chunks, array.dtype().clone())?.into_array(),
-        array,
-        &mut ctx
+        .as_exact()
+        .expect("stored partial");
+    let mut accumulator = sum.accumulator(&I32.into())?;
+    accumulator.combine_partials(&partial)?;
+    accumulator.combine_partials(&partial)?;
+    assert_eq!(
+        accumulator.final_scalar()?,
+        Scalar::primitive(12_i64, Nullability::Nullable)
     );
     Ok(())
 }
@@ -2569,12 +2423,6 @@ async fn default_string_stats_are_inexact_bounds_after_reopening() -> VortexResu
         .file_stats()
         .expect("file statistics should be present");
 
-    let source = file.data_source()?;
-    let min = Stat::Min.aggregate_fn().vortex_expect("min aggregate");
-    assert_eq!(
-        source.field_statistic(&field_path!(short), &min).await?,
-        Precision::Inexact(Scalar::utf8("apple", Nullability::Nullable))
-    );
     let (short, _) = stats.get_by_path(&field_path!(short)).expect("short stats");
     assert_eq!(
         stat_value(short, Stat::Max),
