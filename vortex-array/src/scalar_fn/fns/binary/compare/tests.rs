@@ -449,23 +449,35 @@ fn int_constant_lhs_and_rhs(#[case] op: Operator, #[case] expected: [bool; 4]) {
 
 /// Floats compare with Vortex's total ordering: NaN is the largest value, equality is bitwise,
 /// and -0.0 < +0.0. This matches `Scalar` comparison semantics.
-#[test]
-fn float_total_order() {
+#[rstest]
+fn float_total_order(#[values(4, 129)] len: usize) {
     let mut ctx = SESSION.create_execution_ctx();
-    let lhs = buffer![f64::NAN, f64::NAN, -0.0f64, 1.0].into_array();
-    let rhs = buffer![f64::NAN, f64::INFINITY, 0.0f64, f64::NAN].into_array();
+    let lhs = PrimitiveArray::from_iter(
+        [f64::NAN, f64::NAN, -0.0, 1.0]
+            .into_iter()
+            .cycle()
+            .take(len),
+    )
+    .into_array();
+    let rhs = PrimitiveArray::from_iter(
+        [f64::NAN, f64::INFINITY, 0.0, f64::NAN]
+            .into_iter()
+            .cycle()
+            .take(len),
+    )
+    .into_array();
 
     let result = execute_compare_test(lhs.clone(), rhs.clone(), Operator::Eq);
     assert_arrays_eq!(
         result,
-        BoolArray::from_iter([true, false, false, false]),
+        BoolArray::from_iter([true, false, false, false].into_iter().cycle().take(len)),
         &mut ctx
     );
 
     let result = execute_compare_test(lhs, rhs, Operator::Lt);
     assert_arrays_eq!(
         result,
-        BoolArray::from_iter([false, false, true, true]),
+        BoolArray::from_iter([false, false, true, true].into_iter().cycle().take(len)),
         &mut ctx
     );
 }
@@ -906,8 +918,8 @@ fn struct_of_map_compare() -> VortexResult<()> {
 }
 
 #[rstest]
-fn byte_comparisons_across_bitmap_words(
-    #[values(PType::I8, PType::U8)] ptype: PType,
+fn primitive_comparisons_across_bitmap_words(
+    #[values(PType::I8, PType::U8, PType::I64, PType::U64, PType::F64)] ptype: PType,
     #[values(0, 1, 63, 64, 65, 129)] len: usize,
     #[values(
         CompareOperator::Eq,
@@ -950,16 +962,19 @@ fn byte_comparisons_across_bitmap_words(
     .map(value_for_type)
     .collect();
     let dtype = DType::Primitive(ptype, Nullability::Nullable);
-    let lhs = PrimitiveArray::from_option_iter(left.iter().copied())
+    let lhs = PrimitiveArray::from_option_iter([None].into_iter().chain(left.iter().copied()))
         .into_array()
         .cast(dtype.clone())?
         .execute::<PrimitiveArray>(&mut ctx)?
-        .into_array();
-    let rhs = PrimitiveArray::from_option_iter(right.iter().copied())
         .into_array()
-        .cast(dtype.clone())?
-        .execute::<PrimitiveArray>(&mut ctx)?
-        .into_array();
+        .slice(1..len + 1)?;
+    let rhs =
+        PrimitiveArray::from_option_iter([None, None].into_iter().chain(right.iter().copied()))
+            .into_array()
+            .cast(dtype.clone())?
+            .execute::<PrimitiveArray>(&mut ctx)?
+            .into_array()
+            .slice(2..len + 2)?;
     let predicate = |a: i16, b: i16| match op {
         CompareOperator::Eq => a == b,
         CompareOperator::NotEq => a != b,
