@@ -129,7 +129,7 @@ fn selection(bencher: Bencher, (kind, nullable): (&str, bool)) {
         )
         .into_array(),
         "narrow_repeated" => {
-            PrimitiveArray::from_iter((0..524288u64).map(|i| (i % 2) * 127)).into_array()
+            PrimitiveArray::from_iter((0..33_554_432u64).map(|i| (i % 2) * 127)).into_array()
         }
         "sparse" => {
             PrimitiveArray::from_iter((0..128u64).map(|i| (i * 32749) % ROWS as u64)).into_array()
