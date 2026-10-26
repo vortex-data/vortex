@@ -21,11 +21,22 @@
 //! ```
 
 use prost::Message;
+use vortex_array::ArrayVTable;
+use vortex_array::arrays::Dict;
+use vortex_array::arrays::dict::TakeExecuteAdaptor;
+use vortex_array::optimizer::kernels::ArrayKernelsExt;
+use vortex_array::session::ArraySessionExt;
+use vortex_session::VortexSession;
+
+mod access;
 mod array;
 mod compute;
+mod decoder;
+mod page_index;
 mod probe;
 mod rules;
 mod slice;
+mod take;
 
 pub use array::*;
 
@@ -73,6 +84,17 @@ pub struct PcoLogicalRowPrefix {
     /// The final page includes trailing null rows. An empty index has no valid values.
     #[prost(uint64, repeated, tag = "2")]
     pub logical_row_ends: Vec<u64>,
+}
+
+/// Register PCO encoding and its selective take execution kernel in a session.
+///
+/// Registering only `Pco` in the array registry is sufficient for legacy reads, but does not
+/// enable the batched take kernel.
+pub fn initialize(session: &VortexSession) {
+    session.arrays().register(Pco);
+    session
+        .kernels()
+        .register_execute_parent_kernel(Dict.id(), Pco, TakeExecuteAdaptor(Pco));
 }
 
 #[cfg(test)]

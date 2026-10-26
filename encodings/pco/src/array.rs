@@ -8,6 +8,7 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use pco::ChunkConfig;
 use pco::PagingSpec;
@@ -50,6 +51,7 @@ use vortex_array::vtable::validity_to_child;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexError;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -63,6 +65,7 @@ use crate::PcoChunkInfo;
 use crate::PcoLogicalRowPrefix;
 use crate::PcoMetadata;
 use crate::PcoPageInfo;
+use crate::page_index::PageIndex;
 
 // Overall approach here:
 // Chunk the array into Pco chunks (currently using the default recommended size
@@ -406,6 +409,7 @@ pub struct PcoData {
     pub(crate) chunk_metas: Arc<[ByteBuffer]>,
     pub(crate) pages: Arc<[ByteBuffer]>,
     pub(crate) metadata: Arc<PcoMetadata>,
+    page_index: Arc<OnceLock<PageIndex>>,
     ptype: PType,
     unsliced_n_rows: usize,
     slice_start: usize,
@@ -505,6 +509,7 @@ impl PcoData {
             chunk_metas: chunk_metas.into(),
             pages: pages.into(),
             metadata: Arc::new(metadata),
+            page_index: Arc::new(OnceLock::new()),
             ptype,
             unsliced_n_rows: len,
             slice_start: 0,
@@ -779,6 +784,19 @@ impl PcoData {
             .freeze()
             .slice(value_offset..value_stop)
             .into_byte_buffer())
+    }
+
+    pub(crate) fn page_index(&self) -> VortexResult<&PageIndex> {
+        if self.page_index.get().is_none() {
+            let index = PageIndex::try_new(Arc::clone(&self.metadata))?;
+            // Concurrent first readers may prepare equivalent immutable descriptors. Only one
+            // index is retained, and no decoded values or validity are cached in the array.
+            drop(self.page_index.set(index));
+        }
+        Ok(self
+            .page_index
+            .get()
+            .vortex_expect("page index was initialized"))
     }
 
     pub(crate) fn _slice(&self, start: usize, stop: usize) -> Self {

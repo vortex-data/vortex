@@ -26,6 +26,7 @@ use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_pco::Pco;
+use vortex_pco::initialize as initialize_pco;
 use vortex_session::VortexSession;
 
 const ROWS: usize = 4_194_304;
@@ -35,7 +36,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty()
         .with::<KernelSession>()
         .with::<MemorySession>();
-    session.arrays().register(Pco);
+    initialize_pco(&session);
     session
 });
 

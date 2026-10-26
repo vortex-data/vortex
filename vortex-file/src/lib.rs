@@ -129,7 +129,7 @@ pub use strategy::*;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::session::ArraySessionExt;
-use vortex_pco::Pco;
+use vortex_pco::initialize as initialize_pco;
 use vortex_session::VortexSession;
 pub use writer::*;
 
@@ -178,7 +178,7 @@ pub fn register_default_encodings(session: &VortexSession) {
 
     {
         let arrays = session.arrays();
-        arrays.register(Pco);
+        initialize_pco(session);
         if use_experimental_patches() {
             arrays.register(Patched);
         }

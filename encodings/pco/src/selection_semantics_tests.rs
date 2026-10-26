@@ -12,17 +12,17 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PiecewiseSequenceArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
-use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::Pco;
+use crate::initialize;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
-    session.arrays().register(Pco);
+    initialize(&session);
     session
 });
 
@@ -123,7 +123,7 @@ fn all_null_and_long_null_runs() -> VortexResult<()> {
 #[test]
 fn registry_only_session_preserves_take_semantics() -> VortexResult<()> {
     let session = VortexSession::empty();
-    session.arrays().register(Pco);
+    initialize(&session);
     let mut ctx = session.create_execution_ctx();
     let input = PrimitiveArray::from_option_iter([Some(5i32), None, Some(9), Some(2)]);
     let encoded = Pco::from_primitive(input.as_view(), 3, 1, &mut ctx)?.into_array();
