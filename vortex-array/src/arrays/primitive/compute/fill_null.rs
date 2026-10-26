@@ -44,13 +44,11 @@ impl FillNullKernel for Primitive {
                     |W| {
                         let mut buffer =
                             Buffer::<[u8; W]>::from_byte_buffer_aligned(values, alignment).into_mut();
-                        let fill_value: [u8; W] = fill_value
-                            .to_le_bytes()
-                            .try_into()
-                            .vortex_expect("fill value matches the array's storage width");
+                        let mut fill_bytes = [0u8; W];
+                        fill_bytes.copy_from_slice(fill_value.to_le_bytes());
 
                         for invalid_index in is_invalid.set_indices() {
-                            buffer[invalid_index] = fill_value;
+                            buffer[invalid_index] = fill_bytes;
                         }
 
                         PrimitiveArray::from_byte_buffer(

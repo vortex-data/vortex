@@ -64,7 +64,8 @@ impl PrimitiveArray {
         let ptype = self.ptype();
         let values = self.into_data_parts().buffer.into_host_sync();
         let alignment = values.alignment();
-        let mut own_values = Buffer::<[u8; W]>::from_byte_buffer_aligned(values, alignment).into_mut();
+        let mut own_values =
+            Buffer::<[u8; W]>::from_byte_buffer_aligned(values, alignment).into_mut();
 
         let patch_indices = patch_indices.as_slice::<I>();
         let patch_values = patch_values
@@ -79,7 +80,11 @@ impl PrimitiveArray {
             own_values[idx.as_() - patch_indices_offset] = *value;
         }
 
-        Self::from_byte_buffer(own_values.freeze().into_byte_buffer(), ptype, patched_validity)
+        Self::from_byte_buffer(
+            own_values.freeze().into_byte_buffer(),
+            ptype,
+            patched_validity,
+        )
     }
 }
 

@@ -83,18 +83,15 @@ impl ZipKernel for Primitive {
             },
             _ => { unreachable!("primitive widths are specialized") },
         );
-        let array = PrimitiveArray::from_byte_buffer(values, if_true.ptype(), validity).into_array();
+        let array =
+            PrimitiveArray::from_byte_buffer(values, if_true.ptype(), validity).into_array();
 
         Ok(Some(array))
     }
 }
 
 /// Branchlessly blend `if_true` and `if_false` per row into a fresh value buffer.
-fn select_values<T: Copy>(
-    true_values: &[T],
-    false_values: &[T],
-    mask: &Mask,
-) -> BufferMut<T> {
+fn select_values<T: Copy>(true_values: &[T], false_values: &[T], mask: &Mask) -> BufferMut<T> {
     let len = true_values.len();
     let mut out = BufferMut::<T>::with_capacity(len);
     {

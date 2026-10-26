@@ -8,7 +8,6 @@ use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -81,8 +80,9 @@ fn gather_values<const W: usize>(
                     .as_primitive()
                     .pvalue()
                     .map(|value| {
-                        <[u8; W]>::try_from(value.to_le_bytes())
-                            .vortex_expect("constant matches interleave's storage width")
+                        let mut bytes = [0u8; W];
+                        bytes.copy_from_slice(value.to_le_bytes());
+                        bytes
                     })
                     .unwrap_or([0; W]);
                 PrimitiveSource {
