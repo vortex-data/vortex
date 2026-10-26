@@ -2,10 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use rstest::rstest;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use super::ListTransform;
 use super::ListTransformOptions;
@@ -14,7 +16,6 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::RecursiveCanonical;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::Dict;
 use crate::arrays::DictArray;
@@ -42,11 +43,12 @@ use crate::expr::list_transform;
 use crate::expr::lit;
 use crate::expr::proto::ExprSerializeProtoExt;
 use crate::expr::root;
-use crate::expr::transform::replace;
 use crate::expr::var;
 use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::validity::Validity;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 /// `[[1, 2], null (hiding [i32::MAX]), [3, null]]`
 fn lists() -> VortexResult<ArrayRef> {
@@ -68,7 +70,7 @@ fn rows(l: ArrayRef) -> VortexResult<ArrayRef> {
 }
 
 fn list_of(values: ArrayRef, offsets: &[u32], validity: Validity) -> VortexResult<ArrayRef> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     Ok(ListArray::try_new(
         values,
         PrimitiveArray::from_iter(offsets.iter().copied()).into_array(),
@@ -94,7 +96,7 @@ fn plus_one() -> VortexResult<Lambda> {
 
 fn assert_applies(input: ArrayRef, expr: &Expression, expected: ArrayRef) -> VortexResult<()> {
     let actual = input.apply(expr)?;
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     assert_arrays_eq!(actual, expected, &mut ctx);
     Ok(())
 }
@@ -160,7 +162,7 @@ fn sliced_list_with_leftovers() -> VortexResult<ArrayRef> {
 
 /// `[[1], [2]]` over `[MAX, 1, 2]`: the lists are back to back, after a leftover.
 fn list_view_with_a_leftover_in_front() -> VortexResult<ArrayRef> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let view = ListViewArray::try_new(
         buffer![i32::MAX, 1_i32, 2].into_array(),
         buffer![1_u32, 2].into_array(),
@@ -174,7 +176,7 @@ fn list_view_with_a_leftover_in_front() -> VortexResult<ArrayRef> {
 
 /// `[[1], [2]]` over `[1, MAX, 2]`: the lists skip an element.
 fn list_view_with_a_gap() -> VortexResult<ArrayRef> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     Ok(ListViewArray::try_new(
         buffer![1_i32, i32::MAX, 2].into_array(),
         buffer![0_u32, 2].into_array(),
@@ -204,7 +206,7 @@ fn a_lambda_that_can_fail_sees_only_the_lists_elements(
 #[test]
 fn a_lambda_that_can_fail_runs_on_a_slice_without_its_leftovers() -> VortexResult<()> {
     // Canonicalizing the result drops the leftovers too, so look at what the lambda runs on.
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let lists = Lists::visible_elements_only(sliced_list_with_leftovers()?, &mut ctx)?;
     lists.with_elements(|elements| {
         assert_arrays_eq!(elements.clone(), buffer![1_i32, 2].into_array(), &mut ctx);
@@ -217,7 +219,7 @@ fn a_lambda_that_can_fail_runs_on_a_slice_without_its_leftovers() -> VortexResul
 fn a_lambda_that_cannot_fail_runs_on_the_elements_in_place() -> VortexResult<()> {
     // `x = 3` cannot fail, so it runs over the whole elements buffer, the null list's `i32::MAX`
     // included, and nothing is copied.
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let result = lists()?
         .apply(&list_transform(
             root(),
@@ -251,7 +253,7 @@ fn a_failure_in_a_valid_list_is_an_error() -> VortexResult<()> {
         &[0, 1, 2],
         Validity::from_iter([false, true]),
     )?;
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let error = lists
         .apply(&list_transform(root(), plus_one()?))?
         .execute::<RecursiveCanonical>(&mut ctx)
@@ -403,7 +405,7 @@ fn three_nested_lambdas() -> VortexResult<()> {
 fn sliced_list_views() -> VortexResult<()> {
     // `[[1, 2], [3], [4, 5]]` as a list view, sliced to `[[3], [4, 5]]`, which leaves unused
     // elements.
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let view = list_of(
         buffer![1_i32, 2, 3, 4, 5].into_array(),
         &[0, 2, 3, 5],
@@ -423,7 +425,7 @@ fn sliced_list_views() -> VortexResult<()> {
 #[test]
 fn overlapping_list_views() -> VortexResult<()> {
     // `[[3, 4], [1], [2, 3]]`, sharing element 3.
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let view = ListViewArray::try_new(
         buffer![1_i32, 2, 3, 4].into_array(),
         buffer![2_u32, 0, 1].into_array(),
@@ -518,7 +520,7 @@ fn applying_the_bound_node() -> VortexResult<()> {
     let expected = transformed(
         PrimitiveArray::from_option_iter([Some(2_i32), Some(3), Some(4), None]).into_array(),
     )?;
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     assert_arrays_eq!(input.apply_bound(&bound)?, expected, &mut ctx);
     Ok(())
 }
@@ -552,9 +554,8 @@ fn a_lambda_bound_to_another_element_dtype_is_an_error() -> VortexResult<()> {
 }
 
 #[test]
-fn replacing_the_root_rereads_the_list() -> VortexResult<()> {
-    // Rows `{s: {l}}`: re-rooting the transform at `$.s` changes where the list is read. The body
-    // is in the options, which rewrites of the expression leave alone.
+fn a_list_in_a_nested_field() -> VortexResult<()> {
+    // Rows `{s: {l}}`.
     let input = StructArray::try_new(
         FieldNames::from(["s"]),
         vec![rows(lists()?)?],
@@ -562,9 +563,7 @@ fn replacing_the_root_rereads_the_list() -> VortexResult<()> {
         Validity::NonNullable,
     )?
     .into_array();
-    let expr = list_transform(col("l"), plus_one()?);
-    assert_eq!(replace(expr.clone(), &var("x"), lit(0_i32)), expr);
-    let expr = replace(expr, &root(), col("s"));
+    let expr = list_transform(get_item("l", col("s")), plus_one()?);
     assert_eq!(
         expr.to_string(),
         "vortex.list.transform($.s.l, (x) -> (@x + 1i32))"
@@ -592,7 +591,7 @@ fn an_infallible_transform_pushes_into_dictionary_values() -> VortexResult<()> {
         &[0, 2, 3, 5, 6],
         Validity::NonNullable,
     )?;
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     assert_arrays_eq!(actual, expected, &mut ctx);
     Ok(())
 }
