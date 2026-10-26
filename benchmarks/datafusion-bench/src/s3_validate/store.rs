@@ -3,14 +3,18 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
+use futures::future::BoxFuture;
+use futures::future::Shared;
 use futures::stream;
 use futures::stream::BoxStream;
 use object_store::Attributes;
@@ -55,6 +59,8 @@ pub(super) struct Counts {
     pub errors: u64,
     pub peak_inflight: usize,
     pub request_seconds: f64,
+    pub get_calls: u64,
+    pub tail_cache_hits: u64,
     #[serde(skip)]
     inflight: usize,
 }
@@ -168,13 +174,49 @@ pub(super) async fn snapshot(store: &dyn ObjectStore, prefix: &Path) -> anyhow::
     Ok(Arc::new(result))
 }
 
-#[derive(Debug)]
+#[derive(Clone)]
 pub(super) struct Store {
     source: Arc<dyn ObjectStore>,
     snapshot: Option<Snapshot>,
     model: Option<Model>,
     admission: Option<Arc<Semaphore>>,
     metrics: Arc<Mutex<Metrics>>,
+    cache_tail: bool,
+    tail_reads: TailCache,
+}
+
+pub(super) const TAIL_CACHE_BYTES: u64 = 4 * 1024 * 1024;
+type TailKey = (Path, u64, u64);
+type TailCache = Arc<Mutex<BTreeMap<TailKey, TailRead>>>;
+type TailRead =
+    Shared<BoxFuture<'static, std::result::Result<CachedGet, Arc<object_store::Error>>>>;
+
+#[derive(Clone)]
+struct CachedGet {
+    meta: ObjectMeta,
+    attributes: Attributes,
+    range: Range<u64>,
+    bytes: Bytes,
+}
+
+impl CachedGet {
+    fn response(self) -> GetResult {
+        GetResult {
+            meta: self.meta,
+            attributes: self.attributes,
+            range: self.range,
+            payload: GetResultPayload::Stream(stream::once(async move { Ok(self.bytes) }).boxed()),
+        }
+    }
+}
+
+impl fmt::Debug for Store {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Store")
+            .field("model", &self.model)
+            .field("cache_tail", &self.cache_tail)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Store {
@@ -182,6 +224,7 @@ impl Store {
         source: Arc<dyn ObjectStore>,
         snapshot: Option<Snapshot>,
         model: Option<Model>,
+        cache_tail: bool,
     ) -> Self {
         Self {
             source,
@@ -191,10 +234,13 @@ impl Store {
                 .filter(|m| m.max_inflight > 0)
                 .map(|m| Arc::new(Semaphore::new(m.max_inflight))),
             metrics: Arc::default(),
+            cache_tail,
+            tail_reads: Arc::default(),
         }
     }
 
     pub fn reset(&self) -> anyhow::Result<()> {
+        self.tail_reads.lock().clear();
         let mut metrics = self.metrics.lock();
         anyhow::ensure!(
             metrics.counts.inflight == 0,
@@ -205,6 +251,7 @@ impl Store {
     }
 
     pub fn take(&self) -> anyhow::Result<(Counts, Vec<Request>)> {
+        self.tail_reads.lock().clear();
         let mut metrics = self.metrics.lock();
         anyhow::ensure!(
             metrics.counts.inflight == 0,
@@ -328,23 +375,26 @@ impl Store {
             attributes: object.attributes.clone(),
         })
     }
-}
 
-impl fmt::Display for Store {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "S3ValidationStore")
+    fn tail_key(&self, location: &Path, options: &GetOptions) -> Option<TailKey> {
+        if !self.cache_tail
+            || options.head
+            || options.version.is_some()
+            || options.if_match.is_some()
+            || options.if_none_match.is_some()
+            || options.if_modified_since.is_some()
+            || options.if_unmodified_since.is_some()
+        {
+            return None;
+        }
+        let size = self.snapshot.as_ref()?.get(location)?.meta.size;
+        let range = options.range.as_ref()?.as_range(size).ok()?;
+        // Keep this cache bounded to the immutable file tail, including large Vortex footers.
+        (range.start >= size.saturating_sub(TAIL_CACHE_BYTES) || range.end == size)
+            .then(|| (location.clone(), range.start, range.end))
     }
-}
 
-fn read_only(operation: &str) -> object_store::Error {
-    object_store::Error::NotSupported {
-        source: format!("Read-only validation store: {operation}").into(),
-    }
-}
-
-#[async_trait]
-impl ObjectStore for Store {
-    async fn get_opts(&self, location: &Path, options: GetOptions) -> Result<GetResult> {
+    async fn fetch(&self, location: &Path, options: GetOptions) -> Result<GetResult> {
         let head = options.head;
         let guard = self
             .begin(
@@ -353,7 +403,7 @@ impl ObjectStore for Store {
                 format!("{:?}", options.range),
             )
             .await?;
-        let result = match &self.snapshot {
+        let result = match self.snapshot.as_ref().filter(|_| self.model.is_some()) {
             Some(objects) => self.ram_get(location, &options, objects, guard.start),
             None => self.source.get_opts(location, options).await,
         };
@@ -395,13 +445,74 @@ impl ObjectStore for Store {
             attributes,
         })
     }
+}
+
+impl fmt::Display for Store {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "S3ValidationStore")
+    }
+}
+
+fn read_only(operation: &str) -> object_store::Error {
+    object_store::Error::NotSupported {
+        source: format!("Read-only validation store: {operation}").into(),
+    }
+}
+
+#[async_trait]
+impl ObjectStore for Store {
+    async fn get_opts(&self, location: &Path, options: GetOptions) -> Result<GetResult> {
+        if !options.head {
+            self.metrics.lock().counts.get_calls += 1;
+        }
+        let key = self.tail_key(location, &options);
+        let Some(key) = key else {
+            return self.fetch(location, options).await;
+        };
+        let (future, hit) = {
+            let mut reads = self.tail_reads.lock();
+            if let Some(future) = reads.get(&key) {
+                (future.clone(), true)
+            } else {
+                let store = self.clone();
+                let location = location.clone();
+                let future = async move {
+                    let response = store.fetch(&location, options).await.map_err(Arc::new)?;
+                    let meta = response.meta.clone();
+                    let attributes = response.attributes.clone();
+                    let range = response.range.clone();
+                    let bytes = response.bytes().await.map_err(Arc::new)?;
+                    Ok(CachedGet {
+                        meta,
+                        attributes,
+                        range,
+                        bytes,
+                    })
+                }
+                .boxed()
+                .shared();
+                reads.insert(key, future.clone());
+                (future, false)
+            }
+        };
+        if hit {
+            self.metrics.lock().counts.tail_cache_hits += 1;
+        }
+        future
+            .await
+            .map(CachedGet::response)
+            .map_err(|error| object_store::Error::Generic {
+                store: "s3-validation-tail-cache",
+                source: error.to_string().into(),
+            })
+    }
 
     fn list(&self, prefix: Option<&Path>) -> BoxStream<'static, Result<ObjectMeta>> {
         let prefix = prefix.cloned();
         let metrics = Arc::clone(&self.metrics);
         let model = self.model;
         let source = Arc::clone(&self.source);
-        let objects = self.snapshot.clone();
+        let objects = self.snapshot.clone().filter(|_| model.is_some());
         let admission = self.admission.clone();
         stream::once(async move {
             let permit = match admission {

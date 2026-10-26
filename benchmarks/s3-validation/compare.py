@@ -164,9 +164,19 @@ def compare(records: list[Record], iterations: int, suites: list[str]) -> Record
                 }
                 for backend in ("real", "model"):
                     observed = [s for (b, _), s in samples.items() if b == backend and not s["error"]]
-                    for field in ("get", "put", "list", "head", "bytes", "peak_inflight"):
+                    for field in (
+                        "get",
+                        "put",
+                        "list",
+                        "head",
+                        "bytes",
+                        "peak_inflight",
+                        "get_calls",
+                        "tail_cache_hits",
+                    ):
+                        values = [s["counts"][field] for s in observed if field in s["counts"]]
                         row[f"{backend}_{field}"] = (
-                            statistics.median(s["counts"][field] for s in observed) if observed else None
+                            statistics.median(values) if observed and len(values) == len(observed) else None
                         )
                     row[f"{backend}_avg_inflight"] = (
                         statistics.median(s.get("avg_inflight", 0) for s in observed) if observed else None
@@ -190,7 +200,17 @@ def compare(records: list[Record], iterations: int, suites: list[str]) -> Record
     adequate &= all(c is not None and c >= 0.95 for c in correlations.values())
     adequate &= all(not e.get("local_smoke") and e["scale_factor"] in ("10", "10.0") for e in environments)
     adequate &= iterations >= 3 and set(suites) == {"tpch", "tpcds"} and len(environments) == len(suites)
-    provenance = ("ci_run_id", "sha", "region", "instance_id", "format", "cpus", "total_memory", "adaptive_io")
+    provenance = (
+        "ci_run_id",
+        "sha",
+        "region",
+        "instance_id",
+        "format",
+        "cpus",
+        "total_memory",
+        "adaptive_io",
+        "tail_cache_bytes",
+    )
     adequate &= all(all(e.get(key) is not None for key in provenance) for e in environments)
     adequate &= len({tuple(e.get(key) for key in provenance) for e in environments}) == 1
     return {
@@ -220,7 +240,8 @@ def markdown(result: Record) -> str:
         "state.",
         "",
         "Cold samples use new DataFusion and Vortex sessions. Warm samples immediately repeat the same query "
-        "in that session. File metadata, statistics and listing caches are cleared after registration. "
+        "in that session. Footer metadata and statistics caches are cleared after registration. "
+        "The file catalog is prepared outside the timer; file listings stay cached to avoid duplicate LIST races. "
         "Registration is outside the query timer and its request counts are checked "
         "separately. Both stores retain the same immutable RAM snapshot during measurements. The real backend "
         "uses a reused S3 HTTP client; cold does not mean a new TLS connection or a cleared S3 service cache.",
@@ -230,7 +251,12 @@ def markdown(result: Record) -> str:
         "filters after the scan. Query operators and intra-file scans remain parallel. A successful fit "
         "is conditional on this profile and does not validate adaptive scans.",
         "",
-        "Request metrics count object-store API operations. The snapshot has fewer than 1,000 objects, so "
+        "Both backends share identical per-sample caching of ranges in each file's final 4 MiB. This "
+        "coalesces duplicate footer fetches; the cache resets before every sample. GET/byte counters "
+        "measure underlying operations after the cache. get_calls records total logical GET calls and "
+        "tail_cache_hits counts calls served by the cache. Real cache misses read from the source store.",
+        "",
+        "Request metrics count underlying object-store API operations. The snapshot has fewer than 1,000 objects, so "
         "flat LISTs need one S3 page; internal HTTP retries and 503 responses retried by the S3 client are "
         "not counted separately. In-flight averages are the integral of active response lifetimes divided by "
         "query wall time. No randomness or per-query runtime multipliers are used.",

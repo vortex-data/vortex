@@ -21,10 +21,20 @@ executions because speculative reads may be cancelled. `--adaptive-io` restores 
 behavior for diagnostics. A successful fixed-read fit does not establish equivalent behavior for
 adaptive scans; that limits any recommendation to change the default CI storage backend.
 
+Both backends also use the same per-sample cache for ranges in the final 4 MiB of each file,
+including large footers. Concurrent identical reads share one request; completed reads remain
+available until the sample ends. The cache resets before every sample, including warm samples.
+This removes duplicate footer fetches caused by races in the database metadata cache. GET and
+byte counters measure underlying operations after this cache; `get_calls` and `tail_cache_hits`
+expose total logical GET calls and the calls served by the cache, respectively. The real backend still fetches every cache miss
+from its source object store.
+
 Each of five iterations creates fresh DataFusion and Vortex sessions, registers tables, runs the
 query cold, then immediately runs it warm. Query timers include planning and execution; table
-registration has separate timings and request counters. Metadata, file-statistics and file-list
-caches are cleared after registration so schema inference does not warm the cold sample.
+registration has separate timings and request counters. The file catalog is prepared during registration.
+Footer metadata and file-statistics caches are cleared after registration so schema inference does not
+warm those caches for the cold sample. Prepared file listings stay in the catalog; this avoids
+timing-dependent duplicate LIST calls from concurrent scans.
 The S3 HTTP client stays alive across
 samples. Cold therefore means fresh database caches, rather than cold TLS or S3 service caches.
 

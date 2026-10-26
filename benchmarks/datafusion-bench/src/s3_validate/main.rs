@@ -115,10 +115,10 @@ async fn session(
         let url = ListingTableUrl::try_new(base.clone(), benchmark.pattern(table.name, format))?;
         let mut config = ListingTableConfig::new(url)
             .with_listing_options(ListingOptions::new(Arc::clone(&file_format)));
-        config = match table.schema {
-            Some(schema) => config.with_schema(Arc::new(schema)),
-            None => config.infer_schema(&session.state()).await?,
-        };
+        config = config.infer_schema(&session.state()).await?;
+        if let Some(schema) = table.schema {
+            config = config.with_schema(Arc::new(schema));
+        }
         session.register_table(table.name, Arc::new(ListingTable::try_new(config)?))?;
     }
     Ok(session)
@@ -167,8 +167,18 @@ async fn main() -> anyhow::Result<()> {
         request_mib_per_sec: args.request_mib_per_sec,
         max_inflight: args.max_inflight,
     };
-    let real = Arc::new(Store::new(Arc::clone(&source), None, None));
-    let simulated = Arc::new(Store::new(source, Some(snapshot), Some(model)));
+    let real = Arc::new(Store::new(
+        Arc::clone(&source),
+        Some(Arc::clone(&snapshot)),
+        None,
+        !args.adaptive_io,
+    ));
+    let simulated = Arc::new(Store::new(
+        source,
+        Some(snapshot),
+        Some(model),
+        !args.adaptive_io,
+    ));
     let mut writer = BufWriter::new(File::create(&args.output)?);
     let system = sysinfo::System::new_all();
     serde_json::to_writer(
@@ -179,7 +189,8 @@ async fn main() -> anyhow::Result<()> {
         "total_memory": system.total_memory(), "available_memory": system.available_memory(),
         "ci_run_id": std::env::var("GITHUB_RUN_ID").ok(), "sha": std::env::var("GITHUB_SHA").ok(),
         "region": std::env::var("AWS_REGION").ok(), "instance_id": std::env::var("RUNS_ON_INSTANCE_ID").ok(),
-        "local_smoke": args.allow_local, "adaptive_io": args.adaptive_io }),
+        "local_smoke": args.allow_local, "adaptive_io": args.adaptive_io,
+        "tail_cache_bytes": if args.adaptive_io { 0 } else { store::TAIL_CACHE_BYTES } }),
     )?;
     writeln!(writer)?;
     let queries = benchmark.queries()?;
@@ -215,9 +226,6 @@ async fn main() -> anyhow::Result<()> {
                 let caches = &runtime.cache_manager;
                 caches.get_file_metadata_cache().clear();
                 if let Some(cache) = caches.get_file_statistic_cache() {
-                    cache.clear();
-                }
-                if let Some(cache) = caches.get_list_files_cache() {
                     cache.clear();
                 }
                 for cache in ["cold", "warm"] {

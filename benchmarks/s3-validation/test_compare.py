@@ -28,6 +28,7 @@ class ComparisonTests(unittest.TestCase):
                     "region": "us-east-1",
                     "instance_id": "i-123",
                     "adaptive_io": False,
+                    "tail_cache_bytes": 4194304,
                     "format": "vortex",
                     "cpus": 64,
                     "total_memory": 128000000000,
