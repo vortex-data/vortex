@@ -36,6 +36,7 @@ use vortex_array::expr::gt;
 use vortex_array::expr::is_null;
 use vortex_array::expr::lit;
 use vortex_array::expr::lt;
+use vortex_array::expr::or;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
 use vortex_array::validity::Validity;
@@ -61,6 +62,7 @@ use super::ScanBuilder;
 use super::ScanCache;
 use super::ScanFile;
 use super::ScanRun;
+use super::filtered_rows_per_chunk;
 use super::rows_per_chunk;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -320,6 +322,13 @@ async fn large_filtered_chunks_match_v1(#[case] cutoff: i32) -> VortexResult<()>
     gt(get_item("ints", root()), lit(995i32)),
     lt(get_item("ints", root()), lit(2050i32))
 ))]
+#[case::cross_column_or(and(
+    gt(get_item("ints", root()), lit(995i32)),
+    or(
+        lt(get_item("ints", root()), lit(1010i32)),
+        eq(get_item("strings", root()), lit("row 2001"))
+    )
+))]
 #[case::nullable(eq(get_item("strings", root()), lit("row 1001")))]
 #[case::nulls(is_null(get_item("strings", root())))]
 #[case::no_matches(gt(get_item("ints", root()), lit(10_000i32)))]
@@ -450,10 +459,10 @@ fn fixed_row_chunks(#[case] rows: Range<u64>, #[case] expected: Vec<Range<u64>>)
 }
 
 #[rstest]
-#[case::empty(0, 0, 65_536)]
-#[case::single_chunk(1000, 100_000_000, 65_536)]
-#[case::no_bytes(100_000, 0, 65_536)]
-#[case::small_rows(1_000_000, 64_000_000, 65_536)]
+#[case::empty(0, 0, 262_144)]
+#[case::single_chunk(1000, 100_000_000, 262_144)]
+#[case::no_bytes(100_000, 0, 262_144)]
+#[case::small_rows(1_000_000, 64_000_000, 131_072)]
 #[case::large_rows(1_000_000, 384_000_000, 16_384)]
 #[case::minimum(1_000_000, 2_000_000_000, 8192)]
 fn chunk_byte_budget(#[case] rows: u64, #[case] bytes: u32, #[case] expected: usize) {
@@ -463,6 +472,24 @@ fn chunk_byte_budget(#[case] rows: u64, #[case] bytes: u32, #[case] expected: us
         alignment: Alignment::none(),
     }];
     assert_eq!(rows_per_chunk(rows, &locations), expected);
+}
+
+#[rstest]
+#[case::minimum_work(1_000_000, 1_000_000, 0, 32, 65_536)]
+#[case::maximum_work(64_000_000, 64_000_000, 0, 32, 1_048_576)]
+#[case::wide_projection(1_000_000, 1_000_000, 384_000_000, 32, 16_384)]
+#[case::zero_parallelism(1_048_576, 1_048_576, 0, 0, 1_048_576)]
+fn filtered_chunk_budget(
+    #[case] rows: u64,
+    #[case] row_count: u64,
+    #[case] projected_bytes: u64,
+    #[case] parallelism: usize,
+    #[case] expected: usize,
+) {
+    assert_eq!(
+        filtered_rows_per_chunk(rows, row_count, projected_bytes, parallelism),
+        expected
+    );
 }
 
 #[test]
@@ -488,7 +515,7 @@ impl SegmentSource for CountingSegments {
 #[tokio::test]
 async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
     let session = new_session().with_tokio();
-    const STORED_CHUNK_ROWS: usize = 70_000;
+    const STORED_CHUNK_ROWS: usize = 150_000;
     const STORED_CHUNKS: usize = 3;
     let segments = Arc::new(TestSegments::default());
     let (mut sequence, eof) = SequenceId::root().split();

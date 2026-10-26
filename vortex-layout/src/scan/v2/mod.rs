@@ -11,7 +11,7 @@
 //! Import this module's [`ScanBuilder`] to select V2 explicitly. It accepts a [`ScanFile`]
 //! directly and supports projection, filters, row ranges, and selections. Unsupported layouts return an
 //! error; limits are not part of this builder's API. Work is partitioned into fixed
-//! chunks of up to 65,536 rows, or up to 1,048,576 rows for filtered scans, independently of the
+//! chunks of up to 262,144 rows, or up to 1,048,576 rows for filtered scans, independently of the
 //! stored layout's chunk boundaries. Filtered scans use smaller chunks when the projection reads
 //! many bytes per row or the row range would give fewer chunks than threads.
 //! Full-file projections use smaller 8,192-row multiples when serialized bytes per row are high.

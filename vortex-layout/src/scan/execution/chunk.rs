@@ -26,9 +26,11 @@ use super::selection::plan_selection;
 /// The row grid every chunk boundary lies on.
 pub(crate) const ROW_BLOCK_SIZE: usize = 8192;
 /// The rows of a projection chunk.
-pub(crate) const MAX_ROWS_PER_CHUNK: usize = 8 * ROW_BLOCK_SIZE;
+pub(crate) const MAX_ROWS_PER_CHUNK: usize = 32 * ROW_BLOCK_SIZE;
 /// The rows of a filtered chunk: large, so a conjunct's reads coalesce and its mask is cheap.
-pub(crate) const FILTERED_ROWS_PER_CHUNK: usize = 16 * MAX_ROWS_PER_CHUNK;
+pub(crate) const FILTERED_ROWS_PER_CHUNK: usize = 128 * ROW_BLOCK_SIZE;
+// Filtered scans retain smaller work items for selective conjuncts.
+const MIN_FILTERED_ROWS_PER_CHUNK: usize = 8 * ROW_BLOCK_SIZE;
 const TARGET_BYTES_PER_CHUNK: u64 = 8 * 1024 * 1024;
 
 /// Limit estimated bytes per chunk without changing the writer-aligned row granularity.
@@ -37,7 +39,7 @@ pub(crate) fn rows_per_chunk(row_count: u64, locations: &[SegmentLocation]) -> u
         return MAX_ROWS_PER_CHUNK;
     }
     let blocks = blocks_per_target_bytes(total_bytes(locations), row_count);
-    blocks.clamp(1, 8) as usize * ROW_BLOCK_SIZE
+    blocks.clamp(1, (MAX_ROWS_PER_CHUNK / ROW_BLOCK_SIZE) as u64) as usize * ROW_BLOCK_SIZE
 }
 
 /// Rows per chunk of a filtered scan over `rows` rows of the file.
@@ -52,7 +54,7 @@ pub(crate) fn filtered_rows_per_chunk(
     parallelism: usize,
 ) -> usize {
     let max_blocks = (FILTERED_ROWS_PER_CHUNK / ROW_BLOCK_SIZE) as u64;
-    let min_blocks = (MAX_ROWS_PER_CHUNK / ROW_BLOCK_SIZE) as u64;
+    let min_blocks = (MIN_FILTERED_ROWS_PER_CHUNK / ROW_BLOCK_SIZE) as u64;
     let by_bytes = blocks_per_target_bytes(projected_bytes, row_count).max(1);
     let by_threads = (rows / parallelism.max(1) as u64 / ROW_BLOCK_SIZE as u64).max(min_blocks);
     let blocks = by_bytes.min(by_threads).min(max_blocks);

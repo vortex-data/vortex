@@ -31,7 +31,8 @@ use crate::scan::execution::adaptor::AdaptorStep;
 use crate::scan::execution::adaptor::Piece;
 use crate::scan::execution::adaptor::ScanAdaptor;
 
-const MAX_OUTPUT_ROWS: usize = 65_536;
+const MAX_OUTPUT_ROWS: usize = 262_144;
+const MAX_FILTERED_OUTPUT_ROWS: usize = 65_536;
 /// Pieces smaller than this are grouped with their neighbours into one batch.
 const MIN_OUTPUT_ROWS: usize = 4_096;
 
@@ -45,13 +46,18 @@ pub(super) struct ProjectionPlanner {
 impl ProjectionPlanner {
     /// Creates a planner for `selected`.
     pub(super) fn new(scan: Arc<PreparedScan>, selected: SelectedRows) -> Self {
-        let selected = if selected.mask.true_count() <= MAX_OUTPUT_ROWS {
+        let output_rows = if scan.filter.is_some() {
+            MAX_FILTERED_OUTPUT_ROWS
+        } else {
+            MAX_OUTPUT_ROWS
+        };
+        let selected = if selected.mask.true_count() <= output_rows {
             vec![selected]
         } else {
             (0..selected.mask.len())
-                .step_by(MAX_OUTPUT_ROWS)
+                .step_by(output_rows)
                 .filter_map(|start| {
-                    let end = (start + MAX_OUTPUT_ROWS).min(selected.mask.len());
+                    let end = (start + output_rows).min(selected.mask.len());
                     let mask = selected.mask.slice(start..end);
                     if mask.all_false() {
                         return None;

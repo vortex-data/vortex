@@ -33,7 +33,10 @@ pub struct Filter;
 
 /// Operator-specific data for a [`Filter`] plan.
 #[derive(Clone, Debug)]
-pub struct FilterData;
+pub struct FilterData {
+    /// Evaluate a proven-infallible predicate before applying its selection.
+    whole_predicate: bool,
+}
 
 /// A plan that keeps only the selected rows of its child.
 pub type FilterPlan = Plan<Filter>;
@@ -41,12 +44,16 @@ pub type FilterPlan = Plan<Filter>;
 impl FilterPlan {
     /// Creates a filter over `child`.
     pub fn new(child: PlanRef) -> Self {
+        Self::for_predicate(child, false)
+    }
+
+    pub(crate) fn for_predicate(child: PlanRef, whole_predicate: bool) -> Self {
         PlanParts {
             vtable: Filter,
             dtype: child.dtype().clone(),
             row_count: child.row_count(),
             children: vec![child].into(),
-            data: FilterData,
+            data: FilterData { whole_predicate },
         }
         .into_typed()
     }
@@ -66,8 +73,8 @@ impl PlanVTable for Filter {
         *ID
     }
 
-    fn metadata(_plan: &Plan<Self>) -> Option<Self::Metadata> {
-        Some(EmptyMetadata)
+    fn metadata(plan: &Plan<Self>) -> Option<Self::Metadata> {
+        (!plan.data().whole_predicate).then_some(EmptyMetadata)
     }
 
     fn with_children(
@@ -110,12 +117,13 @@ impl PlanVTable for Filter {
         }
         let len = usize::try_from(rows.end - rows.start)?;
         let predicate = plan.dtype().is_boolean();
+        let whole_predicate = plan.data().whole_predicate;
         let chain = compiler.compile(&child, rows, &Mask::new_true(len))?;
         Ok(chain.map(|chain| {
             if mask.all_true() {
                 chain
             } else {
-                chain.with(MaskStage::new(mask.clone(), predicate))
+                chain.with(MaskStage::new(mask.clone(), predicate, whole_predicate))
             }
         }))
     }

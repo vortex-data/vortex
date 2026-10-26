@@ -9,6 +9,8 @@ use rustc_hash::FxHashSet;
 use vortex_array::VortexSessionExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::BoundExpression;
+use vortex_array::scalar_fn::fns::binary::Binary;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
@@ -33,6 +35,7 @@ use super::adaptor::AdaptorStep;
 use super::adaptor::Piece;
 use super::adaptor::ScanAdaptor;
 use super::projection::ProjectionPlanner;
+use crate::plan::physical::Eval;
 use crate::plan::physical::FilterPlan;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::SegmentScan;
@@ -67,7 +70,15 @@ impl FilterPlans {
                     plan_row_idx_expression(expr.clone(), root.clone())?,
                     session,
                 )?;
-                Ok(FilterPlan::new(plan).into_plan())
+                // Sparse filtering through a cross-column OR filters each encoded input.
+                // Evaluate safe disjunctions first, as the V1 struct filter does.
+                let whole_predicate = plan.as_opt::<Eval>().is_some_and(|eval| {
+                    eval.expression()
+                        .as_scalar()
+                        .and_then(|function| function.as_opt::<Binary>())
+                        .is_some_and(|operator| *operator == Operator::Or)
+                }) && infallible(expr);
+                Ok(FilterPlan::for_predicate(plan, whole_predicate).into_plan())
             })
             .collect::<VortexResult<_>>()?;
         let pruning = expression
@@ -97,6 +108,13 @@ impl FilterPlans {
     pub(in crate::scan) fn proofs(&self) -> impl Iterator<Item = &PlanRef> {
         self.pruning.iter().flatten()
     }
+}
+
+fn infallible(expression: &BoundExpression) -> bool {
+    expression
+        .as_scalar()
+        .is_none_or(|function| function.signature().is_infallible())
+        && expression.children().iter().all(infallible)
 }
 
 /// A pruning proof must not fetch data when its requested statistics are unavailable.

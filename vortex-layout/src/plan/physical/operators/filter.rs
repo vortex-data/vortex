@@ -26,14 +26,17 @@ pub(crate) struct MaskStage {
     /// The batches are a predicate's result, which, mostly selected, is cheaper to execute
     /// whole than to filter lazily.
     predicate: bool,
+    /// The predicate is safe to evaluate outside the selected rows.
+    whole_predicate: bool,
 }
 
 impl MaskStage {
-    pub(crate) fn new(mask: Mask, predicate: bool) -> Self {
+    pub(crate) fn new(mask: Mask, predicate: bool, whole_predicate: bool) -> Self {
         Self {
             mask,
             cursor: 0,
             predicate,
+            whole_predicate,
         }
     }
 }
@@ -53,7 +56,7 @@ impl Operator for MaskStage {
         if mask.all_true() {
             return Ok(Step::Final(batch));
         }
-        if self.predicate && mask.density() >= EXPR_EVAL_THRESHOLD {
+        if self.predicate && (self.whole_predicate || mask.density() >= EXPR_EVAL_THRESHOLD) {
             return Ok(Step::Final(
                 batch
                     .execute::<Canonical>(cx.exec())?
