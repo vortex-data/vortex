@@ -39,11 +39,14 @@ def test_build_command_adds_duckdb_cleanup_flag() -> None:
     [
         (Engine.DUCKDB, Benchmark.TPCDS, True),
         (Engine.DUCKDB, Benchmark.CLICKBENCH, True),
-        (Engine.DUCKDB, Benchmark.TPCH, False),
+        (Engine.DUCKDB, Benchmark.TPCH, True),
+        (Engine.DUCKDB, Benchmark.FINEWEB, False),
+        (Engine.DATAFUSION, Benchmark.TPCH, True),
         (Engine.DATAFUSION, Benchmark.CLICKBENCH, False),
+        (Engine.LANCE, Benchmark.TPCH, False),
     ],
 )
-def test_build_command_turns_on_duckdb_scan_v2(engine: Engine, benchmark: Benchmark, expected: bool) -> None:
+def test_build_command_turns_on_scan_v2(engine: Engine, benchmark: Benchmark, expected: bool) -> None:
     executor = BenchmarkExecutor(Path("/tmp/bench"), engine)
 
     cmd = executor.build_command(benchmark=benchmark, formats=[Format.VORTEX])
