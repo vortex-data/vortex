@@ -21,6 +21,10 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::fns::min_max::MinMax;
+use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
@@ -108,7 +112,11 @@ use vortex_layout::layouts::zoned::Zoned;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::split_by::DEFAULT_MAX_SPLIT_ROWS;
 use vortex_layout::scan::split_by::SplitBy;
+use vortex_layout::segments::SegmentFuture;
+use vortex_layout::segments::SegmentId;
+use vortex_layout::segments::SegmentSource;
 use vortex_layout::session::LayoutSession;
+use vortex_scan::ScanRequest;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 use vortex_zigzag::ZigZag;
@@ -2288,6 +2296,139 @@ async fn unreadable_file_statistics_do_not_fail_the_open() -> VortexResult<()> {
     Ok(())
 }
 
+struct NoPayloadReads;
+
+impl SegmentSource for NoPayloadReads {
+    fn request(&self, _id: SegmentId) -> SegmentFuture {
+        panic!("source statistics must not read payloads")
+    }
+}
+
+#[tokio::test]
+async fn file_data_source_exposes_stored_aggregates() -> VortexResult<()> {
+    let array = StructArray::from_fields(&[
+        (
+            "numbers",
+            PrimitiveArray::from_option_iter([Some(5_i32), None, Some(-3)]).into_array(),
+        ),
+        (
+            "nulls",
+            PrimitiveArray::from_option_iter([None::<i32>; 3]).into_array(),
+        ),
+    ])?
+    .into_array();
+    let min_max = MinMax.bind(NumericalAggregateOpts::default());
+    let min = Stat::Min.aggregate_fn().vortex_expect("min aggregate");
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .disable_editions()
+        .with_file_statistics(vec![min_max.clone(), min.clone()])
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    let file = SESSION
+        .open_options()
+        .open_buffer(buf)?
+        .with_segment_source(Arc::new(NoPayloadReads));
+    let source = file.data_source()?;
+    assert_eq!(source.dtype(), file.dtype());
+    assert_eq!(source.row_count(), Precision::Exact(3));
+    assert_eq!(source.byte_size(), Precision::Absent);
+    assert!(source.serialize()?.is_none());
+
+    let path = field_path!(numbers);
+    let result = source.field_statistic(&path, &min_max).await?;
+    let result = result
+        .as_exact()
+        .vortex_expect("exact structured aggregate");
+    let extrema = MinMaxResult::from_scalar(&result)?.vortex_expect("non-null extrema");
+    assert_eq!(extrema.min, Scalar::from(-3_i32));
+    assert_eq!(extrema.max, Scalar::from(5_i32));
+    assert_eq!(
+        source.field_statistics(&path).await?.get(Stat::Min),
+        Precision::Exact(ScalarValue::from(-3_i32))
+    );
+    let null = source
+        .field_statistic(&field_path!(nulls), &min_max)
+        .await?;
+    assert!(
+        null.as_exact()
+            .vortex_expect("exact null aggregate")
+            .is_null()
+    );
+
+    let sum = Stat::Sum.aggregate_fn().vortex_expect("sum aggregate");
+    assert_eq!(
+        source.field_statistic(&path, &sum).await?,
+        Precision::Absent
+    );
+    assert_eq!(
+        source
+            .field_statistic(&field_path!(missing), &min_max)
+            .await?,
+        Precision::Absent
+    );
+    assert!(
+        source
+            .field_statistics(&field_path!(missing))
+            .await?
+            .is_empty()
+    );
+    Ok(())
+}
+
+#[rstest]
+#[tokio::test]
+async fn file_data_source_preserves_scans_with_optional_statistics(
+    #[values(false, true)] statistics: bool,
+) -> VortexResult<()> {
+    let array =
+        StructArray::from_fields(&[("numbers", buffer![1_i32, 2, 3].into_array())])?.into_array();
+    let min = Stat::Min.aggregate_fn().vortex_expect("min aggregate");
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .with_file_statistics(if statistics {
+            vec![min.clone()]
+        } else {
+            Vec::new()
+        })
+        .write(&mut buf, array.clone().to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(buf)?;
+    assert_eq!(file.file_stats().is_some(), statistics);
+    let source = file.data_source()?;
+    let result = source.field_statistic(&field_path!(numbers), &min).await?;
+    assert_eq!(
+        result,
+        if statistics {
+            Precision::Exact(Scalar::primitive(1_i32, Nullability::Nullable))
+        } else {
+            Precision::Absent
+        }
+    );
+    assert_eq!(
+        source
+            .field_statistics(&field_path!(numbers))
+            .await?
+            .is_empty(),
+        !statistics
+    );
+    let chunks = source
+        .scan(ScanRequest::default())
+        .await?
+        .partitions()
+        .and_then(|partition| async move { partition.execute() })
+        .try_flatten()
+        .try_collect::<Vec<_>>()
+        .await?;
+    assert_arrays_eq!(
+        ChunkedArray::try_new(chunks, array.dtype().clone())?.into_array(),
+        array
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn test_writer_with_statistics() -> VortexResult<()> {
     let array = StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3, 4, 5].into_array())])?
@@ -2392,6 +2533,12 @@ async fn default_string_stats_are_inexact_bounds_after_reopening() -> VortexResu
         .file_stats()
         .expect("file statistics should be present");
 
+    let source = file.data_source()?;
+    let min = Stat::Min.aggregate_fn().vortex_expect("min aggregate");
+    assert_eq!(
+        source.field_statistic(&field_path!(short), &min).await?,
+        Precision::Inexact(Scalar::utf8("apple", Nullability::Nullable))
+    );
     let (short, _) = stats.get_by_path(&field_path!(short)).expect("short stats");
     assert_eq!(
         stat_value(short, Stat::Max),
