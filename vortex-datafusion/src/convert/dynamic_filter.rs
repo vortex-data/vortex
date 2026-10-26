@@ -35,7 +35,6 @@ use vortex::expr::lit;
 use vortex::expr::root;
 use vortex::expr::stats::Stat;
 use vortex::file::VortexFile;
-use vortex::scalar::Scalar;
 use vortex::scalar_fn::fns::between::Between;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
@@ -59,13 +58,16 @@ use crate::convert::df_predicate::DataFusionPredicate;
 pub(crate) struct DynamicFilterConversions {
     /// Each filter adapted to a file schema, with the filter of the key kept so that its address
     /// is not reused.
-    adapted: DashMap<(usize, SchemaKey), (Arc<dyn PhysicalExpr>, Arc<dyn PhysicalExpr>)>,
+    adapted: DashMap<(usize, SchemaKey), AdaptedFilter>,
     conversions: DashMap<(usize, SchemaKey), Arc<Conversion>>,
     /// Filters seen complete, which never change again.
     complete: DashMap<usize, Arc<dyn PhysicalExpr>>,
     /// The conjunction pushed into each file for each complete filter.
     file_filters: DashMap<(usize, Path), Option<Expression>>,
 }
+
+/// A dynamic filter of a key and the same filter adapted to a file schema.
+type AdaptedFilter = (Arc<dyn PhysicalExpr>, Arc<dyn PhysicalExpr>);
 
 /// The Vortex conjuncts of a dynamic filter as of a generation.
 struct Conversion {
@@ -432,8 +434,9 @@ fn column_min_max(file: &VortexFile, column: &FieldName) -> Option<(f64, f64)> {
         return None;
     }
     let stat = |stat: Stat| {
-        Scalar::try_new(dtype.clone(), Some(stats.get(stat).as_exact()?))
-            .ok()?
+        stats
+            .get(&stat.aggregate_fn()?)
+            .as_exact()?
             .as_primitive_opt()?
             .as_opt::<f64>()
             .flatten()
@@ -584,6 +587,7 @@ mod tests {
     use vortex::expr::or;
     use vortex::file::OpenOptionsSessionExt;
     use vortex::file::WriteOptionsSessionExt;
+    use vortex::scalar::Scalar;
     use vortex::session::VortexSession;
 
     use super::*;

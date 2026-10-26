@@ -827,9 +827,7 @@ mod tests {
         )?;
         assert!(rhs.is::<ScalarFn>());
 
-        let expected = lhs
-            .clone()
-            .binary(rhs.clone().execute::<BoolArray>(&mut ctx)?.into_array(), op)?;
+        let expected = lhs.binary(rhs.clone().execute::<BoolArray>(&mut ctx)?.into_array(), op)?;
         assert_arrays_eq!(lhs.binary(rhs, op)?, expected, &mut ctx);
         Ok(())
     }

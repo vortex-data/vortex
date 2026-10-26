@@ -3259,7 +3259,13 @@ async fn test_dynamic_expression_filter_follows_updates() -> VortexResult<()> {
     let file = SESSION.open_options().open_buffer(buf)?;
 
     let threshold = Arc::new(DynamicThreshold::new());
-    let filter = bind_scan_expr(&file, dynamic_expression(threshold.clone(), [col("a")]));
+    let filter = bind_scan_expr(
+        &file,
+        dynamic_expression(
+            Arc::clone(&threshold) as Arc<dyn DynamicExpressionSource>,
+            [col("a")],
+        ),
+    );
 
     // The same filter is scanned again after each update, so cached zone pruning must follow it.
     for (value, expected_rows) in [(i32::MAX, 100_000), (10, 10), (20_000, 20_000), (0, 0)] {
@@ -3276,7 +3282,10 @@ async fn test_dynamic_expression_filter_follows_updates() -> VortexResult<()> {
     }
 
     // File statistics prove the current predicate true for every row only once it covers them.
-    assert!(!file.is_satisfied(&dynamic_expression(threshold.clone(), [col("a")]))?);
+    assert!(!file.is_satisfied(&dynamic_expression(
+        Arc::clone(&threshold) as Arc<dyn DynamicExpressionSource>,
+        [col("a")],
+    ))?);
     threshold.set(100_000);
     assert!(file.is_satisfied(&dynamic_expression(threshold, [col("a")]))?);
 

@@ -328,16 +328,19 @@ mod tests {
         let scope = DType::Struct(
             StructFields::new(
                 FieldNames::from(vec!["a"]),
-                vec![DType::Primitive(PType::I32, Nullability::NonNullable)],
+                vec![DType::Primitive(PType::U64, Nullability::NonNullable)],
             ),
             Nullability::NonNullable,
         );
-        let expr = dynamic_expression(threshold.clone(), [col("a")]).bind(&scope)?;
+        let expr = dynamic_expression(
+            Arc::clone(&threshold) as Arc<dyn DynamicExpressionSource>,
+            [col("a")],
+        )
+        .bind(&scope)?;
         assert!(is_currently_true(&expr));
 
-        threshold.set(6);
+        threshold.0.store(6, Ordering::SeqCst);
         assert!(!is_currently_true(&expr));
         Ok(())
     }
-
 }
