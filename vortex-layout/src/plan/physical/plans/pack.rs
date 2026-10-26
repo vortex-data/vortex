@@ -21,8 +21,8 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::partition::Partitions;
 use crate::partition::PartitionedExpression;
+use crate::partition::Partitions;
 use crate::partition::partition_expression;
 use crate::partition::positional_name;
 use crate::plan::physical::Eval;

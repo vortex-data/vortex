@@ -18,36 +18,32 @@ use vortex_array::scalar_fn::fns::is_null::IsNull;
 use vortex_array::scalar_fn::fns::select::Select;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::partition::FieldIndex;
-use crate::partition::NodeTouches;
-use crate::partition::PartitionRule;
-use crate::partition::PartitionRules;
 use crate::partition::replacement_scope;
 use crate::partition::slot_read;
+use crate::partition_session::FieldIndex;
+use crate::partition_session::NodeTouches;
+use crate::partition_session::PartitionRule;
+use crate::partition_session::PartitionSession;
+use crate::plan::physical::Pack;
+use crate::plan::physical::PlanVTable;
 
 pub(crate) const VALIDITY_SLOT: FieldIndex = FieldIndex::MAX;
 
-pub(crate) fn struct_partition_rules() -> PartitionRules {
-    let mut by_fn = HashMap::new();
-    by_fn.insert(
-        GetItem.id(),
-        Box::new(StructGetItemRule) as Box<dyn PartitionRule>,
-    );
-    by_fn.insert(Select.id(), Box::new(StructSelectRule) as _);
-    by_fn.insert(
+pub(crate) fn register_struct_partition_rules(session: &PartitionSession) {
+    session.register_root(Pack.id(), &StructRootRule);
+    session.register(Pack.id(), GetItem.id(), &StructGetItemRule);
+    session.register(Pack.id(), Select.id(), &StructSelectRule);
+    session.register(
+        Pack.id(),
         IsNotNull.id(),
-        Box::new(StructNullCheckRule { negated: false }) as _,
+        &StructNullCheckRule { negated: false },
     );
-    by_fn.insert(
+    session.register(
+        Pack.id(),
         IsNull.id(),
-        Box::new(StructNullCheckRule { negated: true }) as _,
+        &StructNullCheckRule { negated: true },
     );
-    PartitionRules {
-        scope: Box::new(StructScopeRule),
-        by_fn,
-    }
 }
 
 fn struct_fields(scope: &DType) -> VortexResult<&StructFields> {
@@ -131,9 +127,9 @@ fn select_fields(
     })
 }
 
-/// Struct { ... }  as root is select(... + optional validity)
-struct StructScopeRule;
-impl PartitionRule for StructScopeRule {
+/// Struct { ... } as $ is select(... + optional validity)
+struct StructRootRule;
+impl PartitionRule for StructRootRule {
     fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeTouches>> {
         let scope = node.dtype();
         let fields = struct_fields(scope)?;

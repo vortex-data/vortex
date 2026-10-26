@@ -16,17 +16,16 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
-use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::layouts::row_idx::RowIdx as RowIdxFn;
-use crate::partition::FieldIndex;
-use crate::partition::NodeTouches;
-use crate::partition::PartitionRule;
-use crate::partition::PartitionRules;
-use crate::partition::Partitions;
 use crate::partition::PartitionedExpression;
+use crate::partition::Partitions;
 use crate::partition::partition_expression;
 use crate::partition::positional_name;
+use crate::partition_session::FieldIndex;
+use crate::partition_session::NodeTouches;
+use crate::partition_session::PartitionRule;
+use crate::partition_session::PartitionSession;
 use crate::plan::physical::EvalPlan;
 use crate::plan::physical::PackPlan;
 use crate::plan::physical::Plan;
@@ -115,16 +114,9 @@ impl PlanVTable for RowIdx {
 const CHILD_SLOT: FieldIndex = 0;
 const ROW_IDX_SLOT: FieldIndex = FieldIndex::MAX;
 
-pub(crate) fn row_idx_partition_rules() -> PartitionRules {
-    let mut by_fn = HashMap::new();
-    by_fn.insert(
-        RowIdxFn.id(),
-        Box::new(RowIdxFnRule) as Box<dyn PartitionRule>,
-    );
-    PartitionRules {
-        scope: Box::new(RowIdxScopeRule),
-        by_fn,
-    }
+pub(crate) fn register_row_idx_partition_rules(session: &PartitionSession) {
+    session.register_root(RowIdx.id(), &RowIdxScopeRule);
+    session.register(RowIdx.id(), RowIdxFn.id(), &RowIdxFnRule);
 }
 
 /// row_idx as $ reads its child
