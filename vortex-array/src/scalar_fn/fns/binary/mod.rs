@@ -610,28 +610,28 @@ mod tests {
         let array = Binary::try_new(left.clone(), right.clone(), Operator::Or)?
             .into_array()
             .optimize()?;
-        assert_eq!(array.as_constant(), Some(true.into())); // or(left, const) -> true
+        assert_eq!(array.as_constant(), Some(&true.into())); // or(left, const) -> true
 
         let array = Binary::try_new(right.clone(), left, Operator::Or)?
             .into_array()
             .optimize()?;
-        assert_eq!(array.as_constant(), Some(true.into())); // or(const, left) -> true
+        assert_eq!(array.as_constant(), Some(&true.into())); // or(const, left) -> true
 
         let array = Binary::try_new(right.clone(), right.clone(), Operator::Or)?
             .into_array()
             .optimize()?;
-        assert_eq!(array.as_constant(), Some(true.into())); // or(const, const) -> const
+        assert_eq!(array.as_constant(), Some(&true.into())); // or(const, const) -> const
 
         let left_false = ConstantArray::new(false, 3).into_array();
 
         let array = Binary::try_new(right.clone(), left_false.clone(), Operator::Or)?
             .into_array()
             .optimize()?;
-        assert_eq!(array.as_constant(), Some(true.into()));
+        assert_eq!(array.as_constant(), Some(&true.into()));
         let array = Binary::try_new(left_false, right, Operator::And)?
             .into_array()
             .optimize()?;
-        assert_eq!(array.as_constant(), Some(false.into()));
+        assert_eq!(array.as_constant(), Some(&false.into()));
 
         Ok(())
     }

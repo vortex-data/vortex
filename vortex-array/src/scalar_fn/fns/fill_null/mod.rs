@@ -163,8 +163,8 @@ impl ScalarFnVTable for FillNull {
         };
 
         match columnar {
-            ColumnarView::Canonical(canonical) => fill_null_canonical(canonical, &fill_scalar, ctx),
-            ColumnarView::Constant(constant) => fill_null_constant(constant, &fill_scalar),
+            ColumnarView::Canonical(canonical) => fill_null_canonical(canonical, fill_scalar, ctx),
+            ColumnarView::Constant(constant) => fill_null_constant(constant, fill_scalar),
         }
     }
 

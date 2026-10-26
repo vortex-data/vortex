@@ -172,7 +172,7 @@ impl ScalarFnVTable for ReplaceTimeZone {
         };
 
         if let (Some(value), Some(policy)) = (input.as_constant(), ambiguous.as_constant()) {
-            let scalar = replace_scalar(options, &value, &policy)?;
+            let scalar = replace_scalar(options, value, policy)?;
             return Ok(ConstantArray::new(scalar, args.row_count()).into_array());
         }
 

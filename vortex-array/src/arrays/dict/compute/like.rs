@@ -27,7 +27,7 @@ impl LikeReduce for Dict {
             return Ok(None);
         }
         if let Some(pattern) = pattern.as_constant() {
-            let pattern = ConstantArray::new(pattern, array.values().len()).into_array();
+            let pattern = ConstantArray::new(pattern.clone(), array.values().len()).into_array();
 
             let values = Like::try_new(array.values().clone(), pattern, options)?
                 .into_array()

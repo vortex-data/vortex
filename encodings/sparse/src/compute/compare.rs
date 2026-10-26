@@ -35,7 +35,7 @@ impl CompareKernel for Sparse {
             return Ok(None);
         };
 
-        let fill_bool = scalar_cmp(lhs.fill_scalar(), &rhs_scalar, operator)?;
+        let fill_bool = scalar_cmp(lhs.fill_scalar(), rhs_scalar, operator)?;
         let patches = lhs.patches();
 
         let new_patches = patches.map_values(|values| {

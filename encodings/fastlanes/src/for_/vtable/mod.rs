@@ -206,7 +206,7 @@ impl FoR {
                 num_chunks(offset, encoded.len()),
                 "FoR expects one reference per chunk"
             );
-            return Self::try_new(encoded, reference);
+            return Self::try_new(encoded, reference.clone());
         }
         Self::try_from_parts(encoded, None, Some(references), offset)
     }

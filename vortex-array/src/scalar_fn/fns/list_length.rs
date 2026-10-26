@@ -94,7 +94,7 @@ impl ScalarFnVTable for ListLength {
         let nullability = input.dtype().nullability();
 
         if let Some(scalar) = input.as_constant() {
-            let len_scalar = scalar_list_length(&scalar, nullability)?;
+            let len_scalar = scalar_list_length(scalar, nullability)?;
             return Ok(ConstantArray::new(len_scalar, args.row_count()).into_array());
         }
 

@@ -323,7 +323,7 @@ pub trait ReduceNode: Clone {
     fn new_node(&self, scalar_fn: ScalarFnRef, children: &[Self]) -> VortexResult<Self>;
 
     /// Return a scalar value if this node is constant
-    fn as_constant(&self) -> Option<Scalar> {
+    fn as_constant(&self) -> Option<&Scalar> {
         None
     }
 
@@ -394,8 +394,8 @@ impl ReduceNode for ExpressionReduceNode<'_> {
         })
     }
 
-    fn as_constant(&self) -> Option<Scalar> {
-        self.expression.as_opt::<Literal>().cloned()
+    fn as_constant(&self) -> Option<&Scalar> {
+        self.expression.as_opt::<Literal>()
     }
 
     fn new_constant(&self, value: Scalar) -> Self {
@@ -480,7 +480,7 @@ impl ReduceNode for ArrayReduceNode<'_> {
         })
     }
 
-    fn as_constant(&self) -> Option<Scalar> {
+    fn as_constant(&self) -> Option<&Scalar> {
         self.array.as_constant()
     }
 

@@ -182,7 +182,7 @@ impl ScalarFnVTable for BloomContains {
                 u32::try_from(partial.len()).vortex_expect("valid u32 size"),
                 options.blocks_count().get()
             );
-            partial.contains_scalar(&needle)
+            partial.contains_scalar(needle)
         };
 
         match valid {

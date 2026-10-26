@@ -457,8 +457,8 @@ impl ArrayRef {
     }
 
     /// Returns the constant scalar if this is a constant array.
-    pub fn as_constant(&self) -> Option<Scalar> {
-        self.as_opt::<Constant>().map(|a| a.scalar().clone())
+    pub fn as_constant(&self) -> Option<&Scalar> {
+        self.as_opt::<Constant>().map(|a| a.data().scalar())
     }
 
     /// Total size of the array in bytes, including all children and buffers.

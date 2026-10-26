@@ -62,12 +62,20 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPFilterPushDownRule {
             child.dtype().clone(),
             child.days().clone().filter(parent.filter_mask().clone())?,
             ConstantArray::new(
-                child.seconds().as_constant().vortex_expect("constant"),
+                child
+                    .seconds()
+                    .as_constant()
+                    .vortex_expect("constant")
+                    .clone(),
                 parent.filter_mask().true_count(),
             )
             .into_array(),
             ConstantArray::new(
-                child.subseconds().as_constant().vortex_expect("constant"),
+                child
+                    .subseconds()
+                    .as_constant()
+                    .vortex_expect("constant")
+                    .clone(),
                 parent.filter_mask().true_count(),
             )
             .into_array(),
@@ -350,6 +358,7 @@ mod tests {
         let scalar = midnight_constant(1, TimeUnit::Seconds, 1)
             .as_constant()
             .vortex_expect("midnight_constant must be constant")
+            .clone()
             .into_nullable();
         let constant = ConstantArray::new(scalar, dtp.len()).into_array();
         let comparison = Binary::try_new(dtp, constant, Operator::Lte)?.into_array();

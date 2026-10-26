@@ -29,7 +29,7 @@ impl CompareKernel for RunEnd {
         // If the RHS is constant, then we just need to compare against our encoded values.
         if let Some(const_scalar) = rhs.as_constant() {
             let values = lhs.values().binary(
-                ConstantArray::new(const_scalar, lhs.values().len()).into_array(),
+                ConstantArray::new(const_scalar.clone(), lhs.values().len()).into_array(),
                 Operator::from(operator),
             )?;
             return runend_decode_bools(

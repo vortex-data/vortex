@@ -135,10 +135,10 @@ where
             return Ok(None);
         };
         let arr = array.array().clone();
-        if let Some(result) = short_circuit(&arr, &fill_value)? {
+        if let Some(result) = short_circuit(&arr, fill_value)? {
             return Ok(Some(result));
         }
-        <V as FillNullReduce>::fill_null(array, &fill_value)
+        <V as FillNullReduce>::fill_null(array, fill_value)
     }
 }
 
@@ -171,9 +171,9 @@ where
             return Ok(None);
         };
         let arr = array.array().clone();
-        if let Some(result) = short_circuit(&arr, &fill_value)? {
+        if let Some(result) = short_circuit(&arr, fill_value)? {
             return Ok(Some(result));
         }
-        <V as FillNullKernel>::fill_null(array, &fill_value, ctx)
+        <V as FillNullKernel>::fill_null(array, fill_value, ctx)
     }
 }

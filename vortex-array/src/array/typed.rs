@@ -466,7 +466,7 @@ impl<V: VTable> Array<V> {
     }
 
     /// Returns the scalar value when this array is known to be constant.
-    pub fn as_constant(&self) -> Option<crate::scalar::Scalar> {
+    pub fn as_constant(&self) -> Option<&crate::scalar::Scalar> {
         self.inner.as_constant()
     }
 

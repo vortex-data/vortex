@@ -211,7 +211,7 @@ impl ScalarFnVTable for ListContains {
         if let Some(value_scalar) = value_array.as_constant()
             && let Some(list) = constant_list(&list_array)
         {
-            let result = compute_contains_scalar(list, &value_scalar, options)?;
+            let result = compute_contains_scalar(list, value_scalar, options)?;
             return Ok(ConstantArray::new(result, args.row_count()).into_array());
         }
 
@@ -226,11 +226,10 @@ impl ScalarFnVTable for ListContains {
         let list = node.child(0);
         let needle = node.child(1);
 
-        // The needle first: it is rarely constant, and a list is costly to clone.
         if let Some(needle) = needle.as_constant()
             && let Some(list) = constant_list_node(&list)
         {
-            let result = compute_contains_scalar(&list, &needle, options)?;
+            let result = compute_contains_scalar(list, needle, options)?;
             return Ok(Some(node.new_constant(result)));
         }
 
@@ -258,7 +257,8 @@ impl ScalarFnVTable for ListContains {
         options: &Self::Options,
         node: &T,
     ) -> VortexResult<ReduceNodeValidity<T>> {
-        let Some(list) = constant_list_node(&node.child(0)) else {
+        let list = node.child(0);
+        let Some(list) = constant_list_node(&list) else {
             return Ok(ReduceNodeValidity::Irreducible);
         };
         if !matches!(list.dtype(), DType::List(..)) {
@@ -361,7 +361,7 @@ fn compute_list_contains(
 
     let nullability = options.result_nullability(array.dtype(), value.dtype());
     if let Some(value_scalar) = value.as_constant() {
-        return list_contains_scalar(array, &value_scalar, nullability, options, ctx);
+        return list_contains_scalar(array, value_scalar, nullability, options, ctx);
     }
     lists_contain_needles(array, value, nullability, options, ctx)
 }
@@ -401,20 +401,20 @@ fn prepare_constant_list<T: ReduceNode>(
     }
 
     match list.as_constant() {
-        Some(list) if !list.is_null() => PreparedSetData::try_new(list).map(Some),
+        Some(list) if !list.is_null() => PreparedSetData::try_new(list.clone()).map(Some),
         _ => Ok(None),
     }
 }
 
 /// The list a reduce node holds when it is a constant or a prepared set, in an expression or an
 /// array tree.
-fn constant_list_node<T: ReduceNode>(node: &T) -> Option<Scalar> {
+fn constant_list_node<T: ReduceNode>(node: &T) -> Option<&Scalar> {
     if let Some(list) = node.as_constant() {
         return Some(list);
     }
     node.scalar_fn()?
         .as_opt::<PreparedSet>()
-        .map(|set| set.list().clone())
+        .map(|set| set.list())
 }
 
 /// Returns a [`BoolArray`] where each bit represents if a list contains the scalar.
@@ -2014,7 +2014,7 @@ mod tests {
         )?
         .into_array()
         .optimize()?;
-        assert_eq!(array.as_constant(), Some(expected));
+        assert_eq!(array.as_constant(), Some(&expected));
         Ok(())
     }
 

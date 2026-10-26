@@ -373,7 +373,7 @@ fn test_constant_needle_gives_a_constant(
         Some(value) => Scalar::bool(value, Nullability::Nullable),
         None => Scalar::null(DType::Bool(Nullability::Nullable)),
     };
-    assert_eq!(result.as_constant(), Some(expected));
+    assert_eq!(result.as_constant(), Some(&expected));
     Ok(())
 }
 
@@ -393,7 +393,7 @@ fn test_constant_row_needle_looks_up_one_row() -> VortexResult<()> {
         .execute::<ArrayRef>(&mut ctx)?;
     assert_eq!(
         result.as_constant(),
-        Some(Scalar::bool(true, Nullability::Nullable))
+        Some(&Scalar::bool(true, Nullability::Nullable))
     );
     Ok(())
 }
