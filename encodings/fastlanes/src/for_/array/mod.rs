@@ -67,7 +67,9 @@ pub trait FoRArrayExt: FoRArraySlotsExt {
         match (&self.global_reference, self.blocked_references()) {
             (Some(reference), None) => FoRReferences::Global(reference),
             (None, Some(references)) => FoRReferences::Blocked(references),
-            _ => vortex_panic!("FoR array must have either a global or blocked references"),
+            _ => {
+                vortex_panic!("FoR array must have either a global or blocked references")
+            }
         }
     }
 

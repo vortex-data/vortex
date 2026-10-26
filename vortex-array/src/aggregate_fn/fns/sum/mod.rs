@@ -283,7 +283,9 @@ impl AggregateFnVTable for Sum {
                 }
                 Canonical::Bool(b) => accumulate_bool(&mut inner, b, ctx),
                 Canonical::Decimal(d) => accumulate_decimal(&mut inner, args.return_dtype, d, ctx),
-                _ => vortex_bail!("Unsupported canonical type for sum: {}", batch.dtype()),
+                _ => {
+                    vortex_bail!("Unsupported canonical type for sum: {}", batch.dtype())
+                }
             },
             Columnar::Constant(_) => unreachable!(),
         };

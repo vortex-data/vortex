@@ -41,11 +41,11 @@ pub fn decode_to_temporal(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<TemporalArray> {
     let DType::Extension(ext) = dtype else {
-        vortex_panic!(Compute: "expected dtype to be DType::Extension variant")
+        vortex_panic!("expected dtype to be DType::Extension variant")
     };
 
     let Some(options) = ext.metadata_opt::<Timestamp>() else {
-        vortex_panic!(Compute: "must decode TemporalMetadata from extension metadata");
+        vortex_panic!("must decode TemporalMetadata from extension metadata");
     };
 
     let divisor = match options.unit {
@@ -53,7 +53,7 @@ pub fn decode_to_temporal(
         TimeUnit::Microseconds => 1_000_000,
         TimeUnit::Milliseconds => 1_000,
         TimeUnit::Seconds => 1,
-        TimeUnit::Days => vortex_panic!(InvalidArgument: "cannot decode into TimeUnit::D"),
+        TimeUnit::Days => vortex_panic!("cannot decode into TimeUnit::D"),
     };
 
     let days = parts.days.as_::<Primitive>();

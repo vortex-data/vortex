@@ -11,7 +11,6 @@ use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_arrow::ArrowSessionExt;
 use vortex_edition::EditionSessionExt;
 use vortex_error::VortexExpect;
-use vortex_error::vortex_err;
 use vortex_expr::stats::session::StatsSessionExt;
 use vortex_session::VortexSession;
 
@@ -104,15 +103,12 @@ pub fn initialize(session: &VortexSession) {
         session
             .editions()
             .declare_family(&editions::FAMILY)
-            .map_err(|error| vortex_err!("{error}"))
             .vortex_expect("spatial edition family is valid");
         session
             .register_edition(&editions::DECLARATION)
-            .map_err(|error| vortex_err!("{error}"))
             .vortex_expect("spatial edition declaration is valid");
     }
     session
         .enable_edition(editions::SPATIAL_2026_08)
-        .map_err(|error| vortex_err!("{error}"))
         .vortex_expect("spatial edition is registered");
 }

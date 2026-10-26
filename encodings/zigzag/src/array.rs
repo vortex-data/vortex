@@ -218,7 +218,10 @@ impl ZigZagData {
 
     pub fn try_new(encoded_dtype: &DType) -> VortexResult<Self> {
         if !encoded_dtype.is_unsigned_int() {
-            vortex_bail!(MismatchedTypes: "unsigned int", encoded_dtype);
+            vortex_bail!(
+                "expected type: unsigned int but instead got {}",
+                encoded_dtype
+            );
         }
 
         Self::dtype_from_encoded_dtype(encoded_dtype)?;

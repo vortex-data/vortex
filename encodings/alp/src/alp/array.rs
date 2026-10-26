@@ -144,7 +144,7 @@ impl VTable for ALP {
         let encoded_ptype = match &dtype {
             DType::Primitive(PType::F32, n) => DType::Primitive(PType::I32, *n),
             DType::Primitive(PType::F64, n) => DType::Primitive(PType::I64, *n),
-            d => vortex_bail!(MismatchedTypes: "f32 or f64", d),
+            d => vortex_bail!("expected type: f32 or f64 but instead got {}", d),
         };
         let encoded = children.get(0, &encoded_ptype, len)?;
 
@@ -319,7 +319,9 @@ impl ALPData {
             DType::Primitive(PType::I64, nullability) => {
                 Ok(DType::Primitive(PType::F64, *nullability))
             }
-            _ => vortex_bail!("ALP encoded ints have invalid DType {}", encoded.dtype(),),
+            _ => {
+                vortex_bail!("ALP encoded ints have invalid DType {}", encoded.dtype(),)
+            }
         }
     }
 

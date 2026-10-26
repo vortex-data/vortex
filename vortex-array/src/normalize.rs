@@ -43,7 +43,7 @@ impl ArrayRef {
 
     fn normalize_with_error(&self, allowed: &HashSet<Id>) -> VortexResult<()> {
         if !self.is_allowed_encoding(allowed) {
-            vortex_bail!(AssertionFailed: "normalize forbids encoding ({})", self.encoding_id())
+            vortex_bail!("normalize forbids encoding ({})", self.encoding_id())
         }
 
         for child in self.children() {

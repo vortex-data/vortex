@@ -58,7 +58,7 @@ pub fn bitpack_encode(
     if bit_width >= array.ptype().bit_width() as u8 {
         // Nothing we can do
         vortex_bail!(
-            InvalidArgument: "Cannot pack - specified bit width {bit_width} >= {}",
+            "Cannot pack - specified bit width {bit_width} >= {}",
             array.ptype().bit_width()
         )
     }
@@ -434,7 +434,6 @@ mod test {
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::PrimitiveBuilder;
     use vortex_buffer::Buffer;
-    use vortex_error::VortexError;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
@@ -493,8 +492,12 @@ mod test {
         assert!(array.ptype().is_signed_int());
 
         let err = BitPackedData::encode(&array.into_array(), 1024u32.ilog2() as u8, &mut ctx)
-            .unwrap_err();
-        assert!(matches!(err, VortexError::InvalidArgument(_, _)));
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("cannot bitpack array containing negative integers"),
+            "{err}"
+        );
     }
 
     #[test]

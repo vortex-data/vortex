@@ -110,7 +110,9 @@ mod setup {
     fn global_reference(array: &FoRArray) -> Scalar {
         match array.references() {
             FoRReferences::Global(reference) => reference.clone(),
-            FoRReferences::Blocked(_) => vortex_panic!("FoR::encode uses a global reference"),
+            FoRReferences::Blocked(_) => {
+                vortex_panic!("FoR::encode uses a global reference")
+            }
         }
     }
 

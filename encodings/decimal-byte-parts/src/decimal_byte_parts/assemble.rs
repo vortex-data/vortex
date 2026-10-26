@@ -154,7 +154,9 @@ fn assemble_wide_decimal_from_arrays(
                 validity,
             )
             .into_array(),
-            _ => vortex_bail!("expected between one and {MAX_LOWER_PARTS} lower parts"),
+            _ => {
+                vortex_bail!("expected between one and {MAX_LOWER_PARTS} lower parts")
+            }
         }
     }))
 }

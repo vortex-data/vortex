@@ -133,7 +133,7 @@ impl VTable for Decimal {
         vortex_ensure_eq!(
             data.len(),
             len,
-            InvalidArgument: "DecimalArray length does not match outer length",
+            "DecimalArray length does not match outer length",
         );
         let validity =
             crate::array::child_to_validity(slots[DecimalSlots::VALIDITY].as_ref(), *nullability);
@@ -141,7 +141,7 @@ impl VTable for Decimal {
             vortex_ensure_eq!(
                 validity_len,
                 len,
-                InvalidArgument: "DecimalArray validity len does not match outer length",
+                "DecimalArray validity len does not match outer length",
             );
         }
 

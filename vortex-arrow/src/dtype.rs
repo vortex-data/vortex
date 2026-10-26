@@ -149,7 +149,7 @@ pub(crate) fn from_arrow_data_type(
             vortex_ensure_eq!(
                 fields.len(),
                 2,
-                InvalidArgument: "Arrow map entries struct must contain exactly two fields"
+                "Arrow map entries struct must contain exactly two fields"
             );
             let key = &fields[0];
             let value = &fields[1];
@@ -292,7 +292,7 @@ pub(crate) fn to_data_type_naive(dtype: &DType) -> VortexResult<DataType> {
                         TimeUnit::Days => DataType::Date32,
                         TimeUnit::Milliseconds => DataType::Date64,
                         TimeUnit::Nanoseconds | TimeUnit::Microseconds | TimeUnit::Seconds => {
-                            vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", unit, ext_dtype.id())
+                            vortex_panic!("Invalid TimeUnit {} for {}", unit, ext_dtype.id())
                         }
                     },
                     TemporalMetadata::Time(unit) => match unit {
@@ -301,7 +301,7 @@ pub(crate) fn to_data_type_naive(dtype: &DType) -> VortexResult<DataType> {
                         TimeUnit::Microseconds => DataType::Time64(ArrowTimeUnit::Microsecond),
                         TimeUnit::Nanoseconds => DataType::Time64(ArrowTimeUnit::Nanosecond),
                         TimeUnit::Days => {
-                            vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", unit, ext_dtype.id())
+                            vortex_panic!("Invalid TimeUnit {} for {}", unit, ext_dtype.id())
                         }
                     },
                 });

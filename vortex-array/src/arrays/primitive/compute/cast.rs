@@ -107,8 +107,9 @@ impl CastKernel for Primitive {
         if same_rep {
             if !values_fit_in(array, new_ptype, ctx, true) {
                 vortex_bail!(
-                    Compute: "Cannot cast {} to {} — values exceed target range",
-                    src_ptype, new_ptype,
+                    "Cannot cast {} to {} — values exceed target range",
+                    src_ptype,
+                    new_ptype,
                 );
             }
             return Ok(Some(reinterpret(array, new_ptype, new_validity)));
@@ -132,8 +133,9 @@ fn cast_to_decimal(
 ) -> VortexResult<ArrayRef> {
     if !array.ptype().is_int() {
         vortex_bail!(
-            Compute: "Cannot cast floating primitive {} to decimal {}",
-            array.ptype(), decimal_dtype
+            "Cannot cast floating primitive {} to decimal {}",
+            array.ptype(),
+            decimal_dtype
         );
     }
 
@@ -399,7 +401,7 @@ where
 #[cold]
 #[inline(never)]
 fn scale_factor_error(scale: i8) -> VortexError {
-    vortex_err!(Compute: "Cannot create decimal scale factor for scale {scale}")
+    vortex_err!("Cannot create decimal scale factor for scale {scale}")
 }
 
 fn decimal_value_fits_precision<T: NativeDecimalType>(
@@ -450,7 +452,7 @@ where
 {
     let Some(value) = <i256 as BigCast>::from(value) else {
         return vortex_err!(
-            Compute: "primitive value cannot be represented while casting to {}",
+            "primitive value cannot be represented while casting to {}",
             decimal_dtype
         );
     };
@@ -465,7 +467,7 @@ where
                 "primitive-to-decimal fast path rejected a value that the scalar cast accepts"
             );
             vortex_err!(
-                Compute: "primitive value cannot be represented while casting to {}",
+                "primitive value cannot be represented while casting to {}",
                 decimal_dtype
             )
         }
@@ -484,8 +486,9 @@ where
 {
     let overflow = || {
         vortex_err!(
-            Compute: "Cannot cast {} to {} — value exceeds target range",
-            F::PTYPE, T::PTYPE,
+            "Cannot cast {} to {} — value exceeds target range",
+            F::PTYPE,
+            T::PTYPE,
         )
     };
 
@@ -664,7 +667,6 @@ mod test {
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
-    use vortex_error::VortexError;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
@@ -1093,7 +1095,6 @@ mod test {
                     .map(|c| c.into_array())
             })
             .unwrap_err();
-        assert!(matches!(error, VortexError::Compute(..)));
         assert!(error.to_string().contains("values exceed target range"));
     }
 
@@ -1109,7 +1110,6 @@ mod test {
             })
             .unwrap_err();
 
-        assert!(matches!(err, VortexError::InvalidArgument(..)));
         assert!(
             err.to_string()
                 .contains("Cannot cast array with invalid values to non-nullable type.")
@@ -1173,7 +1173,10 @@ mod test {
                     .map(|c| c.into_array())
             })
             .unwrap_err();
-        assert!(matches!(err, VortexError::Compute(..)));
+        assert!(
+            err.to_string().contains("values exceed target range"),
+            "{err}"
+        );
     }
 
     /// All-null array cast between same-width types should succeed without

@@ -288,7 +288,8 @@ fn test_cast_to_primitive(
     let target_dtype = DType::Primitive(target_ptype, array.dtype().nullability());
     let casted = cast_and_execute(array, target_dtype.clone(), ctx).unwrap_or_else(|e| {
         vortex_panic!(
-            "Cast must succeed because all values are within bounds. {} {}: {e}",
+            e,
+            "Cast must succeed because all values are within bounds. {} {}",
             target_ptype,
             array.display_values(ctx),
         )

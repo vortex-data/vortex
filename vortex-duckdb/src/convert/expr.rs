@@ -85,7 +85,9 @@ use crate::projection::DuckdbField;
 fn from_bound_str(value: &ExpressionRef) -> VortexResult<String> {
     match value.as_class().vortex_expect("unknown class") {
         BoundConstant(constant) => Ok(constant.value.as_string().as_str().to_owned()),
-        _ => vortex_bail!("Expected string expression, got {:?}", value.as_class_id()),
+        _ => {
+            vortex_bail!("Expected string expression, got {:?}", value.as_class_id())
+        }
     }
 }
 
@@ -718,7 +720,9 @@ fn try_from_expression_inner(
                 DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_CONJUNCTION_OR => {
                     or_collect(children).vortex_expect("cannot be empty")
                 }
-                _ => vortex_bail!("unexpected operator {:?} in bound conjunction", conj.op),
+                _ => {
+                    vortex_bail!("unexpected operator {:?} in bound conjunction", conj.op)
+                }
             }
         }
         ExpressionClass::BoundAggregate(_) => return Ok(None),
@@ -760,7 +764,9 @@ impl TryFrom<DUCKDB_VX_EXPR_TYPE> for Operator {
 
     fn try_from(value: DUCKDB_VX_EXPR_TYPE) -> VortexResult<Self> {
         Ok(match value {
-            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID => vortex_bail!("invalid expression"),
+            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID => {
+                vortex_bail!("invalid expression")
+            }
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_EQUAL => Operator::Eq,
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOTEQUAL => Operator::NotEq,
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHAN => Operator::Lt,

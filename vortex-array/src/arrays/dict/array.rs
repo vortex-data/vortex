@@ -116,7 +116,7 @@ impl DictData {
     /// It is an error to provide a nullable `codes` with non-nullable `values`.
     pub(crate) fn try_new(codes_dtype: &DType) -> VortexResult<Self> {
         if !codes_dtype.is_int() {
-            vortex_bail!(MismatchedTypes: "int", codes_dtype);
+            vortex_bail!("expected type: int but instead got {}", codes_dtype);
         }
 
         Ok(unsafe { Self::new_unchecked() })

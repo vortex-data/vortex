@@ -273,9 +273,9 @@ impl TryFrom<Operator> for CompareOperator {
     type Error = VortexError;
 
     fn try_from(value: Operator) -> Result<Self, Self::Error> {
-        value.to_compare_operator().ok_or_else(
-            || vortex_error::vortex_err!(InvalidArgument: "{value} is not a comparison operator"),
-        )
+        value
+            .to_compare_operator()
+            .ok_or_else(|| vortex_error::vortex_err!("{value} is not a comparison operator"))
     }
 }
 

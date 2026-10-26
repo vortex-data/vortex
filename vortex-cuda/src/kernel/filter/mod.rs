@@ -83,7 +83,9 @@ impl CudaExecute for FilterExecutor {
                     Canonical::VarBinView(varbinview) => {
                         filter_varbinview(varbinview, m, ctx).await
                     }
-                    c => vortex_bail!("CUDA filter kernel is not implemented for {}", c.dtype()),
+                    c => {
+                        vortex_bail!("CUDA filter kernel is not implemented for {}", c.dtype())
+                    }
                 }
             }
         }

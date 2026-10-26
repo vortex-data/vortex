@@ -75,14 +75,22 @@ impl ToArrowDatum for Scalar {
             DType::Decimal(..) => decimal_to_arrow(value.as_decimal()),
             DType::Utf8(_) => utf8_to_arrow(value.as_utf8()),
             DType::Binary(_) => binary_to_arrow(value.as_binary()),
-            DType::List(..) => vortex_bail!("list scalar conversion is not supported"),
+            DType::List(..) => {
+                vortex_bail!("list scalar conversion is not supported")
+            }
             DType::FixedSizeList(..) => {
                 vortex_bail!("fixed-size list scalar conversion is not supported")
             }
             DType::Map(..) => map_to_arrow(value.as_map()),
-            DType::Struct(..) => vortex_bail!("struct scalar conversion is not supported"),
-            DType::Union(..) => vortex_bail!("union scalar conversion is not supported"),
-            DType::Variant(_) => vortex_bail!("Variant scalar conversion is not supported"),
+            DType::Struct(..) => {
+                vortex_bail!("struct scalar conversion is not supported")
+            }
+            DType::Union(..) => {
+                vortex_bail!("union scalar conversion is not supported")
+            }
+            DType::Variant(_) => {
+                vortex_bail!("Variant scalar conversion is not supported")
+            }
             DType::Extension(..) => extension_to_arrow(value.as_extension()),
         }
     }

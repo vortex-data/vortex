@@ -309,7 +309,9 @@ async fn decode_onpair_bytes(
     match codes.ptype() {
         PType::U8 => decode_window::<u8>(codes, codes_offsets, lengths, dict, ctx).await,
         PType::U16 => decode_window::<u16>(codes, codes_offsets, lengths, dict, ctx).await,
-        other => vortex_bail!("OnPair codes must decompress to u8 or u16, got {other}"),
+        other => {
+            vortex_bail!("OnPair codes must decompress to u8 or u16, got {other}")
+        }
     }
 }
 

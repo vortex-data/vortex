@@ -251,7 +251,7 @@ impl ArrowImportVTable for MultiPoint {
                 vortex_ensure!(
                     multipoint_meta.coord_type() == CoordType::Separated,
                     "geoarrow.multipoint with interleaved coordinates is not supported; \
-                 re-encode with separated (struct) coordinates"
+             re-encode with separated (struct) coordinates"
                 );
                 (
                     multipoint_meta.dimension().into(),

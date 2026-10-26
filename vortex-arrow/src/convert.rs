@@ -733,7 +733,9 @@ pub fn from_arrow_dyn(array: &dyn ArrowArray, nullable: bool) -> VortexResult<Ar
             .into_array()),
             key_dt => vortex_bail!("Unsupported dictionary key type: {key_dt}"),
         },
-        dt => vortex_bail!("Array encoding not implemented for Arrow data type {dt}"),
+        dt => {
+            vortex_bail!("Array encoding not implemented for Arrow data type {dt}")
+        }
     }
 }
 

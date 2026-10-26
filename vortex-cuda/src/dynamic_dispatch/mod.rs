@@ -391,7 +391,9 @@ impl MaterializedPlan {
             PType::U16 | PType::I16 => PType::U16,
             PType::U32 | PType::I32 | PType::F32 => PType::U32,
             PType::U64 | PType::I64 | PType::F64 => PType::U64,
-            other => vortex_bail!("dynamic dispatch does not support PType {:?}", other),
+            other => {
+                vortex_bail!("dynamic dispatch does not support PType {:?}", other)
+            }
         };
         match_each_unsigned_integer_ptype!(unsigned_ptype, |T| {
             self.execute_typed::<T>(output_ptype, len, ctx)
@@ -538,7 +540,9 @@ mod tests {
     fn global_reference(array: &FoRArray) -> VortexResult<Scalar> {
         match array.references() {
             FoRReferences::Global(reference) => Ok(reference.clone()),
-            FoRReferences::Blocked(_) => vortex_bail!("FoR::encode uses a global reference"),
+            FoRReferences::Blocked(_) => {
+                vortex_bail!("FoR::encode uses a global reference")
+            }
         }
     }
 

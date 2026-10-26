@@ -97,7 +97,12 @@ fn take_chunked_via_sort(
     if let Some(&(index, _)) = pairs.last() {
         let index = usize::try_from(index)?;
         if index >= array.len() {
-            vortex_bail!(OutOfBounds: index, 0, array.len());
+            vortex_bail!(
+                "index {} out of bounds from {} to {}",
+                index,
+                0,
+                array.len()
+            );
         }
     }
 
@@ -209,7 +214,12 @@ fn take_chunked(
 
         let index = usize::try_from(index)?;
         if index >= array.len() {
-            vortex_bail!(OutOfBounds: index, 0, array.len());
+            vortex_bail!(
+                "index {} out of bounds from {} to {}",
+                index,
+                0,
+                array.len()
+            );
         }
 
         let still_sorted = last_index.is_none_or(|last_index| index >= last_index);
@@ -314,7 +324,10 @@ fn take_chunked_sorted(
     }
     if cursor != indices_values.len() {
         vortex_bail!(
-            OutOfBounds: usize::try_from(indices_values[cursor])?, 0, array.as_ref().len()
+            "index {} out of bounds from {} to {}",
+            usize::try_from(indices_values[cursor])?,
+            0,
+            array.as_ref().len()
         );
     }
 
@@ -434,7 +447,12 @@ fn take_piecewise_chunked(
             .checked_add(length)
             .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
         if end > array_len {
-            vortex_bail!(OutOfBounds: end - 1, 0, array_len);
+            vortex_bail!(
+                "index {} out of bounds from {} to {}",
+                end - 1,
+                0,
+                array_len
+            );
         }
         total_len = total_len
             .checked_add(length)

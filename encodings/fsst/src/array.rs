@@ -510,13 +510,13 @@ impl FSSTSymbolTable {
         vortex_ensure!(
             padded_symbols.len() == FSST_SYMBOL_TABLE_LEN
                 && padded_symbol_lengths.len() == FSST_SYMBOL_TABLE_LEN,
-            InvalidArgument: "padded symbol table must have exactly {FSST_SYMBOL_TABLE_LEN} entries, found {} symbols and {} symbol lengths",
+            "padded symbol table must have exactly {FSST_SYMBOL_TABLE_LEN} entries, found {} symbols and {} symbol lengths",
             padded_symbols.len(),
             padded_symbol_lengths.len()
         );
         vortex_ensure!(
             n_symbols <= FSST_SYMBOL_TABLE_LEN,
-            InvalidArgument: "n_symbols must be <= {FSST_SYMBOL_TABLE_LEN}, found {n_symbols}"
+            "n_symbols must be <= {FSST_SYMBOL_TABLE_LEN}, found {n_symbols}"
         );
         Ok(Self {
             padded_symbols,
@@ -666,7 +666,7 @@ impl FSST {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayParts<Self>> {
         if children.len() != 2 {
-            vortex_bail!(InvalidArgument: "Expected 2 children, got {}", children.len());
+            vortex_bail!("Expected 2 children, got {}", children.len());
         }
         let codes = children.get(0, &DType::Binary(dtype.nullability()), len)?;
         let codes: VarBinArray = codes
@@ -763,11 +763,11 @@ impl FSSTData {
         vortex_ensure_eq!(
             symbols.len(),
             symbol_lengths.len(),
-            InvalidArgument: "symbols and symbol_lengths arrays must have same length"
+            "symbols and symbol_lengths arrays must have same length"
         );
         vortex_ensure!(
             symbols.len() <= FSST_SYMBOL_TABLE_LEN,
-            InvalidArgument: "symbols array must have length <= {FSST_SYMBOL_TABLE_LEN}, found {}",
+            "symbols array must have length <= {FSST_SYMBOL_TABLE_LEN}, found {}",
             symbols.len()
         );
         let n_symbols = symbols.len();
@@ -820,11 +820,11 @@ impl FSSTData {
         );
 
         if symbols.len() > FSST_SYMBOL_TABLE_LEN {
-            vortex_bail!(InvalidArgument: "symbols array must have length <= {FSST_SYMBOL_TABLE_LEN}");
+            vortex_bail!("symbols array must have length <= {FSST_SYMBOL_TABLE_LEN}");
         }
 
         if symbols.len() != symbol_lengths.len() {
-            vortex_bail!(InvalidArgument: "symbols and symbol_lengths arrays must have same length");
+            vortex_bail!("symbols and symbol_lengths arrays must have same length");
         }
 
         Self::validate_symbol_lengths(symbol_lengths)?;
@@ -832,24 +832,30 @@ impl FSSTData {
         // codes_offsets.len() - 1 == number of elements
         let codes_len = codes_offsets.len().saturating_sub(1);
         if codes_len != len {
-            vortex_bail!(InvalidArgument: "codes must have same len as outer array");
+            vortex_bail!("codes must have same len as outer array");
         }
 
         if uncompressed_lengths.len() != len {
-            vortex_bail!(InvalidArgument: "uncompressed_lengths must be same len as codes");
+            vortex_bail!("uncompressed_lengths must be same len as codes");
         }
 
         if !uncompressed_lengths.dtype().is_int() || uncompressed_lengths.dtype().is_nullable() {
-            vortex_bail!(InvalidArgument: "uncompressed_lengths must have integer type and cannot be nullable, found {}", uncompressed_lengths.dtype());
+            vortex_bail!(
+                "uncompressed_lengths must have integer type and cannot be nullable, found {}",
+                uncompressed_lengths.dtype()
+            );
         }
 
         // Offsets must be non-nullable integer.
         if !codes_offsets.dtype().is_int() || codes_offsets.dtype().is_nullable() {
-            vortex_bail!(InvalidArgument: "codes offsets must be non-nullable integer type, found {}", codes_offsets.dtype());
+            vortex_bail!(
+                "codes offsets must be non-nullable integer type, found {}",
+                codes_offsets.dtype()
+            );
         }
 
         if codes_nullability != dtype.nullability() {
-            vortex_bail!(InvalidArgument: "codes nullability must match outer dtype nullability");
+            vortex_bail!("codes nullability must match outer dtype nullability");
         }
 
         Ok(())
@@ -869,7 +875,7 @@ impl FSSTData {
                 (&codes_offsets.execute_scalar(codes_offsets.len() - 1, ctx)?).try_into()?;
             vortex_ensure!(
                 last_offset <= codes_bytes.len(),
-                InvalidArgument: "Last codes offset {} exceeds codes bytes length {}",
+                "Last codes offset {} exceeds codes bytes length {}",
                 last_offset,
                 codes_bytes.len()
             );
@@ -882,12 +888,14 @@ impl FSSTData {
         let mut expected = 2;
         for (idx, &len) in symbol_lengths.iter().enumerate() {
             if len > 8 || len == 0 {
-                vortex_bail!(InvalidArgument: "symbol length at index {idx} must be between 1 and 8, found {len}");
+                vortex_bail!("symbol length at index {idx} must be between 1 and 8, found {len}");
             }
 
             if expected == 1 {
                 if len != 1 {
-                    vortex_bail!(InvalidArgument: "symbol length at index {idx} must be 1 after one-byte symbols begin, found {len}");
+                    vortex_bail!(
+                        "symbol length at index {idx} must be 1 after one-byte symbols begin, found {len}"
+                    );
                 }
             } else {
                 if len == 1 {
@@ -895,7 +903,9 @@ impl FSSTData {
                 }
 
                 if len < expected {
-                    vortex_bail!(InvalidArgument: "symbol length at index {idx} violates FSST symbol table ordering");
+                    vortex_bail!(
+                        "symbol length at index {idx} violates FSST symbol table ordering"
+                    );
                 }
                 expected = len;
             }

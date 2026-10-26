@@ -47,7 +47,12 @@ fn take_inner<T: IntegerPType, O: SequenceValue>(
     let validity = match indices_mask.bit_buffer() {
         AllOr::All => {
             if let Err(position) = indices.try_map_into(out, value_at) {
-                vortex_panic!(OutOfBounds: indices[position].as_(), 0, len);
+                vortex_panic!(
+                    "index {} out of bounds from {} to {}",
+                    indices[position].as_(),
+                    0,
+                    len
+                );
             }
             Validity::from(result_nullability)
         }
@@ -60,7 +65,12 @@ fn take_inner<T: IntegerPType, O: SequenceValue>(
         }
         AllOr::Some(bits) => {
             if let Err(position) = indices.try_map_masked_into(bits, out, value_at) {
-                vortex_panic!(OutOfBounds: indices[position].as_(), 0, len);
+                vortex_panic!(
+                    "index {} out of bounds from {} to {}",
+                    indices[position].as_(),
+                    0,
+                    len
+                );
             }
             Validity::from(bits.clone())
         }

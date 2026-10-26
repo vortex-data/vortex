@@ -420,9 +420,7 @@ impl Validity {
             _ if len == 0 => Ok(Some(Validity::NonNullable)),
             Self::NonNullable => Ok(Some(Self::NonNullable)),
             Self::AllValid => Ok(Some(Self::NonNullable)),
-            Self::AllInvalid => {
-                Err(vortex_err!(InvalidArgument: "Cannot cast AllInvalid to NonNullable"))
-            }
+            Self::AllInvalid => Err(vortex_err!("Cannot cast AllInvalid to NonNullable")),
             Self::Array(_) => Ok(None),
         }
     }
@@ -451,7 +449,7 @@ impl Validity {
     ) -> VortexResult<Validity> {
         match nullability {
             Nullability::NonNullable => self.into_non_nullable(len, ctx).ok_or_else(|| {
-                vortex_err!(InvalidArgument: "Cannot cast array with invalid values to non-nullable type.")
+                vortex_err!("Cannot cast array with invalid values to non-nullable type.")
             }),
             Nullability::Nullable => Ok(self.into_nullable()),
         }

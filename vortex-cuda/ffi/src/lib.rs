@@ -18,7 +18,6 @@ use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
-use vortex::error::vortex_err;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
@@ -338,7 +337,7 @@ unsafe fn scan_columns(columns: *const vx_view, ncolumns: usize) -> VortexResult
         );
         // SAFETY: The caller guarantees readable name bytes. as_str checks null and UTF-8.
         let name = unsafe { column.as_str() }
-            .map_err(|error| vortex_err!("invalid CUDA scan column {index}: {error}"))?;
+            .map_err(|error| error.with_context(format!("invalid CUDA scan column {index}")))?;
         vortex_ensure!(seen.insert(name), "duplicate CUDA scan column: {name:?}");
         names.push(FieldName::from(name));
     }
@@ -528,6 +527,7 @@ mod tests {
     use vortex::dtype::Nullability;
     use vortex::error::VortexResult;
     use vortex::error::vortex_ensure_eq;
+    use vortex::error::vortex_err;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::session::RuntimeSessionExt;
     use vortex::layout::LayoutStrategy;

@@ -548,6 +548,8 @@ where
         2 => vortex_bail!(
             "cannot export device-resident ListViewArray as Arrow List: offsets exceed i32 range required by cuDF"
         ),
-        status => vortex_bail!("unexpected list-view offsets kernel status {status}"),
+        status => {
+            vortex_bail!("unexpected list-view offsets kernel status {status}")
+        }
     }
 }

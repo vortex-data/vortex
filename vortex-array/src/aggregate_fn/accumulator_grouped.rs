@@ -253,7 +253,9 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
         match canonical {
             Canonical::List(groups) => self.accumulate_grouped_array(groups.into(), ctx),
             Canonical::FixedSizeList(groups) => self.accumulate_grouped_array(groups.into(), ctx),
-            _ => vortex_panic!("We checked the DType above, so this should never happen"),
+            _ => {
+                vortex_panic!("We checked the DType above, so this should never happen")
+            }
         }
     }
 

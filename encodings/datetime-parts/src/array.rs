@@ -323,10 +323,16 @@ impl DateTimePartsData {
             );
         }
         if !seconds.dtype().is_int() || seconds.dtype().is_nullable() {
-            vortex_bail!(MismatchedTypes: "non-nullable integer", seconds.dtype());
+            vortex_bail!(
+                "expected type: non-nullable integer but instead got {}",
+                seconds.dtype()
+            );
         }
         if !subseconds.dtype().is_int() || subseconds.dtype().is_nullable() {
-            vortex_bail!(MismatchedTypes: "non-nullable integer", subseconds.dtype());
+            vortex_bail!(
+                "expected type: non-nullable integer but instead got {}",
+                subseconds.dtype()
+            );
         }
 
         if len != seconds.len() || len != subseconds.len() {

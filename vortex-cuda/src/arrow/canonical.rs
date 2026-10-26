@@ -336,7 +336,9 @@ fn export_canonical(
                 }
                 export_varbinview(varbinview, ctx).await
             }
-            c => vortex_bail!("unsupported Arrow Device export for {} array", c.dtype()),
+            c => {
+                vortex_bail!("unsupported Arrow Device export for {} array", c.dtype())
+            }
         }
     })
 }
@@ -1776,7 +1778,9 @@ mod tests {
             PType::I16 => primitive_on_device(values.iter().map(|&value| value as i16), ctx).await,
             PType::I32 => primitive_on_device(values.iter().map(|&value| value as i32), ctx).await,
             PType::I64 => primitive_on_device(values.iter().copied(), ctx).await,
-            ptype => vortex_bail!("test helper only supports integer PTypes, got {ptype}"),
+            ptype => {
+                vortex_bail!("test helper only supports integer PTypes, got {ptype}")
+            }
         }
     }
 

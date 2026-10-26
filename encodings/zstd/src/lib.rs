@@ -52,11 +52,9 @@ pub fn initialize(session: &VortexSession) {
         session
             .editions()
             .declare_family(&editions::FAMILY)
-            .map_err(|error| vortex_err!("{error}"))
             .vortex_expect("Zstd edition family is valid");
         session
             .register_edition(&editions::DECLARATION)
-            .map_err(|error| vortex_err!("{error}"))
             .vortex_expect("Zstd edition declaration is valid");
     }
 }

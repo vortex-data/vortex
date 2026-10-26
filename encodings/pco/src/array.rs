@@ -315,7 +315,10 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
     use pco::errors::ErrorKind::*;
     match err.kind {
         Io(io_kind) => VortexError::from(std::io::Error::new(io_kind, err.message)),
-        InvalidArgument => vortex_err!(InvalidArgument: "{}", err.message),
+        InvalidArgument => vortex_err!("{}", err.message),
+        kind @ (Corruption | InsufficientData) => {
+            vortex_err!("Pco {:?} error: {}", kind, err.message)
+        }
         other => vortex_err!("Pco {:?} error: {}", other, err.message),
     }
 }

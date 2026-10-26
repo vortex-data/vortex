@@ -336,7 +336,7 @@ impl ArrowImportVTable for LineString {
                 vortex_ensure!(
                     linestring_meta.coord_type() == CoordType::Separated,
                     "geoarrow.linestring with interleaved coordinates is not supported; \
-                 re-encode with separated (struct) coordinates"
+             re-encode with separated (struct) coordinates"
                 );
                 (
                     linestring_meta.dimension().into(),

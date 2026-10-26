@@ -302,14 +302,14 @@ impl DecimalData {
         let byte_width = values_type.byte_width();
         vortex_ensure!(
             buffer.len().is_multiple_of(byte_width),
-            InvalidArgument: "decimal buffer size {} is not divisible by element width {}",
+            "decimal buffer size {} is not divisible by element width {}",
             buffer.len(),
             byte_width,
         );
         match_each_decimal_value_type!(values_type, |D| {
             vortex_ensure!(
                 buffer.is_aligned_to(Alignment::of::<D>()),
-                InvalidArgument: "decimal buffer alignment {:?} is invalid for values type {:?}",
+                "decimal buffer alignment {:?} is invalid for values type {:?}",
                 buffer.alignment(),
                 D::DECIMAL_TYPE,
             );

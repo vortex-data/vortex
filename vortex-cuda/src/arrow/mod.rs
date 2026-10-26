@@ -779,7 +779,9 @@ fn arrow_device_export_dictionary_codes_dtype(codes_dtype: &DType) -> VortexResu
         PType::U16 => PType::I32,
         PType::U32 | PType::U64 => PType::I64,
         ptype @ (PType::I8 | PType::I16 | PType::I32 | PType::I64) => ptype,
-        ptype => return Err(vortex_err!("dictionary codes must be integer, got {ptype}")),
+        ptype => {
+            return Err(vortex_err!("dictionary codes must be integer, got {ptype}"));
+        }
     };
 
     Ok(DType::Primitive(ptype, codes_dtype.nullability()))

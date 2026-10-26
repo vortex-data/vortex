@@ -74,7 +74,9 @@ impl Div<MeasurementValue> for MeasurementValue {
             (MeasurementValue::Int(a), MeasurementValue::Int(b)) => {
                 MeasurementValue::Float(a as f64 / b as f64)
             }
-            _ => vortex_panic!("Can't divide two measurement values of different kinds"),
+            _ => {
+                vortex_panic!("Can't divide two measurement values of different kinds")
+            }
         }
     }
 }
@@ -99,7 +101,9 @@ impl Add<MeasurementValue> for MeasurementValue {
                 MeasurementValue::Float(a + b)
             }
             (MeasurementValue::Int(a), MeasurementValue::Int(b)) => MeasurementValue::Int(a + b),
-            _ => vortex_panic!("Can't subtract two measurement values of different kinds"),
+            _ => {
+                vortex_panic!("Can't subtract two measurement values of different kinds")
+            }
         }
     }
 }
@@ -113,7 +117,9 @@ impl Sub<MeasurementValue> for MeasurementValue {
                 MeasurementValue::Float(a - b)
             }
             (MeasurementValue::Int(a), MeasurementValue::Int(b)) => MeasurementValue::Int(a - b),
-            _ => vortex_panic!("Can't subtract two measurement values of different kinds"),
+            _ => {
+                vortex_panic!("Can't subtract two measurement values of different kinds")
+            }
         }
     }
 }

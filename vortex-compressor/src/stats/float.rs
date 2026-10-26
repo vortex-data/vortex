@@ -114,7 +114,9 @@ impl FloatStats {
             PType::F16 => typed_float_stats::<f16>(input, opts.count_distinct_values, ctx),
             PType::F32 => typed_float_stats::<f32>(input, opts.count_distinct_values, ctx),
             PType::F64 => typed_float_stats::<f64>(input, opts.count_distinct_values, ctx),
-            _ => vortex_panic!("cannot generate FloatStats from ptype {}", input.ptype()),
+            _ => {
+                vortex_panic!("cannot generate FloatStats from ptype {}", input.ptype())
+            }
         }
     }
 

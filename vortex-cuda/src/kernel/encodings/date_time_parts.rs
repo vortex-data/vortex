@@ -93,7 +93,9 @@ impl CudaExecute for DateTimePartsExecutor {
             TimeUnit::Microseconds => 1_000_000,
             TimeUnit::Milliseconds => 1_000,
             TimeUnit::Seconds => 1,
-            TimeUnit::Days => vortex_bail!("Cannot decode DateTimeParts with TimeUnit::Days"),
+            TimeUnit::Days => {
+                vortex_bail!("Cannot decode DateTimeParts with TimeUnit::Days")
+            }
         };
 
         let days_canonical = array.days().clone().execute_cuda(ctx).await?;

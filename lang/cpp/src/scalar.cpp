@@ -80,7 +80,7 @@ vx_scalar *make_primitive(vx_ptype ptype, const void *value, bool nullable) {
     case PTYPE_F64:
         return vx_scalar_new_f64(*static_cast<const double *>(value), nullable);
     }
-    throw VortexException("unsupported ptype", ErrorCode::InvalidArgument);
+    throw VortexException("unsupported ptype");
 }
 
 vx_scalar *make_utf8(std::string_view value, bool nullable) {

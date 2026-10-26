@@ -492,7 +492,9 @@ impl VTable for ZstdBuffers {
                 vortex_ensure_eq!(validity.dtype(), &Validity::DTYPE);
                 vortex_ensure_eq!(validity.len(), len);
             }
-            None => vortex_ensure_eq!(extra_slots, 0, "ZstdBuffers has unexpected extra slots"),
+            None => {
+                vortex_ensure_eq!(extra_slots, 0, "ZstdBuffers has unexpected extra slots")
+            }
         }
         Ok(())
     }

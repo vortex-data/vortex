@@ -418,7 +418,9 @@ mod tests {
 
         let error = match result {
             Err(error) => error,
-            Ok(_) => vortex_bail!("the sink must reject rows changed by its initializer"),
+            Ok(_) => {
+                vortex_bail!("the sink must reject rows changed by its initializer")
+            }
         };
         assert!(
             error

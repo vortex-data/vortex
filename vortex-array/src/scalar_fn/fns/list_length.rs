@@ -78,7 +78,9 @@ impl ScalarFnVTable for ListLength {
             DType::List(_, nullable) | DType::FixedSizeList(_, _, nullable) => {
                 Ok(DType::Primitive(PType::U64, *nullable))
             }
-            other => vortex_bail!("list_length() requires List or FixedSizeList, got {other}"),
+            other => {
+                vortex_bail!("list_length() requires List or FixedSizeList, got {other}")
+            }
         }
     }
 

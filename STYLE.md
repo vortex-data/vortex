@@ -55,7 +55,8 @@
   - `vortex_ensure!` and `vortex_ensure_eq!` for checking conditions. Prefer
     `vortex_ensure_eq!(a, b)` with no message: the error already shows both expressions and values.
     Add a message only for context the expressions lack, and never repeat the values in it.
-- Add context to errors using `.with_context()`
+- Add context to an existing error with `.with_context()`, which keeps its source and backtrace;
+  do not format it into a new `vortex_err!`, which discards them.
 - Include backtraces for better debugging
 - Use `VortexExpect` trait when unwrapping is appropriate with proper error context.
 

@@ -406,7 +406,9 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             StructArray::try_new(names, children, len, vector.validity_ref(len).to_validity())
                 .map(|a| a.into_array())
         }
-        type_id => vortex_bail!("{type_id:?} flat Vector to Vortex array not supported"),
+        type_id => {
+            vortex_bail!("{type_id:?} flat Vector to Vortex array not supported")
+        }
     }
 }
 

@@ -47,7 +47,9 @@ impl ValueRef {
             return ExtractedValue::Null;
         }
         match self.logical_type().as_type_id() {
-            DUCKDB_TYPE::DUCKDB_TYPE_INVALID => vortex_panic!("Invalid type for DuckDB value"),
+            DUCKDB_TYPE::DUCKDB_TYPE_INVALID => {
+                vortex_panic!("Invalid type for DuckDB value")
+            }
             DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL => ExtractedValue::Null,
             DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN => {
                 ExtractedValue::Boolean(unsafe { cpp::duckdb_get_bool(self.as_ptr()) })

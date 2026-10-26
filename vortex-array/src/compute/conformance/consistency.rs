@@ -1047,7 +1047,9 @@ fn slice_cast_targets(dtype: &DType) -> Vec<DType> {
             vec![DType::Struct(fields.clone(), opposite)]
         }
         DType::Union(..) => vortex_panic!("TODO(connor)[Union]: unimplemented"),
-        DType::Variant(_) => vortex_panic!("Variant conformance casting is not implemented"),
+        DType::Variant(_) => {
+            vortex_panic!("Variant conformance casting is not implemented")
+        }
         DType::Extension(_) => vec![], // Extension types typically only cast to themselves
     }
 }

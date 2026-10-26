@@ -186,7 +186,9 @@ impl SequenceData {
         {
             Kind::Int64Value(_) => Ok(PType::I64),
             Kind::Uint64Value(_) => Ok(PType::U64),
-            _ => vortex_bail!("only integer ptypes are supported in SequenceArray currently"),
+            _ => {
+                vortex_bail!("only integer ptypes are supported in SequenceArray currently")
+            }
         }
     }
 

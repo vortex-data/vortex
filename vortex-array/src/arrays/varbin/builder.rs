@@ -208,7 +208,9 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
                 Some(value) => self.append_n_values(value, n)?,
                 None => self.push_nulls(n),
             },
-            dtype => vortex_bail!("VarBinBuilder cannot append scalar of dtype {dtype}"),
+            dtype => {
+                vortex_bail!("VarBinBuilder cannot append scalar of dtype {dtype}")
+            }
         }
         Ok(())
     }

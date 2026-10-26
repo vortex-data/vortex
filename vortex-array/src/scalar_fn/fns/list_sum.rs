@@ -72,7 +72,9 @@ impl ScalarFnVTable for ListSum {
     fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         let elem_dtype = match &arg_dtypes[0] {
             DType::List(elem, _) | DType::FixedSizeList(elem, ..) => elem.as_ref(),
-            other => vortex_bail!("list_sum() requires List or FixedSizeList, got {other}"),
+            other => {
+                vortex_bail!("list_sum() requires List or FixedSizeList, got {other}")
+            }
         };
         SumV2
             .return_dtype(options, elem_dtype)
@@ -89,7 +91,9 @@ impl ScalarFnVTable for ListSum {
 
         let elem_dtype = match input.dtype() {
             DType::List(elem, _) | DType::FixedSizeList(elem, ..) => elem.as_ref().clone(),
-            other => vortex_bail!("list_sum() requires List or FixedSizeList, got {other}"),
+            other => {
+                vortex_bail!("list_sum() requires List or FixedSizeList, got {other}")
+            }
         };
 
         let columnar = input.execute::<Columnar>(ctx)?;

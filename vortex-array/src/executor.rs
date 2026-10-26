@@ -53,8 +53,8 @@ use crate::trace_op;
 /// Returns the maximum number of iterations to attempt when executing an array before giving up and returning
 /// an error, can be by the `VORTEX_MAX_ITERATIONS` env variables, otherwise defaults to 2^22.
 pub(crate) fn max_iterations() -> usize {
-    static MAX_ITERATIONS: LazyLock<usize> =
-        LazyLock::new(|| match std::env::var("VORTEX_MAX_ITERATIONS") {
+    static MAX_ITERATIONS: LazyLock<usize> = LazyLock::new(|| {
+        match std::env::var("VORTEX_MAX_ITERATIONS") {
             Ok(val) => val.parse::<usize>().unwrap_or_else(|e| {
                 vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid usize: {e}")
             }),
@@ -62,7 +62,8 @@ pub(crate) fn max_iterations() -> usize {
             Err(VarError::NotUnicode(_)) => {
                 vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid unicode string")
             }
-        });
+        }
+    });
     *MAX_ITERATIONS
 }
 

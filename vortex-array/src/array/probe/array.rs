@@ -138,7 +138,7 @@ pub(super) fn check_bounds(array: &ArrayRef, index: usize) -> VortexResult<()> {
 #[cold]
 #[inline(never)]
 fn out_of_bounds(index: usize, len: usize) -> VortexError {
-    vortex_err!(OutOfBounds: index, 0, len)
+    vortex_err!("index {index} out of bounds from 0 to {len}")
 }
 
 /// The encoding state type of `V`'s operations vtable.

@@ -330,7 +330,11 @@ impl BitPackedData {
         length: usize,
         offset: u16,
     ) -> VortexResult<()> {
-        vortex_ensure!(ptype.is_int(), MismatchedTypes: "integer", ptype);
+        vortex_ensure!(
+            ptype.is_int(),
+            "expected type: integer but instead got {}",
+            ptype
+        );
 
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure_eq!(
@@ -437,10 +441,12 @@ impl BitPackedData {
         bit_width: u8,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<BitPackedArray> {
-        let parray: PrimitiveArray = array
-            .clone()
-            .try_downcast::<Primitive>()
-            .map_err(|a| vortex_err!(InvalidArgument: "Bitpacking can only encode primitive arrays, got {}", a.encoding_id()))?;
+        let parray: PrimitiveArray = array.clone().try_downcast::<Primitive>().map_err(|a| {
+            vortex_err!(
+                "Bitpacking can only encode primitive arrays, got {}",
+                a.encoding_id()
+            )
+        })?;
         bitpack_encode(&parray, bit_width, None, ctx)
     }
 
@@ -460,10 +466,12 @@ impl BitPackedData {
         bit_widths: &[u8],
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<BitPackedArray> {
-        let parray: PrimitiveArray = array
-            .clone()
-            .try_downcast::<Primitive>()
-            .map_err(|a| vortex_err!(InvalidArgument: "Bitpacking can only encode primitive arrays, got {}", a.encoding_id()))?;
+        let parray: PrimitiveArray = array.clone().try_downcast::<Primitive>().map_err(|a| {
+            vortex_err!(
+                "Bitpacking can only encode primitive arrays, got {}",
+                a.encoding_id()
+            )
+        })?;
         bitpack_encode_blocked(&parray, bit_widths, None, ctx)
     }
 }

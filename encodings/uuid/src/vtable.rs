@@ -44,7 +44,9 @@ impl ExtVTable for Uuid {
         let version = match metadata.len() {
             0 => None,
             1 => Some(u8_to_version(metadata[0])?),
-            other => vortex_bail!("UUID metadata must be 0 or 1 bytes, got {other}"),
+            other => {
+                vortex_bail!("UUID metadata must be 0 or 1 bytes, got {other}")
+            }
         };
 
         Ok(UuidMetadata { version })

@@ -327,8 +327,9 @@ fn assert_decimal_results(
 
     let result = result.unwrap_or_else(|err| {
         vortex_panic!(
+            err,
             "Decimal binary numeric operation unexpectedly failed for encoding {}: \
-             {operator:?} {scalar} (lhs_is_array: {lhs_is_array}): {err}",
+             {operator:?} {scalar} (lhs_is_array: {lhs_is_array})",
             array.encoding_id(),
         )
     });

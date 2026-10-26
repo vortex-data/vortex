@@ -59,7 +59,9 @@ fn accumulate_primitive_all(
                 Ok(false)
             }
         ),
-        SumState::Decimal(_) => vortex_panic!("decimal sum state with primitive input"),
+        SumState::Decimal(_) => {
+            vortex_panic!("decimal sum state with primitive input")
+        }
     }
 }
 
@@ -174,7 +176,9 @@ fn accumulate_primitive_valid(
                 Ok(false)
             }
         ),
-        SumState::Decimal(_) => vortex_panic!("decimal sum state with primitive input"),
+        SumState::Decimal(_) => {
+            vortex_panic!("decimal sum state with primitive input")
+        }
     }
 }
 

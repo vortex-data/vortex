@@ -160,7 +160,7 @@ fn uncompressed_size_in_bytes_u64(
     };
     if let Some(size_scalar) = cached {
         return u64::try_from(&size_scalar)
-            .map_err(|e| vortex_err!("Failed to convert uncompressed size stat to u64: {e}"));
+            .map_err(|e| e.with_context("Failed to convert uncompressed size stat to u64"));
     }
 
     // The accumulator caches an exact size on `array` through the stat slot.

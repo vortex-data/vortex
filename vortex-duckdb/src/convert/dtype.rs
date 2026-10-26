@@ -88,7 +88,9 @@ impl FromLogicalType for DType {
         nullability: Nullability,
     ) -> VortexResult<DType> {
         Ok(match logical_type.as_type_id() {
-            DUCKDB_TYPE::DUCKDB_TYPE_INVALID => vortex_bail!("invalid duckdb type"),
+            DUCKDB_TYPE::DUCKDB_TYPE_INVALID => {
+                vortex_bail!("invalid duckdb type")
+            }
             DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL => DType::Null,
             DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN => DType::Bool(nullability),
             DUCKDB_TYPE::DUCKDB_TYPE_TINYINT => DType::Primitive(I8, nullability),
@@ -99,8 +101,12 @@ impl FromLogicalType for DType {
             DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT => DType::Primitive(U16, nullability),
             DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER => DType::Primitive(U32, nullability),
             DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT => DType::Primitive(U64, nullability),
-            DUCKDB_TYPE::DUCKDB_TYPE_HUGEINT => vortex_bail!("I128 is not in Vortex type system"),
-            DUCKDB_TYPE::DUCKDB_TYPE_UHUGEINT => vortex_bail!("U128 is not in Vortex type system"),
+            DUCKDB_TYPE::DUCKDB_TYPE_HUGEINT => {
+                vortex_bail!("I128 is not in Vortex type system")
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_UHUGEINT => {
+                vortex_bail!("U128 is not in Vortex type system")
+            }
             DUCKDB_TYPE::DUCKDB_TYPE_FLOAT => DType::Primitive(F32, nullability),
             DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE => DType::Primitive(F64, nullability),
             DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR => DType::Utf8(nullability),
@@ -266,7 +272,9 @@ impl TryFrom<&DType> for LogicalType {
             }
             // TODO(connor): Union
             DType::Union(..) => vortex_bail!("Vortex Union isn't supported"),
-            DType::Variant(_) => vortex_bail!("Vortex Variant array aren't supported"),
+            DType::Variant(_) => {
+                vortex_bail!("Vortex Variant array aren't supported")
+            }
             DType::Extension(ext_dtype) => {
                 // Handle first-party extension types that have DuckDB equivalents.
                 if let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() {
@@ -389,7 +397,9 @@ impl TryFrom<PType> for LogicalType {
             U64 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT),
             F32 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_FLOAT),
             F64 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE),
-            PType::F16 => return Err(vortex_err!("F16 type not supported in DuckDB")),
+            PType::F16 => {
+                return Err(vortex_err!("F16 type not supported in DuckDB"));
+            }
         })
     }
 }

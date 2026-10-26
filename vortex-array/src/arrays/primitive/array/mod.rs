@@ -327,7 +327,6 @@ impl PrimitiveData {
             && buffer.len() != len
         {
             return Err(vortex_err!(
-                InvalidArgument:
                 "Buffer and validity length mismatch: buffer={}, validity={}",
                 buffer.len(),
                 len

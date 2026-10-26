@@ -393,7 +393,9 @@ mod tests {
 
         let error = match execute_rows(&function, &EmptyOptions, &args, &mut ctx) {
             Err(error) => error,
-            Ok(_) => vortex_error::vortex_bail!("dispatch must not change after planning"),
+            Ok(_) => {
+                vortex_error::vortex_bail!("dispatch must not change after planning")
+            }
         };
         let message = error.to_string();
 
@@ -420,7 +422,9 @@ mod tests {
 
         let error = match execute_rows(&function, &EmptyOptions, &args, &mut ctx) {
             Err(error) => error,
-            Ok(_) => vortex_error::vortex_bail!("dispatch must preserve its planned element types"),
+            Ok(_) => {
+                vortex_error::vortex_bail!("dispatch must preserve its planned element types")
+            }
         };
 
         assert!(
