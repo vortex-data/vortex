@@ -115,18 +115,17 @@ const CHILD_SLOT: FieldIndex = 0;
 const ROW_IDX_SLOT: FieldIndex = FieldIndex::MAX;
 
 pub(crate) fn register_row_idx_partition_rules(session: &PartitionSession) {
-    session.register_root(RowIdx.id(), &RowIdxScopeRule);
+    session.register_root(RowIdx.id(), &RowIdxRootRule);
     session.register(RowIdx.id(), RowIdxFn.id(), &RowIdxFnRule);
 }
 
 /// row_idx as $ reads its child
-struct RowIdxScopeRule;
-impl PartitionRule for RowIdxScopeRule {
+struct RowIdxRootRule;
+impl PartitionRule for RowIdxRootRule {
     fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeTouches>> {
-        Ok(Some(NodeTouches {
-            slots: vec![CHILD_SLOT],
-            replacement: BoundExpression::new_root(node.dtype().clone()),
-        }))
+        let slots = vec![CHILD_SLOT];
+        let replacement = BoundExpression::new_root(node.dtype().clone());
+        Ok(Some(NodeTouches { slots, replacement }))
     }
 }
 
@@ -134,10 +133,9 @@ impl PartitionRule for RowIdxScopeRule {
 struct RowIdxFnRule;
 impl PartitionRule for RowIdxFnRule {
     fn apply(&self, _node: &BoundExpression) -> VortexResult<Option<NodeTouches>> {
-        Ok(Some(NodeTouches {
-            slots: vec![ROW_IDX_SLOT],
-            replacement: BoundExpression::new_root(row_idx_dtype()),
-        }))
+        let slots = vec![ROW_IDX_SLOT];
+        let replacement = BoundExpression::new_root(row_idx_dtype());
+        Ok(Some(NodeTouches { slots, replacement }))
     }
 }
 
