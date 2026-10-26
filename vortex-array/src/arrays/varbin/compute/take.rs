@@ -15,7 +15,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
@@ -23,6 +22,7 @@ use crate::ArrayRef;
 use crate::Columnar;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::arrays::ConstantArray;
 use crate::arrays::PiecewiseSequence;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
@@ -43,6 +43,7 @@ use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 /// The widened offset type used for a taken `VarBinArray`: offsets are widened to at least 32 bits
@@ -171,6 +172,15 @@ impl TakeExecute for VarBin {
             .as_ref()
             .validity()?
             .execute_mask(indices.as_ref().len(), ctx)?;
+        if matches!(indices_mask, Mask::AllFalse(_)) {
+            return Ok(Some(
+                ConstantArray::new(
+                    Scalar::null(array.dtype().as_nullable()),
+                    indices.as_ref().len(),
+                )
+                .into_array(),
+            ));
+        }
 
         let views = match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
             match_each_integer_ptype!(indices.ptype(), |I| {
@@ -200,8 +210,9 @@ fn take_views<O: UnsignedPType, I: IntegerPType + AsPrimitive<usize>>(
     mask: &Mask,
 ) -> Buffer<BinaryView> {
     let build = |idx: usize| -> BinaryView {
-        let start: usize = offsets[idx].as_();
-        let stop: usize = offsets[idx + 1].as_();
+        // SAFETY: caller verified idx and idx + 1 are in bounds
+        let start: usize = unsafe { *offsets.get_unchecked(idx) }.as_();
+        let stop: usize = unsafe { *offsets.get_unchecked(idx + 1) }.as_();
         let value = &data[start..stop];
         let len = stop - start;
 
@@ -218,18 +229,44 @@ fn take_views<O: UnsignedPType, I: IntegerPType + AsPrimitive<usize>>(
     };
 
     match mask.bit_buffer() {
-        AllOr::All => Buffer::from_trusted_len_iter(indices.iter().map(|i| build(i.as_()))),
+        AllOr::All => {
+            let iter = indices.iter().map(|i| build(i.as_()));
+            let Some(&first) = indices.first() else {
+                return Buffer::from_trusted_len_iter(iter);
+            };
+            let (min, max) = indices
+                .iter()
+                .fold((first, first), |(lo, hi), &x| (lo.min(x), hi.max(x)));
+            assert!(
+                min >= I::zero() && max.as_() < offsets.len() - 1,
+                "take index out of bounds"
+            );
+            Buffer::from_trusted_len_iter(iter)
+        }
         AllOr::None => {
             Buffer::from_trusted_len_iter(iter::repeat_n(BinaryView::default(), indices.len()))
         }
         AllOr::Some(buffer) => {
-            Buffer::from_trusted_len_iter(buffer.iter().zip(indices.iter()).map(|(valid, i)| {
-                if valid {
-                    build(i.as_())
-                } else {
-                    BinaryView::default()
-                }
-            }))
+            let Some(max_element) = (offsets.len() - 1).checked_sub(1) else {
+                assert_eq!(mask.true_count(), 0, "take index out of bounds");
+                return Buffer::from_trusted_len_iter(iter::repeat_n(
+                    BinaryView::default(),
+                    indices.len(),
+                ));
+            };
+            let mut violations = 0usize;
+            let views = Buffer::from_trusted_len_iter(buffer.iter().zip(indices.iter()).map(
+                |(valid, i)| {
+                    let keep = usize::from(valid).wrapping_neg();
+                    let masked = i.as_() & keep;
+                    let clamped = masked.min(max_element);
+                    violations += usize::from(masked != clamped);
+                    let view = build(clamped);
+                    if valid { view } else { BinaryView::default() }
+                },
+            ));
+            assert_eq!(violations, 0, "take index out of bounds");
+            views
         }
     }
 }
@@ -365,12 +402,21 @@ fn take<Index: IntegerPType, Offset: IntegerPType>(
     new_offsets.push(0);
     let mut current_offset = 0usize;
 
+    if let Some(&first) = indices.first() {
+        let (min, max) = indices
+            .iter()
+            .fold((first, first), |(lo, hi), &x| (lo.min(x), hi.max(x)));
+        assert!(
+            min >= Index::zero() && max.as_() < offsets.len() - 1,
+            "take index out of bounds"
+        );
+    }
+
     for &idx in indices {
-        let idx = idx
-            .to_usize()
-            .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", idx));
-        let start = offsets[idx];
-        let stop = offsets[idx + 1];
+        let idx: usize = idx.as_();
+        // SAFETY: idx is in bounds, checked before
+        let start = unsafe { *offsets.get_unchecked(idx) };
+        let stop = unsafe { *offsets.get_unchecked(idx + 1) };
 
         current_offset += (stop - start)
             .to_usize()
@@ -380,14 +426,13 @@ fn take<Index: IntegerPType, Offset: IntegerPType>(
 
     let mut new_data = ByteBufferMut::with_capacity(current_offset);
 
-    for idx in indices {
-        let idx = idx
-            .to_usize()
-            .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", idx));
-        let start = offsets[idx]
+    for &idx in indices {
+        let idx: usize = idx.as_();
+        // SAFETY: idx is in bounds, checked before
+        let start = unsafe { *offsets.get_unchecked(idx) }
             .to_usize()
             .vortex_expect("Failed to cast max offset to usize");
-        let stop = offsets[idx + 1]
+        let stop = unsafe { *offsets.get_unchecked(idx + 1) }
             .to_usize()
             .vortex_expect("Failed to cast max offset to usize");
         new_data.extend_from_slice(&data[start..stop]);
@@ -765,6 +810,13 @@ fn take_nullable<Index: IntegerPType, Offset: IntegerPType>(
     // Convert indices once and store valid ones with their positions
     let mut valid_indices = Vec::with_capacity(indices.len());
 
+    let max_element = offsets.len().saturating_sub(2);
+    assert!(
+        offsets.len() >= 2 || indices_validity.true_count() == 0,
+        "take index out of bounds"
+    );
+    let mut violations = 0usize;
+
     // First pass: calculate offsets and validity
     for (data_idx, index_valid) in indices.iter().zip(indices_validity.iter()) {
         if !index_valid {
@@ -772,13 +824,13 @@ fn take_nullable<Index: IntegerPType, Offset: IntegerPType>(
             new_offsets.push(current_offset);
             continue;
         }
-        let data_idx_usize = data_idx
-            .to_usize()
-            .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", data_idx));
+        let raw: usize = data_idx.as_();
+        let data_idx_usize = raw.min(max_element);
+        violations += usize::from(raw != data_idx_usize);
         if data_validity.value(data_idx_usize) {
             validity_buffer.append(true);
-            let start = offsets[data_idx_usize];
-            let stop = offsets[data_idx_usize + 1];
+            let start = unsafe { *offsets.get_unchecked(data_idx_usize) };
+            let stop = unsafe { *offsets.get_unchecked(data_idx_usize + 1) };
             current_offset += (stop - start)
                 .to_usize()
                 .vortex_expect("Failed to cast offset to usize");
@@ -789,15 +841,16 @@ fn take_nullable<Index: IntegerPType, Offset: IntegerPType>(
             new_offsets.push(current_offset);
         }
     }
+    assert_eq!(violations, 0, "take index out of bounds");
 
     let mut new_data = ByteBufferMut::with_capacity(current_offset);
 
     // Second pass: copy data for valid indices only
     for data_idx in valid_indices {
-        let start = offsets[data_idx]
+        let start = unsafe { *offsets.get_unchecked(data_idx) }
             .to_usize()
             .vortex_expect("Failed to cast max offset to usize");
-        let stop = offsets[data_idx + 1]
+        let stop = unsafe { *offsets.get_unchecked(data_idx + 1) }
             .to_usize()
             .vortex_expect("Failed to cast max offset to usize");
         new_data.extend_from_slice(&data[start..stop]);

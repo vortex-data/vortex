@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::iter;
+use std::mem::transmute;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
@@ -18,6 +19,7 @@ use crate::ArrayRef;
 use crate::Columnar;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::arrays::ConstantArray;
 use crate::arrays::PiecewiseSequence;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinView;
@@ -31,6 +33,7 @@ use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
+use crate::scalar::Scalar;
 
 impl TakeExecute for VarBinView {
     /// Take involves creating a new array that references the old array, just with the given set of views.
@@ -52,6 +55,15 @@ impl TakeExecute for VarBinView {
             .as_ref()
             .validity()?
             .execute_mask(indices.as_ref().len(), ctx)?;
+        if matches!(indices_mask, Mask::AllFalse(_)) {
+            return Ok(Some(
+                ConstantArray::new(
+                    Scalar::null(array.dtype().as_nullable()),
+                    indices.as_ref().len(),
+                )
+                .into_array(),
+            ));
+        }
         let views_buffer = match_each_integer_ptype!(indices.ptype(), |I| {
             take_views(array.views(), indices.as_slice::<I>(), &indices_mask)
         });
@@ -143,15 +155,51 @@ fn take_views<I: AsPrimitive<usize>>(
             BinaryView::default(),
             indices.len(),
         )),
-        AllOr::Some(buffer) => Buffer::<BinaryView>::from_trusted_len_iter(
-            buffer.iter().zip(indices.iter()).map(|(valid, idx)| {
-                if valid {
-                    views_ref[idx.as_()]
-                } else {
-                    BinaryView::default()
+        AllOr::Some(buffer) => {
+            assert_eq!(buffer.len(), indices.len());
+            let Some(max_index) = views_ref.len().checked_sub(1) else {
+                assert_eq!(mask.true_count(), 0, "take index out of bounds");
+                return Buffer::<BinaryView>::from_trusted_len_iter(iter::repeat_n(
+                    BinaryView::default(),
+                    indices.len(),
+                ));
+            };
+
+            let len = indices.len();
+            let mut views = BufferMut::<BinaryView>::with_capacity(len);
+            let spare = views.spare_capacity_mut();
+            let mut gather = |base: usize, count: usize, word: u64| -> u64 {
+                let mut fails = 0u64;
+                for bit in 0..count {
+                    let pos = base + bit;
+                    // SAFETY: safe by definition due to the way we chunk data
+                    // in callers
+                    let idx = unsafe { indices.get_unchecked(pos) }.as_();
+                    let clamped = idx.min(max_index);
+                    fails |= u64::from(idx != clamped) << bit;
+                    // SAFETY: clamped index is always in bounds
+                    let view = unsafe { *views_ref.get_unchecked(clamped) };
+                    let keep = ((word >> bit) & 1).wrapping_neg();
+                    let [lo, hi] = unsafe { transmute::<BinaryView, [u64; 2]>(view) };
+                    let masked =
+                        unsafe { transmute::<[u64; 2], BinaryView>([lo & keep, hi & keep]) };
+                    unsafe { spare.get_unchecked_mut(pos) }.write(masked);
                 }
-            }),
-        ),
+                fails & word
+            };
+
+            let chunks = buffer.chunks();
+            let mut violations = 0u64;
+            for (chunk, word) in chunks.iter().enumerate() {
+                violations |= gather(chunk * 64, 64, word);
+            }
+            let tail_base = len / 64 * 64;
+            violations |= gather(tail_base, len - tail_base, chunks.remainder_bits());
+            assert_eq!(violations, 0, "take index out of bounds");
+
+            unsafe { views.set_len(len) };
+            views.freeze()
+        }
     }
 }
 
