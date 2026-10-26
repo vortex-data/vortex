@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
+use futures::StreamExt;
 use object_store::registry::ObjectStoreRegistry;
 use url::Url;
+use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::struct_::StructArrayExt as _;
 use vortex::dtype::FieldPath;
@@ -26,8 +29,12 @@ use vortex::io::runtime::BlockingRuntime as _;
 use vortex::io::std_file::StdFileSystem;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::scan::scan_builder::ScanBuilder;
+use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
+use vortex::layout::scan::v2::ScanFile;
+use vortex::layout::scan::v2::partition_row_range;
 use vortex::mask::Mask;
 use vortex::session::SessionExt as _;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::REGISTRY;
 use crate::RUNTIME;
@@ -114,6 +121,9 @@ pub struct OpenFileReader {
 /// The state of an open file that the threads scanning it share.
 pub struct FileScanState {
     reader: LayoutReaderRef,
+    /// The file as the V2 executor reads it, with a scan cache that every split of the file
+    /// shares.
+    scan_file: ScanFile,
     cache: ConversionCache,
 }
 
@@ -122,9 +132,12 @@ impl OpenFileReader {
         let (fs, fs_path) = resolve_filesystem(&parse_uri_or_path(&path)?)?;
         let source = fs.open_read(&fs_path).await?;
         let file = open_cached(&SESSION, Some(&path), source, None, &|options| options).await?;
+        let mut scan_file = file.scan_file();
+        scan_file.cache.get_or_insert_default();
         Ok(OpenFileReader {
             scan_state: Some(Arc::new(FileScanState {
                 reader: file.layout_reader()?,
+                scan_file,
                 cache: ConversionCache::default(),
             })),
             splits: vec![],
@@ -132,12 +145,14 @@ impl OpenFileReader {
         })
     }
 
-    fn reader(&self) -> &LayoutReaderRef {
-        &self
-            .scan_state
+    fn scan_state(&self) -> &FileScanState {
+        self.scan_state
             .as_ref()
             .vortex_expect("file used after its scan state was released")
-            .reader
+    }
+
+    fn reader(&self) -> &LayoutReaderRef {
+        &self.scan_state().reader
     }
 
     fn can_skip(&self, filter: &Filter) -> VortexResult<bool> {
@@ -197,20 +212,93 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
 
     // Getting splits is non-trivial work so we prefer doing it here under file
     // lock and not in reader_try_initialize_scan under global lock.
-    let reader = Arc::clone(file.reader());
-    let filter = &global.filter;
-    let builder = ScanBuilder::new(SESSION.clone(), reader)
-        .with_projection(global.projection.clone())
-        .with_some_filter(filter.filter.clone())
-        .with_selection(filter.row_selection.clone());
-    let scan = builder.prepare()?;
-    let mut splits = scan.execute(filter.row_range.clone())?;
+    let mut splits = if global.scan_v2 {
+        v2_splits(file.scan_state(), global)?
+    } else {
+        let reader = Arc::clone(file.reader());
+        let filter = &global.filter;
+        let builder = ScanBuilder::new(SESSION.clone(), reader)
+            .with_projection(global.projection.clone())
+            .with_some_filter(filter.filter.clone())
+            .with_selection(filter.row_selection.clone());
+        let scan = builder.prepare()?;
+        scan.execute(filter.row_range.clone())?
+            .into_iter()
+            .map(Split::V1)
+            .collect()
+    };
 
     // threads take last element of file.splits so we need to reverse
     splits.reverse();
     file.total_splits = splits.len();
     file.splits = splits;
     Ok(false)
+}
+
+/// Splits the file's scanned rows into one V2 scan per available core, each over a contiguous
+/// row range on the executor's row blocks. The splits share the file's scan cache, so the file is
+/// planned once. A split's chunks run beside each other only as far as the engine's threads leave
+/// cores idle, like DataFusion's partitions.
+fn v2_splits(state: &FileScanState, global: &GlobalState) -> VortexResult<Vec<Split>> {
+    let filter = &global.filter;
+    let row_count = state.reader.row_count();
+    let rows = filter.row_range.as_ref().map_or(0..row_count, |range| {
+        range.start.min(row_count)..range.end.min(row_count)
+    });
+    let parts = get_available_parallelism().unwrap_or(1) as u64;
+    split_row_ranges(rows, parts)
+        .map(|rows| {
+            let stream = V2ScanBuilder::new(SESSION.clone(), state.scan_file.clone())
+                .with_projection(global.projection.clone())
+                .with_some_filter(filter.filter.clone())
+                .with_selection(filter.row_selection.clone())
+                .with_row_range(rows)
+                .with_ordered(false)
+                .with_concurrency(1)
+                .into_stream()?;
+            Ok(Split::V2(stream))
+        })
+        .collect()
+}
+
+/// Cuts `rows` into up to `parts` non-empty, contiguous ranges that tile it.
+fn split_row_ranges(rows: Range<u64>, parts: u64) -> impl Iterator<Item = Range<u64>> {
+    let len = rows.end.saturating_sub(rows.start);
+    let parts = parts.max(1);
+    (0..parts).filter_map(move |part| {
+        let split = partition_row_range(part..part + 1, parts, len);
+        (!split.is_empty()).then(|| rows.start + split.start..rows.start + split.end)
+    })
+}
+
+/// What a thread's split yields next.
+enum SplitItem {
+    /// The split has no more rows.
+    Done,
+    /// The split produced no rows this time but may produce more.
+    Empty,
+    Array(ArrayRef),
+}
+
+/// Takes the next array of the thread's split, keeping the split while it has more to yield.
+fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
+    match local.split.take() {
+        None => Ok(SplitItem::Done),
+        Some(Split::V1(task)) => Ok(RUNTIME
+            .block_on(task)?
+            .map_or(SplitItem::Empty, SplitItem::Array)),
+        Some(Split::V2(mut stream)) => {
+            let Some(array) = RUNTIME.block_on(stream.next()).transpose()? else {
+                return Ok(SplitItem::Done);
+            };
+            local.split = Some(Split::V2(stream));
+            Ok(if array.is_empty() {
+                SplitItem::Empty
+            } else {
+                SplitItem::Array(array)
+            })
+        }
+    }
 }
 
 /// Called by all threads under global lock. If this function returns true,
@@ -262,12 +350,11 @@ pub fn reader_scan(
     }
 
     if local.exporter.is_none() {
-        let Some(split) = local.split.take() else {
-            return Ok(false);
-        };
-        let Some(array) = RUNTIME.block_on(split)? else {
+        let array = match next_split_item(local)? {
+            SplitItem::Done => return Ok(false),
             // split is filtered
-            return Ok(true);
+            SplitItem::Empty => return Ok(true),
+            SplitItem::Array(array) => array,
         };
         let mut ctx = SESSION.create_execution_ctx();
         let array = convert_result(array, &mut ctx)?;
@@ -284,12 +371,11 @@ pub fn reader_scan(
 }
 
 fn reader_scan_aggregate(global: &GlobalState, local: &mut LocalState) -> VortexResult<bool> {
-    let Some(split) = local.split.take() else {
-        return Ok(false);
-    };
-    let Some(array) = RUNTIME.block_on(split)? else {
+    let array = match next_split_item(local)? {
+        SplitItem::Done => return Ok(false),
         // split is filtered
-        return Ok(true);
+        SplitItem::Empty => return Ok(true),
+        SplitItem::Array(array) => array,
     };
 
     let mut ctx = SESSION.create_execution_ctx();

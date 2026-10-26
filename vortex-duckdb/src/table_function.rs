@@ -11,6 +11,7 @@ use std::sync::atomic::Ordering;
 
 use custom_labels::CURRENT_LABELSET;
 use futures::future::BoxFuture;
+use futures::stream::BoxStream;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use parking_lot::Mutex;
@@ -140,6 +141,8 @@ pub struct GlobalState {
     pub projection: BoundExpression,
     pub filter: Filter,
     pub file_row_number_column_pos: Option<usize>,
+    /// Whether the scan runs on the planner-driven V2 executor.
+    pub scan_v2: bool,
 
     // Following fields are used only in aggregate scans.
     pub aggregate_state: Mutex<AggregateState>,
@@ -156,7 +159,13 @@ pub struct AggregateState {
 }
 assert_impl_all!(GlobalState: Send, Sync);
 
-pub type Split = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
+/// A unit of scan work that one thread takes at a time.
+pub enum Split {
+    /// A V1 scan task yielding one array, or `None` if the filter removed every row.
+    V1(BoxFuture<'static, VortexResult<Option<ArrayRef>>>),
+    /// A V2 scan over a row range of the file, yielding arrays until it ends.
+    V2(BoxStream<'static, VortexResult<ArrayRef>>),
+}
 
 /// field position, accumulator
 pub type Partials = Vec<(usize, Box<dyn DynAccumulator>)>;
@@ -304,6 +313,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         aggregate_state: Mutex::new(AggregateState::default()),
         row_count: AtomicU64::new(0),
         file_row_number_column_pos,
+        scan_v2: crate::scan_v2(),
     })
 }
 

@@ -7,6 +7,8 @@ use std::ffi::c_char;
 use std::ffi::c_void;
 use std::sync::LazyLock;
 use std::sync::OnceLock;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use vortex::VortexSessionDefault;
 use vortex::cloud::Registry;
@@ -54,6 +56,20 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     vortex_spatial::initialize(&session);
     session
 });
+
+/// Whether scans run on the planner-driven V2 executor. Set `VORTEX_SCAN_V2=1` to enable it.
+static SCAN_V2: LazyLock<AtomicBool> =
+    LazyLock::new(|| AtomicBool::new(std::env::var("VORTEX_SCAN_V2").is_ok_and(|v| v == "1")));
+
+/// Selects the planner-driven V2 scan executor for scans initialized from now on.
+pub fn set_scan_v2(enabled: bool) {
+    SCAN_V2.store(enabled, Ordering::Relaxed);
+}
+
+/// Whether scans initialized now use the planner-driven V2 scan executor.
+pub fn scan_v2() -> bool {
+    SCAN_V2.load(Ordering::Relaxed)
+}
 
 // Duckdb's logger requires a *Context as first argument which
 // would be hard to integrate with tracing::. We use logging for
