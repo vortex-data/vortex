@@ -37,6 +37,7 @@ use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
 use crate::layouts::zoned::AggregateStatsAccumulator;
 use crate::layouts::zoned::ZonedLayout;
+use crate::layouts::zoned::aggregate_demanded_partials;
 use crate::layouts::zoned::aggregate_partials;
 use crate::layouts::zoned::schema::default_bounded_stat_max_bytes;
 use crate::segments::SegmentSinkRef;
@@ -109,21 +110,9 @@ impl LayoutStrategy for ZonedStrategy {
             .aggregate_fns
             .clone()
             .unwrap_or_else(|| default_zoned_aggregate_fns(stream.dtype(), session));
-        // Fields of a nullable struct are written unmasked, so every aggregate over them sees
-        // values the logical column does not contain: counts come out wrong and min/max come out
-        // wider than the truth. Zone maps hold exact values only, so until the aggregates are
-        // computed over the masked values no zone map is written for such a field.
-        //
-        // TODO(joe): write zone maps for fields under a nullable struct. The struct validity has
-        //  to travel with each chunk, since repartitioning below the struct writer re-chunks the
-        //  stream, and the aggregates then run over `chunk.mask(validity)` while the data child
-        //  still receives the unmasked chunk.
-        if ctx.has_nullable_ancestor() {
-            return self
-                .child
-                .write_stream(ctx, segment_sink, stream, eof, session)
-                .await;
-        }
+        // Fields of a nullable struct are written unmasked, so an aggregate over all their rows
+        // sees values the logical column does not contain. Each chunk carries the demand on its
+        // rows, and each zone aggregates its logical column, null in the undemanded rows.
         let compute_session = session.clone();
 
         let stats_accumulator = Arc::new(Mutex::new(AggregateStatsAccumulator::new(
@@ -148,13 +137,14 @@ impl LayoutStrategy for ZonedStrategy {
                 let aggregate_fns = Arc::clone(&aggregate_fns);
                 let session = compute_session.clone();
                 session.handle().spawn_cpu(move || {
-                    let (sequence_id, chunk) = item?;
-                    let partials = aggregate_partials(
-                        &chunk,
-                        &aggregate_fns,
-                        &mut session.create_execution_ctx(),
-                    )?;
-                    Ok::<_, VortexError>((sequence_id, chunk, partials))
+                    let (sequence_id, chunk, demand) = item?;
+                    let mut ctx = session.create_execution_ctx();
+                    let partials = if demand.all_true() {
+                        aggregate_partials(&chunk, &aggregate_fns, &mut ctx)?
+                    } else {
+                        aggregate_demanded_partials(&chunk, &demand, &aggregate_fns, &mut ctx)?
+                    };
+                    Ok::<_, VortexError>((sequence_id, chunk, demand, partials))
                 })
             })
             .buffered(concurrency);
@@ -165,9 +155,11 @@ impl LayoutStrategy for ZonedStrategy {
         let stream = SequentialStreamAdapter::new(
             stream_dtype,
             stream.map(move |item| {
-                let (sequence_id, chunk, partials) = item?;
+                let (sequence_id, chunk, demand, partials) = item?;
                 stats_accumulator2.lock().push_partials(partials)?;
-                Ok((sequence_id, chunk))
+                // The data child receives the same rows, and their demand, e.g. for a list
+                // writer to drop the elements of undemanded lists.
+                Ok((sequence_id, chunk, demand))
             }),
         )
         .sendable();
@@ -254,6 +246,7 @@ mod tests {
 
     use rstest::rstest;
     use vortex_array::ArrayContext;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::aggregate_fn::AggregateFnVTable;
     use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
@@ -261,7 +254,8 @@ mod tests {
     use vortex_array::aggregate_fn::fns::max::Max;
     use vortex_array::aggregate_fn::fns::min::Min;
     use vortex_array::aggregate_fn::fns::sum::Sum;
-    use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::extension::datetime::TimeUnit;
@@ -272,6 +266,7 @@ mod tests {
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_mask::Mask;
     use vortex_utils::aliases::hash_set::HashSet;
 
     use super::*;
@@ -280,8 +275,8 @@ mod tests {
     use crate::layouts::zoned::Zoned;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
-    use crate::sequence::SequentialArrayStreamExt;
     use crate::session::LayoutSession;
+    use crate::test::read_zone_stats;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -298,6 +293,20 @@ mod tests {
 
     /// Write three zones of primitives through `ctx`, returning the resulting layout.
     fn write_layout(ctx: LayoutWriterContext) -> VortexResult<LayoutRef> {
+        let chunks = [
+            buffer![1, 2, 3].into_array(),
+            buffer![4, 5, 6].into_array(),
+            buffer![7, 8, 9].into_array(),
+        ];
+        Ok(write_chunks(ctx, chunks.map(|chunk| (chunk, Mask::new_true(3))))?.0)
+    }
+
+    /// Write `chunks`, each with the demand on its rows, as zones of three rows through `ctx`,
+    /// returning the resulting layout and the segments it was written to.
+    fn write_chunks(
+        ctx: LayoutWriterContext,
+        chunks: impl IntoIterator<Item = (ArrayRef, Mask)>,
+    ) -> VortexResult<(LayoutRef, Arc<TestSegments>)> {
         let strategy = ZonedStrategy::new(
             ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
             FlatLayoutStrategy::default(),
@@ -306,31 +315,74 @@ mod tests {
                 ..Default::default()
             },
         );
-        let (ptr, eof) = SequenceId::root().split();
-        let stream = ChunkedArray::from_iter([
-            buffer![1, 2, 3].into_array(),
-            buffer![4, 5, 6].into_array(),
-            buffer![7, 8, 9].into_array(),
-        ])
-        .into_array()
-        .to_array_stream()
-        .sequenced(ptr);
+        let (mut ptr, eof) = SequenceId::root().split();
+        let chunks: Vec<_> = chunks.into_iter().collect();
+        let dtype = chunks[0].0.dtype().clone();
+        let chunks: Vec<_> = chunks
+            .into_iter()
+            .map(|(chunk, demand)| Ok((ptr.advance(), chunk, demand)))
+            .collect();
+        let stream = SequentialStreamAdapter::new(dtype, futures::stream::iter(chunks)).sendable();
 
-        block_on(|handle: Handle| async move {
+        let segments = Arc::new(TestSegments::default());
+        let segments2 = Arc::clone(&segments);
+        let layout = block_on(|handle: Handle| async move {
             let session = VortexSession::empty()
                 .with::<LayoutSession>()
                 .with::<RuntimeSession>()
                 .with_handle(handle);
             strategy
-                .write_stream(
-                    ctx,
-                    Arc::new(TestSegments::default()),
-                    stream,
-                    eof,
-                    &session,
-                )
+                .write_stream(ctx, segments2, stream, eof, &session)
                 .await
-        })
+        })?;
+        Ok((layout, segments))
+    }
+
+    /// Under a nullable ancestor, each zone aggregates its logical column, null in the rows the
+    /// ancestor nulls out, so undemanded values never widen the zone's bounds and count as nulls.
+    #[test]
+    fn demanded_zones_aggregate_only_demanded_rows() -> VortexResult<()> {
+        let (layout, segments) = write_chunks(
+            LayoutWriterContext::new(ArrayContext::empty()),
+            [
+                (
+                    PrimitiveArray::from_option_iter([Some(1), Some(2), Some(3)]).into_array(),
+                    Mask::new_true(3),
+                ),
+                (
+                    PrimitiveArray::from_option_iter([Some(-40), None, Some(6)]).into_array(),
+                    Mask::from_iter([false, true, true]),
+                ),
+                (
+                    PrimitiveArray::from_option_iter([Some(7), Some(80), None]).into_array(),
+                    Mask::from_iter([true, false, false]),
+                ),
+            ],
+        )?;
+        assert!(layout.is::<Zoned>());
+
+        let mut exec_ctx = VortexSession::empty().create_execution_ctx();
+        let min = read_zone_stats(&layout, &segments, &Min.bind(Default::default()))?;
+        assert_arrays_eq!(
+            min,
+            PrimitiveArray::from_option_iter([Some(1i32), Some(6), Some(7)]),
+            &mut exec_ctx
+        );
+        let max = read_zone_stats(&layout, &segments, &Max.bind(Default::default()))?;
+        assert_arrays_eq!(
+            max,
+            PrimitiveArray::from_option_iter([Some(3i32), Some(6), Some(7)]),
+            &mut exec_ctx
+        );
+        // Undemanded rows are null: the second zone has its own null and one undemanded row, the
+        // third zone two undemanded rows, one of which is also null.
+        let null_count = read_zone_stats(&layout, &segments, &NullCount.bind(EmptyOptions))?;
+        assert_arrays_eq!(
+            null_count,
+            PrimitiveArray::from_option_iter([Some(0u64), Some(2), Some(2)]),
+            &mut exec_ctx
+        );
+        Ok(())
     }
 
     #[test]
@@ -342,16 +394,6 @@ mod tests {
             !written.contains(&Sum.id().to_string()),
             "wrote {written:?}"
         );
-        Ok(())
-    }
-
-    /// A field of a nullable struct is written unmasked, so no aggregate over it is exact and no
-    /// zone map is written.
-    #[test]
-    fn a_nullable_ancestor_writes_no_zone_map() -> VortexResult<()> {
-        let layout =
-            write_layout(LayoutWriterContext::new(ArrayContext::empty()).with_nullable_ancestor())?;
-        assert!(!layout.is::<Zoned>());
         Ok(())
     }
 

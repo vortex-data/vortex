@@ -11,13 +11,18 @@ use futures::StreamExt;
 use futures::future::join;
 use futures::future::try_join_all;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::demand::list_elements_demand;
+use vortex_array::aggregate_fn::demand::valid_demand;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::List;
+use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListView;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::list::ListArraySlotsExt;
 use vortex_array::arrays::list::ListDataParts;
 use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::builtins::ArrayBuiltins;
@@ -26,10 +31,12 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::matcher::Matcher;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::LayoutRef;
@@ -41,14 +48,15 @@ use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::layouts::list::ListLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
-use crate::sequence::SequenceId;
 use crate::sequence::SequencePointer;
+use crate::sequence::SequentialChunk;
 use crate::sequence::SequentialStream;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt;
+use crate::sequence::fully_demanded;
 
 /// Item carried on each child sub-stream: a sequenced, materialized chunk.
-type ChildChunk = VortexResult<(SequenceId, ArrayRef)>;
+type ChildChunk = VortexResult<SequentialChunk>;
 
 /// Strategy for writing list-typed arrays, with a fallback for non-list dtypes.
 ///
@@ -167,6 +175,9 @@ impl LayoutStrategy for ListLayoutStrategy {
             (None, None)
         };
 
+        // The elements are normalised to those of the lists its ancestors demand and that are
+        // valid, so every element written belongs to the logical elements column, and every row
+        // of every child is demanded.
         // Transpose the list column into its child sub-streams and rebase offsets to global
         // positions. Kept joined with the child writers below so producer errors surface rather
         // than being hidden as an early channel close.
@@ -232,7 +243,7 @@ impl LayoutStrategy for ListLayoutStrategy {
 /// `validity_tx` is `Some` exactly when the list is nullable. Errors surface to the caller, which
 /// joins this against the child writers, rather than being hidden as an early channel close.
 async fn transpose_list_column(
-    first_chunk: (SequenceId, ArrayRef),
+    first_chunk: SequentialChunk,
     stream: SendableSequentialStream,
     session: VortexSession,
     elements_tx: Sender<ChildChunk>,
@@ -244,14 +255,16 @@ async fn transpose_list_column(
     let mut first = true;
     let mut chunks = futures::stream::iter([Ok(first_chunk)]).chain(stream);
     while let Some(chunk) = chunks.next().await {
-        let (sequence_id, array) = chunk?;
+        let (sequence_id, array, demand) = chunk?;
         let mut sp = sequence_id.descend();
+        let list = canonicalize_to_list(array, &mut exec_ctx)?;
+        let list = drop_absent_elements(list, &demand, &mut exec_ctx)?;
         let ListDataParts {
             elements,
             offsets,
             validity,
             ..
-        } = canonicalize_to_list_parts(array, &mut exec_ctx)?;
+        } = list.into_data_parts();
         let n_elements = elements.len() as u64;
         let row_count = offsets.len().saturating_sub(1);
         let offsets = global_offsets(offsets, element_base, first, &mut exec_ctx)?;
@@ -259,10 +272,13 @@ async fn transpose_list_column(
         first = false;
 
         if elements_tx
-            .send(Ok((sp.advance(), elements)))
+            .send(Ok(fully_demanded(sp.advance(), elements)))
             .await
             .is_err()
-            || offsets_tx.send(Ok((sp.advance(), offsets))).await.is_err()
+            || offsets_tx
+                .send(Ok(fully_demanded(sp.advance(), offsets)))
+                .await
+                .is_err()
         {
             vortex_bail!("list child writer finished before all chunks were sent");
         }
@@ -271,7 +287,7 @@ async fn transpose_list_column(
                 .execute_mask(row_count, &mut exec_ctx)?
                 .into_array();
             if validity_tx
-                .send(Ok((sp.advance(), validity)))
+                .send(Ok(fully_demanded(sp.advance(), validity)))
                 .await
                 .is_err()
             {
@@ -282,16 +298,50 @@ async fn transpose_list_column(
     Ok(())
 }
 
-/// Canonicalize a list-dtype array into [`ListDataParts`].
-fn canonicalize_to_list_parts(
-    array: ArrayRef,
+/// Drop the elements that do not belong to the logical elements column: those of null lists, of
+/// lists `demand` does not select, and elements no list references. Dropped lists become empty.
+fn drop_absent_elements(
+    list: ListArray,
+    demand: &Mask,
     exec_ctx: &mut ExecutionCtx,
-) -> VortexResult<ListDataParts> {
+) -> VortexResult<ListArray> {
+    let validity = list.validity()?;
+    let lists = valid_demand(&validity, demand, exec_ctx)?;
+    let elements = list_elements_demand(&list, &lists, exec_ctx)?;
+    if elements.all_true() {
+        return Ok(list);
+    }
+
+    let offsets = list
+        .offsets()
+        .clone()
+        .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
+        .execute::<PrimitiveArray>(exec_ctx)?;
+    let mut kept = BufferMut::<u64>::with_capacity(offsets.len());
+    kept.push(0);
+    let mut end = 0u64;
+    for (row, bounds) in offsets.as_slice::<u64>().windows(2).enumerate() {
+        if lists.value(row) {
+            end += bounds[1] - bounds[0];
+        }
+        kept.push(end);
+    }
+    // Writers serialize what they receive, so the filter is executed rather than left lazy.
+    let elements = list
+        .elements()
+        .filter(elements)?
+        .execute::<Canonical>(exec_ctx)?
+        .into_array();
+    ListArray::try_new(elements, kept.freeze().into_array(), validity, exec_ctx)
+}
+
+/// Canonicalize a list-dtype array into a [`ListArray`].
+fn canonicalize_to_list(array: ArrayRef, exec_ctx: &mut ExecutionCtx) -> VortexResult<ListArray> {
     let canonical = array.execute_until::<AnyList>(exec_ctx)?;
     if let Some(list) = canonical.as_opt::<List>() {
-        Ok(list.into_owned().into_data_parts())
+        Ok(list.into_owned())
     } else if let Some(view) = canonical.as_opt::<ListView>() {
-        Ok(list_from_list_view(view.into_owned(), exec_ctx)?.into_data_parts())
+        list_from_list_view(view.into_owned(), exec_ctx)
     } else {
         unreachable!("AnyList matcher guarantees List or ListView")
     }
@@ -337,20 +387,28 @@ impl Matcher for AnyList {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
     use std::sync::LazyLock;
 
     use futures::stream;
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::AggregateFnVTableExt;
+    use vortex_array::aggregate_fn::EmptyOptions;
+    use vortex_array::aggregate_fn::fns::max::Max;
+    use vortex_array::aggregate_fn::fns::min::Min;
+    use vortex_array::aggregate_fn::fns::null_count::NullCount;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::ListArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSession;
     use vortex_session::VortexSession;
 
@@ -358,12 +416,18 @@ mod tests {
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::table::TableStrategy;
+    use crate::layouts::zoned::Zoned;
+    use crate::layouts::zoned::writer::ZonedLayoutOptions;
+    use crate::layouts::zoned::writer::ZonedStrategy;
     use crate::segments::TestSegments;
+    use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::session::LayoutSession;
     use crate::test::FailingStrategy;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    use crate::test::new_session;
+    use crate::test::read_zone_stats;
 
     fn layout_test_session() -> VortexSession {
         VortexSession::empty()
@@ -413,6 +477,165 @@ mod tests {
         )
         .unwrap()
         .into_array()
+    }
+
+    fn zoned_leaf() -> Arc<dyn LayoutStrategy> {
+        Arc::new(ZonedStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            FlatLayoutStrategy::default(),
+            ZonedLayoutOptions {
+                block_size: NonZeroUsize::new(3).vortex_expect("non zero"),
+                ..Default::default()
+            },
+        ))
+    }
+
+    /// Write `array` through `strategy` on a single-threaded runtime, returning the layout and the
+    /// segments it was written to.
+    fn write_blocking<S: LayoutStrategy>(
+        strategy: S,
+        array: ArrayRef,
+    ) -> VortexResult<(LayoutRef, Arc<TestSegments>)> {
+        let (ptr, eof) = SequenceId::root().split();
+        let stream = array.to_array_stream().sequenced(ptr);
+        let segments = Arc::new(TestSegments::default());
+        let segments2 = Arc::clone(&segments);
+        let layout = block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            strategy
+                .write_stream(
+                    ArrayContext::empty().into(),
+                    segments2,
+                    stream,
+                    eof,
+                    &session,
+                )
+                .await
+        })?;
+        Ok((layout, segments))
+    }
+
+    /// The per-zone minimum and maximum of a zoned elements layout.
+    fn zone_bounds(
+        elements: &LayoutRef,
+        segments: &Arc<TestSegments>,
+    ) -> VortexResult<(ArrayRef, ArrayRef)> {
+        assert!(elements.is::<Zoned>(), "{elements} has no zone map");
+        Ok((
+            read_zone_stats(elements, segments, &Min.bind(Default::default()))?,
+            read_zone_stats(elements, segments, &Max.bind(Default::default()))?,
+        ))
+    }
+
+    /// The elements of a null list are dropped, so the elements' zone map covers only the
+    /// elements of valid lists, and does not count the null list's null element.
+    #[test]
+    fn elements_of_null_lists_are_dropped() -> VortexResult<()> {
+        let list = ListArray::try_new(
+            PrimitiveArray::from_option_iter([Some(1i32), Some(100), None, Some(2), Some(3)])
+                .into_array(),
+            buffer![0u32, 1, 3, 5].into_array(),
+            Validity::from_iter([true, false, true]),
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .into_array();
+
+        let (layout, segments) = write_blocking(
+            ListLayoutStrategy::default().with_elements(zoned_leaf()),
+            list,
+        )?;
+
+        let elements = &layout.children()?[0];
+        assert_eq!(elements.row_count(), 3);
+        let (min, max) = zone_bounds(elements, &segments)?;
+        let null_count = read_zone_stats(elements, &segments, &NullCount.bind(EmptyOptions))?;
+        let mut ctx = new_session().create_execution_ctx();
+        assert_arrays_eq!(
+            min,
+            PrimitiveArray::from_option_iter([Some(1i32)]),
+            &mut ctx
+        );
+        assert_arrays_eq!(
+            max,
+            PrimitiveArray::from_option_iter([Some(3i32)]),
+            &mut ctx
+        );
+        assert_arrays_eq!(
+            null_count,
+            PrimitiveArray::from_option_iter([Some(0u64)]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// Lists that are already normalised are written unchanged.
+    #[test]
+    fn normalised_lists_keep_their_elements() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let list = ListArray::try_new(
+            buffer![1i32, 2, 3].into_array(),
+            buffer![0u32, 1, 1, 3].into_array(),
+            Validity::from_iter([true, false, true]),
+            &mut ctx,
+        )?;
+        let normalised = drop_absent_elements(list.clone(), &Mask::new_true(3), &mut ctx)?;
+        assert_arrays_eq!(normalised, list, &mut ctx);
+        assert_eq!(normalised.elements().len(), 3);
+        Ok(())
+    }
+
+    /// A list zoned in its outer-row space under a nullable struct hands the struct's demand on
+    /// to the list writer, which keeps only the elements of the struct's valid rows.
+    #[test]
+    fn list_under_nullable_struct_keeps_elements_of_valid_rows() -> VortexResult<()> {
+        let list = ListArray::try_new(
+            buffer![1i32, 60, 50, 2].into_array(),
+            buffer![0u32, 1, 3, 4].into_array(),
+            Validity::NonNullable,
+            &mut SESSION.create_execution_ctx(),
+        )?;
+        let array = StructArray::try_from_iter_with_validity(
+            [("l", list.into_array())],
+            Validity::from_iter([true, false, true]),
+        )?
+        .into_array();
+
+        let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
+        let strategy = TableStrategy::new(Arc::clone(&flat), Arc::clone(&flat))
+            .with_list_layout_factory(move |list_layout: ListLayoutStrategy| {
+                Arc::new(ZonedStrategy::new(
+                    list_layout.with_elements(zoned_leaf()),
+                    Arc::clone(&flat),
+                    ZonedLayoutOptions {
+                        block_size: NonZeroUsize::new(3).vortex_expect("non zero"),
+                        ..Default::default()
+                    },
+                )) as Arc<dyn LayoutStrategy>
+            });
+        let (layout, segments) = write_blocking(strategy, array)?;
+
+        // Skip the struct's validity child, then the list's zone map to reach the list layout.
+        let list_layout = Arc::clone(&layout.children()?[1]);
+        let list_layout = if list_layout.is::<Zoned>() {
+            Arc::clone(&list_layout.children()?[0])
+        } else {
+            list_layout
+        };
+        // The list in the struct's null row is written empty, without its 60 and 50.
+        assert_eq!(list_layout.children()?[0].row_count(), 2);
+        let (min, max) = zone_bounds(&list_layout.children()?[0], &segments)?;
+        let mut ctx = new_session().create_execution_ctx();
+        assert_arrays_eq!(
+            min,
+            PrimitiveArray::from_option_iter([Some(1i32)]),
+            &mut ctx
+        );
+        assert_arrays_eq!(
+            max,
+            PrimitiveArray::from_option_iter([Some(2i32)]),
+            &mut ctx
+        );
+        Ok(())
     }
 
     #[tokio::test]
@@ -466,7 +689,7 @@ mod tests {
     ) -> VortexResult<()> {
         let segments = Arc::new(TestSegments::default());
         let (_, eof) = SequenceId::root().split();
-        let empty = stream::empty::<VortexResult<(SequenceId, ArrayRef)>>().boxed();
+        let empty = stream::empty::<VortexResult<SequentialChunk>>().boxed();
         let stream = SequentialStreamAdapter::new(i32_list_dtype(nullable), empty).sendable();
         let session = layout_test_session();
 

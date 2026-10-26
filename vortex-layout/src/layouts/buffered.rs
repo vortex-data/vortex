@@ -57,17 +57,17 @@ impl LayoutStrategy for BufferedStrategy {
             let mut chunks = VecDeque::new();
 
             while let Some(chunk) = stream.as_mut().next().await {
-                let (sequence_id, chunk) = chunk?;
+                let (sequence_id, chunk, demand) = chunk?;
                 let chunk_size = chunk.nbytes();
                 nbytes += chunk_size;
-                chunks.push_back((chunk, buffered_bytes.reserve(chunk_size)));
+                chunks.push_back((chunk, demand, buffered_bytes.reserve(chunk_size)));
 
                 // If this is the last element, flush everything.
                 if stream.as_mut().peek().await.is_none() {
                     let mut sequence_ptr = sequence_id.descend();
-                    while let Some((chunk, reservation)) = chunks.pop_front() {
+                    while let Some((chunk, demand, reservation)) = chunks.pop_front() {
                         drop(reservation);
-                        yield (sequence_ptr.advance(), chunk)
+                        yield (sequence_ptr.advance(), chunk, demand)
                     }
                     break;
                 }
@@ -80,12 +80,12 @@ impl LayoutStrategy for BufferedStrategy {
                 // This avoids small tail stragglers being flushed at the end of the file.
                 let mut sequence_ptr = sequence_id.descend();
                 while nbytes > buffer_size {
-                    let Some((chunk, reservation)) = chunks.pop_front() else {
+                    let Some((chunk, demand, reservation)) = chunks.pop_front() else {
                         break;
                     };
                     nbytes -= reservation.bytes();
                     drop(reservation);
-                    yield (sequence_ptr.advance(), chunk)
+                    yield (sequence_ptr.advance(), chunk, demand)
                 }
             }
         };

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::iter;
 use std::sync::Arc;
 
 use futures::StreamExt;
@@ -16,6 +15,7 @@ use vortex_array::aggregate_fn::AggregateFnSatisfaction;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
+use vortex_array::aggregate_fn::demand::struct_field_demand;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
 use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
@@ -39,6 +39,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
@@ -92,9 +93,9 @@ pub fn accumulate_stats(
             let accumulator = chunk_accumulator.clone();
             let mut exec_ctx = exec_ctx.clone();
             handle.spawn_cpu(move || {
-                let (sequence_id, chunk) = item?;
-                let stats = accumulator.chunk_stats(&chunk, &mut exec_ctx)?;
-                Ok::<_, VortexError>((sequence_id, chunk, stats))
+                let (sequence_id, chunk, demand) = item?;
+                let stats = accumulator.chunk_stats(&chunk, &demand, &mut exec_ctx)?;
+                Ok::<_, VortexError>((sequence_id, chunk, demand, stats))
             })
         })
         .buffered(concurrency);
@@ -104,9 +105,9 @@ pub fn accumulate_stats(
     let stream = SequentialStreamAdapter::new(
         dtype,
         stream.map(move |item| {
-            let (sequence_id, chunk, stats) = item?;
+            let (sequence_id, chunk, demand, stats) = item?;
             merge_accumulator.merge(stats)?;
-            Ok((sequence_id, chunk))
+            Ok((sequence_id, chunk, demand))
         }),
     )
     .sendable();
@@ -292,9 +293,15 @@ impl StatsAccumulator {
         Self { aggregates }
     }
 
-    fn push_chunk(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    /// Accumulate `array` as null wherever `demand` is false.
+    fn push_chunk(
+        &mut self,
+        array: &ArrayRef,
+        demand: &Mask,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         for (_, accumulator) in &mut self.aggregates {
-            accumulator.accumulate(array, ctx)?;
+            accumulator.accumulate_demanded(array, demand, ctx)?;
         }
         Ok(())
     }
@@ -375,9 +382,8 @@ fn default_aggregate_fns(dtype: &DType) -> Vec<AggregateFnRef> {
 /// [`DType::Variant`], are skipped entirely: no entry is emitted for them or anything beneath
 /// them.
 ///
-/// Entries beneath a nullable struct are still emitted, but the writer records no aggregates for
-/// them until struct nulls are propagated into children
-/// (<https://github.com/vortex-data/vortex/issues/9205>).
+/// Entries beneath a nullable struct describe the logical column, which is null wherever any
+/// ancestor struct is null, whatever the unmasked child holds there.
 ///
 /// This function is the single source of truth for the number and order of stats entries, used
 /// both when accumulating stats at write time and when reconstructing them from the footer at
@@ -414,18 +420,6 @@ enum StatsNode {
     /// Used for the own stats of a non-nullable top-level struct field, which the nested layout
     /// doesn't record but the legacy layout does.
     LegacyOnly(StatsAccumulator),
-    /// A subtree beneath a nullable struct, which contributes `entries` entries that record no
-    /// aggregates.
-    ///
-    /// Struct fields are stored unmasked, so a row where the struct is null holds an unspecified
-    /// value in each child that the child's own validity may report as valid. Stats over those
-    /// children would count that value, e.g. undercount nulls, which can prune a file that
-    /// `is_null(s.a)` matches. Until nulls are propagated from structs into their children, these
-    /// entries are left empty. See <https://github.com/vortex-data/vortex/issues/9205>.
-    ///
-    /// The entries are kept rather than dropped so the footer layout from
-    /// [`postorder_stats_layout`] doesn't depend on whether they're recorded.
-    Unrecorded { entries: usize },
     /// A dtype with addressable children. Currently only built for `DType::Struct`.
     Container {
         /// One child per addressable sub-dtype, in declaration order (one per struct field,
@@ -485,20 +479,17 @@ impl StatsNode {
         let Some(struct_fields) = dtype.as_struct_fields_opt() else {
             return Self::LegacyOnly(StatsAccumulator::new(dtype, stats, allowed));
         };
-        // Like `build`, the fields of a nullable root aren't recorded, since they're stored
-        // unmasked.
-        let nullable = dtype.nullability() == Nullability::Nullable;
+        // The fields of a nullable root are pushed with the root's validity as their demand, so
+        // they are recorded as their logical columns, as in `build`.
         let children = struct_fields
             .names()
             .iter()
             .zip(struct_fields.fields())
             .map(|(name, field_dtype)| {
-                let child = if nullable {
-                    Self::Skipped
-                } else {
-                    Self::LegacyOnly(StatsAccumulator::new(&field_dtype, stats, allowed))
-                };
-                (Field::Name(name.clone()), child)
+                (
+                    Field::Name(name.clone()),
+                    Self::LegacyOnly(StatsAccumulator::new(&field_dtype, stats, allowed)),
+                )
             })
             .collect();
         Self::Container {
@@ -520,18 +511,12 @@ impl StatsNode {
                     .iter()
                     .zip(struct_fields.fields())
                     .map(|(name, field_dtype)| {
-                        let child = if nullable {
-                            Self::Unrecorded {
-                                entries: postorder_stats_layout(&field_dtype).len(),
-                            }
-                        } else {
-                            Self::build(&field_dtype, stats, allowed)
-                        };
-                        (Field::Name(name.clone()), child)
+                        (
+                            Field::Name(name.clone()),
+                            Self::build(&field_dtype, stats, allowed),
+                        )
                     })
                     .collect();
-                // Only reached through non-nullable ancestors, so the struct's own validity is
-                // its full logical validity.
                 let own = if nullable {
                     Self::Leaf(StatsAccumulator::new(dtype, stats, allowed))
                 } else {
@@ -553,21 +538,31 @@ impl StatsNode {
     /// [`Field::Name`] and extracted via [`StructArrayExt::iter_unmasked_fields`]. A future `List`/
     /// `Map` container would need a different extraction here (e.g. flattened elements, or
     /// derived per-row shape arrays), dispatched per child's [`Field`] kind.
-    fn push_chunk(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    ///
+    /// The chunk is null wherever `demand` is false, i.e. wherever an ancestor struct is null.
+    fn push_chunk(
+        &mut self,
+        array: &ArrayRef,
+        demand: &Mask,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         match self {
-            Self::Skipped | Self::Unrecorded { .. } => Ok(()),
-            Self::Leaf(acc) | Self::LegacyOnly(acc) => acc.push_chunk(array, ctx),
+            Self::Skipped => Ok(()),
+            Self::Leaf(acc) | Self::LegacyOnly(acc) => acc.push_chunk(array, demand, ctx),
             Self::Container { children, own } => {
                 // The container's own `ArrayRef` already carries the validity needed to compute
                 // its own stats (e.g. null count), so we push it directly rather than building a
                 // synthetic array.
-                own.push_chunk(array, ctx)?;
+                own.push_chunk(array, demand, ctx)?;
                 let struct_array = array.clone().execute::<StructArray>(ctx)?;
+                // Fields are stored unmasked, so they are pushed with the struct's validity merged
+                // into the demand: each field is null wherever the struct or an ancestor is null.
+                let field_demand = struct_field_demand(&struct_array, demand, ctx)?;
                 for ((_, child), field) in children
                     .iter_mut()
                     .zip_eq(struct_array.iter_unmasked_fields())
                 {
-                    child.push_chunk(field, ctx)?;
+                    child.push_chunk(field, &field_demand, ctx)?;
                 }
                 Ok(())
             }
@@ -577,9 +572,7 @@ impl StatsNode {
     /// Drains the state of `other`, a node built for the same dtype and aggregates, into `self`.
     fn merge_from(&mut self, other: &mut Self) -> VortexResult<()> {
         match (self, other) {
-            (Self::Skipped, Self::Skipped) | (Self::Unrecorded { .. }, Self::Unrecorded { .. }) => {
-                Ok(())
-            }
+            (Self::Skipped, Self::Skipped) => Ok(()),
             (Self::Leaf(acc), Self::Leaf(other))
             | (Self::LegacyOnly(acc), Self::LegacyOnly(other)) => acc.merge_from(other),
             (
@@ -610,10 +603,6 @@ impl StatsNode {
     ) -> VortexResult<()> {
         match self {
             Self::Skipped | Self::LegacyOnly(_) => Ok(()),
-            Self::Unrecorded { entries } => {
-                out.extend(iter::repeat_n(AggregateStats::default(), *entries));
-                Ok(())
-            }
             Self::Leaf(acc) => {
                 out.push(acc.aggregate_stats(allowed)?);
                 Ok(())
@@ -634,7 +623,7 @@ impl StatsNode {
         allowed: impl Fn(&AggregateFnRef) -> bool,
     ) -> VortexResult<AggregateStats> {
         match self {
-            Self::Skipped | Self::Unrecorded { .. } => Ok(AggregateStats::default()),
+            Self::Skipped => Ok(AggregateStats::default()),
             Self::Leaf(acc) | Self::LegacyOnly(acc) => acc.aggregate_stats(allowed),
             Self::Container { own, .. } => own.legacy_aggregate_stats(allowed),
         }
@@ -694,7 +683,12 @@ impl FileStatsAccumulator {
 
     /// Computes the stats of one chunk into a new tree of accumulators, to [merge](Self::merge)
     /// later.
-    fn chunk_stats(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<StatsNode> {
+    fn chunk_stats(
+        &self,
+        chunk: &ArrayRef,
+        demand: &Mask,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<StatsNode> {
         let mut node = StatsNode::build_root(
             &self.dtype,
             self.stats.as_deref(),
@@ -702,7 +696,7 @@ impl FileStatsAccumulator {
             self.write_nested_stats,
             self.write_legacy_stats,
         );
-        node.push_chunk(chunk, ctx)?;
+        node.push_chunk(chunk, demand, ctx)?;
         Ok(node)
     }
 
@@ -738,8 +732,7 @@ impl FileStatsAccumulator {
             |aggregate_fn: &AggregateFnRef| self.writer_ctx.allows_aggregate(&aggregate_fn.id());
         let root = self.root.lock();
         // Readers that predate nested stats reject a file whose legacy layout doesn't have one
-        // entry per top-level field, so entries that aren't recorded are still written, empty. The
-        // fields of a nullable root are `StatsNode::Unrecorded`, so they come out empty too.
+        // entry per top-level field, so entries that aren't recorded are still written, empty.
         let fields = match &*root {
             StatsNode::Container { children, .. } => {
                 children.iter().map(|(_, child)| child).collect()
@@ -784,6 +777,23 @@ mod tests {
 
     use super::*;
 
+    /// A stats node or accumulator a chunk can be pushed into with every row demanded.
+    trait PushAll {
+        fn push_all(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()>;
+    }
+
+    impl PushAll for StatsAccumulator {
+        fn push_all(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+            self.push_chunk(array, &Mask::new_true(array.len()), ctx)
+        }
+    }
+
+    impl PushAll for StatsNode {
+        fn push_all(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+            self.push_chunk(array, &Mask::new_true(array.len()), ctx)
+        }
+    }
+
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     /// Pushes `chunk` through `acc` the way the write stream does.
@@ -792,7 +802,7 @@ mod tests {
         chunk: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        acc.merge(acc.chunk_stats(chunk, ctx)?)
+        acc.merge(acc.chunk_stats(chunk, &Mask::new_true(chunk.len()), ctx)?)
     }
 
     fn stats_set(acc: &StatsAccumulator) -> VortexResult<StatsSet> {
@@ -841,7 +851,7 @@ mod tests {
                 vortex_buffer::BufferAllocatorRef::statically_allocated(),
             );
             builder.append_value(value);
-            acc.push_chunk(&builder.finish(), &mut ctx)?;
+            acc.push_all(&builder.finish(), &mut ctx)?;
         }
 
         let stats = stats_set(&acc)?;
@@ -897,7 +907,7 @@ mod tests {
 
         let mut acc =
             StatsAccumulator::new(&dtype, Some(&[agg(Stat::Max), agg(Stat::Min)]), &|_| true);
-        acc.push_chunk(&builder.finish(), &mut ctx)?;
+        acc.push_all(&builder.finish(), &mut ctx)?;
 
         let stats = stats_set(&acc)?;
         assert!(matches!(stats.get(Stat::Max), Precision::Exact(_)));
@@ -920,9 +930,9 @@ mod tests {
             &|_| true,
         );
 
-        acc.push_chunk(&buffer![0, 5, 2].into_array(), &mut ctx)?;
-        acc.push_chunk(&buffer![7, 1, 3].into_array(), &mut ctx)?;
-        acc.push_chunk(&buffer![-4, 9].into_array(), &mut ctx)?;
+        acc.push_all(&buffer![0, 5, 2].into_array(), &mut ctx)?;
+        acc.push_all(&buffer![7, 1, 3].into_array(), &mut ctx)?;
+        acc.push_all(&buffer![-4, 9].into_array(), &mut ctx)?;
 
         let stats = stats_set(&acc)?;
         assert_eq!(
@@ -1055,11 +1065,10 @@ mod tests {
     }
 
     #[test]
-    fn three_level_nested_struct_records_only_entries_without_nullable_ancestors()
-    -> VortexResult<()> {
+    fn three_level_nested_struct_records_entries_beneath_nullable_ancestors() -> VortexResult<()> {
         // Same shape as `postorder_layout_three_level_nesting_with_mixed_nullability`, but
-        // exercises actual accumulation. The root is nullable, so every entry beneath it is left
-        // empty; only the root's own null-count entry is recorded.
+        // exercises actual accumulation. Every entry describes its logical column, which is null
+        // wherever any ancestor struct is null.
         let mut ctx = SESSION.create_execution_ctx();
 
         let leaf_c = buffer![10i32, 20, 30].into_array();
@@ -1079,14 +1088,30 @@ mod tests {
 
         let requested = [agg(Stat::NullCount), agg(Stat::Min), agg(Stat::Max)];
         let mut node = StatsNode::build(root.dtype(), Some(&requested), &|_| true);
-        node.push_chunk(&root, &mut ctx)?;
+        node.push_all(&root, &mut ctx)?;
 
         let stats_sets = node_stats_sets(&node)?;
 
         // Post-order: `a.b.c`, then `a.b`'s null-count entry, then the root's.
         assert_eq!(stats_sets.len(), 3);
-        assert!(stats_sets[0].is_empty());
-        assert!(stats_sets[1].is_empty());
+        // `a.b.c` is valid only where both the root and `a.b` are, so 20 and 30 are left out.
+        assert_eq!(
+            stats_sets[0].get(Stat::NullCount).as_exact(),
+            Some(ScalarValue::from(2u64))
+        );
+        assert_eq!(
+            stats_sets[0].get(Stat::Min).as_exact(),
+            Some(ScalarValue::from(10i32))
+        );
+        assert_eq!(
+            stats_sets[0].get(Stat::Max).as_exact(),
+            Some(ScalarValue::from(10i32))
+        );
+        // `a.b` is null in its own null row and in the root's.
+        assert_eq!(
+            stats_sets[1].get(Stat::NullCount).as_exact(),
+            Some(ScalarValue::from(2u64))
+        );
         assert_eq!(
             stats_sets[2].get(Stat::NullCount).as_exact(),
             Some(ScalarValue::from(1u64))
@@ -1095,8 +1120,9 @@ mod tests {
     }
 
     #[test]
-    fn children_of_nullable_struct_are_unrecorded() -> VortexResult<()> {
-        // https://github.com/vortex-data/vortex/issues/9205
+    fn children_of_nullable_struct_are_null_under_its_null_rows() -> VortexResult<()> {
+        // https://github.com/vortex-data/vortex/issues/9205: `s.a` holds 999 in the row where `s`
+        // is null, which its stats leave out and count as null.
         let mut ctx = SESSION.create_execution_ctx();
 
         let a = buffer![1i32, 999, 3].into_array();
@@ -1107,14 +1133,25 @@ mod tests {
 
         let requested = [agg(Stat::NullCount), agg(Stat::Min), agg(Stat::Max)];
         let mut node = StatsNode::build(root.dtype(), Some(&requested), &|_| true);
-        node.push_chunk(&root, &mut ctx)?;
+        node.push_all(&root, &mut ctx)?;
 
         let mut aggregates = Vec::new();
         node.collect_aggregate_stats(&|_| true, &mut aggregates)?;
 
         // `s.a`, then `s`'s own null-count entry.
         assert_eq!(aggregates.len(), 2);
-        assert!(aggregates[0].is_empty());
+        assert_eq!(
+            aggregates[0].get(&agg(Stat::NullCount)),
+            Precision::exact(Scalar::from(1u64))
+        );
+        assert_eq!(
+            aggregates[0].get(&agg(Stat::Min)),
+            Precision::exact(Scalar::from(1i32))
+        );
+        assert_eq!(
+            aggregates[0].get(&agg(Stat::Max)),
+            Precision::exact(Scalar::from(3i32))
+        );
         assert_eq!(
             aggregates[1].get(&agg(Stat::NullCount)),
             Precision::exact(Scalar::from(1u64))
@@ -1135,7 +1172,7 @@ mod tests {
 
         let requested = [agg(Stat::NullCount), agg(Stat::Max)];
         let mut node = StatsNode::build(root.dtype(), Some(&requested), &|_| true);
-        node.push_chunk(&root, &mut ctx)?;
+        node.push_all(&root, &mut ctx)?;
 
         let stats_sets = node_stats_sets(&node)?;
         assert_eq!(stats_sets.len(), 1);
@@ -1163,7 +1200,7 @@ mod tests {
 
         let requested = [agg(Stat::NullCount), agg(Stat::Min), agg(Stat::Max)];
         let mut node = StatsNode::build(outer.dtype(), Some(&requested), &|_| true);
-        node.push_chunk(&outer, &mut ctx)?;
+        node.push_all(&outer, &mut ctx)?;
 
         let stats_sets = node_stats_sets(&node)?;
 
@@ -1252,7 +1289,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_aggregate_stats_of_nullable_root_are_unrecorded() -> VortexResult<()> {
+    fn legacy_aggregate_stats_of_nullable_root_are_null_under_its_null_rows() -> VortexResult<()> {
         let mut exec_ctx = SESSION.create_execution_ctx();
         let dtype = DType::struct_([("a", i32_dtype())], Nullability::Nullable);
 
@@ -1272,7 +1309,15 @@ mod tests {
 
         let legacy = acc.legacy_aggregate_stats()?;
         assert_eq!(legacy.len(), 1);
-        assert!(legacy[0].is_empty());
+        // `a` holds 999 in the row the root nulls out, which counts as null and is left out.
+        assert_eq!(
+            legacy[0].get(&agg(Stat::NullCount)),
+            Precision::exact(Scalar::from(1u64))
+        );
+        assert_eq!(
+            legacy[0].get(&agg(Stat::Max)),
+            Precision::exact(Scalar::from(3i32))
+        );
         Ok(())
     }
 
@@ -1365,7 +1410,7 @@ mod tests {
             max_bytes: NonZeroUsize::new(8).vortex_expect("non-zero"),
         });
         let mut acc = StatsAccumulator::new(&dtype, Some(std::slice::from_ref(&max)), &|_| true);
-        acc.push_chunk(
+        acc.push_all(
             &utf8_chunk(&["short", "a value longer than the bound"]),
             &mut ctx,
         )?;
@@ -1556,7 +1601,7 @@ mod tests {
         let sum = agg(Stat::Sum);
         let mut acc = StatsAccumulator::new(&dtype, Some(std::slice::from_ref(&sum)), &|_| true);
         for chunk in chunks {
-            acc.push_chunk(
+            acc.push_all(
                 &PrimitiveArray::from_option_iter(chunk).into_array(),
                 &mut ctx,
             )?;

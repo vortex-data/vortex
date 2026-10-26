@@ -1479,9 +1479,11 @@ async fn file_take() -> VortexResult<()> {
     Ok(())
 }
 
+/// The fields of a nullable top-level struct are null wherever the struct is null, so `age`'s 99
+/// under the struct's last null row is left out of its statistics and counted as null.
 #[tokio::test]
 async fn write_nullable_top_level_struct() -> VortexResult<()> {
-    let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
+    let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), Some(99)]);
     let row_validity = BoolArray::from_iter([true, true, false, true, false]).into_array();
 
     let array = StructArray::try_new(
@@ -1512,16 +1514,32 @@ async fn write_nullable_top_level_struct() -> VortexResult<()> {
         Precision::exact(ScalarValue::from(2u64))
     );
     let (age, _) = stats.get_by_path(&field_path!(age)).expect("age entry");
-    assert!(age.is_empty());
+    assert_logical_age_stats(age);
 
     let file = SESSION.open_options().open_buffer(ByteBuffer::from(buf))?;
     let stats = file
         .file_stats()
         .expect("file statistics should be present");
     let (age, _) = stats.get_by_path(&field_path!(age)).expect("age entry");
-    assert!(age.is_empty());
+    assert_logical_age_stats(age);
 
     Ok(())
+}
+
+/// `age` is `[25, 31, null, 57, null]` once the struct's null rows are null.
+fn assert_logical_age_stats(age: &AggregateStats) {
+    assert_eq!(
+        stat_value(age, Stat::NullCount),
+        Precision::exact(ScalarValue::from(2u64))
+    );
+    assert_eq!(
+        stat_value(age, Stat::Min),
+        Precision::exact(ScalarValue::from(25i32))
+    );
+    assert_eq!(
+        stat_value(age, Stat::Max),
+        Precision::exact(ScalarValue::from(57i32))
+    );
 }
 
 #[tokio::test]
@@ -2297,6 +2315,47 @@ async fn nested_empty_list_roundtrip(#[case] validity: Validity) -> VortexResult
 
     let result = write_read_roundtrip(array.clone()).await?;
     assert_arrays_eq!(result, array, &mut ctx);
+    Ok(())
+}
+
+/// The list writer drops the elements of null lists, of lists under null struct rows, and
+/// elements no list references, and writes those lists as empty. The column reads back
+/// unchanged.
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn lists_with_absent_elements_roundtrip() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    // Lists [1, 2], [null, 3] (null), [4], [5, 6] over elements that start and end with an
+    // unreferenced element.
+    let elements = PrimitiveArray::from_option_iter([
+        Some(0i32),
+        Some(1),
+        Some(2),
+        None,
+        Some(3),
+        Some(4),
+        Some(5),
+        Some(6),
+        Some(7),
+    ])
+    .into_array();
+    let lists = ListArray::try_new(
+        elements,
+        buffer![1u32, 3, 5, 6, 8].into_array(),
+        Validity::from_iter([true, false, true, true]),
+        &mut ctx,
+    )?
+    .into_array();
+    let array = StructArray::try_new(
+        ["lists"].into(),
+        vec![lists],
+        4,
+        Validity::from_iter([true, true, false, true]),
+    )?
+    .into_array();
+
+    let result = write_read_roundtrip(array.clone()).await?;
+    assert_arrays_eq!(result, array, &mut SESSION.create_execution_ctx());
     Ok(())
 }
 
