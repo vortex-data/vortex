@@ -112,11 +112,14 @@ impl RowFnExecutionArgs {
                 self.finalize_output(values, self.row_count)
             }
             Validity::Array(valid) => {
-                // This internal micro-optimization skips the temporary ScalarFnArray and optimizer
-                // pass in `values.mask(valid)`, even when its reduction attaches validity directly.
-                // Isolated benchmarks measured about 15-20% less time for nullable u64 addition on
-                // 64-row batches with a right-hand constant, not a general speedup. Use `.mask()`
-                // here if it gains an equivalent direct dispatch path. Revisions and limitations:
+                // `values.mask(valid)` currently reaches encoding-specific masking through
+                // parent-reduce rules, which need a ScalarFnArray parent to match. Even a successful
+                // reduction pays for constructing and optimizing that temporary node. Benchmarks
+                // motivated skipping this setup in RowFn finalization. Doing so inside `.mask()`
+                // would require direct encoding dispatch or a canonical-specific branch in the
+                // generic builtin. Keep this micro-optimization local to the internal executor,
+                // reusing the existing helper instead of changing generic masking dispatch for this
+                // hot path. Remove this bypass if `.mask()` gains equivalent direct dispatch.
                 // https://github.com/vortex-data/vortex/pull/10742
                 let values = match values.as_opt::<AnyCanonical>() {
                     Some(canonical) => mask_validity_canonical(
