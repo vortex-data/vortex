@@ -3,7 +3,8 @@
 
 //! Public PCO operations with fixed workloads shared by every implementation.
 //! Compression/index fixtures and warm-cache preparation are outside the measured operation.
-//! Small scalar requests are explicit batches; divide by PROBES for time per probe.
+//! Retained batches have PROBES requests; fresh-state batches have FIRST_PROBES requests.
+//! Divide by the corresponding count for per-probe time. Fresh state excludes owner/index opening.
 
 use std::hint::black_box;
 use std::sync::LazyLock;
@@ -14,6 +15,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PiecewiseSequenceArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::assert_arrays_eq;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySessionExt;
@@ -60,6 +62,10 @@ fn compressed(nullable: bool) -> ArrayRef {
 #[divan::bench(args = [false, true])]
 fn write(bencher: Bencher, nullable: bool) {
     let input = input(nullable);
+    let mut check = SESSION.create_execution_ctx();
+    let written =
+        Pco::from_primitive(input.as_view(), 3, 1024, &mut check).vortex_expect("write oracle");
+    assert_arrays_eq!(written.into_array(), input.clone(), &mut check);
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
         .bench_refs(|ctx| {
@@ -70,6 +76,8 @@ fn write(bencher: Bencher, nullable: bool) {
 #[divan::bench(args = [false, true])]
 fn full(bencher: Bencher, nullable: bool) {
     let source = compressed(nullable);
+    let mut check = SESSION.create_execution_ctx();
+    assert_arrays_eq!(source.clone(), input(nullable), &mut check);
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
         .bench_refs(|ctx| {
@@ -114,6 +122,21 @@ fn selection(bencher: Bencher, (kind, nullable): (&str, bool)) {
         .into_array(),
         _ => PrimitiveArray::from_iter([0u64]).into_array(),
     };
+    let mut check = SESSION.create_execution_ctx();
+    let reference = input(nullable).into_array();
+    let actual = if kind == "near_full" {
+        source.slice(1..ROWS - 1)
+    } else {
+        source.take(indices.clone())
+    }
+    .vortex_expect("selection oracle");
+    let expected = if kind == "near_full" {
+        reference.slice(1..ROWS - 1)
+    } else {
+        reference.take(indices.clone())
+    }
+    .vortex_expect("primitive oracle");
+    assert_arrays_eq!(actual, expected, &mut check);
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
         .bench_refs(|ctx| {
@@ -131,6 +154,20 @@ fn selection(bencher: Bencher, (kind, nullable): (&str, bool)) {
 #[divan::bench(args = [false, true])]
 fn retained_probes(bencher: Bencher, nullable: bool) {
     let source = compressed(nullable);
+    let reference = input(nullable).into_array();
+    let mut check = SESSION.create_execution_ctx();
+    let mut checked_probe = source.repeated_probe();
+    for i in 0..256 {
+        assert_eq!(
+            checked_probe
+                .execute_scalar(8192 + i, &mut check)
+                .vortex_expect("probe oracle"),
+            reference
+                .execute_scalar(8192 + i, &mut check)
+                .vortex_expect("primitive probe")
+        );
+    }
+
     bencher
         .with_inputs(|| {
             let mut ctx = SESSION.create_execution_ctx();
@@ -160,6 +197,20 @@ fn retained_probes(bencher: Bencher, nullable: bool) {
 fn first_probes(bencher: Bencher, missing: bool) {
     let source = compressed(true);
     let index = if missing { 8190 } else { 8191 };
+    let mut check = SESSION.create_execution_ctx();
+    let actual = source
+        .probe()
+        .execute_scalar(index, &mut check)
+        .vortex_expect("fresh probe oracle");
+    assert_eq!(
+        actual,
+        input(true)
+            .into_array()
+            .execute_scalar(index, &mut check)
+            .vortex_expect("primitive oracle")
+    );
+    assert_eq!(actual.is_null(), missing);
+
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
         .bench_refs(|ctx| {
