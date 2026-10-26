@@ -28,6 +28,8 @@ use vortex::io::runtime::BlockingRuntime as _;
 use vortex::io::std_file::StdFileSystem;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::scan::scan_builder::ScanBuilder;
+use vortex::layout::scan::scan_builder::referenced_field_masks;
+use vortex::layout::scan::split_by::SplitBy;
 use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
 use vortex::layout::scan::v2::ScanFile;
 use vortex::mask::Mask;
@@ -216,7 +218,7 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
     // global lock.
     if global.scan_v2 {
         let state = file.scan_state();
-        let scan = FileScan::try_new(v2_builder(state, global))?;
+        let scan = FileScan::try_new(v2_builder(state, global), &v2_boundaries(state, global)?)?;
         if state.v2.set(scan).is_err() {
             vortex_panic!("file initialized twice");
         }
@@ -255,6 +257,16 @@ fn v2_builder(state: &FileScanState, global: &GlobalState) -> V2ScanBuilder {
         .with_some_filter(filter.filter.clone())
         .with_selection(filter.row_selection.clone())
         .with_row_range(rows)
+}
+
+/// The rows the file's chunks of the columns the scan reads end at, the boundaries V1 splits on.
+fn v2_boundaries(state: &FileScanState, global: &GlobalState) -> VortexResult<Vec<u64>> {
+    let field_mask = referenced_field_masks(&global.projection, global.filter.filter.as_ref())?;
+    SplitBy::default().splits(
+        state.reader.as_ref(),
+        &(0..state.reader.row_count()),
+        &field_mask,
+    )
 }
 
 /// What a thread's split yields next.

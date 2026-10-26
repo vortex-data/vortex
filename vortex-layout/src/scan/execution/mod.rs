@@ -118,6 +118,11 @@ impl PreparedScan {
         self.filter.as_deref()
     }
 
+    /// The most rows of one chunk a [`ChunkPlanner`] cuts the scan's rows into.
+    pub fn chunk_rows(&self) -> usize {
+        self.chunk_rows
+    }
+
     /// The service a driver takes IO sessions from: every read a planner of the scan requests is
     /// served from it by segment.
     pub fn io(&self) -> Arc<dyn IoService> {

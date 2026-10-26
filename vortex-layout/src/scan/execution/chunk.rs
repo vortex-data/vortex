@@ -79,11 +79,29 @@ impl ChunkPlanner {
         selection: Selection,
         kept: Option<Mask>,
     ) -> Self {
-        let chunks = row_chunks(rows.clone(), scan.chunk_rows).into_iter();
+        let chunks = row_chunks(rows.clone(), scan.chunk_rows);
+        Self::with_chunks(scan, rows, chunks, selection, kept)
+    }
+
+    /// The planner of `chunks`, which tile `rows` in row order, for a driver that cuts the rows
+    /// itself, such as on the file's own chunk boundaries.
+    pub fn with_chunks(
+        scan: Arc<PreparedScan>,
+        rows: Range<u64>,
+        chunks: Vec<Range<u64>>,
+        selection: Selection,
+        kept: Option<Mask>,
+    ) -> Self {
+        debug_assert!(
+            chunks.first().is_none_or(|chunk| chunk.start == rows.start)
+                && chunks.last().is_none_or(|chunk| chunk.end == rows.end)
+                && chunks.windows(2).all(|pair| pair[0].end == pair[1].start),
+            "chunks must tile the rows in order"
+        );
         Self {
             scan,
             rows,
-            chunks,
+            chunks: chunks.into_iter(),
             selection,
             kept,
         }
