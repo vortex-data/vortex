@@ -27,6 +27,9 @@ pub mod row_mask;
 pub mod selection;
 pub mod strict_sorted_buffer;
 
+#[cfg(test)]
+mod tests;
+
 use std::any::Any;
 use std::ops::Range;
 use std::sync::Arc;
