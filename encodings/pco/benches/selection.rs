@@ -84,6 +84,7 @@ fn full(bencher: Bencher, nullable: bool) {
         .with_inputs(|| SESSION.create_execution_ctx())
         .bench_refs(|ctx| {
             source
+                .clone()
                 .execute::<PrimitiveArray>(ctx)
                 .vortex_expect("full decode")
         });
