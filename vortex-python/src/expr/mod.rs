@@ -15,6 +15,7 @@ use vortex::dtype::FieldNames;
 use vortex::dtype::Nullability;
 use vortex::expr;
 use vortex::expr::Expression;
+use vortex::expr::ScalarFnExprExt;
 use vortex::expr::lit;
 use vortex::expr::proto::ExprSerializeProtoExt;
 use vortex::functions::between::BetweenOptions;
@@ -25,7 +26,6 @@ use vortex::functions::replace_time_zone::ReplaceTimeZoneOptions;
 use vortex::functions::variant_get::VariantPath;
 use vortex::functions::variant_get::VariantPathElement;
 use vortex::proto::expr as pb;
-use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::builtin::binary::Binary;
 use vortex::scalar_fn::builtin::operators::Operator;
 

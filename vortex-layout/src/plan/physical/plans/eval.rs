@@ -8,14 +8,14 @@ use std::ops::Range;
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::BoundExpression;
-use vortex_array::expr::traversal::NodeExt;
-use vortex_array::expr::traversal::Transformed;
-use vortex_array::expr::traversal::TraversalOrder;
 use vortex_array::scalar_fn::builtin::pack::Pack;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_expr::BoundExpression;
+use vortex_expr::traversal::NodeExt;
+use vortex_expr::traversal::Transformed;
+use vortex_expr::traversal::TraversalOrder;
 use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 

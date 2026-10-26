@@ -7,17 +7,17 @@ use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::expr::Expression;
-use vortex_array::expr::display::ExprDisplay;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::display::ExprDisplay;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_expr::Expression;
+use vortex_expr::ScalarFnExprExt;
 use vortex_session::registry::CachedId;
 
 #[derive(Clone)]
@@ -74,9 +74,9 @@ pub fn row_idx() -> Expression {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::expr::Lambda;
-    use vortex_array::expr::checked_add;
-    use vortex_array::expr::var;
+    use vortex_expr::Lambda;
+    use vortex_expr::checked_add;
+    use vortex_expr::var;
 
     use super::row_idx;
 

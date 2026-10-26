@@ -23,8 +23,6 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
-use crate::expr::BoundExpression;
-use crate::expr::display::ExprDisplay;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ArrayReduceNode;
 use crate::scalar_fn::ChildName;
@@ -34,6 +32,7 @@ use crate::scalar_fn::ReduceNodeValidity;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::display::ExprDisplay;
 
 /// A typed scalar function instance, parameterized by a concrete [`ScalarFnVTable`].
 ///
@@ -97,7 +96,10 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
 
     // Expression methods — take expressions for tree traversal
     fn fmt_sql(&self, expression: &dyn ExprDisplay, f: &mut Formatter<'_>) -> fmt::Result;
-    fn simplify(&self, expression: &BoundExpression) -> VortexResult<Option<BoundExpression>>;
+    fn simplify_expression<'a>(
+        &self,
+        node: &ExpressionReduceNode<'a>,
+    ) -> VortexResult<Option<ExpressionReduceNode<'a>>>;
     fn validity_expression<'a>(
         &self,
         node: &ExpressionReduceNode<'a>,
@@ -209,8 +211,11 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
         V::fmt_sql(&self.vtable, &self.options, expression, f)
     }
 
-    fn simplify(&self, expression: &BoundExpression) -> VortexResult<Option<BoundExpression>> {
-        V::simplify(&self.vtable, &self.options, expression)
+    fn simplify_expression<'a>(
+        &self,
+        node: &ExpressionReduceNode<'a>,
+    ) -> VortexResult<Option<ExpressionReduceNode<'a>>> {
+        V::simplify(&self.vtable, &self.options, node)
     }
 
     fn validity_expression<'a>(

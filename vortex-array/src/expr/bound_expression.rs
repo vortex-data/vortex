@@ -14,12 +14,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::dtype::DType;
-use crate::expr::Expression;
 use crate::expr::display::DisplayTreeExpr;
-use crate::expr::expression::unbound_variable;
-use crate::expr::scope::Scope;
-use crate::expr::traversal::TraversalOrder;
-use crate::expr::traversal::pre_order_visit_down;
+use crate::scalar::Scalar;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExpressionReduceNode;
 use crate::scalar_fn::ReduceNode;
@@ -28,8 +24,10 @@ use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::builtin::is_not_null::IsNotNull;
+use crate::scalar_fn::builtin::literal::Literal;
+use crate::scalar_fn::display::ExprDisplay;
 
-/// An [`Expression`] that has been type-checked against a [`Scope`].
+/// An expression that has been type-checked against a scope's root dtype.
 ///
 /// Every node carries its own dtype, so reading one is a field access rather than a walk of the
 /// subtree. Holding a `BoundExpression` is proof that the whole tree type-checked.
@@ -199,15 +197,25 @@ impl BoundExpression {
 
     /// Return whether this expression tree contains a node using the given scalar-function vtable.
     pub fn contains<V: ScalarFnVTable>(&self) -> VortexResult<bool> {
-        let mut contains = false;
-        pre_order_visit_down(self, |node| {
-            if node.is::<V>() {
-                contains = true;
-                return Ok(TraversalOrder::Stop);
+        Ok(self.any_node(|node| node.is::<V>()))
+    }
+
+    /// Whether any node of this tree, visited depth-first, satisfies `predicate`.
+    fn any_node(&self, mut predicate: impl FnMut(&BoundExpression) -> bool) -> bool {
+        let mut stack = vec![self];
+        while let Some(node) = stack.pop() {
+            if predicate(node) {
+                return true;
             }
-            Ok(TraversalOrder::Continue)
-        })?;
-        Ok(contains)
+            stack.extend(node.children().iter().rev());
+        }
+        false
+    }
+
+    /// Create a bound literal node.
+    pub fn literal(value: Scalar) -> Self {
+        Self::try_new(Literal.bind(value), [])
+            .vortex_expect("literal expressions are always well-typed")
     }
 
     /// Return the typed scalar-function options when this node uses the given vtable.
@@ -234,16 +242,7 @@ impl BoundExpression {
     ///
     /// Expressions without a scope root, such as literals, match every dtype.
     pub fn is_root_bound_to(&self, dtype: &DType) -> bool {
-        let mut is_bound_to = true;
-        pre_order_visit_down(self, |node| {
-            if node.is_root() && node.dtype() != dtype {
-                is_bound_to = false;
-                return Ok(TraversalOrder::Stop);
-            }
-            Ok(TraversalOrder::Continue)
-        })
-        .vortex_expect("bound expression traversal cannot not fail");
-        is_bound_to
+        !self.any_node(|node| node.is_root() && node.dtype() != dtype)
     }
 
     /// Returns a new expression representing the validity mask output of this expression.
@@ -262,7 +261,7 @@ impl BoundExpression {
                     // IsNotNull(x) -> x.validity() symbolic reduction rule works only
                     // when node's.validity is Reduced to avoid infinite recursion.
                     ReduceNodeValidity::Irreducible => {
-                        IsNotNull.try_new_bound_expr(EmptyOptions, [self.clone()])?
+                        BoundExpression::try_new(IsNotNull.bind(EmptyOptions), [self.clone()])?
                     }
                 })
             }
@@ -281,37 +280,6 @@ impl Display for BoundExpression {
             Self::Scalar { scalar_fn, .. } => scalar_fn.fmt_sql(self, f),
             Self::Root { .. } => f.write_str("$"),
         }
-    }
-}
-
-impl Expression {
-    /// Bind this expression against a root dtype, type-checking every node in a single walk.
-    ///
-    /// The returned tree carries a dtype on each node, so callers needing types at more than one
-    /// node should bind once and read fields rather than calling
-    /// [`return_dtype`](Expression::return_dtype) repeatedly.
-    pub fn bind(&self, dtype: &DType) -> VortexResult<BoundExpression> {
-        self.bind_scope(&Scope::new(dtype.clone()))
-    }
-
-    /// Bind this expression against an explicit [`Scope`].
-    pub fn bind_scope(&self, scope: &Scope) -> VortexResult<BoundExpression> {
-        if self.is_root() {
-            return Ok(BoundExpression::new_root(scope.root().clone()));
-        }
-        if let Expression::Variable(name) = self {
-            return Err(unbound_variable(name));
-        }
-
-        let children: Vec<_> = self
-            .children()
-            .iter()
-            .map(|child| child.bind_scope(scope))
-            .try_collect()?;
-        let scalar_fn = self
-            .as_scalar()
-            .vortex_expect("leaves were handled above, so this is a scalar node");
-        BoundExpression::try_new(scalar_fn.clone(), children)
     }
 }
 
@@ -336,158 +304,12 @@ impl Drop for BoundExpression {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use vortex_error::VortexResult;
-
-    use super::*;
-    use crate::dtype::Nullability;
-    use crate::dtype::PType;
-    use crate::expr::col;
-    use crate::expr::eq;
-    use crate::expr::lit;
-    use crate::expr::root;
-    use crate::expr::test_harness::struct_dtype;
-    use crate::scalar_fn::builtin::literal::Literal;
-
-    fn scope() -> Scope {
-        Scope::new(struct_dtype())
+impl ExprDisplay for BoundExpression {
+    fn display_child(&self, index: usize) -> &dyn ExprDisplay {
+        &self.children()[index]
     }
 
-    #[test]
-    fn root_binds_to_the_scope() -> VortexResult<()> {
-        let bound = root().bind_scope(&scope())?;
-        assert!(bound.is_root());
-        assert_eq!(bound.dtype(), &struct_dtype());
-        assert_eq!(bound, BoundExpression::new_root(struct_dtype()));
-        Ok(())
-    }
-
-    #[test]
-    fn every_node_carries_its_dtype() -> VortexResult<()> {
-        let expr = eq(col("a"), lit(1_i32));
-        let bound = expr.bind_scope(&scope())?;
-
-        assert_eq!(bound.dtype(), &DType::Bool(Nullability::NonNullable));
-
-        let lhs = &bound.children()[0];
-        assert_eq!(
-            lhs.dtype(),
-            &DType::Primitive(PType::I32, Nullability::NonNullable)
-        );
-        assert_eq!(lhs.children()[0].dtype(), &struct_dtype());
-        Ok(())
-    }
-
-    #[test]
-    fn bind_agrees_with_return_dtype() -> VortexResult<()> {
-        for (expr, expected) in [
-            (root(), struct_dtype()),
-            (
-                col("a"),
-                DType::Primitive(PType::I32, Nullability::NonNullable),
-            ),
-            (
-                eq(col("a"), lit(1_i32)),
-                DType::Bool(Nullability::NonNullable),
-            ),
-            (lit(true), DType::Bool(Nullability::NonNullable)),
-        ] {
-            assert_eq!(
-                expr.bind(&struct_dtype())?.dtype(),
-                &expected,
-                "binding {expr}"
-            );
-            assert_eq!(
-                expr.return_dtype(&struct_dtype())?,
-                expected,
-                "return dtype of {expr}"
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn contains_scalar_function() -> VortexResult<()> {
-        let bound = eq(col("a"), lit(1_i32)).bind_scope(&scope())?;
-        assert!(bound.contains::<Literal>()?);
-        assert!(!root().bind_scope(&scope())?.contains::<Literal>()?);
-        Ok(())
-    }
-
-    #[test]
-    fn bound_to_checks_every_root() -> VortexResult<()> {
-        let dtype = struct_dtype();
-        let bound = eq(col("a"), col("a")).bind(&dtype)?;
-        assert!(bound.is_root_bound_to(&dtype));
-        assert!(!bound.is_root_bound_to(&DType::Bool(Nullability::NonNullable)));
-        assert!(
-            lit(true)
-                .bind(&dtype)?
-                .is_root_bound_to(&DType::Bool(Nullability::NonNullable))
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn bound_display_matches_unbound() -> VortexResult<()> {
-        for expr in [root(), col("a"), eq(col("a"), lit(1_i32)), lit(true)] {
-            let bound = expr.bind_scope(&scope())?;
-            assert_eq!(bound.to_string(), expr.to_string());
-            assert_eq!(
-                bound.display_tree().to_string(),
-                expr.display_tree().to_string()
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn clone_shares_children() -> VortexResult<()> {
-        let bound = eq(col("a"), lit(1_i32)).bind_scope(&scope())?;
-        let cloned = bound.clone();
-
-        let (
-            BoundExpression::Scalar { children: a, .. },
-            BoundExpression::Scalar { children: b, .. },
-        ) = (&bound, &cloned)
-        else {
-            unreachable!("eq is a scalar node")
-        };
-        assert!(Arc::ptr_eq(a, b));
-        Ok(())
-    }
-
-    #[test]
-    fn repeated_subtree_is_bound_per_occurrence() -> VortexResult<()> {
-        let shared = col("a");
-        let bound = eq(shared.clone(), shared).bind_scope(&scope())?;
-        let children = bound.children();
-        assert_eq!(children.len(), 2);
-        for child in children {
-            assert_eq!(
-                child.dtype(),
-                &DType::Primitive(PType::I32, Nullability::NonNullable)
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn structural_and_exact_equality_are_distinct() -> VortexResult<()> {
-        let expr = eq(col("a"), lit(1_i32));
-        let bound = expr.bind_scope(&scope())?;
-        let independently_bound = expr.bind_scope(&scope())?;
-
-        assert_eq!(bound, independently_bound);
-        assert_eq!(ExactBoundExpr(bound.clone()), ExactBoundExpr(bound.clone()));
-        assert_ne!(ExactBoundExpr(bound), ExactBoundExpr(independently_bound));
-        Ok(())
-    }
-
-    #[test]
-    fn binding_reports_a_type_error() {
-        let expr = eq(col("a"), lit("nope"));
-        assert!(expr.bind_scope(&scope()).is_err());
+    fn display_children_count(&self) -> usize {
+        self.children().len()
     }
 }

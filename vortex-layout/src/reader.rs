@@ -14,9 +14,9 @@ use vortex_array::MaskFuture;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
-use vortex_array::expr::BoundExpression;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_expr::BoundExpression;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
