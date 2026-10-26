@@ -74,6 +74,22 @@ impl LayoutSerialization {
     }
 }
 
+/// The wire components of a layout node passed to a layout deserializer.
+pub struct LayoutDeserialization<'a> {
+    /// The exact layout ID found on the wire.
+    pub serialized_id: LayoutId,
+    /// Logical dtype of this layout.
+    pub dtype: &'a DType,
+    /// Number of rows in this layout.
+    pub row_count: u64,
+    /// Layout-specific metadata from the layout node.
+    pub metadata: &'a [u8],
+    /// Directly referenced segments.
+    pub segment_ids: Vec<SegmentId>,
+    /// Lazy child access.
+    pub children: &'a dyn LayoutChildren,
+}
+
 /// Object-safe plugin registered for a layout ID.
 ///
 /// A plugin has one [`id`](Self::id) for the in-memory layout and one or more
@@ -110,18 +126,15 @@ pub trait LayoutPlugin: 'static + Send + Sync + Debug {
         Ok(LayoutSerialization::from_layout(layout))
     }
 
-    /// Deserializes a layout node written under `serialized_id`, the exact layout ID found on the
-    /// wire.
-    #[allow(clippy::too_many_arguments)]
-    fn build(
+    /// Deserialize one layout node from its wire representation.
+    ///
+    /// `parts.serialized_id` identifies the exact representation found on the wire.
+    /// Implementations must validate the contract of that ID rather than accepting every form the
+    /// in-memory layout understands.
+    fn deserialize(
         &self,
-        serialized_id: LayoutId,
-        dtype: &DType,
-        row_count: u64,
-        metadata: &[u8],
-        segment_ids: Vec<SegmentId>,
-        children: &dyn LayoutChildren,
-        build_ctx: &LayoutBuildContext<'_>,
+        parts: LayoutDeserialization<'_>,
+        ctx: &LayoutBuildContext<'_>,
     ) -> VortexResult<LayoutRef>;
 
     /// Returns `true` if this layout is indivisible: its readers never register natural split
@@ -145,30 +158,25 @@ impl<V: VTable> LayoutPlugin for V {
         VTable::id(self)
     }
 
-    fn build(
+    fn deserialize(
         &self,
-        serialized_id: LayoutId,
-        dtype: &DType,
-        row_count: u64,
-        metadata: &[u8],
-        segment_ids: Vec<SegmentId>,
-        children: &dyn LayoutChildren,
-        build_ctx: &LayoutBuildContext<'_>,
+        parts: LayoutDeserialization<'_>,
+        ctx: &LayoutBuildContext<'_>,
     ) -> VortexResult<LayoutRef> {
         vortex_ensure_eq!(
             VTable::id(self),
-            serialized_id,
+            parts.serialized_id,
             "layout plugin does not recognize the serialized ID",
         );
-        let metadata = <V::Metadata as DeserializeMetadata>::deserialize(metadata)?;
+        let metadata = <V::Metadata as DeserializeMetadata>::deserialize(parts.metadata)?;
         Ok(V::build(
             self,
-            dtype,
-            row_count,
+            parts.dtype,
+            parts.row_count,
             &metadata,
-            segment_ids,
-            children,
-            build_ctx,
+            parts.segment_ids,
+            parts.children,
+            ctx,
         )?
         .into_layout())
     }

@@ -12,7 +12,7 @@ use vortex_session::VortexSession;
 use crate::DynLayout;
 use crate::LayoutBuildContext;
 use crate::LayoutChildType;
-use crate::LayoutChildren;
+use crate::LayoutDeserialization;
 use crate::LayoutEncodingId;
 use crate::LayoutPlugin;
 use crate::LayoutPluginRef;
@@ -42,26 +42,21 @@ impl LayoutPlugin for ForeignLayoutEncoding {
         self.id
     }
 
-    fn build(
+    fn deserialize(
         &self,
-        _serialized_id: LayoutEncodingId,
-        dtype: &DType,
-        row_count: u64,
-        metadata: &[u8],
-        segment_ids: Vec<SegmentId>,
-        children: &dyn LayoutChildren,
-        _build_ctx: &LayoutBuildContext<'_>,
+        parts: LayoutDeserialization<'_>,
+        _ctx: &LayoutBuildContext<'_>,
     ) -> VortexResult<LayoutRef> {
-        let child_layouts = (0..children.nchildren())
-            .map(|idx| children.child(idx, dtype))
+        let child_layouts = (0..parts.children.nchildren())
+            .map(|idx| parts.children.child(idx, parts.dtype))
             .collect::<VortexResult<Vec<_>>>()?;
 
         Ok(new_foreign_layout(
             self.id,
-            dtype.clone(),
-            row_count,
-            metadata.to_vec(),
-            segment_ids,
+            parts.dtype.clone(),
+            parts.row_count,
+            parts.metadata.to_vec(),
+            parts.segment_ids,
             child_layouts,
         ))
     }

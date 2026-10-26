@@ -20,6 +20,7 @@ use vortex_session::registry::ReadContext;
 use crate::DynLayout;
 use crate::LayoutBuildContext;
 use crate::LayoutContext;
+use crate::LayoutDeserialization;
 use crate::LayoutRef;
 use crate::children::ViewedLayoutChildren;
 use crate::flatbuffers::layout;
@@ -95,21 +96,23 @@ pub fn layout_from_flatbuffer_with_options(
         session,
         array_read_ctx: ctx,
     };
-    let layout = encoding.build(
-        encoding_id,
-        dtype,
-        fb_layout.row_count(),
-        fb_layout
-            .metadata()
-            .map(|m| m.bytes())
-            .unwrap_or_else(|| &[]),
-        fb_layout
-            .segments()
-            .unwrap_or_default()
-            .iter()
-            .map(SegmentId::from)
-            .collect(),
-        &viewed_children,
+    let layout = encoding.deserialize(
+        LayoutDeserialization {
+            serialized_id: encoding_id,
+            dtype,
+            row_count: fb_layout.row_count(),
+            metadata: fb_layout
+                .metadata()
+                .map(|m| m.bytes())
+                .unwrap_or_else(|| &[]),
+            segment_ids: fb_layout
+                .segments()
+                .unwrap_or_default()
+                .iter()
+                .map(SegmentId::from)
+                .collect(),
+            children: &viewed_children,
+        },
         &build_ctx,
     )?;
 
@@ -258,8 +261,8 @@ mod tests {
     use super::layout_from_flatbuffer_with_options;
     use crate::DynLayout;
     use crate::LayoutBuildContext;
-    use crate::LayoutChildren;
     use crate::LayoutContext;
+    use crate::LayoutDeserialization;
     use crate::LayoutEncodingId;
     use crate::LayoutId;
     use crate::LayoutPlugin;
@@ -314,25 +317,19 @@ mod tests {
             })
         }
 
-        fn build(
+        fn deserialize(
             &self,
-            _serialized_id: LayoutId,
-            dtype: &DType,
-            row_count: u64,
-            metadata: &[u8],
-            segment_ids: Vec<SegmentId>,
-            children: &dyn LayoutChildren,
-            build_ctx: &LayoutBuildContext<'_>,
+            parts: LayoutDeserialization<'_>,
+            ctx: &LayoutBuildContext<'_>,
         ) -> VortexResult<LayoutRef> {
-            LayoutPlugin::build(
+            // Both IDs share the flat wire format.
+            LayoutPlugin::deserialize(
                 &Flat,
-                VTable::id(&Flat),
-                dtype,
-                row_count,
-                metadata,
-                segment_ids,
-                children,
-                build_ctx,
+                LayoutDeserialization {
+                    serialized_id: VTable::id(&Flat),
+                    ..parts
+                },
+                ctx,
             )
         }
     }
