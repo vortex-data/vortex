@@ -6,11 +6,14 @@
 //! A planner says what it needs: compute, or reads. This driver decides where each runs, and
 //! DuckDB's own threads run all of it. Each file is prepared once and its planners are composed
 //! over the prepared scan: with a filter, its pruning plans over the scanned rows first,
-//! continuing into the chunks of the rows they keep; without, the chunks directly. The root
-//! planner's run is shared by every thread scanning the file. A thread takes the next chunk the
-//! root spawns and runs it on a run of its own, inline, waiting only for its reads. Threads keep
-//! taking chunks until the root is done, so the file's work spreads over as many threads as
-//! DuckDB gives the scan, however its rows divide.
+//! continuing into the chunks of the rows they keep; without, the chunks directly.
+//!
+//! The thread initializing the file runs the root planner to the end, pruning included, and
+//! queues the chunks it spawns. DuckDB initializes a file on one thread while its others scan
+//! other files, so no thread waits on another file's pruning reads. DuckDB then gives the file
+//! one thread per queued chunk at most. A thread takes the next chunk and runs it on a run of its
+//! own, inline, waiting only for its reads, and keeps taking chunks until the queue is empty, so
+//! the file's work spreads over as many threads as it has chunks, however its rows divide.
 //!
 //! Chunks end only on the file's own chunk boundaries, of the columns the scan reads, so no chunk
 //! of the file is decoded twice by two chunks of the scan. Spans between boundaries are merged up
@@ -19,11 +22,12 @@
 //! threads busy. The root groups the chunks into parts, a few per thread, and spawns a chunk
 //! planner per part.
 
+use std::collections::VecDeque;
 use std::future;
 use std::ops::Range;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use parking_lot::Mutex;
@@ -61,10 +65,12 @@ const PARTS_PER_THREAD: usize = 4;
 pub(crate) struct FileScan {
     scan: Arc<PreparedScan>,
     io: Arc<dyn IoService>,
-    /// The run of the root planner, locked while a thread takes the chunk it spawns next.
-    root: Mutex<Run>,
-    /// Set once the root has spawned its last chunk.
-    exhausted: AtomicBool,
+    /// The work the root planned, in row order, that no thread has taken yet.
+    work: Mutex<VecDeque<Work>>,
+    /// The work the root planned, taken or not.
+    planned: usize,
+    /// The threads DuckDB has given the file so far.
+    claims: AtomicUsize,
     /// The rows of the chunks taken so far, for DuckDB's progress bar.
     rows_taken: AtomicU64,
 }
@@ -78,9 +84,9 @@ enum Work {
 }
 
 impl FileScan {
-    /// Prepares `builder` and composes its planners, cutting chunks on `boundaries`, the sorted
-    /// rows the file's chunks of the scanned columns end at. Lowering and planning touch no
-    /// segment.
+    /// Prepares `builder`, composes its planners, cutting chunks on `boundaries`, the sorted rows
+    /// the file's chunks of the scanned columns end at, and runs the root planner to the end on
+    /// the calling thread, waiting for its pruning reads.
     pub(crate) fn try_new(builder: ScanBuilder, boundaries: &[u64]) -> VortexResult<Self> {
         let scan = Arc::new(builder.prepare()?);
         let io = scan.io();
@@ -97,25 +103,28 @@ impl FileScan {
             },
             io.session(),
         );
+        let work = plan(&mut root)?;
         Ok(Self {
             scan,
             io,
-            root: Mutex::new(root),
-            exhausted: AtomicBool::new(false),
+            planned: work.len(),
+            work: Mutex::new(work),
+            claims: AtomicUsize::new(0),
             rows_taken: AtomicU64::new(0),
         })
     }
 
-    /// Whether the root has spawned its last chunk, so a thread joining the scan finds no work.
-    pub(crate) fn is_exhausted(&self) -> bool {
-        self.exhausted.load(Ordering::Acquire)
+    /// Whether the file has work for one more thread: DuckDB gives it one thread per piece of
+    /// planned work at most.
+    pub(crate) fn claim(&self) -> bool {
+        self.claims.fetch_add(1, Ordering::Relaxed) < self.planned
     }
 
     /// The percentage of the scanned rows whose chunks threads have taken.
     pub(crate) fn progress(&self) -> f64 {
         let rows = self.scan.rows();
         let total = rows.end - rows.start;
-        if total == 0 || self.exhausted.load(Ordering::Relaxed) {
+        if total == 0 || self.work.lock().is_empty() {
             return 100.0;
         }
         100.0 * self.rows_taken.load(Ordering::Relaxed) as f64 / total as f64
@@ -149,33 +158,29 @@ impl FileScan {
         }
     }
 
-    /// Advances the root until it spawns a chunk or produces a batch, or `None` once it is done.
+    /// The next work no thread has taken, or `None` once all is taken.
     fn next_work(&self) -> VortexResult<Option<Work>> {
-        if self.exhausted.load(Ordering::Acquire) {
-            return Ok(None);
+        let work = self.work.lock().pop_front();
+        if let Some(Work::Chunk(scope, _)) = &work {
+            self.rows_taken
+                .fetch_add(scope.rows.end - scope.rows.start, Ordering::Relaxed);
         }
-        let mut root = self.root.lock();
-        loop {
-            if self.exhausted.load(Ordering::Acquire) {
-                return Ok(None);
-            }
-            match root.advance()? {
-                Progress::Batch(batch) => return Ok(Some(Work::Batch(batch.array))),
-                Progress::Spawn(scope, chunk) => {
-                    self.rows_taken
-                        .fetch_add(scope.rows.end - scope.rows.start, Ordering::Relaxed);
-                    return Ok(Some(Work::Chunk(scope, chunk)));
-                }
-                Progress::RootDone(_) if root.live_roots() > 0 => {}
-                Progress::RootDone(_) | Progress::Idle => {
-                    self.exhausted.store(true, Ordering::Release);
-                    return Ok(None);
-                }
-                // The root waits for the pruning plans' reads. The threads waiting on the lock
-                // would have nothing to run until they arrive.
-                Progress::Waiting => {
-                    RUNTIME.block_on(future::poll_fn(|cx| root.poll_completion(cx)))?;
-                }
+        Ok(work)
+    }
+}
+
+/// Runs `root` to the end, waiting for its reads, and returns the chunks it spawns and the
+/// batches it produces, in order.
+fn plan(root: &mut Run) -> VortexResult<VecDeque<Work>> {
+    let mut work = VecDeque::new();
+    loop {
+        match root.advance()? {
+            Progress::Batch(batch) => work.push_back(Work::Batch(batch.array)),
+            Progress::Spawn(scope, chunk) => work.push_back(Work::Chunk(scope, chunk)),
+            Progress::RootDone(_) if root.live_roots() > 0 => {}
+            Progress::RootDone(_) | Progress::Idle => return Ok(work),
+            Progress::Waiting => {
+                RUNTIME.block_on(future::poll_fn(|cx| root.poll_completion(cx)))?;
             }
         }
     }

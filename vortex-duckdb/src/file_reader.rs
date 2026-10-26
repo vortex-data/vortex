@@ -313,13 +313,13 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
 /// the global lock. It only moves references between the file and the local
 /// state, and reader_scan drops the retired ones.
 pub fn reader_try_initialize_scan(file: &mut OpenFileReader, local: &mut LocalState) -> bool {
-    // A V2 scan's threads take chunks from the file's scan until it has spawned
-    // them all, so the file has work for another thread until then.
+    // A V2 scan's threads take chunks from the file's queue until it is empty,
+    // so the file has work for one more thread per queued chunk at most.
     let v2 = file
         .scan_state
         .as_ref()
         .and_then(|state| state.v2.get())
-        .map(|scan| (!scan.is_exhausted()).then_some(Split::V2));
+        .map(|scan| scan.claim().then_some(Split::V2));
     let Some(split) = v2.unwrap_or_else(|| file.splits.pop()) else {
         // DuckDB releases the file after this call, under the global lock.
         // Give the reference of the file to this thread so it drops outside.
