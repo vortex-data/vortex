@@ -1062,7 +1062,9 @@ fn test_filter_sliced_list_array() -> VortexResult<()> {
 
 #[rstest]
 #[case::nothing_to_drop(&[1, 2, 3], &[0, 1, 1, 3], &[true, false, true], &[1, 2, 3], &[0, 1, 1, 3])]
+#[case::exact(&[1, 2, 3], &[0, 1, 3], &[true, true], &[1, 2, 3], &[0, 1, 3])]
 #[case::leftovers_at_the_ends(&[9, 1, 2, 9], &[1, 2, 3], &[true, true], &[1, 2], &[0, 1, 2])]
+#[case::leftover_at_the_end(&[1, 2, 9], &[0, 1, 2], &[true, true], &[1, 2], &[0, 1, 2])]
 #[case::null_lists_holding_elements(
     &[9, 9, 9, 1, 9, 9, 2, 3, 9, 9],
     &[1, 3, 4, 6, 8, 9],
@@ -1089,7 +1091,11 @@ fn rebuild_with_referenced_valid_elements(
     let list = ListArray::try_new(
         PrimitiveArray::from_iter(elements.iter().copied()).into_array(),
         PrimitiveArray::from_iter(offsets.iter().copied()).into_array(),
-        Validity::from_iter(validity.iter().copied()),
+        if validity.iter().all(|valid| *valid) {
+            Validity::NonNullable
+        } else {
+            Validity::from_iter(validity.iter().copied())
+        },
         &mut ctx,
     )?;
     let rebuilt = list.rebuild_with_referenced_valid_elements(&mut ctx)?;

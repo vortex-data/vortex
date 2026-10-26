@@ -16,6 +16,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PiecewiseSequenceArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::list::null_lists_hold_elements;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::listview::list_from_list_view;
@@ -142,23 +143,11 @@ impl ListViewArray {
         if self.is_empty() {
             return self.rebuild(ListViewRebuildMode::TrimElements, ctx);
         }
-        let validity = self.validity()?.execute_mask(self.len(), ctx)?;
-        let all = [(0, self.len())];
-        let valid = validity.slices().unwrap_or_else(|| &all, || &[]);
+        let valid = self.validity()?.execute_mask(self.len(), ctx)?;
         let sizes = self.sizes().clone().execute::<PrimitiveArray>(ctx)?;
         let null_lists_empty = match_each_integer_ptype!(sizes.ptype(), |S| {
             let sizes = sizes.as_slice::<S>();
-            let mut null_from = 0;
-            valid
-                .iter()
-                .chain([&(self.len(), self.len())])
-                .all(|&(valid_start, valid_end)| {
-                    let empty = sizes[null_from..valid_start]
-                        .iter()
-                        .all(|size| *size == S::default());
-                    null_from = valid_end;
-                    empty
-                })
+            !null_lists_hold_elements(&valid, |index| sizes[index] != S::default())
         });
         if !null_lists_empty {
             // The lists are back to back, so they are a `ListArray`'s, without copying.
