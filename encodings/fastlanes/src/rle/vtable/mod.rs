@@ -52,11 +52,11 @@ pub struct RLEMetadata {
     pub values_len: u64,
     #[prost(uint64, tag = "2")]
     pub indices_len: u64,
-    #[prost(enumeration = "PType", tag = "3")]
+    #[prost(int32, tag = "3")]
     pub indices_ptype: i32,
     #[prost(uint64, tag = "4")]
     pub values_idx_offsets_len: u64,
-    #[prost(enumeration = "PType", tag = "5")]
+    #[prost(int32, tag = "5")]
     pub values_idx_offsets_ptype: i32,
     #[prost(uint64, tag = "6", default = "0")]
     pub offset: u64,

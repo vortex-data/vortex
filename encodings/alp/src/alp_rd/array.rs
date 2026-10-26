@@ -66,7 +66,7 @@ pub struct ALPRDMetadata {
     dict_len: u32,
     #[prost(uint32, repeated, tag = "3")]
     dict: Vec<u32>,
-    #[prost(enumeration = "PType", tag = "4")]
+    #[prost(int32, tag = "4")]
     left_parts_ptype: i32,
     #[prost(message, tag = "5")]
     patches: Option<PatchesMetadata>,

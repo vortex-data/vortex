@@ -60,7 +60,7 @@ pub(crate) fn initialize(session: &VortexSession) {
 
 #[derive(Clone, prost::Message)]
 pub struct VarBinMetadata {
-    #[prost(enumeration = "PType", tag = "1")]
+    #[prost(int32, tag = "1")]
     pub(crate) offsets_ptype: i32,
 }
 

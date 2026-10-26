@@ -58,9 +58,9 @@ pub struct ListView;
 pub struct ListViewMetadata {
     #[prost(uint64, tag = "1")]
     elements_len: u64,
-    #[prost(enumeration = "PType", tag = "2")]
+    #[prost(int32, tag = "2")]
     offset_ptype: i32,
-    #[prost(enumeration = "PType", tag = "3")]
+    #[prost(int32, tag = "3")]
     size_ptype: i32,
 }
 

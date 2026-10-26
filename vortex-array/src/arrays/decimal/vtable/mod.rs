@@ -53,7 +53,7 @@ pub(crate) fn initialize(session: &VortexSession) {
 // The type of the values can be determined by looking at the type info...right?
 #[derive(prost::Message)]
 pub struct DecimalMetadata {
-    #[prost(enumeration = "DecimalType", tag = "1")]
+    #[prost(int32, tag = "1")]
     pub(super) values_type: i32,
 }
 

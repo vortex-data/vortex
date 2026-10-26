@@ -226,15 +226,15 @@ impl Layout<List> {
 
 #[derive(prost::Message)]
 pub struct ListLayoutMetadata {
-    #[prost(enumeration = "PType", tag = "1")]
+    #[prost(int32, tag = "1")]
     offsets_ptype: i32,
 }
 
 impl ListLayoutMetadata {
     pub fn new(offsets_ptype: PType) -> Self {
-        let mut metadata = Self::default();
-        metadata.set_offsets_ptype(offsets_ptype);
-        metadata
+        Self {
+            offsets_ptype: offsets_ptype as i32,
+        }
     }
 
     fn get_offsets_ptype(&self) -> VortexResult<PType> {

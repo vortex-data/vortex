@@ -164,7 +164,7 @@ impl Layout<Dict> {
 
 #[derive(prost::Message)]
 pub struct DictLayoutMetadata {
-    #[prost(enumeration = "PType", tag = "1")]
+    #[prost(int32, tag = "1")]
     codes_ptype: i32,
     #[prost(optional, bool, tag = "2")]
     is_nullable_codes: Option<bool>,
@@ -174,9 +174,10 @@ pub struct DictLayoutMetadata {
 
 impl DictLayoutMetadata {
     pub fn new(codes_ptype: PType) -> Self {
-        let mut metadata = Self::default();
-        metadata.set_codes_ptype(codes_ptype);
-        metadata
+        Self {
+            codes_ptype: codes_ptype as i32,
+            ..Default::default()
+        }
     }
 
     fn get_codes_ptype(&self) -> VortexResult<PType> {

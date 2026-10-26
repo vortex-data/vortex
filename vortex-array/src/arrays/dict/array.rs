@@ -31,7 +31,7 @@ use crate::match_each_integer_ptype;
 pub struct DictMetadata {
     #[prost(uint32, tag = "1")]
     pub(super) values_len: u32,
-    #[prost(enumeration = "PType", tag = "2")]
+    #[prost(int32, tag = "2")]
     pub(super) codes_ptype: i32,
     // nullable codes are optional since they were added after stabilisation.
     #[prost(optional, bool, tag = "3")]
