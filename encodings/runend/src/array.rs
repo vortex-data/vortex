@@ -63,11 +63,11 @@ pub type RunEndArray = Array<RunEnd>;
 #[derive(Clone, prost::Message)]
 pub struct RunEndMetadata {
     #[prost(int32, tag = "1")]
-    pub ends_ptype: i32,
+    pub(crate) ends_ptype: i32,
     #[prost(uint64, tag = "2")]
-    pub num_runs: u64,
+    pub(crate) num_runs: u64,
     #[prost(uint64, tag = "3")]
-    pub offset: u64,
+    pub(crate) offset: u64,
 }
 
 impl RunEndMetadata {

@@ -49,17 +49,17 @@ pub type RLEArray = Array<RLE>;
 #[derive(Clone, prost::Message)]
 pub struct RLEMetadata {
     #[prost(uint64, tag = "1")]
-    pub values_len: u64,
+    pub(crate) values_len: u64,
     #[prost(uint64, tag = "2")]
-    pub indices_len: u64,
+    pub(crate) indices_len: u64,
     #[prost(int32, tag = "3")]
-    pub indices_ptype: i32,
+    pub(crate) indices_ptype: i32,
     #[prost(uint64, tag = "4")]
-    pub values_idx_offsets_len: u64,
+    pub(crate) values_idx_offsets_len: u64,
     #[prost(int32, tag = "5")]
-    pub values_idx_offsets_ptype: i32,
+    pub(crate) values_idx_offsets_ptype: i32,
     #[prost(uint64, tag = "6", default = "0")]
-    pub offset: u64,
+    pub(crate) offset: u64,
 }
 
 impl RLEMetadata {

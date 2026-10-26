@@ -82,18 +82,18 @@ use vortex::utils::aliases::hash_map::HashMap;
 #[derive(Clone, prost::Message)]
 pub struct InlinedBuffer {
     #[prost(uint32, tag = "1")]
-    pub buffer_index: u32,
+    pub(crate) buffer_index: u32,
     #[prost(bytes, tag = "2")]
-    pub data: Vec<u8>,
+    pub(crate) data: Vec<u8>,
 }
 
 /// Protobuf metadata for [`CudaFlatLayout`].
 #[derive(prost::Message)]
 pub struct CudaFlatLayoutMetadata {
     #[prost(bytes, tag = "1")]
-    pub array_encoding_tree: Vec<u8>,
+    pub(crate) array_encoding_tree: Vec<u8>,
     #[prost(message, repeated, tag = "2")]
-    pub host_buffers: Vec<InlinedBuffer>,
+    pub(crate) host_buffers: Vec<InlinedBuffer>,
 }
 
 /// CUDA flat layout vtable.

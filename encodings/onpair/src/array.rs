@@ -81,24 +81,24 @@ pub type OnPairArray = Array<OnPair>;
 pub struct OnPairMetadata {
     /// Width of the per-row primitive `uncompressed_lengths` child.
     #[prost(enumeration = "PType", tag = "1")]
-    pub uncompressed_lengths_ptype: i32,
+    pub(crate) uncompressed_lengths_ptype: i32,
     /// Number of dictionary tokens. `dict_offsets` has length `dict_size + 1`.
     #[prost(uint32, tag = "3")]
-    pub dict_size: u32,
+    pub(crate) dict_size: u32,
     /// Length of the `codes` slot child. A sliced array may retain codes that
     /// fall outside its visible row range.
     #[prost(uint64, tag = "4")]
-    pub codes_len: u64,
+    pub(crate) codes_len: u64,
     /// PType of the `dict_offsets` slot child (defaults to U32, may be
     /// narrowed to U16/U8 by the cascading compressor when values fit).
     #[prost(enumeration = "PType", tag = "5")]
-    pub dict_offsets_ptype: i32,
+    pub(crate) dict_offsets_ptype: i32,
     /// PType of the `codes` slot child.
     #[prost(enumeration = "PType", tag = "6")]
-    pub codes_ptype: i32,
+    pub(crate) codes_ptype: i32,
     /// PType of the `codes_offsets` slot child.
     #[prost(enumeration = "PType", tag = "7")]
-    pub codes_offsets_ptype: i32,
+    pub(crate) codes_offsets_ptype: i32,
 }
 
 impl OnPairMetadata {

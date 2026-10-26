@@ -64,11 +64,11 @@ pub struct DateTimePartsMetadata {
     // Validity lives in the days array
     // TODO(ngates): we should actually model this with a Tuple array when we have one.
     #[prost(enumeration = "PType", tag = "1")]
-    pub days_ptype: i32,
+    pub(crate) days_ptype: i32,
     #[prost(enumeration = "PType", tag = "2")]
-    pub seconds_ptype: i32,
+    pub(crate) seconds_ptype: i32,
     #[prost(enumeration = "PType", tag = "3")]
-    pub subseconds_ptype: i32,
+    pub(crate) subseconds_ptype: i32,
 }
 
 impl DateTimePartsMetadata {

@@ -274,7 +274,7 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
                 vector_as_string_blob(vector, len, DType::Binary(Nullability::Nullable));
             let crs = logical_type.geometry_crs().map(|crs| crs.to_string());
             let wkb_type = ExtDType::<WellKnownBinary>::try_new(
-                SpatialMetadata { crs },
+                SpatialMetadata::new(crs),
                 DType::Binary(Nullability::Nullable),
             )?
             .erased();
@@ -1109,10 +1109,7 @@ mod tests {
             .into_owned();
         let wkb_data = WellKnownBinaryData::try_from(extension)?;
 
-        assert_eq!(
-            wkb_data.spatial_metadata().crs.as_deref(),
-            Some("EPSG:4326")
-        );
+        assert_eq!(wkb_data.spatial_metadata().get_crs(), Some("EPSG:4326"));
 
         let storage = wkb_data.wkb_values();
         let expected = VarBinViewArray::from_iter_nullable_bin([

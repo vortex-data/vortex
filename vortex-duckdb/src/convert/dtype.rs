@@ -187,7 +187,7 @@ impl FromLogicalType for DType {
                 let crs = logical_type.geometry_crs().map(|crs| crs.to_string());
                 DType::Extension(
                     ExtDType::<WellKnownBinary>::try_new(
-                        SpatialMetadata { crs },
+                        SpatialMetadata::new(crs),
                         DType::Binary(nullability),
                     )?
                     .erased(),
@@ -295,7 +295,7 @@ impl TryFrom<&DType> for LogicalType {
                     .or_else(|| ext_dtype.metadata_opt::<MultiPolygon>())
                     .or_else(|| ext_dtype.metadata_opt::<WellKnownBinary>())
                 {
-                    return LogicalType::geometry_type(spatial_metadata.crs.as_deref());
+                    return LogicalType::geometry_type(spatial_metadata.get_crs());
                 }
 
                 vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id());
@@ -671,9 +671,7 @@ mod tests {
     fn test_geometry_roundtrip() -> VortexResult<()> {
         let vortex_geometry = DType::Extension(
             ExtDType::<WellKnownBinary>::try_new(
-                SpatialMetadata {
-                    crs: Some("EPSG:4326".to_string()),
-                },
+                SpatialMetadata::new(Some("EPSG:4326".to_string())),
                 DType::Binary(Nullability::NonNullable),
             )?
             .erased(),

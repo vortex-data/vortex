@@ -248,7 +248,7 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                 .as_binary_opt()
                 .ok_or_else(|| vortex_err!("WellKnownBinary storage must be a binary scalar"))?;
             return Ok(match binary.value() {
-                Some(bytes) => Value::new_geometry(bytes.as_slice(), wkb.crs.as_deref())?,
+                Some(bytes) => Value::new_geometry(bytes.as_slice(), wkb.get_crs())?,
                 None => Value::null(&*ext_logical_type(self)?),
             });
         }
@@ -636,9 +636,7 @@ mod tests {
 
     fn wkb_scalar(crs: Option<&str>, bytes: &[u8]) -> Scalar {
         Scalar::extension::<WellKnownBinary>(
-            SpatialMetadata {
-                crs: crs.map(str::to_string),
-            },
+            SpatialMetadata::new(crs.map(str::to_string)),
             Scalar::binary(bytes.to_vec(), Nullability::Nullable),
         )
     }
@@ -668,8 +666,8 @@ mod tests {
         // with the documented quirk that `Some("")` collapses to `None` through DuckDB.
         let metadata = ext.ext_dtype().metadata::<WellKnownBinary>();
         match crs {
-            Some("") | None => assert_eq!(metadata.crs, None),
-            Some(s) => assert_eq!(metadata.crs.as_deref(), Some(s)),
+            Some("") | None => assert_eq!(metadata.get_crs(), None),
+            Some(s) => assert_eq!(metadata.get_crs(), Some(s)),
         }
     }
 
@@ -688,9 +686,7 @@ mod tests {
     #[test]
     fn test_null_geometry_to_duckdb_scalar() {
         let dtype = ExtDType::<WellKnownBinary>::try_new(
-            SpatialMetadata {
-                crs: Some("EPSG:4326".to_string()),
-            },
+            SpatialMetadata::new(Some("EPSG:4326".to_string())),
             DType::Binary(Nullability::Nullable),
         )
         .unwrap()
