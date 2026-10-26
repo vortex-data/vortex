@@ -441,9 +441,18 @@ impl FileOpener for VortexOpener {
                     scan_file.segments,
                 );
                 scan_file.cache = Some(shared_scan_cache(&scan_caches, &file.object_meta.location));
+                // Unless set, chunks run beside each other only as far as the engine's partitions
+                // leave cores idle: at one partition per core they run in the scan's own run.
+                let concurrency = scan_concurrency.unwrap_or_else(|| {
+                    get_available_parallelism()
+                        .unwrap_or(1)
+                        .div_ceil(partitions)
+                        .max(1)
+                });
                 let mut builder = V2ScanBuilder::new(vxf.session().clone(), scan_file)
                     .with_projection(scan_projection)
-                    .with_some_filter(native_filter);
+                    .with_some_filter(native_filter)
+                    .with_chunk_parallelism(concurrency.max(1));
                 if let Some(bytes) = byte_range {
                     // Every partition maps the same byte boundary to the same row boundary.
                     let rows = partition_row_range(bytes, file.object_meta.size, vxf.row_count());
@@ -459,14 +468,6 @@ impl FileOpener for VortexOpener {
                 {
                     builder = builder.with_selection(selection.clone());
                 }
-                // Unless set, chunks run beside each other only as far as the engine's partitions
-                // leave cores idle: at one partition per core they run in the scan's own run.
-                let concurrency = scan_concurrency.unwrap_or_else(|| {
-                    get_available_parallelism()
-                        .unwrap_or(1)
-                        .div_ceil(partitions)
-                        .max(1)
-                });
                 let handle = vxf.session().handle();
                 // Lowering and planning a wide file is real CPU: it runs where compute runs.
                 let scan = handle

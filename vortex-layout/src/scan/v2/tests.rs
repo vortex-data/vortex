@@ -72,6 +72,7 @@ use crate::layouts::zoned::writer::ZonedLayoutOptions;
 use crate::layouts::zoned::writer::ZonedStrategy;
 use crate::scan::arrow::to_record_batch;
 use crate::scan::execution::SegmentLocation;
+use crate::scan::execution::filtered_rows_per_chunk;
 use crate::scan::execution::row_chunks;
 use crate::scan::scan_builder::ScanBuilder as V1ScanBuilder;
 use crate::segments::SegmentFuture;
@@ -477,6 +478,27 @@ async fn arrow_stream_projects_across_chunks() -> VortexResult<()> {
 #[case::near_max(u64::MAX - 3..u64::MAX, vec![u64::MAX - 3..u64::MAX])]
 fn fixed_row_chunks(#[case] rows: Range<u64>, #[case] expected: Vec<Range<u64>>) {
     assert_eq!(row_chunks(rows, 65_536), expected);
+}
+
+/// A filtered scan cuts a partition into a chunk per thread its driver runs the chunks on. When
+/// the driver runs them one at a time, the partition stays whole up to the byte budget and the
+/// filtered chunk cap.
+#[rstest]
+#[case::one_at_a_time(720_000, 1, 2, 87 * 8192)]
+#[case::per_thread(720_000, 16, 2, 65_536)]
+#[case::whole_file_capped(2_880_000, 1, 2, 1_048_576)]
+#[case::wide_projection(720_000, 1, 100, 10 * 8192)]
+fn filtered_chunks_follow_chunk_parallelism(
+    #[case] rows: u64,
+    #[case] parallelism: usize,
+    #[case] bytes_per_row: u64,
+    #[case] expected: usize,
+) {
+    let row_count = 2_880_000;
+    assert_eq!(
+        filtered_rows_per_chunk(rows, row_count, row_count * bytes_per_row, parallelism),
+        expected
+    );
 }
 
 #[rstest]

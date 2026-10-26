@@ -103,6 +103,7 @@ pub struct ScanBuilder {
     row_range: Option<Range<u64>>,
     selection: Selection,
     row_offset: u64,
+    chunk_parallelism: Option<usize>,
 }
 
 impl ScanBuilder {
@@ -116,6 +117,7 @@ impl ScanBuilder {
             row_range: None,
             selection: Selection::default(),
             row_offset: 0,
+            chunk_parallelism: None,
         }
     }
 
@@ -156,6 +158,14 @@ impl ScanBuilder {
     /// Sets the root row offset used by row-index expressions.
     pub fn with_row_offset(mut self, row_offset: u64) -> Self {
         self.row_offset = row_offset;
+        self
+    }
+
+    /// Sets how many chunks of this scan its driver runs at once, which a filtered scan cuts its
+    /// rows for. Defaults to the available parallelism. An engine that already runs its
+    /// partitions on every core and their chunks one at a time passes 1.
+    pub fn with_chunk_parallelism(mut self, chunk_parallelism: usize) -> Self {
+        self.chunk_parallelism = Some(chunk_parallelism);
         self
     }
 
@@ -218,7 +228,8 @@ impl ScanBuilder {
                 rows.end - rows.start,
                 row_count,
                 projected_bytes,
-                get_available_parallelism().unwrap_or(1),
+                self.chunk_parallelism
+                    .unwrap_or_else(|| get_available_parallelism().unwrap_or(1)),
             )
         } else if identity {
             rows_per_chunk(row_count, &file.locations)
