@@ -15,6 +15,10 @@
 //! own, inline, waiting only for its reads, and keeps taking chunks until the queue is empty, so
 //! the file's work spreads over as many threads as it has chunks, however its rows divide.
 //!
+//! A part runs its chunks as children of one root, on the thread that takes it, so they share an
+//! IO session: a segment that spans several chunks, such as a column chunk longer than the
+//! scan's chunks, is read once.
+//!
 //! Chunks end only on the file's own chunk boundaries, of the columns the scan reads, so no chunk
 //! of the file is decoded twice by two chunks of the scan. Spans between boundaries are merged up
 //! to the scan's chunk size, but no further than leaves a few chunks per thread: a filtered scan's
@@ -204,8 +208,8 @@ fn compose(scan: &Arc<PreparedScan>, chunks: Vec<Range<u64>>, count: usize) -> B
     }
 }
 
-/// Spawns a chunk planner per part of a scan's rows, in row order. A part is a run of whole
-/// chunks.
+/// Spawns a chunk planner per part of a scan's rows, in row order, which runs the part's chunks
+/// inline. A part is a run of whole chunks.
 struct PartPlanner {
     scan: Arc<PreparedScan>,
     selection: Selection,
@@ -272,7 +276,8 @@ impl Planner for PartPlanner {
                 chunks,
                 self.selection.clone(),
                 kept,
-            );
+            )
+            .inline();
             let scope = WorkScope {
                 file_ordinal: 0,
                 rows: part,

@@ -68,6 +68,8 @@ pub struct ChunkPlanner {
     selection: Selection,
     /// The rows zone pruning kept, over `rows`, or `None` when nothing was pruned.
     kept: Option<Mask>,
+    /// Whether the chunks run as children of this planner instead of being spawned.
+    inline: bool,
 }
 
 impl ChunkPlanner {
@@ -104,7 +106,16 @@ impl ChunkPlanner {
             chunks: chunks.into_iter(),
             selection,
             kept,
+            inline: false,
         }
+    }
+
+    /// Runs the chunks as children of this planner, on its run and IO session, instead of
+    /// spawning them for the driver to place. Chunks that read the same segment, such as a
+    /// column chunk longer than the scan's chunks, then share the read.
+    pub fn inline(mut self) -> Self {
+        self.inline = true;
+        self
     }
 }
 
@@ -130,7 +141,11 @@ impl Planner for ChunkPlanner {
             };
             if let Some((scope, planner)) = plan_selection(&self.scan, scope, &self.selection, kept)
             {
-                return Ok(PlannerOutput::Spawn(scope, planner));
+                return Ok(if self.inline {
+                    PlannerOutput::Planner(scope, planner)
+                } else {
+                    PlannerOutput::Spawn(scope, planner)
+                });
             }
         }
         Ok(PlannerOutput::Done)
