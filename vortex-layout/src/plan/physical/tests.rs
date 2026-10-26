@@ -46,7 +46,7 @@ use vortex_session::registry::ReadContext;
 use super::*;
 use crate::LayoutBuildContext;
 use crate::LayoutDeserialization;
-use crate::LayoutEncoding;
+use crate::LayoutPlugin;
 use crate::LayoutRef;
 use crate::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
@@ -1430,10 +1430,10 @@ fn legacy_layout(
     };
     let mut metadata = zone_len.to_le_bytes().to_vec();
     metadata.extend(as_stat_bitset_bytes(stats));
-    LayoutEncoding::deserialize(
+    LayoutPlugin::deserialize(
         &LegacyStatsLayoutEncoding,
         LayoutDeserialization {
-            serialized_id: LayoutEncoding::id(&LegacyStatsLayoutEncoding),
+            serialized_id: LayoutPlugin::id(&LegacyStatsLayoutEncoding),
             dtype,
             row_count: 5,
             metadata: &metadata,

@@ -13,7 +13,7 @@ use crate::DynLayout;
 use crate::LayoutBuildContext;
 use crate::LayoutChildType;
 use crate::LayoutDeserialization;
-use crate::LayoutEncodingId;
+use crate::LayoutId;
 use crate::LayoutPlugin;
 use crate::LayoutPluginRef;
 use crate::LayoutReaderRef;
@@ -24,11 +24,11 @@ use crate::segments::SegmentSource;
 /// Placeholder layout encoding used when deserializing an unknown layout encoding ID.
 #[derive(Clone, Debug)]
 pub(crate) struct ForeignLayoutEncoding {
-    id: LayoutEncodingId,
+    id: LayoutId,
 }
 
 impl ForeignLayoutEncoding {
-    pub(crate) fn new(id: LayoutEncodingId) -> Self {
+    pub(crate) fn new(id: LayoutId) -> Self {
         Self { id }
     }
 }
@@ -38,7 +38,7 @@ impl LayoutPlugin for ForeignLayoutEncoding {
         self
     }
 
-    fn id(&self) -> LayoutEncodingId {
+    fn id(&self) -> LayoutId {
         self.id
     }
 
@@ -75,7 +75,7 @@ pub(crate) struct ForeignLayout {
 
 impl ForeignLayout {
     pub(crate) fn new(
-        encoding_id: LayoutEncodingId,
+        encoding_id: LayoutId,
         dtype: DType,
         row_count: u64,
         metadata: Vec<u8>,
@@ -96,7 +96,7 @@ impl ForeignLayout {
 }
 
 pub(crate) fn new_foreign_layout(
-    encoding_id: LayoutEncodingId,
+    encoding_id: LayoutId,
     dtype: DType,
     row_count: u64,
     metadata: Vec<u8>,
@@ -122,7 +122,7 @@ impl DynLayout for ForeignLayout {
         Arc::new(self.clone())
     }
 
-    fn dyn_encoding_id(&self) -> LayoutEncodingId {
+    fn dyn_encoding_id(&self) -> LayoutId {
         self.encoding.id()
     }
 

@@ -263,7 +263,6 @@ mod tests {
     use crate::LayoutBuildContext;
     use crate::LayoutContext;
     use crate::LayoutDeserialization;
-    use crate::LayoutEncodingId;
     use crate::LayoutId;
     use crate::LayoutPlugin;
     use crate::LayoutPluginRef;
@@ -435,8 +434,8 @@ mod tests {
         );
 
         let layout_ctx = ReadContext::new([
-            LayoutEncodingId::new("vortex.test.foreign_layout"),
-            LayoutEncodingId::new("vortex.test.foreign_child_layout"),
+            LayoutId::new("vortex.test.foreign_layout"),
+            LayoutId::new("vortex.test.foreign_child_layout"),
         ]);
         let array_ctx = ReadContext::new([]);
 

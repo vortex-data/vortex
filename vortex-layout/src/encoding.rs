@@ -22,14 +22,8 @@ use crate::VTable;
 use crate::children::LayoutChildren;
 use crate::segments::SegmentId;
 
-/// Backwards-compatible name for a layout ID.
-pub type LayoutEncodingId = LayoutId;
 /// Shared reference to a registered layout plugin.
 pub type LayoutPluginRef = ArcRef<dyn LayoutPlugin>;
-/// Backwards-compatible name for a layout plugin reference.
-pub type LayoutVTableRef = LayoutPluginRef;
-/// Backwards-compatible name for a layout plugin reference.
-pub type LayoutEncodingRef = LayoutPluginRef;
 
 /// Common fields available while deserializing layout-specific data.
 pub struct LayoutDeserializeArgs<'a> {
@@ -104,7 +98,7 @@ pub trait LayoutPlugin: 'static + Send + Sync + Debug {
     /// Returns this plugin as [`Any`].
     fn as_any(&self) -> &dyn Any;
     /// Returns the ID of the in-memory layout handled by this plugin.
-    fn id(&self) -> LayoutEncodingId;
+    fn id(&self) -> LayoutId;
 
     /// Returns the serialized layout IDs understood by this plugin, ordered oldest to newest.
     ///
@@ -144,17 +138,12 @@ pub trait LayoutPlugin: 'static + Send + Sync + Debug {
     }
 }
 
-/// Backwards-compatible name for the layout plugin.
-pub use LayoutPlugin as LayoutEncoding;
-/// Backwards-compatible name for the layout plugin.
-pub use LayoutPlugin as LayoutVTablePlugin;
-
 impl<V: VTable> LayoutPlugin for V {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
-    fn id(&self) -> LayoutEncodingId {
+    fn id(&self) -> LayoutId {
         VTable::id(self)
     }
 
