@@ -113,6 +113,7 @@ mod pruning;
 mod read;
 /// Segment sources, caches, and sinks used by file readers and writers.
 pub mod segments;
+mod source;
 mod strategy;
 #[cfg(test)]
 mod tests;
