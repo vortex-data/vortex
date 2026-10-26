@@ -160,6 +160,20 @@ impl AccessState {
             mask: page.mask.mask.slice(start_in_page..end_in_page),
         })
     }
+    pub fn page_id(&self) -> Option<usize> {
+        self.last.as_ref().map(|(page_index, _)| *page_index)
+    }
+    pub fn cached_position(&self, row: usize) -> Option<Option<(usize, usize)>> {
+        let (page_index, page) = self.last.as_ref()?;
+        if !page.rows.contains(&row) {
+            return None;
+        }
+        Some(
+            page.mask
+                .value_index::<true>(row - page.rows.start)
+                .map(|value| (*page_index, value)),
+        )
+    }
 }
 pub(crate) struct PageSpan {
     pub page_index: usize,

@@ -66,6 +66,7 @@ use crate::PcoLogicalRowPrefix;
 use crate::PcoMetadata;
 use crate::PcoPageInfo;
 use crate::page_index::PageIndex;
+use crate::probe::PcoProbeState;
 use crate::range_take::slice as decode_slice;
 
 // Overall approach here:
@@ -839,7 +840,7 @@ impl ValidityVTable<Pco> for Pco {
 }
 
 impl OperationsVTable<Pco> for Pco {
-    type ProbeState = crate::probe::PcoProbeState;
+    type ProbeState = PcoProbeState;
 
     fn probe_scalar(
         state: &mut ProbeState<'_, Pco>,

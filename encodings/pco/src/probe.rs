@@ -27,6 +27,8 @@ use crate::Pco;
 use crate::PcoArrayExt;
 use crate::array::number_type_from_ptype;
 use crate::array::vortex_err_from_pco;
+use crate::indexed_probe::IndexedProbeState;
+use crate::indexed_probe::scalar_at as indexed_scalar_at;
 
 const RANK_STRIDE: usize = 512;
 
@@ -37,6 +39,7 @@ const RANK_STRIDE: usize = 512;
 /// and never beyond the decompressed array.
 #[derive(Default)]
 pub struct PcoProbeState {
+    indexed: IndexedProbeState,
     validity: Option<Mask>,
     rank: Vec<usize>,
     pages: Vec<Page>,
@@ -56,6 +59,9 @@ pub(crate) fn scalar_at(
     state: Option<&mut PcoProbeState>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Scalar> {
+    if array.metadata.logical_row_prefix.is_some() {
+        return indexed_scalar_at(array, index, state.map(|state| &mut state.indexed), ctx);
+    }
     let Some(state) = state else {
         let validity = array.unsliced_validity();
         return array

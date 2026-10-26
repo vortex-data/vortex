@@ -116,6 +116,7 @@ pub(crate) struct DecodedPages<T: Number> {
     decoder: PageDecoder<T>,
     lookup: PageLookup,
     pages: BTreeMap<usize, PrimitiveArray>,
+    last: Option<(usize, PrimitiveArray)>,
 }
 
 impl<T: Number + NativePType> DecodedPages<T> {
@@ -124,7 +125,14 @@ impl<T: Number + NativePType> DecodedPages<T> {
             decoder: PageDecoder::new(array.metadata.header.as_slice())?,
             lookup: PageLookup::default(),
             pages: BTreeMap::new(),
+            last: None,
         })
+    }
+    pub fn last_values(&self, page: usize) -> Option<&PrimitiveArray> {
+        self.last
+            .as_ref()
+            .filter(|(last, _)| *last == page)
+            .map(|(_, values)| values)
     }
     pub fn values(
         &mut self,
@@ -133,9 +141,10 @@ impl<T: Number + NativePType> DecodedPages<T> {
         page: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<&PrimitiveArray> {
-        let entry = match self.pages.entry(page) {
-            Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => {
+        if !self.last.as_ref().is_some_and(|(last, _)| *last == page) {
+            let decoded = if let Some(decoded) = self.pages.remove(&page) {
+                decoded
+            } else {
                 let (chunk_id, n_values) = self.lookup.resolve(view, array, page)?;
                 let buffer = array
                     .pages
@@ -145,15 +154,23 @@ impl<T: Number + NativePType> DecodedPages<T> {
                     .chunk_metas
                     .get(chunk_id)
                     .ok_or_else(|| vortex_err!("Pco chunk metadata is missing"))?;
-                entry.insert(self.decoder.read(
+                self.decoder.read(
                     chunk_id,
                     chunk.as_slice(),
                     n_values,
                     buffer.as_slice(),
                     ctx,
-                )?)
+                )?
+            };
+            if let Some((page, previous)) = self.last.replace((page, decoded)) {
+                self.pages.insert(page, previous);
             }
-        };
+        }
+        let entry = &self
+            .last
+            .as_ref()
+            .vortex_expect("decoded page prepared above")
+            .1;
         Ok(entry)
     }
 }
