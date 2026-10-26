@@ -776,7 +776,11 @@ mod tests {
                 &mut ctx,
             )?;
             let rebuilt = list.rebuild_with_referenced_valid_elements(&mut ctx)?;
-            assert_arrays_eq!(rebuilt.elements().clone(), expected_elements.clone(), &mut ctx);
+            assert_arrays_eq!(
+                rebuilt.elements().clone(),
+                expected_elements.clone(),
+                &mut ctx
+            );
             assert_eq!(rebuilt.offsets().dtype(), list.offsets().dtype());
             assert_arrays_eq!(
                 rebuilt.offsets().cast(u32_dtype.clone())?,
@@ -797,7 +801,11 @@ mod tests {
                 let view = unsafe { view.with_zero_copy_to_list(zero_copy_to_list) };
                 let rebuilt = view.rebuild_with_referenced_valid_elements(&mut ctx)?;
                 assert!(rebuilt.is_zero_copy_to_list());
-                assert_arrays_eq!(rebuilt.elements().clone(), expected_elements.clone(), &mut ctx);
+                assert_arrays_eq!(
+                    rebuilt.elements().clone(),
+                    expected_elements.clone(),
+                    &mut ctx
+                );
                 // The copy widens the offsets, so compare their values.
                 assert_arrays_eq!(
                     rebuilt.offsets().cast(u32_dtype.clone())?,
