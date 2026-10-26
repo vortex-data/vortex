@@ -88,13 +88,25 @@ pub enum ListViewRebuildMode {
     /// Equivalent to `MakeZeroCopyToList` plus `TrimElements`.
     ///
     /// An array that is not yet zero-copy to a [`ListArray`] is copied with only its valid lists'
-    /// elements, and its null lists come out empty.
+    /// elements, and its null lists come out empty. One that already is zero-copy only loses the
+    /// elements before its first list and after its last, so its null lists keep theirs; use
+    /// [`MakeExactWithEmptyNulls`](Self::MakeExactWithEmptyNulls) to drop those too.
     ///
     /// This is useful when concatenating multiple [`ListViewArray`]s together to create a new
     /// [`ListViewArray`] that is also zero-copy to a [`ListArray`].
     ///
     /// [`ListArray`]: crate::arrays::ListArray
     MakeExact,
+
+    /// Equivalent to `MakeExact`, but the null lists of an array that is already zero-copy to a
+    /// [`ListArray`] come out empty as well, so only the valid lists' elements are left.
+    ///
+    /// This is useful for a function that must not see elements no valid list shows, such as one
+    /// that can fail on a value. An array that is already zero-copy to a [`ListArray`] keeps its
+    /// offsets' and sizes' types, and is returned as it is when there is nothing to drop.
+    ///
+    /// [`ListArray`]: crate::arrays::ListArray
+    MakeExactWithEmptyNulls,
 
     // TODO(connor)[ListView]: Implement some version of this.
     /// Finds the shortest packing / overlapping of list elements.
@@ -121,27 +133,23 @@ impl ListViewArray {
             ListViewRebuildMode::MakeZeroCopyToList => self.rebuild_zero_copy_to_list(ctx),
             ListViewRebuildMode::TrimElements => self.rebuild_trim_elements(ctx),
             ListViewRebuildMode::MakeExact => self.rebuild_make_exact(ctx),
+            ListViewRebuildMode::MakeExactWithEmptyNulls => {
+                self.rebuild_make_exact_with_empty_nulls(ctx)
+            }
             ListViewRebuildMode::OverlapCompression => {
                 vortex_bail!("ListViewRebuildMode::OverlapCompression is not implemented")
             }
         }
     }
 
-    /// Rebuilds the [`ListViewArray`] over only the elements that valid lists reference: nothing
-    /// before the first list, after the last, between lists or under a null list.
-    ///
-    /// The result is zero-copy to a [`ListArray`] and its null lists are empty. A non-empty array
-    /// that is already zero-copy to a [`ListArray`] keeps its offsets' and sizes' types, and is
-    /// returned as it is when there is nothing to drop. Any other array is rebuilt with
-    /// [`MakeExact`](ListViewRebuildMode::MakeExact).
-    ///
-    /// [`ListArray`]: crate::arrays::ListArray
-    pub fn rebuild_with_referenced_valid_elements(
+    /// Rebuilds a non-empty [`ListViewArray`] over only the elements that valid lists reference:
+    /// nothing before the first list, after the last, between lists or under a null list.
+    fn rebuild_make_exact_with_empty_nulls(
         &self,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ListViewArray> {
-        if self.is_empty() || !self.is_zero_copy_to_list() {
-            return self.rebuild(ListViewRebuildMode::MakeExact, ctx);
+        if !self.is_zero_copy_to_list() {
+            return self.rebuild_make_exact(ctx);
         }
         let validity = self.validity()?;
         // The lists are back to back, so the last one ends where the referenced elements do.
@@ -164,8 +172,8 @@ impl ListViewArray {
         })
     }
 
-    /// [`rebuild_with_referenced_valid_elements`](Self::rebuild_with_referenced_valid_elements)
-    /// for an array that is zero-copy to a list, whose lists start at `starts` and end at `end`.
+    /// [`MakeExactWithEmptyNulls`](ListViewRebuildMode::MakeExactWithEmptyNulls) for an array that
+    /// is zero-copy to a list, whose lists start at `starts` and end at `end`.
     fn rebuild_back_to_back<O: IntegerPType>(
         &self,
         starts: &[O],
@@ -651,7 +659,7 @@ mod tests {
         &[1, 2, 3, 2, 3],
         &[(0, 3), (3, 2)]
     )]
-    fn rebuild_with_referenced_valid_elements(
+    fn test_rebuild_make_exact_with_empty_nulls(
         #[case] elements: &[i32],
         #[case] views: &[(u32, u32)],
         #[case] validity: &[bool],
@@ -669,7 +677,7 @@ mod tests {
         )?;
         // SAFETY: the cases marked zero-copy to a list have sorted lists with nothing between them.
         let view = unsafe { view.with_zero_copy_to_list(zero_copy_to_list) };
-        let rebuilt = view.rebuild_with_referenced_valid_elements(&mut ctx)?;
+        let rebuilt = view.rebuild(ListViewRebuildMode::MakeExactWithEmptyNulls, &mut ctx)?;
         assert!(rebuilt.is_zero_copy_to_list());
         assert_arrays_eq!(
             rebuilt.elements().clone(),
@@ -693,7 +701,7 @@ mod tests {
     #[rstest]
     #[case::non_nullable(Validity::NonNullable)]
     #[case::empty_null_list(Validity::from_iter([true, false, true]))]
-    fn rebuild_with_referenced_valid_elements_returns_an_exact_list_view_as_is(
+    fn test_rebuild_make_exact_with_empty_nulls_returns_an_exact_list_view_as_is(
         #[case] validity: Validity,
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
@@ -706,7 +714,7 @@ mod tests {
         )?;
         // SAFETY: the lists are sorted with nothing between them.
         let view = unsafe { view.with_zero_copy_to_list(true) };
-        let rebuilt = view.rebuild_with_referenced_valid_elements(&mut ctx)?;
+        let rebuilt = view.rebuild(ListViewRebuildMode::MakeExactWithEmptyNulls, &mut ctx)?;
         assert!(ArrayRef::ptr_eq(rebuilt.elements(), view.elements()));
         assert!(ArrayRef::ptr_eq(rebuilt.offsets(), view.offsets()));
         assert!(ArrayRef::ptr_eq(rebuilt.sizes(), view.sizes()));
@@ -802,7 +810,8 @@ mod tests {
                 )?;
                 // SAFETY: the views are a `ListArray`'s lists, sorted with nothing between them.
                 let view = unsafe { view.with_zero_copy_to_list(zero_copy_to_list) };
-                let rebuilt = view.rebuild_with_referenced_valid_elements(&mut ctx)?;
+                let rebuilt =
+                    view.rebuild(ListViewRebuildMode::MakeExactWithEmptyNulls, &mut ctx)?;
                 assert!(rebuilt.is_zero_copy_to_list());
                 assert_arrays_eq!(
                     rebuilt.elements().clone(),
@@ -950,6 +959,7 @@ mod tests {
     #[case::zero_copy_to_list(ListViewRebuildMode::MakeZeroCopyToList)]
     #[case::trim_elements(ListViewRebuildMode::TrimElements)]
     #[case::make_exact(ListViewRebuildMode::MakeExact)]
+    #[case::make_exact_with_empty_nulls(ListViewRebuildMode::MakeExactWithEmptyNulls)]
     fn test_rebuild_empty_drops_elements(#[case] mode: ListViewRebuildMode) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         // No lists, but three elements left in the buffer.
