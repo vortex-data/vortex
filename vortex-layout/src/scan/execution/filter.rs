@@ -64,7 +64,7 @@ impl FilterPlans {
             .iter()
             .map(|expr| {
                 let plan = optimize(
-                    plan_row_idx_expression(expr.clone(), root.clone())?,
+                    plan_row_idx_expression(expr.clone(), root.clone(), session)?,
                     session,
                 )?;
                 Ok(FilterPlan::new(plan).into_plan())
@@ -75,7 +75,12 @@ impl FilterPlans {
             .iter()
             .map(|expr| {
                 expr.falsify(session)?
-                    .map(|proof| optimize(plan_row_idx_expression(proof, root.clone())?, session))
+                    .map(|proof| {
+                        optimize(
+                            plan_row_idx_expression(proof, root.clone(), session)?,
+                            session,
+                        )
+                    })
                     .transpose()
             })
             .map(|plan| {

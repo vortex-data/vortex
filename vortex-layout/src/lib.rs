@@ -33,6 +33,8 @@ pub mod display;
 mod encoding;
 pub mod flatbuffers;
 mod layout;
+pub(crate) mod partition;
+pub(crate) mod partition_session;
 mod reader;
 mod reader_context;
 pub mod scan;
