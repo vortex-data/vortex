@@ -38,8 +38,17 @@ fn compressed_validity_selection_oracle() -> VortexResult<()> {
         PrimitiveArray::from_iter([0u32, 32767, 32768, 65535, 65536, 98304, 131071, 32768])
             .into_array();
     assert_arrays_eq!(
-        encoded.take(indices.clone())?,
-        expected.take(indices)?,
+        encoded.take(indices)?,
+        PrimitiveArray::from_option_iter([
+            None,
+            None,
+            Some(32768i64),
+            Some(65535),
+            None,
+            Some(98304),
+            Some(131071),
+            Some(32768),
+        ]),
         &mut ctx
     );
     assert_arrays_eq!(
