@@ -17,11 +17,12 @@
 //! Full-file projections use smaller 8,192-row multiples when serialized bytes per row are high.
 //!
 //! A [`ScanFile`] carrying a [`ScanCache`] shares its lowered plan, filter plans and proved
-//! zones, segment index, and dictionary values with every other scan of that file, like a cached
-//! layout reader does for V1 scans.
+//! zones, segment index, dictionary values, and recently read segments with every other scan of
+//! that file, like a cached layout reader does for V1 scans.
 
 mod cache;
 mod io;
+mod retain;
 #[cfg(test)]
 mod tests;
 
@@ -336,7 +337,7 @@ impl<A: 'static + Send> ScanRun<A> {
             Some(ranges) => ranges,
             None => cache.insert_ranges(segment_ranges(&file.locations)),
         };
-        let io = Arc::new(SegmentScanIo::new(file.segments, ranges));
+        let io = Arc::new(SegmentScanIo::new(cache.retaining(file.segments), ranges));
         Ok(Self {
             session: builder.session.clone(),
             scan: Arc::new(PreparedScan {
