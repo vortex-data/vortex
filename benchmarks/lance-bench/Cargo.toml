@@ -19,13 +19,13 @@ lance = { version = "13", default-features = false, features = ["aws"] }
 lance-file = { version = "13", default-features = false }
 
 anyhow = { workspace = true }
-arrow-cast = { version = "58" }
+arrow-cast = { version = "60" }
 async-trait = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
 glob = { workspace = true }
 mimalloc = { workspace = true }
-parquet = { version = "58" }
+parquet = { version = "60" }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
