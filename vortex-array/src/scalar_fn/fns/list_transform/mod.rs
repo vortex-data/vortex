@@ -10,14 +10,10 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use num_traits::AsPrimitive;
-use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
-use vortex_mask::AllOr;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
@@ -26,25 +22,20 @@ use crate::IntoArray;
 use crate::arrays::List;
 use crate::arrays::ListArray;
 use crate::arrays::ListViewArray;
-use crate::arrays::PrimitiveArray;
 use crate::arrays::list::ListArrayExt;
 use crate::arrays::list::ListArraySlotsExt;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
-use crate::arrays::listview::ListViewRebuildMode;
-use crate::arrays::listview::list_from_list_view;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::expr::BoundLambda;
 use crate::expr::Lambda;
 use crate::expr::display::ExprDisplay;
-use crate::match_each_integer_ptype;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::validity::Validity;
 
 /// Apply a lambda to every element of each list, keeping each list's length and validity.
 ///
@@ -140,12 +131,10 @@ impl ScalarFnVTable for ListTransform {
         let ListTransformOptions::Bound(lambda) = options else {
             vortex_bail!("list_transform()'s lambda is not bound");
         };
-        let list = if lambda.is_infallible() {
-            Lists::as_they_are(args.get(0)?, ctx)?
-        } else {
-            Lists::visible_elements_only(args.get(0)?, ctx)?
-        };
-        list.with_elements(|elements| lambda.evaluate(vec![elements.clone()], elements.len()))
+        match args.get(0)?.try_downcast::<List>() {
+            Ok(list) => transform_list(list, lambda, ctx),
+            Err(list) => transform_list_view(list.execute::<ListViewArray>(ctx)?, lambda, ctx),
+        }
     }
 
     fn is_strict(&self, _options: &ListTransformOptions) -> bool {
@@ -185,167 +174,62 @@ fn element_dtype(list: &DType, params: &[FieldName]) -> VortexResult<[DType; 1]>
     Ok([element.as_ref().clone()])
 }
 
-/// The lists the lambda runs over: their elements buffer, and the offsets (and sizes) that put the
-/// results back into lists of the same shape.
-enum Lists {
-    List(ListArray),
-    View(ListViewArray),
-}
-
-impl Lists {
-    /// The lists as they are. For a lambda that can't fail: it runs over the whole elements buffer,
-    /// and results for elements no valid list shows are never read.
-    fn as_they_are(list: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        Ok(match list.try_downcast::<List>() {
-            Ok(list) => Self::List(list),
-            Err(list) => Self::View(list.execute::<ListViewArray>(ctx)?),
-        })
-    }
-
-    /// The lists with nothing in their elements buffer but the elements of valid lists. For a lambda
-    /// that can fail, which must not fail on a value nobody sees.
-    ///
-    /// The lists keep their shape, trimmed of what comes before the first list and after the last,
-    /// unless a null list holds elements or a list view's lists aren't laid out back to back. Only
-    /// then are the elements copied.
-    fn visible_elements_only(list: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        let list = match list.try_downcast::<List>() {
-            Ok(list) => match trim_list(&list, ctx)? {
-                Some(trimmed) => return Ok(Self::List(trimmed)),
-                None => list.into_array(),
-            },
-            Err(list) => list,
-        };
-        let view = list.execute::<ListViewArray>(ctx)?;
-        match empty_null_lists(&view, ctx)? {
-            None if view.is_zero_copy_to_list() => Ok(Self::View(
-                view.rebuild(ListViewRebuildMode::TrimElements, ctx)?,
-            )),
-            None => Ok(Self::List(list_from_list_view(view, ctx)?)),
-            Some(emptied) => Ok(Self::List(list_from_list_view(emptied, ctx)?)),
-        }
-    }
-
-    /// The same lists, with `f` of their elements buffer as their elements.
-    fn with_elements(
-        self,
-        f: impl FnOnce(&ArrayRef) -> VortexResult<ArrayRef>,
-    ) -> VortexResult<ArrayRef> {
-        match self {
-            Self::List(list) => {
-                let values = f(list.elements())?;
-                vortex_ensure_eq!(values.len(), list.elements().len());
-                // SAFETY: the offsets and validity are the list's, over one value per element.
-                Ok(unsafe {
-                    ListArray::new_unchecked(values, list.offsets().clone(), list.list_validity())
-                }
-                .into_array())
-            }
-            Self::View(view) => {
-                let values = f(view.elements())?;
-                vortex_ensure_eq!(values.len(), view.elements().len());
-                // SAFETY: the offsets, sizes and validity are the view's, over one value per
-                // element, so the views keep their bounds and their layout.
-                Ok(unsafe {
-                    ListViewArray::new_unchecked(
-                        values,
-                        view.offsets().clone(),
-                        view.sizes().clone(),
-                        view.listview_validity(),
-                    )
-                    .with_zero_copy_to_list(view.is_zero_copy_to_list())
-                }
-                .into_array())
-            }
-        }
-    }
-}
-
-/// The list without what comes before its first list and after its last, or `None` when a null
-/// list holds elements, which only a rebuild can drop.
-fn trim_list(list: &ListArray, ctx: &mut ExecutionCtx) -> VortexResult<Option<ListArray>> {
-    let offsets = list.offsets().clone().execute::<PrimitiveArray>(ctx)?;
-    let nulls = null_runs(&list.list_validity(), list.len(), ctx)?;
-    match_each_integer_ptype!(offsets.ptype(), |O| {
-        let offsets = offsets.as_slice::<O>();
-        // The offsets are sorted, so a run of null lists is empty when it starts and ends at the
-        // same offset.
-        if nulls
-            .iter()
-            .any(|&(start, end)| offsets[start] != offsets[end])
-        {
-            return Ok(None);
-        }
-        let first = offsets[0];
-        let (start, end): (usize, usize) = (first.as_(), offsets[offsets.len() - 1].as_());
-        if start == 0 && end == list.elements().len() {
-            return Ok(Some(list.clone()));
-        }
-        let shifted: Buffer<O> = offsets.iter().map(|&offset| offset - first).collect();
-        // SAFETY: the elements are cut to the lists' range and the offsets shifted by its start,
-        // so every list keeps its elements.
-        Ok(Some(unsafe {
-            ListArray::new_unchecked(
-                list.elements().slice(start..end)?,
-                shifted.into_array(),
-                list.list_validity(),
-            )
-        }))
-    })
-}
-
-/// The runs of null rows, as `(start, end)` ranges.
-fn null_runs(
-    validity: &Validity,
-    len: usize,
+/// The lambda over a list's elements, inside the list's offsets and validity.
+///
+/// A lambda that can fail runs only on the elements valid lists reference. One that can't runs on
+/// every element from the first list to the last: results under null lists are never read.
+fn transform_list(
+    list: ListArray,
+    lambda: &BoundLambda,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Vec<(usize, usize)>> {
-    if matches!(validity, Validity::NonNullable | Validity::AllValid) {
-        return Ok(Vec::new());
-    }
-    Ok(match (!&validity.execute_mask(len, ctx)?).slices() {
-        AllOr::All => vec![(0, len)],
-        AllOr::None => Vec::new(),
-        AllOr::Some(runs) => runs.to_vec(),
-    })
+) -> VortexResult<ArrayRef> {
+    let list = if lambda.is_infallible() {
+        trim_ends(list, ctx)?
+    } else {
+        list.rebuild_with_referenced_valid_elements(ctx)?
+    };
+    let values = lambda.evaluate(vec![list.elements().clone()], list.elements().len())?;
+    vortex_ensure_eq!(values.len(), list.elements().len());
+    // SAFETY: the offsets and validity are the list's, over one value per element.
+    Ok(
+        unsafe { ListArray::new_unchecked(values, list.offsets().clone(), list.list_validity()) }
+            .into_array(),
+    )
 }
 
-/// The lists with every null list emptied, so that nothing under a null list reaches the lambda, or
-/// `None` when no null list holds elements.
-fn empty_null_lists(
-    list: &ListViewArray,
+/// The lambda over a list view's elements, inside the view's offsets, sizes and validity.
+///
+/// A lambda that can fail runs only on the elements valid lists reference.
+fn transform_list_view(
+    view: ListViewArray,
+    lambda: &BoundLambda,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<ListViewArray>> {
-    let validity = list.listview_validity();
-    let nulls = null_runs(&validity, list.len(), ctx)?;
-    if nulls.is_empty() {
-        return Ok(None);
-    }
-    let sizes = list.sizes().clone().execute::<PrimitiveArray>(ctx)?;
-    let sizes = match_each_integer_ptype!(sizes.ptype(), |T| {
-        let sizes = sizes.as_slice::<T>();
-        // Writers usually leave null lists empty already.
-        if nulls
-            .iter()
-            .all(|&(start, end)| sizes[start..end].iter().all(|size| *size == T::default()))
-        {
-            return Ok(None);
-        }
-        let mut sizes = BufferMut::copy_from(sizes);
-        for &(start, end) in &nulls {
-            sizes[start..end].fill(T::default());
-        }
-        PrimitiveArray::new(sizes.freeze(), Validity::NonNullable)
-    });
-    // SAFETY: only sizes changed, and only to 0, so every view stays within the elements. The new
-    // array is not marked zero-copy to a list: an emptied list leaves its elements behind as a gap,
-    // which the rebuild must drop.
-    Ok(Some(unsafe {
+) -> VortexResult<ArrayRef> {
+    let view = if lambda.is_infallible() {
+        view
+    } else {
+        view.rebuild_with_referenced_valid_elements(ctx)?
+    };
+    let values = lambda.evaluate(vec![view.elements().clone()], view.elements().len())?;
+    vortex_ensure_eq!(values.len(), view.elements().len());
+    // SAFETY: the offsets, sizes and validity are the view's, over one value per element, so the
+    // views keep their bounds and their layout.
+    Ok(unsafe {
         ListViewArray::new_unchecked(
-            list.elements().clone(),
-            list.offsets().clone(),
-            sizes.into_array(),
-            validity,
+            values,
+            view.offsets().clone(),
+            view.sizes().clone(),
+            view.listview_validity(),
         )
-    }))
+        .with_zero_copy_to_list(view.is_zero_copy_to_list())
+    }
+    .into_array())
+}
+
+/// The list without what comes before its first list and after its last.
+fn trim_ends(list: ListArray, ctx: &mut ExecutionCtx) -> VortexResult<ListArray> {
+    if list.offset_at(0, ctx)? == 0 && list.offset_at(list.len(), ctx)? == list.elements().len() {
+        return Ok(list);
+    }
+    list.reset_offsets(false, ctx)
 }

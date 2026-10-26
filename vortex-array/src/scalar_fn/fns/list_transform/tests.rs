@@ -7,11 +7,12 @@ use std::sync::LazyLock;
 use rstest::rstest;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use super::ListTransform;
 use super::ListTransformOptions;
-use super::Lists;
+use super::transform_list;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::RecursiveCanonical;
@@ -20,10 +21,12 @@ use crate::arrays::BoolArray;
 use crate::arrays::Dict;
 use crate::arrays::DictArray;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::List;
 use crate::arrays::ListArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
+use crate::arrays::list::ListArraySlotsExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
@@ -203,15 +206,21 @@ fn a_lambda_that_can_fail_sees_only_the_lists_elements(
     assert_applies(input()?, &list_transform(root(), plus_one()?), expected)
 }
 
-#[test]
-fn a_lambda_that_can_fail_runs_on_a_slice_without_its_leftovers() -> VortexResult<()> {
-    // Canonicalizing the result drops the leftovers too, so look at what the lambda runs on.
+#[rstest]
+#[case::cannot_fail(eq(var("x"), lit(3_i32)))]
+#[case::can_fail(checked_add(var("x"), lit(1_i32)))]
+fn the_lambda_runs_on_a_slice_without_its_leftovers(#[case] body: Expression) -> VortexResult<()> {
+    // Canonicalizing the result drops the leftovers too, so look at the transformed list itself.
     let mut ctx = SESSION.create_execution_ctx();
-    let lists = Lists::visible_elements_only(sliced_list_with_leftovers()?, &mut ctx)?;
-    lists.with_elements(|elements| {
-        assert_arrays_eq!(elements.clone(), buffer![1_i32, 2].into_array(), &mut ctx);
-        Ok(elements.clone())
-    })?;
+    let lambda = Lambda::new(["x"], body)?
+        .bind(&[DType::Primitive(PType::I32, Nullability::NonNullable)])?;
+    let list = sliced_list_with_leftovers()?
+        .try_downcast::<List>()
+        .map_err(|_| vortex_err!("not a list"))?;
+    let result = transform_list(list, &lambda, &mut ctx)?
+        .try_downcast::<List>()
+        .map_err(|_| vortex_err!("not a list"))?;
+    assert_eq!(result.elements().len(), 2);
     Ok(())
 }
 
