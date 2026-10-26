@@ -4,9 +4,11 @@
 //! Execution for primitive [`Interleave`] values.
 
 use num_traits::AsPrimitive;
+use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -21,10 +23,10 @@ use crate::arrays::Constant;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::PrimitiveArrayExt;
-use crate::dtype::NativePType;
+use crate::dtype::ToBytes;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
-use crate::match_each_native_ptype;
+use crate::match_each_ptype_width;
 use crate::match_each_unsigned_integer_ptype;
 use crate::require_child;
 
@@ -41,10 +43,17 @@ pub(super) fn execute(
     }
 
     let validity = array.as_ref().validity()?;
-    let output = match_each_native_ptype!(array.dtype().as_ptype(), |T| {
-        let values = gather_values::<T>(&array, ctx.allocator())?;
-        VortexResult::Ok(PrimitiveArray::new(values, validity))
-    })?;
+    let ptype = array.dtype().as_ptype();
+    let values = match_each_ptype_width!(
+        ptype,
+        |W| {
+            gather_values::<W>(&array, ctx.allocator())?
+                .into_byte_buffer()
+                .aligned(Alignment::new(W))
+        },
+        _ => { unreachable!("primitive widths are specialized") },
+    );
+    let output = PrimitiveArray::from_byte_buffer(values, ptype, validity);
 
     Ok(ExecutionResult::done(output))
 }
@@ -57,10 +66,10 @@ struct PrimitiveSource<T> {
     row_mask: usize,
 }
 
-fn gather_values<T: NativePType>(
+fn gather_values<const W: usize>(
     array: &Array<Interleave>,
     allocator: &BufferAllocatorRef,
-) -> VortexResult<Buffer<T>> {
+) -> VortexResult<Buffer<[u8; W]>> {
     let values = (0..array.num_values())
         .map(|i| {
             let value = array.value(i);
@@ -70,8 +79,12 @@ fn gather_values<T: NativePType>(
                 let payload = constant
                     .scalar()
                     .as_primitive()
-                    .typed_value::<T>()
-                    .unwrap_or_default();
+                    .pvalue()
+                    .map(|value| {
+                        <[u8; W]>::try_from(value.to_le_bytes())
+                            .vortex_expect("constant matches interleave's storage width")
+                    })
+                    .unwrap_or([0; W]);
                 PrimitiveSource {
                     data: Buffer::full_in(payload, 1, allocator.clone()),
                     len,
@@ -79,7 +92,9 @@ fn gather_values<T: NativePType>(
                 }
             } else {
                 PrimitiveSource {
-                    data: value.as_::<Primitive>().to_buffer::<T>(),
+                    data: Buffer::<[u8; W]>::from_byte_buffer(
+                        value.as_::<Primitive>().buffer_handle().to_host_sync(),
+                    ),
                     len,
                     row_mask: usize::MAX,
                 }
@@ -108,7 +123,7 @@ fn gather<T, A, R>(
     allocator: &BufferAllocatorRef,
 ) -> VortexResult<Buffer<T>>
 where
-    T: NativePType,
+    T: Copy,
     A: AsPrimitive<usize>,
     R: AsPrimitive<usize>,
 {

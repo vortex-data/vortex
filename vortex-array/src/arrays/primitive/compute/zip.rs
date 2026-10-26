@@ -3,6 +3,7 @@
 
 use std::mem::MaybeUninit;
 
+use vortex_buffer::Alignment;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -16,8 +17,7 @@ use crate::array::ArrayView;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
-use crate::dtype::NativePType;
-use crate::match_each_native_ptype;
+use crate::match_each_ptype_width;
 use crate::scalar_fn::fns::zip::ZipKernel;
 use crate::scalar_fn::fns::zip::zip_validity;
 
@@ -55,23 +55,42 @@ impl ZipKernel for Primitive {
         }
 
         let validity = zip_validity(if_true.validity()?, if_false.validity()?, &mask)?;
+        let true_values = if_true
+            .buffer_handle()
+            .as_host_opt()
+            .vortex_expect("zip requires host values");
+        let false_values = if_false
+            .buffer_handle()
+            .as_host_opt()
+            .vortex_expect("zip requires host values");
 
-        // TODO(perf): inspect the mask's true_count (and validity) to special-case heavily-skewed
+        // TODO(connor): inspect the mask's true_count (and validity) to special-case heavily-skewed
         // masks. When one side dominates (true_count near 0 or near len), it is cheaper to bulk
-        // copy — or mutate in place, if the dominant side is uniquely owned — that side's values
+        // copy (or mutate in place, if the dominant side is uniquely owned) that side's values
         // and validity, then conditionally pull in only the minority rows from the other side,
         // rather than blending every row.
-        let array = match_each_native_ptype!(if_true.ptype(), |T| {
-            let values =
-                select_values::<T>(if_true.as_slice::<T>(), if_false.as_slice::<T>(), &mask);
-            PrimitiveArray::new(values.freeze(), validity).into_array()
-        });
+        let values = match_each_ptype_width!(
+            if_true.ptype(),
+            |W| {
+                select_values(
+                    true_values.as_slice().as_chunks::<W>().0,
+                    false_values.as_slice().as_chunks::<W>().0,
+                    &mask,
+                )
+                .freeze()
+                .into_byte_buffer()
+                .aligned(Alignment::new(W))
+            },
+            _ => { unreachable!("primitive widths are specialized") },
+        );
+        let array = PrimitiveArray::from_byte_buffer(values, if_true.ptype(), validity).into_array();
+
         Ok(Some(array))
     }
 }
 
 /// Branchlessly blend `if_true` and `if_false` per row into a fresh value buffer.
-fn select_values<T: NativePType>(
+fn select_values<T: Copy>(
     true_values: &[T],
     false_values: &[T],
     mask: &Mask,
@@ -122,7 +141,7 @@ fn select_values<T: NativePType>(
 /// bit keeps `false_values[j]`. Slices are trimmed to the output length up front so the compiler can
 /// elide bounds checks and lower the body to a vector blend / conditional move.
 #[inline]
-fn select_block<T: NativePType>(
+fn select_block<T: Copy>(
     word: u64,
     true_values: &[T],
     false_values: &[T],

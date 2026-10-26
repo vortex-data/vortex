@@ -10,11 +10,11 @@ use vortex_mask::MaskValues;
 use vortex_mask::MaskValuesRef;
 
 use super::FixedWidthArray;
-use super::match_each_record_width;
 use super::with_values;
 use crate::array::Array;
 use crate::arrays::filter::filter_buffer;
 use crate::arrays::filter::filter_validity;
+use crate::match_each_power_of_two_width;
 
 #[cfg(test)]
 #[expect(clippy::cast_possible_truncation)]
@@ -50,7 +50,7 @@ fn filter_records(
 ) -> ByteBuffer {
     let alignment = values.alignment();
 
-    match_each_record_width!(
+    match_each_power_of_two_width!(
         byte_width,
         |W| {
             let records = Buffer::<[u8; W]>::from_byte_buffer(values);

@@ -4,7 +4,11 @@
 use std::sync::LazyLock;
 
 use rstest::rstest;
+use vortex_buffer::Alignment;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_buffer::buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -24,13 +28,18 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::dict::TakeExecuteAdaptor;
+use crate::arrays::decimal::DecimalArrayExt;
 use crate::assert_arrays_eq;
+use crate::buffer::BufferHandle;
+use crate::dtype::BigCast;
 use crate::dtype::DecimalDType;
+use crate::dtype::DecimalType;
 use crate::dtype::FieldNames;
 use crate::dtype::half::f16;
 use crate::dtype::i256;
 use crate::executor::ExecutionCtx;
 use crate::kernel::ExecuteParentKernel;
+use crate::match_each_decimal_value_type;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -496,6 +505,65 @@ fn test_take_execute_kernel_handles_decimal_filter_child() -> VortexResult<()> {
         )
         .into_array(),
     )
+}
+
+#[rstest]
+fn decimal_contiguous_take_preserves_storage_and_shares_buffer(
+    #[values(
+        DecimalType::I8,
+        DecimalType::I16,
+        DecimalType::I32,
+        DecimalType::I64,
+        DecimalType::I128,
+        DecimalType::I256
+    )]
+    values_type: DecimalType,
+) -> VortexResult<()> {
+    let dtype = DecimalDType::new(2, 0);
+    let (child, expected) = match_each_decimal_value_type!(values_type, |T| {
+        let values = Buffer::from_iter([1i8, 2, 3, 4, 5].map(|value| {
+            <T as BigCast>::from(value).vortex_expect("small values fit every decimal type")
+        }));
+        let alignment = Alignment::of::<T>();
+        let mut bytes =
+            BufferMut::<u8>::with_capacity(values.as_bytes().len() + alignment.as_usize());
+
+        // Offset by the native alignment to exercise storage that may not align to its byte width.
+        bytes.extend_from_slice(&vec![0; alignment.as_usize()]);
+        bytes.extend_from_slice(values.as_bytes());
+        let bytes = bytes
+            .freeze()
+            .slice_with_alignment(alignment.as_usize().., alignment);
+        let child = DecimalArray::try_new_handle(
+            BufferHandle::new_host(bytes),
+            values_type,
+            dtype,
+            Validity::NonNullable,
+        )?;
+        let expected = DecimalArray::from_iter(
+            [3i8, 4].map(|value| {
+                <T as BigCast>::from(value).vortex_expect("small values fit every decimal type")
+            }),
+            dtype,
+        );
+
+        (child, expected)
+    });
+    let original_ptr = child.buffer_handle().as_host_opt().unwrap().as_ptr();
+    let filter = FilterArray::new(child.into_array(), Mask::from_slices(5, vec![(1, 5)])).into_array();
+    let parent = DictArray::try_new(buffer![1u64, 2].into_array(), filter.clone())?.into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+    let taken = execute_parent(&filter, &parent, 1, &mut ctx)?
+        .vortex_expect("decimal filter should execute its take parent")
+        .execute::<DecimalArray>(&mut ctx)?;
+
+    assert_eq!(taken.values_type(), values_type);
+    assert_eq!(
+        taken.buffer_handle().as_host_opt().unwrap().as_ptr(),
+        original_ptr.wrapping_add(2 * values_type.byte_width()),
+    );
+    assert_arrays_eq!(taken, expected, &mut ctx);
+    Ok(())
 }
 
 #[test]
