@@ -112,7 +112,12 @@ impl RowFnExecutionArgs {
                 self.finalize_output(values, self.row_count)
             }
             Validity::Array(valid) => {
-                // Canonical output can carry validity directly, without a second mask execution.
+                // This internal micro-optimization skips the temporary ScalarFnArray and optimizer
+                // pass in `values.mask(valid)`, even when its reduction attaches validity directly.
+                // Isolated benchmarks measured about 15-20% less time for nullable u64 addition on
+                // 64-row batches with a right-hand constant, not a general speedup. Use `.mask()`
+                // here if it gains an equivalent direct dispatch path. Revisions and limitations:
+                // https://github.com/vortex-data/vortex/pull/10742
                 let values = match values.as_opt::<AnyCanonical>() {
                     Some(canonical) => mask_validity_canonical(
                         Canonical::from(canonical),
