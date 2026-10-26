@@ -1,0 +1,133 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Experiment: does headstart (scripts/headstart.sh) speed up a CI-sized Rust build?
+#
+# Times a clean `cargo check -p vortex` on the same runner size as the clippy and lint jobs:
+#   1. with sccache, three rounds alternating the stock toolchain (as CI builds today) and
+#      headstart through the patched sccache; the first headstart round fills its cache
+#   2. without sccache: the stock toolchain, and the patched toolchain with headstart off and on
+#
+# The first run builds the patched toolchain and caches it.
+name: Headstart benchmark
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/headstart-bench.yml"
+      - "scripts/headstart.sh"
+      - "scripts/headstart/**"
+  workflow_dispatch: { }
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  BENCH_ARGS: "-p vortex"
+
+jobs:
+  headstart-bench:
+    name: "Headstart benchmark"
+    timeout-minutes: 240
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-ci-large/volume=150gb/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=headstart-bench', github.run_id)
+          || 'ubuntu-latest' }}
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
+      - name: Install benchmark tools
+        run: |
+          command -v rsync >/dev/null || (sudo apt-get update && sudo apt-get install -y rsync)
+          echo "HEADSTART_DIR=$HOME/.cache/vortex-headstart" >> "$GITHUB_ENV"
+          echo "HEADSTART_REV=$(sed -n 's/^HEADSTART_REV=//p' scripts/headstart.sh)" >> "$GITHUB_ENV"
+          echo "cores: $(nproc)"
+          env | grep -E '^(SCCACHE|RUSTC_WRAPPER)' | grep -v -i -E 'key|secret|token' || true
+      - name: Restore headstart toolchain
+        id: toolchain-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          key: headstart-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/headstart.sh', 'scripts/headstart/**') }}
+          path: |
+            ~/.cache/vortex-headstart/rustc/build/host/stage1
+            ~/.cache/vortex-headstart/cargo/target/release/cargo
+            ~/.cache/vortex-headstart/sccache/target/release/sccache
+      - name: Build headstart toolchain
+        if: steps.toolchain-cache.outputs.cache-hit != 'true'
+        run: |
+          start=$SECONDS
+          scripts/headstart.sh setup
+          echo "TOOLCHAIN_BUILD_SECONDS=$((SECONDS - start))" >> "$GITHUB_ENV"
+      - name: Save headstart toolchain
+        if: steps.toolchain-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          key: ${{ steps.toolchain-cache.outputs.cache-primary-key }}
+          path: |
+            ~/.cache/vortex-headstart/rustc/build/host/stage1
+            ~/.cache/vortex-headstart/cargo/target/release/cargo
+            ~/.cache/vortex-headstart/sccache/target/release/sccache
+      - name: Check out headstart scripts
+        if: steps.toolchain-cache.outputs.cache-hit == 'true'
+        run: |
+          git -C "$HEADSTART_DIR" init -q
+          git -C "$HEADSTART_DIR" fetch -q --depth 1 https://github.com/PowderworksCode/headstart "$HEADSTART_REV"
+          git -C "$HEADSTART_DIR" checkout -q FETCH_HEAD -- scripts
+      - name: Fetch dependencies
+        run: cargo fetch --locked
+      - name: With sccache, stock vs headstart
+        run: |
+          rust_stat() { sccache --show-stats | sed -n "s/^Cache $1 (Rust) *//p"; }
+          for run in 1 2 3; do
+            for mode in stock headstart; do
+              rm -rf target/bench
+              sccache --zero-stats >/dev/null
+              start=$(date +%s%N)
+              if [ "$mode" = stock ]; then
+                CARGO_TARGET_DIR=target/bench cargo check -q --locked $BENCH_ARGS
+              else
+                CARGO_TARGET_DIR=target/bench scripts/headstart.sh check -q --locked $BENCH_ARGS
+              fi
+              ms=$((($(date +%s%N) - start) / 1000000))
+              echo "| $mode | $run | $((ms / 1000)).$((ms % 1000 / 100)) | $(rust_stat hits) | $(rust_stat misses) |" | tee -a sccache-runs.md
+            done
+          done
+          rm -rf target/bench
+      - name: Stock toolchain without sccache
+        run: |
+          start=$SECONDS
+          RUSTC_WRAPPER= CARGO_TARGET_DIR=target/stock cargo check -q --locked $BENCH_ARGS
+          echo "STOCK_SECONDS=$((SECONDS - start))" >> "$GITHUB_ENV"
+          rm -rf target/stock
+      - name: Headstart off vs on, without sccache
+        run: |
+          RUSTC_WRAPPER= "$HEADSTART_DIR/scripts/bench.sh" -n 3 -c check -o "$RUNNER_TEMP/headstart" \
+            "$GITHUB_WORKSPACE::$BENCH_ARGS" | tee headstart-bench.txt
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Headstart benchmark: clean \`cargo check $BENCH_ARGS\` on $(nproc) cores"
+            echo
+            echo "With sccache (\"stock\" is CI today; headstart uses the patched sccache):"
+            echo
+            echo "| toolchain | run | seconds | Rust cache hits | Rust cache misses |"
+            echo "|---|--:|--:|--:|--:|"
+            cat sccache-runs.md 2>/dev/null || true
+            echo
+            echo "Without sccache: stock toolchain ${STOCK_SECONDS:-n/a} s. Patched toolchain, headstart off (\"today\") vs on, 3 runs each:"
+            echo
+            sed -n '/^| project/,$p' headstart-bench.txt 2>/dev/null || true
+            echo
+            echo "Toolchain cache hit: ${{ steps.toolchain-cache.outputs.cache-hit || 'false' }}; build seconds: ${TOOLCHAIN_BUILD_SECONDS:-n/a}"
+          } >> "$GITHUB_STEP_SUMMARY"

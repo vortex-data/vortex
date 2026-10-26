@@ -1,0 +1,250 @@
+SPDX-License-Identifier: Apache-2.0
+SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+Patch for sccache v0.18.0 (mozilla/sccache 01c35e69b97f516c2ebfbdb418b5cd6277bde280) so it
+works with headstart. In client-side mode (SCCACHE_CLIENT_SIDE=1) with SCCACHE_STREAM_STDERR=1,
+it passes rustc's stderr through as it arrives, so Cargo sees early-metadata notifications; and
+with -Zearly-metadata it hashes dependencies' early metadata and caches each crate's own.
+
+diff --git a/src/commands.rs b/src/commands.rs
+index 58c04cc..7766b6f 100644
+--- a/src/commands.rs
++++ b/src/commands.rs
+@@ -489,12 +489,15 @@ fn handle_compile_finished(
+         &response.stdout,
+         response.color_mode,
+     )?;
+-    write_output(
+-        std::io::stderr(),
+-        stderr,
+-        &response.stderr,
+-        response.color_mode,
+-    )?;
++    // A client-side compile that streamed the compiler's stderr has already written it.
++    if !crate::util::COMPILER_STDERR_STREAMED.load(std::sync::atomic::Ordering::SeqCst) {
++        write_output(
++            std::io::stderr(),
++            stderr,
++            &response.stderr,
++            response.color_mode,
++        )?;
++    }
+ 
+     if let Some(ret) = response.retcode {
+         trace!("compiler exited with status {}", ret);
+@@ -675,6 +678,9 @@ where
+     C: CommandCreatorSync + Clone + Send + Sync + 'static,
+ {
+     trace!("do_compile_client_side");
++    if env::var_os("SCCACHE_STREAM_STDERR").is_some_and(|v| v == "1") {
++        crate::util::STREAM_COMPILER_STDERR.store(true, std::sync::atomic::Ordering::SeqCst);
++    }
+     let exe_path = which_in(exe, path, cwd)?;
+     let storage = IpcStorage::connect(conn)?;
+     let conn_arc = storage.conn();
+diff --git a/src/compiler/compiler.rs b/src/compiler/compiler.rs
+index 56dea23..f8048d6 100644
+--- a/src/compiler/compiler.rs
++++ b/src/compiler/compiler.rs
+@@ -219,6 +219,9 @@ impl CompileCommandImpl for SingleCompileCommand {
+         if *share_jobserver {
+             cmd.share_jobserver();
+         }
++        if crate::util::STREAM_COMPILER_STDERR.load(std::sync::atomic::Ordering::SeqCst) {
++            return crate::util::run_input_output_streaming_stderr(cmd).await;
++        }
+         run_input_output(cmd, None).await
+     }
+ }
+diff --git a/src/compiler/rust.rs b/src/compiler/rust.rs
+index 21b7e94..a4020d7 100644
+--- a/src/compiler/rust.rs
++++ b/src/compiler/rust.rs
+@@ -158,6 +158,9 @@ pub struct ParsedArguments {
+     crate_name: String,
+     /// The crate types that will be generated
+     crate_types: CrateTypes,
++    /// Whether `-Zearly-metadata` (headstart) was passed: rustc then also writes
++    /// `<name>.early-rmeta`, and dependents may start before a dependency's full metadata exists.
++    early_metadata: bool,
+     /// If dependency info is being emitted, the name of the dep info file.
+     dep_info: Option<PathBuf>,
+     /// If profile info is being emitted, the path of the profile.
+@@ -237,6 +240,21 @@ static ALLOWED_EMIT: LazyLock<HashSet<&'static str>> =
+ /// Version number for cache key.
+ const CACHE_VERSION: &[u8] = b"6";
+ 
++/// `libfoo-hash.early-rmeta` beside a `libfoo-hash.rmeta` or `.rlib` extern, if it exists.
++fn early_metadata_path(extern_path: &Path) -> PathBuf {
++    match extern_path.extension().and_then(|e| e.to_str()) {
++        Some("rmeta" | "rlib") => {
++            let early = extern_path.with_extension("early-rmeta");
++            if early.exists() {
++                early
++            } else {
++                extern_path.to_owned()
++            }
++        }
++        _ => extern_path.to_owned(),
++    }
++}
++
+ /// Get absolute paths for all source files and env-deps listed in rustc's dep-info output.
+ async fn get_source_files_and_env_deps<T>(
+     creator: &T,
+@@ -1137,6 +1155,7 @@ fn parse_arguments(arguments: &[OsString], cwd: &Path) -> CompilerArguments<Pars
+     let mut has_json = false;
+     let mut profile = None;
+     let mut gcno = false;
++    let mut early_metadata = false;
+     let mut target_json = None;
+ 
+     // Custom iterator to expand `@` arguments which stand for reading a file
+@@ -1213,6 +1232,9 @@ fn parse_arguments(arguments: &[OsString], cwd: &Path) -> CompilerArguments<Pars
+                 Some("y") | Some("yes") | Some("on") | None if opt == "profile" => {
+                     gcno = true;
+                 }
++                None if opt == "early-metadata" => {
++                    early_metadata = true;
++                }
+                 _ => (),
+             },
+             Some(Color(value)) => {
+@@ -1360,6 +1382,7 @@ fn parse_arguments(arguments: &[OsString], cwd: &Path) -> CompilerArguments<Pars
+         arguments: args,
+         output_dir,
+         crate_types,
++        early_metadata,
+         externs,
+         crate_link_paths,
+         staticlibs,
+@@ -1448,7 +1471,16 @@ where
+             .iter()
+             .map(|e| cwd.join(e))
+             .collect::<Vec<_>>();
+-        let extern_hashes = hash_all(&abs_externs, pool);
++        // With early metadata, a dependency's full metadata or rlib may not exist yet when this
++        // crate starts. Its early metadata carries the same crate hash, which covers every body
++        // and the tracked options, so hash that instead whenever it exists, in every build, so
++        // the key doesn't depend on timing.
++        let hashed_externs = if self.parsed_args.early_metadata {
++            abs_externs.iter().map(|e| early_metadata_path(e)).collect()
++        } else {
++            abs_externs.clone()
++        };
++        let extern_hashes = hash_all(&hashed_externs, pool);
+         // Hash the contents of the staticlibs listed on the commandline.
+         trace!(
+             "[{}]: hashing {} staticlibs",
+@@ -1671,6 +1703,23 @@ where
+                 )
+             })
+             .collect::<HashMap<_, _>>();
++        if self.parsed_args.early_metadata {
++            let early: Vec<_> = outputs
++                .keys()
++                .filter(|o| o.ends_with(".rmeta"))
++                .map(|o| o.replacen(".rmeta", ".early-rmeta", 1))
++                .collect();
++            for o in early {
++                let path = self.parsed_args.output_dir.join(&o);
++                outputs.insert(
++                    o,
++                    ArtifactDescriptor {
++                        path,
++                        optional: true,
++                    },
++                );
++            }
++        }
+         let dep_info = if let Some(dep_info) = &self.parsed_args.dep_info {
+             let p = self.parsed_args.output_dir.join(dep_info);
+             outputs.insert(
+@@ -3573,6 +3622,7 @@ proc_macro false
+                 staticlibs: vec![f.tempdir.path().join("libbaz.a")],
+                 crate_name: "foo".into(),
+                 crate_types: CrateTypes {
++                early_metadata: false,
+                     rlib: true,
+                     staticlib: false,
+                 },
+diff --git a/src/util.rs b/src/util.rs
+index a2e752d..bbab984 100644
+--- a/src/util.rs
++++ b/src/util.rs
+@@ -552,6 +552,75 @@ where
+         })
+ }
+ 
++/// Set when a client-side compile should pass the compiler's stderr through as it arrives.
++pub static STREAM_COMPILER_STDERR: std::sync::atomic::AtomicBool =
++    std::sync::atomic::AtomicBool::new(false);
++/// Set once a compiler's stderr has been streamed, so it isn't written again from the result.
++pub static COMPILER_STDERR_STREAMED: std::sync::atomic::AtomicBool =
++    std::sync::atomic::AtomicBool::new(false);
++
++/// Like `run_input_output`, but also copies the child's stderr to this process's stderr as it
++/// arrives. A build tool that acts on the compiler's messages before it exits, such as Cargo
++/// with headstart, needs to see them while it runs.
++pub async fn run_input_output_streaming_stderr<C>(mut command: C) -> Result<process::Output>
++where
++    C: RunCommand,
++{
++    use std::sync::atomic::Ordering;
++    use tokio::io::AsyncReadExt;
++    let mut child = command
++        .stdin(Stdio::inherit())
++        .stdout(Stdio::piped())
++        .stderr(Stdio::piped())
++        .spawn()
++        .await?;
++    let stdout = child.take_stdout();
++    let stdout = async move {
++        let mut buf = Vec::new();
++        if let Some(mut stdout) = stdout {
++            stdout
++                .read_to_end(&mut buf)
++                .await
++                .context("failed to read stdout")?;
++        }
++        Result::Ok(buf)
++    };
++    let stderr = child.take_stderr();
++    let stderr = async move {
++        let mut buf = Vec::new();
++        if let Some(mut stderr) = stderr {
++            let mut chunk = [0u8; 8192];
++            loop {
++                let n = stderr
++                    .read(&mut chunk)
++                    .await
++                    .context("failed to read stderr")?;
++                if n == 0 {
++                    break;
++                }
++                let mut out = std::io::stderr().lock();
++                out.write_all(&chunk[..n])?;
++                out.flush()?;
++                buf.extend_from_slice(&chunk[..n]);
++            }
++        }
++        Result::Ok(buf)
++    };
++    let (stdout, stderr) = futures::try_join!(stdout, stderr)?;
++    let status = child.wait().await.context("failed to wait for child")?;
++    COMPILER_STDERR_STREAMED.store(true, Ordering::SeqCst);
++    let output = process::Output {
++        status,
++        stdout,
++        stderr,
++    };
++    if output.status.success() {
++        Ok(output)
++    } else {
++        Err(ProcessError(output).into())
++    }
++}
++
+ /// Write `data` to `writer` with bincode serialization, prefixed by a `u32` length.
+ pub fn write_length_prefixed_bincode<W, S>(mut writer: W, data: S) -> Result<()>
+ where

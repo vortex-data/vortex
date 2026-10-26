@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Build config for the headstart rustc, replacing headstart's config/bootstrap.toml.
+#
+# headstart's own config builds a development rustc (incremental, no LTO), which compiles Vortex
+# about twice as slowly as a released rustc. These settings follow the dist builds instead, short
+# of PGO and BOLT, so headstart can be compared with the toolchain CI uses today.
+profile = "compiler"
+change-id = "ignore"
+
+[build]
+compiler-docs = false
+extended = false
+
+[rust]
+debug-assertions = false
+debug-logging = false
+debuginfo-level = 0
+backtrace-on-ice = false
+frame-pointers = false
+incremental = false
+codegen-units = 1
+lto = "thin"
+jemalloc = true
+download-rustc = false
+
+[llvm]
+download-ci-llvm = true
