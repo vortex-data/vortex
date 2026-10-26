@@ -14,9 +14,10 @@
 //!
 //! Chunks end only on the file's own chunk boundaries, of the columns the scan reads, so no chunk
 //! of the file is decoded twice by two chunks of the scan. Spans between boundaries are merged up
-//! to the scan's chunk size. The root groups the chunks into parts, a few per thread, and spawns a
-//! chunk planner per part. A filtered scan's chunks are up to 1,048,576 rows, so without parts a
-//! file of a few million rows would keep only a few threads busy.
+//! to the scan's chunk size, but no further than leaves a few chunks per thread: a filtered scan's
+//! chunks are up to 1,048,576 rows, so a file of a few million rows would otherwise keep only a few
+//! threads busy. The root groups the chunks into parts, a few per thread, and spawns a chunk
+//! planner per part.
 
 use std::future;
 use std::ops::Range;
@@ -84,10 +85,12 @@ impl FileScan {
         let scan = Arc::new(builder.prepare()?);
         let io = scan.io();
         let rows = scan.rows().clone();
-        let chunks = chunk_ranges(rows.clone(), boundaries, scan.chunk_rows() as u64);
+        let parts = get_available_parallelism().unwrap_or(1) * PARTS_PER_THREAD;
+        let max_rows = (scan.chunk_rows() as u64).min(merged_rows(&rows, parts));
+        let chunks = chunk_ranges(rows.clone(), boundaries, max_rows);
         let mut root = Run::new();
         root.admit(
-            compose(&scan, chunks),
+            compose(&scan, chunks, parts),
             WorkScope {
                 file_ordinal: 0,
                 rows,
@@ -180,19 +183,13 @@ impl FileScan {
 
 /// The planners of a scan, composed: with a filter, its pruning plans first over the scan's rows,
 /// continuing into the parts of the rows they keep; without, the parts directly.
-fn compose(scan: &Arc<PreparedScan>, chunks: Vec<Range<u64>>) -> Box<dyn Planner> {
+fn compose(scan: &Arc<PreparedScan>, chunks: Vec<Range<u64>>, count: usize) -> Box<dyn Planner> {
     let rows = scan.rows().clone();
     let parts = {
         let scan = Arc::clone(scan);
         let rows = rows.clone();
         move |kept: Option<Mask>| -> Box<dyn Planner> {
-            let parallelism = get_available_parallelism().unwrap_or(1);
-            Box::new(PartPlanner::new(
-                scan,
-                rows,
-                kept,
-                parts(chunks, parallelism * PARTS_PER_THREAD),
-            ))
+            Box::new(PartPlanner::new(scan, rows, kept, parts(chunks, count)))
         }
     };
     if scan.filter().is_some() {
@@ -281,6 +278,11 @@ impl Planner for PartPlanner {
     }
 }
 
+/// The most rows spans merge into while `rows` still divides into `parts` chunks.
+fn merged_rows(rows: &Range<u64>, parts: usize) -> u64 {
+    (rows.end - rows.start).div_ceil(parts.max(1) as u64).max(1)
+}
+
 /// Cuts `rows` into chunks that end only on `boundaries` or at the end of `rows`, merging the
 /// spans between boundaries into chunks of at most `max_rows` rows. A span wider than `max_rows`
 /// stays one chunk, so no chunk of the file is split.
@@ -328,6 +330,7 @@ mod tests {
     use rstest::rstest;
 
     use super::chunk_ranges;
+    use super::merged_rows;
     use super::parts;
 
     #[rstest]
@@ -343,6 +346,18 @@ mod tests {
         #[case] expected: Vec<Range<u64>>,
     ) {
         assert_eq!(chunk_ranges(rows, boundaries, max_rows), expected);
+    }
+
+    #[rstest]
+    #[case::few_parts(0..1_000, 4, 250)]
+    #[case::many_parts(0..10, 384, 1)]
+    #[case::empty(5..5, 4, 1)]
+    fn merging_leaves_chunks_for_every_part(
+        #[case] rows: Range<u64>,
+        #[case] parts: usize,
+        #[case] expected: u64,
+    ) {
+        assert_eq!(merged_rows(&rows, parts), expected);
     }
 
     #[rstest]
