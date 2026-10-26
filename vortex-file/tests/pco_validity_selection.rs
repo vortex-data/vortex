@@ -12,6 +12,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
+use vortex_file::register_default_encodings;
 use vortex_pco::Pco;
 use vortex_runend::RunEnd;
 use vortex_session::VortexSession;
@@ -19,7 +20,7 @@ use vortex_session::VortexSession;
 #[test]
 fn compressed_validity_selection_oracle() -> VortexResult<()> {
     let session = VortexSession::empty();
-    vortex_file::register_default_encodings(&session);
+    register_default_encodings(&session);
     let mut ctx = session.create_execution_ctx();
     let validity = Validity::Array(
         RunEnd::try_new(
@@ -55,4 +56,3 @@ fn compressed_validity_selection_oracle() -> VortexResult<()> {
     }
     Ok(())
 }
-
