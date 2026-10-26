@@ -66,6 +66,7 @@ fn write(bencher: Bencher, nullable: bool) {
     let written =
         Pco::from_primitive(input.as_view(), 3, 1024, &mut check).vortex_expect("write oracle");
     assert_arrays_eq!(written.into_array(), input.clone(), &mut check);
+    drop(check);
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
         .bench_refs(|ctx| {
@@ -78,6 +79,7 @@ fn full(bencher: Bencher, nullable: bool) {
     let source = compressed(nullable);
     let mut check = SESSION.create_execution_ctx();
     assert_arrays_eq!(source.clone(), input(nullable), &mut check);
+    drop(check);
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
         .bench_refs(|ctx| {
@@ -137,6 +139,8 @@ fn selection(bencher: Bencher, (kind, nullable): (&str, bool)) {
     }
     .vortex_expect("primitive oracle");
     assert_arrays_eq!(actual, expected, &mut check);
+    drop(reference);
+    drop(check);
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
         .bench_refs(|ctx| {
@@ -168,6 +172,9 @@ fn retained_probes(bencher: Bencher, nullable: bool) {
         );
     }
 
+    drop(checked_probe);
+    drop(reference);
+    drop(check);
     bencher
         .with_inputs(|| {
             let mut ctx = SESSION.create_execution_ctx();
@@ -210,7 +217,9 @@ fn first_probes(bencher: Bencher, missing: bool) {
             .vortex_expect("primitive oracle")
     );
     assert_eq!(actual.is_null(), missing);
+    drop(actual);
 
+    drop(check);
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
         .bench_refs(|ctx| {
