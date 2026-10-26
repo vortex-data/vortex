@@ -53,17 +53,25 @@ use vortex::error::VortexExpect;
 use vortex::expr::and_collect;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::scan_builder::ScanBuilder;
+use vortex::layout::scan::v2::ChunkPlanner;
+use vortex::layout::scan::v2::PrunePlanner;
 use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
+use vortex::layout::scan::v2::ScanCache;
+use vortex::layout::scan::v2::WeakScanCache;
 use vortex::layout::scan::v2::partition_row_range;
 use vortex::layout::segments::SegmentSource;
+use vortex::mask::Mask;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
+use vortex::scan::planning::planner::Planner;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::VortexAccessPlan;
 use crate::convert::exprs::ExpressionConverter;
@@ -74,6 +82,7 @@ use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
 use crate::persistent::reader::VortexReaderFactory;
+use crate::persistent::scan_v2::ScanDriver;
 use crate::persistent::stream::PrunableStream;
 
 #[derive(Clone)]
@@ -112,6 +121,9 @@ pub(crate) struct VortexOpener {
     /// boundary and the file's metadata segments are read once, as they are for V1 through the
     /// shared layout reader.
     pub segment_sources: Arc<DashMap<Path, Weak<dyn SegmentSource>>>,
+    /// The V2 scan cache each open file's partitions share: its lowered layout, filter and
+    /// projection plans, pruned zones and dictionary values, built once per file.
+    pub scan_caches: Arc<DashMap<Path, WeakScanCache>>,
     /// Shared V1 full-file natural splits keyed by file path.
     pub natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by file path.
@@ -125,6 +137,9 @@ pub(crate) struct VortexOpener {
     pub projection_pushdown: bool,
     pub scan_concurrency: Option<usize>,
     pub scan_v2: bool,
+    /// How many partitions the engine runs the scan on, so a V2 scan parallelises inside a
+    /// partition only as far as the engine has not.
+    pub partitions: usize,
 }
 
 impl FileOpener for VortexOpener {
@@ -158,10 +173,12 @@ impl FileOpener for VortexOpener {
         let limit = self.limit;
         let layout_readers = Arc::clone(&self.layout_readers);
         let segment_sources = Arc::clone(&self.segment_sources);
+        let scan_caches = Arc::clone(&self.scan_caches);
         let natural_splits = Arc::clone(&self.natural_splits);
         let file_schemas = Arc::clone(&self.file_schemas);
         let has_output_ordering = self.has_output_ordering;
         let scan_concurrency = self.scan_concurrency;
+        let partitions = self.partitions.max(1);
         let scan_v2 = self.scan_v2;
 
         let expr_converter = Arc::clone(&self.expression_converter);
@@ -423,10 +440,10 @@ impl FileOpener for VortexOpener {
                     &file.object_meta.location,
                     scan_file.segments,
                 );
+                scan_file.cache = Some(shared_scan_cache(&scan_caches, &file.object_meta.location));
                 let mut builder = V2ScanBuilder::new(vxf.session().clone(), scan_file)
                     .with_projection(scan_projection)
-                    .with_some_filter(native_filter)
-                    .with_ordered(has_output_ordering);
+                    .with_some_filter(native_filter);
                 if let Some(bytes) = byte_range {
                     // Every partition maps the same byte boundary to the same row boundary.
                     let rows = partition_row_range(bytes, file.object_meta.size, vxf.row_count());
@@ -442,10 +459,43 @@ impl FileOpener for VortexOpener {
                 {
                     builder = builder.with_selection(selection.clone());
                 }
-                if let Some(concurrency) = scan_concurrency {
-                    builder = builder.with_concurrency(concurrency);
-                }
-                builder.map(map_batch).into_stream()
+                // Unless set, chunks run beside each other only as far as the engine's partitions
+                // leave cores idle: at one partition per core they run in the scan's own run.
+                let concurrency = scan_concurrency.unwrap_or_else(|| {
+                    get_available_parallelism()
+                        .unwrap_or(1)
+                        .div_ceil(partitions)
+                        .max(1)
+                });
+                let handle = vxf.session().handle();
+                // Lowering and planning a wide file is real CPU: it runs where compute runs.
+                let scan = handle
+                    .spawn_cpu(move || builder.prepare())
+                    .await
+                    .map_err(|e| exec_datafusion_err!("Failed to plan Vortex scan: {e}"))?;
+                let scan = Arc::new(scan);
+
+                // The planners, composed: with a filter, its pruning plans first over the whole
+                // partition, continuing into the chunks of the rows they keep; without a
+                // filter, the chunks directly. A chunk plans its conjuncts, then its
+                // projection.
+                let chunks = {
+                    let scan = Arc::clone(&scan);
+                    move |kept: Option<Mask>| -> Box<dyn Planner> {
+                        let rows = scan.rows().clone();
+                        let selection = scan.selection().clone();
+                        Box::new(ChunkPlanner::new(scan, rows, selection, kept))
+                    }
+                };
+                let root: Box<dyn Planner> = if scan.filter().is_some() {
+                    let rows = scan.rows().clone();
+                    Box::new(PrunePlanner::new(Arc::clone(&scan), rows, Box::new(chunks)))
+                } else {
+                    chunks(None)
+                };
+
+                let driver = ScanDriver::new(handle, concurrency, has_output_ordering);
+                Ok(driver.run(scan, root, map_batch))
             } else {
                 // Share V1 layout readers across partitions of the file.
                 let layout_reader = match layout_readers.entry(file.object_meta.location.clone()) {
@@ -641,6 +691,28 @@ fn contains_lambda(projection: &ProjectionExprs) -> DFResult<bool> {
         }
     }
     Ok(false)
+}
+
+/// Returns the scan cache other partitions of `path` are planning with, or registers a new one.
+/// A scan holds its cache until its stream ends, so the cache lives as long as one scan.
+fn shared_scan_cache(scan_caches: &DashMap<Path, WeakScanCache>, path: &Path) -> ScanCache {
+    match scan_caches.entry(path.clone()) {
+        Entry::Occupied(mut entry) => {
+            if let Some(shared) = entry.get().upgrade() {
+                tracing::trace!("reusing scan cache for {path}");
+                shared
+            } else {
+                let fresh = ScanCache::default();
+                entry.insert(fresh.downgrade());
+                fresh
+            }
+        }
+        Entry::Vacant(entry) => {
+            let fresh = ScanCache::default();
+            entry.insert(fresh.downgrade());
+            fresh
+        }
+    }
 }
 
 /// Returns the segment source other partitions of `path` are reading through, or registers
@@ -1074,6 +1146,8 @@ mod tests {
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
             segment_sources: Default::default(),
+            scan_caches: Default::default(),
+            partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1482,6 +1556,8 @@ mod tests {
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
             segment_sources: Default::default(),
+            scan_caches: Default::default(),
+            partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1572,6 +1648,8 @@ mod tests {
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
             segment_sources: Default::default(),
+            scan_caches: Default::default(),
+            partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1753,6 +1831,8 @@ mod tests {
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
             segment_sources: Default::default(),
+            scan_caches: Default::default(),
+            partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1816,6 +1896,8 @@ mod tests {
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
             segment_sources: Default::default(),
+            scan_caches: Default::default(),
+            partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -2030,6 +2112,8 @@ mod tests {
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
             segment_sources: Default::default(),
+            scan_caches: Default::default(),
+            partitions: 1,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,

@@ -34,6 +34,7 @@ use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
+use vortex::layout::scan::v2::WeakScanCache;
 use vortex::layout::segments::SegmentSource;
 use vortex::metrics::DefaultMetricsRegistry;
 use vortex::metrics::MetricsRegistry;
@@ -203,6 +204,7 @@ pub struct VortexSource {
     layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
     /// Shared V2 segment sources, keyed by path and alive only while a scan reads the file.
     segment_sources: Arc<DashMap<Path, Weak<dyn SegmentSource>>>,
+    scan_caches: Arc<DashMap<Path, WeakScanCache>>,
     /// Shared full-file natural splits keyed by path.
     natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by path.
@@ -240,6 +242,7 @@ impl VortexSource {
             df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
             segment_sources: Arc::new(DashMap::default()),
+            scan_caches: Arc::new(DashMap::default()),
             natural_splits: Arc::new(DashMap::default()),
             file_schemas: Arc::new(DashMap::default()),
             expression_converter,
@@ -366,6 +369,7 @@ impl VortexSource {
             df_metrics: self.df_metrics.clone(),
             layout_readers: Arc::clone(&self.layout_readers),
             segment_sources: Arc::clone(&self.segment_sources),
+            scan_caches: Arc::clone(&self.scan_caches),
             natural_splits: Arc::clone(&self.natural_splits),
             file_schemas: Arc::clone(&self.file_schemas),
             has_output_ordering: !base_config.output_ordering.is_empty() || self.ordered,
@@ -374,6 +378,7 @@ impl VortexSource {
             projection_pushdown: self.options.projection_pushdown,
             scan_concurrency: self.options.scan_concurrency,
             scan_v2: self.options.scan_v2,
+            partitions: base_config.file_groups.len(),
         };
 
         Ok(opener)

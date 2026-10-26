@@ -60,6 +60,9 @@ use crate::layouts::zoned::MAX_IS_TRUNCATED;
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::legacy_stats_to_aggregates;
 use crate::layouts::zoned::zone_map::ZoneMap;
+use crate::plan::physical::Filter;
+use crate::plan::physical::LegacyStats;
+use crate::plan::physical::pipeline::Scan;
 use crate::segments::SegmentId;
 use crate::test::SESSION;
 
@@ -1319,14 +1322,37 @@ fn stats_expression_rewrites_to_zoned_pruning_plan() -> VortexResult<()> {
     let mixed = mixed
         .as_opt::<Eval>()
         .ok_or_else(|| vortex_err!("expression with a data reference was pushed into zones"))?;
-    let mixed_child = mixed.child_plan()?;
-    assert!(mixed_child.is::<Zoned>());
-    assert!(
-        !mixed_child
-            .as_opt::<Zoned>()
-            .ok_or_else(|| vortex_err!("mixed expression child is not zoned"))?
-            .is_pruning()
-    );
+    assert!(mixed.child_plan()?.is::<Filter>());
+    Ok(())
+}
+
+/// A plan that reads a zoned column's data is optimized to the data alone: the zone table is
+/// neither a child of the plan nor among the segments it reads.
+#[test]
+fn data_expression_strips_zoned_to_its_data() -> VortexResult<()> {
+    let dtype = primitive(PType::I32, Nullability::NonNullable);
+    let (max, zones_dtype) = max_zones_dtype(&dtype)?;
+    let zone_len = NonZeroUsize::new(3).ok_or_else(|| vortex_err!("zone length is zero"))?;
+    let layout = ZonedLayout::try_new(
+        flat(5, dtype.clone(), 0),
+        flat(2, zones_dtype, 1),
+        zone_len,
+        vec![max].into(),
+    )?
+    .into_layout();
+    let source = make_plan(layout)?;
+
+    let plan = EvalPlan::try_new(gt(root(), lit(4_i32)).bind(&dtype)?, source.clone())?.into_plan();
+    insta::assert_snapshot!(optimize(plan, &SESSION)?.display_tree(), @"
+    root: vortex.plan.eval(bool, rows=5) expr=($ > 4i32)
+      child: vortex.plan.filter(i32, rows=5)
+        child: vortex.plan.segment_scan(i32, rows=5)
+    ");
+
+    let identity = optimize(source, &SESSION)?;
+    assert!(identity.is::<Filter>());
+    let segments = Scan::segments(&SESSION, &identity, 0..5, &Mask::new_true(5))?;
+    assert_eq!(segments, vec![SegmentId::from(0)]);
     Ok(())
 }
 
@@ -1496,23 +1522,8 @@ fn legacy_stats_rewrite_to_zoned_over_converted_zones() -> VortexResult<()> {
     let (max, zones_dtype) = max_zones_dtype(&dtype)?;
     let legacy = legacy_max_plan(&dtype)?;
 
-    let optimized = optimize(legacy.clone(), &SESSION)?;
-    let zoned = optimized
-        .as_opt::<Zoned>()
-        .ok_or_else(|| vortex_err!("legacy stats did not become zoned"))?;
-    assert!(!zoned.is_pruning());
-    assert_eq!(zoned.zone_len(), 3);
-    assert_eq!(
-        zoned
-            .aggregate_fns()
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>(),
-        vec![max.to_string()]
-    );
-    let zones = zoned.zones_plan()?;
-    assert!(zones.is::<Pack>());
-    assert_eq!(zones.dtype(), &zones_dtype);
+    // Read as data, the legacy stats are dropped along with the zoned plan they convert to.
+    assert!(optimize(legacy.clone(), &SESSION)?.is::<Filter>());
 
     let falsifier = gt(root(), lit(5_i32))
         .bind(&dtype)?
@@ -1523,7 +1534,18 @@ fn legacy_stats_rewrite_to_zoned_over_converted_zones() -> VortexResult<()> {
         .as_opt::<Zoned>()
         .ok_or_else(|| vortex_err!("legacy stats predicate did not become a pruning plan"))?;
     assert!(pruning.is_pruning());
-    assert!(pruning.zones_plan()?.is::<Pack>());
+    assert_eq!(pruning.zone_len(), 3);
+    assert_eq!(
+        pruning
+            .aggregate_fns()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        vec![max.to_string()]
+    );
+    let zones = pruning.zones_plan()?;
+    assert!(zones.is::<Pack>());
+    assert_eq!(zones.dtype(), &zones_dtype);
     Ok(())
 }
 
@@ -1562,43 +1584,52 @@ fn converted_legacy_zones_prune() -> VortexResult<()> {
     Ok(())
 }
 
+/// A zoned plan over legacy stats read as data keeps neither zone table.
 #[test]
-fn legacy_stats_under_zoned_are_dropped() -> VortexResult<()> {
+fn zoned_over_legacy_stats_read_as_data_keeps_only_the_data() -> VortexResult<()> {
     let dtype = primitive(PType::I32, Nullability::NonNullable);
     let (max, zones_dtype) = max_zones_dtype(&dtype)?;
     let zones = make_plan(flat(2, zones_dtype, 2))?;
-    let plan =
-        ZonedPlan::new(legacy_max_plan(&dtype)?, zones.clone(), 3, vec![max].into()).into_plan();
+    let legacy = legacy_max_plan(&dtype)?;
+    let data = legacy
+        .as_opt::<LegacyStats>()
+        .ok_or_else(|| vortex_err!("legacy plan is not legacy stats"))?
+        .data_plan()?;
+    let plan = ZonedPlan::new(legacy, zones, 3, vec![max].into()).into_plan();
 
-    let optimized = optimize(plan, &SESSION)?;
-    let zoned = optimized
-        .as_opt::<Zoned>()
-        .ok_or_else(|| vortex_err!("zoned plan was rewritten away"))?;
-    assert!(zoned.data_plan()?.is_some_and(|data| data.is::<Filter>()));
-    assert!(PlanRef::ptr_eq(&zoned.zones_plan()?, &zones));
+    assert!(PlanRef::ptr_eq(&optimize(plan, &SESSION)?, &data));
     Ok(())
 }
 
+/// Legacy stats over a zoned plan are dropped: read as data only the data remains, and a zone
+/// pruning plan is evaluated over the aggregate zones, never the legacy table.
 #[test]
 fn legacy_stats_over_zoned_are_dropped() -> VortexResult<()> {
     let dtype = primitive(PType::I32, Nullability::NonNullable);
     let (max, zones_dtype) = max_zones_dtype(&dtype)?;
-    let zoned = ZonedPlan::new(
-        make_plan(flat(5, dtype.clone(), 0))?,
-        make_plan(flat(2, zones_dtype, 2))?,
-        3,
-        vec![max].into(),
-    )
-    .into_plan();
+    let data = make_plan(flat(5, dtype.clone(), 0))?;
+    let zones = make_plan(flat(2, zones_dtype, 2))?;
+    let zoned = ZonedPlan::new(data.clone(), zones.clone(), 3, vec![max].into()).into_plan();
     let legacy = LegacyStatsPlan::new(
-        zoned.clone(),
+        zoned,
         make_plan(flat(2, legacy_max_zones_dtype(&dtype), 1))?,
         3,
         vec![Stat::Max].into(),
     )
     .into_plan();
 
-    assert!(PlanRef::ptr_eq(&optimize(legacy, &SESSION)?, &zoned));
+    assert!(PlanRef::ptr_eq(&optimize(legacy.clone(), &SESSION)?, &data));
+
+    let falsifier = gt(root(), lit(5_i32))
+        .bind(&dtype)?
+        .falsify(&SESSION)?
+        .ok_or_else(|| vortex_err!("filter has no falsifier"))?;
+    let pruning = optimize(EvalPlan::try_new(falsifier, legacy)?.into_plan(), &SESSION)?;
+    let pruning = pruning
+        .as_opt::<Zoned>()
+        .ok_or_else(|| vortex_err!("predicate over legacy stats did not become a pruning plan"))?;
+    assert!(pruning.is_pruning());
+    assert!(PlanRef::ptr_eq(&pruning.zones_plan()?, &zones));
     Ok(())
 }
 
