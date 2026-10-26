@@ -31,7 +31,6 @@ fn selected_values_and_nulls(#[values(false, true)] nullable: bool) -> VortexRes
     );
     let compressed = Pco::from_primitive(input.as_view(), 3, 31, &mut ctx)?.into_array();
     let source = compressed.slice(17..4001)?.slice(13..3900)?;
-    let expected = input.slice(30..3917)?;
     let indices = PrimitiveArray::from_option_iter([
         Some(3000u64),
         Some(0),
@@ -41,18 +40,34 @@ fn selected_values_and_nulls(#[values(false, true)] nullable: bool) -> VortexRes
         Some(3000),
         Some(128),
         None,
+        Some(5),
     ])
     .into_array();
-    assert_arrays_eq!(
-        source.take(indices.clone())?,
-        expected.take(indices)?,
-        &mut ctx
+    let expected = PrimitiveArray::from_option_iter([
+        Some(57570i64),
+        Some(570),
+        None,
+        Some(2983),
+        Some(589),
+        Some(57570),
+        Some(3002),
+        None,
+        if nullable { None } else { Some(665) },
+    ]);
+    assert_arrays_eq!(source.take(indices)?, expected, &mut ctx);
+    let expected_probes = PrimitiveArray::new(
+        vec![57570i64, 570, 2983, 589, 57570, 3002, 570, 665],
+        if nullable {
+            Validity::from_iter([true, true, true, true, true, true, true, false])
+        } else {
+            Validity::NonNullable
+        },
     );
     let mut probe = source.repeated_probe();
-    for i in [3000, 0, 127, 1, 3000, 128, 0] {
+    for (position, index) in [3000, 0, 127, 1, 3000, 128, 0, 5].into_iter().enumerate() {
         assert_eq!(
-            probe.execute_scalar(i, &mut ctx)?,
-            expected.execute_scalar(i, &mut ctx)?
+            probe.execute_scalar(index, &mut ctx)?,
+            expected_probes.execute_scalar(position, &mut ctx)?,
         );
     }
     assert!(probe.execute_scalar(source.len(), &mut ctx).is_err());
@@ -87,7 +102,9 @@ fn compact_ranges(
     .into_array();
     assert_arrays_eq!(
         compressed.take(indices)?,
-        input.take(PrimitiveArray::from_iter(expected_indices).into_array())?,
+        PrimitiveArray::from_option_iter(expected_indices.into_iter().map(|i| {
+            (i % 5 != 0).then(|| i64::try_from(i * i).unwrap())
+        })),
         &mut ctx
     );
     Ok(())
@@ -105,8 +122,12 @@ fn null_runs_and_empty(#[values(false, true)] all_null: bool) -> VortexResult<()
         PrimitiveArray::from_option_iter([Some(0u64), None, Some(65001), Some(30000), Some(0)])
             .into_array();
     assert_arrays_eq!(
-        compressed.take(indices.clone())?,
-        input.take(indices)?,
+        compressed.take(indices)?,
+        PrimitiveArray::from_option_iter(if all_null {
+            [None, None, None, None, None]
+        } else {
+            [Some(0i32), None, Some(65001), None, Some(0)]
+        }),
         &mut ctx
     );
     assert_arrays_eq!(
@@ -116,7 +137,7 @@ fn null_runs_and_empty(#[values(false, true)] all_null: bool) -> VortexResult<()
     );
     assert_arrays_eq!(
         compressed.take(PrimitiveArray::from_iter([] as [u64; 0]).into_array())?,
-        input.take(PrimitiveArray::from_iter([] as [u64; 0]).into_array())?,
+        PrimitiveArray::from_option_iter([] as [Option<i32>; 0]),
         &mut ctx
     );
     Ok(())
@@ -134,8 +155,23 @@ fn invalid_indices_under_nulls_are_ignored() -> VortexResult<()> {
     )
     .into_array();
     assert_arrays_eq!(
-        compressed.take(indices.clone())?,
-        input.take(indices)?,
+        compressed.take(indices)?,
+        PrimitiveArray::from_option_iter([Some(11i32), None, None, Some(33)]),
+        &mut ctx
+    );
+    Ok(())
+}
+
+#[test]
+fn nonnullable_selection_crosses_chunks() -> VortexResult<()> {
+    let session = VortexSession::empty();
+    let mut ctx = session.create_execution_ctx();
+    let input = PrimitiveArray::from_iter((0..300000i64).map(|i| i * 3 + 1));
+    let compressed = Pco::from_primitive(input.as_view(), 3, 127, &mut ctx)?.into_array();
+    let indices = PrimitiveArray::from_iter([299999u64, 262144, 0, 262143, 262144]).into_array();
+    assert_arrays_eq!(
+        compressed.take(indices)?,
+        PrimitiveArray::from_iter([899998i64, 786433, 1, 786430, 786433]),
         &mut ctx
     );
     Ok(())
