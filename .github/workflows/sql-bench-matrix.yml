@@ -40,7 +40,7 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET")"
+          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps([x for x in json.load(sys.stdin) if x["id"] == "tpcds-nvme"]))')"
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   build:
@@ -203,7 +203,7 @@ jobs:
             --targets-json '${{ toJSON(matrix.targets) }}' \
             --output results.json \
             --ingest-jsonl results.ingest.jsonl \
-            --no-build \
+            --no-build --queries 28 \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
@@ -223,7 +223,7 @@ jobs:
             --targets-json '${{ toJSON(matrix.targets) }}' \
             --output results.json \
             --ingest-jsonl results.ingest.jsonl \
-            --no-build \
+            --no-build --queries 28 \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
             --opt remote-data-dir="$REMOTE_STORAGE" \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}

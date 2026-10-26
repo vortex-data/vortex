@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -50,9 +51,16 @@ use crate::segments::SegmentId;
 /// Plans and adaptive conjunct ordering shared by every chunk of a scan.
 pub(in crate::scan) struct FilterPlans {
     expression: FilterExpr,
-    predicates: Vec<PlanRef>,
+    predicates: Vec<PredicatePlan>,
     /// A metadata-only proof per conjunct, where the conjunct has one.
     pruning: Vec<Option<PlanRef>>,
+}
+
+struct PredicatePlan {
+    plan: PlanRef,
+    /// An infallible predicate evaluated in the original row domain, without gathering and
+    /// scattering its boolean result through the current selection.
+    whole: bool,
 }
 
 impl FilterPlans {
@@ -78,7 +86,10 @@ impl FilterPlans {
                         .and_then(|function| function.as_opt::<Binary>())
                         .is_some_and(|operator| *operator == Operator::Or)
                 }) && infallible(expr);
-                Ok(FilterPlan::for_predicate(plan, whole_predicate).into_plan())
+                Ok(PredicatePlan {
+                    plan: FilterPlan::new(plan).into_plan(),
+                    whole: whole_predicate,
+                })
             })
             .collect::<VortexResult<_>>()?;
         let pruning = expression
@@ -243,7 +254,7 @@ impl Planner for FilterPlanner {
             let rows = selected.scope.rows.clone();
             let predicates = segments_read(
                 session,
-                self.filter.predicates.iter(),
+                self.filter.predicates.iter().map(|predicate| &predicate.plan),
                 rows.clone(),
                 &selected.mask,
             )?;
@@ -289,8 +300,13 @@ impl Planner for FilterPlanner {
             }
             let input = selected.mask.true_count();
             let result = Mask::concat(self.pieces.iter())?;
-            vortex_ensure_eq!(result.len(), input);
-            selected.mask = selected.mask.intersect_by_rank(&result);
+            if self.filter.predicates[*index].whole {
+                vortex_ensure_eq!(result.len(), selected.mask.len());
+                selected.mask = (&selected.mask).bitand(&result);
+            } else {
+                vortex_ensure_eq!(result.len(), input);
+                selected.mask = selected.mask.intersect_by_rank(&result);
+            }
             tracing::debug!(
                 row_start = selected.scope.rows.start,
                 row_end = selected.scope.rows.end,
@@ -313,10 +329,14 @@ impl Planner for FilterPlanner {
             self.remaining.set(index, false);
             let scan = Scan::try_new(
                 self.scan.session.clone(),
-                self.filter.predicates[index].clone(),
+                self.filter.predicates[index].plan.clone(),
                 vec![Split {
                     rows: selected.scope.rows.clone(),
-                    mask: selected.mask.clone(),
+                    mask: if self.filter.predicates[index].whole {
+                        Mask::new_true(selected.mask.len())
+                    } else {
+                        selected.mask.clone()
+                    },
                 }],
             )?
             .with_row_offset(self.scan.row_offset)
