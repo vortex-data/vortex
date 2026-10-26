@@ -96,7 +96,7 @@ fn make_eval(expression: Expression, child: PlanRef) -> VortexResult<EvalPlan> {
 
 fn make_row_idx_plan(expression: Expression, child: PlanRef) -> VortexResult<PlanRef> {
     let expression = expression.bind(child.dtype())?.optimize_recursive()?;
-    plan_row_idx_expression(expression, child)
+    plan_row_idx_expression(expression, child, &SESSION)
 }
 
 fn child_of(plan: &PlanRef, index: usize) -> VortexResult<PlanRef> {
@@ -611,19 +611,19 @@ fn expression_partitions_across_row_idx_and_struct() -> VortexResult<()> {
 
     let optimized = optimize(plan, &SESSION)?;
     insta::assert_snapshot!(optimized.display_tree(), @"
-    root: vortex.plan.eval(bool, rows=3) expr=($.row_idx and $.child)
-      child: vortex.plan.pack({row_idx=bool, child=bool}, rows=3)
-        row_idx: vortex.plan.eval(bool, rows=3) expr=($ > 11u64)
+    root: vortex.plan.eval(bool, rows=3) expr=($.0 and $.1)
+      child: vortex.plan.pack({0=bool, 1=bool}, rows=3)
+        0: vortex.plan.eval(bool, rows=3) expr=($ > 11u64)
           child: vortex.plan.row_idx(u64, rows=3)
-        child: vortex.plan.eval(bool, rows=3) expr=($.a and $.b)
-          child: vortex.plan.pack({a=bool, b=bool}, rows=3)
-            a: vortex.plan.take(bool, rows=3)
+        1: vortex.plan.eval(bool, rows=3) expr=($.0 and $.1)
+          child: vortex.plan.pack({0=bool, 1=bool}, rows=3)
+            0: vortex.plan.take(bool, rows=3)
               codes: vortex.plan.filter(u8, rows=3)
                 child: vortex.plan.segment_scan(u8, rows=3)
               values: vortex.plan.eval(bool, rows=2) expr=($ > 5i32)
                 child: vortex.plan.filter(i32, rows=2)
                   child: vortex.plan.segment_scan(i32, rows=2)
-            b: vortex.plan.eval(bool, rows=3) expr=($ > 7i32)
+            1: vortex.plan.eval(bool, rows=3) expr=($ > 7i32)
               child: vortex.plan.filter(i32, rows=3)
                 child: vortex.plan.segment_scan(i32, rows=3)
     ");
@@ -675,12 +675,12 @@ fn row_idx_and_data_expression_pushes_data_into_chunks() -> VortexResult<()> {
     let expression = and(gt(row_idx(), lit(10_u64)), gt(root(), lit(5_i32)));
     let plan = optimize(make_row_idx_plan(expression, child)?, &SESSION)?;
 
-    insta::assert_snapshot!(plan.display_tree(), @r"
-    root: vortex.plan.eval(bool, rows=3) expr=($.row_idx and $.child)
-      child: vortex.plan.pack({row_idx=bool, child=bool}, rows=3)
-        row_idx: vortex.plan.eval(bool, rows=3) expr=($ > 10u64)
+    insta::assert_snapshot!(plan.display_tree(), @"
+    root: vortex.plan.eval(bool, rows=3) expr=($.0 and $.1)
+      child: vortex.plan.pack({0=bool, 1=bool}, rows=3)
+        0: vortex.plan.eval(bool, rows=3) expr=($ > 10u64)
           child: vortex.plan.row_idx(u64, rows=3)
-        child: vortex.plan.concat(bool, rows=3)
+        1: vortex.plan.concat(bool, rows=3)
           chunks[0]: vortex.plan.eval(bool, rows=1) expr=($ > 5i32)
             child: vortex.plan.filter(i32, rows=1)
               child: vortex.plan.segment_scan(i32, rows=1)
@@ -940,16 +940,16 @@ fn compound_expression_pushes_through_nested_struct_and_dictionary() -> VortexRe
     let plan = make_eval(expression, make_plan(layout)?)?.into_plan();
 
     let optimized = optimize(plan, &SESSION)?;
-    insta::assert_snapshot!(optimized.display_tree(), @r"
-    root: vortex.plan.eval(bool, rows=3) expr=($.b and $.c)
-      child: vortex.plan.pack({b=bool, c=bool}, rows=3)
-        b: vortex.plan.take(bool, rows=3)
+    insta::assert_snapshot!(optimized.display_tree(), @"
+    root: vortex.plan.eval(bool, rows=3) expr=($.0 and $.1)
+      child: vortex.plan.pack({0=bool, 1=bool}, rows=3)
+        0: vortex.plan.take(bool, rows=3)
           codes: vortex.plan.filter(u8, rows=3)
             child: vortex.plan.segment_scan(u8, rows=3)
           values: vortex.plan.eval(bool, rows=2) expr=($ > 5i32)
             child: vortex.plan.filter(i32, rows=2)
               child: vortex.plan.segment_scan(i32, rows=2)
-        c: vortex.plan.eval(bool, rows=3) expr=($ > 7i32)
+        1: vortex.plan.eval(bool, rows=3) expr=($ > 7i32)
           child: vortex.plan.filter(i32, rows=3)
             child: vortex.plan.segment_scan(i32, rows=3)
     ");
@@ -1048,15 +1048,15 @@ fn multi_field_struct_expression_pushes_into_each_field() -> VortexResult<()> {
 
     let optimized = optimize(plan, &SESSION)?;
     insta::assert_snapshot!(optimized.display_tree(), @"
-    root: vortex.plan.eval(bool, rows=3) expr=($.a and $.b)
-      child: vortex.plan.pack({a=bool, b=bool}, rows=3)
-        a: vortex.plan.take(bool, rows=3)
+    root: vortex.plan.eval(bool, rows=3) expr=($.0 and $.1)
+      child: vortex.plan.pack({0=bool, 1=bool}, rows=3)
+        0: vortex.plan.take(bool, rows=3)
           codes: vortex.plan.filter(u8, rows=3)
             child: vortex.plan.segment_scan(u8, rows=3)
           values: vortex.plan.eval(bool, rows=2) expr=($ > 5i32)
             child: vortex.plan.filter(i32, rows=2)
               child: vortex.plan.segment_scan(i32, rows=2)
-        b: vortex.plan.eval(bool, rows=3) expr=($ > 7i32)
+        1: vortex.plan.eval(bool, rows=3) expr=($ > 7i32)
           child: vortex.plan.filter(i32, rows=3)
             child: vortex.plan.segment_scan(i32, rows=3)
     ");
@@ -1124,14 +1124,14 @@ fn multi_field_struct_expression_keeps_cross_field_refinement() -> VortexResult<
 
     let optimized = optimize(plan, &SESSION)?;
     insta::assert_snapshot!(optimized.display_tree(), @"
-    root: vortex.plan.eval(bool, rows=3) expr=(($.a + $.b) > 10i32)
-      child: vortex.plan.pack({a=i32, b=i32}, rows=3)
-        a: vortex.plan.take(i32, rows=3)
+    root: vortex.plan.eval(bool, rows=3) expr=(($.0 + $.1) > 10i32)
+      child: vortex.plan.pack({0=i32, 1=i32}, rows=3)
+        0: vortex.plan.take(i32, rows=3)
           codes: vortex.plan.filter(u8, rows=3)
             child: vortex.plan.segment_scan(u8, rows=3)
           values: vortex.plan.filter(i32, rows=2)
             child: vortex.plan.segment_scan(i32, rows=2)
-        b: vortex.plan.filter(i32, rows=3)
+        1: vortex.plan.filter(i32, rows=3)
           child: vortex.plan.segment_scan(i32, rows=3)
     ");
     assert_eq!(
@@ -1396,13 +1396,16 @@ fn pruning_expression_partitions_across_row_idx_and_zoned_struct_field() -> Vort
         .falsify(&session)?
         .ok_or_else(|| vortex_err!("filter has no falsifier"))?;
 
-    let optimized = optimize(plan_row_idx_expression(falsifier, source)?, &SESSION)?;
-    insta::assert_snapshot!(optimized.display_tree(), @r"
-    root: vortex.plan.eval(bool?, rows=5) expr=($.row_idx or $.child)
-      child: vortex.plan.pack({row_idx=bool?, child=bool?}, rows=5)
-        row_idx: vortex.plan.eval(bool?, rows=5) expr=(stat($, vortex.max()) <= 11u64)
+    let optimized = optimize(
+        plan_row_idx_expression(falsifier, source, &SESSION)?,
+        &SESSION,
+    )?;
+    insta::assert_snapshot!(optimized.display_tree(), @"
+    root: vortex.plan.eval(bool?, rows=5) expr=($.0 or $.1)
+      child: vortex.plan.pack({0=bool?, 1=bool?}, rows=5)
+        0: vortex.plan.eval(bool?, rows=5) expr=(stat($, vortex.max()) <= 11u64)
           child: vortex.plan.row_idx(u64, rows=5)
-        child: vortex.plan.zoned(bool?, rows=5) prune=(stat($, vortex.max()) <= 5i32)
+        1: vortex.plan.zoned(bool?, rows=5) prune=(stat($, vortex.max()) <= 5i32)
           zones: vortex.plan.filter({vortex.max()=i32?}, rows=2)
             child: vortex.plan.segment_scan({vortex.max()=i32?}, rows=2)
     ");

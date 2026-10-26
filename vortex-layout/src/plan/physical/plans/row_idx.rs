@@ -1,31 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
-use std::fmt::Formatter;
 use std::ops::Range;
 
 use vortex_array::EmptyMetadata;
 use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::traversal::NodeExt;
-use vortex_array::expr::traversal::Transformed;
-use vortex_array::expr::traversal::TraversalOrder;
-use vortex_array::scalar_fn::fns::pack::Pack as PackFn;
+use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure_eq;
-use vortex_error::vortex_err;
-use vortex_expr::transform::partition_bound;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::layouts::row_idx::RowIdx as RowIdxFn;
+use crate::partition::FieldIndex;
+use crate::partition::NodeTouches;
+use crate::partition::PartitionRule;
+use crate::partition::PartitionRules;
+use crate::partition::Partitions;
+use crate::partition::PartitionedExpression;
+use crate::partition::partition_expression;
+use crate::partition::positional_name;
 use crate::plan::physical::EvalPlan;
 use crate::plan::physical::PackPlan;
 use crate::plan::physical::Plan;
@@ -38,10 +39,6 @@ use crate::plan::physical::check_child_count;
 use crate::plan::physical::operators::OnceSource;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
-use crate::plan::physical::plans::pack::rewrite_partition_root;
-
-const ROW_IDX_PARTITION_NAME: &str = "row_idx";
-const CHILD_PARTITION_NAME: &str = "child";
 
 /// Generates global row indices for the current execution row domain.
 #[derive(Clone, Debug)]
@@ -115,6 +112,43 @@ impl PlanVTable for RowIdx {
     }
 }
 
+const CHILD_SLOT: FieldIndex = 0;
+const ROW_IDX_SLOT: FieldIndex = FieldIndex::MAX;
+
+pub(crate) fn row_idx_partition_rules() -> PartitionRules {
+    let mut by_fn = HashMap::new();
+    by_fn.insert(
+        RowIdxFn.id(),
+        Box::new(RowIdxFnRule) as Box<dyn PartitionRule>,
+    );
+    PartitionRules {
+        scope: Box::new(RowIdxScopeRule),
+        by_fn,
+    }
+}
+
+/// row_idx as $ reads its child
+struct RowIdxScopeRule;
+impl PartitionRule for RowIdxScopeRule {
+    fn apply(&self, node: &BoundExpression) -> VortexResult<Option<NodeTouches>> {
+        Ok(Some(NodeTouches {
+            slots: vec![CHILD_SLOT],
+            replacement: BoundExpression::new_root(node.dtype().clone()),
+        }))
+    }
+}
+
+/// row_idx as a non-root reads nothing and generates a virtual output slot
+struct RowIdxFnRule;
+impl PartitionRule for RowIdxFnRule {
+    fn apply(&self, _node: &BoundExpression) -> VortexResult<Option<NodeTouches>> {
+        Ok(Some(NodeTouches {
+            slots: vec![ROW_IDX_SLOT],
+            replacement: BoundExpression::new_root(row_idx_dtype()),
+        }))
+    }
+}
+
 /// Plans an expression over a data source and its global row-index domain.
 ///
 /// Expressions that only use data bypass the row-index source, expressions that only use
@@ -123,162 +157,46 @@ impl PlanVTable for RowIdx {
 pub fn plan_row_idx_expression(
     expression: BoundExpression,
     child: PlanRef,
+    session: &VortexSession,
 ) -> VortexResult<PlanRef> {
-    let partitioned = partition_bound(expression.clone(), |node| {
-        if node
-            .as_scalar()
-            .is_some_and(|scalar_fn| scalar_fn.is::<RowIdxFn>())
-        {
-            vec![RowIdxExpressionPartition::RowIdx]
-        } else if node.is_root() {
-            vec![RowIdxExpressionPartition::Child]
-        } else {
-            vec![]
-        }
-    })?;
-
-    if partitioned.partition_annotations.is_empty() {
-        let row_domain = PackPlan::try_new(
-            StructFields::empty(),
-            Nullability::NonNullable,
-            child.row_count(),
-            Vec::new(),
-            None,
-        )?
-        .into_plan();
-        return Ok(EvalPlan::try_new(expression, row_domain)?.into_plan());
-    }
-
-    if partitioned.partition_annotations.len() == 1 {
-        return match partitioned.partition_annotations[0] {
-            RowIdxExpressionPartition::RowIdx => {
-                let expression = replace_row_idx(expression)?;
-                let values = RowIdxPlan::new(child.row_count()).into_plan();
-                Ok(EvalPlan::try_new(expression, values)?.into_plan())
-            }
-            RowIdxExpressionPartition::Child => {
-                Ok(EvalPlan::try_new(expression, child)?.into_plan())
-            }
-        };
-    }
-
-    vortex_ensure_eq!(
-        partitioned.partition_annotations.len(),
-        2,
-        "Row-index expression produced more than two partitions"
-    );
-    let row_idx_index = partitioned
-        .partition_annotations
-        .iter()
-        .position(|partition| *partition == RowIdxExpressionPartition::RowIdx)
-        .ok_or_else(|| vortex_err!("Row-index expression has no row-index partition"))?;
-    let child_index = partitioned
-        .partition_annotations
-        .iter()
-        .position(|partition| *partition == RowIdxExpressionPartition::Child)
-        .ok_or_else(|| vortex_err!("Row-index expression has no data partition"))?;
-
-    let row_idx_partition = &partitioned.partitions[row_idx_index];
-    let child_partition = &partitioned.partitions[child_index];
-    let (Some(row_idx_pack), Some(child_pack)) = (
-        row_idx_partition
-            .as_scalar()
-            .and_then(|scalar_fn| scalar_fn.as_opt::<PackFn>()),
-        child_partition
-            .as_scalar()
-            .and_then(|scalar_fn| scalar_fn.as_opt::<PackFn>()),
-    ) else {
-        return Err(vortex_err!(
-            "Row-index expression partitions must be struct packs"
-        ));
-    };
-    let row_idx_partition_name = partitioned.partition_names[row_idx_index].clone();
-    let child_partition_name = partitioned.partition_names[child_index].clone();
-    let mut collapsed = Vec::with_capacity(2);
-
-    let row_idx_expression = if row_idx_partition.children().len() == 1 {
-        let Some(value_name) = row_idx_pack.names.get(0) else {
-            return Err(vortex_err!("Row-index expression partition is empty"));
-        };
-        collapsed.push((row_idx_partition_name, value_name.clone()));
-        row_idx_partition.children()[0].clone()
-    } else {
-        row_idx_partition.clone()
-    };
-    let child_expression = if child_partition.children().len() == 1 {
-        let Some(value_name) = child_pack.names.get(0) else {
-            return Err(vortex_err!("Data expression partition is empty"));
-        };
-        collapsed.push((child_partition_name, value_name.clone()));
-        child_partition.children()[0].clone()
-    } else {
-        child_partition.clone()
-    };
-
     let row_count = child.row_count();
-    let row_idx_expression = replace_row_idx(row_idx_expression)?;
-    let row_idx_plan =
-        EvalPlan::try_new(row_idx_expression, RowIdxPlan::new(row_count).into_plan())?.into_plan();
-    let child_plan = EvalPlan::try_new(child_expression, child)?.into_plan();
-    let fields = StructFields::from_iter([
-        (ROW_IDX_PARTITION_NAME, row_idx_plan.dtype().clone()),
-        (CHILD_PARTITION_NAME, child_plan.dtype().clone()),
-    ]);
-    let partitions = PackPlan::try_new(
-        fields,
-        Nullability::NonNullable,
-        row_count,
-        vec![row_idx_plan, child_plan],
-        None,
-    )?;
-    let residual =
-        rewrite_partition_root(partitioned.root, partitions.dtype().clone(), &collapsed)?;
-
-    Ok(EvalPlan::try_new(residual, partitions.into_plan())?.into_plan())
-}
-
-fn replace_row_idx(expression: BoundExpression) -> VortexResult<BoundExpression> {
-    Ok(expression
-        .transform_down(|node| {
-            if node
-                .as_scalar()
-                .is_some_and(|scalar_fn| scalar_fn.is::<RowIdxFn>())
-            {
-                Ok(Transformed {
-                    value: BoundExpression::new_root(row_idx_dtype()),
-                    changed: true,
-                    order: TraversalOrder::Skip,
-                })
-            } else {
-                Ok(Transformed::no(node))
-            }
-        })?
-        .into_inner())
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum RowIdxExpressionPartition {
-    RowIdx,
-    Child,
-}
-
-impl RowIdxExpressionPartition {
-    fn name(self) -> &'static str {
-        match self {
-            Self::RowIdx => ROW_IDX_PARTITION_NAME,
-            Self::Child => CHILD_PARTITION_NAME,
+    let partitioned = match partition_expression(&expression, RowIdx.id(), session)? {
+        PartitionedExpression::One(slot, expr) => {
+            let source = match slot {
+                Some(ROW_IDX_SLOT) => RowIdxPlan::new(row_count).into_plan(),
+                Some(_) => child,
+                None => PackPlan::try_new(
+                    StructFields::empty(),
+                    Nullability::NonNullable,
+                    row_count,
+                    Vec::new(),
+                    None,
+                )?
+                .into_plan(),
+            };
+            return Ok(EvalPlan::try_new(expr, source)?.into_plan());
         }
-    }
-}
+        PartitionedExpression::Many(partitioned) => partitioned,
+    };
+    let Partitions { root, partitions } = partitioned;
 
-impl Display for RowIdxExpressionPartition {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(self.name())
+    let mut plans = Vec::with_capacity(partitions.len());
+    for partition in partitions {
+        let source = if partition.slot == ROW_IDX_SLOT {
+            RowIdxPlan::new(row_count).into_plan()
+        } else {
+            child.clone()
+        };
+        plans.push(EvalPlan::try_new(partition.expr, source)?.into_plan());
     }
-}
 
-impl From<RowIdxExpressionPartition> for FieldName {
-    fn from(partition: RowIdxExpressionPartition) -> Self {
-        FieldName::from(partition.name())
-    }
+    let fields = StructFields::from_iter(
+        plans
+            .iter()
+            .enumerate()
+            .map(|(position, plan)| (positional_name(position), plan.dtype().clone())),
+    );
+    let partitions = PackPlan::try_new(fields, Nullability::NonNullable, row_count, plans, None)?;
+
+    Ok(EvalPlan::try_new(root, partitions.into_plan())?.into_plan())
 }

@@ -293,7 +293,7 @@ impl<A: 'static + Send> ScanRun<A> {
             Some(plan) => plan,
             None => {
                 let plan = optimize(
-                    plan_row_idx_expression(builder.projection.clone(), root)?,
+                    plan_row_idx_expression(builder.projection.clone(), root, &builder.session)?,
                     &builder.session,
                 )?;
                 cache.insert_projection(builder.projection, plan)

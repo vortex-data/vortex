@@ -10,6 +10,7 @@ mod pack;
 mod row_idx;
 mod segment_scan;
 mod share;
+pub(crate) mod struct_partitioning;
 mod take;
 mod zoned;
 
@@ -43,6 +44,7 @@ pub use row_idx::RowIdxData;
 pub use row_idx::RowIdxPlan;
 pub use row_idx::plan_row_idx_expression;
 pub use row_idx::row_idx_dtype;
+pub(crate) use row_idx::row_idx_partition_rules;
 pub use segment_scan::SegmentScan;
 pub use segment_scan::SegmentScanData;
 pub use segment_scan::SegmentScanPlan;
