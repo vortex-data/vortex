@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use arrow_array::RecordBatch;
+use async_trait::async_trait;
 use datafusion::assert_batches_eq;
 use datafusion::prelude::SessionContext;
 use datafusion_common::ScalarValue;
@@ -22,11 +23,22 @@ use datafusion_physical_plan::expressions as df_expr;
 use datafusion_physical_plan::filter_pushdown::PushedDown;
 use rstest::rstest;
 use vortex::VortexSessionDefault;
+use vortex::array::dtype::DType;
+use vortex::array::dtype::FieldPath;
+use vortex::array::expr::stats::Precision as VortexPrecision;
+use vortex::array::expr::stats::Stat;
+use vortex::array::scalar::Scalar;
+use vortex::array::stats::StatsSet;
 use vortex::buffer::ByteBufferMut;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::scan::DataSource as ScanDataSource;
+use vortex::scan::DataSourceScanRef;
+use vortex::scan::ScanRequest;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use super::VortexDataSource;
 
@@ -159,6 +171,57 @@ async fn projection_preserves_arrow_types(
     Ok(())
 }
 
+struct StatisticsSource {
+    dtype: DType,
+}
+
+#[async_trait]
+impl ScanDataSource for StatisticsSource {
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn row_count(&self) -> VortexPrecision<u64> {
+        VortexPrecision::Exact(3)
+    }
+
+    async fn scan(&self, _request: ScanRequest) -> VortexResult<DataSourceScanRef> {
+        vortex_bail!("statistics-only test source")
+    }
+
+    async fn field_statistics(&self, field_path: &FieldPath) -> VortexResult<StatsSet> {
+        if field_path != &FieldPath::from_name("a") {
+            return Ok(StatsSet::default());
+        }
+        let exact = |value: Scalar| {
+            VortexPrecision::Exact(value.into_value().expect("non-null fixture statistic"))
+        };
+        Ok([
+            (Stat::Min, exact(Scalar::from(1_i32))),
+            (Stat::Max, exact(Scalar::from(3_i32))),
+            (Stat::NullCount, exact(Scalar::from(1_u64))),
+        ]
+        .into_iter()
+        .collect())
+    }
+}
+
+async fn source_with_exact_statistics() -> anyhow::Result<VortexDataSource> {
+    let session = VortexSession::default();
+    let batch = arrow_array::record_batch!(("a", Int32, vec![Some(1), None, Some(3)]))?;
+    let array = session
+        .arrow()
+        .from_arrow_record_batch(batch.clone(), &batch.schema())?;
+    Ok(VortexDataSource::builder(
+        Arc::new(StatisticsSource {
+            dtype: array.dtype().clone(),
+        }),
+        session,
+    )
+    .build()
+    .await?)
+}
+
 #[rstest]
 #[case(false, None, Precision::Exact(3), true)]
 #[case(false, Some(3), Precision::Exact(3), true)]
@@ -173,8 +236,7 @@ async fn subset_statistics_follow_filter_and_fetch(
     #[case] rows: Precision<usize>,
     #[case] exact_columns: bool,
 ) -> anyhow::Result<()> {
-    let batch = arrow_array::record_batch!(("a", Int32, vec![Some(1), None, Some(3)]))?;
-    let original = vortex_source_from_batch(batch).await?;
+    let original = source_with_exact_statistics().await?;
     let source: Arc<dyn DataSource> = if filter {
         let filter: Arc<dyn PhysicalExpr> = Arc::new(df_expr::BinaryExpr::new(
             Arc::new(df_expr::Column::new("a", 0)),
