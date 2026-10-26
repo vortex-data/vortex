@@ -4,6 +4,7 @@
 //! Batched selection using compact request descriptors and one operation-owned page cache.
 
 use std::collections::BTreeSet;
+use std::iter::repeat_n;
 use std::ops::Range;
 
 use pco::data_types::Number;
@@ -21,6 +22,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PiecewiseSequence;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
+use vortex_array::arrays::piecewise_sequence::array::PiecewiseSequenceArraySlotsExt;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::half;
@@ -31,6 +33,7 @@ use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
@@ -38,6 +41,7 @@ use crate::Pco;
 use crate::PcoArrayExt;
 use crate::access::AccessState;
 use crate::array::number_type_from_ptype;
+use crate::decoder::DecodedPages;
 use crate::decoder::PageDecoder;
 use crate::page_index::ChunkCursor;
 use crate::page_index::IndexedView;
@@ -66,16 +70,32 @@ impl TakeExecute for Pco {
                 .union_nullability(indices.dtype().nullability());
             return Ok(Some(Canonical::empty(&dtype).into_array()));
         }
-        // Compact range execution is introduced separately; preserve the normal fallback.
-        if indices.is::<PiecewiseSequence>() {
-            return Ok(None);
-        }
         let PageIndex::IndexedFast(index) = array.page_index()? else {
             return Ok(None);
         };
         let view = index.view();
-        let grouped;
-        let runs = {
+        let compact = indices.as_opt::<PiecewiseSequence>().is_some();
+        let mut grouped = None;
+        let runs = if let Some(sequence) = indices.as_opt::<PiecewiseSequence>() {
+            let starts = sequence.starts().clone().execute::<PrimitiveArray>(ctx)?;
+            let lengths = sequence.lengths().clone().execute::<PrimitiveArray>(ctx)?;
+            let multipliers = sequence
+                .multipliers()
+                .clone()
+                .execute::<PrimitiveArray>(ctx)?;
+            let starts = primitive_usizes(&starts)?;
+            let lengths = primitive_usizes(&lengths)?;
+            let multipliers = primitive_usizes(&multipliers)?;
+            let mut runs = Vec::with_capacity(starts.len());
+            for ((start, length), stride) in starts.into_iter().zip(lengths).zip(multipliers) {
+                runs.push(Run {
+                    start: Some(start),
+                    length,
+                    stride,
+                });
+            }
+            runs
+        } else {
             let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
             let mask = indices.validity()?.execute_mask(indices.len(), ctx)?;
             // Reuse native logical-null-aware extrema and their immutable-array stats cache.
@@ -121,6 +141,22 @@ impl TakeExecute for Pco {
                 primitive_runs(indices.as_slice::<I>(), &mask)?
             })
         };
+        if compact {
+            validate_runs(&runs, array.len(), indices.len())?;
+            if let Some(result) = zero_page_take(array, indices.len(), ctx)? {
+                return Ok(Some(result));
+            }
+            // Compact ranges/repeats remain compact. Only genuine strided requests carry
+            // per-position selection work; output cardinality alone is not setup work.
+            let random = runs
+                .iter()
+                .filter(|run| run.stride > 1)
+                .map(|run| run.length)
+                .sum();
+            if descriptor_bytes(random) >= canonical_bytes(array) && random != 0 {
+                return Ok(None);
+            }
+        }
         let nullable = array.dtype().nullability() | indices.dtype().nullability();
         let result = match_number_enum!(number_type_from_ptype(array.dtype().as_ptype()), NumberType<T> => {
             gather::<T>(array, view, &runs, indices.len(), nullable, grouped, ctx)?
@@ -280,6 +316,43 @@ where
     Ok(runs)
 }
 
+fn primitive_usizes(array: &PrimitiveArray) -> VortexResult<Vec<usize>> {
+    match_each_integer_ptype!(array.ptype(), |I| {
+        array
+            .as_slice::<I>()
+            .iter()
+            .map(|&value| checked_index(value))
+            .collect()
+    })
+}
+
+fn validate_runs(runs: &[Run], source_len: usize, output_len: usize) -> VortexResult<()> {
+    let mut total = 0usize;
+    for run in runs {
+        total = total
+            .checked_add(run.length)
+            .ok_or_else(|| vortex_err!("Pco take output length overflows usize"))?;
+        if let Some(start) = run.start
+            && run.length != 0
+        {
+            let last = (run.length - 1)
+                .checked_mul(run.stride)
+                .and_then(|delta| start.checked_add(delta))
+                .ok_or_else(|| vortex_err!("Pco take range overflows usize"))?;
+            vortex_ensure!(
+                last < source_len,
+                "Pco take index {last} exceeds array length {source_len}"
+            );
+        }
+    }
+    vortex_ensure_eq!(
+        total,
+        output_len,
+        "Pco take expanded length does not match declared length"
+    );
+    Ok(())
+}
+
 fn gather<T: Number + NativePType>(
     array: ArrayView<'_, Pco>,
     view: IndexedView<'_>,
@@ -299,11 +372,16 @@ fn gather<T: Number + NativePType>(
     {
         return stream_range::<T>(array, view, *start..*start + *length, nullability, ctx);
     }
-    let defined = grouped.unwrap_or(output_len);
-    if nullability.is_nullable() {
-        gather_grouped::<T, true>(array, view, runs, output_len, defined, ctx)
+    if let Some(defined) = grouped {
+        if nullability.is_nullable() {
+            gather_grouped::<T, true>(array, view, runs, output_len, defined, ctx)
+        } else {
+            gather_grouped::<T, false>(array, view, runs, output_len, defined, ctx)
+        }
+    } else if nullability.is_nullable() {
+        gather_typed::<T, true>(array, view, runs, output_len, ctx)
     } else {
-        gather_grouped::<T, false>(array, view, runs, output_len, defined, ctx)
+        gather_typed::<T, false>(array, view, runs, output_len, ctx)
     }
 }
 
@@ -404,6 +482,173 @@ fn gather_grouped<T: Number + NativePType, const NULLABLE: bool>(
     Ok(PrimitiveArray::new(values.freeze(), validity))
 }
 
+struct Output<T: NativePType, const NULLABLE: bool> {
+    values: BufferMut<T>,
+    len: usize,
+}
+
+impl<T: NativePType, const NULLABLE: bool> Output<T, NULLABLE> {
+    fn new(len: usize, ctx: &ExecutionCtx) -> Self {
+        let values = if NULLABLE {
+            BufferMut::zeroed_in(len, ctx.allocator().clone())
+        } else {
+            BufferMut::with_capacity_in(len, ctx.allocator().clone())
+        };
+        Self { values, len: 0 }
+    }
+
+    fn push(&mut self, value: T) {
+        if NULLABLE {
+            self.values[self.len] = value;
+        } else {
+            self.values.push(value);
+        }
+        self.len += 1;
+    }
+
+    fn extend_from_slice(&mut self, values: &[T]) {
+        if NULLABLE {
+            self.values[self.len..self.len + values.len()].copy_from_slice(values);
+        } else {
+            self.values.extend_from_slice(values);
+        }
+        self.len += values.len();
+    }
+
+    fn repeat(&mut self, value: T, len: usize) {
+        if NULLABLE {
+            self.values[self.len..self.len + len].fill(value);
+        } else {
+            self.values.extend(repeat_n(value, len));
+        }
+        self.len += len;
+    }
+
+    fn nulls(&mut self, len: usize) {
+        if NULLABLE {
+            self.len += len;
+        } else {
+            self.repeat(T::default(), len);
+        }
+    }
+}
+
+fn gather_typed<T: Number + NativePType, const NULLABLE: bool>(
+    array: ArrayView<'_, Pco>,
+    view: IndexedView<'_>,
+    runs: &[Run],
+    output_len: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
+    let mut state = AccessState::default();
+    let mut decoded = DecodedPages::<T>::new(array)?;
+    let mut values = Output::<T, NULLABLE>::new(output_len, ctx);
+    // The non-nullable monomorphization has no bitmap allocation or append work.
+    let mut valid = BitBufferMut::with_capacity(if NULLABLE { output_len } else { 0 });
+    for run in runs {
+        let Some(start) = run.start else {
+            if NULLABLE {
+                valid.append_n(false, run.length);
+            }
+            values.nulls(run.length);
+            continue;
+        };
+        if run.stride == 0 && run.length != 0 {
+            if let Some((page, value)) =
+                state.resolve::<true>(view, array, array.slice_start() + start, ctx)?
+            {
+                let value = decoded.values(view, array, page, ctx)?.as_slice::<T>()[value];
+                values.repeat(value, run.length);
+                if NULLABLE {
+                    valid.append_n(true, run.length);
+                }
+            } else {
+                if NULLABLE {
+                    valid.append_n(false, run.length);
+                }
+                values.nulls(run.length);
+            }
+            continue;
+        }
+        if run.stride == 1 && run.length != 0 {
+            let mut row = array.slice_start() + start;
+            let stop = row + run.length;
+            // Descriptor-count iteration bounds work even when optional index contents are bad.
+            // Valid files visit at most one span per physical page; an all-null span needs one turn.
+            for _ in 0..=view.page_count() {
+                if row >= stop {
+                    break;
+                }
+                let span = state.span(view, array, row, stop, ctx)?;
+                match &span.mask {
+                    Mask::AllTrue(n) => {
+                        values.extend_from_slice(
+                            &decoded.values(view, array, span.page, ctx)?.as_slice::<T>()
+                                [span.values],
+                        );
+                        if NULLABLE {
+                            valid.append_n(true, *n);
+                        }
+                    }
+                    Mask::AllFalse(n) => {
+                        values.nulls(*n);
+                        if NULLABLE {
+                            valid.append_n(false, *n);
+                        }
+                    }
+                    Mask::Values(mask) => {
+                        let source = decoded.values(view, array, span.page, ctx)?.as_slice::<T>();
+                        let source = &source[span.values];
+                        let mut logical = 0usize;
+                        let mut compact = 0usize;
+                        // Copy defined runs straight into the final output. Null gaps are
+                        // initialized once; no compact staging output is expanded afterward.
+                        for (start, stop) in mask.bit_buffer().set_slices() {
+                            values.nulls(start - logical);
+                            let count = stop - start;
+                            values.extend_from_slice(&source[compact..compact + count]);
+                            compact += count;
+                            logical = stop;
+                        }
+                        values.nulls(mask.len() - logical);
+                        if NULLABLE {
+                            valid.append_buffer(mask.bit_buffer());
+                        }
+                    }
+                }
+                row = span.stop;
+            }
+            continue;
+        }
+        for offset in 0..run.length {
+            // The complete descriptor, including its output length and last element, was
+            // checked before allocating output. The source slice itself is already validated.
+            let row = array.slice_start() + start + offset * run.stride;
+            if let Some((page, value)) = state.resolve::<true>(view, array, row, ctx)? {
+                values.push(decoded.values(view, array, page, ctx)?.as_slice::<T>()[value]);
+                if NULLABLE {
+                    valid.append_true();
+                }
+            } else {
+                values.nulls(1);
+                if NULLABLE {
+                    valid.append_false();
+                }
+            }
+        }
+    }
+    let validity = if NULLABLE {
+        Validity::from(valid.freeze())
+    } else {
+        Validity::NonNullable
+    };
+    values.values.truncate(output_len);
+    values
+        .values
+        .push_n(T::default(), output_len - values.values.len());
+    Ok(PrimitiveArray::new(values.values.freeze(), validity))
+}
+
 /// One initialized final output buffer. Nullable outputs leave null positions at the
 /// allocator's safe zero initialization instead of eagerly touching every null gap.
 /// Contiguous selections stream pages into the final initialized values buffer and retain
@@ -489,4 +734,16 @@ fn stream_range<T: Number + NativePType>(
         .slice(global_start..stop)?
         .union_nullability(nullability);
     Ok(PrimitiveArray::new(values.freeze(), validity))
+}
+
+pub(crate) fn slice(
+    array: ArrayView<'_, Pco>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
+    let PageIndex::IndexedFast(index) = array.page_index()? else {
+        return array.decompress(&array.unsliced_validity(), ctx);
+    };
+    match_number_enum!(number_type_from_ptype(array.dtype().as_ptype()), NumberType<T> => {
+        stream_range::<T>(array, index.view(), 0..array.len(), array.dtype().nullability(), ctx)
+    })
 }
