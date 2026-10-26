@@ -59,6 +59,8 @@ pub fn initialize(session: &VortexSession) {
     let arrow_session = session.arrow();
     arrow_session.register_exporter(Arc::new(Vector));
     arrow_session.register_importer(Arc::new(Vector));
+    arrow_session.register_exporter(Arc::new(FixedShapeTensor));
+    arrow_session.register_importer(Arc::new(FixedShapeTensor));
 
     let session_fns = session.scalar_fns();
 
