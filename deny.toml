@@ -17,7 +17,10 @@ ignore = [
     "RUSTSEC-2024-0436",
     # quick-xml is a transitive dependency that we cannot upgrade ourselves
     "RUSTSEC-2026-0195",
-    "RUSTSEC-2026-0194"
+    "RUSTSEC-2026-0194",
+    # zstd-safe 7 is a transitive dependency of arrow, parquet, DataFusion and Lance through zstd 0.13
+    "RUSTSEC-2026-0398",
+    "RUSTSEC-2026-0403",
 ]
 
 [licenses]
