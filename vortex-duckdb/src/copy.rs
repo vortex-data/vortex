@@ -473,8 +473,10 @@ mod tests {
         assert_eq!(leaf_stats_columns(file_stats).len(), 2);
         let nested = column_stats(&summary, 0)?;
         assert_eq!(nested.column_key, "\"s\".\"b\"");
-        assert!(nested.min.is_none());
-        assert!(nested.null_count.is_none());
+        // `s` is nullable, and its field's statistics describe `s.b` as null wherever `s` is.
+        assert!(nested.min.is_some());
+        assert!(nested.max.is_some());
+        assert_eq!(nested.null_count, Some(0));
         assert!(nested.column_size_bytes.is_some_and(|size| size > 0));
 
         let top_level = column_stats(&summary, 1)?;
