@@ -174,7 +174,10 @@ impl ListViewArray {
         valid: &Mask,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ListViewArray> {
-        let null_runs = null_runs_holding_elements(starts, end, valid);
+        // A list holds elements if and only if the next one starts later.
+        let null_runs = null_runs_holding_elements(valid, |index| {
+            starts[index].as_() != starts.get(index + 1).map_or(end, |next| next.as_())
+        });
         if null_runs.is_empty() && starts[0].as_() == 0 && end == self.elements().len() {
             return Ok(self.clone());
         }

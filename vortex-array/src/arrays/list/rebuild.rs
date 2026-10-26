@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
@@ -58,7 +60,8 @@ impl ListArray {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ListArray> {
         let (starts, end) = (&offsets[..self.len()], offsets[self.len()].as_());
-        let null_runs = null_runs_holding_elements(starts, end, valid);
+        let null_runs =
+            null_runs_holding_elements(valid, |index| offsets[index] != offsets[index + 1]);
         if null_runs.is_empty() && offsets[0].as_() == 0 && end == self.elements().len() {
             return Ok(self.clone());
         }
@@ -78,35 +81,20 @@ impl ListArray {
     }
 }
 
-/// The runs of null lists that hold elements, among lists laid out back to back: list `i` starts
-/// at `starts[i]` and ends where the next list starts, or at `end` for the last list.
-pub(crate) fn null_runs_holding_elements<O: IntegerPType>(
-    starts: &[O],
-    end: usize,
+/// The runs of null lists that hold elements, given which lists hold elements.
+pub(crate) fn null_runs_holding_elements(
     valid: &Mask,
+    mut holds_elements: impl FnMut(usize) -> bool,
 ) -> Vec<(usize, usize)> {
-    let start_of = |index: usize| starts.get(index).map_or(end, |start| start.as_());
-    let mut runs = Vec::new();
-    // Lists never start before the previous one, so a run of null lists holds elements if and
-    // only if the list after it starts later than the run does.
-    let mut push_if_holding = |run_start: usize, run_end: usize| {
-        if run_start < run_end && start_of(run_start) != start_of(run_end) {
-            runs.push((run_start, run_end));
-        }
-    };
     match valid.bit_buffer() {
-        AllOr::All => {}
-        AllOr::None => push_if_holding(0, valid.len()),
-        AllOr::Some(bits) => {
-            let mut run_start = 0;
-            // The empty slice at the end closes a run of null lists at the end.
-            for (valid_start, valid_end) in bits.set_slices().chain([(bits.len(), bits.len())]) {
-                push_if_holding(run_start, valid_start);
-                run_start = valid_end;
-            }
-        }
+        AllOr::All => Vec::new(),
+        AllOr::None if (0..valid.len()).any(&mut holds_elements) => vec![(0, valid.len())],
+        AllOr::None => Vec::new(),
+        AllOr::Some(valid) => BitBuffer::collect_bool(valid.len(), &mut holds_elements)
+            .bitand_not(valid)
+            .set_slices()
+            .collect(),
     }
-    runs
 }
 
 /// Drops the elements before the first of the lists laid out back to back, after the last, and
@@ -138,22 +126,31 @@ pub(crate) fn drop_unreferenced_elements<O: IntegerPType>(
     let elements = if let [(start, stop)] = kept[..] {
         referenced.slice(start..stop)?
     } else {
+        let mut bits = BitBufferMut::new_unset(end - first);
+        for &(start, stop) in &kept {
+            bits.fill_range(start, stop, true);
+        }
         // With the ranges cached on the mask, the filter copies the elements range by range.
-        referenced.filter(Mask::from_slices(end - first, kept))?
+        referenced.filter(Mask::from_buffer_with_slices(bits.freeze(), kept))?
     };
 
     let mut offsets = BufferMut::with_capacity_in(starts.len() + 1, allocator.clone());
+    offsets.extend_from_slice(starts);
     let mut dropped = starts.first().copied().unwrap_or_else(O::zero);
     let mut from = 0;
     for &(run_start, run_end) in null_runs {
-        offsets.extend(starts[from..run_start].iter().map(|&start| start - dropped));
-        offsets.push_n(starts[run_start] - dropped, run_end - run_start);
+        for offset in &mut offsets[from..run_start] {
+            *offset = *offset - dropped;
+        }
+        offsets[run_start..run_end].fill(starts[run_start] - dropped);
         // A run at the end leaves no list after it to move down.
         if let Some(&next) = starts.get(run_end) {
             dropped += next - starts[run_start];
         }
         from = run_end;
     }
-    offsets.extend(starts[from..].iter().map(|&start| start - dropped));
+    for offset in &mut offsets[from..] {
+        *offset = *offset - dropped;
+    }
     Ok((elements, offsets))
 }
