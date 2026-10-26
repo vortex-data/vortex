@@ -1104,7 +1104,7 @@ fn test_filter_sliced_list_array() -> VortexResult<()> {
     &[0, 0, 0]
 )]
 #[case::no_lists_with_a_leftover(&[9], &[1], &[], &[], &[0])]
-fn rebuild_with_referenced_valid_elements(
+fn test_compact(
     #[case] elements: &[i32],
     #[case] offsets: &[u32],
     #[case] validity: &[bool],
@@ -1122,7 +1122,7 @@ fn rebuild_with_referenced_valid_elements(
         },
         &mut ctx,
     )?;
-    let rebuilt = list.rebuild_with_referenced_valid_elements(&mut ctx)?;
+    let rebuilt = list.compact(&mut ctx)?;
     assert_arrays_eq!(
         rebuilt.elements().clone(),
         PrimitiveArray::from_iter(expected_elements.iter().copied()),
@@ -1141,9 +1141,7 @@ fn rebuild_with_referenced_valid_elements(
 #[case::non_nullable(Validity::NonNullable)]
 #[case::all_valid(Validity::AllValid)]
 #[case::empty_null_list(Validity::from_iter([true, false, true]))]
-fn rebuild_with_referenced_valid_elements_returns_an_exact_list_as_is(
-    #[case] validity: Validity,
-) -> VortexResult<()> {
+fn test_compact_returns_an_exact_list_as_is(#[case] validity: Validity) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let list = ListArray::try_new(
         buffer![1i32, 2, 3].into_array(),
@@ -1151,7 +1149,7 @@ fn rebuild_with_referenced_valid_elements_returns_an_exact_list_as_is(
         validity,
         &mut ctx,
     )?;
-    let rebuilt = list.rebuild_with_referenced_valid_elements(&mut ctx)?;
+    let rebuilt = list.compact(&mut ctx)?;
     assert!(ArrayRef::ptr_eq(rebuilt.elements(), list.elements()));
     assert!(ArrayRef::ptr_eq(rebuilt.offsets(), list.offsets()));
     Ok(())
@@ -1162,7 +1160,7 @@ fn rebuild_with_referenced_valid_elements_returns_an_exact_list_as_is(
 #[case::no_null_list(2..4, &[3, 4, 5, 6], &[0, 2, 4])]
 #[case::a_null_list_holding_elements_first(1..4, &[3, 4, 5, 6], &[0, 0, 2, 4])]
 #[case::a_null_list_holding_elements_last(3..5, &[5, 6], &[0, 2, 2])]
-fn rebuild_with_referenced_valid_elements_sliced(
+fn test_compact_sliced(
     #[case] range: Range<usize>,
     #[case] expected_elements: &[i32],
     #[case] expected_offsets: &[u32],
@@ -1179,7 +1177,7 @@ fn rebuild_with_referenced_valid_elements_sliced(
     .slice(range)?
     .as_::<List>()
     .into_owned();
-    let rebuilt = list.rebuild_with_referenced_valid_elements(&mut ctx)?;
+    let rebuilt = list.compact(&mut ctx)?;
     assert_arrays_eq!(
         rebuilt.elements().clone(),
         PrimitiveArray::from_iter(expected_elements.iter().copied()),

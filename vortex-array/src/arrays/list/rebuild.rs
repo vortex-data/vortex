@@ -24,16 +24,13 @@ use crate::match_each_unsigned_integer_ptype;
 use crate::validity::Validity;
 
 impl ListArray {
-    /// Rebuilds the [`ListArray`] over only the elements that valid lists reference: nothing before
+    /// Compacts the [`ListArray`] to only the elements that valid lists reference: nothing before
     /// the first list, after the last or under a null list.
     ///
     /// Null lists come out empty, the offsets start at 0, end at the length of the elements and
     /// keep their type, and the validity is kept. An array with nothing to drop is returned as it
     /// is.
-    pub fn rebuild_with_referenced_valid_elements(
-        &self,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ListArray> {
+    pub fn compact(&self, ctx: &mut ExecutionCtx) -> VortexResult<ListArray> {
         let validity = self.list_validity();
         if validity.definitely_no_nulls()
             && self.offset_at(0, ctx)? == 0

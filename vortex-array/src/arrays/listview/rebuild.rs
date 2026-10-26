@@ -738,7 +738,7 @@ mod tests {
     /// and as list views with and without the zero-copy flag, against a reference that gathers
     /// each valid list's elements back to back.
     #[test]
-    fn rebuild_with_referenced_valid_elements_matches_a_reference() -> VortexResult<()> {
+    fn test_compact_and_make_exact_with_empty_nulls_match_a_reference() -> VortexResult<()> {
         const PTYPES: [PType; 5] = [PType::U8, PType::U16, PType::U64, PType::I32, PType::I64];
         let u32_dtype = DType::Primitive(PType::U32, Nullability::NonNullable);
         let mut ctx = SESSION.create_execution_ctx();
@@ -786,7 +786,7 @@ mod tests {
                 validity.clone(),
                 &mut ctx,
             )?;
-            let rebuilt = list.rebuild_with_referenced_valid_elements(&mut ctx)?;
+            let rebuilt = list.compact(&mut ctx)?;
             assert_arrays_eq!(
                 rebuilt.elements().clone(),
                 expected_elements.clone(),
