@@ -13,9 +13,10 @@
 //! Import this module's [`ScanBuilder`] to prepare a V2 scan. It accepts a [`ScanFile`] directly
 //! and supports projection, filters, row ranges, and selections. Unsupported layouts return an
 //! error when the plan is prepared; limits are not part of this builder's API. Work is cut into
-//! chunks of up to 65,536 rows, or 1,048,576 rows for filtered scans, independently of the stored
-//! layout's chunk boundaries. Full-file projections use smaller 8,192-row multiples when
-//! serialized bytes per row are high.
+//! chunks of up to 65,536 rows, or up to 1,048,576 rows for filtered scans, independently of the
+//! stored layout's chunk boundaries. Filtered scans use smaller chunks when the projection reads
+//! many bytes per row or the row range would give fewer chunks than threads. Full-file
+//! projections use smaller 8,192-row multiples when serialized bytes per row are high.
 //!
 //! A [`ScanFile`] carrying a [`ScanCache`] shares its lowered plan, filter plans and pruned
 //! zones, segment index, and dictionary values with every other scan of that file, like a cached
@@ -33,18 +34,20 @@ use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_scan::selection::Selection;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 pub use self::cache::ScanCache;
 pub use self::cache::WeakScanCache;
 use crate::LayoutRef;
 use crate::plan::physical::lower;
 use crate::plan::physical::optimize;
+use crate::plan::physical::pipeline::Scan;
 use crate::plan::physical::plan_row_idx_expression;
 pub use crate::scan::execution::ChunkPlanner;
-use crate::scan::execution::FILTERED_ROWS_PER_CHUNK;
 pub use crate::scan::execution::FilterPlans;
 use crate::scan::execution::MAX_ROWS_PER_CHUNK;
 pub use crate::scan::execution::PreparedScan;
@@ -52,7 +55,9 @@ pub use crate::scan::execution::PruneNext;
 pub use crate::scan::execution::PrunePlanner;
 use crate::scan::execution::ROW_BLOCK_SIZE;
 pub use crate::scan::execution::SegmentLocation;
+use crate::scan::execution::filtered_rows_per_chunk;
 use crate::scan::execution::rows_per_chunk;
+use crate::scan::execution::total_bytes;
 use crate::scan::v2::io::segment_ranges;
 use crate::segments::SegmentSource;
 
@@ -187,11 +192,33 @@ impl ScanBuilder {
                     plan_row_idx_expression(self.projection.clone(), root)?,
                     &self.session,
                 )?;
-                cache.insert_projection(self.projection, plan)
+                cache.insert_projection(self.projection.clone(), plan)
             }
         };
+        let rows = self.row_range.unwrap_or(0..row_count);
         let chunk_rows = if filter.is_some() {
-            FILTERED_ROWS_PER_CHUNK
+            let projected_bytes = if identity {
+                total_bytes(&file.locations)
+            } else {
+                cache.projection_bytes(&self.projection, || {
+                    let segments = Scan::segments(
+                        &self.session,
+                        &projection,
+                        0..row_count,
+                        &Mask::new_true(usize::try_from(row_count)?),
+                    )?;
+                    Ok(segments
+                        .iter()
+                        .map(|segment| u64::from(file.locations[**segment as usize].length))
+                        .sum())
+                })?
+            };
+            filtered_rows_per_chunk(
+                rows.end - rows.start,
+                row_count,
+                projected_bytes,
+                get_available_parallelism().unwrap_or(1),
+            )
         } else if identity {
             rows_per_chunk(row_count, &file.locations)
         } else {
@@ -204,7 +231,7 @@ impl ScanBuilder {
         let values = cache.values();
         Ok(PreparedScan {
             session: self.session,
-            rows: self.row_range.unwrap_or(0..row_count),
+            rows,
             selection: self.selection,
             segments: file.segments,
             ranges,
