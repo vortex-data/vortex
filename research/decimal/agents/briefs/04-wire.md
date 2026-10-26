@@ -364,7 +364,10 @@ To design:
    `Narrow` scheme does not count against the budget.
 4. Integer estimates. An integer `Narrow` scheme competes with BitPacking and FoR, which already
    store the narrow bits. The design decides when `Narrow` wins: for example only when it improves
-   the estimate, or always for in-memory compute.
+   the estimate, or always for in-memory compute. Since #10757 (2026-10-26), the FoR scheme holds
+   the `BitPackingScheme` of its child, declares its IDs, and refines it with the allowed IDs. A
+   `Narrow` scheme that compresses its child through another scheme follows the same pattern, so
+   that the edition filter sees every ID that it writes.
 
 Facts and tests to keep from the draft:
 

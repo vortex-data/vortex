@@ -77,12 +77,13 @@ The notes come from reading `develop` at `5fc5cb8`, RFC drafts, issues and pull 
 2026-10-19 the review also read the draft `Narrow` PRs and PR #10230. On 2026-10-22 it read the
 versioning spec, the array plugin and serialization code, and the DecimalByteParts code. It also
 read the history of the decimal compression scheme, and PRs #10305 and #10314. On 2026-10-23 it
-traced which statistics the compressors store on the DecimalByteParts parts, read the decimal
-types of arrow-rs 59.3, and read the cast change of PR #10230. A second review on the same day
-read when the reader attaches stored statistics, the DecimalByteParts constructor and compressor
-scheme, the compat harness, and the edition families. A planning review on the same day had five
-agents draft the PR briefs from the code at `b70206818f`, and the review checked their main claims
-in the code. One throwaway Rust test confirmed
-the `f32` cast disagreement and the `ext_storage` pushdown rules (probes R1 and R6 in the extension
+traced which statistics the compressors store on the DecimalByteParts parts, read the decimal types
+of arrow-rs 59.3, and read the cast change of PR #10230. A second review on the same day read when
+the reader attaches stored statistics, the DecimalByteParts constructor and compressor scheme, the
+compat harness, and the edition families. A planning review on the same day had five agents draft
+the PR briefs from the code at `b70206818f`, and the review checked their main claims in the code.
+On 2026-10-26 it read the state of the first PRs, and PRs #10798 (the cast-rule contract), #10757
+(the FoR scheme) and #10080 (error types without categories). One throwaway Rust test confirmed the
+`f32` cast disagreement and the `ext_storage` pushdown rules (probes R1 and R6 in the extension
 notes). One short Python script checked byte order. Section 10 of the report lists the claims that
 are not verified, which include every performance claim.

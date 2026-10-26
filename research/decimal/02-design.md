@@ -340,10 +340,9 @@ width in memory. This applies to existing files and to files that are written in
 maintainer accepts this cost, because the bar of no compute regression applies to the final state
 (decided, D19).
 
-The DBP cast rule has a bug that is independent of these changes. For a cast that changes only the
-nullability, the rule casts the MSP without the check that other cast rules make with
-`Validity::trivially_cast_nullability`. The fix lands as its own PR
-([part 3](03-roadmap.md#independent-changes)).
+The DBP cast rule pushes a nullability cast into the MSP, which holds the validity, and the MSP
+cast fails on a null row. #10798 documents this as a valid form of cast rule, so the rule needs no
+change. FX2 (#10746), which added a `trivially_cast_nullability` guard, closed without a merge.
 
 ## Where structural encodings sit
 

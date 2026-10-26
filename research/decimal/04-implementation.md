@@ -22,6 +22,11 @@ planning review on 2026-10-23.
   (`/Users/connor/spiral/vortex-data/vortex1/research/`), or tell it to read the files with
   `git show ct/ext-types-research:research/<path>`. Do not change a brief while an agent works from
   it. If a brief must change, tell that agent.
+- When a PR opens, merges or changes scope, the agent updates its line in the collapsed PR list of
+  [#10701](https://github.com/vortex-data/vortex/issues/10701) or
+  [#10733](https://github.com/vortex-data/vortex/issues/10733) with `gh issue edit`. It edits only
+  that line, and it reads the issue again just before it writes, so that it keeps the edits of
+  others. It does not edit this branch to record progress.
 - The briefs cite `develop` at `b70206818f`. Line numbers move as PRs land, so the agent reads the
   cited code before it changes it. Code from the local integer `Narrow` rewrite is cited with its
   commit, for example `f7408481ce:vortex-array/src/arrays/narrow/mod.rs`. That rewrite is a
@@ -57,7 +62,7 @@ planning review on 2026-10-23.
 | ID | PR | Hard dependencies | Size |
 | --- | --- | --- | --- |
 | FX1 | Strict decoding of stored `DecimalType` and `PType` values, in three commits | None | Medium |
-| FX2 | DecimalByteParts nullability cast follows the cast-rule contract | None | Small |
+| FX2 | Dropped. #10798 documents the cast-rule contract instead (see the FX2 brief) | None | None |
 | FX3 | Dictionary `fill_null` no longer truncates the fill code | None | Small |
 | NR1 | In-memory integer `Narrow`, with `encode`, the deprecated `encode_values`, the serialization workaround and a flatten rule | None | Large |
 | NR2 | Benchmarks for compute on integer `Narrow` | NR1 | Medium |
@@ -83,18 +88,12 @@ Later work: LT1 puts both formats into `core` and decides the end of the seriali
 workaround. LT2 is the max pass in DecimalByteParts decoding (D16). LT3 is the pushdown of sum,
 min and max into the MSP (D19). LT2 and LT3 wait until benchmarks show that they are needed.
 
-## Status
+## Progress
 
-The first wave opened on 2026-10-23 as draft PRs, all based on `develop` at `3974ee069c`:
-
-| ID | PR | Note |
-| --- | --- | --- |
-| FX1 | #10755 | Three commits, as planned. Its tests use a new `test_harness::assert_serde_error` helper |
-| FX2 | #10746 | As planned |
-| FX3 | #10745 | Fixes #10623. Non-nullable codes keep the fast path, because they need no fill code |
-| CD1 | #10752 | The compress bench enables the default `core` edition, so the decimal scheme uses its v1 variant |
-| CD2 | #10753 | Adds `fixtures_build_canonical_decimal_widths`, and two columns at precisions 1 and 3 |
-| None | #10747 | The versioning docs describe the scheme variants that #10076 added |
+The collapsed PR lists in [#10701](https://github.com/vortex-data/vortex/issues/10701) and
+[#10733](https://github.com/vortex-data/vortex/issues/10733) track the state of each PR: its link,
+whether it merged, and short notes. Agents update those lists. This branch changes only when a
+brief or a decision changes.
 
 ## Graph
 
@@ -106,7 +105,6 @@ dependencies: the release gate of the compat fixtures (D31), and NR6 merging aft
 flowchart TD
     subgraph FIX["Independent fixes"]
         FX1["FX1 Strict decoding"]
-        FX2["FX2 DBP nullability cast"]
         FX3["FX3 Dict fill code"]
     end
     subgraph NR["Integer Narrow"]
@@ -170,8 +168,6 @@ flowchart TD
     NR5 --> WR3
 ```
 
-FX2 has no edge. It can land at any time.
-
 ## Order of work
 
 A PR can start when its dependencies have merged. The waves group the PRs whose dependencies merge
@@ -180,7 +176,7 @@ files. The column "Shared files" names the pairs that do not, so run those one a
 
 | Wave | PRs | Note | Shared files |
 | --- | --- | --- | --- |
-| 1 | FX1, FX2, FX3, NR1, CD1, CD2, CD3 | No dependencies. The next regular release after CD2 publishes the fixtures | CD2 calls `smallest_decimal_value_type`, which CD3 removes. The second of the two to merge adapts |
+| 1 | FX1, FX3, NR1, CD1, CD2, CD3 | No dependencies. The next regular release after CD2 publishes the fixtures | CD2 calls `smallest_decimal_value_type`, which CD3 removes. The second of the two to merge adapts |
 | 2 | NR2, NR6, CD7, CD5 | NR6 merges after NR5 (D35). CD7 waits for CD1. CD5 waits for the release with CD2 | CD5 and CD7: the crate doc in `encodings/decimal-byte-parts/src/lib.rs`, the tests in `assemble.rs`, and `benches/dbp_assemble.rs`. CD7 also changes the signature of `split_decimal`. NR6 and CD7: the golden snapshots of `vortex-btrblocks` |
 | 3 | NR3, then NR4 | One stack. Merge NR1 and NR2 before reading the CodSpeed reports of NR3 and NR4 | None |
 | 4 | NR5, CD4 | NR5 waits for FX3 | Both edit `vortex-array/src/arrays/narrow/rules.rs` |
@@ -217,14 +213,14 @@ publishes the CD2 fixtures also gates CD5 and CD6, so CD2 is worth landing in wa
 ## Follow-up issues
 
 These problems came up during planning and the first wave of PRs. They are outside the planned
-PRs, and each one has its own issue.
+PRs, and each one has its own issue. Two are closed.
 
 | Issue | Problem |
 | --- | --- |
 | #10748 | Generic structural encodings always sit above other encodings. NR5 does this for `Narrow` only |
 | #10749 | Decimal `scalar_at` and `min_max` panic on a stored value outside the precision, which a file read can produce |
-| #10750 | Seven cast rules (RunEnd, ZigZag, FoR, RLE, ALP, ALP-RD, DateTimeParts) push nullability casts without the guard that FX2 adds to DecimalByteParts |
-| #10751 | The FoR scheme bit-packs its child outside the allowed schemes, so its child skips the edition filter |
+| #10750 | Closed as not planned. The push-down cast rules return no wrong result, and #10798 documents them as a valid form |
+| #10751 | Closed by #10757. The FoR scheme now declares and refines its bit-packing child |
 | #10754 | The compat harness: no CI job runs `--mode all`, one failing fixture stops the whole check, and the README describes `--git-ref` wrongly |
 | #10756 | Corrupt ALP-RD, RLE and RunEnd metadata can panic a file read |
 

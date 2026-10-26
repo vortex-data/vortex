@@ -124,7 +124,8 @@ These questions belong to future work (D20). Their recommendations are not revie
 ## The `Narrow` pull requests
 
 This review read the draft stack on 2026-10-19 and again on 2026-10-22. The state below is from
-2026-10-23.
+2026-10-26. The PR lists in [#10701](https://github.com/vortex-data/vortex/issues/10701) and
+[#10733](https://github.com/vortex-data/vortex/issues/10733) track the state of each new PR.
 
 - The draft PRs [#10223](https://github.com/vortex-data/vortex/pull/10223),
   [#10332](https://github.com/vortex-data/vortex/pull/10332) and
@@ -158,10 +159,14 @@ This review read the draft stack on 2026-10-19 and again on 2026-10-22. The stat
   code. The cause is not known. The new PRs get fresh CodSpeed runs, and the investigation
   happens there.
 - PR [#10230](https://github.com/vortex-data/vortex/pull/10230) gave decimals an integer child,
-  which D2 replaces. It closed on 2026-10-19. Its fix to the DecimalByteParts cast rule becomes its
-  own PR, with no issue. The PR adds the guard of #10230, a cast kernel for the case that needs
-  execution, and tests. [Part 3](decimal/03-roadmap.md) of the Decimal notes replaces the other
-  steps of #10230.
+  which D2 replaces. It closed on 2026-10-19. [Part 3](decimal/03-roadmap.md) of the Decimal notes
+  replaces its steps. Its guard on the DecimalByteParts cast rule became FX2 (#10746), which closed
+  without a merge on 2026-10-26. The guard was needed only while a canonical decimal held a lazy
+  child. The rule pushes the cast into the MSP, which holds the validity, and the MSP cast fails on
+  a null row, so no result was wrong. #10798 documents the two valid forms of a cast rule on
+  `CastReduce` instead: a rule that builds a new `Validity` keeps the
+  `trivially_cast_nullability` guard and a `CastKernel`, and a rule that pushes the cast into the
+  children that hold its validity needs neither.
 - PR #10305 limits the decimal storage width to the canonical width, and PR #10314 adds bounded
   dispatch macros on top of it. Another contributor owns both, and both are open. The work
   ignores them for now (D11).

@@ -48,6 +48,9 @@ The rewrite is based on `61ff28d970`. These changes on `develop` matter when an 
 | Kernel for constant dictionary codes | `a169338930` (#10643) | An execute-parent kernel handles `Constant` codes (`vortex-array/src/arrays/dict/take.rs:181-205`). The NR5 rule for `Narrow` codes is a reduce rule, so the two do not overlap |
 | Deprecated APIs and `legacy_session` removed | `85ae34d5f0` (#10595) | None of the removed APIs is needed |
 | Execution contexts in validation and patches | `c48457b572`, `7216cb5cb8`, `673fd2e064`, `b549eb5a97` | `ListViewArray::try_new`, `Patches::new`, `MaskedArray::try_new`, `RunEndArray::try_new` and `SparseArray::try_new` take a context. Reduce rules have none, so the NR5 brief names constructors without a context |
+| Error types without categories | `f3cbb329dc` (#10080) | `VortexError` has no categories, and `vortex_err!` takes the message only. New errors state the requirement first and end with `, got {actual}` |
+| `as_constant` returns a borrowed scalar | `46429f5c53` (#10790) | The compare constant shortcut of NR1 reads the borrowed scalar, and clones it only where it must own it |
+| Cast-rule contract on `CastReduce` | `bbb562a395` (#10798) | The `Narrow` cast rule pushes the cast into the child, which holds the validity, so it needs no `trivially_cast_nullability` guard and no `CastKernel` |
 
 `VTable`, `OperationsVTable`, `ValidityChild`, the kernel registry, `CompareKernel`,
 `execute_compare`, `execute_numeric`, the reduce adaptors, `ChunkedSlots::CHUNKS_OFFSET`,

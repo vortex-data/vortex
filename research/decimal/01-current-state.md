@@ -34,7 +34,6 @@ gives file and line references for each one.
 | The scalar path and the array path disagree | A decimal scalar casts to `f32` and `f16`. The array cast supports only `f64`, so an array cast to `f32` fails with "No CastKernel". A throwaway test confirmed the `f32` case |
 | `Decimal` duplicates `Primitive` | It has its own canonical variant (51 dispatch sites), builder, compare, arithmetic and aggregates. Decimal-specific files hold about 7,600 non-test lines |
 | DecimalByteParts carries the decimal dtype | It splits wide integers into 64-bit parts, but only decimals can use it |
-| The DecimalByteParts cast rule skips a nullability check | For a cast that changes only the nullability, the rule casts the most significant part. It does not first make sure that the change is safe without execution, as other cast rules do with `Validity::trivially_cast_nullability` |
 | Unknown enum values decode silently | An unknown `values_type` decodes as `I8`. An unknown protobuf `PType` decodes as `U8`, and Variant metadata stores protobuf dtypes in files |
 | Shared code has decimal special cases | Bloom filters, `IN` lists, size statistics, sparse arrays, run-end decoding and the row codec each have a decimal path |
 | No 128-bit integer columns | DuckDB `HUGEINT` cannot be imported, although decimal storage already holds 128-bit values |

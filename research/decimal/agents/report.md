@@ -723,14 +723,14 @@ The stored statistics of the MSP do not help here. A review on 2026-10-23 traced
 - FastLanes registers no min or max kernel, so `min_max` on a FoR or BitPacked array without
   statistics decompresses it (`encodings/fastlanes/src/lib.rs:77-91`).
 
-The DBP cast rule has a bug that is independent of D3. For a cast that changes only the
-nullability, it casts the MSP for every target nullability (`compute/cast.rs:16-35`). The contract
-of cast rules in the optimizer asks them to call `Validity::trivially_cast_nullability`, to return
-`None` when that call cannot prove the cast safe, and to pair the rule with a cast kernel for
-execution (`vortex-array/src/validity.rs:447-500`). DBP has no cast kernel (`rules.rs:14`). PR
-#10230 added the guard in 8 lines. The fix lands as its own PR, with a cast kernel and tests, and
-it needs no issue (section 8.3, P2). Whether the current rule gives a wrong validity before
-execution is not verified.
+For a cast that changes only the nullability, the DBP cast rule casts the MSP for every target
+nullability (`compute/cast.rs:16-35`). The MSP holds the validity, and the MSP cast fails on a null
+row. The docs of `Validity::cast_nullability` (`vortex-array/src/validity.rs:447-500` at
+`5fc5cb8`) read as if every cast rule must call `Validity::trivially_cast_nullability` and pair
+with a cast kernel, so this review first called the rule a bug (section 8.3, P2). PR #10798
+(2026-10-26) moved the contract to `CastReduce`. It documents two valid forms: a rule that builds a
+new `Validity` keeps the guard and a kernel, and a rule that pushes the cast into the children that
+hold its validity needs neither. The DBP rule is of the second form, so it needs no change.
 
 #### Placement of structural encodings
 
@@ -1725,16 +1725,14 @@ briefs. The list below keeps the reasons for the order.
 PR #10230 gave decimals an integer child, which D2 replaces. It closed on 2026-10-19. Its fix to the
 DBP cast rule becomes P2 below. The plan below replaces its other steps.
 
-Independent changes, in any order. On 2026-10-23, none of these is on `develop`:
+Independent changes, in any order. The PR lists in #10701 and #10733 track their state:
 
 - **P1.** Strict decoding: `DecimalType::try_from(raw)` in the decimal deserializer
   (`vortex-array/src/arrays/decimal/vtable/mod.rs:170`) and `PType::try_from(raw)` in the
   protobuf dtype reader (`vortex-array/src/dtype/serde/proto.rs:36`). Part of N10. The decimal
   part must land before step 4 of the in-memory change.
-- **P2.** The DBP nullability fix (section 3.3). It adds the guard of #10230 to the cast rule
-  (`encodings/decimal-byte-parts/src/decimal_byte_parts/compute/cast.rs:16-35`), a cast kernel for
-  the case that needs execution, and tests for a nullable-to-non-nullable cast with nulls, without
-  nulls, and with only nulls. It is its own PR, with no issue.
+- **P2.** Dropped. The DBP nullability guard (section 3.3) closed without a merge as #10746,
+  because #10798 documents the push-down form of the rule as valid.
 - **P3.** N1: the urgent extension changes U1 to U8.
 - **P4.** The integer `Narrow` in memory. #10223, #10332 and #10333 closed on 2026-10-23. The
   new PRs are written from scratch, with the local rewrite of #10223 and #10332 as a reference
@@ -1872,7 +1870,8 @@ The review of 2026-10-23 read these files in the worktree of this branch, which 
   rejected, which limits how far a column can narrow (section 3.3).
 - `encodings/decimal-byte-parts/src/decimal_byte_parts/compute/cast.rs:16-35`,
   `vortex-array/src/validity.rs:435-511` and `rules.rs:14`: the DBP cast rule and the contract
-  that it skips. The diff of PR #10230 for `cast.rs` adds the guard.
+  that it seemed to skip. The diff of PR #10230 for `cast.rs` adds the guard. PR #10798 later
+  documents the form of the rule as valid (section 3.3).
 - `encodings/decimal-byte-parts/src/decimal_byte_parts/array.rs:111-118` and `split.rs:68-71`:
   the constructor accepts any unsigned lower part, but the split makes only `u64` parts.
 - The statistics trace of section 3.3: `vortex-compressor/src/compressor/cascade.rs:82-102` and

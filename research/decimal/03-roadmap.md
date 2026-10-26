@@ -131,12 +131,11 @@ into PRs, with one brief for each PR.
    decimal part must also land before the read plugin converts old nodes, because the detection
    of old nodes reads this field. The same PR fixes eleven `PType` fields of array and layout
    metadata with the same fallback (decided, D34).
-2. **The DecimalByteParts nullability fix.** For a cast that changes only the nullability, the
-   cast rule casts the MSP without the check that `Validity::trivially_cast_nullability` makes in
-   other cast rules. The fix adds that check, as PR
-   [#10230](https://github.com/vortex-data/vortex/pull/10230) did. It also adds a cast kernel for
-   the case that needs execution, so that a declined cast still runs on the parts. It lands as its
-   own PR with tests, and it needs no issue.
+2. **The DecimalByteParts nullability guard (dropped).** This step added the
+   `Validity::trivially_cast_nullability` guard of PR
+   [#10230](https://github.com/vortex-data/vortex/pull/10230) and a cast kernel to the cast rule.
+   It closed without a merge as #10746. The rule pushes the cast into the MSP, and the MSP cast
+   fails on a null row, so no result was wrong. #10798 documents that form as valid.
 3. **Extension opacity fixes (N1).** These are the urgent changes in
    [part 4 of the extension notes](../extension-types/04-urgent-changes.md).
 4. **The integer `Narrow` in memory.** The draft PRs

@@ -195,6 +195,10 @@ shows noise on the new DBP benches, move them behind `#[cfg(not(codspeed))]`, as
 
 ### CD2: Compat fixtures for old decimal forms
 
+State: merged as #10753 on 2026-10-26. Release 0.90.0 came before it, so the next regular release
+publishes the fixtures. The merged PR adds two columns at precisions 1 and 3 to
+`decimal_canonical_widths.vortex`, and the test `fixtures_build_canonical_decimal_widths`.
+
 - Goal: Add compat fixtures for every old decimal form that the current writer can make. The
   harness then compares old files against canonical expected arrays. A release before CD5 and CD6
   publishes them (D24, D31).
@@ -935,7 +939,7 @@ canonical width wraps it in a `Narrow` without decoding is left to the design pa
 - Goal: Decoding DecimalByteParts produces the canonical decimal array of its dtype, and every lower
   part has the dtype `u64`. Today decoding reuses the MSP buffer at the MSP width, a form that D3
   removes.
-- Depends on: CD1, CD3, and the published CD2 fixtures (D31). Soft: FX2. Blocks: CD8a.
+- Depends on: CD1, CD3, and the published CD2 fixtures (D31). Blocks: CD8a.
 - Shares files with CD7 (see the CD7 brief). Do not run CD5 and CD7 at the same time.
 - Decisions: D16, D21, D29, D3, D12, D14.
 - Branch: `ct/dbp-canonical-decode`, based on `develop` after CD3 merges, or stacked on CD3.
@@ -948,7 +952,8 @@ canonical width wraps it in a `Narrow` without decoding is left to the design pa
   - The max pass that returns a `Narrow` (LT2). This PR adds only its `TODO(connor)`.
   - Sum, min and max pushdown into the MSP (LT3).
   - The compressor scheme (CD7).
-  - The nullability cast fix in `compute/cast.rs` (FX2).
+  - The cast rule in `compute/cast.rs`. It pushes the cast into the MSP, a form that #10798
+    documents as valid, so it stays as it is.
   - Strict `DecimalArray` construction (CD8a).
 
 Files (checked at `b70206818f`):

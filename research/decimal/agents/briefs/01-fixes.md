@@ -9,6 +9,9 @@ These three PRs depend on no other PR. FX1 blocks CD6, and FX3 blocks NR5. Each 
 `develop` at `b70206818f`. Every `file:line` below points at that checkout, unless a commit is
 named.
 
+FX2 is dropped (see its section). The PR lists in #10701 and #10733 track the state of FX1 and
+FX3.
+
 Rules for all three PRs:
 
 - Each commit ends with `Signed-off-by: Connor Tsui <connor.tsui20@gmail.com>`. Add no AI
@@ -124,8 +127,9 @@ Rules for the change:
   (`vortex-array/proto/dtype.proto:11-23`, `ptype.rs:37-60`), but the two enums are separate.
 - proto3 omits a field that holds 0, and a missing field decodes as 0. Zero is `U8` or `I8`, which
   are valid values. So a file from a current writer reads the same way after FX1.
-- Every error uses the `Serde` category. It states the requirement first and ends with the raw
-  value.
+- Every error states the requirement first and ends with the raw value. Since #10080
+  (2026-10-26), `VortexError` has no categories, so `vortex_err!` takes the message only, and a
+  test checks the message only.
 
 | Site | Message |
 | --- | --- |
@@ -139,7 +143,7 @@ impl DecimalMetadata {
     fn get_values_type(&self) -> VortexResult<DecimalType> {
         DecimalType::try_from(self.values_type).map_err(|_| {
             vortex_err!(
-                Serde: "DecimalMetadata values_type must be a known DecimalType, got {}",
+                "DecimalMetadata values_type must be a known DecimalType, got {}",
                 self.values_type
             )
         })
@@ -149,7 +153,7 @@ impl DecimalMetadata {
 // In `DType::from_proto`.
 DtypeType::Primitive(p) => {
     let ptype = pb::PType::try_from(p.r#type).map_err(|_| {
-        vortex_err!(Serde: "protobuf Primitive type must be a known PType, got {}", p.r#type)
+        vortex_err!("protobuf Primitive type must be a known PType, got {}", p.r#type)
     })?;
     Ok(Self::Primitive(ptype.into(), p.nullable.into()))
 }
@@ -207,7 +211,7 @@ Acceptance checks:
 - `cargo nextest run -p vortex-array -p vortex-layout -p vortex-runend -p vortex-fastlanes -p vortex-alp -p vortex-parquet-variant`
 - `uv run vortex-test/compat-gen/scripts/compat.py check --mode all`. It reads every published
   fixture, so it shows that no published file holds a value outside the enums.
-- An unknown stored value returns a `Serde` error. No read path panics on it.
+- An unknown stored value returns an error. No read path panics on it.
 - No read path in the table above calls a prost enumeration getter.
 
 Review focus:
@@ -226,200 +230,20 @@ Size: medium. Thirteen fields in five crates, each with a small test.
 Open questions: None. CD6 needs only commit 1, but the maintainer chose one PR for all three
 commits (D34).
 
-### FX2: DecimalByteParts nullability cast follows the cast-rule contract
+### FX2: Dropped
 
-- Goal: The DecimalByteParts (DBP) cast rule rewrites a nullability cast only when
-  `Validity::trivially_cast_nullability` proves it safe. A new cast kernel handles the declined
-  case on the parts. Today the rule casts the most significant part (MSP) for every target
-  nullability, and DBP has no cast kernel.
-- Depends on: None. Soft: CD5 (same crate, other files). Blocks: None.
-- Decisions: None by ID. `decisions.md`, section "The `Narrow` pull requests", settles this PR: the
-  guard of #10230, a cast kernel for the case that needs execution, tests, and no issue.
-- Branch: `ct/dbp-nullability-cast`, based on `develop`.
-- Scope: The guard in `CastReduce`, a `CastKernel` for casts that change only the nullability, its
-  registration, and tests.
-- Out of scope: Casts that change the precision or the scale stay unsupported (the `TODO(mk)` at
-  `compute/cast.rs:19`). DBP decoding and `u64` lower parts (CD5). The same push-down pattern in
-  other encodings (see Notes).
+FX2 added the `trivially_cast_nullability` guard and a `CastKernel` to the DecimalByteParts cast
+rule (#10746). It closed without a merge on 2026-10-26. The rule pushes the nullability cast into
+the MSP, which holds the validity of the array, and the MSP cast fails on a null row. So no result
+was wrong. #10798 documents the two valid forms of a cast rule on `CastReduce`:
 
-Files (checked at `b70206818f`):
+- A rule that builds a new `Validity` returns `Ok(None)` when `trivially_cast_nullability` does,
+  and the encoding implements `CastKernel` for that case.
+- A rule that pushes the cast into the children that hold its validity needs neither, as long as
+  every null in those children reaches a row of the array. `Dict` is the exception, because its
+  values can hold nulls that no code references.
 
-| Path | Change |
-| --- | --- |
-| `encodings/decimal-byte-parts/src/decimal_byte_parts/compute/cast.rs` | The guard in `CastReduce` (`:16-35`), a new `CastKernel`, one shared private helper, tests, and a test session with `crate::initialize` |
-| `encodings/decimal-byte-parts/src/decimal_byte_parts/compute/kernel.rs` | Register `CastExecuteAdaptor(DecimalByteParts)` under `Cast.id()` (`:14-26`) |
-
-`rules.rs:14` keeps the cast rule as it is.
-
-Design notes:
-
-The contract (`vortex-array/src/validity.rs:430-494`). A cast rule runs in the optimizer and cannot
-execute. It calls `trivially_cast_nullability` and returns `Ok(None)` when that call returns
-`Ok(None)`. A cast kernel runs at execution and calls `cast_nullability`, which can read the
-validity array. FSST (`encodings/fsst/src/compute/cast.rs:48-91`, registered at
-`encodings/fsst/src/kernel.rs:25`) and BitPacked
-(`encodings/fastlanes/src/bitpacking/compute/cast.rs:56`, `:74`) show the pair.
-
-DBP has no validity of its own. Its validity is the validity of the MSP
-(`encodings/decimal-byte-parts/src/decimal_byte_parts/array.rs:200`, `:404-409`). So a cast of the
-MSP is the only way to change it. `with_msp` keeps the lower parts (`array.rs:346-352`).
-
-Outcomes for a cast that changes only the nullability:
-
-| MSP validity | Target | Rule | Kernel |
-| --- | --- | --- | --- |
-| Any | Nullable | DBP over the MSP cast to nullable | Same result |
-| `NonNullable`, `AllValid`, or length 0 | Non-nullable | DBP over the MSP cast to non-nullable | Same result |
-| `AllInvalid`, length above 0 | Non-nullable | Error `Cannot cast AllInvalid to NonNullable` | Error, if an unoptimized cast reaches it |
-| `Array` | Non-nullable | `Ok(None)` | Error when a null exists, else DBP over the MSP cast to non-nullable |
-
-```rust
-/// Rebuilds `array` over its MSP cast to `nullability`.
-///
-/// The MSP carries the validity of a DBP array, so the cast of the MSP sets the validity of the
-/// result. The lower parts are non-nullable and stay as they are.
-fn with_msp_nullability(
-    array: ArrayView<'_, DecimalByteParts>,
-    nullability: Nullability,
-) -> VortexResult<ArrayRef>;
-
-impl CastReduce for DecimalByteParts {
-    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // TODO(mk): Support non-nullability changes as well, e.g. precision.
-        if !dtype.eq_ignore_nullability(array.dtype()) {
-            return Ok(None);
-        }
-        let nullability = dtype.nullability();
-        if array
-            .validity()?
-            .trivially_cast_nullability(nullability, array.len())?
-            .is_none()
-        {
-            return Ok(None);
-        }
-
-        with_msp_nullability(array, nullability).map(Some)
-    }
-}
-
-impl CastKernel for DecimalByteParts {
-    fn cast(
-        array: ArrayView<'_, Self>,
-        dtype: &DType,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        if !dtype.eq_ignore_nullability(array.dtype()) {
-            return Ok(None);
-        }
-        let nullability = dtype.nullability();
-        array.validity()?.cast_nullability(nullability, array.len(), ctx)?;
-
-        with_msp_nullability(array, nullability).map(Some)
-    }
-}
-```
-
-- The guard is the change of #10230 to this file, as `gh pr diff 10230 --repo vortex-data/vortex`
-  shows. FX2 keeps it as it is.
-- The kernel returns `Ok(None)` for every other cast. The generic `Cast::execute` then decodes the
-  DBP, as it does today (`vortex-array/src/scalar_fn/fns/cast/mod.rs:126-159`).
-- The kernel discards the `Validity` that `cast_nullability` returns, because the MSP stores the
-  validity. A comment beside that call must say this. For a Primitive MSP with a validity array,
-  the MSP cast stays lazy, because the Primitive rule declines
-  (`vortex-array/src/arrays/primitive/compute/cast.rs:62-67`). The Primitive kernel checks again
-  when the DBP executes. It reads the minimum of the same validity array, which is a cached
-  statistic. That this second check costs only a cache lookup is Not verified.
-- The existing check `let DType::Decimal(_, target_nullability) = dtype` at `cast.rs:24-26` goes
-  away. `eq_ignore_nullability` against a decimal dtype already implies it.
-
-Is a wrong validity observable before execution today? It is not shown from the code:
-
-- The current rule returns a DBP over `Cast(msp)` with a non-nullable dtype (`cast.rs:28-33`).
-- `validity()` of an array with a non-nullable dtype returns `Validity::NonNullable` without asking
-  the encoding (`vortex-array/src/array/mod.rs:304-319`).
-- The lazy `Cast(dbp)` that the rule replaces has the same dtype, so it reports the same validity.
-  `Cast::validity` also reports all rows valid for a non-nullable target
-  (`vortex-array/src/scalar_fn/fns/cast/mod.rs:183-195`).
-- The null check still runs when the MSP cast executes. The existing test
-  `test_cast_decimal_byte_parts_nullable_to_non_nullable` (`cast.rs:92-108`) expects that error.
-- So the defect is a contract violation. The rule rewrites a cast that it cannot prove safe, and it
-  depends on the cast of each MSP encoding to keep the null check.
-- These MSP cast rules were read: Primitive, BitPacked, FoR, ZigZag, RunEnd, Delta, Sparse,
-  Sequence, Constant, Dict and RLE. Each one keeps the check, pushes it to a child, or declines.
-  Whether another MSP encoding drops the check is Not verified.
-
-After FX2, `cast` of a DBP whose MSP has a validity array returns a lazy `Cast` over the DBP, not a
-DBP. Execution gives the same values or the same error as today. No caller in the workspace
-downcasts a cast result to DBP (checked with a search for `is::<DecimalByteParts>` and
-`as_opt::<DecimalByteParts>`).
-
-Steps:
-
-1. `fix(decimal-byte-parts): guard the nullability cast rule`. Add `with_msp_nullability`, the
-   guard, the `CastKernel`, and the registration in `compute/kernel.rs`. Add the tests.
-
-Tests, all in the `mod tests` of `compute/cast.rs` (`:37-135`):
-
-- Change the module session to the one in `compute/mod.rs:35-39`, which calls
-  `crate::initialize(&session)`. Without it, the execution context does not hold the new kernel.
-- Add one fixture helper at the top. It takes a `Validity` and builds a DBP at
-  `DecimalDType::new(10, 2)` over `PrimitiveArray::new(buffer![100i32, 200, 300], validity)`.
-- Build each validity array with `Validity::Array(BoolArray::from_iter([..]).into_array())`.
-  `Validity::from_iter` and `PrimitiveArray::from_option_iter` turn all-true input into `AllValid`
-  and all-false input into `AllInvalid` (`vortex-array/src/validity.rs:506-532`). So they cannot
-  build these cases. Each validity-array case asserts that the fixture reports `Validity::Array`,
-  so that it reaches the guard that it claims to test.
-- `test_cast_rule_declines_validity_array`, with named cases `with_nulls` (`[true, false, true]`),
-  `without_nulls` (`[true, true, true]`) and `only_nulls` (`[false, false, false]`). Assert that
-  `<DecimalByteParts as CastReduce>::cast` returns `None` for the non-nullable target. The direct
-  call follows `encodings/fastlanes/src/bitpacking/array/tests.rs:191-192`.
-- `test_cast_kernel_rejects_nulls`, with named cases `with_nulls` and `only_nulls` as above. Assert
-  that `<DecimalByteParts as CastKernel>::cast` returns an error. Also assert that `cast` followed
-  by `execute::<Canonical>` returns an error.
-- `test_cast_kernel_without_nulls`. Case `without_nulls`. Assert that the kernel returns a DBP with
-  a non-nullable dtype. Assert with `assert_arrays_eq!` that `cast` gives the non-nullable
-  `DecimalArray` of the same values.
-- `test_cast_rule_rejects_all_invalid`. MSP validity `AllInvalid`. Assert that `cast` to the
-  non-nullable dtype returns an error that contains `Cannot cast AllInvalid to NonNullable`. This
-  error comes from the rule, before execution.
-- `test_cast_rule_reduces`, with named cases `nullable_all_valid_to_non_nullable` and
-  `non_nullable_to_nullable`. Assert that `cast` returns a DBP (`is::<DecimalByteParts>()`) with
-  the target dtype and the same values. This shows that the rule still avoids execution where it
-  can.
-- `test_cast_kernel_keeps_lower_parts`. Build a DBP with
-  `DecimalByteParts::try_new_with_lower_parts` from an `i64` MSP `[1, 0, -1]` with an all-true
-  validity array and one `u64` lower part `[5, 6, 7]`, at `DecimalDType::new(38, 2)`. Assert with
-  `assert_arrays_eq!` that the cast to non-nullable gives the `i128` values
-  `[(1 << 64) + 5, 6, (-1 << 64) + 7]`.
-- Keep `test_cast_decimal_byte_parts_nullability`,
-  `test_cast_decimal_byte_parts_nullable_to_non_nullable` and the conformance cases.
-
-Benchmarks: None. No benchmark covers DBP casts. A cast with a validity array now runs its null
-check in the DBP kernel first, and the MSP kernel then finds the cached minimum. CodSpeed is
-expected to show no change.
-
-Acceptance checks:
-
-- `cargo clippy -p vortex-decimal-byte-parts --all-targets --all-features -- -D warnings`
-- `cargo +nightly-2026-09-10 fmt -p vortex-decimal-byte-parts`
-- `cargo nextest run -p vortex-decimal-byte-parts`
-- The rule returns `Ok(None)` whenever `trivially_cast_nullability` returns `Ok(None)`.
-- A cast to non-nullable of a DBP with nulls fails, with or without a validity array.
-- A cast to non-nullable without nulls keeps the DBP and its lower parts.
-
-Review focus:
-
-- The kernel is registered under `Cast.id()` for `DecimalByteParts`.
-- The guard runs before any cast of the MSP.
-- Both the rule and the kernel return `Ok(None)` for a cast that changes more than the
-  nullability.
-- The comment beside the discarded `Validity` in the kernel is correct.
-- The test session registers the crate, so the kernel tests do not pass through the decode
-  fallback.
-
-Size: small. One file of logic, one registration and focused tests.
-
-Open questions: None.
+Issue #10750 listed seven more push-down rules, and it closed as not planned for the same reason.
 
 ### FX3: Dictionary `fill_null` no longer truncates the fill code
 
@@ -460,8 +284,8 @@ How the truncation happens on `develop`, without `Narrow`:
    (`dict/array.rs:303-315`, `dict/vtable/mod.rs:97-116`).
 5. So `u8` codes `[0, null]` over the 301 values `0..=300` form a valid dictionary. With fill value
    300, `300 as u8` is 44, and the null row reads value 44. With fill value 256, it reads value 0.
-6. With `i8` codes and index 128, the code becomes -128. Whether the read then returns an error or
-   panics is Not verified.
+6. With `i8` codes and index 128, the code becomes -128, and the read panics. A run of the FX3
+   test without the fix showed the panic on 2026-10-23.
 
 Whether a producer on `develop` other than direct construction builds such a dictionary is Not
 verified.
@@ -519,7 +343,7 @@ Tests:
 | `u8_overflow` | `u8` | 256 | `[0, 0]`, fails | `[0, 256]` |
 | `u8_truncation` | `u8` | 300 | `[0, 44]`, fails | `[0, 300]` |
 | `i8_max` | `i8` | 127 | `[0, 127]`, passes | `[0, 127]` |
-| `i8_overflow` | `i8` | 128 | Code -128, error or panic Not verified | `[0, 128]` |
+| `i8_overflow` | `i8` | 128 | Code -128, panics | `[0, 128]` |
 
 - `nullable_codes_fill_in_values` stays as it is.
 
@@ -558,21 +382,12 @@ These facts came up while the briefs were drafted. They do not change the scope 
 4. `vortex-layout/src/layouts/dict/writer.rs:537-550` defines a second `DictLayoutMetadata` that no
    code uses. Its comment says to read the field with the generated getter, which FX1 makes wrong
    advice. Its removal belongs in a separate change.
-5. FX2 fixes a contract violation, not a wrong result that a caller can see. The rule does not
-   change the validity that a caller sees before execution, and the null check still runs at
-   execution.
-6. The cast rules of RunEnd (`encodings/runend/src/compute/cast.rs:15-33`), ZigZag
-   (`encodings/zigzag/src/compute/cast.rs:14-25`), FoR
-   (`encodings/fastlanes/src/for_/compute/cast.rs`) and RLE
-   (`encodings/fastlanes/src/rle/compute/cast.rs`) push nullability casts down without the same
-   guard. A follow-up issue tracks them. FX2 does not change them.
-7. The cast tests in `compute/cast.rs:60` use `VortexSession::empty()` without
-   `crate::initialize`. FX2 changes that session, or the tests never reach the new kernel.
-8. Commit `7e2e5e4d7a` has two tests. `fill_unreferenced_value` already avoids `Narrow`, and FX3
+5. FX2 was dropped. Its section gives the reason.
+6. Commit `7e2e5e4d7a` has two tests. `fill_unreferenced_value` already avoids `Narrow`, and FX3
    ports it. The `Narrow` test belongs to NR5, so NR5 lands after FX3.
-9. On `develop`, the FX3 bug is shown only for a dictionary built directly. Whether the compressor
+7. On `develop`, the FX3 bug is shown only for a dictionary built directly. Whether the compressor
    or a file read builds a dictionary with more values than its codes type can index is Not
    verified.
-10. The test modules in `vortex-array/src/dtype/serde/flatbuffers.rs:565` and
-    `encodings/alp/src/alp_rd/array.rs:563` are named `test`, which `AGENTS.md` discourages. FX1
-    adds tests to them but does not rename them.
+8. The test modules in `vortex-array/src/dtype/serde/flatbuffers.rs:565` and
+   `encodings/alp/src/alp_rd/array.rs:563` are named `test`, which `AGENTS.md` discourages. FX1
+   adds tests to them but does not rename them.
