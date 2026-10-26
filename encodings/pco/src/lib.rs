@@ -103,7 +103,6 @@ mod tests;
 #[cfg(test)]
 mod selection_contract_tests;
 
-
 #[cfg(test)]
 mod selection_semantics_tests;
 

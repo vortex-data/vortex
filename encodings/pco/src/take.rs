@@ -40,8 +40,8 @@ use crate::access::AccessState;
 use crate::array::number_type_from_ptype;
 use crate::decoder::PageDecoder;
 use crate::page_index::ChunkCursor;
-use crate::page_index::PageIndex;
 use crate::page_index::IndexedView;
+use crate::page_index::PageIndex;
 
 /// Compact descriptor; null indices have no start. Zero-length runs consume no source rows.
 struct Run {
@@ -351,9 +351,11 @@ fn gather_grouped<T: Number + NativePType, const NULLABLE: bool>(
         while cursor < resolved.len() {
             let page = resolved[cursor].0;
             let end = cursor + resolved[cursor..].partition_point(|request| request.0 == page);
-            let PageIndex::IndexedFast(index) = array.page_index()? else { return Ok(None); };
-        let view = index.view();
-        let compact = PrimitiveArray::from_iter(
+            let PageIndex::IndexedFast(index) = array.page_index()? else {
+                return Ok(None);
+            };
+            let view = index.view();
+            let compact = PrimitiveArray::from_iter(
                 resolved[cursor..end]
                     .iter()
                     .map(|request| {
