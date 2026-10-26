@@ -10,6 +10,7 @@ use std::hint::black_box;
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use divan::main as run_benchmarks;
 use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
@@ -39,7 +40,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 });
 
 fn main() {
-    divan::main();
+    run_benchmarks();
 }
 
 fn input(nullable: bool) -> PrimitiveArray {
