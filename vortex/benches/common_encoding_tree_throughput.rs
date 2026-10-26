@@ -56,7 +56,6 @@ use vortex::encodings::fsst::FSSTArrayExt;
 use vortex::encodings::fsst::FSSTArraySlotsExt;
 use vortex::encodings::fsst::fsst_compress;
 use vortex::encodings::fsst::fsst_train_compressor;
-use vortex::encodings::runend;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::RunEndArraySlotsExt;
 use vortex::error::VortexExpect;
@@ -83,7 +82,6 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     decimal_byte_parts::initialize(&session);
     fastlanes::initialize(&session);
     fsst::initialize(&session);
-    runend::initialize(&session);
     session
 });
 

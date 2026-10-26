@@ -40,7 +40,6 @@ use vortex::encodings::fsst;
 use vortex::encodings::fsst::fsst_compress;
 use vortex::encodings::fsst::fsst_train_compressor;
 use vortex::encodings::pco::Pco;
-use vortex::encodings::runend;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence;
 use vortex::encodings::sequence::sequence_encode;
@@ -67,7 +66,6 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     alp::initialize(&session);
     fastlanes::initialize(&session);
     fsst::initialize(&session);
-    runend::initialize(&session);
     sequence::initialize(&session);
     zigzag::initialize(&session);
     zstd::initialize(&session);
