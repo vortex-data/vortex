@@ -239,47 +239,26 @@ jobs:
             -o sizes.json
           cat sizes.json >> results.json
 
-      - name: Compare every TPC-DS scan query
+      - name: Compare scan versions
         shell: bash
         env:
           TOKIO_WORKER_THREADS: "8"
           DATAFUSION_EXECUTION_TARGET_PARTITIONS: "8"
           RUST_LOG: warn
-          BENCHMARK_RUNNER: "${{ inputs.machine_type }}-scan-sweep-8workers"
-          BENCHMARK_SCALE_FACTOR: "${{ matrix.scale_factor }}"
         run: |
-          python3 - <<'PY'
-          import json
-          import os
-          import subprocess
-          from pathlib import Path
-
-          outcomes = []
-          for query in range(1, 100):
-              versions = ("false", "true") if query % 2 else ("true", "false")
-              for v2 in versions:
-                  label = f"scan-q{query:02}-v2-{v2}"
-                  command = [
-                      "target/release_debug/datafusion-bench", "tpcds",
-                      "--formats", "vortex", "--queries", str(query),
-                      "--iterations", "5", "--scan-v2", v2,
-                      "--hide-progress-bar", "--display-format", "gh-json",
-                      "--runner", os.environ["BENCHMARK_RUNNER"],
-                      "--opt", "scale-factor=" + os.environ["BENCHMARK_SCALE_FACTOR"],
-                      "--ingest-jsonl", label + ".jsonl",
-                  ]
-                  with open(label + ".log", "w") as log:
-                      try:
-                          result = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=180)
-                          status = "success" if result.returncode == 0 else "failed"
-                      except subprocess.TimeoutExpired:
-                          status = "timeout"
-                  outcome = {"query": query, "scan_v2": v2 == "true", "status": status}
-                  outcomes.append(outcome)
-                  print(json.dumps(outcome), flush=True)
-                  Path("scan-manifest.json").write_text(json.dumps(outcomes, indent=2))
-          raise SystemExit(any(row["status"] != "success" for row in outcomes))
-          PY
+          set -Eeuo pipefail
+          for round in 0 1 2; do
+            versions="false true"
+            if [ "$round" = 1 ]; then versions="true false"; fi
+            for v2 in $versions; do
+              target/release_debug/datafusion-bench tpcds --formats vortex \
+                --queries 13,28,41,49 --iterations 9 --scan-v2 "$v2" --hide-progress-bar \
+                --runner "${{ inputs.machine_type }}-scan-comparison-8workers" \
+                --display-format gh-json --opt scale-factor=${{ matrix.scale_factor }} \
+                --ingest-jsonl "scan-r${round}-v2-${v2}.jsonl" \
+                > "scan-r${round}-v2-${v2}.log" 2>&1
+            done
+          done
 
       - name: Upload scan comparison
         if: always()
@@ -289,7 +268,6 @@ jobs:
           path: |
             scan-*.jsonl
             scan-*.log
-            scan-manifest.json
 
       - name: Compare results
         if: inputs.mode == 'pr'

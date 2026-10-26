@@ -981,6 +981,9 @@ async fn shared_cache_proves_zones_once() -> VortexResult<()> {
     let mut reads = Vec::new();
     for _ in 0..2 {
         let before = counted.reads.load(Ordering::Relaxed);
+        // Engine partitions bind separate trees for the same logical expressions.
+        let filter = gt(get_item("ints", root()), lit(2_999i32)).bind(layout.dtype())?;
+        let projection = get_item("ints", root()).bind(layout.dtype())?;
         let scan = ScanBuilder::new(session.clone(), file.clone())
             .with_projection(projection.clone())
             .with_some_filter(Some(filter.clone()));
@@ -992,6 +995,7 @@ async fn shared_cache_proves_zones_once() -> VortexResult<()> {
         .filter_plans(&filter)
         .expect("the first scan kept its filter plans");
     assert_eq!(plans.proofs().count(), 1);
+    assert!(cache.projection(&projection).is_some());
     // Each scan reads the one chunk the proof keeps; only the first reads the zone map.
     assert_eq!(reads, vec![2, 1]);
     Ok(())

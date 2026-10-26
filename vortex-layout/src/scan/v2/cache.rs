@@ -3,13 +3,14 @@
 
 //! State derived from a [`ScanFile`](super::ScanFile) that repeated V2 scans can share.
 
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
 use std::sync::Weak;
 
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::ExactBoundExpr;
 use vortex_error::VortexResult;
 
 use super::io::SegmentRanges;
@@ -43,16 +44,40 @@ struct Inner {
     root: Mutex<Option<PlanRef>>,
     /// Optimized plans of non-identity projections. Values are cached by the plan that produced
     /// them, so a projection must reuse its plan for its values to be found again.
-    projections: Mutex<FxHashMap<ExactBoundExpr, PlanRef>>,
+    projections: Mutex<FxHashMap<ScanExpression, PlanRef>>,
     ranges: Mutex<Option<SegmentRanges>>,
     /// Plans of filters, keyed by the exact filter expression. A proof plan remembers the zones it
     /// excluded, so sharing the plans proves a file's zones once for every scan of that filter.
-    filters: Mutex<FxHashMap<ExactBoundExpr, Arc<FilterPlans>>>,
+    filters: Mutex<FxHashMap<ScanExpression, Arc<FilterPlans>>>,
     /// Serialized bytes the whole-file projection reads, by projection.
-    projection_bytes: Mutex<FxHashMap<ExactBoundExpr, u64>>,
+    projection_bytes: Mutex<FxHashMap<ScanExpression, u64>>,
     values: ValueCache,
     /// Recently read segments, shared by the chunks of every scan of the file.
     retained: Arc<RetainedSegments>,
+}
+
+/// Independently bound expressions from different engine partitions share a cache entry.
+/// Dtypes still participate in equality, but hashing them would eagerly decode lazy schemas.
+#[derive(Clone, PartialEq, Eq)]
+struct ScanExpression(BoundExpression);
+
+impl Hash for ScanExpression {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        hash_expression(&self.0, state);
+    }
+}
+
+fn hash_expression<H: Hasher>(expression: &BoundExpression, state: &mut H) {
+    if let Some(function) = expression.as_scalar() {
+        state.write_u8(1);
+        function.hash(state);
+        expression.children().len().hash(state);
+        for child in expression.children() {
+            hash_expression(child, state);
+        }
+    } else {
+        state.write_u8(0);
+    }
 }
 
 impl ScanCache {
@@ -80,7 +105,7 @@ impl ScanCache {
         self.0
             .projections
             .lock()
-            .get(&ExactBoundExpr(projection.clone()))
+            .get(&ScanExpression(projection.clone()))
             .cloned()
     }
 
@@ -90,7 +115,7 @@ impl ScanCache {
         self.0
             .projections
             .lock()
-            .entry(ExactBoundExpr(projection))
+            .entry(ScanExpression(projection))
             .or_insert(plan)
             .clone()
     }
@@ -110,7 +135,7 @@ impl ScanCache {
         self.0
             .filters
             .lock()
-            .get(&ExactBoundExpr(filter.clone()))
+            .get(&ScanExpression(filter.clone()))
             .cloned()
     }
 
@@ -125,7 +150,7 @@ impl ScanCache {
             self.0
                 .filters
                 .lock()
-                .entry(ExactBoundExpr(filter))
+                .entry(ScanExpression(filter))
                 .or_insert(plans),
         )
     }
@@ -137,7 +162,7 @@ impl ScanCache {
         projection: &BoundExpression,
         compute: impl FnOnce() -> VortexResult<u64>,
     ) -> VortexResult<u64> {
-        let key = ExactBoundExpr(projection.clone());
+        let key = ScanExpression(projection.clone());
         if let Some(bytes) = self.0.projection_bytes.lock().get(&key) {
             return Ok(*bytes);
         }
