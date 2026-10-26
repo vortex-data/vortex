@@ -9,17 +9,17 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PiecewiseSequenceArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
-use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::Pco;
+use crate::initialize;
 
 #[rstest]
 fn selected_values_and_nulls(#[values(false, true)] nullable: bool) -> VortexResult<()> {
     let session = VortexSession::empty();
-    session.arrays().register(Pco);
+    initialize(&session);
     let mut ctx = session.create_execution_ctx();
     let input = PrimitiveArray::new(
         (0..4096i64).map(|i| i * 19).collect::<Vec<_>>(),
@@ -82,6 +82,7 @@ fn compact_ranges(
     #[case] strides: Vec<u64>,
 ) -> VortexResult<()> {
     let session = VortexSession::empty();
+    initialize(&session);
     let mut ctx = session.create_execution_ctx();
     let input =
         PrimitiveArray::from_option_iter((0..256i64).map(|i| (i % 5 != 0).then_some(i * i)));
@@ -114,6 +115,7 @@ fn compact_ranges(
 #[rstest]
 fn null_runs_and_empty(#[values(false, true)] all_null: bool) -> VortexResult<()> {
     let session = VortexSession::empty();
+    initialize(&session);
     let mut ctx = session.create_execution_ctx();
     let input = PrimitiveArray::from_option_iter(
         (0..65536i32).map(|i| (!all_null && !(100..65000).contains(&i)).then_some(i)),
@@ -147,6 +149,7 @@ fn null_runs_and_empty(#[values(false, true)] all_null: bool) -> VortexResult<()
 #[test]
 fn invalid_indices_under_nulls_are_ignored() -> VortexResult<()> {
     let session = VortexSession::empty();
+    initialize(&session);
     let mut ctx = session.create_execution_ctx();
     let input = PrimitiveArray::from_iter([11i32, 22, 33]);
     let compressed = Pco::from_primitive(input.as_view(), 3, 2, &mut ctx)?.into_array();
@@ -166,6 +169,7 @@ fn invalid_indices_under_nulls_are_ignored() -> VortexResult<()> {
 #[test]
 fn nonnullable_selection_crosses_chunks() -> VortexResult<()> {
     let session = VortexSession::empty();
+    initialize(&session);
     let mut ctx = session.create_execution_ctx();
     let input = PrimitiveArray::from_iter((0..300000i64).map(|i| i * 3 + 1));
     let compressed = Pco::from_primitive(input.as_view(), 3, 127, &mut ctx)?.into_array();

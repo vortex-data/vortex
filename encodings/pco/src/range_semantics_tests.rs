@@ -12,17 +12,17 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PiecewiseSequenceArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
-use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::Pco;
+use crate::initialize;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
-    session.arrays().register(Pco);
+    initialize(&session);
     session
 });
 
