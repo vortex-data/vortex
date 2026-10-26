@@ -116,6 +116,12 @@ jobs:
         run: cargo codspeed build --locked ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) ${{ steps.select.outputs.benches }} --profile bench
       - name: Run benchmarks
         uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062  # v5
+        env:
+          # codspeed-divan-compat 6 runs each benchmark in a new process by default. Simulation
+          # measures one iteration without warmup, so each benchmark then also pays for a cold
+          # allocator and cold caches. This adds about 15 µs to each benchmark and hides small
+          # changes in short benchmarks. Run all benchmarks of a target in one process, as before.
+          CODSPEED_PROCESS_ISOLATION: "false"
         with:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
