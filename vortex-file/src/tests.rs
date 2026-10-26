@@ -103,12 +103,14 @@ use vortex_layout::DynLayout;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
+use vortex_layout::layouts::file_stats::AggregateStat;
 use vortex_layout::layouts::file_stats::AggregateStats;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::struct_::StructStrategy;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::LegacyStats;
 use vortex_layout::layouts::zoned::Zoned;
+use vortex_layout::scan::layout::LayoutReaderDataSource;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::split_by::DEFAULT_MAX_SPLIT_ROWS;
 use vortex_layout::scan::split_by::SplitBy;
@@ -116,11 +118,13 @@ use vortex_layout::segments::SegmentFuture;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::segments::SegmentSource;
 use vortex_layout::session::LayoutSession;
+use vortex_scan::DataSource;
 use vortex_scan::ScanRequest;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 use vortex_zigzag::ZigZag;
 
+use crate::FileStatistics;
 use crate::MAX_POSTSCRIPT_SIZE;
 use crate::OpenOptionsSessionExt;
 use crate::V1_FOOTER_FBS_SIZE;
@@ -129,6 +133,7 @@ use crate::VortexFile;
 use crate::WriteOptionsSessionExt;
 use crate::flatbuffers::footer as fb;
 use crate::footer::SegmentSpec;
+use crate::source::FileDataSource;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty()
         .with::<LayoutSession>()
@@ -2305,32 +2310,61 @@ impl SegmentSource for NoPayloadReads {
 }
 
 #[tokio::test]
-async fn file_data_source_exposes_stored_aggregates() -> VortexResult<()> {
-    let array = StructArray::from_fields(&[
-        (
-            "numbers",
-            PrimitiveArray::from_option_iter([Some(5_i32), None, Some(-3)]).into_array(),
-        ),
-        (
-            "nulls",
-            PrimitiveArray::from_option_iter([None::<i32>; 3]).into_array(),
-        ),
-    ])?
-    .into_array();
+async fn file_data_source_exposes_structured_aggregate_metadata() -> VortexResult<()> {
+    let numbers = PrimitiveArray::from_option_iter([Some(5_i32), None, Some(-3)]).into_array();
+    let nulls = PrimitiveArray::from_option_iter([None::<i32>; 3]).into_array();
+    let array =
+        StructArray::from_fields(&[("numbers", numbers.clone()), ("nulls", nulls.clone())])?
+            .into_array();
     let min_max = MinMax.bind(NumericalAggregateOpts::default());
     let min = Stat::Min.aggregate_fn().vortex_expect("min aggregate");
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
         .disable_editions()
-        .with_file_statistics(vec![min_max.clone(), min.clone()])
+        .with_file_statistics(vec![min.clone()])
         .write(&mut buf, array.to_array_stream())
         .await?;
     let file = SESSION
         .open_options()
         .open_buffer(buf)?
         .with_segment_source(Arc::new(NoPayloadReads));
-    let source = file.data_source()?;
+    // MinMax is not serializable yet; supply its metadata alongside the reopened min statistic.
+    let mut ctx = SESSION.create_execution_ctx();
+    let mut numbers_acc = min_max.accumulator(numbers.dtype())?;
+    numbers_acc.accumulate(&numbers, &mut ctx)?;
+    let mut nulls_acc = min_max.accumulator(nulls.dtype())?;
+    nulls_acc.accumulate(&nulls, &mut ctx)?;
+    let mut number_stats = file
+        .file_stats()
+        .vortex_expect("stored stats")
+        .get_by_path(&field_path!(numbers))
+        .vortex_expect("numbers stats")
+        .0
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    number_stats.push(AggregateStat::try_from_partial(
+        min_max.clone(),
+        numbers_acc.partial_scalar()?,
+        numbers.dtype(),
+    )?);
+    let statistics = FileStatistics::new(
+        Arc::new([
+            AggregateStats::new(number_stats),
+            AggregateStats::new(vec![AggregateStat::try_from_partial(
+                min_max.clone(),
+                nulls_acc.partial_scalar()?,
+                nulls.dtype(),
+            )?]),
+        ]),
+        Arc::new([numbers.dtype().clone(), nulls.dtype().clone()]),
+        Arc::new([field_path!(numbers), field_path!(nulls)]),
+    );
+    let source = FileDataSource::new(
+        LayoutReaderDataSource::new(file.layout_reader()?, SESSION.clone()),
+        Some(statistics),
+    );
     assert_eq!(source.dtype(), file.dtype());
     assert_eq!(source.row_count(), Precision::Exact(3));
     assert_eq!(source.byte_size(), Precision::Absent);
@@ -2422,9 +2456,11 @@ async fn file_data_source_preserves_scans_with_optional_statistics(
         .try_flatten()
         .try_collect::<Vec<_>>()
         .await?;
+    let mut ctx = SESSION.create_execution_ctx();
     assert_arrays_eq!(
         ChunkedArray::try_new(chunks, array.dtype().clone())?.into_array(),
-        array
+        array,
+        &mut ctx
     );
     Ok(())
 }
