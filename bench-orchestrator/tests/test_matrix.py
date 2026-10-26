@@ -45,7 +45,6 @@ EXPECTED_IDS = {
         if benchmark_id
         not in {
             "clickbench-sorted-nvme",
-            "tpch-s3-10",
             "statpopgen",
             "fineweb-s3",
             "appian-nvme",
