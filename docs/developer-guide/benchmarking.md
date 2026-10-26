@@ -6,6 +6,8 @@ benchmarks for end-to-end query performance.
 ## Microbenchmarks
 
 Microbenchmarks use the Divan framework and live in `benches/` directories within individual crates.
+Every microbenchmark binary **must** use `mimalloc` as its global allocator (see
+[Use `mimalloc` as the global allocator](#use-mimalloc-as-the-global-allocator)).
 
 Run microbenchmarks for a specific crate with:
 
@@ -174,50 +176,56 @@ noisiest series in the suite. Keep them for local `cargo bench` comparisons, but
 
 ### How CodSpeed measures a benchmark
 
-CodSpeed measures a benchmark in one of two ways. The way depends on whether the benchmark has
-`#[cpu_features]`.
+Divan runs the benchmark closure in _iterations_ and groups them into _samples_. The _sample size_
+is the number of iterations in one sample. Divan times each sample as a whole and reports the time
+per iteration.
 
-**Simulation.** Benchmarks without `#[cpu_features]` run under
-[CodSpeed's CPU simulation](https://codspeed.io/docs/instruments/cpu). The simulation runs each
+CodSpeed measures a benchmark with one of two instruments. Benchmarks without `#[cpu_features]`
+run in _simulation_. Benchmarks with `#[cpu_features]` run on the _walltime legs_.
+
+**Simulation.** [CodSpeed's CPU simulation](https://codspeed.io/docs/instruments/cpu) runs each
 benchmark **exactly once** and estimates CPU cycles from the instruction trace, including cache
-and memory access costs. This has three results:
+and memory access costs. As a result:
 
-- `sample_count` and `sample_size` have no effect. CodSpeed always runs one iteration.
-- System load does not change the result, because the estimate comes from the instruction trace
-  and not from a clock. Some benchmarks still switch between two values on pull requests that
-  change no Rust code (see [Known unstable benchmarks](#known-unstable-benchmarks)).
-- System calls are not measured. A benchmark that depends on I/O or kernel calls does not show
-  their cost, so it must use the
+- `sample_count` and `sample_size` have no effect.
+- System load does not change the result, because the estimate does not come from a clock. Some
+  benchmarks still switch between two values on code that did not change (see
+  [Known unstable benchmarks](#known-unstable-benchmarks)).
+- System calls are not measured. A benchmark that depends on I/O or kernel calls **must** use the
   [walltime instrument](https://codspeed.io/docs/instruments/walltime) or be gated with
   `#[cfg(not(codspeed))]`.
 
-**Walltime legs.** Benchmarks with `#[cpu_features]` run on dedicated machines, once for each CPU
-feature set (AVX2, AVX-512 and NEON). `.github/workflows/codspeed.yml` defines the legs. Each leg
-measures wall-clock time with divan:
+**Walltime legs.** A walltime leg is one CI job that measures wall-clock time on a dedicated
+machine for one CPU feature set (AVX2, AVX-512 or NEON). `.github/workflows/codspeed.yml` defines
+the legs. On each leg:
 
 - Divan takes 1000 samples (`DIVAN_SAMPLE_COUNT` in the workflow).
-- Divan picks the number of iterations in one sample (the sample size) from the first sample. If
-  the first sample takes more than 100 times the timer precision (about 3 µs), divan uses one
-  iteration per sample. The first sample is cold and slow, so most walltime benchmarks run with
-  one iteration per sample.
+- Divan picks the sample size from the first sample. If the first sample takes more than 100 times
+  the timer precision (about 3 µs), divan keeps one iteration per sample. The first sample is cold
+  and slow, so most walltime benchmarks run with one iteration per sample.
 - CodSpeed compares the **fastest** sample of the pull request run with the fastest sample of the
-  base run. It does not compare the median.
+  base run, not the median.
 
-These three facts cause most of the walltime noise. With one iteration per sample, the fastest
-sample is the single fastest iteration out of 1000, so one unusually fast iteration changes the
-result. A benchmark near the 3 µs limit can also get a different sample size in each run, and each
-sample size reports a different time.
+With one iteration per sample, the fastest sample is the single fastest iteration out of 1000, so
+one unusually fast iteration decides the result. A benchmark close to the 3 µs limit can also get a
+different sample size in each run, and each sample size reports a different time.
 
 For a short walltime benchmark, set `sample_size` in `#[divan::bench]` so that one sample takes
-tens of microseconds. CodSpeed then compares the average of several iterations, and the sample
-size is the same in every run. The setting has no effect in simulation.
-`vortex-buffer/benches/collect_bool.rs` and `encodings/fastlanes/benches/bitpack_blocked.rs` do
-this. Use a literal value: under `--cfg codspeed`, the simulation build ignores the setting, and a
-named constant becomes unused.
+tens of microseconds, as `vortex-buffer/benches/collect_bool.rs` and
+`encodings/fastlanes/benches/bitpack_blocked.rs` do. CodSpeed then compares the average of several
+iterations, and the sample size is the same in every run. Write the value as a literal: the
+simulation build ignores the setting, so a named constant is unused under `--cfg codspeed`.
+
+Do not set `DIVAN_SAMPLE_SIZE` in the workflow instead. The variable overrides the setting of every
+benchmark, and divan keeps the inputs and outputs of a whole sample alive until the sample ends. A
+large global sample size changes the memory behavior of the benchmarks that allocate large
+outputs.
 
 ### Use `mimalloc` as the global allocator
 
-Every benchmark binary uses `mimalloc` as its global allocator:
+Every microbenchmark binary **must** use `mimalloc` as its global allocator. This includes the
+CUDA and DuckDB benchmarks. Put these lines in the main file of each benchmark target, and keep
+them when you rewrite the file:
 
 ```rust
 use mimalloc::MiMalloc;
@@ -225,51 +233,45 @@ use mimalloc::MiMalloc;
 static GLOBAL: MiMalloc = MiMalloc;
 ```
 
-The system allocator's cost depends on its state, which differs between runner images and between
-runs, so allocation inside a timed region made several simulation benchmarks flip between two
-values on pull requests that could not have affected them. `mimalloc` does the same work every
-time, and one allocator for every binary means no benchmark measures a different allocator from
-its neighbours. Add the two lines to every new benchmark file; each crate with benchmarks already
-has the `mimalloc` dev-dependency.
+The cost of the system allocator depends on its state, which differs between runner images and
+between runs. Allocation inside a timed region made several simulation benchmarks flip between two
+values on pull requests that did not change the measured code. `mimalloc` does the same work every
+time, and one allocator for every binary means that no benchmark measures a different allocator
+from its neighbors. Each crate with benchmarks already has the `mimalloc` dev-dependency.
 
 ## What Not to Do
 
 The mistakes below have made CodSpeed report regressions on pull requests that did not change the
 measured code. Such reports teach reviewers to ignore CodSpeed, and then real regressions pass
-unnoticed.
+unnoticed. When a section above explains a rule, the rule links to that section.
 
-- **Do not write a benchmark that does tens of nanoseconds of work.** In simulation, the fixed
-  harness cost is larger than the work, and that cost moves between runs. See
+- **Do not write a benchmark that does tens of nanoseconds of work, or that uses degenerate input
+  such as a zero-byte allocation.** See
   [Keep per-iteration work above the harness floor](#keep-per-iteration-work-above-the-harness-floor).
-- **Do not leave a short walltime benchmark to divan's sample-size tuning.** Below about 3 µs per
-  iteration, divan can pick a different sample size in each run, and each sample size reports a
-  different time. Set `sample_size` (see
-  [How CodSpeed measures a benchmark](#how-codspeed-measures-a-benchmark)).
-- **Do not assume that a stable median gives a stable CodSpeed result.** CodSpeed compares the
-  fastest sample. A walltime benchmark with a median that moves by less than 1% can still report a
-  12% change when some runs have a few fast iterations.
-- **Do not measure code that a pull request cannot change.** Third-party kernels and frozen copies
-  of old implementations only add noise to CodSpeed. See
+- **Do not leave a walltime benchmark of a few microseconds to divan's sample-size tuning.** See
+  [How CodSpeed measures a benchmark](#how-codspeed-measures-a-benchmark).
+- **Do not judge a walltime benchmark by its median alone.** CodSpeed compares the fastest sample,
+  so a benchmark with a stable median can still report a 12% change. See
+  [How CodSpeed measures a benchmark](#how-codspeed-measures-a-benchmark).
+- **Do not measure code that a pull request cannot change.** See
   [Keep third-party and frozen baselines out of CodSpeed](#keep-third-party-and-frozen-baselines-out-of-codspeed).
-- **Do not remove the `mimalloc` global allocator when you rewrite a benchmark file.**
-  `encodings/fastlanes/benches/bitpacking_filter.rs` lost it this way, and then measured the system
-  allocator again.
-- **Do not benchmark degenerate input.** A zero-byte allocation or a compaction with nothing to
-  move measures only the harness.
-- **Do not read a change in an unrelated benchmark as a regression after you add or remove
-  benchmarks.** Benchmarks in one binary run in one process and share the allocator state. When
-  earlier benchmarks change, the later benchmarks can move once.
-- **Do not acknowledge a flagged benchmark in CodSpeed without a cause.** If your change cannot
-  reach the flagged code, open the log of the CodSpeed job and compare the divan table of your run
-  with the table of the base run. If the median did not move, the flag comes from the
+- **Do not drop the `mimalloc` global allocator when you rewrite a benchmark file.** See
+  [Use `mimalloc` as the global allocator](#use-mimalloc-as-the-global-allocator).
+- **Do not read a one-time change in later benchmarks as a regression after you add or remove
+  benchmarks.** All benchmarks of one binary run in one process and share its allocator state, so
+  a change to the earlier benchmarks can move the later ones once.
+- **Do not acknowledge a flagged benchmark in CodSpeed without a cause.** If the pull request
+  cannot reach the flagged code, open the log of the CodSpeed job and compare the divan table of
+  the run with the table of the base run. If the median did not move, the report comes from the
   fastest-sample comparison. Fix the benchmark, or add it to the list below.
 
 ### Known unstable benchmarks
 
-These benchmarks switch between a fast state and a slow state for a whole run, on code that did
-not change. The cause is not known, and a larger iteration does not help because the cost of each
-value also changes. A report on one of them is not evidence of a regression unless the pull
-request changes the code that the benchmark measures.
+The benchmarks below switch between a fast state and a slow state for a whole run, on code that
+did not change. The cause is not known. For the NEON `threshold` and `filter` cases, a larger
+iteration does not help, because the slow state also slows the work for each element, not only a
+fixed cost for each call. A report on one of these benchmarks is not evidence of a regression
+unless the pull request changes the code that the benchmark measures.
 
 | Benchmark | Instrument | Observed values |
 | --- | --- | --- |
