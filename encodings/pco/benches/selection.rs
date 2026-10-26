@@ -10,12 +10,15 @@ use std::hint::black_box;
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use vortex_array::ArrayDeserialization;
+use vortex_array::ArrayPlugin;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PiecewiseSequenceArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySessionExt;
@@ -233,4 +236,43 @@ fn first_probes(bencher: Bencher, missing: bool) {
                 );
             }
         });
+}
+
+// Buffers/children are already materialized: this measures metadata/index preparation, not IO.
+#[divan::bench(args = [false, true])]
+fn metadata_open_batch(bencher: Bencher, nullable: bool) {
+    const OPENS: usize = 256;
+    let source = compressed(nullable);
+    let wire = SESSION
+        .array_serialize(&source)
+        .vortex_expect("serialize metadata fixture")
+        .vortex_expect("PCO is serializable");
+    let buffers = wire
+        .buffers
+        .into_iter()
+        .map(BufferHandle::new_host)
+        .collect::<Vec<_>>();
+    let open = || {
+        ArrayPlugin::deserialize(
+            &Pco,
+            ArrayDeserialization::new(
+                wire.serialized_id,
+                source.dtype(),
+                source.len(),
+                &wire.metadata,
+                &buffers,
+                &wire.children,
+            ),
+            &SESSION,
+        )
+        .vortex_expect("public metadata open")
+    };
+    let mut check = SESSION.create_execution_ctx();
+    assert_arrays_eq!(open(), input(nullable), &mut check);
+    drop(check);
+    bencher.bench_local(|| {
+        for _ in 0..OPENS {
+            black_box(open());
+        }
+    });
 }
