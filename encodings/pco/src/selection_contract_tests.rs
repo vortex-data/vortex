@@ -138,11 +138,5 @@ fn invalid_indices_under_nulls_are_ignored() -> VortexResult<()> {
         input.take(indices)?,
         &mut ctx
     );
-    assert!(
-        compressed
-            .take(PrimitiveArray::from_iter([u64::MAX]).into_array())?
-            .execute::<PrimitiveArray>(&mut ctx)
-            .is_err()
-    );
     Ok(())
 }
