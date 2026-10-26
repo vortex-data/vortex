@@ -211,6 +211,15 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
                 let setup_seconds = setup_start.elapsed().as_secs_f64();
                 let (setup_counts, _) = store.take()?;
+                let runtime = session.runtime_env();
+                let caches = &runtime.cache_manager;
+                caches.get_file_metadata_cache().clear();
+                if let Some(cache) = caches.get_file_statistic_cache() {
+                    cache.clear();
+                }
+                if let Some(cache) = caches.get_list_files_cache() {
+                    cache.clear();
+                }
                 for cache in ["cold", "warm"] {
                     store.reset()?;
                     let start = Instant::now();

@@ -220,7 +220,8 @@ def markdown(result: Record) -> str:
         "state.",
         "",
         "Cold samples use new DataFusion and Vortex sessions. Warm samples immediately repeat the same query "
-        "in that session. Registration is outside the query timer and its request counts are checked "
+        "in that session. File metadata, statistics and listing caches are cleared after registration. "
+        "Registration is outside the query timer and its request counts are checked "
         "separately. Both stores retain the same immutable RAM snapshot during measurements. The real backend "
         "uses a reused S3 HTTP client; cold does not mean a new TLS connection or a cleared S3 service cache.",
         "",

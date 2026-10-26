@@ -23,7 +23,9 @@ adaptive scans; that limits any recommendation to change the default CI storage 
 
 Each of five iterations creates fresh DataFusion and Vortex sessions, registers tables, runs the
 query cold, then immediately runs it warm. Query timers include planning and execution; table
-registration has separate timings and request counters. The S3 HTTP client stays alive across
+registration has separate timings and request counters. Metadata, file-statistics and file-list
+caches are cleared after registration so schema inference does not warm the cold sample.
+The S3 HTTP client stays alive across
 samples. Cold therefore means fresh database caches, rather than cold TLS or S3 service caches.
 
 The initial deterministic model uses 25 ms per request, 100 MiB/s per request and no concurrency
