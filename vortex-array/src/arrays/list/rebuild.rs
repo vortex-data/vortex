@@ -97,7 +97,12 @@ pub(crate) fn null_runs_holding_elements(
 /// Drops the elements before the first of the lists laid out back to back, after the last, and
 /// under the runs of null lists from [`null_runs_holding_elements`], which come out empty.
 ///
-/// Returns the elements kept and where each list now starts, with room to push one more offset.
+/// `end` is where the last list ends. It is a `usize` rather than an `O` because a list view's last
+/// list can end past what its offsets' type holds: with `u8` offsets `[1, 5, 105]` and sizes
+/// `[4, 100, 200]`, it ends at 305.
+///
+/// Returns the elements kept and where each list now starts. A [`ListArray`] needs one more offset,
+/// where its last list ends, so the buffer has room to push it without reallocating.
 pub(crate) fn drop_unreferenced_elements<O: IntegerPType>(
     elements: &ArrayRef,
     starts: &[O],
@@ -110,32 +115,16 @@ pub(crate) fn drop_unreferenced_elements<O: IntegerPType>(
     // The ranges of elements kept, counted from the first list's start.
     let mut kept = Vec::with_capacity(null_runs.len() + 1);
     let mut kept_start = 0;
-    for &(run_start, run_end) in null_runs {
-        if kept_start < start_of(run_start) - first {
-            kept.push((kept_start, start_of(run_start) - first));
-        }
-        kept_start = start_of(run_end) - first;
-    }
-    if kept_start < end - first {
-        kept.push((kept_start, end - first));
-    }
-    let referenced = elements.slice(first..end)?;
-    let elements = if let [(start, stop)] = kept[..] {
-        referenced.slice(start..stop)?
-    } else {
-        let mut bits = BitBufferMut::new_unset(end - first);
-        for &(start, stop) in &kept {
-            bits.fill_range(start, stop, true);
-        }
-        // With the ranges cached on the mask, the filter copies the elements range by range.
-        referenced.filter(Mask::from_buffer_with_slices(bits.freeze(), kept))?
-    };
-
     let mut offsets = BufferMut::with_capacity_in(starts.len() + 1, allocator.clone());
     offsets.extend_from_slice(starts);
     let mut dropped = starts.first().copied().unwrap_or_else(O::zero);
     let mut from = 0;
     for &(run_start, run_end) in null_runs {
+        if kept_start < start_of(run_start) - first {
+            kept.push((kept_start, start_of(run_start) - first));
+        }
+        kept_start = start_of(run_end) - first;
+
         for offset in &mut offsets[from..run_start] {
             *offset = *offset - dropped;
         }
@@ -146,8 +135,25 @@ pub(crate) fn drop_unreferenced_elements<O: IntegerPType>(
         }
         from = run_end;
     }
+    if kept_start < end - first {
+        kept.push((kept_start, end - first));
+    }
     for offset in &mut offsets[from..] {
         *offset = *offset - dropped;
     }
+
+    let referenced = elements.slice(first..end)?;
+    let elements = match kept[..] {
+        [] => referenced.slice(0..0)?,
+        [(start, stop)] => referenced.slice(start..stop)?,
+        _ => {
+            let mut bits = BitBufferMut::new_unset(end - first);
+            for &(start, stop) in &kept {
+                bits.fill_range(start, stop, true);
+            }
+            // With the ranges cached on the mask, the filter copies the elements range by range.
+            referenced.filter(Mask::from_buffer_with_slices(bits.freeze(), kept))?
+        }
+    };
     Ok((elements, offsets))
 }
