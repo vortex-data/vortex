@@ -165,14 +165,8 @@ pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<boo
     acc.accumulate(array, ctx)?;
     let result_scalar = acc.finish()?;
 
-    let result = result_scalar.as_bool().value().unwrap_or(false);
-
-    // Cache the computed is_constant as a statistic.
-    array
-        .statistics()
-        .set(Stat::IsConstant, Precision::Exact(result.into()));
-
-    Ok(result)
+    // The accumulator caches the result as a statistic.
+    Ok(result_scalar.as_bool().value().unwrap_or(false))
 }
 
 /// Compute whether an array is constant.
@@ -206,14 +200,21 @@ impl IsConstant {
                 vec![Scalar::bool(true, Nullability::NonNullable), first_value],
             ))
         } else {
-            Ok(Scalar::struct_(
-                partial_dtype,
-                vec![
-                    Scalar::bool(false, Nullability::NonNullable),
-                    Scalar::null(batch.dtype().as_nullable()),
-                ],
-            ))
+            Ok(Self::not_constant_partial(batch.dtype()))
         }
+    }
+
+    /// The partial scalar of a batch of `dtype` known not to be constant.
+    ///
+    /// It carries no value, since a non-constant batch settles the result.
+    pub(crate) fn not_constant_partial(dtype: &DType) -> Scalar {
+        Scalar::struct_(
+            make_is_constant_partial_dtype(dtype),
+            vec![
+                Scalar::bool(false, Nullability::NonNullable),
+                Scalar::null(dtype.as_nullable()),
+            ],
+        )
     }
 }
 

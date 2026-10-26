@@ -139,15 +139,12 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
     acc.accumulate(array, ctx)?;
     let result_scalar = acc.finish()?;
 
-    let result = result_scalar.as_bool().value().unwrap_or(false);
-
-    // Cache the computed result as statistics.
-    cache_is_sorted(array, strict, result);
-
-    Ok(result)
+    // The accumulator caches the result as statistics.
+    Ok(result_scalar.as_bool().value().unwrap_or(false))
 }
 
-fn cache_is_sorted(array: &ArrayRef, strict: bool, result: bool) {
+/// Cache an (optionally strict) is_sorted `result`, with what it implies for the other stat.
+pub(crate) fn cache_is_sorted(array: &ArrayRef, strict: bool, result: bool) {
     let array_stats = array.statistics();
     if strict {
         if result {
@@ -202,6 +199,22 @@ impl IsSorted {
                 ],
             )
         })
+    }
+
+    /// The partial scalar of a batch of `dtype` known not to be (strictly) sorted.
+    ///
+    /// It carries no boundary values, since an unsorted batch settles the result.
+    pub(crate) fn not_sorted_partial(dtype: &DType, strict: bool) -> Scalar {
+        let value_dtype = dtype.as_nullable();
+        Scalar::struct_(
+            make_is_sorted_partial_dtype(dtype),
+            vec![
+                Scalar::bool(false, Nullability::NonNullable),
+                Scalar::bool(strict, Nullability::NonNullable),
+                Scalar::null(value_dtype.clone()),
+                Scalar::null(value_dtype),
+            ],
+        )
     }
 }
 
