@@ -27,11 +27,11 @@ planning review on 2026-10-23.
   [#10733](https://github.com/vortex-data/vortex/issues/10733) with `gh issue edit`. It edits only
   that line, and it reads the issue again just before it writes, so that it keeps the edits of
   others. It does not edit this branch to record progress.
-- The briefs cite `develop` at `b70206818f`. Line numbers move as PRs land, so the agent reads the
-  cited code before it changes it. Code from the local integer `Narrow` rewrite is cited with its
-  commit, for example `f7408481ce:vortex-array/src/arrays/narrow/mod.rs`. That rewrite is a
-  reference for tests and edge cases. The PRs are written from scratch, and only FX3 ports a
-  rewrite commit as it is (D38).
+- The briefs cite `develop` at `b70206818f`, except NR1 to NR4, which cite `origin/develop` at
+  `afa4bc87cd`. Line numbers move as PRs land, so the agent reads the cited code before it changes
+  it. Code from the local integer `Narrow` rewrite is cited with its commit, for example
+  `f7408481ce:vortex-array/src/arrays/narrow/mod.rs`. That rewrite is a reference for tests and
+  edge cases. The PRs are written from scratch, and only FX3 ports a rewrite commit as it is (D38).
 - The rewrite commits (`f7408481ce`, `8d548646ee`, `74aa17644e`, `af4b663059` and `7e2e5e4d7a`) are
   not on `origin`. Only the local branches `ct/narrow-pushdown` and `ct/narrow-encoding` hold them,
   and those names also exist on `origin` with the older commits of the closed PRs. Agents in local
@@ -45,7 +45,9 @@ planning review on 2026-10-23.
 - Several PRs form stacks: NR1 to NR5, WR1 to WR3, and optionally CD3 and CD5, CD4 and CD6, and CD8a
   and CD8b. `develop` squash-merges PRs. So after the base PR merges, a plain `git rebase develop`
   replays the base commits again and conflicts. Rebase the next PR with
-  `git rebase --onto develop <old base tip>`, or with `gh stack`.
+  `git rebase --onto develop <old base tip>`, or with `gh stack`. The NR1 to NR5 stack follows
+  "Stack and branches" in the NR brief instead: it starts from `origin/develop`, runs
+  `gh stack sync` after a merge, and uses no manual `--onto`.
 - Every commit carries `Signed-off-by: Connor Tsui <connor.tsui20@gmail.com>` and no AI co-author
   line.
 - WR3 needs a design pass before an agent starts it. Its brief lists the open questions.
@@ -66,7 +68,7 @@ planning review on 2026-10-23.
 | FX3 | Dictionary `fill_null` no longer truncates the fill code | None | Small |
 | NR1 | In-memory integer `Narrow`, with `encode`, the deprecated `encode_values`, the serialization workaround and a flatten rule | None | Large |
 | NR2 | Benchmarks for compute on integer `Narrow` | NR1 | Medium |
-| NR3 | Aggregates run on the child | NR2 | Small |
+| NR3 | Aggregates run on the child | NR2 | Medium |
 | NR4 | Arithmetic, `between`, `zip` and casts run on the child | NR3 | Large |
 | NR5 | Structural encodings move above `Narrow`, and dictionary codes use the child | NR4, FX3 | Medium |
 | NR6 | The existing narrowing call sites move to `encode_values` | NR1. It merges after NR5 (D35) | Medium |
@@ -178,8 +180,8 @@ files. The column "Shared files" names the pairs that do not, so run those one a
 | --- | --- | --- | --- |
 | 1 | FX1, FX3, NR1, CD1, CD2, CD3 | No dependencies. The next regular release after CD2 publishes the fixtures | CD2 calls `smallest_decimal_value_type`, which CD3 removes. The second of the two to merge adapts |
 | 2 | NR2, NR6, CD7, CD5 | NR6 merges after NR5 (D35). CD7 waits for CD1. CD5 waits for the release with CD2 | CD5 and CD7: the crate doc in `encodings/decimal-byte-parts/src/lib.rs`, the tests in `assemble.rs`, and `benches/dbp_assemble.rs`. CD7 also changes the signature of `split_decimal`. NR6 and CD7: the golden snapshots of `vortex-btrblocks` |
-| 3 | NR3, then NR4 | One stack. Merge NR1 and NR2 before reading the CodSpeed reports of NR3 and NR4 | None |
-| 4 | NR5, CD4 | NR5 waits for FX3 | Both edit `vortex-array/src/arrays/narrow/rules.rs` |
+| 3 | NR3, then NR4 | One stack. Read the CodSpeed reports with the rule in the NR brief ("CodSpeed on stacked PRs") | None |
+| 4 | NR5, CD4 | FX3 is merged (`dcb4f50ae2`) | Both edit `vortex-array/src/arrays/narrow/rules.rs` |
 | 5 | CD6 | Waits for FX1, CD4 and the release with CD2 | None |
 | 6 | CD8a | The last in-memory step that the wire change needs | None |
 | 7 | CD8b, CD8c, WR1 | Each needs only CD8a | CD8b adds a `ctx` parameter to `DecimalArray::new` and `try_new`, which CD8c and WR1 call. CD8b and CD8c both edit `vortex-array/src/builders/decimal.rs` and the same tests. Land CD8b first, or rebase the others on it |

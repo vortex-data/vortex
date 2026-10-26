@@ -677,16 +677,16 @@ their values in CD3 (D30).
 ### CD4: Decimal `Narrow` in memory
 
 - Goal: The `Narrow` encoding accepts decimal children under D10, and its kernels and the decimal
-  cast follow D15. Compare, sum, min and max run on the narrower child, with the result of the
-  parent.
+  cast follow D15. Compare, min and max run on the narrower child, with the result of the parent.
+  A sum runs on the child only with the optional decimal branch for `Sum` with `skip_nans`.
 - Depends on: NR1, NR3, NR4, CD3, CD1. Soft: NR2 (bench file layout), NR5 (its structural rules
   also hold for decimals). Blocks: CD6, CD8a, WR1, WR3.
 - Decisions: D10, D15, D4, D8 (one encoding for integers and decimals, in memory only), D19, D25,
   D26, D36.
 - Branch: `ct/decimal-narrow`, based on `develop` after NR1, NR3, NR4, CD1 and CD3 merge.
 - Scope: Open `validate_dtypes` for decimals, and add decimal execution and a decimal encoder. Add
-  decimal branches to the compare, aggregate, cast and fill-null kernels. Change the decimal cast
-  kernel for D15. Add tests and benchmarks.
+  decimal branches to the compare, cast and fill-null kernels, and optionally a decimal branch to
+  the sum kernel. Change the decimal cast kernel for D15. Add tests and benchmarks.
 - Out of scope: The `vortex.narrow` wire form (WR1). The compressor scheme (WR3). The read plugin
   (CD6). A strict `try_new` (CD8a). Arithmetic, zip and merges on decimal `Narrow`, which decline
   and fall back. A cast rule that wraps a DBP or other encoded decimal in a `Narrow` without
@@ -710,7 +710,7 @@ Places in the rewrite that assume an integer child. CD4 handles each one:
 | 11 | `af4b663059:.../narrow/rules.rs:240-279` `zip_values` | `PType::try_from`, declines | Keep the decline. Test the fallback |
 | 12 | `af4b663059:.../narrow/rules.rs:316-346` `BetweenReduce` | None, a scalar cast and `two_compares` | Test only. Relies on 6 and 7 |
 | 13 | `af4b663059:.../narrow/rules.rs:281-314` `TakeIndicesReduce` | Dictionary codes are integers | None. A decimal cannot be a code |
-| 14 | `8d548646ee:vortex-array/src/arrays/narrow/aggregates.rs:83-89` | The child partial, cast to the parent partial dtype, assumes the same result dtype | NR3 builds every accumulator from the parent dtype (D36). CD4 adds the decimal tests |
+| 14 | `8d548646ee:vortex-array/src/arrays/narrow/aggregates.rs:83-89` | The child partial, cast to the parent partial dtype, assumes the same result dtype | None. NR3 does not port this code: its kernels build the partial of the parent dtype (D36). The extrema, `IsConstant` and `IsSorted` kernels are exact for decimals as they are, and CD4 adds their decimal tests. The sum kernel declines decimal children. CD4 can add a decimal branch for `Sum` with `skip_nans` only |
 | 15 | `af4b663059:.../narrow/numeric.rs:69-72` | `PType::try_from`, declines | Keep the decline. Test the fallback |
 
 The rows cite the tip `af4b663059`, which also holds NR5 code. CD4 does not need NR5, so on its base
@@ -722,12 +722,13 @@ Files. The `narrow` module comes from NR1 to NR4, so its lines are not on `b7020
 
 | Path | Change |
 | --- | --- |
-| `vortex-array/src/arrays/narrow/mod.rs` | `validate_dtypes` for decimals, docs |
+| `vortex-array/src/arrays/narrow/mod.rs` | The module doc |
+| `vortex-array/src/arrays/narrow/array.rs` | `validate_dtypes` for decimals |
 | `vortex-array/src/arrays/narrow/vtable.rs` | Decimal `execute` |
-| `vortex-array/src/arrays/narrow/encoding.rs` | `NarrowArray::encode_decimal` and the precision helper |
+| `vortex-array/src/arrays/narrow/encode.rs` | `NarrowArray::encode_decimal` and the precision helper |
 | `vortex-array/src/arrays/narrow/compare.rs` | Decimal branches |
 | `vortex-array/src/arrays/narrow/rules.rs` | Decimal `CastReduce` and `FillNullReduce` |
-| `vortex-array/src/arrays/narrow/aggregates.rs` | No change expected: NR3 builds every accumulator from the parent dtype (D36). Change it only if a decimal accumulator rejects the child batch |
+| `vortex-array/src/arrays/narrow/aggregates.rs` | The extrema, `IsConstant` and `IsSorted` kernels need no change (D36). Optional: a decimal branch in `NarrowSumKernel`, for `Sum` with `skip_nans` only |
 | `vortex-array/src/arrays/decimal/compute/cast.rs` | The D15 rule in `CastReduce` (`:45-82`) and `CastKernel` (`:84-170`) |
 | `vortex-array/src/arrays/narrow/tests/decimal.rs` | New tests, registered in `narrow/tests/mod.rs` |
 | The `Narrow` bench file of NR2, or `vortex-array/benches/` | Decimal `Narrow` benches |
@@ -792,19 +793,23 @@ Design notes:
   (`sum_decimal_dtype`, `vortex-array/src/aggregate_fn/fns/sum/mod.rs:81-86`). An accumulator for
   the child dtype uses `sum_decimal_dtype(child)`, which overflows where the parent result does not.
   A `Narrow` must never fail where its parent would not (D36). So:
-  - NR3 already builds every accumulator from the dtype of the parent, and it feeds that
-    accumulator the child batch. `Sum` and `SumV2` need no `Narrow` code, and CD4 adds only tests.
-  - `accumulate_decimal` reads any input width into the width of the result dtype
-    (`vortex-array/src/aggregate_fn/fns/sum/decimal.rs:27-61`). `multiply_constant` handles a
-    constant child of any precision (`vortex-array/src/aggregate_fn/fns/sum/constant.rs:69-89`).
-    So the sum never widens the child buffer.
-  - First, confirm that the accumulator accepts a batch whose decimal dtype differs from its input
-    dtype. Not verified. If it does not, stop and report, because the fix then touches the shared
-    accumulator code.
-- Min, max, first and last: the NR3 path stands. The child partial casts to the parent partial
-  dtype, so each value becomes a value of the parent dtype. `IsSorted`, `IsConstant` and the counts
-  need no change. Whether the struct partial of `MinMax` casts field by field is Not verified, so
-  CD4 tests it.
+  - The NR3 sum kernel declines decimal children. A decimal `Sum` or `SumV2` takes the default
+    path, which executes the `Narrow` to the parent decimal and sums in
+    `sum_decimal_dtype(parent)`. That is exact, so CD4 needs only tests for it.
+  - CD4 can add a decimal branch to `NarrowSumKernel`, for `Sum` with `skip_nans` only. That is the
+    one configuration whose parent path also sums each batch from zero, through the stats bridge.
+    The branch calls `accumulate_decimal` on the child with the sum dtype of the parent
+    (`vortex-array/src/aggregate_fn/fns/sum/decimal.rs:27-61`), which reads any input width into
+    the width of that dtype. It needs no length bound, because it checks the adds per value, and it
+    never widens the child buffer. Test it with the NR3 oracle, including a running overflow.
+  - The accumulator rejects a batch whose dtype differs from its input dtype
+    (`vortex-array/src/aggregate_fn/accumulator.rs:237`). So no path feeds the child to an
+    accumulator of the parent dtype.
+- Min, max, first and last: the NR3 path stands. The extrema kernel runs `min_max` on the child and
+  decodes the two values with the `Narrow` decode, so each value is a value of the parent dtype.
+  `First` and `Last` take the default path and read `scalar_at`, which decodes to the parent dtype.
+  The `IsConstant` and `IsSorted` kernels are exact for decimals as they are, and the counts need
+  no change. CD4 adds the decimal tests.
 - Casts (D15):
   - A cast of a decimal `Narrow` passes to the child with the same target dtype: decimal, integer
     or float. When the target equals the dtype of the array, the rule returns the array.
@@ -831,7 +836,8 @@ Steps:
 1. Open `validate_dtypes` for decimals and update the docs.
 2. Add decimal execution and `encode_decimal`.
 3. Add the decimal compare branches.
-4. Confirm with tests that decimal sums through the NR3 kernel use the parent result dtype (D36).
+4. Confirm with tests that decimal sums use the parent result dtype (D36). If CD4 adds the decimal
+   branch to `NarrowSumKernel`, it covers `Sum` with `skip_nans` only.
 5. Add the D15 cast rules on `Narrow` and on the decimal leaf, and the fill-null branch.
 6. Add the conformance and fallback tests.
 7. Add the benchmarks.
@@ -863,8 +869,12 @@ Tests, in `vortex-array/src/arrays/narrow/tests/decimal.rs`, as functions that r
   `sum_decimal_dtype(parent)`. Include nulls and all nulls.
 - `test_decimal_sum_uses_parent_precision`: a `Narrow` of `Decimal(18, 0)` over a `ConstantArray`
   of `Decimal(2, 0)` with the value 99. Its length pushes the child sum past precision 12, the
-  precision of `sum_decimal_dtype(Decimal(2, 0))`. The sum is the exact product, not null. The
-  constant child is never materialized.
+  precision of `sum_decimal_dtype(Decimal(2, 0))`. The sum is the exact product, not null. The NR3
+  sum kernel declines a constant child, so the default path executes the `Narrow`. With the
+  decimal `execute` above, that step executes the child to a `DecimalArray`, unless a reduce rule
+  first turns `Narrow(Constant)` into a `Constant` (`vortex-array/src/executor.rs:489`). The NR5
+  pull-up is such a rule. So the test always checks the exact product, and it checks that the
+  child is not materialized only when NR5 is on the base of CD4.
 - `test_decimal_min_max_first_last`: results are values of the parent dtype and equal the canonical
   results.
 - `test_decimal_cast_rules`: an `rstest` over the leaf rules.
@@ -903,11 +913,12 @@ Operations:
 - `execute`, which widens to canonical.
 - `cast_widen`, to `Decimal(38, 2)` or to `Decimal(76, 2)` for the `p38` case, then execute.
 
-Expected in CodSpeed: `compare_constant`, `sum`, `min_max` and `filter` are equal to or faster than
-the baseline, because the child is narrower. `compare_constant_out_of_range` is much faster,
-because it reads no values. `execute` costs one widening copy. Compare it with the DBP `decode` of
-CD1 when the D19 cost comes up. The CD1 case `widen_*` in `cast_decimal.rs` stays similar or gets
-faster.
+Expected in CodSpeed: `compare_constant`, `min_max` and `filter` are equal to or faster than the
+baseline, because the child is narrower. `sum` is equal or faster only with the optional decimal
+branch of the sum kernel. Without it, `sum` on the `Narrow` pays one decode before the sum.
+`compare_constant_out_of_range` is much faster, because it reads no values. `execute` costs one
+widening copy. Compare it with the DBP `decode` of CD1 when the D19 cost comes up. The CD1 case
+`widen_*` in `cast_decimal.rs` stays similar or gets faster.
 
 Acceptance checks:
 

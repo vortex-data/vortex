@@ -189,14 +189,17 @@ on it.
 | --- | --- |
 | Compare with a constant | If the constant is outside the range of the child dtype, the answer needs no values. Otherwise, compare the child with the constant at the child precision |
 | Min and max | The result of the child, as a value of the parent dtype |
-| Sum | The sum of the child, with the result dtype of the parent |
+| Sum | The default path: decode, then sum in the result dtype of the parent. CD4 can add a sum of the child for `Sum` with `skip_nans` only |
 | Filter, take and slice | Run on the child |
 | Cast | Pass the cast to the child, with the same target dtype |
 
 An operation on a `Narrow` fails only where the same operation on the parent fails, and it gives the
-same result (decided, D36). So aggregates use the accumulator of the parent dtype and feed it the
-child. A `Narrow` over a `Narrow` becomes one `Narrow`. Another decimal cast to a precision with the
-same scale follows three rules:
+same result (decided, D36). So an aggregate runs in the accumulator of the parent dtype, and a
+`Narrow` kernel builds the exact partial of the parent from the child. The kernels for min, max,
+is constant and is sorted are exact for decimals as they are. A decimal sum takes the default path
+until CD4, which can add a decimal branch for `Sum` with `skip_nans` only. A `Narrow` over a
+`Narrow` becomes one `Narrow`. Another decimal cast to a precision with the same scale follows
+three rules:
 
 - When the canonical width grows, the cast returns a `Narrow` over its input. Nothing is copied
   until execution.
