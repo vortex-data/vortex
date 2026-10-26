@@ -12,6 +12,7 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::LayoutId;
 use crate::LayoutRef;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -75,6 +76,7 @@ impl Drop for BufferedBytesReservation {
 pub struct LayoutWriterContext {
     array_ctx: ArrayContext,
     allowed_aggregates: Option<Arc<HashSet<AggregateFnId>>>,
+    allowed_layouts: Option<Arc<HashSet<LayoutId>>>,
     nullable_ancestor: bool,
     buffered_bytes: BufferedBytesTracker,
 }
@@ -85,6 +87,7 @@ impl LayoutWriterContext {
         Self {
             array_ctx,
             allowed_aggregates: None,
+            allowed_layouts: None,
             nullable_ancestor: false,
             buffered_bytes: BufferedBytesTracker::new(),
         }
@@ -107,6 +110,24 @@ impl LayoutWriterContext {
         self.allowed_aggregates
             .as_ref()
             .is_none_or(|allowed| allowed.contains(aggregate))
+    }
+
+    /// Restrict the layouts this write may produce.
+    ///
+    /// Strategies that can write more than one layout use this to select a layout that the
+    /// readers of the file know. The footer serializer still rejects a layout that is not
+    /// permitted.
+    pub fn with_allowed_layouts(mut self, allowed: HashSet<LayoutId>) -> Self {
+        self.allowed_layouts = Some(Arc::new(allowed));
+        self
+    }
+
+    /// Returns whether this write may produce `layout`. Unrestricted contexts permit every
+    /// layout.
+    pub fn allows_layout(&self, layout: &LayoutId) -> bool {
+        self.allowed_layouts
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(layout))
     }
 
     /// Marks this write as nested under a nullable container, such as a field of a nullable
