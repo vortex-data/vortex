@@ -719,7 +719,9 @@ fn estimate_to_df_precision(est: &Precision<u64>) -> DFPrecision<usize> {
 mod tests {
     use std::any::Any;
     use std::sync::Arc;
-    use std::time::Duration;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+    use std::task::Poll;
 
     use arrow_array::cast::AsArray;
     use arrow_array::types::Int32Type;
@@ -727,6 +729,7 @@ mod tests {
     use async_trait::async_trait;
     use datafusion::prelude::SessionContext;
     use futures::TryStreamExt;
+    use rstest::rstest;
     use vortex::VortexSessionDefault;
     use vortex::array::IntoArray;
     use vortex::array::arrays::PrimitiveArray;
@@ -735,7 +738,6 @@ mod tests {
     use vortex::array::stream::ArrayStreamAdapter;
     use vortex::array::stream::ArrayStreamExt;
     use vortex::array::stream::SendableArrayStream;
-    use vortex::array::validity::Validity;
     use vortex::buffer::ByteBufferMut;
     use vortex::buffer::buffer;
     use vortex::dtype::FieldPath;
@@ -754,6 +756,7 @@ mod tests {
     use vortex::scan::PartitionStream;
     use vortex::session::VortexSession;
     use vortex_arrow::ArrowSessionExt;
+    use vortex_error::VortexError;
 
     use super::*;
     use crate::v2::VortexTable;
@@ -828,11 +831,11 @@ mod tests {
         )
     }
 
-    /// A partition that emits a single-row `{ x: value }` batch, optionally after a delay.
+    /// One batch, with the first partition yielding once before it is ready.
     struct TestPartition {
         index: usize,
-        value: i32,
-        delay: Option<Duration>,
+        values: &'static [i32],
+        polls: Arc<AtomicUsize>,
     }
 
     impl Partition for TestPartition {
@@ -845,7 +848,7 @@ mod tests {
         }
 
         fn row_count(&self) -> Precision<u64> {
-            Precision::exact(1)
+            Precision::exact(self.values.len() as u64)
         }
 
         fn byte_size(&self) -> Precision<u64> {
@@ -853,30 +856,35 @@ mod tests {
         }
 
         fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
-            let dtype = test_dtype();
-            let value = self.value;
-            let delay = self.delay;
-            let fut = async move {
-                if let Some(delay) = delay {
-                    tokio::time::sleep(delay).await;
+            let mut yield_once = self.index == 0;
+            let mut values = Some(self.values);
+            let polls = self.polls;
+            let stream = futures::stream::poll_fn(move |cx| {
+                polls.fetch_add(1, Ordering::Relaxed);
+                if yield_once {
+                    yield_once = false;
+                    cx.waker().wake_by_ref();
+                    return Poll::Pending;
                 }
-                let array = StructArray::from_fields(&[(
-                    "x",
-                    PrimitiveArray::new(buffer![value], Validity::NonNullable).into_array(),
-                )])?
-                .into_array();
-                Ok(array)
-            };
+                Poll::Ready(values.take().map(|values| {
+                    StructArray::from_fields(&[(
+                        "x",
+                        PrimitiveArray::from_iter(values.iter().copied()).into_array(),
+                    )])
+                    .map(IntoArray::into_array)
+                }))
+            });
             Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
-                dtype,
-                futures::stream::once(fut),
+                test_dtype(),
+                stream,
             )))
         }
     }
 
-    /// A scan that produces two partitions: partition 0 is delayed, partition 1 is immediate.
     struct TestScan {
         dtype: DType,
+        limit: Option<u64>,
+        polls: Arc<AtomicUsize>,
     }
 
     impl DataSourceScan for TestScan {
@@ -889,24 +897,30 @@ mod tests {
         }
 
         fn partitions(self: Box<Self>) -> PartitionStream {
-            let partitions: Vec<VortexResult<PartitionRef>> = vec![
-                Ok(Box::new(TestPartition {
-                    index: 0,
-                    value: 0,
-                    delay: Some(Duration::from_millis(100)),
-                }) as PartitionRef),
-                Ok(Box::new(TestPartition {
-                    index: 1,
-                    value: 100,
-                    delay: None,
-                }) as PartitionRef),
-            ];
+            let limit = self
+                .limit
+                .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
+            let partitions: Vec<VortexResult<PartitionRef>> = [&[0, 1][..], &[100, 101][..]]
+                .into_iter()
+                .enumerate()
+                .map(|(index, values)| {
+                    // Ordered partitions enforce their own limit; the adapter must enforce the
+                    // global limit when it concatenates their outputs.
+                    let values = &values[..limit.unwrap_or(values.len()).min(values.len())];
+                    Ok(Box::new(TestPartition {
+                        index,
+                        values,
+                        polls: Arc::clone(&self.polls),
+                    }) as PartitionRef)
+                })
+                .collect();
             futures::stream::iter(partitions).boxed()
         }
     }
 
     struct TestDataSource {
         dtype: DType,
+        polls: Arc<AtomicUsize>,
     }
 
     #[async_trait]
@@ -915,9 +929,11 @@ mod tests {
             &self.dtype
         }
 
-        async fn scan(&self, _scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
+        async fn scan(&self, request: ScanRequest) -> VortexResult<DataSourceScanRef> {
             Ok(Box::new(TestScan {
                 dtype: self.dtype.clone(),
+                limit: request.limit,
+                polls: Arc::clone(&self.polls),
             }))
         }
 
@@ -926,14 +942,23 @@ mod tests {
         }
     }
 
-    /// With ordering requested and a global fetch of 1, the output must come from the first
-    /// partition even though it is delayed and the second partition is immediately ready. This
-    /// exercises both ordered split emission and cross-partition limit enforcement.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn ordered_scan_enforces_global_fetch() -> VortexResult<()> {
+    /// The first partition yields once, so completion order differs from partition order.
+    /// Fetch three also requires slicing the batch that crosses the global limit.
+    #[rstest]
+    #[case::all(None, &[0, 1, 100, 101])]
+    #[case::empty(Some(0), &[])]
+    #[case::first(Some(1), &[0])]
+    #[case::across_partitions(Some(3), &[0, 1, 100])]
+    #[tokio::test]
+    async fn ordered_scan_enforces_global_fetch(
+        #[case] limit: Option<usize>,
+        #[case] expected: &[i32],
+    ) -> VortexResult<()> {
         let arrow_schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int32, false)]));
+        let polls = Arc::new(AtomicUsize::new(0));
         let data_source: DataSourceRef = Arc::new(TestDataSource {
             dtype: test_dtype(),
+            polls: Arc::clone(&polls),
         });
 
         let mut source = VortexDataSource::builder(data_source, VortexSession::default())
@@ -941,26 +966,35 @@ mod tests {
             .build()
             .await?;
         source.ordered = true;
-        source.limit = Some(1);
+        source.limit = limit;
 
-        let stream = source
+        let mut stream = source
             .open(0, Arc::new(TaskContext::default()))
-            .map_err(|e| vortex::error::vortex_err!("open failed: {e}"))?;
+            .map_err(VortexError::external)?;
         let batches: Vec<RecordBatch> = stream
+            .by_ref()
             .try_collect()
             .await
-            .map_err(|e| vortex::error::vortex_err!("collect failed: {e}"))?;
+            .map_err(VortexError::external)?;
+        let values = batches
+            .iter()
+            .flat_map(|batch| {
+                batch
+                    .column(0)
+                    .as_primitive::<Int32Type>()
+                    .values()
+                    .iter()
+                    .copied()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(values, expected);
 
-        let total_rows: usize = batches.iter().map(RecordBatch::num_rows).sum();
-        assert_eq!(total_rows, 1, "global fetch = 1 should yield exactly one row");
-
-        let column = batches[0].column(0).as_primitive::<Int32Type>();
-        assert_eq!(
-            column.value(0),
-            0,
-            "ordered scan must emit the first partition's row, not the faster second partition"
-        );
-
+        let finished_polls = polls.load(Ordering::Relaxed);
+        assert!(stream.next().await.is_none());
+        assert_eq!(polls.load(Ordering::Relaxed), finished_polls);
+        if limit == Some(0) {
+            assert_eq!(finished_polls, 0);
+        }
         Ok(())
     }
 }
