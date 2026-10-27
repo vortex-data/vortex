@@ -10,6 +10,7 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::request::IoConsumer;
@@ -61,8 +62,10 @@ impl ProjectionPlanner {
             row_chunks(selected.scope.rows.clone(), MAX_OUTPUT_ROWS)
                 .into_iter()
                 .filter_map(|rows| {
-                    let start = (rows.start - selected.scope.rows.start) as usize;
-                    let end = (rows.end - selected.scope.rows.start) as usize;
+                    let start = usize::try_from(rows.start - selected.scope.rows.start)
+                        .vortex_expect("selection mask offset fits usize");
+                    let end = usize::try_from(rows.end - selected.scope.rows.start)
+                        .vortex_expect("selection mask offset fits usize");
                     let mask = selected.mask.slice(start..end);
                     (!mask.all_false()).then_some(SelectedRows {
                         scope: WorkScope {
