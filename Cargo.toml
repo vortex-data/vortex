@@ -139,23 +139,23 @@ custom-labels = "0.4.4"
 dashmap = "6.2.1"
 # DataFusion 56 development snapshot; upstream still declares 55.1.0.
 # https://github.com/apache/datafusion/issues/24461
-datafusion = { git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7", default-features = false, features = [
+datafusion = { version = "55.1.0", git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7", default-features = false, features = [
     "sql",
 ] }
-datafusion-catalog = { git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
-datafusion-common = { git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
-datafusion-common-runtime = { git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
-datafusion-datasource = { git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7", default-features = false }
-datafusion-execution = { git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
-datafusion-expr = { git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
-datafusion-functions = { git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
-datafusion-functions-nested = { git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
-datafusion-physical-expr = { git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
-datafusion-physical-expr-adapter = { git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
-datafusion-physical-expr-common = { git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
-datafusion-physical-plan = { git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
-datafusion-pruning = { git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
-datafusion-sqllogictest = { git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
+datafusion-catalog = { version = "55.1.0", git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
+datafusion-common = { version = "55.1.0", git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
+datafusion-common-runtime = { version = "55.1.0", git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
+datafusion-datasource = { version = "55.1.0", git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7", default-features = false }
+datafusion-execution = { version = "55.1.0", git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
+datafusion-expr = { version = "55.1.0", git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
+datafusion-functions = { version = "55.1.0", git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
+datafusion-functions-nested = { version = "55.1.0", git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
+datafusion-physical-expr = { version = "55.1.0", git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
+datafusion-physical-expr-adapter = { version = "55.1.0", git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
+datafusion-physical-expr-common = { version = "55.1.0", git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
+datafusion-physical-plan = { version = "55.1.0", git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
+datafusion-pruning = { version = "55.1.0", git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
+datafusion-sqllogictest = { version = "55.1.0", git = "https://github.com/apache/datafusion", rev = "97ff724f2c20f906277dc29fa8ba66a5824538a7" }
 divan = { package = "codspeed-divan-compat", version = "6.0.0" }
 enum-iterator = "2.0.0"
 env_logger = "0.11"

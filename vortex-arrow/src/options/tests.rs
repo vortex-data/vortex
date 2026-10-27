@@ -129,11 +129,8 @@ fn external_options_reach_nested_exporters() -> VortexResult<()> {
     let session = VortexSession::empty();
     session.arrow().register_exporter(Arc::new(Plugin));
     let mut ctx = session.create_execution_ctx();
-    let child = Field::new("item", DataType::Int32, false).with_metadata(
-        [("ARROW:extension:name".to_owned(), "test.options".to_owned())]
-            .into_iter()
-            .collect(),
-    );
+    let child = Field::new("item", DataType::Int32, false)
+        .with_metadata([("ARROW:extension:name".to_owned(), "test.options".to_owned())]);
     let field = Field::new("list", DataType::List(Arc::new(child)), false);
     let array = ListArray::try_new(
         buffer![1i32, 2, 3].into_array(),

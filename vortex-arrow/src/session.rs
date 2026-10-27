@@ -1055,13 +1055,10 @@ mod tests {
             ]
             .into(),
         );
-        let field = Field::new("v", storage, true).with_metadata(
-            [(
-                "ARROW:extension:name".to_string(),
-                "arrow.parquet.variant".to_string(),
-            )]
-            .into(),
-        );
+        let field = Field::new("v", storage, true).with_metadata([(
+            "ARROW:extension:name".to_string(),
+            "arrow.parquet.variant".to_string(),
+        )]);
         assert_eq!(
             session.from_arrow_field(&field)?,
             DType::Variant(Nullability::Nullable)
@@ -1137,15 +1134,10 @@ mod tests {
     }
 
     fn truncated_field(name: &str, data_type: DataType) -> FieldRef {
-        Arc::new(
-            Field::new(name, data_type, false).with_metadata(
-                [(
-                    EXTENSION_TYPE_NAME_KEY.to_string(),
-                    "test.truncate".to_string(),
-                )]
-                .into(),
-            ),
-        )
+        Arc::new(Field::new(name, data_type, false).with_metadata([(
+            EXTENSION_TYPE_NAME_KEY.to_string(),
+            "test.truncate".to_string(),
+        )]))
     }
 
     fn list_with_truncated_child() -> ArrowArrayRef {
