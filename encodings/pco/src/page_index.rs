@@ -13,7 +13,7 @@ use crate::PcoMetadata;
 #[derive(Debug)]
 pub(crate) enum PageIndex {
     Legacy,
-    IndexedFast(Arc<IndexedIndex>),
+    IndexedFast(Arc<LogicalPageIndex>),
 }
 
 impl PageIndex {
@@ -29,7 +29,7 @@ impl PageIndex {
                 .ok_or_else(|| vortex_err!("Pco page count overflows usize"))?;
             chunk_ends.push(end);
         }
-        Ok(Self::IndexedFast(Arc::new(IndexedIndex {
+        Ok(Self::IndexedFast(Arc::new(LogicalPageIndex {
             metadata,
             chunk_ends,
         })))
@@ -38,11 +38,11 @@ impl PageIndex {
 
 /// Shared metadata owner with only an O(chunks) page-to-chunk map; no dense-value prefixes.
 #[derive(Debug)]
-pub(crate) struct IndexedIndex {
+pub(crate) struct LogicalPageIndex {
     metadata: Arc<PcoMetadata>,
     chunk_ends: Vec<usize>,
 }
-impl IndexedIndex {
+impl LogicalPageIndex {
     pub fn view(&self) -> IndexedView<'_> {
         IndexedView { index: self }
     }
@@ -50,7 +50,7 @@ impl IndexedIndex {
 
 #[derive(Clone, Copy)]
 pub(crate) struct IndexedView<'a> {
-    index: &'a IndexedIndex,
+    index: &'a LogicalPageIndex,
 }
 impl<'a> IndexedView<'a> {
     pub fn page_count(self) -> usize {
