@@ -40,7 +40,7 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps([x for x in json.load(sys.stdin) if x["id"] == "clickbench-nvme"]))')"
+          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps([x for x in json.load(sys.stdin) if x["id"] in ["tpcds-nvme-10", "tpcds-nvme-30"]]))')"
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   build:
@@ -225,14 +225,6 @@ jobs:
             -o sizes.json
           cat sizes.json >> results.json
 
-      - name: Download published V2 baseline
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
-        with:
-          name: bench-binaries
-          run-id: "40420842425"
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: target/structural-baseline/
-
       - name: Install LLVM symbolizer if needed
         shell: bash
         run: |
@@ -241,13 +233,13 @@ jobs:
             sudo apt-get install -y llvm
           fi
 
-      - name: Compare and profile ClickBench scans
+      - name: Compare and profile coarse TPC-DS scans
         shell: bash
         env:
           TOKIO_WORKER_THREADS: "8"
           DATAFUSION_EXECUTION_TARGET_PARTITIONS: "8"
           RUST_LOG: warn
-        run: python3 scripts/profile-click-scans.py "${{ matrix.scale_factor }}"
+        run: python3 scripts/profile-coarse-scans.py "${{ matrix.scale_factor }}"
 
       - name: Upload scan comparison
         if: always()
