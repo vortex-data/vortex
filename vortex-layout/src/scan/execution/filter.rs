@@ -10,7 +10,6 @@ use rustc_hash::FxHashSet;
 use vortex_array::VortexSessionExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::BoundExpression;
-use vortex_array::scalar_fn::fns::between::Between;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexExpect;
@@ -62,7 +61,7 @@ struct PredicatePlan {
     /// An infallible predicate evaluated in the original row domain, without gathering and
     /// scattering its boolean result through the current selection.
     whole: bool,
-    /// Dense comparisons can intersect masks without gathering their boolean output.
+    /// Dense infallible predicates can intersect masks without gathering their boolean output.
     dense_whole: bool,
 }
 
@@ -89,10 +88,7 @@ impl FilterPlans {
                         .and_then(|function| function.as_opt::<Binary>())
                         .is_some_and(|operator| *operator == Operator::Or)
                 }) && infallible(expr);
-                let dense_whole = expr.as_scalar().is_some_and(|function| {
-                    function.is::<Between>()
-                        || function.as_opt::<Binary>().is_some_and(Operator::is_comparison)
-                }) && infallible(expr);
+                let dense_whole = infallible(expr);
                 Ok(PredicatePlan {
                     plan: FilterPlan::new(plan).into_plan(),
                     whole: whole_predicate,
