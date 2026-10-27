@@ -56,11 +56,13 @@ fn take_rows(inlet: &mut Inlet<'_>, len: usize) -> VortexResult<ArrayRef> {
             left -= front.len();
             pieces.extend(inlet.take());
         } else {
-            tracing::debug!(target: "scan_split_diagnostic", rows = front.len(), take = left,
-                shape = ?front.display_tree_encodings_only().to_string(), "pack split");
             // Misaligned fields can split one lazy filter across several output batches.
             // Materialize selected values once when a consumer first needs either slice.
-            if front.is::<Filter>() {
+            // Extension encodings can push filtering into their component arrays.
+            let filters_components = front.dtype().is_extension()
+                && !front.is::<Shared>()
+                && front.children_iter().any(|child| child.is::<Filter>());
+            if front.is::<Filter>() || filters_components {
                 *front = Shared::new(front.clone()).into_array();
             } else if let Some(dict) = front.as_opt::<Dict>()
                 && dict.codes().is::<Filter>()
