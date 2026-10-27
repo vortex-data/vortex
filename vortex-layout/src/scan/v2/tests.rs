@@ -971,3 +971,23 @@ async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
     assert_eq!(reads, vec![2, 1]);
     Ok(())
 }
+
+/// Before planning its first chunk, a scan announces every segment its chunks will read, and holds
+/// the announcements while it lives.
+#[tokio::test]
+async fn a_scan_announces_every_chunk_before_planning_one() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write(&session, table().as_ref()).await?;
+    let mut ids = Vec::new();
+    for layout in layout.depth_first_traversal() {
+        ids.extend(layout?.segment_ids());
+    }
+    ids.sort_unstable();
+    ids.dedup();
+    let scan = Arc::new(builder(&session, &segments, &layout)?.prepare()?);
+    let rows = scan.rows().clone();
+    let mut planner = compose(&scan, rows);
+    assert!(matches!(planner.compute()?, PlannerOutput::Spawn(..)));
+    assert_eq!(scan.announcements.lock().len(), ids.len());
+    Ok(())
+}

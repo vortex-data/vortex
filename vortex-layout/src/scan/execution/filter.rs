@@ -97,6 +97,11 @@ impl FilterPlans {
     pub(crate) fn pruning(&self) -> impl Iterator<Item = &PlanRef> {
         self.pruning.iter().flatten()
     }
+
+    /// The plan of every conjunct.
+    pub(super) fn predicates(&self) -> impl Iterator<Item = &PlanRef> {
+        self.predicates.iter()
+    }
 }
 
 /// A pruning plan must not fetch data when its requested statistics are unavailable.

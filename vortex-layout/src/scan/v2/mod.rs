@@ -28,6 +28,7 @@ mod tests;
 use std::ops::Range;
 use std::sync::Arc;
 
+use parking_lot::Mutex;
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
@@ -209,6 +210,7 @@ impl ScanBuilder {
             row_offset: self.row_offset,
             values,
             chunk_rows,
+            announcements: Mutex::default(),
         })
     }
 }
