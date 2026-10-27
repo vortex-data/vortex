@@ -29,12 +29,6 @@ use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::session::VortexSession;
-use vortex_array::aggregate_fn::session::AggregateFnSession;
-use vortex_array::dtype::session::DTypeSession;
-use vortex_array::memory::MemorySession;
-use vortex_array::optimizer::kernels::KernelSession;
-use vortex_array::scalar_fn::session::ScalarFnSession;
-use vortex_array::session::ArraySession;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
 use vortex_cuda::arrow::ArrowDeviceArray;
@@ -45,16 +39,8 @@ use vortex_cuda_macros::cuda_not_available;
 
 use crate::timed_launch_strategy::TimedLaunchStrategy;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    VortexSession::empty()
-        .with::<ArraySession>()
-        .with::<KernelSession>()
-        .with::<DTypeSession>()
-        .with::<ScalarFnSession>()
-        .with::<AggregateFnSession>()
-        .with::<MemorySession>()
-        .with::<CudaSession>()
-});
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<CudaSession>());
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
