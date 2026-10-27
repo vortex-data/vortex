@@ -9,10 +9,10 @@
 //! values in null slots. [`FlatLayoutFixture::build`] returns the same logical values at the
 //! canonical width, so `check` compares each old file with a canonical array.
 //!
-//! The overrides depend on [`DecimalArray::try_new`] accepting a stored width that differs from
-//! the canonical width. Once it rejects such a width, `build_written` returns that error, and
-//! `generate` and the round-trip test fail. The overrides must then be deleted. The published files
-//! keep the old forms.
+//! [`DecimalArray::try_new`] accepts a stored width up to the canonical width, so the narrow forms
+//! are still written as stored. It rejects a wider width, so a column specified wider than the
+//! canonical width is written at the canonical width instead; the published files keep the wide
+//! form, which `check` reads back through legacy narrowing and compares with the canonical array.
 
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
@@ -52,13 +52,27 @@ pub struct LegacyDecimalColumn {
 
 impl LegacyDecimalColumn {
     /// Builds the column at its stored width with the raw slot values.
+    ///
+    /// A width above the canonical width can no longer be constructed, so such a column is built
+    /// at the canonical width like [`Self::expected`].
     fn written(&self) -> VortexResult<ArrayRef> {
+        if self.written_type() != self.stored_type {
+            return self.expected();
+        }
         decimal_array(
             self.decimal_dtype,
             self.stored_type,
             self.slots,
             self.validity(),
         )
+    }
+
+    /// The width at which the column is written: its stored width, capped at the canonical width.
+    pub fn written_type(&self) -> DecimalType {
+        self.stored_type
+            .min(DecimalType::smallest_decimal_value_type(
+                &self.decimal_dtype,
+            ))
     }
 
     /// Builds the column at the canonical width.
@@ -72,6 +86,17 @@ impl LegacyDecimalColumn {
             return self.written();
         }
 
+        decimal_array(
+            self.decimal_dtype,
+            canonical_type,
+            self.canonical_slots(),
+            self.validity(),
+        )
+    }
+
+    /// The raw slot values at the canonical width: the valid slots as specified, and zero in
+    /// every null slot.
+    pub fn canonical_slots(&self) -> [i128; ROWS] {
         let mut slots = self.slots;
         if let Some(validity) = self.validity {
             for (slot, valid) in slots.iter_mut().zip(validity) {
@@ -80,8 +105,7 @@ impl LegacyDecimalColumn {
                 }
             }
         }
-
-        decimal_array(self.decimal_dtype, canonical_type, slots, self.validity())
+        slots
     }
 
     fn validity(&self) -> Validity {
@@ -350,8 +374,9 @@ fn high_scale() -> LegacyDecimalFixture {
     }
 }
 
-/// Columns stored wider than the canonical width, as an import of an Arrow decimal type can store
-/// them.
+/// Columns stored wider than the canonical width, as an import of an Arrow decimal type could
+/// store them. Such a width can no longer be constructed, so `generate` now writes these columns
+/// at the canonical width; the published files keep the wide form.
 fn wide_storage() -> LegacyDecimalFixture {
     let max_p18 = 10i128.pow(18) - 1;
     let max_p38 = 10i128.pow(38) - 1;
