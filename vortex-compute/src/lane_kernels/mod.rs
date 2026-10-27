@@ -11,28 +11,35 @@
 //!
 //! The module is split into:
 //!
-//! - [`source`] — the [`IndexedSource`] trait, [`LaneZip`], and read-only adapters.
+//! - [`source`] — the [`IndexedSource`] trait, [`LaneZip`], [`Repeat`], and read-only adapters.
 //! - [`sink`] — the [`IndexedSink`] trait and [`ReinterpretSink`].
 //! - [`map_into`] — out-of-place kernels via [`IndexedSourceExt`] (writes into a
 //!   caller-provided `&mut [MaybeUninit<R>]`).
 //! - [`map_in_place`] — in-place kernels via [`IndexedSinkExt`] (writes back through
 //!   the sink itself).
+//! - [`collect_bits`](mod@collect_bits) — allocating wrappers that bit-pack a predicate into a
+//!   `BitBuffer`.
 //!
-//! The kernels never allocate. Both kernel families handle a mask with a non-byte-aligned
-//! offset and with a logical `len` shorter than the underlying byte buffer, via
-//! `BitBuffer::chunks`.
+//! The kernels outside [`collect_bits`](mod@collect_bits) never allocate. Both kernel families
+//! handle a mask with a non-byte-aligned offset and with a logical `len` shorter than the
+//! underlying byte buffer, via `BitBuffer::chunks`.
 
+pub mod collect_bits;
 pub mod map_in_place;
 pub mod map_into;
 pub mod sink;
 pub mod source;
 
+pub use collect_bits::bit_buffer_from_words;
+pub use collect_bits::collect_bits;
+pub use collect_bits::collect_zip_bits;
 pub use map_in_place::IndexedSinkExt;
 pub use map_into::IndexedSourceExt;
 pub use sink::IndexedSink;
 pub use sink::ReinterpretSink;
 pub use source::IndexedSource;
 pub use source::LaneZip;
+pub use source::Repeat;
 
 /// Loop-tiling chunk length for the **no-mask** kernels ([`IndexedSourceExt::map_into`],
 /// [`IndexedSourceExt::try_map_into`], [`IndexedSinkExt::map_into_in_place`]).

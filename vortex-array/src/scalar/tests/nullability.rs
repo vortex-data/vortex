@@ -38,13 +38,9 @@ mod tests {
         )]
         target_dtype: DType,
     ) {
-        assert_eq!(
-            Scalar::null(source_dtype)
-                .cast(&target_dtype)
-                .unwrap()
-                .dtype(),
-            &target_dtype
-        );
+        let casted = Scalar::null(source_dtype).cast(&target_dtype).unwrap();
+        assert_eq!(casted.dtype(), &target_dtype);
+        assert!(casted.is_null());
     }
 
     #[test]
@@ -64,9 +60,11 @@ mod tests {
             Arc::from(DType::Primitive(PType::U16, Nullability::NonNullable)),
             Nullability::Nullable,
         );
+        let casted = list.cast(&target_elem_nonnull).unwrap();
+        assert_eq!(casted.dtype(), &target_elem_nonnull);
         assert_eq!(
-            list.cast(&target_elem_nonnull).unwrap().dtype(),
-            &target_elem_nonnull
+            casted.as_list().elements().unwrap(),
+            vec![Scalar::from(6u16)]
         );
 
         // Change list nullability from Nullable to NonNullable.
@@ -74,9 +72,11 @@ mod tests {
             Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
             Nullability::NonNullable,
         );
+        let casted = list.cast(&target_list_nonnull).unwrap();
+        assert_eq!(casted.dtype(), &target_list_nonnull);
         assert_eq!(
-            list.cast(&target_list_nonnull).unwrap().dtype(),
-            &target_list_nonnull
+            casted.as_list().elements().unwrap(),
+            vec![Scalar::from(6u16)]
         );
 
         // Change both element and list nullability.
@@ -84,9 +84,11 @@ mod tests {
             Arc::from(DType::Primitive(PType::U16, Nullability::NonNullable)),
             Nullability::NonNullable,
         );
+        let casted = list.cast(&target_both_nonnull).unwrap();
+        assert_eq!(casted.dtype(), &target_both_nonnull);
         assert_eq!(
-            list.cast(&target_both_nonnull).unwrap().dtype(),
-            &target_both_nonnull
+            casted.as_list().elements().unwrap(),
+            vec![Scalar::from(6u16)]
         );
     }
 
@@ -109,9 +111,15 @@ mod tests {
             Arc::from(DType::Primitive(PType::U8, Nullability::Nullable)),
             Nullability::Nullable,
         );
+        let casted = list_with_null.cast(&target_u8_nullable).unwrap();
+        assert_eq!(casted.dtype(), &target_u8_nullable);
         assert_eq!(
-            list_with_null.cast(&target_u8_nullable).unwrap().dtype(),
-            &target_u8_nullable
+            casted.as_list().elements().unwrap(),
+            vec![
+                Scalar::from(Some(6u8)),
+                Scalar::from(None::<u8>),
+                Scalar::from(Some(10u8))
+            ]
         );
 
         // Cast to non-nullable U16 elements should fail because we have null elements.
@@ -191,6 +199,7 @@ mod tests {
         let already_nullable = Scalar::primitive(42i32, Nullability::Nullable);
         let still_nullable = already_nullable.into_nullable();
         assert_eq!(still_nullable.dtype().nullability(), Nullability::Nullable);
+        assert_eq!(still_nullable.as_primitive().typed_value::<i32>(), Some(42));
     }
 
     #[test]
@@ -212,39 +221,6 @@ mod tests {
             Nullability::Nullable,
         );
         assert!(list_with_null.cast(&target_nonnull).is_err());
-    }
-
-    #[test]
-    fn test_fixed_size_list_null_elements() {
-        // Create FixedSizeList with null elements.
-        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::Nullable));
-        let fixed_list = Scalar::fixed_size_list(
-            element_dtype,
-            vec![
-                Scalar::primitive(10i32, Nullability::Nullable),
-                Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
-                Scalar::primitive(30i32, Nullability::Nullable),
-            ],
-            Nullability::NonNullable,
-        );
-
-        let list = fixed_list.as_list();
-        assert_eq!(list.len(), 3);
-        assert!(!list.is_null()); // The list itself is not null.
-
-        // Check individual elements.
-        assert!(!list.element(0).unwrap().is_null());
-        assert!(list.element(1).unwrap().is_null());
-        assert!(!list.element(2).unwrap().is_null());
-
-        // Test casting with null elements.
-        let target = DType::FixedSizeList(
-            Arc::new(DType::Primitive(PType::I64, Nullability::Nullable)),
-            3,
-            Nullability::NonNullable,
-        );
-        let casted = fixed_list.cast(&target).unwrap();
-        assert!(casted.as_list().element(1).unwrap().is_null());
     }
 
     #[test]
@@ -464,7 +440,11 @@ mod tests {
         );
 
         let casted = fixed_list_no_nulls.cast(&target).unwrap();
-        assert_eq!(casted.dtype().nullability(), Nullability::NonNullable);
+        assert_eq!(casted.dtype(), &target);
+        assert_eq!(
+            casted.as_list().elements().unwrap(),
+            vec![Scalar::from(10i32), Scalar::from(20i32)]
+        );
         match casted.dtype() {
             DType::FixedSizeList(elem_dtype, ..) => {
                 assert_eq!(elem_dtype.nullability(), Nullability::NonNullable);
@@ -609,15 +589,6 @@ mod tests {
             2,
             Nullability::Nullable,
         ));
-
-        let _inner3 = Scalar::fixed_size_list(
-            Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
-            vec![
-                Scalar::primitive(3i32, Nullability::Nullable),
-                Scalar::primitive(4i32, Nullability::Nullable),
-            ],
-            Nullability::Nullable,
-        );
 
         // Create middle Lists.
         let middle1 = Scalar::list(

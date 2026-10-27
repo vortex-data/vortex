@@ -9,6 +9,10 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_utils::aliases::StringEscape;
 
+/// Field name reserved for a nullable struct's own validity when expressions over the struct
+/// are partitioned by field. Structs must not contain a field with this name.
+pub const RESERVED_VALIDITY_FIELD_NAME: &str = "$__vortex_validity";
+
 /// A name for a field in a struct.
 #[derive(Clone, Debug, Eq, PartialOrd, Ord, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)] // manual PartialEq adds Arc::ptr_eq fast path only
@@ -410,7 +414,7 @@ mod tests {
         let field_names = FieldNames::from(["field1", "field2", "field3"]);
 
         // FieldNames == &FieldNames
-        let field_names_ref = &field_names;
+        let field_names_ref = &FieldNames::from(["field1", "field2", "field3"]);
         assert_eq!(field_names, field_names_ref);
 
         // FieldNames == &[&str]
@@ -436,6 +440,10 @@ mod tests {
         assert_eq!(&field_names, field_name_slice);
 
         // Test inequality cases
+        assert_ne!(
+            field_names,
+            FieldNames::from(["different", "fields", "here"])
+        );
         assert_ne!(field_names, &["field1", "field2"][..]);
         assert_ne!(field_names, ["different", "fields", "here"]);
         assert_ne!(field_names, &["field1", "field2", "field3", "extra"][..]);

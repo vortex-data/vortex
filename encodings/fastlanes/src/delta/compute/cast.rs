@@ -53,6 +53,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
@@ -70,7 +71,7 @@ mod tests {
     use crate::Delta;
     use crate::DeltaArraySlotsExt;
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -173,11 +174,13 @@ mod tests {
         let array = Delta::try_from_primitive_array(&values, &mut SESSION.create_execution_ctx())?;
 
         // The cast is lazy; the nullability check fires when it is executed.
-        #[expect(deprecated)]
         let result = array
             .into_array()
             .cast(DType::Primitive(PType::U32, Nullability::NonNullable))
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+            .and_then(|a| {
+                a.execute::<Canonical>(&mut SESSION.create_execution_ctx())
+                    .map(|c| c.into_array())
+            });
 
         assert!(
             result.is_err(),
@@ -227,6 +230,17 @@ mod tests {
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::Nullable)
+        );
+        assert_arrays_eq!(
+            casted,
+            PrimitiveArray::from_option_iter([
+                Some(100u32),
+                Some(0),
+                Some(200),
+                Some(300),
+                Some(0)
+            ]),
+            &mut SESSION.create_execution_ctx()
         );
     }
 

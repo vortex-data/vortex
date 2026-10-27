@@ -10,8 +10,8 @@ the proof was unknown, usually because a required stat was missing or inexact.
 
 The pruning pipeline has two phases:
 
-1. `Expression::falsify(scope, session)` asks the session's
-   `StatsRewriteRule`s to rewrite a filter into an abstract proof expression.
+1. `BoundExpressionPruneExt::falsify(session)`, from `vortex_expr::stats::rewrite`, asks the
+   session's `StatsRewriteRule`s to rewrite a bound filter into an abstract proof expression.
    Rules describe semantics in terms of `vortex.stat(input, aggregate_fn)`
    placeholders. These placeholders name the statistic needed by the proof, but
    not where that statistic is stored.

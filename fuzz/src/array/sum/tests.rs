@@ -258,21 +258,27 @@ fn test_sum_decimal_native_overflow(#[values(false, true)] negative: bool) -> Vo
 }
 
 #[rstest]
-#[case::boundary(Validity::from_iter([true, false, false]), true)]
-#[case::cancellation(Validity::from_iter([true, false, true]), true)]
-#[case::ambiguous(Validity::AllValid, false)]
-#[case::all_null(Validity::AllInvalid, true)]
+#[case::boundary(Validity::from_iter([true, false, false]), Some(1))]
+#[case::cancellation(Validity::from_iter([true, false, true]), Some(0))]
+#[case::ambiguous(Validity::AllValid, None)]
+#[case::all_null(Validity::AllInvalid, Some(0))]
 fn test_sum_decimal_precision_boundary_and_nulls(
     #[case] validity: Validity,
-    #[case] accepted: bool,
+    #[case] expected_multiple: Option<i64>,
 ) -> VortexResult<()> {
     let dtype = DecimalDType::new(76, 0);
     let max = i256::from_i128(10).wrapping_pow(76) - i256::ONE;
     let array = DecimalArray::new(buffer![max, i256::ONE, -max], dtype, validity).into_array();
     let mut ctx = SESSION.create_execution_ctx();
-    let result = sum_canonical_array(&array, &mut ctx)?;
-    assert_eq!(result.is_some(), accepted);
-    if let Some(expected) = result {
+    let expected = expected_multiple.map(|multiple| {
+        Scalar::decimal(
+            DecimalValue::I256(max * i256::from(multiple)),
+            dtype,
+            Nullability::Nullable,
+        )
+    });
+    assert_eq!(sum_canonical_array(&array, &mut ctx)?, expected);
+    if let Some(expected) = expected {
         assert_eq!(sum(&array, &mut ctx)?, expected);
     }
     Ok(())

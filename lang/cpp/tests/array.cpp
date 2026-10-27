@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #include <cstdint>
+#include <algorithm>
 #include <vortex/error.hpp>
 #include <vortex/array.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -28,7 +29,7 @@ TEST_CASE("Empty array", "[array]") {
     REQUIRE(empty.size() == 0);
     REQUIRE(empty.is_primitive(I32));
 
-    REQUIRE(empty.null_count() == 0);
+    REQUIRE(empty.null_count(session) == 0);
 
     auto view = empty.values<int32_t>(session);
     REQUIRE(view.size() == 0);
@@ -41,7 +42,7 @@ void test_primitive_array(Array array, const int32_t *begin) {
     REQUIRE(array.size() == 3);
     REQUIRE(array.is_primitive(I32));
     REQUIRE_FALSE(array.nullable());
-    REQUIRE(array.null_count() == 0);
+    REQUIRE(array.null_count(session) == 0);
 
     auto view = array.values<int32_t>(session);
     REQUIRE(view.size() == 3);
@@ -80,7 +81,7 @@ TEST_CASE("Validity from a boolean mask", "[array]") {
 
     Array a = Array::primitive<int32_t>(std::span<const int32_t>(data), Validity::from_array(mask));
     REQUIRE(a.nullable());
-    REQUIRE(a.null_count() == 1);
+    REQUIRE(a.null_count(session) == 1);
 
     auto view = a.values<int32_t>(session);
     REQUIRE_FALSE(view.is_null(0));
@@ -104,7 +105,7 @@ TEST_CASE("AllInvalid", "[array]") {
     Session session;
     std::vector<int64_t> data = {1, 2};
     Array a = Array::primitive<int64_t>(std::span<const int64_t>(data), AllInvalid);
-    REQUIRE(a.null_count() == 2);
+    REQUIRE(a.null_count(session) == 2);
     auto view = a.values<int64_t>(session);
     REQUIRE(view.is_null(0));
     REQUIRE(view.is_null(1));
@@ -128,14 +129,15 @@ TEST_CASE("make_struct and fields", "[array]") {
     REQUIRE(s.has_dtype(DataTypeVariant::Struct));
     REQUIRE(s.dtype().fields().size() == 2);
 
+    Session session;
     Array by_index = s.field(0);
     REQUIRE(by_index.is_primitive(U8));
 
-    Session session;
     Array by_name = s.field("height");
     REQUIRE(by_name.is_primitive(U16));
     auto view = by_name.values<uint16_t>(session);
-    REQUIRE(view.values()[2] == 170);
+    REQUIRE(std::ranges::equal(view.values(), heights));
+    REQUIRE(std::ranges::equal(by_index.values<uint8_t>(session).values(), ages));
 
     REQUIRE_THROWS_AS(s.field(2), VortexException);
     REQUIRE_THROWS_AS(s.field("nope"), VortexException);
@@ -145,6 +147,7 @@ TEST_CASE("make_struct and fields", "[array]") {
     Array other = make_struct(fields_vec);
     REQUIRE(other.size() == 3);
     REQUIRE(other.has_dtype(DataTypeVariant::Struct));
+    REQUIRE(std::ranges::equal(other.field("age").values<uint8_t>(session).values(), ages));
 }
 
 TEST_CASE("Mismatched field length", "[array]") {
@@ -164,8 +167,8 @@ TEST_CASE("Slice", "[array]") {
     Array sliced = a.slice(2, 5);
     REQUIRE(sliced.size() == 3);
     auto view = sliced.values<int16_t>(session);
-    REQUIRE(view.values()[0] == 2);
-    REQUIRE(view.values()[2] == 4);
+    const std::array<int16_t, 3> expected = {2, 3, 4};
+    REQUIRE(std::ranges::equal(view.values(), expected));
 
     REQUIRE_THROWS_AS(a.slice(2, 100), VortexException);
 }
@@ -214,11 +217,11 @@ TEST_CASE("Error with a code", "[array]") {
     std::vector<int16_t> data = {0};
     Array a = Array::primitive<int16_t>(data);
     try {
-        (void)a.slice(2, 100);
+        (void)a.scalar_at(Session {}, 2);
         FAIL("expected exception");
     } catch (const VortexException &e) {
-        REQUIRE_FALSE(std::string(e.what()).empty());
-        (void)e.code();
+        REQUIRE(std::string(e.what()).find("out of bounds") != std::string::npos);
+        REQUIRE(e.code() == ErrorCode::Other);
     }
 }
 } // namespace

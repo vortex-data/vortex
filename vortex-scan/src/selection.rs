@@ -6,6 +6,7 @@
 use std::ops::Not;
 use std::ops::Range;
 
+use vortex_buffer::BitBufferMut;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
@@ -41,6 +42,22 @@ impl Selection {
         }
     }
 
+    /// Count the selected rows that fall within `range`.
+    pub fn row_count_in_range(&self, range: &Range<u64>) -> u64 {
+        let range_len = range.end.saturating_sub(range.start);
+        match self {
+            Selection::All => range_len,
+            Selection::IncludeByIndex(include) => count_in_range(range, include),
+            Selection::ExcludeByIndex(exclude) => {
+                range_len.saturating_sub(count_in_range(range, exclude))
+            }
+            Selection::IncludeRoaring(roaring) => roaring.range_cardinality(range.clone()),
+            Selection::ExcludeRoaring(roaring) => {
+                range_len.saturating_sub(roaring.range_cardinality(range.clone()))
+            }
+        }
+    }
+
     /// Extract the [`RowMask`] for the given range from this selection.
     pub fn row_mask(&self, range: &Range<u64>) -> RowMask {
         if range.start >= range.end {
@@ -68,45 +85,42 @@ impl Selection {
                 RowMask::new(range.start, index_mask(range, range_len, exclude).not())
             }
             Selection::IncludeRoaring(roaring) => {
-                use std::ops::BitAnd;
-
-                // First we perform a cheap is_disjoint check
-                let mut range_treemap = roaring::RoaringTreemap::new();
-                range_treemap.insert_range(range.clone());
-
-                if roaring.is_disjoint(&range_treemap) {
-                    return RowMask::new(range.start, Mask::new_false(range_len));
-                }
-
-                // Otherwise, intersect with the selected range and shift to relativize.
-                let roaring = roaring.bitand(range_treemap);
-                let mask =
-                    Mask::from_indices(range_len, roaring.iter().map(|idx| relativize(range, idx)));
-
-                RowMask::new(range.start, mask)
+                RowMask::new(range.start, roaring_mask(roaring, range, range_len))
             }
             Selection::ExcludeRoaring(roaring) => {
-                use std::ops::BitAnd;
-
-                let mut range_treemap = roaring::RoaringTreemap::new();
-                range_treemap.insert_range(range.clone());
-
-                // If all indices in range are excluded, return all false mask
-                if roaring.intersection_len(&range_treemap) == range_len as u64 {
-                    return RowMask::new(range.start, Mask::new_false(range_len));
-                }
-
-                // Otherwise, intersect with the selected range and shift to relativize.
-                let roaring = roaring.bitand(range_treemap);
-                let mask = Mask::from_excluded_indices(
-                    range_len,
-                    roaring.iter().map(|idx| relativize(range, idx)),
-                );
-
-                RowMask::new(range.start, mask)
+                RowMask::new(range.start, roaring_mask(roaring, range, range_len).not())
             }
         }
     }
+}
+
+/// Build the mask of positions within `range` that are set in `roaring`.
+///
+/// Seeks straight to `range` rather than intersecting the whole treemap, and short-circuits splits
+/// that are entirely outside or inside the selection.
+fn roaring_mask(roaring: &roaring::RoaringTreemap, range: &Range<u64>, range_len: usize) -> Mask {
+    let selected = roaring.range_cardinality(range.clone());
+    if selected == 0 {
+        return Mask::new_false(range_len);
+    }
+
+    if selected == range_len as u64 {
+        return Mask::new_true(range_len);
+    }
+
+    let mut bits = BitBufferMut::new_unset(range_len);
+    let mut iter = roaring.iter();
+    iter.advance_to(range.start);
+    for idx in iter.take_while(|&idx| idx < range.end) {
+        bits.set(relativize(range, idx));
+    }
+
+    Mask::from_buffer(bits.freeze())
+}
+
+/// Count the entries of the sorted `row_indices` that fall within `range`.
+fn count_in_range(range: &Range<u64>, row_indices: &[u64]) -> u64 {
+    indices_range(range, row_indices).map_or(0, |idx_range| idx_range.len() as u64)
 }
 
 /// Build the mask of positions within `range` that are named by the given sorted row indices.
@@ -175,6 +189,58 @@ mod tests {
 
     fn exclude(indices: impl IntoIterator<Item = u64>) -> Selection {
         Selection::ExcludeByIndex(strict_sorted(indices))
+    }
+
+    #[test]
+    fn test_row_count_in_range() {
+        let range = 2..8;
+        assert_eq!(Selection::All.row_count_in_range(&range), 6);
+        // Indices 3, 5, 7 fall inside the range; 1 and 9 do not.
+        assert_eq!(include([1, 3, 5, 7, 9]).row_count_in_range(&range), 3);
+        assert_eq!(exclude([1, 3, 5, 7, 9]).row_count_in_range(&range), 3);
+        assert_eq!(include([10, 11]).row_count_in_range(&range), 0);
+        assert_eq!(include([1, 3]).row_count_in_range(&(8..8)), 0);
+    }
+
+    #[test]
+    fn test_row_count_in_range_roaring() {
+        let mut roaring = roaring::RoaringTreemap::new();
+        roaring.insert_range(1..10u64);
+
+        let range = 2..8;
+        assert_eq!(
+            Selection::IncludeRoaring(roaring.clone()).row_count_in_range(&range),
+            6
+        );
+        assert_eq!(
+            Selection::ExcludeRoaring(roaring).row_count_in_range(&range),
+            0
+        );
+    }
+
+    #[test]
+    fn test_row_count_in_range_roaring_boundaries() {
+        let roaring = [0, 3, u64::from(u32::MAX) + 1, u64::MAX - 1, u64::MAX]
+            .into_iter()
+            .collect::<roaring::RoaringTreemap>();
+        let include = Selection::IncludeRoaring(roaring.clone());
+        let exclude = Selection::ExcludeRoaring(roaring);
+
+        for (range, expected) in [
+            (0..0, 0),
+            (0..1, 1),
+            (1..3, 0),
+            (3..4, 1),
+            (u64::from(u32::MAX)..u64::from(u32::MAX) + 2, 1),
+            (u64::MAX - 1..u64::MAX, 1),
+            (0..u64::MAX, 4),
+        ] {
+            assert_eq!(include.row_count_in_range(&range), expected);
+            assert_eq!(
+                exclude.row_count_in_range(&range),
+                range.end - range.start - expected
+            );
+        }
     }
 
     #[test]
@@ -293,8 +359,11 @@ mod tests {
             let range = 1000..2000;
             let row_mask = selection.row_mask(&range);
 
-            // Should have 500 selected indices (every even number)
-            assert_eq!(row_mask.mask().true_count(), 500);
+            assert_eq!(row_mask.row_range(), range);
+            assert_eq!(
+                row_mask.mask().values().unwrap().indices(),
+                &(0..1000).step_by(2).collect::<Vec<_>>()
+            );
         }
 
         #[test]
@@ -417,8 +486,8 @@ mod tests {
             let range = u64::MAX - 10..u64::MAX;
             let row_mask = selection.row_mask(&range);
 
-            // Should handle overflow gracefully
-            assert_eq!(row_mask.mask().true_count(), 1); // Only u64::MAX - 1 is in range
+            assert_eq!(row_mask.row_range(), range);
+            assert_eq!(row_mask.mask().values().unwrap().indices(), &[9]);
         }
 
         #[test]
@@ -430,8 +499,11 @@ mod tests {
             let range = u64::MAX - 10..u64::MAX;
             let row_mask = selection.row_mask(&range);
 
-            // Should handle overflow gracefully, excluding index u64::MAX - 1
-            assert_eq!(row_mask.mask().true_count(), 9); // All except one
+            assert_eq!(row_mask.row_range(), range);
+            assert_eq!(
+                row_mask.mask().values().unwrap().indices(),
+                &(0..9).collect::<Vec<_>>()
+            );
         }
 
         #[test]
@@ -451,10 +523,10 @@ mod tests {
             let buffer_mask = buffer_selection.row_mask(&range);
             let roaring_mask = roaring_selection.row_mask(&range);
 
-            assert_eq!(
-                buffer_mask.mask().values().unwrap().indices(),
-                roaring_mask.mask().values().unwrap().indices()
-            );
+            for mask in [buffer_mask, roaring_mask] {
+                assert_eq!(mask.row_range(), range);
+                assert_eq!(mask.mask().values().unwrap().indices(), &[1, 3, 5, 7, 9]);
+            }
         }
 
         #[test]
@@ -474,10 +546,10 @@ mod tests {
             let buffer_mask = buffer_selection.row_mask(&range);
             let roaring_mask = roaring_selection.row_mask(&range);
 
-            assert_eq!(
-                buffer_mask.mask().values().unwrap().indices(),
-                roaring_mask.mask().values().unwrap().indices()
-            );
+            for mask in [buffer_mask, roaring_mask] {
+                assert_eq!(mask.row_range(), range);
+                assert_eq!(mask.mask().values().unwrap().indices(), &[0, 1, 3, 5, 7, 9]);
+            }
         }
     }
 }

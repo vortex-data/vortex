@@ -9,6 +9,7 @@ use arrow_array::Scalar as ArrowScalar;
 use arrow_array::*;
 use arrow_buffer::NullBuffer;
 use arrow_buffer::OffsetBuffer;
+use arrow_data::transform::MutableArrayData;
 use arrow_schema::Field;
 use arrow_schema::Fields;
 use vortex_array::dtype::DType;
@@ -75,14 +76,22 @@ impl ToArrowDatum for Scalar {
             DType::Decimal(..) => decimal_to_arrow(value.as_decimal()),
             DType::Utf8(_) => utf8_to_arrow(value.as_utf8()),
             DType::Binary(_) => binary_to_arrow(value.as_binary()),
-            DType::List(..) => vortex_bail!("list scalar conversion is not supported"),
+            DType::List(..) => {
+                vortex_bail!("list scalar conversion is not supported")
+            }
             DType::FixedSizeList(..) => {
                 vortex_bail!("fixed-size list scalar conversion is not supported")
             }
             DType::Map(..) => map_to_arrow(value.as_map()),
-            DType::Struct(..) => vortex_bail!("struct scalar conversion is not supported"),
-            DType::Union(..) => vortex_bail!("union scalar conversion is not supported"),
-            DType::Variant(_) => vortex_bail!("Variant scalar conversion is not supported"),
+            DType::Struct(..) => {
+                vortex_bail!("struct scalar conversion is not supported")
+            }
+            DType::Union(..) => {
+                vortex_bail!("union scalar conversion is not supported")
+            }
+            DType::Variant(_) => {
+                vortex_bail!("Variant scalar conversion is not supported")
+            }
             DType::Extension(..) => extension_to_arrow(value.as_extension()),
         }
     }
@@ -227,11 +236,16 @@ fn concat_scalar_arrays(
         return Ok(new_empty_array(&to_data_type_naive(dtype)?));
     }
 
-    let arrays = scalars
+    // Every scalar is a single-element array of the same Arrow type, so append them in order.
+    let data = scalars
         .iter()
-        .map(|scalar| scalar.get().0)
+        .map(|scalar| scalar.get().0.to_data())
         .collect::<Vec<_>>();
-    Ok(arrow_select::concat::concat(&arrays)?)
+    let mut builder = MutableArrayData::new(data.iter().collect(), false, data.len());
+    for index in 0..data.len() {
+        builder.try_extend(index, 0, SCALAR_ARRAY_LEN)?;
+    }
+    Ok(make_array(builder.freeze()))
 }
 
 /// Convert an [`ExtScalar`] to an Arrow [`Datum`].
@@ -308,10 +322,34 @@ mod tests {
     use std::sync::Arc;
 
     use arrow_array::Array;
+    use arrow_array::BinaryViewArray;
+    use arrow_array::BooleanArray;
+    use arrow_array::Date32Array;
+    use arrow_array::Date64Array;
     use arrow_array::Decimal128Array;
+    use arrow_array::Decimal256Array;
+    use arrow_array::Float16Array;
+    use arrow_array::Float32Array;
+    use arrow_array::Float64Array;
+    use arrow_array::Int8Array;
+    use arrow_array::Int16Array;
     use arrow_array::Int32Array;
+    use arrow_array::Int64Array;
     use arrow_array::MapArray;
+    use arrow_array::NullArray;
     use arrow_array::StringViewArray;
+    use arrow_array::Time32MillisecondArray;
+    use arrow_array::Time32SecondArray;
+    use arrow_array::Time64MicrosecondArray;
+    use arrow_array::Time64NanosecondArray;
+    use arrow_array::TimestampMicrosecondArray;
+    use arrow_array::TimestampMillisecondArray;
+    use arrow_array::TimestampNanosecondArray;
+    use arrow_array::TimestampSecondArray;
+    use arrow_array::UInt8Array;
+    use arrow_array::UInt16Array;
+    use arrow_array::UInt32Array;
+    use arrow_array::UInt64Array;
     use arrow_schema::DataType;
     use rstest::rstest;
     use vortex_array::dtype::DType;
@@ -341,78 +379,68 @@ mod tests {
     #[test]
     fn test_null_scalar_to_arrow() {
         let scalar = Scalar::null(DType::Null);
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        let datum = scalar.to_arrow_datum().unwrap();
+        assert_eq!(datum.get().0.to_data(), NullArray::new(1).to_data());
     }
 
     #[test]
     fn test_bool_scalar_to_arrow() {
         let scalar = Scalar::bool(true, Nullability::NonNullable);
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        assert_arrow_scalar(&scalar, &BooleanArray::from(vec![true])).unwrap();
     }
 
     #[test]
     fn test_null_bool_scalar_to_arrow() {
         let scalar = Scalar::null(bool::dtype().as_nullable());
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        assert_arrow_scalar(&scalar, &BooleanArray::from(vec![None::<bool>])).unwrap();
     }
 
     #[test]
     fn test_primitive_u8_to_arrow() {
         let scalar = Scalar::primitive(42u8, Nullability::NonNullable);
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        assert_arrow_scalar(&scalar, &UInt8Array::from(vec![42u8])).unwrap();
     }
 
     #[test]
     fn test_primitive_u16_to_arrow() {
         let scalar = Scalar::primitive(1000u16, Nullability::NonNullable);
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        assert_arrow_scalar(&scalar, &UInt16Array::from(vec![1000u16])).unwrap();
     }
 
     #[test]
     fn test_primitive_u32_to_arrow() {
         let scalar = Scalar::primitive(100000u32, Nullability::NonNullable);
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        assert_arrow_scalar(&scalar, &UInt32Array::from(vec![100000u32])).unwrap();
     }
 
     #[test]
     fn test_primitive_u64_to_arrow() {
         let scalar = Scalar::primitive(10000000000u64, Nullability::NonNullable);
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        assert_arrow_scalar(&scalar, &UInt64Array::from(vec![10000000000u64])).unwrap();
     }
 
     #[test]
     fn test_primitive_i8_to_arrow() {
         let scalar = Scalar::primitive(-42i8, Nullability::NonNullable);
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        assert_arrow_scalar(&scalar, &Int8Array::from(vec![-42i8])).unwrap();
     }
 
     #[test]
     fn test_primitive_i16_to_arrow() {
         let scalar = Scalar::primitive(-1000i16, Nullability::NonNullable);
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        assert_arrow_scalar(&scalar, &Int16Array::from(vec![-1000i16])).unwrap();
     }
 
     #[test]
     fn test_primitive_i32_to_arrow() {
         let scalar = Scalar::primitive(-100000i32, Nullability::NonNullable);
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        assert_arrow_scalar(&scalar, &Int32Array::from(vec![-100000i32])).unwrap();
     }
 
     #[test]
     fn test_primitive_i64_to_arrow() {
         let scalar = Scalar::primitive(-10000000000i64, Nullability::NonNullable);
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        assert_arrow_scalar(&scalar, &Int64Array::from(vec![-10000000000i64])).unwrap();
     }
 
     #[test]
@@ -420,65 +448,84 @@ mod tests {
         use vortex_array::dtype::half::f16;
 
         let scalar = Scalar::primitive(f16::from_f32(1.234), Nullability::NonNullable);
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        assert_arrow_scalar(&scalar, &Float16Array::from(vec![f16::from_f32(1.234)])).unwrap();
     }
 
     #[test]
     fn test_primitive_f32_to_arrow() {
         let scalar = Scalar::primitive(1.234f32, Nullability::NonNullable);
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        assert_arrow_scalar(&scalar, &Float32Array::from(vec![1.234f32])).unwrap();
     }
 
     #[test]
     fn test_primitive_f64_to_arrow() {
         let scalar = Scalar::primitive(1.234567890123f64, Nullability::NonNullable);
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        assert_arrow_scalar(&scalar, &Float64Array::from(vec![1.234567890123f64])).unwrap();
     }
 
     #[test]
     fn test_null_primitive_to_arrow() {
         let scalar = Scalar::null(i32::dtype().as_nullable());
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        assert_arrow_scalar(&scalar, &Int32Array::from(vec![None::<i32>])).unwrap();
     }
 
     #[test]
     fn test_utf8_scalar_to_arrow() {
         let scalar = Scalar::utf8("hello world".to_string(), Nullability::NonNullable);
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        assert_arrow_scalar(&scalar, &StringViewArray::from(vec!["hello world"])).unwrap();
     }
 
     #[test]
     fn test_null_utf8_scalar_to_arrow() {
         let scalar = Scalar::null(String::dtype().as_nullable());
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        assert_arrow_scalar(&scalar, &StringViewArray::from(vec![None::<&str>])).unwrap();
     }
 
     #[test]
     fn test_binary_scalar_to_arrow() {
         let data = vec![1u8, 2, 3, 4, 5];
         let scalar = Scalar::binary(data, Nullability::NonNullable);
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        assert_arrow_scalar(
+            &scalar,
+            &BinaryViewArray::from(vec![&[1u8, 2, 3, 4, 5][..]]),
+        )
+        .unwrap();
     }
 
     #[test]
     fn test_null_binary_scalar_to_arrow() {
         let scalar = Scalar::null(DType::Binary(Nullability::Nullable));
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        assert_arrow_scalar(&scalar, &BinaryViewArray::from(vec![None::<&[u8]>])).unwrap();
     }
 
-    fn assert_arrow_scalar_data_type(scalar: &Scalar, expected: DataType) -> VortexResult<()> {
+    fn assert_arrow_scalar(scalar: &Scalar, expected: &dyn Array) -> VortexResult<()> {
+        let datum = scalar.to_arrow_datum()?;
+        let (array, is_scalar) = datum.get();
+        assert!(is_scalar);
+        assert_eq!(array.to_data(), expected.to_data());
+        Ok(())
+    }
+
+    fn assert_arrow_scalar_data_type(
+        scalar: &Scalar,
+        expected: DataType,
+        value: Option<i128>,
+    ) -> VortexResult<()> {
         let datum = scalar.to_arrow_datum()?;
         let (array, is_scalar) = datum.get();
         assert!(is_scalar);
         assert_eq!(array.data_type(), &expected);
+        let expected: Arc<dyn Array> = match expected {
+            DataType::Decimal128(precision, scale) => Arc::new(
+                Decimal128Array::from(vec![value]).with_precision_and_scale(precision, scale)?,
+            ),
+            DataType::Decimal256(precision, scale) => Arc::new(
+                Decimal256Array::from(vec![value.map(arrow_buffer::i256::from_i128)])
+                    .with_precision_and_scale(precision, scale)?,
+            ),
+            _ => unreachable!(),
+        };
+        assert_eq!(array.to_data(), expected.to_data());
         Ok(())
     }
 
@@ -492,35 +539,35 @@ mod tests {
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert_arrow_scalar_data_type(&scalar_i8, DataType::Decimal128(5, 2))?;
+        assert_arrow_scalar_data_type(&scalar_i8, DataType::Decimal128(5, 2), Some(100))?;
 
         let scalar_i16 = Scalar::decimal(
             DecimalValue::I16(10000),
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert_arrow_scalar_data_type(&scalar_i16, DataType::Decimal128(5, 2))?;
+        assert_arrow_scalar_data_type(&scalar_i16, DataType::Decimal128(5, 2), Some(10000))?;
 
         let scalar_i32 = Scalar::decimal(
             DecimalValue::I32(99999),
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert_arrow_scalar_data_type(&scalar_i32, DataType::Decimal128(5, 2))?;
+        assert_arrow_scalar_data_type(&scalar_i32, DataType::Decimal128(5, 2), Some(99999))?;
 
         let scalar_i64 = Scalar::decimal(
             DecimalValue::I64(99999),
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert_arrow_scalar_data_type(&scalar_i64, DataType::Decimal128(5, 2))?;
+        assert_arrow_scalar_data_type(&scalar_i64, DataType::Decimal128(5, 2), Some(99999))?;
 
         let scalar_i128 = Scalar::decimal(
             DecimalValue::I128(99999),
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert_arrow_scalar_data_type(&scalar_i128, DataType::Decimal128(5, 2))?;
+        assert_arrow_scalar_data_type(&scalar_i128, DataType::Decimal128(5, 2), Some(99999))?;
 
         let value_i256 = i256::from_i128(99999);
         let scalar_i256 = Scalar::decimal(
@@ -528,7 +575,7 @@ mod tests {
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert_arrow_scalar_data_type(&scalar_i256, DataType::Decimal128(5, 2))?;
+        assert_arrow_scalar_data_type(&scalar_i256, DataType::Decimal128(5, 2), Some(99999))?;
 
         Ok(())
     }
@@ -541,7 +588,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        assert_arrow_scalar_data_type(&scalar, DataType::Decimal256(39, 0))
+        assert_arrow_scalar_data_type(&scalar, DataType::Decimal256(39, 0), Some(1))
     }
 
     #[test]
@@ -552,18 +599,18 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        assert_arrow_scalar_data_type(&scalar, DataType::Decimal128(4, 2))
+        assert_arrow_scalar_data_type(&scalar, DataType::Decimal128(4, 2), Some(1234))
     }
 
     #[test]
     fn test_null_decimal_to_arrow() -> VortexResult<()> {
         let decimal_dtype = DecimalDType::new(10, 2);
         let scalar = Scalar::null(DType::Decimal(decimal_dtype, Nullability::Nullable));
-        assert_arrow_scalar_data_type(&scalar, DataType::Decimal128(10, 2))?;
+        assert_arrow_scalar_data_type(&scalar, DataType::Decimal128(10, 2), None)?;
 
         let decimal_dtype = DecimalDType::new(39, 2);
         let scalar = Scalar::null(DType::Decimal(decimal_dtype, Nullability::Nullable));
-        assert_arrow_scalar_data_type(&scalar, DataType::Decimal256(39, 2))
+        assert_arrow_scalar_data_type(&scalar, DataType::Decimal256(39, 2), None)
     }
 
     #[test]
@@ -585,6 +632,7 @@ mod tests {
         assert_eq!(decimal.precision(), 12);
         assert_eq!(decimal.scale(), 3);
 
+        assert_eq!(decimal.iter().collect::<Vec<_>>(), vec![Some(12345)]);
         Ok(())
     }
 
@@ -636,6 +684,15 @@ mod tests {
         assert_eq!(values.value(0), "one");
         assert!(values.is_null(1));
 
+        let DataType::Map(entries, true) = map.data_type() else {
+            panic!("map scalar must retain sorted keys");
+        };
+        assert!(!entries.is_nullable());
+        let DataType::Struct(fields) = entries.data_type() else {
+            unreachable!()
+        };
+        assert!(!fields[0].is_nullable());
+        assert!(fields[1].is_nullable());
         Ok(())
     }
 
@@ -668,6 +725,16 @@ mod tests {
             .downcast_ref::<MapArray>()
             .expect("map scalar should convert to MapArray");
         assert_eq!(map.values().data_type(), &DataType::Decimal128(9, 2));
+        assert_eq!(map.len(), 1);
+        assert!(map.is_valid(0));
+        assert_eq!(map.value_offsets(), &[0, 1]);
+        assert_eq!(map.keys().to_data(), Int32Array::from(vec![1]).to_data());
+        assert_eq!(
+            map.values().to_data(),
+            Decimal128Array::from(vec![Some(12345)])
+                .with_precision_and_scale(9, 2)?
+                .to_data()
+        );
 
         let wide_decimal_dtype = DecimalDType::new(39, 2);
         let dtype = DType::map(
@@ -696,6 +763,16 @@ mod tests {
             .downcast_ref::<MapArray>()
             .expect("map scalar should convert to MapArray");
         assert_eq!(map.values().data_type(), &DataType::Decimal256(39, 2));
+        assert_eq!(map.len(), 1);
+        assert!(map.is_valid(0));
+        assert_eq!(map.value_offsets(), &[0, 1]);
+        assert_eq!(map.keys().to_data(), Int32Array::from(vec![1]).to_data());
+        assert_eq!(
+            map.values().to_data(),
+            Decimal256Array::from(vec![Some(arrow_buffer::i256::from_i128(12345))])
+                .with_precision_and_scale(39, 2)?
+                .to_data()
+        );
 
         Ok(())
     }
@@ -846,8 +923,24 @@ mod tests {
             },
         );
 
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        match time_unit {
+            TimeUnit::Nanoseconds => {
+                assert_arrow_scalar(&scalar, &Time64NanosecondArray::from(vec![value]))
+            }
+            TimeUnit::Microseconds => {
+                assert_arrow_scalar(&scalar, &Time64MicrosecondArray::from(vec![value]))
+            }
+            TimeUnit::Milliseconds => assert_arrow_scalar(
+                &scalar,
+                &Time32MillisecondArray::from(vec![i32::try_from(value).unwrap()]),
+            ),
+            TimeUnit::Seconds => assert_arrow_scalar(
+                &scalar,
+                &Time32SecondArray::from(vec![i32::try_from(value).unwrap()]),
+            ),
+            TimeUnit::Days => unreachable!(),
+        }
+        .unwrap();
     }
 
     #[rstest]
@@ -870,8 +963,15 @@ mod tests {
             },
         );
 
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        match time_unit {
+            TimeUnit::Days => assert_arrow_scalar(
+                &scalar,
+                &Date32Array::from(vec![i32::try_from(value).unwrap()]),
+            ),
+            TimeUnit::Milliseconds => assert_arrow_scalar(&scalar, &Date64Array::from(vec![value])),
+            _ => unreachable!(),
+        }
+        .unwrap();
     }
 
     #[rstest]
@@ -888,8 +988,22 @@ mod tests {
             Scalar::primitive(value, Nullability::NonNullable),
         );
 
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        match time_unit {
+            TimeUnit::Seconds => {
+                assert_arrow_scalar(&scalar, &TimestampSecondArray::from(vec![value]))
+            }
+            TimeUnit::Milliseconds => {
+                assert_arrow_scalar(&scalar, &TimestampMillisecondArray::from(vec![value]))
+            }
+            TimeUnit::Microseconds => {
+                assert_arrow_scalar(&scalar, &TimestampMicrosecondArray::from(vec![value]))
+            }
+            TimeUnit::Nanoseconds => {
+                assert_arrow_scalar(&scalar, &TimestampNanosecondArray::from(vec![value]))
+            }
+            TimeUnit::Days => unreachable!(),
+        }
+        .unwrap();
     }
 
     #[rstest]
@@ -912,8 +1026,26 @@ mod tests {
             Scalar::primitive(value, Nullability::NonNullable),
         );
 
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        match time_unit {
+            TimeUnit::Seconds => assert_arrow_scalar(
+                &scalar,
+                &TimestampSecondArray::from(vec![value]).with_timezone(tz),
+            ),
+            TimeUnit::Milliseconds => assert_arrow_scalar(
+                &scalar,
+                &TimestampMillisecondArray::from(vec![value]).with_timezone(tz),
+            ),
+            TimeUnit::Microseconds => assert_arrow_scalar(
+                &scalar,
+                &TimestampMicrosecondArray::from(vec![value]).with_timezone(tz),
+            ),
+            TimeUnit::Nanoseconds => assert_arrow_scalar(
+                &scalar,
+                &TimestampNanosecondArray::from(vec![value]).with_timezone(tz),
+            ),
+            TimeUnit::Days => unreachable!(),
+        }
+        .unwrap();
     }
 
     #[test]
@@ -923,7 +1055,7 @@ mod tests {
             Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
         );
 
-        let _result = scalar.to_arrow_datum().unwrap();
+        assert_arrow_scalar(&scalar, &Time32MillisecondArray::from(vec![None::<i32>])).unwrap();
     }
 
     #[test]

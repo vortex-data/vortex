@@ -10,6 +10,7 @@ use anyhow::bail;
 use clap::Parser;
 use clap::ValueEnum;
 use indicatif::ProgressBar;
+use mimalloc::MiMalloc;
 use regex::Regex;
 use string_bench::ColumnResult;
 use string_bench::DirectCandidate;
@@ -137,7 +138,11 @@ fn contains_duplicates<T: PartialEq>(values: &[T]) -> bool {
         .any(|(index, value)| values[..index].contains(value))
 }
 
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 fn main() -> Result<()> {
+    vortex_bench::configure_allocator();
     let args = Args::parse();
     setup_logging_and_tracing_with_format(args.verbose, args.tracing, args.log_format)?;
     let runtime = tokio::runtime::Builder::new_current_thread()

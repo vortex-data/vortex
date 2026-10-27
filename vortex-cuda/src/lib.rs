@@ -3,9 +3,9 @@
 
 //! CUDA support for Vortex arrays.
 
-use cudarc::driver::CudaContext;
-use cudarc::driver::sys;
 use tracing::info;
+use vortex_cuda_driver::CudaContext;
+use vortex_cuda_driver::sys;
 
 pub mod arrow;
 mod canonical;
@@ -67,6 +67,7 @@ pub use pooled_read_at::PooledByteBufferReadAt;
 pub use pooled_read_at::PooledFileReadAt;
 pub use pooled_read_at::PooledFileReadAtOptions;
 pub use pooled_read_at::PooledObjectStoreReadAt;
+pub use pooled_read_at::release_file_mappings;
 pub use session::CudaSession;
 pub use session::CudaSessionExt;
 pub use session::DictionaryExport;
@@ -79,7 +80,6 @@ use vortex::array::arrays::Dict;
 use vortex::array::arrays::Filter;
 use vortex::array::arrays::List;
 use vortex::array::arrays::Masked;
-use vortex::array::arrays::Shared;
 use vortex::array::arrays::Slice;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::datetime_parts::DateTimeParts;
@@ -93,6 +93,7 @@ use vortex::encodings::sequence::Sequence;
 use vortex::encodings::zigzag::ZigZag;
 use vortex::encodings::zstd::Zstd;
 use vortex::encodings::zstd::ZstdBuffers;
+use vortex::layout::arrays::shared::Shared;
 #[cfg(test)]
 use vortex_cuda_macros::test;
 pub use vortex_nvcomp as nvcomp;
@@ -103,8 +104,8 @@ use crate::kernel::SliceExecutor;
 
 /// Checks if a CUDA driver and at least one CUDA device are available.
 ///
-/// cudarc loads `libcuda` lazily and panics if the driver library is absent, so we first probe
-/// for it with cudarc's own `is_culib_present`. Creating the context then fails gracefully with
+/// The driver crate loads `libcuda` lazily and panics if the driver library is absent, so we
+/// first probe for it with `is_culib_present`. Creating the context then fails gracefully with
 /// `Err`, rather than panicking, when the driver is present but no usable device is.
 pub fn cuda_available() -> bool {
     // SAFETY: `is_culib_present` only tries to dlopen the driver library to test for its
@@ -151,5 +152,5 @@ pub fn initialize_cuda(session: &CudaSession) {
 /// Panics if CUDA device 0 cannot be initialized (the same contract as [`CudaSession::default`]).
 #[cfg(any(test, feature = "_test-harness"))]
 pub fn cuda_session() -> vortex::session::VortexSession {
-    vortex::array::array_session().with::<CudaSession>()
+    vortex::session::VortexSession::empty().with::<CudaSession>()
 }

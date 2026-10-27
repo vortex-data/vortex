@@ -44,55 +44,78 @@ jobs:
           echo "DuckDB mirror failed; downstream builds would 404"
           exit 1
 
-  lint-toml:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: spiraldb/actions/.github/actions/lint-toml@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
-
-  validate-workflow-yaml:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - name: Validate YAML file
-        run: |
-          # Lint the workflows and yamllint's configuration file.
-          yamllint \
-            --strict \
-            -c .yamllint.yaml \
-            .github/
-
-  python-lint:
-    name: "Python (lint)"
+  lightweight-checks:
+    name: "Formatting, Python lint and script tests"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=python-lint', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-small/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=lightweight-checks', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
       - parallel:
           - uses: runs-on/action@v2
             if: github.repository == 'vortex-data/vortex'
-            with:
-              sccache: s3
           - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - uses: ./.github/actions/setup-prebuild
+      - uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
         with:
-          enable-sccache: "true"
+          sync: false
+      - name: Install missing formatting tools
+        run: |
+          packages=()
+          command -v yamllint >/dev/null || packages+=(yamllint)
+          command -v clang-format >/dev/null || packages+=(clang-format)
+          if [ ${#packages[@]} -gt 0 ]; then
+            sudo apt-get update
+            sudo apt-get install -y "${packages[@]}"
+          fi
+      - name: TOML Lint
+        if: "!cancelled()"
+        uses: spiraldb/actions/.github/actions/lint-toml@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+      - name: Validate YAML file
+        if: "!cancelled()"
+        run: |
+          # Lint the workflows and yamllint's configuration file.
+          yamllint \
+            --strict \
+            -c .yamllint.yaml \
+            .github/
+      - name: C/C++ Lint - clang-format
+        if: "!cancelled()"
+        run: |
+          git ls-files lang/cpp vortex-cuda vortex-duckdb vortex-ffi \
+            | grep -E '\.(cpp|hpp|cu|cuh|h)$' \
+            | grep -v 'arrow/reference/arrow_c_device\.h$' \
+            | grep -v 'kernels/src/bit_unpack_.*\.cu$' \
+            | grep -v 'kernels/src/bit_unpack_.*_lanes\.cuh$' \
+            | xargs clang-format --dry-run --Werror --style=file
+
       # Use uvx for ruff to avoid building the Rust extension (saves ~4.5 min)
       - name: Python Lint - Format
+        if: "!cancelled()"
         run: uvx ruff format --check .
       - name: Python Lint - Ruff
+        if: "!cancelled()"
         run: uvx ruff check .
       # ty needs the Python dependencies for type information, but resolves the
       # vortex package itself from the in-tree sources and stubs, so skip the
       # Rust extension build entirely.
       - name: Python Lint - ty
+        if: "!cancelled()"
         run: |
           uv sync --all-packages --no-install-workspace
           uvx ty check vortex-python vortex-python-cuda vortex-ffi/cmake/tests scripts/tests
+
+      # Pins the measurement_id hash that scripts/post-ingest.py uses as the primary key of every
+      # benchmarks-database fact row. The golden vectors are a frozen artifact (see the note inside
+      # the JSON); this job fails if a change to scripts/_measurement_id.py drifts the hash, which
+      # would break ON CONFLICT idempotency against the rows already in production.
+      - name: Pytest - measurement_id, benchmark reporting and ingestion
+        if: "!cancelled()"
+        run: |
+          uv run --no-project --with pytest --with pandas --with numpy --with orjson \
+            --with tabulate --with xxhash \
+            pytest scripts/tests/test_measurement_id.py \
+              scripts/tests/test_benchmark_reporting.py scripts/tests/test_post_ingest.py
 
   python-test:
     name: "Python (test)"
@@ -128,20 +151,19 @@ jobs:
             pytest --benchmark-disable test/test_hf_datasets.py
         working-directory: vortex-python/
 
+      # The lockfile tracks Polars 2, so also exercise the oldest supported 1.x release. The
+      # Polars integration parses Polars' serialized expression format, which differs across
+      # versions.
+      - name: Pytest - Vortex (Polars 1.x floor)
+        run: |
+          uv run --all-packages --with 'polars==1.32.0' \
+            pytest --benchmark-disable test/test_polars_.py test/test_dataset.py
+        working-directory: vortex-python/
+
       - name: Check Python documentation
         run: |
           uv run --all-packages make check
         working-directory: docs/
-
-      # Keep this last: setup-benchmark.sh confines everything except the wrapped
-      # benchmark to the housekeeping CPUs, so any step after it runs on few cores.
-      - name: Setup benchmark environment
-        run: sudo bash scripts/setup-benchmark.sh
-
-      - name: Pytest Benchmarks - Vortex
-        run: |
-          bash ../scripts/bench-taskset.sh uv run --all-packages pytest --benchmark-only benchmark/
-        working-directory: vortex-python/
 
   python-windows:
     name: "Python (windows-x64)"
@@ -162,7 +184,7 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
         with:
           python-version: "3.11"
 
@@ -182,6 +204,8 @@ jobs:
         env:
           # Keep this constant to avoid pyo3 invalidating itself
           PYO3_ENVIRONMENT_SIGNATURE: "cpython3"
+          # Also applies to host proc-macro links when Cargo receives an explicit target.
+          LINK: /Brepro
 
       # rust-test-windows excludes vortex-python, so this is the only check that the
       # win_amd64 wheel imports and can round-trip a file. Runs outside the checkout so
@@ -205,42 +229,6 @@ jobs:
           assert round_tripped.column("b").to_pylist() == ["x", "y", "z"]
           print("vortex", vx.__version__, "round-tripped a file on Windows")
           PY
-
-  # Pins the measurement_id hash that scripts/post-ingest.py uses as the primary key of every
-  # benchmarks-database fact row. The golden vectors are a frozen artifact (see the note inside
-  # the JSON); this job fails if a change to scripts/_measurement_id.py drifts the hash, which
-  # would break ON CONFLICT idempotency against the rows already in production.
-  measurement-id-golden:
-    name: "measurement_id golden vectors"
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      # sync: false — the test runs via `uv run --no-project` and needs no workspace
-      # packages; the default `uv sync` builds the vortex-data Rust extension (~6 min).
-      - uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
-        with:
-          sync: false
-      - name: Pytest - measurement_id golden vectors
-        run: |
-          uv run --no-project --with pytest --with xxhash \
-            pytest scripts/tests/test_measurement_id.py
-
-  benchmark-reporting:
-    name: "Benchmark reporting"
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      # sync: false -- the tests run via `uv run --no-project` and need no workspace packages.
-      - uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
-        with:
-          sync: false
-      - name: Pytest - benchmark reporting and ingestion
-        run: |
-          uv run --no-project --with pytest --with pandas --with numpy --with orjson \
-            --with tabulate --with xxhash \
-            pytest scripts/tests/test_benchmark_reporting.py scripts/tests/test_post_ingest.py
 
   python-cuda-test:
     name: "Python CUDA (test)"
@@ -285,7 +273,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-small/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-docs', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-docs/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-docs', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -326,7 +314,7 @@ jobs:
             runner: amd64-ci-large
             args: "--all-targets"
           - name: "with tokio dispatcher"
-            runner: amd64-ci-small
+            runner: amd64-ci-medium
             # Only build the crates that have the tokio features, not re-building other crates with no-default-features
             args: "--no-default-features --features tokio --all-targets -p vortex -p vortex-io -p vortex-file -p vortex-layout"
           - name: "wasm32 with default features"
@@ -489,23 +477,11 @@ jobs:
         run: |
           cargo hack --no-dev-deps --ignore-private clippy --profile ci --no-default-features -- -D warnings
 
-  cpp-lint:
-    name: "C/C++ (lint)"
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - name: C/C++ Lint - clang-format
-        run: |
-          git ls-files lang/cpp vortex-cuda vortex-duckdb vortex-ffi \
-            | grep -E '\.(cpp|hpp|cu|cuh|h)$' \
-            | grep -v 'arrow/reference/arrow_c_device\.h$' \
-            | grep -v 'kernels/src/bit_unpack_.*\.cu$' \
-            | grep -v 'kernels/src/bit_unpack_.*_lanes\.cuh$' \
-            | xargs clang-format --dry-run --Werror --style=file
-
   rust-test-windows:
     name: "Rust tests (windows-x64)"
+    env:
+      # Stable proc-macro DLL contents let dependent crates reuse sccache entries.
+      RUSTFLAGS: "-C link-arg=/Brepro"
     needs: duckdb-ready
     if: ${{ !cancelled() && needs.duckdb-ready.result == 'success' }}
     timeout-minutes: 30
@@ -557,7 +533,7 @@ jobs:
       !cancelled() && needs.duckdb-ready.result == 'success' &&
       github.repository == 'vortex-data/vortex'
     timeout-minutes: 30
-    runs-on: runs-on=${{ github.run_id }}/runner=arm64-medium/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag=rust-test-linux-arm64
+    runs-on: runs-on=${{ github.run_id }}/runner=arm64-ci-test/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag=rust-test-linux-arm64
     steps:
       - parallel:
           - uses: runs-on/action@v2
@@ -581,6 +557,60 @@ jobs:
           api-key: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
           alert-title: "Rust tests (linux-arm64) failed on develop"
           deduplication-key: ci-rust-test-linux-arm64-failure
+
+  # Runs the crates with hand-written SIMD kernels on EC2 instance families chosen for
+  # their CPU features, so that every runtime-dispatched kernel tier is exercised:
+  #   c6a (AMD Zen 3): AVX2 and BMI2, no AVX-512
+  #   c6i (Intel Ice Lake): AVX-512 F/BW/VBMI2/VPOPCNTDQ
+  #   c8g (Graviton4, Neoverse V2): SVE2 with BITPERM
+  # `VORTEX_EXPECT_CPU_FEATURES` lists every feature the instance must have; vortex-array-macros'
+  # `cpu_features` test fails if any of them is missing or any other known feature (e.g.
+  # AVX-512 on the avx2 entry) is detected.
+  rust-test-cpu-features:
+    name: "Rust tests (cpu-features, ${{ matrix.config.name }})"
+    if: github.repository == 'vortex-data/vortex'
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - name: avx2
+            runner: amd64-ci-medium
+            family: c6a.2xlarge
+            image: ubuntu24-full-x64-pre-v2
+            expect: "sse2,popcnt,bmi1,bmi2,avx,avx2"
+          - name: avx512
+            runner: amd64-ci-medium
+            family: c6i.2xlarge
+            image: ubuntu24-full-x64-pre-v2
+            expect: "sse2,popcnt,bmi1,bmi2,avx,avx2,avx512f,avx512bw,avx512vbmi2,avx512vpopcntdq"
+          - name: sve
+            runner: arm64-medium
+            family: c8g.2xlarge
+            image: ubuntu24-full-arm64-pre-v2
+            expect: "neon,sve,sve2,sve2-bitperm"
+    runs-on: >-
+      runs-on=${{ github.run_id }}/runner=${{ matrix.config.runner }}/family=${{ matrix.config.family }}/spot=price-capacity-optimized/image=${{ matrix.config.image }}/extras=s3-cache/tag=rust-test-cpu-features-${{ matrix.config.name }}
+    env:
+      VORTEX_EXPECT_CPU_FEATURES: ${{ matrix.config.expect }}
+    steps:
+      - parallel:
+          - uses: runs-on/action@v2
+            with:
+              sccache: s3
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
+      # Print the detected features and fail fast if the instance is not the expected tier.
+      - name: Check CPU features
+        run: |
+          cargo nextest run --cargo-profile ci --locked --no-capture \
+            -p vortex-array-macros --test cpu_features
+      - name: Rust Tests
+        run: |
+          cargo nextest run --cargo-profile ci --locked --no-fail-fast \
+            -p vortex-buffer -p vortex-mask -p vortex-array
 
   btrblocks-golden:
     name: "Rust (btrblocks golden corpus)"
@@ -627,7 +657,7 @@ jobs:
           - uses: ./.github/actions/setup-prebuild
             with:
               enable-sccache: "true"
-          - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb  # v6
+          - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6  # v6
       - name: Build documentation and run Java checks
         run: ./gradlew --parallel javadoc check
         working-directory: ./java
@@ -733,7 +763,7 @@ jobs:
     if: ${{ !cancelled() && needs.duckdb-ready.result == 'success' }}
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=sql-logic-test', github.run_id)
+          && format('runs-on={0}/runner=amd64-ci-sql-logic-test/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=sql-logic-test', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:

@@ -10,18 +10,6 @@ use crate::duckdb::VectorRef;
 use crate::exporter::copy_from_slice;
 
 impl VectorRef {
-    /// Sets validity from the selected range of `mask`.
-    ///
-    /// Returns whether all selected values are null.
-    ///
-    /// # Safety
-    ///
-    /// - `offset + len` must not exceed `mask.len()`.
-    /// - `len` must not exceed the vector capacity.
-    pub unsafe fn set_validity(&mut self, mask: &Mask, offset: usize, len: usize) -> bool {
-        unsafe { self.set_validity_zero_copy(mask, offset, len, None) }
-    }
-
     /// Sets validity from `mask`, using `zero_copy` when its bitmap and `offset` are `u64`-aligned.
     ///
     /// Returns whether all selected values are null.

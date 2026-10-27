@@ -233,12 +233,14 @@ fn filter_select_var_bin_by_index_primitive_offset<O: IntegerPType, B: OffsetBui
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::varbin::compute::filter::filter_select_var_bin_by_index;
@@ -250,9 +252,11 @@ mod test {
     use crate::dtype::Nullability::Nullable;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn filter_var_bin_test() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = VarBinArray::from_vec(
             vec![
                 b"hello".as_slice(),
@@ -269,7 +273,7 @@ mod test {
 
     #[test]
     fn filter_var_bin_slice_test() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = VarBinArray::from_vec(
             vec![
                 b"hello".as_slice(),
@@ -294,7 +298,7 @@ mod test {
 
     #[test]
     fn filter_var_bin_slice_null() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let bytes = [
             b"one".as_slice(),
             b"two".as_slice(),
@@ -311,7 +315,8 @@ mod test {
         let validity = Validity::Array(
             BoolArray::from_iter([true, false, true, true, true, true]).into_array(),
         );
-        let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity).unwrap();
+        let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity, &mut ctx)
+            .unwrap();
 
         let arr = arr.as_view();
         let buf = filter_select_var_bin_by_slice(arr, &[(0, 3), (4, 6)], 5, &mut ctx).unwrap();
@@ -331,7 +336,7 @@ mod test {
 
     #[test]
     fn filter_varbin_nulls() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let bytes = [b"".as_slice(), b"two".as_slice(), b"two".as_slice()]
             .into_iter()
             .flat_map(|x| x.iter().cloned())
@@ -339,7 +344,8 @@ mod test {
 
         let offsets = buffer![0, 0, 3, 6].into_array();
         let validity = Validity::Array(BoolArray::from_iter([false, true, true]).into_array());
-        let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity).unwrap();
+        let arr = VarBinArray::try_new(offsets, bytes, DType::Utf8(Nullable), validity, &mut ctx)
+            .unwrap();
 
         let arr = arr.as_view();
         let buf = filter_select_var_bin_by_slice(arr, &[(0, 1), (2, 3)], 2, &mut ctx).unwrap();
@@ -349,7 +355,7 @@ mod test {
 
     #[test]
     fn filter_varbin_all_null() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let offsets = buffer![0, 0, 0, 0].into_array();
         let validity = Validity::Array(BoolArray::from_iter([false, false, false]).into_array());
         let arr = VarBinArray::try_new(
@@ -357,6 +363,7 @@ mod test {
             ByteBuffer::empty(),
             DType::Utf8(Nullable),
             validity,
+            &mut ctx,
         )
         .unwrap();
 
@@ -372,18 +379,12 @@ mod test {
             vec!["hello", "world", "filter", "good", "bye"],
             DType::Utf8(NonNullable),
         );
-        test_filter_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_filter_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
 
         let array = VarBinArray::from_iter(
             vec![Some("hello"), None, Some("filter"), Some("good"), None],
             DType::Utf8(Nullable),
         );
-        test_filter_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_filter_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

@@ -260,7 +260,7 @@ impl ArrowImportVTable for MultiPolygon {
                 vortex_ensure!(
                     multipolygon_meta.coord_type() == CoordType::Separated,
                     "geoarrow.multipolygon with interleaved coordinates is not supported; \
-                 re-encode with separated (struct) coordinates"
+             re-encode with separated (struct) coordinates"
                 );
                 (
                     multipolygon_meta.dimension().into(),

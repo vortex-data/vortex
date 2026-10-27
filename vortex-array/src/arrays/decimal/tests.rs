@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use num_traits::AsPrimitive;
 use rstest::rstest;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrayParts;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::decimal::DecimalData;
@@ -21,6 +23,8 @@ use crate::dtype::DecimalType;
 use crate::dtype::Nullability;
 use crate::match_each_decimal_value_type;
 use crate::validity::Validity;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 #[rstest]
 fn construction_rejects_storage_wider_than_precision(
@@ -61,7 +65,7 @@ fn construction_rejects_storage_wider_than_precision(
     assert_arrays_eq!(
         array,
         DecimalArray::new(buffer![-9i8, 9], dtype, Validity::NonNullable),
-        &mut array_session().create_execution_ctx()
+        &mut SESSION.create_execution_ctx()
     );
     Ok(())
 }
@@ -97,7 +101,7 @@ fn narrowing_bounds_storage_by_precision(
     assert_arrays_eq!(
         array,
         DecimalArray::new(buffer![-9i8, 9], dtype, Validity::NonNullable),
-        &mut array_session().create_execution_ctx()
+        &mut SESSION.create_execution_ctx()
     );
     Ok(())
 }
@@ -114,7 +118,7 @@ fn narrowing_preserves_validity_and_ignores_null_payloads() -> VortexResult<()> 
     assert_arrays_eq!(
         array,
         DecimalArray::from_option_iter([Some(99i8), None, Some(-99)], dtype),
-        &mut array_session().create_execution_ctx()
+        &mut SESSION.create_execution_ctx()
     );
     Ok(())
 }

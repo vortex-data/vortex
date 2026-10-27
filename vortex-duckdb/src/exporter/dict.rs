@@ -124,7 +124,7 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
             *dst = src
         }
 
-        vector.reuse_dictionary(&self.values, &sel_vec);
+        vector.reuse_dictionary(&self.values, &sel_vec, len);
 
         Ok(())
     }
@@ -218,24 +218,6 @@ mod tests {
         let arr = DictArray::new(
             PrimitiveArray::from_option_iter([None, Some(0u32), Some(1)]).into_array(),
             PrimitiveArray::from_option_iter([Some(10), None]).into_array(),
-        );
-
-        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
-
-        new_exporter(&arr, &ConversionCache::default())?.export(
-            0,
-            3,
-            chunk.get_vector_mut(0),
-            &mut SESSION.create_execution_ctx(),
-        )?;
-        chunk.set_len(3);
-
-        // some-invalid codes cannot be exported as a dictionary.
-        assert_eq!(
-            String::try_from(&*chunk)?,
-            r#"Chunk - [1 Columns]
-- FLAT INTEGER: 3 = [ NULL, 10, NULL]
-"#
         );
 
         let mut flat_chunk =

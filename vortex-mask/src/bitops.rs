@@ -356,30 +356,6 @@ mod tests {
     }
 
     #[test]
-    fn test_bitand_identity() {
-        // Test A & AllTrue = A
-        let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false]));
-        let all_true = Mask::new_true(4);
-
-        let result = &mask & &all_true;
-        assert_eq!(result.true_count(), mask.true_count());
-        for i in 0..4 {
-            assert_eq!(result.value(i), mask.value(i));
-        }
-    }
-
-    #[test]
-    fn test_bitand_annihilator() {
-        // Test A & AllFalse = AllFalse
-        let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false]));
-        let all_false = Mask::new_false(4);
-
-        let result = &mask & &all_false;
-        assert!(result.all_false());
-        assert_eq!(result.true_count(), 0);
-    }
-
-    #[test]
     fn test_bitand_idempotence() {
         // Test A & A = A
         let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false, true]));
@@ -425,7 +401,7 @@ mod tests {
 
         // bitand_not(None) = self
         let none = Mask::new_false(4);
-        assert_eq!(a.clone().bitand_not(&none).true_count(), a.true_count());
+        assert_eq!(a.clone().bitand_not(&none), a);
 
         // None.bitand_not(_) = None
         assert!(none.bitand_not(&a).all_false());
@@ -461,6 +437,6 @@ mod tests {
         // Test with AllFalse
         let all_false = Mask::new_false(5);
         let result = &mask1 | &all_false;
-        assert_eq!(result.true_count(), mask1.true_count());
+        assert_eq!(result, mask1);
     }
 }

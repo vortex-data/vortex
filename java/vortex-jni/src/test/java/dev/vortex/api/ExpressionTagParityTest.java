@@ -11,6 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import dev.vortex.api.Expression.BinaryOp;
 import dev.vortex.api.Expression.DType;
 import dev.vortex.api.Expression.DuplicateHandling;
+import dev.vortex.api.Expression.SpatialFunction;
 import dev.vortex.api.Expression.TimeUnit;
 import dev.vortex.jni.NativeExpression;
 import dev.vortex.jni.NativeLoader;
@@ -20,13 +21,13 @@ import org.junit.jupiter.api.Test;
 /**
  * Parity tests for the byte tags {@link Expression} hands to the native side.
  *
- * <p>Four enums carry a tag that the Rust side switches on: {@link BinaryOp} against {@code parse_op},
+ * <p>Five enums carry a tag that the Rust side switches on: {@link BinaryOp} against {@code parse_op},
  * {@link DuplicateHandling} against {@code parse_duplicate_handling}, {@link TimeUnit} against
- * {@code TimeUnit::try_from}, and {@link DType} against the table in {@code literalNull}. Three of the four say in
- * their javadoc that the values must match the Rust table, but nothing checked it. Drift compiles on both sides, and
- * the two failure modes are not equally loud: a tag past the end of a table reaches the {@code other =>} arm and
- * throws, while a tag that collides with a sibling decodes to the wrong operator or the wrong time unit and returns an
- * expression that reads valid.
+ * {@code TimeUnit::try_from}, {@link DType} against the table in {@code literalNull}, and {@link SpatialFunction}
+ * against the table in {@code spatial}. Four of the five say in their javadoc that the values must match the Rust
+ * table, but nothing checked it. Drift compiles on both sides, and the two failure modes are not equally loud: a tag
+ * past the end of a table reaches the {@code other =>} arm and throws, while a tag that collides with a sibling decodes
+ * to the wrong operator or the wrong time unit and returns an expression that reads valid.
  *
  * <p>So each table is pinned twice: the constants against the bytes Rust matches, and every constant against the native
  * call that consumes it. Both temporal types are exercised because between them they reject enough units to tell the
@@ -77,6 +78,43 @@ public final class ExpressionTagParityTest {
                         (byte) BinaryOp.values().length, lhs.nativePointer(), rhs.nativePointer()));
         assertTrue(
                 exception.getMessage().contains("unknown binary operator code: 12"),
+                () -> "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
+    public void spatialFunctionCodesMatchTheRustTable() {
+        assertEquals(0, SpatialFunction.AREA.code());
+        assertEquals(1, SpatialFunction.COLLECT.code());
+        assertEquals(2, SpatialFunction.CONTAINS.code());
+        assertEquals(3, SpatialFunction.CONVEX_HULL.code());
+        assertEquals(4, SpatialFunction.DISTANCE.code());
+        assertEquals(5, SpatialFunction.ENVELOPE.code());
+        assertEquals(6, SpatialFunction.INTERSECTS.code());
+        assertEquals(7, SpatialFunction.LENGTH.code());
+        assertEquals(8, SpatialFunction.MAKE_LINE.code());
+        assertEquals(9, SpatialFunction.values().length);
+    }
+
+    @Test
+    public void everySpatialFunctionIsAcceptedWithItsArity() {
+        // The native side rejects an operand count that does not match the function's arity, so a Java arity
+        // that drifts from the Rust signature fails here.
+        for (SpatialFunction function : SpatialFunction.values()) {
+            Expression[] operands = new Expression[function.arity()];
+            for (int i = 0; i < operands.length; i++) {
+                operands[i] = Expression.column("g" + i);
+            }
+            assertNotNull(Expression.spatial(function, operands), () -> "native side rejected " + function);
+        }
+    }
+
+    @Test
+    public void aSpatialFunctionCodePastTheTableIsRejectedByName() {
+        RuntimeException exception = assertThrows(
+                RuntimeException.class,
+                () -> NativeExpression.spatial((byte) SpatialFunction.values().length, new long[0]));
+        assertTrue(
+                exception.getMessage().contains("unknown spatial function code: 9"),
                 () -> "unexpected message: " + exception.getMessage());
     }
 
@@ -158,7 +196,12 @@ public final class ExpressionTagParityTest {
         assertEquals(6, DType.F64.tag());
         assertEquals(7, DType.UTF8.tag());
         assertEquals(8, DType.BINARY.tag());
-        assertEquals(9, DType.values().length);
+        assertEquals(9, DType.U8.tag());
+        assertEquals(10, DType.U16.tag());
+        assertEquals(11, DType.U32.tag());
+        assertEquals(12, DType.U64.tag());
+        assertEquals(13, DType.F16.tag());
+        assertEquals(14, DType.values().length);
     }
 
     @Test
@@ -173,7 +216,7 @@ public final class ExpressionTagParityTest {
         RuntimeException exception =
                 assertThrows(RuntimeException.class, () -> NativeExpression.literalNull((byte) DType.values().length));
         assertTrue(
-                exception.getMessage().contains("unknown null dtype tag: 9"),
+                exception.getMessage().contains("unknown null dtype tag: 14"),
                 () -> "unexpected message: " + exception.getMessage());
     }
 

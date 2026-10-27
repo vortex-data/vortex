@@ -19,7 +19,6 @@ use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::aggregate_fn::fns::count::Count;
 use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
-use vortex_array::array_session;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
@@ -28,6 +27,7 @@ use vortex_array::dtype::StructFields;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
@@ -43,7 +43,8 @@ const N: usize = 1024;
 /// A merge costs about 300ns, so it runs fewer times to keep the CodSpeed simulation under 1ms.
 const MERGES: usize = 64;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
 
 fn main() {
     LazyLock::force(&SESSION);

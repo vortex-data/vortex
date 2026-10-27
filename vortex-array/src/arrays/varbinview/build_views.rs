@@ -392,7 +392,13 @@ mod tests {
             1,
             "len == max_buffer_len must stay on fast path"
         );
-        assert_eq!(views.len(), 2);
+        assert_eq!(
+            reconstruct(&buffers, &views, 0),
+            vec![
+                b"this value is definitely long".to_vec(),
+                b"and so is this one here".to_vec()
+            ]
+        );
     }
 
     /// For the same logical data, the fast path (single buffer) and the slow rollover path must
@@ -423,12 +429,6 @@ mod tests {
             "small cap should split into many buffers"
         );
         assert_eq!(reconstruct(&slow_buffers, &slow_views, 0), expected);
-
-        // Same logical contents regardless of how the heap was partitioned.
-        assert_eq!(
-            reconstruct(&fast_buffers, &fast_views, 0),
-            reconstruct(&slow_buffers, &slow_views, 0)
-        );
     }
 
     /// Empty input must yield no buffers and no views, exercising the `bytes.is_empty()` branch.

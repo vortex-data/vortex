@@ -50,12 +50,28 @@ pub fn bitpack_blocked_to_best_bit_widths(
     array: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<BitPackedArray> {
+    let (bit_widths, num_exceptions) = find_best_bit_widths(array, ctx)?;
+    bitpack_encode_blocked(array, &bit_widths, Some(num_exceptions), ctx)
+}
+
+/// Choose the width minimizing each 1024-value block's packed size plus the cost of its
+/// exceptions, and return the widths and total number of exceptions.
+///
+/// Widths may equal the array's native bit width when packing would not help. An empty array
+/// produces no widths and no exceptions.
+///
+/// # Errors
+///
+/// Returns an error if `array` is not an integer array or contains negative values.
+pub fn find_best_bit_widths(
+    array: &PrimitiveArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(Vec<u8>, usize)> {
     ensure_non_negative_integers(array, ctx)?;
     let validity_mask = array.validity()?.execute_mask(array.len(), ctx)?;
-    let (bit_widths, num_exceptions) = match_each_integer_ptype!(array.ptype(), |T| {
-        block_bit_widths(array.as_slice::<T>(), &validity_mask)?
-    });
-    bitpack_encode_blocked(array, &bit_widths, Some(num_exceptions), ctx)
+    match_each_integer_ptype!(array.ptype(), |T| {
+        block_bit_widths(array.as_slice::<T>(), &validity_mask)
+    })
 }
 
 /// Bit-pack each 1024-value block of `array` at its width in `bit_widths`.
@@ -78,7 +94,7 @@ pub fn bitpack_encode_blocked(
     let num_blocks = array.len().div_ceil(FL_CHUNK_SIZE);
     vortex_ensure!(
         bit_widths.len() == num_blocks,
-        InvalidArgument: "Expected {num_blocks} bit widths, got {}",
+        "Expected {num_blocks} bit widths, got {}",
         bit_widths.len()
     );
     validate_bit_widths(bit_widths, array.ptype())?;
@@ -117,13 +133,13 @@ fn validate_bit_widths(bit_widths: &[u8], ptype: PType) -> VortexResult<()> {
         let bit_width = usize::from(bit_width);
         vortex_ensure!(
             bit_width <= max_bit_width,
-            InvalidArgument: "Bit widths must be at most {max_bit_width} for {ptype}"
+            "Bit widths must be at most {max_bit_width} for {ptype}"
         );
         has_packed_block |= bit_width < max_bit_width;
     }
     vortex_ensure!(
         bit_widths.is_empty() || has_packed_block,
-        InvalidArgument: "Cannot pack: all blocks use the native bit width {max_bit_width}"
+        "Cannot pack: all blocks use the native bit width {max_bit_width}"
     );
     Ok(())
 }
@@ -238,13 +254,18 @@ where
     if indices.is_empty() {
         return Ok(None);
     }
-    Ok(Some(Patches::new(
-        values.len(),
-        0,
-        indices.into_array(),
-        PrimitiveArray::new(patch_values, patch_validity).into_array(),
-        Some(chunk_offsets.into_array()),
-    )?))
+    // SAFETY: the indices are collected in increasing order from positions in `values`, with one
+    // patch value each.
+    Ok(Some(unsafe {
+        Patches::new_unchecked(
+            values.len(),
+            0,
+            indices.into_array(),
+            PrimitiveArray::new(patch_values, patch_validity).into_array(),
+            Some(chunk_offsets.into_array()),
+            Some(0),
+        )
+    }))
 }
 
 /// Byte boundaries of blocks packed at `widths`, in the narrowest unsigned type that holds them.
@@ -322,7 +343,6 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
-    use vortex_error::VortexError;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
@@ -334,7 +354,7 @@ mod tests {
     use crate::bitpacking::array::BitPackedArrayExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -426,18 +446,12 @@ mod tests {
             .patches()
             .ok_or_else(|| vortex_err!("expected patches"))?;
         assert_arrays_eq!(
-            patches
-                .indices()
-                .clone()
-                .execute::<PrimitiveArray>(&mut ctx)?,
+            patches.indices().clone(),
             PrimitiveArray::from_iter([10u16, 20, 1029]),
             &mut ctx
         );
         assert_arrays_eq!(
-            patches
-                .values()
-                .clone()
-                .execute::<PrimitiveArray>(&mut ctx)?,
+            patches.values().clone(),
             PrimitiveArray::from_iter([1i32 << 19, (1 << 20) + 1, (1 << 20) + 1]),
             &mut ctx
         );
@@ -445,8 +459,7 @@ mod tests {
             .chunk_offsets()
             .as_ref()
             .ok_or_else(|| vortex_err!("expected chunk offsets"))?
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?;
+            .clone();
         assert_arrays_eq!(
             chunk_offsets,
             PrimitiveArray::from_iter([0u64, 2]),
@@ -528,33 +541,43 @@ mod tests {
     }
 
     #[rstest]
-    #[case::negative(PrimitiveArray::from_iter(-5i64..5))]
-    #[case::float(PrimitiveArray::from_iter([1.0f32, 2.0]))]
-    fn encode_blocked_rejects_invalid_values(#[case] array: PrimitiveArray) {
+    #[case::negative(
+        PrimitiveArray::from_iter(-5i64..5),
+        "cannot bitpack array containing negative integers"
+    )]
+    #[case::float(PrimitiveArray::from_iter([1.0f32, 2.0]), "cannot bitpack f32 array")]
+    fn encode_blocked_rejects_invalid_values(
+        #[case] array: PrimitiveArray,
+        #[case] expected: &str,
+    ) {
         let mut ctx = SESSION.create_execution_ctx();
-        assert!(matches!(
-            bitpack_blocked_to_best_bit_widths(&array, &mut ctx).unwrap_err(),
-            VortexError::InvalidArgument(_, _)
-        ));
-        assert!(matches!(
-            BitPackedData::encode_blocked(&array.into_array(), &[1], &mut ctx).unwrap_err(),
-            VortexError::InvalidArgument(_, _)
-        ));
+        let err = bitpack_blocked_to_best_bit_widths(&array, &mut ctx)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains(expected), "{err}");
+        let err = BitPackedData::encode_blocked(&array.into_array(), &[1], &mut ctx)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains(expected), "{err}");
     }
 
     #[rstest]
-    #[case::too_few(vec![3])]
-    #[case::too_many(vec![3, 3, 3])]
-    #[case::wider_than_type(vec![3, 33])]
-    fn encode_blocked_rejects_invalid_bit_widths(#[case] bit_widths: Vec<u8>) {
+    #[case::too_few(vec![3], "Expected 2 bit widths, got 1")]
+    #[case::too_many(vec![3, 3, 3], "Expected 2 bit widths, got 3")]
+    #[case::wider_than_type(vec![3, 33], "Bit widths must be at most 32 for u32")]
+    fn encode_blocked_rejects_invalid_bit_widths(
+        #[case] bit_widths: Vec<u8>,
+        #[case] expected: &str,
+    ) {
         let array = PrimitiveArray::from_iter((0..2048u32).map(|i| i % 8));
         let err = BitPackedData::encode_blocked(
             &array.into_array(),
             &bit_widths,
             &mut SESSION.create_execution_ctx(),
         )
-        .unwrap_err();
-        assert!(matches!(err, VortexError::InvalidArgument(_, _)));
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains(expected), "{err}");
     }
 
     #[test]

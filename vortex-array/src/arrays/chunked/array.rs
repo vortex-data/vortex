@@ -149,7 +149,7 @@ impl ChunkedData {
     pub fn validate(chunks: &[ArrayRef], dtype: &DType) -> VortexResult<()> {
         for chunk in chunks {
             if chunk.dtype() != dtype {
-                vortex_bail!(MismatchedTypes: dtype, chunk.dtype());
+                vortex_bail!("expected type: {} but instead got {}", dtype, chunk.dtype());
             }
         }
 
@@ -172,7 +172,11 @@ impl Array<Chunked> {
 
         for chunk in chunks {
             if VALIDATE && chunk.dtype() != &dtype {
-                vortex_bail!(MismatchedTypes: &dtype, chunk.dtype());
+                vortex_bail!(
+                    "expected type: {} but instead got {}",
+                    &dtype,
+                    chunk.dtype()
+                );
             }
             len += chunk.len();
             chunk_offsets.push(len);
@@ -215,7 +219,7 @@ impl Array<Chunked> {
 
     /// Constructs a new `ChunkedArray`.
     pub fn try_new(chunks: impl IntoIterator<Item = ArrayRef>, dtype: DType) -> VortexResult<Self> {
-        Array::try_from_parts(Self::parts_from_chunks::<true>(chunks, dtype)?)
+        Self::try_from_chunked_parts(Self::parts_from_chunks::<true>(chunks, dtype)?)
     }
 
     pub fn rechunk(
@@ -278,6 +282,26 @@ impl Array<Chunked> {
     pub unsafe fn new_unchecked(chunks: impl IntoIterator<Item = ArrayRef>, dtype: DType) -> Self {
         let parts = Self::parts_from_chunks::<false>(chunks, dtype)
             .vortex_expect("unchecked chunked construction cannot fail");
+        unsafe { Self::from_chunked_parts_unchecked(parts) }
+    }
+
+    /// Creates the array from parts after validation.
+    ///
+    /// The generic constructors call this function. It is not generic, so crates that call those
+    /// constructors do not each compile the `Chunked` array vtable.
+    fn try_from_chunked_parts(parts: ArrayParts<Chunked>) -> VortexResult<Self> {
+        Array::try_from_parts(parts)
+    }
+
+    /// Creates the array from parts without validation.
+    ///
+    /// The generic constructors call this function. It is not generic, so crates that call those
+    /// constructors do not each compile the `Chunked` array vtable.
+    ///
+    /// # Safety
+    ///
+    /// The parts must be logically consistent.
+    unsafe fn from_chunked_parts_unchecked(parts: ArrayParts<Chunked>) -> Self {
         unsafe { Array::from_parts_unchecked(parts) }
     }
 }
@@ -296,12 +320,14 @@ impl FromIterator<ArrayRef> for Array<Chunked> {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::chunked::ChunkedArrayExt;
@@ -311,9 +337,11 @@ mod test {
     use crate::dtype::PType;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_rechunk_one_chunk() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let chunked = ChunkedArray::try_new(
             vec![buffer![0u64].into_array()],
             DType::Primitive(PType::U64, Nullability::NonNullable),
@@ -327,7 +355,7 @@ mod test {
 
     #[test]
     fn test_rechunk_two_chunks() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let chunked = ChunkedArray::try_new(
             vec![buffer![0u64].into_array(), buffer![5u64].into_array()],
             DType::Primitive(PType::U64, Nullability::NonNullable),
@@ -342,7 +370,7 @@ mod test {
 
     #[test]
     fn test_rechunk_tiny_target_chunks() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let chunked = ChunkedArray::try_new(
             vec![
                 buffer![0u64, 1, 2, 3].into_array(),
@@ -361,7 +389,7 @@ mod test {
 
     #[test]
     fn test_rechunk_with_too_big_chunk() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let chunked = ChunkedArray::try_new(
             vec![
                 buffer![0u64, 1, 2].into_array(),
@@ -383,7 +411,7 @@ mod test {
 
     #[test]
     fn test_empty_chunks_all_valid() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Create chunks where some are empty but all non-empty chunks have all valid values
         let chunks = vec![
             PrimitiveArray::new(buffer![1u64, 2, 3], Validity::AllValid).into_array(),
@@ -404,7 +432,7 @@ mod test {
 
     #[test]
     fn test_empty_chunks_all_invalid() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Create chunks where some are empty but all non-empty chunks have all invalid values
         let chunks = vec![
             PrimitiveArray::new(buffer![1u64, 2], Validity::AllInvalid).into_array(),
@@ -425,7 +453,7 @@ mod test {
 
     #[test]
     fn test_empty_chunks_mixed_validity() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Create chunks with mixed validity including empty chunks
         let chunks = vec![
             PrimitiveArray::new(buffer![1u64, 2], Validity::AllValid).into_array(),

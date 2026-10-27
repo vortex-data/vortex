@@ -164,7 +164,7 @@ logical_plan [
                     }
                 ],
                 "extra_info": {
-                    "Order By": "count(DISTINCT memory.main.hits.UserID)"
+                    "Order By": "u"
                 }
             }
         ],
@@ -181,34 +181,71 @@ logical_opt [
                 "name": "PROJECTION",
                 "children": [
                     {
-                        "name": "AGGREGATE",
+                        "name": "PROJECTION",
                         "children": [
                             {
                                 "name": "PROJECTION",
                                 "children": [
                                     {
-                                        "name": "READ_VORTEX",
-                                        "children": [],
+                                        "name": "AGGREGATE",
+                                        "children": [
+                                            {
+                                                "name": "AGGREGATE",
+                                                "children": [
+                                                    {
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Filters": "($.SearchPhrase != \"\")",
+                                                                    "Function": "Vortex Scan",
+                                                                    "Estimated Cardinality": "200000"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Expressions": [
+                                                                "UserID",
+                                                                "SearchPhrase"
+                                                            ],
+                                                            "Estimated Cardinality": "200000"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Groups": [
+                                                        "SearchPhrase",
+                                                        "UserID"
+                                                    ],
+                                                    "Expressions": "",
+                                                    "Estimated Cardinality": "100000"
+                                                }
+                                            }
+                                        ],
                                         "extra_info": {
-                                            "Filters": "($.SearchPhrase != \"\")",
-                                            "Function": "Vortex Scan",
-                                            "Estimated Cardinality": "200000"
+                                            "Groups": "#0",
+                                            "Expressions": "count_star()",
+                                            "Estimated Cardinality": "50000"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Expressions": [
-                                        "UserID",
-                                        "SearchPhrase"
+                                        "#0",
+                                        "#1"
                                     ],
-                                    "Estimated Cardinality": "200000"
+                                    "Estimated Cardinality": "50000"
                                 }
                             }
                         ],
                         "extra_info": {
-                            "Groups": "SearchPhrase",
-                            "Expressions": "count(DISTINCT UserID)",
-                            "Estimated Cardinality": "126424"
+                            "Expressions": [
+                                "#0",
+                                "#1"
+                            ],
+                            "Estimated Cardinality": "50000"
                         }
                     }
                 ],
@@ -217,7 +254,7 @@ logical_opt [
                         "SearchPhrase",
                         "u"
                     ],
-                    "Estimated Cardinality": "126424"
+                    "Estimated Cardinality": "50000"
                 }
             }
         ],
@@ -238,38 +275,61 @@ physical_plan [
                         "name": "PROJECTION",
                         "children": [
                             {
-                                "name": "READ_VORTEX",
-                                "children": [],
+                                "name": "HASH_GROUP_BY",
+                                "children": [
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Function": "Vortex Scan",
+                                                    "Filters": "($.SearchPhrase != \"\")",
+                                                    "Projections": [
+                                                        "UserID",
+                                                        "SearchPhrase"
+                                                    ],
+                                                    "Estimated Cardinality": "200000"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Projections": [
+                                                "SearchPhrase",
+                                                "UserID"
+                                            ],
+                                            "Estimated Cardinality": "200000"
+                                        }
+                                    }
+                                ],
                                 "extra_info": {
-                                    "Function": "Vortex Scan",
-                                    "Filters": "($.SearchPhrase != \"\")",
-                                    "Projections": [
-                                        "UserID",
-                                        "SearchPhrase"
+                                    "Groups": [
+                                        "#0",
+                                        "#1"
                                     ],
-                                    "Estimated Cardinality": "200000"
+                                    "Aggregates": "",
+                                    "Estimated Cardinality": "100000"
                                 }
                             }
                         ],
                         "extra_info": {
-                            "Projections": [
-                                "SearchPhrase",
-                                "UserID"
-                            ],
-                            "Estimated Cardinality": "200000"
+                            "Projections": "#0",
+                            "Estimated Cardinality": "100000"
                         }
                     }
                 ],
                 "extra_info": {
                     "Groups": "#0",
-                    "Aggregates": "count(DISTINCT #1)",
-                    "Estimated Cardinality": "126424"
+                    "Aggregates": "count_star()",
+                    "Estimated Cardinality": "50000"
                 }
             }
         ],
         "extra_info": {
             "Top": "10",
-            "Order By": "count(DISTINCT memory.main.hits.UserID) DESC"
+            "Order By": "u DESC",
+            "Estimated Cardinality": "10"
         }
     }
 ]

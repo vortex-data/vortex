@@ -13,6 +13,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -22,6 +23,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::StructArray;
 use crate::arrays::struct_::StructArrayExt;
 use crate::dtype::DType;
+use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::expr::BoundExpression;
 use crate::expr::display::ExprDisplay;
@@ -307,12 +309,11 @@ impl FieldSelection {
         &self,
         available_fields: &FieldNames,
     ) -> VortexResult<FieldNames> {
+        // Hash the available fields so that wide selections stay linear.
+        let available: HashSet<&FieldName> = available_fields.iter().collect();
+
         // Check that all of the field names exist in the available fields.
-        if self
-            .field_names()
-            .iter()
-            .any(|f| !available_fields.iter().contains(f))
-        {
+        if self.field_names().iter().any(|f| !available.contains(f)) {
             vortex_bail!(
                 "Select fields {:?} must be a subset of child fields {:?}",
                 self,
@@ -322,11 +323,14 @@ impl FieldSelection {
 
         match self {
             FieldSelection::Include(fields) => Ok(fields.clone()),
-            FieldSelection::Exclude(exc_fields) => Ok(available_fields
-                .iter()
-                .filter(|f| !exc_fields.iter().contains(f))
-                .cloned()
-                .collect()),
+            FieldSelection::Exclude(exc_fields) => {
+                let excluded: HashSet<&FieldName> = exc_fields.iter().collect();
+                Ok(available_fields
+                    .iter()
+                    .filter(|f| !excluded.contains(f))
+                    .cloned()
+                    .collect())
+            }
         }
     }
 }
@@ -342,17 +346,19 @@ impl Display for FieldSelection {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::ScalarFnArray;
-    use crate::arrays::struct_::StructArrayExt;
+    use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::FieldName;
     use crate::dtype::FieldNames;
@@ -370,6 +376,8 @@ mod tests {
     use crate::scalar_fn::fns::select::Select;
     use crate::scalar_fn::fns::select::StructArray;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
             ("a", buffer![0, 1, 2].into_array()),
@@ -380,32 +388,32 @@ mod tests {
 
     #[test]
     pub fn include_columns() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let st = test_array();
         let select = select(vec![FieldName::from("a")], root());
-        let selected = st
-            .into_array()
-            .apply(&select)
-            .unwrap()
-            .execute::<StructArray>(&mut ctx)
-            .unwrap();
-        let selected_names = selected.names().clone();
+        let selected = st.into_array().apply(&select).unwrap();
+        let selected_names = selected.dtype().as_struct_fields().names();
         assert_eq!(selected_names.as_ref(), &["a"]);
+        assert_arrays_eq!(
+            selected,
+            StructArray::from_fields(&[("a", buffer![0i32, 1, 2].into_array())]).unwrap(),
+            &mut ctx
+        );
     }
 
     #[test]
     pub fn exclude_columns() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let st = test_array();
         let select = select_exclude(vec![FieldName::from("a")], root());
-        let selected = st
-            .into_array()
-            .apply(&select)
-            .unwrap()
-            .execute::<StructArray>(&mut ctx)
-            .unwrap();
-        let selected_names = selected.names().clone();
+        let selected = st.into_array().apply(&select).unwrap();
+        let selected_names = selected.dtype().as_struct_fields().names();
         assert_eq!(selected_names.as_ref(), &["b"]);
+        assert_arrays_eq!(
+            selected,
+            StructArray::from_fields(&[("b", buffer![4i32, 5, 6].into_array())]).unwrap(),
+            &mut ctx
+        );
     }
 
     #[test]
@@ -457,18 +465,14 @@ mod tests {
     #[test]
     fn test_as_include_names() {
         let field_names = FieldNames::from(["a", "b", "c"]);
-        let include = select(["a"], root());
-        let exclude = select_exclude(["b", "c"], root());
-        assert_eq!(
-            &include
-                .as_::<Select>()
-                .normalize_to_included_fields(&field_names)
-                .unwrap(),
-            &exclude
-                .as_::<Select>()
-                .normalize_to_included_fields(&field_names)
-                .unwrap()
-        );
+        for expr in [select(["a"], root()), select_exclude(["b", "c"], root())] {
+            assert_eq!(
+                expr.as_::<Select>()
+                    .normalize_to_included_fields(&field_names)
+                    .unwrap(),
+                FieldNames::from(["a"])
+            );
+        }
     }
 
     #[test]
@@ -484,7 +488,7 @@ mod tests {
             (0..128).map(Scalar::from),
         );
         let array = ConstantArray::new(scalar, 1_000_000).into_array();
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let item: ArrayRef = ScalarFnArray::try_new(
             Select.bind(FieldSelection::Include(FieldNames::from(["f97", "f3"]))),
@@ -521,7 +525,7 @@ mod tests {
 
         let result = e.bind(&dtype).unwrap().optimize_recursive().unwrap();
 
-        assert!(result.dtype().is_nullable());
+        assert_eq!(result.dtype(), &dtype);
     }
 
     #[test]
@@ -544,5 +548,9 @@ mod tests {
         assert!(result_dtype.is_nullable());
         let fields = result_dtype.as_struct_fields_opt().unwrap();
         assert_eq!(fields.names().as_ref(), &["a", "b"]);
+        assert_eq!(
+            result_dtype,
+            &DType::struct_([("a", I32), ("b", I32)], Nullable)
+        );
     }
 }

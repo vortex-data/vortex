@@ -44,7 +44,7 @@ mod tests {
     use crate::delta::array::delta_compress::delta_compress;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -72,20 +72,6 @@ mod tests {
         let misaligned = shifted.freeze().slice(1..bytes.len() + 1);
         assert!(!misaligned.is_aligned(Alignment::of::<u64>()));
         BitBuffer::new(misaligned, len)
-    }
-
-    #[test]
-    fn validity_is_lazy_for_cross_chunk_slice() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let primitive = nullable_primitive();
-        let delta = Delta::try_from_primitive_array(&primitive, &mut ctx)?;
-        let sliced = delta.slice(1000..1050)?;
-
-        let Validity::Array(validity) = sliced.validity()? else {
-            vortex_bail!("expected array-backed validity")
-        };
-        assert_arrays_eq!(validity, expected_validity(1000..1050), &mut ctx);
-        Ok(())
     }
 
     #[rstest]

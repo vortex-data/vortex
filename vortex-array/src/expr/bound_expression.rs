@@ -12,11 +12,11 @@ use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_session::VortexSession;
 
 use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::display::DisplayTreeExpr;
+use crate::expr::expression::unbound_variable;
 use crate::expr::scope::Scope;
 use crate::expr::traversal::TraversalOrder;
 use crate::expr::traversal::pre_order_visit_down;
@@ -28,8 +28,6 @@ use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::is_not_null::IsNotNull;
-use crate::stats::rewrite::falsify;
-use crate::stats::rewrite::satisfy;
 
 /// An [`Expression`] that has been type-checked against a [`Scope`].
 ///
@@ -138,6 +136,7 @@ impl BoundExpression {
             .iter()
             .map(|child| child.dtype().clone())
             .collect_vec();
+        let scalar_fn = scalar_fn.bind_options(&arg_dtypes)?;
         let dtype = scalar_fn.return_dtype(&arg_dtypes)?;
 
         Ok(Self::Scalar {
@@ -270,16 +269,6 @@ impl BoundExpression {
         }
     }
 
-    /// Return an expression that proves this predicate is definitely false from statistics.
-    pub fn falsify(&self, session: &VortexSession) -> VortexResult<Option<BoundExpression>> {
-        falsify(self, session)
-    }
-
-    /// Return an expression that proves this predicate is definitely true from statistics.
-    pub fn satisfy(&self, session: &VortexSession) -> VortexResult<Option<BoundExpression>> {
-        satisfy(self, session)
-    }
-
     /// Display the bound expression as a formatted tree structure.
     pub fn display_tree(&self) -> impl Display {
         DisplayTreeExpr(self)
@@ -310,6 +299,9 @@ impl Expression {
         if self.is_root() {
             return Ok(BoundExpression::new_root(scope.root().clone()));
         }
+        if let Expression::Variable(name) = self {
+            return Err(unbound_variable(name));
+        }
 
         let children: Vec<_> = self
             .children()
@@ -318,7 +310,7 @@ impl Expression {
             .try_collect()?;
         let scalar_fn = self
             .as_scalar()
-            .vortex_expect("root was handled above, so this is a scalar node");
+            .vortex_expect("leaves were handled above, so this is a scalar node");
         BoundExpression::try_new(scalar_fn.clone(), children)
     }
 }
@@ -389,11 +381,27 @@ mod tests {
 
     #[test]
     fn bind_agrees_with_return_dtype() -> VortexResult<()> {
-        for expr in [root(), col("a"), eq(col("a"), lit(1_i32)), lit(true)] {
+        for (expr, expected) in [
+            (root(), struct_dtype()),
+            (
+                col("a"),
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+            ),
+            (
+                eq(col("a"), lit(1_i32)),
+                DType::Bool(Nullability::NonNullable),
+            ),
+            (lit(true), DType::Bool(Nullability::NonNullable)),
+        ] {
             assert_eq!(
                 expr.bind(&struct_dtype())?.dtype(),
-                &expr.return_dtype(&struct_dtype())?,
-                "disagreement for {expr}"
+                &expected,
+                "binding {expr}"
+            );
+            assert_eq!(
+                expr.return_dtype(&struct_dtype())?,
+                expected,
+                "return dtype of {expr}"
             );
         }
         Ok(())
@@ -455,7 +463,13 @@ mod tests {
         let shared = col("a");
         let bound = eq(shared.clone(), shared).bind_scope(&scope())?;
         let children = bound.children();
-        assert_eq!(children[0].dtype(), children[1].dtype());
+        assert_eq!(children.len(), 2);
+        for child in children {
+            assert_eq!(
+                child.dtype(),
+                &DType::Primitive(PType::I32, Nullability::NonNullable)
+            );
+        }
         Ok(())
     }
 

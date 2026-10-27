@@ -39,7 +39,7 @@ Do not wait for a deep code read before showing benchmark comparisons or first s
 
 2. Identify the exact benchmark target:
 
-   - suite: `tpch`, `tpcds`, `clickbench`, `fineweb`, `gh-archive`, `polarsignals`,
+   - suite: `tpch`, `tpcds`, `clickbench`, `fineweb`, `gh-archive`, `job`, `polarsignals`,
      `public-bi`, or `statpopgen`;
    - query number(s), for example `-q <query>`;
    - engine/format target(s), for example `datafusion:vortex` versus `datafusion:parquet`;

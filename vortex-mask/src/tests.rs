@@ -120,15 +120,6 @@ fn test_mask_last() {
     assert_eq!(values_slices.last(), Some(3));
 }
 
-#[test]
-fn test_mask_false_count() {
-    assert_eq!(Mask::new_true(5).false_count(), 0);
-    assert_eq!(Mask::new_false(5).false_count(), 5);
-
-    let values = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false, true]));
-    assert_eq!(values.false_count(), 2);
-}
-
 // Slice operations
 #[test]
 fn test_mask_slice() {
@@ -341,14 +332,10 @@ fn mask_from_buffer_with_slices_unset_bit() {
 #[test]
 fn test_mask_values_is_empty() {
     let empty_mask = Mask::from_buffer(BitBuffer::new_unset(0));
-    if let Some(values) = empty_mask.values() {
-        assert!(values.is_empty());
-    }
+    assert!(empty_mask.values().is_none());
 
     let non_empty_mask = Mask::from_buffer(BitBuffer::from_iter([true, false]));
-    if let Some(values) = non_empty_mask.values() {
-        assert!(!values.is_empty());
-    }
+    assert!(!non_empty_mask.values().unwrap().is_empty());
 }
 
 // Creation from excluded indices

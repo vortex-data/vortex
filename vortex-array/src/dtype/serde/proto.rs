@@ -29,11 +29,19 @@ impl DType {
         match value
             .dtype_type
             .as_ref()
-            .ok_or_else(|| vortex_err!(Serde: "Unrecognized DType"))?
+            .ok_or_else(|| vortex_err!("Unrecognized DType"))?
         {
             DtypeType::Null(_) => Ok(Self::Null),
             DtypeType::Bool(b) => Ok(Self::Bool(b.nullable.into())),
-            DtypeType::Primitive(p) => Ok(Self::Primitive(p.r#type().into(), p.nullable.into())),
+            DtypeType::Primitive(p) => {
+                let ptype = pb::PType::try_from(p.r#type).map_err(|_| {
+                    vortex_err!(
+                        "protobuf Primitive type must be a known PType, got {}",
+                        p.r#type
+                    )
+                })?;
+                Ok(Self::Primitive(ptype.into(), p.nullable.into()))
+            }
             DtypeType::Decimal(d) => Ok(Self::Decimal(
                 DecimalDType::try_new(
                     d.precision
@@ -53,7 +61,7 @@ impl DType {
                     DType::from_proto(
                         l.element_type
                             .as_ref()
-                            .ok_or_else(|| vortex_err!(Serde: "Invalid list element type"))?
+                            .ok_or_else(|| vortex_err!("Invalid list element type"))?
                             .as_ref(),
                         session,
                     )
@@ -67,9 +75,7 @@ impl DType {
                     DType::from_proto(
                         fsl.element_type
                             .as_ref()
-                            .ok_or_else(
-                                || vortex_err!(Serde: "Invalid fixed-size list element type"),
-                            )?
+                            .ok_or_else(|| vortex_err!("Invalid fixed-size list element type"))?
                             .as_ref(),
                         session,
                     )
@@ -83,14 +89,14 @@ impl DType {
                     DType::from_proto(
                         map.key_type
                             .as_ref()
-                            .ok_or_else(|| vortex_err!(Serde: "Invalid map key type"))?
+                            .ok_or_else(|| vortex_err!("Invalid map key type"))?
                             .as_ref(),
                         session,
                     )?,
                     DType::from_proto(
                         map.value_type
                             .as_ref()
-                            .ok_or_else(|| vortex_err!(Serde: "Invalid map value type"))?
+                            .ok_or_else(|| vortex_err!("Invalid map value type"))?
                             .as_ref(),
                         session,
                     )?,
@@ -142,7 +148,7 @@ impl DType {
                 } else if session.allows_unknown() {
                     ForeignExtDType::from_parts(id, e.metadata().to_vec(), storage_dtype)?
                 } else {
-                    return Err(vortex_err!(Serde: "Unregistered extension type ID: {}", e.id));
+                    return Err(vortex_err!("Unregistered extension type ID: {}", e.id));
                 };
                 Ok(Self::Extension(ext_dtype))
             }
@@ -273,7 +279,7 @@ impl TryFrom<&pb::FieldPath> for FieldPath {
             match field
                 .field_type
                 .as_ref()
-                .ok_or_else(|| vortex_err!(Serde: "FieldPath part missing type"))?
+                .ok_or_else(|| vortex_err!("FieldPath part missing type"))?
             {
                 FieldType::Name(name) => path.push(Field::from(name.as_str())),
             }
@@ -286,8 +292,10 @@ impl TryFrom<&pb::FieldPath> for FieldPath {
 mod tests {
     use std::sync::Arc;
 
+    use rstest::rstest;
+    use vortex_session::VortexSession;
+
     use super::*;
-    use crate::array_session;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
     use crate::dtype::Field;
@@ -622,6 +630,45 @@ mod tests {
         }
     }
 
+    #[rstest]
+    #[case::first_unused(11)]
+    #[case::negative(-1)]
+    #[case::max(i32::MAX)]
+    fn test_from_proto_rejects_unknown_ptype(#[case] raw: i32) {
+        let pb_dtype = pb::DType {
+            dtype_type: Some(DtypeType::Primitive(pb::Primitive {
+                r#type: raw,
+                nullable: false,
+            })),
+        };
+
+        let result = DType::from_proto(&pb_dtype, &SESSION);
+        let expected = format!("protobuf Primitive type must be a known PType, got {raw}");
+        assert!(result.is_err_and(|err| err.to_string().contains(&expected)));
+    }
+
+    #[test]
+    fn test_from_proto_rejects_unknown_ptype_in_struct_field() {
+        let pb_dtype = pb::DType {
+            dtype_type: Some(DtypeType::Struct(pb::Struct {
+                names: vec!["typed_value".to_string()],
+                dtypes: vec![pb::DType {
+                    dtype_type: Some(DtypeType::Primitive(pb::Primitive {
+                        r#type: 11,
+                        nullable: true,
+                    })),
+                }],
+                nullable: false,
+            })),
+        };
+
+        let result = DType::from_proto(&pb_dtype, &SESSION);
+        assert!(result.is_err_and(|err| {
+            err.to_string()
+                .contains("protobuf Primitive type must be a known PType, got 11")
+        }));
+    }
+
     #[test]
     fn test_invalid_decimal_from_proto() {
         // Test precision that doesn't fit in u8
@@ -693,7 +740,7 @@ mod tests {
 
     #[test]
     fn test_unknown_extension_allow_unknown() {
-        let session = array_session();
+        let session = VortexSession::empty();
         session.allow_unknown();
         let proto = pb::DType {
             dtype_type: Some(DtypeType::Extension(Box::new(pb::Extension {

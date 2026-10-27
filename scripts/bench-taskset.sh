@@ -24,6 +24,19 @@ if [[ -z "${BENCH_CPUS:-}" ]]; then
     fi
 fi
 
+# Optionally cap the benchmark at its first BENCH_MAX_CPUS CPUs, so a run on a large
+# machine measures a fixed core budget.
+if [[ -n "${BENCH_MAX_CPUS:-}" ]]; then
+    capped=()
+    IFS=, read -ra parts <<< "$BENCH_CPUS"
+    for part in "${parts[@]}"; do
+        for cpu in $(seq "${part%-*}" "${part#*-}"); do
+            (( ${#capped[@]} < BENCH_MAX_CPUS )) && capped+=("$cpu")
+        done
+    done
+    BENCH_CPUS="$(IFS=,; echo "${capped[*]}")"
+fi
+
 if command -v numactl >/dev/null 2>&1; then
     # --all is required: setup-benchmark.sh pins every running process (including the
     # CI runner this shell descends from) to the housekeeping CPUs, and libnuma parses

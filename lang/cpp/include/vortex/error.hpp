@@ -11,20 +11,13 @@
 namespace vortex {
 enum class ErrorCode {
     Other = VX_ERROR_CODE_OTHER,
-    OutOfBounds = VX_ERROR_CODE_OUT_OF_BOUNDS,
-    Compute = VX_ERROR_CODE_COMPUTE,
-    InvalidArgument = VX_ERROR_CODE_INVALID_ARGUMENT,
-    Serialization = VX_ERROR_CODE_SERIALIZATION,
-    NotImplemented = VX_ERROR_CODE_NOT_IMPLEMENTED,
-    MismatchedTypes = VX_ERROR_CODE_MISMATCHED_TYPES,
-    AssertionFailed = VX_ERROR_CODE_ASSERTION_FAILED,
-    Io = VX_ERROR_CODE_IO,
     Panic = VX_ERROR_CODE_PANIC,
 };
 
 class VortexException : public std::runtime_error {
 public:
-    VortexException(const std::string &message, ErrorCode code) : std::runtime_error(message), code_(code) {
+    explicit VortexException(const std::string &message, ErrorCode code = ErrorCode::Other)
+        : std::runtime_error(message), code_(code) {
     }
 
     ErrorCode code() const {

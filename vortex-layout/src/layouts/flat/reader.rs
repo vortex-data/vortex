@@ -9,6 +9,8 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use tracing::trace;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::builtins::ArrayBuiltins;
@@ -198,8 +200,13 @@ impl LayoutReader for FlatReader {
         Ok(async move {
             trace!("Flat array evaluation {} - {}", name, expr);
 
-            let mut array = array.clone().await?;
+            // Wait for the mask first: a chunk without selected rows needs no decode.
             let mask = mask.await?;
+            if mask.all_false() {
+                return Ok(Canonical::empty(expr.dtype()).into_array());
+            }
+
+            let mut array = array.clone().await?;
 
             // Slice the array based on the row mask.
             if row_range.start > 0 || row_range.end < array.len() {

@@ -16,9 +16,18 @@ use crate::duckdb::Vector;
 /// Uses the memory address of `ArrayRef` pointers as cache keys
 /// to avoid redundant conversions of the same array instances.
 /// We hold on to the `ArrayRef` to ensure that the key (ptr addr) doesn't get reused.
-#[derive(Default)]
 pub struct ConversionCache {
-    pub dict_cache: DashMap<usize, (ArrayRef, ReusableDict)>,
-    pub values_cache: DashMap<usize, (ArrayRef, Arc<Mutex<Vector>>)>,
-    pub canonical_cache: DashMap<usize, (ArrayRef, Canonical)>,
+    pub(crate) dict_cache: DashMap<usize, (ArrayRef, ReusableDict)>,
+    pub(crate) values_cache: DashMap<usize, (ArrayRef, Arc<Mutex<Vector>>)>,
+    pub(crate) canonical_cache: DashMap<usize, (ArrayRef, Canonical)>,
+}
+
+impl Default for ConversionCache {
+    fn default() -> Self {
+        Self {
+            dict_cache: DashMap::with_hasher_and_shard_amount(Default::default(), 64),
+            values_cache: DashMap::with_hasher_and_shard_amount(Default::default(), 64),
+            canonical_cache: DashMap::with_hasher_and_shard_amount(Default::default(), 64),
+        }
+    }
 }

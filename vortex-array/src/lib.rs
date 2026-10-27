@@ -79,8 +79,6 @@
 
 extern crate self as vortex_array;
 
-use std::sync::LazyLock;
-
 pub use array::*;
 pub use canonical::*;
 pub use columnar::*;
@@ -94,13 +92,7 @@ use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 use vortex_session::registry::Interner;
 
-use crate::aggregate_fn::session::AggregateFnSession;
-use crate::dtype::session::DTypeSession;
-use crate::memory::MemorySession;
 use crate::optimizer::kernels::KernelSession;
-use crate::scalar_fn::session::ScalarFnSession;
-use crate::session::ArraySession;
-use crate::stats::session::StatsSession;
 
 pub mod aggregate_fn;
 #[doc(hidden)]
@@ -155,37 +147,6 @@ pub fn initialize(session: &VortexSession) {
     if session.get_opt::<KernelSession>().is_some() {
         arrays::initialize(session);
     }
-}
-
-/// Builds a fresh [`VortexSession`] registered with all of vortex-array's built-in session
-/// variables: arrays, dtypes, scalar functions, stats, optimizer kernels, aggregate functions,
-/// and memory.
-///
-/// Each call returns an independent session (with its own registries), so callers may register
-/// additional encodings or kernels into it without affecting any other session. This does not
-/// register file, layout, or runtime state — those live in higher-level crates. Arrow
-/// interoperability lives in the `vortex-arrow` crate, whose session variables are registered
-/// lazily on first use (or eagerly by consumers).
-pub fn array_session() -> VortexSession {
-    VortexSession::empty()
-        .with::<ArraySession>()
-        .with::<KernelSession>()
-        .with::<DTypeSession>()
-        .with::<ScalarFnSession>()
-        .with::<StatsSession>()
-        .with::<AggregateFnSession>()
-        .with::<MemorySession>()
-}
-
-// TODO(ngates): canonicalize doesn't currently take a session, therefore we cannot invoke execute
-//  from the new array encodings to support back-compat for legacy encodings. So we hold a session
-//  here...
-/// Returns the hidden global [`VortexSession`] used as a back-compat shim for code paths that
-/// cannot yet thread an explicit session through.
-#[inline]
-pub fn legacy_session() -> &'static VortexSession {
-    static LEGACY_SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
-    &LEGACY_SESSION
 }
 
 pub type ArrayContext = Interner;

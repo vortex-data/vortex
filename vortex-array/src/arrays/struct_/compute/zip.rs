@@ -70,17 +70,24 @@ impl ZipKernel for Struct {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::FieldNames;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_validity_zip_both_validity_array() {
+        let ctx = SESSION.create_execution_ctx();
         // Both structs have Validity::Array
         let if_true = StructArray::new(
             FieldNames::from_iter(["field"]),
@@ -102,7 +109,7 @@ mod tests {
 
         let result = mask.into_array().zip(if_true, if_false).unwrap();
 
-        insta::assert_snapshot!(result.display_table(), @r"
+        insta::assert_snapshot!(result.display_table(&ctx), @r"
         ┌───────┐
         │ field │
         ├───────┤
@@ -119,6 +126,7 @@ mod tests {
 
     #[test]
     fn test_validity_zip_allvalid_and_array() {
+        let ctx = SESSION.create_execution_ctx();
         let if_true = StructArray::new(
             FieldNames::from_iter(["a"]),
             vec![PrimitiveArray::from_iter([1, 2, 3, 4]).into_array()],
@@ -139,7 +147,7 @@ mod tests {
 
         let result = mask.into_array().zip(if_true, if_false).unwrap();
 
-        insta::assert_snapshot!(result.display_table(), @r"
+        insta::assert_snapshot!(result.display_table(&ctx), @r"
         ┌───────┐
         │   a   │
         ├───────┤

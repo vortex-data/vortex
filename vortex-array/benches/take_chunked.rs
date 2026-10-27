@@ -8,6 +8,7 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::sync::LazyLock;
 
 use divan::Bencher;
 use divan::counter::ItemsCount;
@@ -16,19 +17,28 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::FieldNames;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_session::VortexSession;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<MemorySession>()
+});
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
@@ -341,11 +351,10 @@ fn take_indices(case: Case) -> ArrayRef {
 fn take(bencher: Bencher, case: Case) {
     let values = chunked_values(case);
     let indices = take_indices(case);
-    let session = array_session();
 
     bencher
         .counter(ItemsCount::new(case.indices))
-        .with_inputs(|| (indices.clone(), session.create_execution_ctx()))
+        .with_inputs(|| (indices.clone(), SESSION.create_execution_ctx()))
         .bench_refs(|(indices, ctx)| {
             values
                 .take(indices.clone())

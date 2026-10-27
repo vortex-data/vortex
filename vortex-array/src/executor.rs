@@ -12,6 +12,7 @@
 //! See <https://docs.vortex.dev/developer-guide/internals/execution> for the full execution
 //! narrative, diagrams, and walkthroughs.
 
+use std::any::TypeId;
 use std::env::VarError;
 use std::fmt;
 use std::fmt::Display;
@@ -33,6 +34,8 @@ use vortex_session::VortexSession;
 use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::aggregate_fn::session::AggregateFnSessionExt;
+use crate::aggregate_fn::session::AggregateKernels;
 use crate::array::ArrayId;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
@@ -50,8 +53,8 @@ use crate::trace_op;
 /// Returns the maximum number of iterations to attempt when executing an array before giving up and returning
 /// an error, can be by the `VORTEX_MAX_ITERATIONS` env variables, otherwise defaults to 2^22.
 pub(crate) fn max_iterations() -> usize {
-    static MAX_ITERATIONS: LazyLock<usize> =
-        LazyLock::new(|| match std::env::var("VORTEX_MAX_ITERATIONS") {
+    static MAX_ITERATIONS: LazyLock<usize> = LazyLock::new(|| {
+        match std::env::var("VORTEX_MAX_ITERATIONS") {
             Ok(val) => val.parse::<usize>().unwrap_or_else(|e| {
                 vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid usize: {e}")
             }),
@@ -59,7 +62,8 @@ pub(crate) fn max_iterations() -> usize {
             Err(VarError::NotUnicode(_)) => {
                 vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid unicode string")
             }
-        });
+        }
+    });
     *MAX_ITERATIONS
 }
 
@@ -164,7 +168,10 @@ impl ArrayRef {
     /// parent rewrite would observe inconsistent state and could discard accumulated builder
     /// data.
     #[allow(clippy::cognitive_complexity)]
-    pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    pub fn execute_until<M: Matcher + 'static>(
+        self,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
         let mut current_array = self;
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
         let mut stack: Vec<StackFrame> = Vec::new();
@@ -184,12 +191,13 @@ impl ArrayRef {
                 current_builder.is_some(),
             ));
 
-            let is_done = stack
-                .last()
-                .map_or(M::matches as DonePredicate, |frame| frame.done);
-
-            let done_target = is_done(&current_array);
-            let done_canonical = AnyCanonical::matches(&current_array);
+            let (done_target, done_canonical) = match stack.last() {
+                None => root_done_check::<M>(&current_array),
+                Some(frame) => (
+                    (frame.done)(&current_array),
+                    AnyCanonical::matches(&current_array),
+                ),
+            };
             trace_op!(record_execute_until_done_check(done_target, done_canonical));
 
             if done_target || done_canonical {
@@ -352,6 +360,8 @@ pub struct ExecutionCtx {
     // OnceLock avoids cloning the session allocator when a context does not allocate.
     allocator: OnceLock<BufferAllocatorRef>,
     execute_parent_kernels: Arc<ParentExecutionKernels>,
+    // OnceLock avoids snapshotting the aggregate kernels when a context does not aggregate.
+    aggregate_kernels: OnceLock<AggregateKernels>,
     #[cfg(debug_assertions)]
     id: usize,
     #[cfg(debug_assertions)]
@@ -370,6 +380,7 @@ impl ExecutionCtx {
             session,
             allocator: OnceLock::new(),
             execute_parent_kernels,
+            aggregate_kernels: OnceLock::new(),
             #[cfg(debug_assertions)]
             id: {
                 static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
@@ -388,6 +399,15 @@ impl ExecutionCtx {
     /// Get the allocator for this execution context.
     pub fn allocator(&self) -> &BufferAllocatorRef {
         self.allocator.get_or_init(|| self.session.allocator())
+    }
+
+    /// Get the aggregate kernels for this execution context.
+    ///
+    /// The session's aggregate kernel registries are snapshotted on first use. Kernels registered
+    /// after that are not visible to this context.
+    pub(crate) fn aggregate_kernels(&self) -> &AggregateKernels {
+        self.aggregate_kernels
+            .get_or_init(|| self.session.aggregate_fns().kernels_snapshot())
     }
 
     /// Set the allocator for this execution context.
@@ -564,6 +584,16 @@ pub fn execute_into_builder(
 ) -> VortexResult<Box<dyn ArrayBuilder>> {
     array.append_to_builder(builder.as_mut(), ctx)?;
     Ok(builder)
+}
+
+/// Returns `(matches M, is canonical)`, scanning once when `M` is [`AnyCanonical`].
+#[inline]
+fn root_done_check<M: Matcher + 'static>(array: &ArrayRef) -> (bool, bool) {
+    if TypeId::of::<M>() == TypeId::of::<AnyCanonical>() {
+        let canonical = AnyCanonical::matches(array);
+        return (canonical, canonical);
+    }
+    (M::matches(array), AnyCanonical::matches(array))
 }
 
 /// Pop a stack frame, restoring the parent with the finished child in its slot.

@@ -415,16 +415,16 @@ mod tests {
             ReadEvent::Request(req2),
             ReadEvent::Request(req1),
             ReadEvent::Request(req3),
-            // Poll in regular order
+            // Poll in a different order from request IDs.
+            ReadEvent::Polled(3),
             ReadEvent::Polled(1),
             ReadEvent::Polled(2),
-            ReadEvent::Polled(3),
         ];
 
         let outputs = collect_outputs(events, None).await;
         assert_eq!(outputs.len(), 3);
 
-        // Should be in insertion order, not poll order!
+        // Request IDs preserve registration priority independently of polling order.
         let offsets: Vec<u64> = outputs.iter().map(|req| req.offset()).collect();
         assert_eq!(offsets, vec![0, 100, 200]); // req1, req2, req3
     }
@@ -589,7 +589,8 @@ mod tests {
         assert_eq!(outputs.len(), 1);
         match outputs[0].inner() {
             IoRequestInner::Coalesced(coalesced) => {
-                assert_eq!(coalesced.range().start, 4);
+                assert_eq!(*coalesced.range(), 4..13);
+                assert_eq!(coalesced.requests().len(), 2);
                 assert_eq!(coalesced.alignment(), Alignment::new(4));
                 for req in coalesced.requests() {
                     let rel = req.offset - coalesced.range().start;
@@ -870,20 +871,24 @@ mod tests {
         // Check metrics
         let snapshot = metrics_registry.snapshot();
         let mut individual_count = 0_u64;
-        let mut coalesced_operations = 0_u64;
+        let mut coalesced_operations = None;
 
         for metric in snapshot.iter() {
             if let MetricValue::Counter(counter) = metric.value() {
                 if metric.name() == "io.requests.individual" {
                     individual_count = counter.value();
-                } else if metric.name() == "io.requests.coalesced.num_coalesced" {
-                    coalesced_operations = counter.value();
+                } else if metric.name() == "io.requests.coalesced" {
+                    coalesced_operations = Some(counter.value());
                 }
             }
         }
 
         // Should have 2 individual requests and no coalesced operations
         assert_eq!(individual_count, 2, "Expected 2 individual requests");
-        assert_eq!(coalesced_operations, 0, "Expected 0 coalesced operations");
+        assert_eq!(
+            coalesced_operations,
+            Some(0),
+            "Expected 0 coalesced operations"
+        );
     }
 }

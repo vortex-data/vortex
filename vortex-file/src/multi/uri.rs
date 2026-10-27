@@ -153,8 +153,14 @@ mod tests {
 
     #[test]
     fn test_relative_path_resolves_against_cwd() -> VortexResult<()> {
-        for input in ["data/table", "./data/table", "../data/table"] {
+        let cwd = std::env::current_dir()?;
+        for (input, base) in [
+            ("data/table", cwd.as_path()),
+            ("./data/table", cwd.as_path()),
+            ("../data/table", cwd.parent().unwrap_or(cwd.as_path())),
+        ] {
             let url = parse_uri_or_path(input)?;
+            assert_eq!(url.to_file_path(), Ok(base.join("data").join("table")));
             assert_eq!(url.scheme(), "file");
             assert!(url.path().starts_with('/'));
             assert!(url.path().ends_with("/data/table"));

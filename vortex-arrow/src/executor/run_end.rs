@@ -219,7 +219,7 @@ mod tests {
     use crate::executor::run_end::RunEnd;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         vortex_runend::initialize(&session);
         session
     });
@@ -324,6 +324,11 @@ mod tests {
             .downcast_ref::<Int64Array>()
             .ok_or_else(|| vortex_err!("expected Int64 values"))?;
         assert_eq!(arrow_values.values().as_ptr(), values_ptr);
+        let expected = RunArray::<Int32Type>::try_new(
+            &Int32Array::from(vec![2, 4]),
+            &Int64Array::from(vec![7, 8]),
+        )?;
+        assert_eq!(ree_arrow, &expected);
         Ok(())
     }
 

@@ -131,7 +131,7 @@ pub async fn run_compress_gpu(fuzz: FuzzCompressGpu) -> VortexFuzzResult<bool> {
         }
     };
 
-    let gpu_host_canonical = match gpu_canonical.into_host().await {
+    let gpu_host_canonical = match gpu_canonical.into_host(&mut ctx).await {
         Ok(c) => c,
         Err(e) => {
             return Err(VortexFuzzError::VortexError(e, Backtrace::capture()));

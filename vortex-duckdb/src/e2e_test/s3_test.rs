@@ -18,14 +18,6 @@ fn database_connection() -> Connection {
     db.connect().unwrap()
 }
 
-fn row_count(conn: &Connection, query: &str) -> u64 {
-    conn.query(query)
-        .unwrap_or_else(|err| panic!("query failed: {query}\n{err}"))
-        .into_iter()
-        .map(|chunk| chunk.len())
-        .sum()
-}
-
 #[test]
 #[ignore = "requires an S3 endpoint"]
 fn s3_roundtrip() {
@@ -40,8 +32,24 @@ fn s3_roundtrip() {
         .expect("COPY TO s3 should succeed");
 
     let reader = database_connection();
-    let total = row_count(&reader, &format!("SELECT id, doubled FROM '{uri}'"));
-    assert_eq!(total, 1000);
+    let mut actual = Vec::new();
+    for chunk in reader
+        .query(&format!("SELECT id, doubled FROM '{uri}'"))
+        .unwrap()
+    {
+        let len = usize::try_from(chunk.len()).unwrap();
+        let ids = chunk.get_vector(0);
+        let doubled = chunk.get_vector(1);
+        assert!((0..chunk.len()).all(|i| !ids.row_is_null(i) && !doubled.row_is_null(i)));
+        actual.extend(
+            ids.as_slice_with_len::<i64>(len)
+                .iter()
+                .copied()
+                .zip(doubled.as_slice_with_len::<i64>(len).iter().copied()),
+        );
+    }
+    actual.sort_unstable();
+    assert_eq!(actual, (0..1000i64).map(|i| (i, i * 2)).collect::<Vec<_>>());
 }
 
 #[test]
@@ -56,9 +64,19 @@ fn s3_read_with_filter() {
     ))
     .expect("COPY TO s3 should succeed");
 
-    let matching = row_count(
-        &conn,
-        &format!("SELECT id FROM '{uri}' WHERE id >= 250 AND doubled = id * 2"),
-    );
-    assert_eq!(matching, 750);
+    let mut actual = Vec::new();
+    for chunk in conn
+        .query(&format!(
+            "SELECT id FROM '{uri}' WHERE id >= 250 AND doubled = id * 2"
+        ))
+        .unwrap()
+    {
+        let values = chunk.get_vector(0);
+        assert!((0..chunk.len()).all(|i| !values.row_is_null(i)));
+        actual.extend_from_slice(
+            values.as_slice_with_len::<i64>(usize::try_from(chunk.len()).unwrap()),
+        );
+    }
+    actual.sort_unstable();
+    assert_eq!(actual, (250..1000i64).collect::<Vec<_>>());
 }

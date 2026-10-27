@@ -81,9 +81,9 @@ impl StrictComparison {
 
 /// Short-circuits between for the inputs that need no encoding-specific work.
 ///
-/// Returns `Some(result)` when the answer is already known (empty array, null bounds), or `None`
-/// when between must proceed with the encoding-specific implementation. Kernels can therefore rely
-/// on both bounds being non-null.
+/// Returns `Some(result)` when the answer is already known (empty or null array, null bounds), or
+/// `None` when between must proceed with the encoding-specific implementation. Kernels can therefore
+/// rely on both bounds being non-null.
 ///
 /// The result can be a lazy [`ScalarFn`] array, so a caller that needs a computed array
 /// **must** execute it.
@@ -101,6 +101,14 @@ pub(super) fn short_circuit(
     // Bail early if the array is empty.
     if arr.is_empty() {
         return Ok(Some(Canonical::empty(&return_dtype).into_array()));
+    }
+
+    // An all-null chunk is a null `ConstantArray`, and `Scalar` orders null below every value, so
+    // comparing it in a kernel would give false instead of null.
+    if arr.as_constant().is_some_and(|v| v.is_null()) {
+        return Ok(Some(
+            ConstantArray::new(Scalar::null(return_dtype), arr.len()).into_array(),
+        ));
     }
 
     let lower_is_null = lower.as_constant().is_some_and(|v| v.is_null());
@@ -364,7 +372,7 @@ mod tests {
     use crate::test_harness::to_int_indices;
     use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     const NON_STRICT: BetweenOptions = BetweenOptions {
         lower_strict: StrictComparison::NonStrict,
@@ -614,6 +622,36 @@ mod tests {
             .execute::<BoolArray>(ctx)?;
 
         assert_eq!(result.opt_bool_vec(ctx), [None, None]);
+
+        Ok(())
+    }
+
+    /// Compression stores an all-null chunk as a [`ConstantArray`]. Its rows must come out null
+    /// rather than false, since `NOT` turns a false row into a match.
+    #[rstest]
+    #[case::f64(Scalar::null_native::<f64>(), Scalar::from(-0.0f64), Scalar::from(0.0f64))]
+    #[case::i32(Scalar::null_native::<i32>(), Scalar::from(0i32), Scalar::from(0i32))]
+    fn constant_null_array(
+        #[case] null: Scalar,
+        #[case] lower: Scalar,
+        #[case] upper: Scalar,
+    ) -> VortexResult<()> {
+        let ctx = &mut SESSION.create_execution_ctx();
+        let array = ConstantArray::new(null, 3).into_array();
+        let lower = ConstantArray::new(lower, 3).into_array();
+        let upper = ConstantArray::new(upper, 3).into_array();
+
+        let between = array.between(lower, upper, NON_STRICT)?;
+        let not_between = between.not()?;
+
+        assert_eq!(
+            between.execute::<BoolArray>(ctx)?.opt_bool_vec(ctx),
+            [None, None, None]
+        );
+        assert_eq!(
+            not_between.execute::<BoolArray>(ctx)?.opt_bool_vec(ctx),
+            [None, None, None]
+        );
 
         Ok(())
     }

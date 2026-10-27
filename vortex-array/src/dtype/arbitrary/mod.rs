@@ -16,6 +16,7 @@ use crate::dtype::FieldNames;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::dtype::RESERVED_VALIDITY_FIELD_NAME;
 use crate::dtype::StructFields;
 use crate::dtype::i256;
 
@@ -127,8 +128,13 @@ fn random_struct_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<StructFiel
     let names: Vec<FieldName> = (0..field_count)
         .map(|_| FieldName::arbitrary(u))
         .collect::<Result<Vec<_>>>()?;
-    // Deduplicate field names, keeping only the first occurrence of each.
-    let names: FieldNames = names.into_iter().unique().collect();
+    // Deduplicate field names, keeping only the first occurrence of each, and drop the name
+    // reserved for struct validity.
+    let names: FieldNames = names
+        .into_iter()
+        .filter(|name| name.as_ref() != RESERVED_VALIDITY_FIELD_NAME)
+        .unique()
+        .collect();
     let dtypes = (0..names.len())
         .map(|_| random_dtype(u, depth))
         .collect::<Result<Vec<_>>>()?;
@@ -144,13 +150,19 @@ mod tests {
 
     #[test]
     fn random_map_dtype_never_asserts_sorted_keys() {
+        let mut generated = 0;
         for byte in 0..=u8::MAX {
             let bytes = [byte; 128];
             let mut u = Unstructured::new(&bytes);
             let Ok(DType::Map(map_dtype, _)) = random_map_dtype(&mut u, 0) else {
                 continue;
             };
+            generated += 1;
             assert!(!map_dtype.keys_sorted());
         }
+        assert!(
+            generated > 0,
+            "fixtures must produce at least one map dtype"
+        );
     }
 }

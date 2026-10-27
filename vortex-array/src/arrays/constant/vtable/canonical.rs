@@ -7,11 +7,13 @@ use itertools::Itertools;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
+use vortex_buffer::BufferMut;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -34,6 +36,8 @@ use crate::arrays::UnionArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VariantArray;
 use crate::arrays::varbinview::BinaryView;
+use crate::builders::ArrayBuilder;
+use crate::builders::VarBinViewBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
 use crate::dtype::DecimalType;
@@ -41,7 +45,9 @@ use crate::dtype::Nullability;
 use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
 use crate::match_smallest_list_offset_type;
+use crate::scalar::ListScalar;
 use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 use crate::validity::Validity;
 
 /// Shared implementation for both `canonicalize` and `execute` methods.
@@ -268,25 +274,7 @@ fn constant_canonical_list_array(
 
     // Since "canonicalize" only applies to the top level array, we can simply have 1 scalar in our
     // child `elements` and have all list views point to that scalar.
-    let elements = if let Some(elements) = list.elements() {
-        // Extract the list elements out of the scalar into a new array.
-        let mut builder = builder_with_capacity_in(
-            list.dtype()
-                .as_list_element_opt()
-                .vortex_expect("list scalar somehow did not have a list DType"),
-            list.len(),
-            allocator,
-        );
-        for scalar in &elements {
-            builder
-                .append_scalar(scalar)
-                .vortex_expect("list element scalar was invalid");
-        }
-        builder.finish()
-    } else {
-        // Otherwise all values are null, and we don't need to store anything in our `elements`.
-        Canonical::empty(list.element_dtype()).into_array()
-    };
+    let elements = list_scalar_elements(&list, allocator);
 
     let validity = if scalar.dtype().is_nullable() {
         if list.is_null() {
@@ -315,6 +303,124 @@ fn constant_canonical_list_array(
     // The elements array contains `len` copies of the same value, offsets are all 0,
     // and sizes are all equal to the list length. The validity matches the scalar's nullability.
     unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, validity) }
+}
+
+/// The elements of a list scalar as an array, one row per element; empty for a null list.
+fn list_scalar_elements(list: &ListScalar, allocator: &BufferAllocatorRef) -> ArrayRef {
+    let element_dtype = list.element_dtype();
+    let Some(elements) = list.element_values() else {
+        return Canonical::empty(element_dtype).into_array();
+    };
+    flat_elements(element_dtype, elements, allocator)
+}
+
+/// The array of `elements`, the values of a list of `element_dtype`.
+///
+/// Flat elements are written straight from their values, since a scalar per element costs more
+/// than a probe over the result does. Nested elements go through the canonical builder.
+fn flat_elements(
+    element_dtype: &DType,
+    elements: &[Option<ScalarValue>],
+    allocator: &BufferAllocatorRef,
+) -> ArrayRef {
+    match element_dtype {
+        DType::Null => NullArray::new(elements.len()).into_array(),
+        DType::Bool(nullability) => {
+            let bits = BitBuffer::from_iter(elements.iter().map(|element| match element {
+                Some(ScalarValue::Bool(value)) => *value,
+                Some(_) => vortex_panic!("bool list holds a non-bool element"),
+                None => false,
+            }));
+            BoolArray::new(bits, element_validity(elements, *nullability)).into_array()
+        }
+        DType::Primitive(ptype, nullability) => match_each_native_ptype!(ptype, |T| {
+            let mut buffer = BufferMut::<T>::with_capacity_in(elements.len(), allocator.clone());
+            buffer.extend(elements.iter().map(|element| {
+                match element {
+                    Some(ScalarValue::Primitive(value)) => value
+                        .cast::<T>()
+                        .vortex_expect("list element of the list's element ptype"),
+                    Some(_) => vortex_panic!("primitive list holds a non-primitive element"),
+                    None => T::default(),
+                }
+            }));
+            PrimitiveArray::new(buffer.freeze(), element_validity(elements, *nullability))
+                .into_array()
+        }),
+        DType::Decimal(decimal, nullability) => {
+            let values_type = DecimalType::smallest_decimal_value_type(decimal);
+            match_each_decimal_value_type!(values_type, |T| {
+                let mut buffer =
+                    BufferMut::<T>::with_capacity_in(elements.len(), allocator.clone());
+                buffer.extend(elements.iter().map(|element| {
+                    match element {
+                        Some(ScalarValue::Decimal(value)) => value
+                            .cast::<T>()
+                            .vortex_expect("list element fits the list's decimal type"),
+                        Some(_) => vortex_panic!("decimal list holds a non-decimal element"),
+                        None => T::default(),
+                    }
+                }));
+                DecimalArray::new(
+                    buffer.freeze(),
+                    *decimal,
+                    element_validity(elements, *nullability),
+                )
+                .into_array()
+            })
+        }
+        DType::Utf8(_) | DType::Binary(_) => {
+            let mut builder = VarBinViewBuilder::with_capacity_in(
+                element_dtype.clone(),
+                elements.len(),
+                allocator.clone(),
+            );
+            for element in elements {
+                match element {
+                    None => builder.append_null(),
+                    Some(ScalarValue::Utf8(value)) => builder.append_value(value.as_bytes()),
+                    Some(ScalarValue::Binary(value)) => builder.append_value(value.as_slice()),
+                    Some(_) => vortex_panic!("byte list holds a non-byte element"),
+                }
+            }
+            builder.finish()
+        }
+        // An extension value is its storage value.
+        DType::Extension(ext_dtype) => ExtensionArray::new(
+            ext_dtype.clone(),
+            flat_elements(ext_dtype.storage_dtype(), elements, allocator),
+        )
+        .into_array(),
+        _ => {
+            let mut builder = builder_with_capacity_in(element_dtype, elements.len(), allocator);
+            for element in elements {
+                match element {
+                    Some(element) => {
+                        builder
+                            .append_scalar(&unsafe {
+                                Scalar::new_unchecked(element_dtype.clone(), Some(element.clone()))
+                            })
+                            .vortex_expect("list element scalar was invalid");
+                    }
+                    None => {
+                        builder.append_null();
+                    }
+                }
+            }
+            builder.finish()
+        }
+    }
+}
+
+/// The validity of a list's elements, a null element being a `None` value.
+fn element_validity(elements: &[Option<ScalarValue>], nullability: Nullability) -> Validity {
+    match nullability {
+        Nullability::NonNullable => Validity::NonNullable,
+        Nullability::Nullable if elements.iter().all(Option::is_some) => Validity::AllValid,
+        Nullability::Nullable => {
+            Validity::from(BitBuffer::from_iter(elements.iter().map(Option::is_some)))
+        }
+    }
 }
 
 /// Creates a [`FixedSizeListArray`] whose every row holds the same list.
@@ -398,16 +504,22 @@ mod tests {
     use enum_iterator::all;
     use itertools::Itertools;
     use rstest::rstest;
+    use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_panic;
     use vortex_session::VortexSession;
 
+    use crate::ArrayRef;
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
     use crate::arrays::Chunked;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
+    use crate::arrays::DecimalArray;
+    use crate::arrays::ExtensionArray;
     use crate::arrays::FixedSizeListArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::NullArray;
@@ -423,16 +535,19 @@ mod tests {
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::half::f16;
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProvider;
+    use crate::extension::datetime::Date;
+    use crate::extension::datetime::TimeUnit;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     /// A shared session for these constant-array tests, used to create execution contexts.
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_canonicalize_null() {
@@ -515,26 +630,17 @@ mod tests {
         let list_array =
             canonical_const.rebuild(ListViewRebuildMode::MakeZeroCopyToList, &mut ctx)?;
         assert_arrays_eq!(
-            list_array
-                .elements()
-                .clone()
-                .execute::<PrimitiveArray>(&mut ctx)?,
+            list_array.elements(),
             PrimitiveArray::from_iter([1u64, 2, 1, 2]),
             &mut ctx
         );
         assert_arrays_eq!(
-            list_array
-                .offsets()
-                .clone()
-                .execute::<PrimitiveArray>(&mut ctx)?,
+            list_array.offsets(),
             PrimitiveArray::from_iter([0u32, 2]),
             &mut ctx
         );
         assert_arrays_eq!(
-            list_array
-                .sizes()
-                .clone()
-                .execute::<PrimitiveArray>(&mut ctx)?,
+            list_array.sizes(),
             PrimitiveArray::from_iter([2u32, 2]),
             &mut ctx
         );
@@ -549,29 +655,28 @@ mod tests {
             vec![],
             Nullability::NonNullable,
         );
-        let const_array = ConstantArray::new(list_scalar, 2).into_array();
+        let const_array = ConstantArray::new(list_scalar.clone(), 2).into_array();
         let canonical_const = const_array.execute::<ListViewArray>(&mut ctx).unwrap();
-        let elements_prim = canonical_const
-            .elements()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
-        assert!(elements_prim.is_empty());
+        assert_eq!(canonical_const.dtype(), list_scalar.dtype());
+        assert_eq!(canonical_const.len(), 2);
+        for index in 0..2 {
+            assert_eq!(
+                canonical_const.execute_scalar(index, &mut ctx).unwrap(),
+                list_scalar
+            );
+        }
         assert_arrays_eq!(
-            canonical_const
-                .offsets()
-                .clone()
-                .execute::<PrimitiveArray>(&mut ctx)
-                .unwrap(),
+            canonical_const.elements(),
+            PrimitiveArray::from_iter(std::iter::empty::<u64>()),
+            &mut ctx
+        );
+        assert_arrays_eq!(
+            canonical_const.offsets(),
             PrimitiveArray::from_iter([0u32, 0]),
             &mut ctx
         );
         assert_arrays_eq!(
-            canonical_const
-                .sizes()
-                .clone()
-                .execute::<PrimitiveArray>(&mut ctx)
-                .unwrap(),
+            canonical_const.sizes(),
             PrimitiveArray::from_iter([0u32, 0]),
             &mut ctx
         );
@@ -584,29 +689,28 @@ mod tests {
             Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)),
             Nullability::Nullable,
         ));
-        let const_array = ConstantArray::new(list_scalar, 2).into_array();
+        let const_array = ConstantArray::new(list_scalar.clone(), 2).into_array();
         let canonical_const = const_array.execute::<ListViewArray>(&mut ctx).unwrap();
-        let elements_prim = canonical_const
-            .elements()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
-        assert!(elements_prim.is_empty());
+        assert_eq!(canonical_const.dtype(), list_scalar.dtype());
+        assert_eq!(canonical_const.len(), 2);
+        for index in 0..2 {
+            assert_eq!(
+                canonical_const.execute_scalar(index, &mut ctx).unwrap(),
+                list_scalar
+            );
+        }
         assert_arrays_eq!(
-            canonical_const
-                .offsets()
-                .clone()
-                .execute::<PrimitiveArray>(&mut ctx)
-                .unwrap(),
+            canonical_const.elements(),
+            PrimitiveArray::from_iter(std::iter::empty::<u64>()),
+            &mut ctx
+        );
+        assert_arrays_eq!(
+            canonical_const.offsets(),
             PrimitiveArray::from_iter([0u32, 0]),
             &mut ctx
         );
         assert_arrays_eq!(
-            canonical_const
-                .sizes()
-                .clone()
-                .execute::<PrimitiveArray>(&mut ctx)
-                .unwrap(),
+            canonical_const.sizes(),
             PrimitiveArray::from_iter([0u32, 0]),
             &mut ctx
         );
@@ -668,12 +772,7 @@ mod tests {
         // Check that each list is [10, 20, 30].
         for i in 0..4 {
             let list = canonical.fixed_size_list_elements_at(i).unwrap();
-            let list_primitive = list.execute::<PrimitiveArray>(&mut ctx).unwrap();
-            assert_arrays_eq!(
-                list_primitive,
-                PrimitiveArray::from_iter([10i32, 20, 30]),
-                &mut ctx
-            );
+            assert_arrays_eq!(list, PrimitiveArray::from_iter([10i32, 20, 30]), &mut ctx);
         }
     }
 
@@ -698,11 +797,7 @@ mod tests {
         assert!(matches!(canonical.validity(), Ok(Validity::AllValid)));
 
         // Check elements.
-        let elements = canonical
-            .elements()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+        let elements = canonical.elements();
         assert_arrays_eq!(
             elements,
             PrimitiveArray::from_iter([1.5f64, 2.5, 1.5, 2.5, 1.5, 2.5]),
@@ -727,14 +822,16 @@ mod tests {
         assert_eq!(canonical.list_size(), 4);
         assert!(matches!(canonical.validity(), Ok(Validity::AllInvalid)));
 
-        // Elements should be defaults (zeros).
         let elements = canonical
             .elements()
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
         assert_eq!(elements.len(), 20); // 5 lists * 4 elements each
-        assert!(elements.as_slice::<u64>().iter().all(|&x| x == 0));
+        assert_eq!(
+            elements.dtype(),
+            &DType::Primitive(PType::U64, Nullability::NonNullable)
+        );
     }
 
     #[test]
@@ -814,11 +911,7 @@ mod tests {
         assert_eq!(canonical.len(), 1);
         assert_eq!(canonical.list_size(), 1);
 
-        let elements = canonical
-            .elements()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+        let elements = canonical.elements();
         assert_arrays_eq!(elements, PrimitiveArray::from_iter([42i16]), &mut ctx);
     }
 
@@ -844,11 +937,7 @@ mod tests {
         assert!(matches!(canonical.validity(), Ok(Validity::NonNullable)));
 
         // Check elements including nulls.
-        let elements = canonical
-            .elements()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+        let elements = canonical.elements();
         assert_eq!(
             elements.execute_scalar(0, &mut ctx).unwrap(),
             Scalar::from(100i32)
@@ -869,6 +958,22 @@ mod tests {
         assert!(element_validity.execute_is_valid(0, &mut ctx).unwrap());
         assert!(!element_validity.execute_is_valid(1, &mut ctx).unwrap());
         assert!(element_validity.execute_is_valid(2, &mut ctx).unwrap());
+
+        assert_arrays_eq!(
+            elements,
+            PrimitiveArray::from_option_iter([
+                Some(100i32),
+                None,
+                Some(200),
+                Some(100),
+                None,
+                Some(200),
+                Some(100),
+                None,
+                Some(200),
+            ]),
+            &mut ctx
+        );
 
         // Pattern should repeat.
         assert!(element_validity.execute_is_valid(3, &mut ctx).unwrap());
@@ -986,6 +1091,11 @@ mod tests {
             LEN,
             "every row should reference the same tile rather than hold its own copy",
         );
+        let chunks = canonical.elements().as_::<Chunked>();
+        let tile_ptr = chunks.chunk(0).buffer_handles()[0].as_host().as_ptr();
+        for chunk in chunks.iter_chunks() {
+            assert_eq!(chunk.buffer_handles()[0].as_host().as_ptr(), tile_ptr);
+        }
         for index in [0, 1, LEN - 1] {
             assert_arrays_eq!(
                 canonical.fixed_size_list_elements_at(index).unwrap(),
@@ -1015,5 +1125,82 @@ mod tests {
             VarBinViewArray::from_iter_str(std::iter::repeat_n(value, 100)),
             &mut ctx
         );
+    }
+
+    /// Canonicalizing a constant list preserves every flat element dtype and null element.
+    #[rstest]
+    #[case::bool(
+        Scalar::list(
+            Arc::new(DType::Bool(Nullability::Nullable)),
+            vec![
+                Scalar::bool(true, Nullability::Nullable),
+                Scalar::null(DType::Bool(Nullability::Nullable)),
+                Scalar::bool(false, Nullability::Nullable),
+            ],
+            Nullability::NonNullable,
+        ),
+        BoolArray::from_iter([Some(true), None, Some(false)]).into_array()
+    )]
+    #[case::decimal(
+        Scalar::list(
+            Arc::new(DType::Decimal(DecimalDType::new(5, 2), Nullability::Nullable)),
+            vec![
+                Scalar::decimal(123i32.into(), DecimalDType::new(5, 2), Nullability::Nullable),
+                Scalar::null(DType::Decimal(DecimalDType::new(5, 2), Nullability::Nullable)),
+                Scalar::decimal((-45i32).into(), DecimalDType::new(5, 2), Nullability::Nullable),
+            ],
+            Nullability::NonNullable,
+        ),
+        DecimalArray::from_option_iter::<i32, _>([Some(123), None, Some(-45)], DecimalDType::new(5, 2))
+            .into_array()
+    )]
+    #[case::null(
+        Scalar::list(
+            Arc::new(DType::Null),
+            vec![Scalar::null(DType::Null), Scalar::null(DType::Null)],
+            Nullability::NonNullable,
+        ),
+        NullArray::new(2).into_array()
+    )]
+    #[case::extension(date_list(), date_elements())]
+    fn test_canonicalize_list_flat_element_dtypes(
+        #[case] list: Scalar,
+        #[case] expected: ArrayRef,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let size = expected.len() as u64;
+        let expected = ListViewArray::try_new(
+            expected,
+            buffer![0u64, 0].into_array(),
+            buffer![size, size].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?;
+        assert_arrays_eq!(ConstantArray::new(list, 2), expected, &mut ctx);
+        Ok(())
+    }
+
+    /// `[date(42), null]` as a list scalar.
+    fn date_list() -> Scalar {
+        let date = Scalar::extension::<Date>(TimeUnit::Days, Scalar::from(Some(42i32)));
+        let dtype = date.dtype().clone();
+        Scalar::list(
+            Arc::new(dtype.clone()),
+            vec![date, Scalar::null(dtype)],
+            Nullability::NonNullable,
+        )
+    }
+
+    /// The elements of [`date_list`] as an array.
+    fn date_elements() -> ArrayRef {
+        let date = Scalar::extension::<Date>(TimeUnit::Days, Scalar::from(Some(42i32)));
+        let DType::Extension(ext_dtype) = date.dtype().clone() else {
+            vortex_panic!("a date is an extension value");
+        };
+        ExtensionArray::new(
+            ext_dtype,
+            PrimitiveArray::from_option_iter([Some(42i32), None]).into_array(),
+        )
+        .into_array()
     }
 }

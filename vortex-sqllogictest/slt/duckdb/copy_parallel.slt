@@ -10,10 +10,10 @@ statement ok
 COPY (SELECT range AS j FROM range(100000))
 TO '${WORK_DIR}/copy_parallel.vortex';
 
-query II
-SELECT count(*), sum(j) FROM '${WORK_DIR}/copy_parallel.vortex';
+query IIIII
+SELECT count(*), sum(j), count(DISTINCT j), min(j), max(j) FROM '${WORK_DIR}/copy_parallel.vortex';
 ----
-100000 4999950000
+100000 4999950000 100000 0 99999
 
 statement ok
 SET preserve_insertion_order = true;

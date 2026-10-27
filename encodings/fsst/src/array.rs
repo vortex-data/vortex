@@ -40,7 +40,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::OffsetBuilderPType;
 use vortex_array::dtype::PType;
-use vortex_array::legacy_session;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_varbin_builder;
 use vortex_array::require_child;
@@ -128,7 +127,6 @@ impl VTable for FSST {
         *ID
     }
 
-    #[allow(clippy::disallowed_methods)]
     fn validate(
         &self,
         data: &Self::TypedArrayData,
@@ -136,9 +134,7 @@ impl VTable for FSST {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        // TODO(ctx): trait fixes - VTable::validate has a fixed signature.
-        let mut ctx = legacy_session().create_execution_ctx();
-        data.validate(dtype, len, slots, &mut ctx)
+        data.validate(dtype, len, slots)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -289,14 +285,13 @@ impl VTable for FSST {
             FSSTData::validate_parts(
                 symbols.as_slice(),
                 symbol_lengths.as_slice(),
-                &codes_bytes,
                 &codes_offsets,
                 dtype.nullability(),
                 &uncompressed_lengths,
                 dtype,
                 len,
-                &mut ctx,
             )?;
+            FSSTData::validate_codes_bounds(&codes_bytes, &codes_offsets, &mut ctx)?;
             let slots = FSSTSlots {
                 uncompressed_lengths,
                 codes_offsets,
@@ -515,13 +510,13 @@ impl FSSTSymbolTable {
         vortex_ensure!(
             padded_symbols.len() == FSST_SYMBOL_TABLE_LEN
                 && padded_symbol_lengths.len() == FSST_SYMBOL_TABLE_LEN,
-            InvalidArgument: "padded symbol table must have exactly {FSST_SYMBOL_TABLE_LEN} entries, found {} symbols and {} symbol lengths",
+            "padded symbol table must have exactly {FSST_SYMBOL_TABLE_LEN} entries, found {} symbols and {} symbol lengths",
             padded_symbols.len(),
             padded_symbol_lengths.len()
         );
         vortex_ensure!(
             n_symbols <= FSST_SYMBOL_TABLE_LEN,
-            InvalidArgument: "n_symbols must be <= {FSST_SYMBOL_TABLE_LEN}, found {n_symbols}"
+            "n_symbols must be <= {FSST_SYMBOL_TABLE_LEN}, found {n_symbols}"
         );
         Ok(Self {
             padded_symbols,
@@ -671,7 +666,7 @@ impl FSST {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayParts<Self>> {
         if children.len() != 2 {
-            vortex_bail!(InvalidArgument: "Expected 2 children, got {}", children.len());
+            vortex_bail!("Expected 2 children, got {}", children.len());
         }
         let codes = children.get(0, &DType::Binary(dtype.nullability()), len)?;
         let codes: VarBinArray = codes
@@ -768,11 +763,11 @@ impl FSSTData {
         vortex_ensure_eq!(
             symbols.len(),
             symbol_lengths.len(),
-            InvalidArgument: "symbols and symbol_lengths arrays must have same length"
+            "symbols and symbol_lengths arrays must have same length"
         );
         vortex_ensure!(
             symbols.len() <= FSST_SYMBOL_TABLE_LEN,
-            InvalidArgument: "symbols array must have length <= {FSST_SYMBOL_TABLE_LEN}, found {}",
+            "symbols array must have length <= {FSST_SYMBOL_TABLE_LEN}, found {}",
             symbols.len()
         );
         let n_symbols = symbols.len();
@@ -787,39 +782,37 @@ impl FSSTData {
         }
     }
 
+    /// Check the structure of the array without executing any of its children.
+    ///
+    /// The bounds of the codes offsets are checked by the constructors and on deserialization,
+    /// which have an execution context.
     pub fn validate(
         &self,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
-        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let fsst_slots = FSSTSlotsView::from_slots(slots);
         Self::validate_parts(
             self.symbol_table.symbols(),
             self.symbol_table.symbol_lengths(),
-            &self.codes_bytes,
             fsst_slots.codes_offsets,
             dtype.nullability(),
             fsst_slots.uncompressed_lengths,
             dtype,
             len,
-            ctx,
         )
     }
 
     /// Validate using the decomposed components (codes bytes + offsets + nullability).
-    #[expect(clippy::too_many_arguments)]
     fn validate_parts(
         symbols: &[Symbol],
         symbol_lengths: &[u8],
-        codes_bytes: &BufferHandle,
         codes_offsets: &ArrayRef,
         codes_nullability: Nullability,
         uncompressed_lengths: &ArrayRef,
         dtype: &DType,
         len: usize,
-        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         vortex_ensure!(
             matches!(dtype, DType::Binary(_) | DType::Utf8(_)),
@@ -827,11 +820,11 @@ impl FSSTData {
         );
 
         if symbols.len() > FSST_SYMBOL_TABLE_LEN {
-            vortex_bail!(InvalidArgument: "symbols array must have length <= {FSST_SYMBOL_TABLE_LEN}");
+            vortex_bail!("symbols array must have length <= {FSST_SYMBOL_TABLE_LEN}");
         }
 
         if symbols.len() != symbol_lengths.len() {
-            vortex_bail!(InvalidArgument: "symbols and symbol_lengths arrays must have same length");
+            vortex_bail!("symbols and symbol_lengths arrays must have same length");
         }
 
         Self::validate_symbol_lengths(symbol_lengths)?;
@@ -839,42 +832,50 @@ impl FSSTData {
         // codes_offsets.len() - 1 == number of elements
         let codes_len = codes_offsets.len().saturating_sub(1);
         if codes_len != len {
-            vortex_bail!(InvalidArgument: "codes must have same len as outer array");
+            vortex_bail!("codes must have same len as outer array");
         }
 
         if uncompressed_lengths.len() != len {
-            vortex_bail!(InvalidArgument: "uncompressed_lengths must be same len as codes");
+            vortex_bail!("uncompressed_lengths must be same len as codes");
         }
 
         if !uncompressed_lengths.dtype().is_int() || uncompressed_lengths.dtype().is_nullable() {
-            vortex_bail!(InvalidArgument: "uncompressed_lengths must have integer type and cannot be nullable, found {}", uncompressed_lengths.dtype());
+            vortex_bail!(
+                "uncompressed_lengths must have integer type and cannot be nullable, found {}",
+                uncompressed_lengths.dtype()
+            );
         }
 
         // Offsets must be non-nullable integer.
         if !codes_offsets.dtype().is_int() || codes_offsets.dtype().is_nullable() {
-            vortex_bail!(InvalidArgument: "codes offsets must be non-nullable integer type, found {}", codes_offsets.dtype());
+            vortex_bail!(
+                "codes offsets must be non-nullable integer type, found {}",
+                codes_offsets.dtype()
+            );
         }
 
         if codes_nullability != dtype.nullability() {
-            vortex_bail!(InvalidArgument: "codes nullability must match outer dtype nullability");
+            vortex_bail!("codes nullability must match outer dtype nullability");
         }
 
-        // Validate that last offset doesn't exceed bytes length (when host-resident). A
-        // compressed offsets child would have to be decoded to read its last offset, so it is
-        // checked by the decode plan instead, once `execute` has made it primitive.
-        if codes_bytes.is_on_host()
-            && codes_offsets.is_host()
-            && codes_offsets.is::<Primitive>()
-            && !codes_offsets.is_empty()
-        {
-            let last_offset: usize = (&codes_offsets
-                .execute_scalar(codes_offsets.len() - 1, ctx)
-                .vortex_expect("offsets must support scalar_at"))
-                .try_into()
-                .vortex_expect("Failed to convert offset to usize");
+        Ok(())
+    }
+
+    /// Check that the last codes offset doesn't exceed the codes bytes length.
+    ///
+    /// Only host-resident offsets and bytes are checked. The last offset is executed, so offsets
+    /// in any encoding are checked.
+    fn validate_codes_bounds(
+        codes_bytes: &BufferHandle,
+        codes_offsets: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        if codes_bytes.is_on_host() && codes_offsets.is_host() && !codes_offsets.is_empty() {
+            let last_offset: usize =
+                (&codes_offsets.execute_scalar(codes_offsets.len() - 1, ctx)?).try_into()?;
             vortex_ensure!(
                 last_offset <= codes_bytes.len(),
-                InvalidArgument: "Last codes offset {} exceeds codes bytes length {}",
+                "Last codes offset {} exceeds codes bytes length {}",
                 last_offset,
                 codes_bytes.len()
             );
@@ -887,12 +888,14 @@ impl FSSTData {
         let mut expected = 2;
         for (idx, &len) in symbol_lengths.iter().enumerate() {
             if len > 8 || len == 0 {
-                vortex_bail!(InvalidArgument: "symbol length at index {idx} must be between 1 and 8, found {len}");
+                vortex_bail!("symbol length at index {idx} must be between 1 and 8, found {len}");
             }
 
             if expected == 1 {
                 if len != 1 {
-                    vortex_bail!(InvalidArgument: "symbol length at index {idx} must be 1 after one-byte symbols begin, found {len}");
+                    vortex_bail!(
+                        "symbol length at index {idx} must be 1 after one-byte symbols begin, found {len}"
+                    );
                 }
             } else {
                 if len == 1 {
@@ -900,7 +903,9 @@ impl FSSTData {
                 }
 
                 if len < expected {
-                    vortex_bail!(InvalidArgument: "symbol length at index {idx} violates FSST symbol table ordering");
+                    vortex_bail!(
+                        "symbol length at index {idx} violates FSST symbol table ordering"
+                    );
                 }
                 expected = len;
             }
@@ -922,14 +927,13 @@ impl FSSTData {
         Self::validate_parts(
             symbols,
             symbol_lengths,
-            codes.bytes_handle(),
             codes.offsets(),
             codes.dtype().nullability(),
             uncompressed_lengths,
             dtype,
             len,
-            ctx,
-        )
+        )?;
+        Self::validate_codes_bounds(codes.bytes_handle(), codes.offsets(), ctx)
     }
 
     pub(crate) unsafe fn new_unchecked_with_symbol_table(
@@ -1054,6 +1058,8 @@ impl ValidityVTable<FSST> for FSST {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use fsst::Compressor;
     use fsst::Symbol;
     use prost::Message;
@@ -1061,7 +1067,6 @@ mod test {
     use vortex_array::ArrayPlugin;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::buffer::BufferHandle;
     use vortex_array::dtype::DType;
@@ -1072,6 +1077,7 @@ mod test {
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
 
     use crate::FSST;
     use crate::array::FSST_SYMBOL_TABLE_LEN;
@@ -1084,6 +1090,8 @@ mod test {
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn slice_reuses_initialized_compressor() -> VortexResult<()> {
         let symbols = Buffer::<Symbol>::copy_from([
@@ -1093,7 +1101,7 @@ mod test {
         let symbol_lengths = Buffer::<u8>::copy_from([3, 8]);
 
         let compressor = Compressor::rebuild_from(symbols.as_slice(), symbol_lengths.as_slice());
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let strings = VarBinViewArray::from_iter_str(["abcabcab", "defghijk", "abcxyz"]);
         let fsst_array = fsst_compress(&strings.into_array(), &compressor, &mut ctx)?;
 
@@ -1113,7 +1121,7 @@ mod test {
     /// expose the populated prefix.
     #[test]
     fn symbol_table_padded_on_creation() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let strings = VarBinViewArray::from_iter_str(["abcabcab", "defghijk", "abcxyz"]);
         let compressor = Compressor::rebuild_from(
             [
@@ -1154,7 +1162,7 @@ mod test {
     /// them before a `Decompressor` can borrow them.
     #[test]
     fn symbol_table_padded_on_deserialize() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let input = VarBinViewArray::from_iter_str(["abcabcab", "defghijk"]).into_array();
         let compressor = fsst_train_compressor(&input, &mut ctx)?;
         let fsst_array = fsst_compress(&input, &compressor, &mut ctx)?;
@@ -1199,7 +1207,7 @@ mod test {
                 &buffers,
                 &children.as_slice(),
             ),
-            &array_session(),
+            &SESSION,
         )?;
 
         let padded = deserialized
@@ -1308,7 +1316,7 @@ mod test {
         let symbol_lengths = Buffer::<u8>::copy_from([3, 8]);
 
         let compressor = Compressor::rebuild_from(symbols.as_slice(), symbol_lengths.as_slice());
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let input = VarBinViewArray::from_iter_str(["abcabcab", "defghijk"]);
         let fsst_array = fsst_compress(&input.into_array(), &compressor, &mut ctx)?;
 
@@ -1349,11 +1357,10 @@ mod test {
                 &buffers,
                 &children.as_slice(),
             ),
-            &array_session(),
+            &SESSION,
         )?;
 
-        let decompressed =
-            fsst.execute::<VarBinViewArray>(&mut array_session().create_execution_ctx())?;
+        let decompressed = fsst.execute::<VarBinViewArray>(&mut SESSION.create_execution_ctx())?;
         let mask = decompressed
             .validity()?
             .execute_mask(decompressed.len(), &mut ctx)?;

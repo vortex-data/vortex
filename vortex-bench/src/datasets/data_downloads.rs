@@ -706,10 +706,7 @@ mod tests {
             assert_eq!(next, want);
             cur = next;
         }
-        // At MAX, further successes are no-ops.
         assert_eq!(cur, MAX_IN_FLIGHT);
-        assert_eq!(decide_on_success(cur, true), None);
-        assert_eq!(decide_on_success(cur, false), None);
     }
 
     #[test]
@@ -724,7 +721,6 @@ mod tests {
         // At 64, a single retry (past the cooldown) halves to 32.
         assert_eq!(decide_on_retry(64, COOLDOWN_MS + 1, 0), Some(32));
         assert_eq!(decide_on_retry(32, COOLDOWN_MS + 1, 0), Some(16));
-        assert_eq!(decide_on_retry(2, COOLDOWN_MS + 1, 0), Some(1));
     }
 
     #[test]

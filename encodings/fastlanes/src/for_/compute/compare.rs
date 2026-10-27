@@ -23,6 +23,7 @@ use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 
 use crate::FoR;
+use crate::FoRReferences;
 use crate::for_::array::FoRArrayExt;
 use crate::for_::array::FoRArraySlotsExt;
 
@@ -71,7 +72,7 @@ where
 
     // TODO(mk): support many references.
 
-    let Some(reference) = lhs.constant_reference() else {
+    let FoRReferences::Global(reference) = lhs.references() else {
         return Ok(None);
     };
     let reference = reference.as_primitive().typed_value::<T>();
@@ -112,7 +113,7 @@ mod tests {
     use crate::FoRArray;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });

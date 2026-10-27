@@ -18,9 +18,11 @@ use vortex_session::registry::CachedId;
 use crate::AnyColumnar;
 use crate::ArrayRef;
 use crate::ArrayView;
+use crate::Canonical;
 use crate::CanonicalView;
 use crate::ColumnarView;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::arrays::Bool;
 use crate::arrays::Constant;
 use crate::arrays::Decimal;
@@ -147,11 +149,11 @@ impl ScalarFnVTable for Cast {
             }
             ColumnarView::Constant(constant) => match cast_constant(constant, target_dtype)? {
                 Some(result) => Ok(result),
-                None => vortex_bail!(
-                    "No CastReduce to cast constant array from {} to {}",
-                    constant.dtype(),
-                    target_dtype,
-                ),
+                // Some array conversions, including bool to numeric, have no scalar cast.
+                None => input
+                    .execute::<Canonical>(ctx)?
+                    .into_array()
+                    .cast(target_dtype.clone()),
             },
         }
     }
@@ -239,14 +241,18 @@ fn cast_constant(array: ArrayView<Constant>, dtype: &DType) -> VortexResult<Opti
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
-    use vortex_error::VortexExpect as _;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
 
     use super::Cast;
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
     use crate::arrays::StructArray;
+    use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
@@ -261,6 +267,8 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::literal::Literal;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn dtype() {
         let dtype = test_harness::struct_dtype();
@@ -273,10 +281,12 @@ mod tests {
     }
 
     #[test]
-    fn replace_children() {
-        let expr = cast(root(), DType::Bool(Nullability::Nullable));
-        expr.with_children(vec![root()])
-            .vortex_expect("operation should succeed in test");
+    fn replace_children() -> VortexResult<()> {
+        let dtype = DType::Bool(Nullability::Nullable);
+        let expr = cast(root(), dtype.clone());
+        let replaced = expr.with_children(vec![get_item("a", root())])?;
+        assert_eq!(replaced, cast(get_item("a", root()), dtype));
+        Ok(())
     }
 
     #[test]
@@ -297,6 +307,11 @@ mod tests {
         assert_eq!(
             result.dtype(),
             &DType::Primitive(PType::I64, Nullability::NonNullable)
+        );
+        assert_arrays_eq!(
+            result,
+            buffer![0i64, 1, 2].into_array(),
+            &mut SESSION.create_execution_ctx()
         );
     }
 

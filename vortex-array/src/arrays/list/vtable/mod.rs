@@ -9,6 +9,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -20,6 +21,7 @@ use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
@@ -48,8 +50,19 @@ pub type ListArray = Array<List>;
 pub struct ListMetadata {
     #[prost(uint64, tag = "1")]
     elements_len: u64,
-    #[prost(enumeration = "PType", tag = "2")]
+    #[prost(int32, tag = "2")]
     offset_ptype: i32,
+}
+
+impl ListMetadata {
+    fn get_offset_ptype(&self) -> VortexResult<PType> {
+        PType::try_from(self.offset_ptype).map_err(|_| {
+            vortex_err!(
+                "ListMetadata offset_ptype must be a known PType, got {}",
+                self.offset_ptype
+            )
+        })
+    }
 }
 
 impl ArrayHash for ListData {
@@ -151,9 +164,10 @@ impl VTable for List {
 
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         let metadata = ListMetadata::decode(metadata)?;
+        let offset_ptype = metadata.get_offset_ptype()?;
         let validity = if children.len() == 2 {
             Validity::from(dtype.nullability())
         } else if children.len() == 3 {
@@ -174,11 +188,16 @@ impl VTable for List {
 
         let offsets = children.get(
             1,
-            &DType::Primitive(metadata.offset_ptype(), Nullability::NonNullable),
+            &DType::Primitive(offset_ptype, Nullability::NonNullable),
             len + 1,
         )?;
 
-        let data = ListData::try_build(elements.clone(), offsets.clone(), validity.clone())?;
+        let data = ListData::try_build(
+            elements.clone(),
+            offsets.clone(),
+            validity.clone(),
+            &mut session.create_execution_ctx(),
+        )?;
         let slots = ListData::make_slots(&elements, &offsets, &validity, len);
         Ok(ArrayParts::new(
             self.clone(),
@@ -219,3 +238,50 @@ impl VTable for List {
 
 #[derive(Clone, Debug)]
 pub struct List;
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::LazyLock;
+
+    use prost::Message;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use super::List;
+    use super::ListMetadata;
+    use crate::ArrayRef;
+    use crate::array::VTable;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[test]
+    fn test_deserialize_rejects_unknown_offset_ptype() -> VortexResult<()> {
+        let dtype = DType::List(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            Nullability::NonNullable,
+        );
+        let metadata = ListMetadata {
+            offset_ptype: 11,
+            ..Default::default()
+        }
+        .encode_to_vec();
+        let children: Vec<ArrayRef> = Vec::new();
+        let result = List.deserialize(&dtype, 0, &metadata, &[], &children, &SESSION);
+        assert!(result.is_err_and(|err| {
+            err.to_string()
+                .contains("ListMetadata offset_ptype must be a known PType, got 11")
+        }));
+
+        let known = ListMetadata {
+            offset_ptype: PType::U32 as i32,
+            ..Default::default()
+        };
+        assert_eq!(known.get_offset_ptype()?, PType::U32);
+
+        Ok(())
+    }
+}

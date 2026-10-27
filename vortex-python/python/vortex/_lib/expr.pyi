@@ -2,15 +2,16 @@
 #  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 from collections.abc import Iterable, Mapping, Sequence
-from datetime import date, datetime
-from typing import Literal, TypeAlias, final
+from datetime import date, datetime, time
+from typing import Any, Literal, TypeAlias, final
+from uuid import UUID
 
 from typing_extensions import override
 
 from .dtype import DType
-from .scalar import ScalarPyType
+from .scalar import Scalar, ScalarPyType
 
-IntoExpr: TypeAlias = Expr | bool | int | float | str | bytes | date | datetime | None
+IntoExpr: TypeAlias = Expr | Scalar | ScalarPyType | list[Any] | dict[str, Any] | bool | date | datetime | time | UUID
 """A value accepted anywhere an expression is expected. Non-``Expr`` values become literals."""
 
 VariantPath: TypeAlias = str | int | Sequence[str | int]
@@ -46,7 +47,7 @@ class Expr:
 # Leaves and scope
 def root() -> Expr: ...
 def column(name: str) -> Expr: ...
-def literal(dtype: DType, value: ScalarPyType) -> Expr: ...
+def literal(dtype: DType, value: object) -> Expr: ...
 def get_item(field: str, child: IntoExpr | None = None) -> Expr: ...
 
 # Boolean logic
@@ -103,7 +104,8 @@ def merge(
 ) -> Expr: ...
 
 # Lists
-def list_contains(child: IntoExpr, value: IntoExpr) -> Expr: ...
+def list_contains(child: IntoExpr, value: IntoExpr, *, sql_null_semantics: bool = False) -> Expr: ...
+def in_list(value: IntoExpr, list: IntoExpr) -> Expr: ...
 def list_length(child: IntoExpr) -> Expr: ...
 def list_sum(child: IntoExpr, *, skip_nans: bool = True) -> Expr: ...
 
@@ -120,3 +122,10 @@ def variant_get(child: IntoExpr, path: VariantPath, dtype: DType | None = None) 
 
 # Serialization
 def deserialize(data: bytes) -> Expr: ...
+def replace_time_zone(
+    child: IntoExpr,
+    time_zone: str | None,
+    *,
+    ambiguous: IntoExpr = "raise",
+    non_existent: Literal["raise", "null"] = "raise",
+) -> Expr: ...

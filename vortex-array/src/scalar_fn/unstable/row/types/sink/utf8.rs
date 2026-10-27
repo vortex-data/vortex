@@ -161,6 +161,7 @@ unsafe impl OutputSink for Utf8Sink {
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
+    use std::sync::LazyLock;
 
     use vortex_buffer::BufferAllocatorRef;
     use vortex_error::VortexResult;
@@ -169,7 +170,11 @@ mod tests {
     use super::Utf8Sink;
     use crate::VortexSessionExecute as _;
     use crate::arrays::VarBinViewArray;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
     use crate::scalar_fn::unstable::row::OutputSink;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn sink_writes_owned_borrowed_and_cow_values() -> VortexResult<()> {
@@ -198,7 +203,7 @@ mod tests {
 
         // SAFETY: every row was initialized by the writes above.
         let array = unsafe { <Utf8Sink as OutputSink>::finish(sink) }?;
-        let mut ctx = VortexSession::empty().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = array.execute::<VarBinViewArray>(&mut ctx)?;
         let actual = (0..array.len())
             .map(|index| String::from_utf8_lossy(&array.bytes_at(index)).into_owned())
@@ -216,6 +221,7 @@ mod tests {
         // SAFETY: a zero-row sink has no rows to initialize.
         let empty = unsafe { <Utf8Sink as OutputSink>::finish(empty) }?;
         assert!(empty.is_empty());
+        assert_eq!(empty.dtype(), &DType::Utf8(Nullability::NonNullable));
 
         let mut skipped =
             <Utf8Sink as OutputSink>::with_capacity(2, &(), BufferAllocatorRef::static_ref())?;
@@ -224,9 +230,11 @@ mod tests {
         ));
         // SAFETY: the skipped-row initializer initialized every row.
         let skipped = unsafe { <Utf8Sink as OutputSink>::finish(skipped) }?;
-        let mut ctx = VortexSession::empty().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let skipped = skipped.execute::<VarBinViewArray>(&mut ctx)?;
 
+        assert_eq!(skipped.len(), 2);
+        assert_eq!(skipped.dtype(), &DType::Utf8(Nullability::NonNullable));
         assert_eq!(skipped.bytes_at(0).as_slice(), b"");
         assert_eq!(skipped.bytes_at(1).as_slice(), b"");
 

@@ -64,8 +64,9 @@ pub struct Footer {
     // `segments` followed by the `metadata` segments, which is the segment table a file is opened
     // with. Precomputed so opening a file with a cached footer does not copy every segment spec.
     segments_with_metadata: Arc<[SegmentSpec]>,
-    // The largest end offset of any segment in `segments`, or `None` if one overflows `u64`.
-    // Precomputed so validating a cached footer against a file size does not walk every segment.
+    // The largest end offset of any segment in `segments_with_metadata`, or `None` if one
+    // overflows `u64`. Precomputed so validating a cached footer against a file size does not walk
+    // every segment.
     // Writers never overlap segments, so in a valid file this is the last segment's end, but only
     // their order is checked when reading, and this guards against malformed footers.
     segments_end: Option<u64>,
@@ -156,10 +157,12 @@ impl Footer {
             vortex_bail!("Segment offsets are not ordered");
         }
 
+        let segments_with_metadata = segments_with_metadata(&segments, &metadata);
+
         Ok(Self {
             root_layout,
-            segments_with_metadata: segments_with_metadata(&segments, &metadata),
-            segments_end: segments_end(&segments),
+            segments_end: segments_end(&segments_with_metadata),
+            segments_with_metadata,
             segments,
             statistics,
             metadata,
@@ -199,6 +202,7 @@ impl Footer {
 
     pub(crate) fn with_metadata_segments(mut self, metadata: Arc<[(String, SegmentSpec)]>) -> Self {
         self.segments_with_metadata = segments_with_metadata(&self.segments, &metadata);
+        self.segments_end = segments_end(&self.segments_with_metadata);
         self.metadata = metadata;
         self
     }
@@ -237,7 +241,7 @@ impl Footer {
             return Ok(());
         }
         // Walk the segments only to name the offending one in the error.
-        validate_segments_within_file(&self.segments, file_size)
+        validate_segments_within_file(&self.segments_with_metadata, file_size)
     }
 
     /// Returns a serializer for this footer.
@@ -296,7 +300,11 @@ fn validate_segments_within_file(segments: &[SegmentSpec], file_size: u64) -> Vo
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_buffer::Alignment;
+    use vortex_layout::layouts::flat::FlatLayout;
+    use vortex_layout::segments::SegmentId;
 
     use super::*;
 
@@ -306,6 +314,23 @@ mod tests {
             length,
             alignment: Alignment::none(),
         }
+    }
+
+    fn footer_with_metadata_segment(metadata: SegmentSpec) -> Footer {
+        let layout = FlatLayout::new(
+            1,
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            SegmentId::from(0),
+            ReadContext::new([]),
+        )
+        .into_layout();
+        Footer::new(
+            layout,
+            Arc::from([segment(0, 100)]),
+            None,
+            ReadContext::new([]),
+        )
+        .with_metadata_segments(Arc::from([("some.key".to_string(), metadata)]))
     }
 
     #[test]
@@ -350,5 +375,19 @@ mod tests {
         let with = segments_with_metadata(&segments, &[("key".to_string(), segment(30, 5))]);
         let spans: Vec<_> = with.iter().map(|s| (s.offset, s.length)).collect();
         assert_eq!(spans, [(0, 10), (10, 20), (30, 5)]);
+    }
+
+    #[test]
+    fn rejects_metadata_segment_extending_past_end_of_file() {
+        let err = footer_with_metadata_segment(segment(100, 51))
+            .validate_file_size(150)
+            .unwrap_err();
+        assert!(err.to_string().contains("past the end"), "{err}");
+    }
+
+    #[test]
+    fn accepts_metadata_segment_within_file() -> VortexResult<()> {
+        footer_with_metadata_segment(segment(100, 50)).validate_file_size(150)?;
+        Ok(())
     }
 }

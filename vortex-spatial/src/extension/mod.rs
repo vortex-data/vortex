@@ -42,6 +42,7 @@ pub use rect::*;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::ListViewArray;
@@ -58,10 +59,12 @@ use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::Scalar;
 use vortex_arrow::ArrowSession;
+use vortex_arrow::ArrowSessionExt;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 pub use wkb::*;
 
 /// Whether `dtype` is one of the native geometry extension types the spatial kernels operate on.
@@ -194,7 +197,7 @@ pub(crate) fn single_geometry(
 /// `Point`/`Polygon`/`MultiPolygon` scalar. `None` for unsupported types. Plan-time, one value only.
 pub fn native_geometry_scalar_from_wkb(
     bytes: &[u8],
-    session: &ArrowSession,
+    session: &VortexSession,
 ) -> VortexResult<Option<Scalar>> {
     let metadata = geoarrow_metadata(&SpatialMetadata::default());
     let binary = BinaryArray::from(vec![Some(bytes)]);
@@ -208,7 +211,9 @@ pub fn native_geometry_scalar_from_wkb(
     let to_storage = |target: &GeoArrowType| -> VortexResult<ArrayRef> {
         let native =
             cast(&wkb, target).map_err(|e| vortex_err!("failed to cast WKB literal: {e}"))?;
-        session.from_arrow_array(native.to_array_ref(), false)
+        session
+            .arrow()
+            .from_arrow_array(native.to_array_ref(), false)
     };
 
     let scalar = match Wkb::try_from_bytes(bytes)?.geometry_type() {
@@ -216,39 +221,39 @@ pub fn native_geometry_scalar_from_wkb(
             let target = GeoArrowType::Point(
                 PointType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
             );
-            spatial_ext_scalar(Point, to_storage(&target)?)?
+            spatial_ext_scalar(Point, to_storage(&target)?, session)?
         }
         GeometryType::LineString => {
             let target = GeoArrowType::LineString(
                 LineStringType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
             );
-            spatial_ext_scalar(LineString, to_storage(&target)?)?
+            spatial_ext_scalar(LineString, to_storage(&target)?, session)?
         }
         GeometryType::Polygon => {
             let target = GeoArrowType::Polygon(
                 PolygonType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
             );
-            spatial_ext_scalar(Polygon, to_storage(&target)?)?
+            spatial_ext_scalar(Polygon, to_storage(&target)?, session)?
         }
         GeometryType::MultiPoint => {
             let target = GeoArrowType::MultiPoint(
                 MultiPointType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
             );
-            spatial_ext_scalar(MultiPoint, to_storage(&target)?)?
+            spatial_ext_scalar(MultiPoint, to_storage(&target)?, session)?
         }
         GeometryType::MultiLineString => {
             let target = GeoArrowType::MultiLineString(
                 MultiLineStringType::new(Dimension::XY, metadata)
                     .with_coord_type(CoordType::Separated),
             );
-            spatial_ext_scalar(MultiLineString, to_storage(&target)?)?
+            spatial_ext_scalar(MultiLineString, to_storage(&target)?, session)?
         }
         GeometryType::MultiPolygon => {
             let target = GeoArrowType::MultiPolygon(
                 MultiPolygonType::new(Dimension::XY, metadata)
                     .with_coord_type(CoordType::Separated),
             );
-            spatial_ext_scalar(MultiPolygon, to_storage(&target)?)?
+            spatial_ext_scalar(MultiPolygon, to_storage(&target)?, session)?
         }
         _ => return Ok(None),
     };
@@ -256,18 +261,17 @@ pub fn native_geometry_scalar_from_wkb(
 }
 
 /// Wrap cast-from-WKB `storage` in its `vtable` extension type and pull out the single scalar.
-// `scalar_at` is deprecated for `execute_scalar`, but there is no execution context at plan time.
-#[allow(deprecated)]
 fn spatial_ext_scalar<V: ExtVTable<Metadata = SpatialMetadata>>(
     vtable: V,
     storage: ArrayRef,
+    session: &VortexSession,
 ) -> VortexResult<Scalar> {
     let ext =
         ExtDType::try_with_vtable(vtable, SpatialMetadata::default(), storage.dtype().clone())?
             .erased();
     ExtensionArray::try_new(ext, storage)?
         .into_array()
-        .scalar_at(0)
+        .execute_scalar(0, &mut session.create_execution_ctx())
 }
 
 /// Extension metadata that is common to all the spatial extension types.
@@ -278,7 +282,19 @@ fn spatial_ext_scalar<V: ExtVTable<Metadata = SpatialMetadata>>(
 #[derive(Clone, PartialEq, Eq, Hash, prost::Message)]
 pub struct SpatialMetadata {
     #[prost(optional, string, tag = "1")]
-    pub crs: Option<String>,
+    pub(crate) crs: Option<String>,
+}
+
+impl SpatialMetadata {
+    /// Creates metadata with an optional coordinate reference system (CRS).
+    pub fn new(crs: Option<String>) -> Self {
+        Self { crs }
+    }
+
+    /// Returns the coordinate reference system, or `None` for unreferenced geometry.
+    pub fn get_crs(&self) -> Option<&str> {
+        self.crs.as_deref()
+    }
 }
 
 impl Display for SpatialMetadata {
@@ -331,11 +347,14 @@ pub(crate) fn spatial_metadata_from_arrow(metadata: &Metadata) -> SpatialMetadat
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use prost::Message;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::dtype::DType;
-    use vortex_arrow::ArrowSessionExt;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
 
     use super::LineString;
     use super::MultiLineString;
@@ -344,12 +363,13 @@ mod tests {
     use super::Polygon;
     use crate::extension::SpatialMetadata;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     /// Test shim: decode with an explicitly constructed session.
     fn native_geometry_scalar_from_wkb(
         bytes: &[u8],
     ) -> VortexResult<Option<vortex_array::scalar::Scalar>> {
-        let session = vortex_array::array_session();
-        super::native_geometry_scalar_from_wkb(bytes, &session.arrow())
+        super::native_geometry_scalar_from_wkb(bytes, &VortexSession::empty())
     }
 
     #[test]
@@ -378,6 +398,14 @@ mod tests {
             panic!("expected an extension dtype, got {}", scalar.dtype());
         };
         assert!(ext.is::<Point>());
+        assert_eq!(ext.metadata::<Point>(), &SpatialMetadata::default());
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected =
+            crate::test_harness::point_column(vec![1.0], vec![2.0])?.execute_scalar(0, &mut ctx)?;
+        let actual_storage = scalar.as_extension().to_storage_scalar();
+        let expected_storage = expected.as_extension().to_storage_scalar();
+        assert_eq!(actual_storage.dtype(), expected_storage.dtype());
+        assert_eq!(actual_storage, expected_storage);
         Ok(())
     }
 
@@ -400,6 +428,19 @@ mod tests {
             panic!("expected an extension dtype, got {}", scalar.dtype());
         };
         assert!(ext.is::<Polygon>());
+        assert_eq!(ext.metadata::<Polygon>(), &SpatialMetadata::default());
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = crate::test_harness::polygon_column(vec![vec![vec![
+            (0.0, 0.0),
+            (1.0, 0.0),
+            (0.0, 1.0),
+            (0.0, 0.0),
+        ]]])?
+        .execute_scalar(0, &mut ctx)?;
+        let actual_storage = scalar.as_extension().to_storage_scalar();
+        let expected_storage = expected.as_extension().to_storage_scalar();
+        assert_eq!(actual_storage.dtype(), expected_storage.dtype());
+        assert_eq!(actual_storage, expected_storage);
         Ok(())
     }
 
@@ -421,6 +462,14 @@ mod tests {
             panic!("expected an extension dtype, got {}", scalar.dtype());
         };
         assert!(ext.is::<LineString>());
+        assert_eq!(ext.metadata::<LineString>(), &SpatialMetadata::default());
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = crate::test_harness::linestring_column(vec![vec![(0.0, 0.0), (1.0, 1.0)]])?
+            .execute_scalar(0, &mut ctx)?;
+        let actual_storage = scalar.as_extension().to_storage_scalar();
+        let expected_storage = expected.as_extension().to_storage_scalar();
+        assert_eq!(actual_storage.dtype(), expected_storage.dtype());
+        assert_eq!(actual_storage, expected_storage);
         Ok(())
     }
 
@@ -445,6 +494,14 @@ mod tests {
             panic!("expected an extension dtype, got {}", scalar.dtype());
         };
         assert!(ext.is::<MultiPoint>());
+        assert_eq!(ext.metadata::<MultiPoint>(), &SpatialMetadata::default());
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = crate::test_harness::multipoint_column(vec![vec![(0.0, 0.0), (1.0, 1.0)]])?
+            .execute_scalar(0, &mut ctx)?;
+        let actual_storage = scalar.as_extension().to_storage_scalar();
+        let expected_storage = expected.as_extension().to_storage_scalar();
+        assert_eq!(actual_storage.dtype(), expected_storage.dtype());
+        assert_eq!(actual_storage, expected_storage);
         Ok(())
     }
 
@@ -473,6 +530,20 @@ mod tests {
             panic!("expected an extension dtype, got {}", scalar.dtype());
         };
         assert!(ext.is::<MultiLineString>());
+        assert_eq!(
+            ext.metadata::<MultiLineString>(),
+            &SpatialMetadata::default()
+        );
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = crate::test_harness::multilinestring_column(vec![vec![
+            vec![(0.0, 0.0), (1.0, 1.0)],
+            vec![(2.0, 2.0), (3.0, 3.0)],
+        ]])?
+        .execute_scalar(0, &mut ctx)?;
+        let actual_storage = scalar.as_extension().to_storage_scalar();
+        let expected_storage = expected.as_extension().to_storage_scalar();
+        assert_eq!(actual_storage.dtype(), expected_storage.dtype());
+        assert_eq!(actual_storage, expected_storage);
         Ok(())
     }
 }

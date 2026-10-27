@@ -15,8 +15,8 @@ use fearless_simd::dispatch;
 use fearless_simd::prelude::*;
 use fearless_simd::u8x16;
 use fearless_simd_macros::simd;
-use vortex_mask::MaskValues;
 
+use super::super::slice::MaskBits;
 use super::super::slice::for_each_mask_word;
 use super::super::slice::low_bits_mask;
 use super::bulk_copy;
@@ -107,11 +107,11 @@ macro_rules! generic_compress_kernel {
         pub(super) unsafe fn $walk_fn<const IN_PLACE: bool>(
             src: *const u8,
             dst: *mut u8,
-            mask: &MaskValues,
+            bits: MaskBits<'_>,
         ) -> usize {
             dispatch!(Level::new(), simd => {
                 let mut write_pos = 0;
-                for_each_mask_word(mask, |word, word_start, word_len| {
+                for_each_mask_word(bits, |word, word_start, word_len| {
                     // SAFETY: forwarded from the caller contract.
                     write_pos = unsafe {
                         compress_word::<_, IN_PLACE, $elem_size, $lanes>(

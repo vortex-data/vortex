@@ -18,6 +18,7 @@ use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
 use futures::executor::block_on;
+use mimalloc::MiMalloc;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -37,6 +38,9 @@ use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
 use crate::timed_launch_strategy::TimedLaunchStrategy;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn make_datetimeparts_array(len: usize, time_unit: TimeUnit) -> DateTimePartsArray {
     let days: Vec<i16> = (0..len).map(|i| (i / 1000) as i16).collect();

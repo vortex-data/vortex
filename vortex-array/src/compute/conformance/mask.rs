@@ -7,6 +7,7 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::RecursiveCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::builtins::ArrayBuiltins;
@@ -46,7 +47,11 @@ fn test_heterogenous_mask(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let masked = array
         .clone()
         .mask((!&mask_array).into_array())
-        .vortex_expect("mask should succeed in conformance test");
+        .vortex_expect("mask should succeed in conformance test")
+        .execute::<RecursiveCanonical>(ctx)
+        .vortex_expect("mask execution should succeed in conformance test")
+        .0
+        .into_array();
     assert_eq!(masked.len(), array.len());
 
     // Verify masked elements are null and unmasked elements are preserved
@@ -72,7 +77,7 @@ fn test_heterogenous_mask(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 }
 
 /// Tests that an empty mask (all false) preserves all elements
-fn test_empty_mask(array: &ArrayRef, ctx: &mut ExecutionCtx) {
+pub(super) fn test_empty_mask(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let len = array.len();
     let all_unmasked = vec![false; len];
     let mask_array = Mask::from_iter(all_unmasked);
@@ -80,8 +85,13 @@ fn test_empty_mask(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let masked = array
         .clone()
         .mask((!&mask_array).into_array())
-        .vortex_expect("mask should succeed in conformance test");
+        .vortex_expect("mask should succeed in conformance test")
+        .execute::<RecursiveCanonical>(ctx)
+        .vortex_expect("mask execution should succeed in conformance test")
+        .0
+        .into_array();
     assert_eq!(masked.len(), array.len());
+    assert!(masked.dtype().is_nullable());
 
     // All elements should be preserved
     for i in 0..len {
@@ -106,7 +116,11 @@ fn test_full_mask(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let masked = array
         .clone()
         .mask((!&mask_array).into_array())
-        .vortex_expect("mask should succeed in conformance test");
+        .vortex_expect("mask should succeed in conformance test")
+        .execute::<RecursiveCanonical>(ctx)
+        .vortex_expect("mask execution should succeed in conformance test")
+        .0
+        .into_array();
     assert_eq!(masked.len(), array.len());
 
     // All elements should be null
@@ -128,7 +142,11 @@ fn test_alternating_mask(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let masked = array
         .clone()
         .mask((!&mask_array).into_array())
-        .vortex_expect("mask should succeed in conformance test");
+        .vortex_expect("mask should succeed in conformance test")
+        .execute::<RecursiveCanonical>(ctx)
+        .vortex_expect("mask execution should succeed in conformance test")
+        .0
+        .into_array();
     assert_eq!(masked.len(), array.len());
 
     for i in 0..len {
@@ -166,31 +184,30 @@ fn test_sparse_mask(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let masked = array
         .clone()
         .mask((!&mask_array).into_array())
-        .vortex_expect("mask should succeed in conformance test");
+        .vortex_expect("mask should succeed in conformance test")
+        .execute::<RecursiveCanonical>(ctx)
+        .vortex_expect("mask execution should succeed in conformance test")
+        .0
+        .into_array();
     assert_eq!(masked.len(), array.len());
 
-    // Count how many elements are valid after masking
-    let valid_count = (0..len)
-        .filter(|&i| {
-            masked
-                .is_valid(i, ctx)
-                .vortex_expect("is_valid should succeed in conformance test")
-        })
-        .count();
-
-    // Count how many elements should be invalid:
-    // - Elements that were masked (pattern[i] == true)
-    // - Elements that were already invalid in the original array
-    let expected_invalid_count = (0..len)
-        .filter(|&i| {
-            pattern[i]
-                || !array
-                    .is_valid(i, ctx)
-                    .vortex_expect("is_valid should succeed in conformance test")
-        })
-        .count();
-
-    assert_eq!(valid_count, len - expected_invalid_count);
+    for (i, &masked_out) in pattern.iter().enumerate() {
+        let actual = masked
+            .execute_scalar(i, ctx)
+            .vortex_expect("scalar_at should succeed in conformance test");
+        if masked_out {
+            assert!(actual.is_null(), "masked index {i} should be null");
+        } else {
+            assert_eq!(
+                actual,
+                array
+                    .execute_scalar(i, ctx)
+                    .vortex_expect("scalar_at should succeed in conformance test")
+                    .into_nullable(),
+                "unmasked index {i} should preserve its value"
+            );
+        }
+    }
 }
 
 /// Tests masking a single element
@@ -205,7 +222,11 @@ fn test_single_element_mask(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let masked = array
         .clone()
         .mask((!&mask_array).into_array())
-        .vortex_expect("mask should succeed in conformance test");
+        .vortex_expect("mask should succeed in conformance test")
+        .execute::<RecursiveCanonical>(ctx)
+        .vortex_expect("mask execution should succeed in conformance test")
+        .0
+        .into_array();
     assert!(
         !masked
             .is_valid(0, ctx)
@@ -242,7 +263,11 @@ fn test_double_mask(array: &ArrayRef, ctx: &mut ExecutionCtx) {
         .vortex_expect("mask should succeed in conformance test");
     let double_masked = first_masked
         .mask((!&mask2).into_array())
-        .vortex_expect("mask should succeed in conformance test");
+        .vortex_expect("mask should succeed in conformance test")
+        .execute::<RecursiveCanonical>(ctx)
+        .vortex_expect("mask execution should succeed in conformance test")
+        .0
+        .into_array();
 
     // Elements should be null if either mask is true
     for i in 0..len {
@@ -285,7 +310,11 @@ fn test_nullable_mask_input(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let masked = array
         .clone()
         .mask((!&mask_array).into_array())
-        .vortex_expect("mask should succeed in conformance test");
+        .vortex_expect("mask should succeed in conformance test")
+        .execute::<RecursiveCanonical>(ctx)
+        .vortex_expect("mask execution should succeed in conformance test")
+        .0
+        .into_array();
 
     // Elements are masked only if the mask is true AND valid
     for i in 0..len {

@@ -167,19 +167,13 @@ impl FooterDeserializer {
             .map(|segment| self.parse_dtype(initial_offset, &self.buffer, segment))
             .transpose()?
             .unwrap_or_else(|| self.dtype.clone().vortex_expect("DType was provided"));
-        let file_stats = postscript
-            .statistics
-            .as_ref()
-            .map(|segment| {
-                self.parse_file_statistics(
-                    initial_offset,
-                    &self.buffer,
-                    segment,
-                    &dtype,
-                    &self.session,
-                )
-            })
-            .transpose()?;
+        // File statistics are optional, so ones that can't be read are dropped rather than
+        // failing the open.
+        let file_stats = postscript.statistics.as_ref().and_then(|segment| {
+            self.parse_file_statistics(initial_offset, &self.buffer, segment, &dtype, &self.session)
+                .inspect_err(|error| tracing::warn!(%error, "ignoring unreadable file statistics"))
+                .ok()
+        });
         let metadata = postscript
             .metadata
             .iter()
@@ -361,10 +355,10 @@ fn checked_segment_slice<'a>(
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::array_session;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::flatbuffers::WriteFlatBufferExt;
+    use vortex_session::VortexSession;
 
     use super::*;
 
@@ -428,7 +422,7 @@ mod tests {
         let buffer = eof_buffer(&postscript)?;
         let file_size = buffer.len() as u64;
 
-        let mut deserializer = FooterDeserializer::new(buffer, array_session())
+        let mut deserializer = FooterDeserializer::new(buffer, VortexSession::empty())
             .with_dtype(DType::Primitive(PType::I32, Nullability::NonNullable))
             .with_size(file_size);
         let err = deserializer.deserialize().unwrap_err();
@@ -448,7 +442,7 @@ mod tests {
         let buffer = eof_buffer(&postscript)?;
         let declared_size = buffer.len() as u64 - 1;
 
-        let mut deserializer = FooterDeserializer::new(buffer, array_session())
+        let mut deserializer = FooterDeserializer::new(buffer, VortexSession::empty())
             .with_dtype(DType::Primitive(PType::I32, Nullability::NonNullable))
             .with_size(declared_size);
         let err = deserializer.deserialize().unwrap_err();

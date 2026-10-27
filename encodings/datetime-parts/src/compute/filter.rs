@@ -26,20 +26,24 @@ impl FilterReduce for DateTimeParts {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::DateTimeParts;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_filter_datetime_parts() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Create temporal arrays and convert to DateTimePartsArray
         let timestamps = buffer![
             0i64,

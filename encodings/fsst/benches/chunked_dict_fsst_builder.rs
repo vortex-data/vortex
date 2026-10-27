@@ -12,6 +12,9 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::dtype::NativePType;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::session::ArraySession;
 use vortex_error::VortexExpect;
 use vortex_fsst::test_utils::gen_dict_fsst_test_data;
 use vortex_session::VortexSession;
@@ -20,6 +23,7 @@ use vortex_session::VortexSession;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
@@ -34,7 +38,10 @@ const BENCH_ARGS: &[(usize, usize, usize)] = &[
 ];
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<MemorySession>();
     vortex_fsst::initialize(&session);
     session
 });

@@ -73,12 +73,12 @@ mod tests {
             .unwrap()
             .export(1, 5, chunk.get_vector_mut(0), &mut ctx)
             .unwrap();
-        chunk.set_len(2);
+        chunk.set_len(5);
 
         assert_eq!(
             String::try_from(&*chunk).unwrap(),
             r#"Chunk - [1 Columns]
-- FLAT TIMESTAMP_S: 2 = [ 2025-06-18 16:43:45, 2025-06-18 16:43:46]
+- FLAT TIMESTAMP_S: 5 = [ 2025-06-18 16:43:45, 2025-06-18 16:43:46, 2025-06-18 16:43:47, 2025-06-18 16:43:48, 2025-06-18 16:43:49]
 "#
         );
     }
@@ -98,12 +98,12 @@ mod tests {
             .unwrap()
             .export(1, 5, chunk.get_vector_mut(0), &mut ctx)
             .unwrap();
-        chunk.set_len(4);
+        chunk.set_len(5);
 
         assert_eq!(
             String::try_from(&*chunk).unwrap(),
             r#"Chunk - [1 Columns]
-- FLAT TIMESTAMP: 4 = [ 2025-06-18 16:46:29.000001, 2025-06-18 16:46:30.000001, 2025-06-18 16:46:31.000001, 2025-06-18 16:46:32.000001]
+- FLAT TIMESTAMP: 5 = [ 2025-06-18 16:46:29.000001, 2025-06-18 16:46:30.000001, 2025-06-18 16:46:31.000001, 2025-06-18 16:46:32.000001, 2025-06-18 16:46:33.000001]
 "#
         );
     }
@@ -123,12 +123,12 @@ mod tests {
             .export(1, 5, chunk.get_vector_mut(0), &mut ctx)
             .unwrap();
 
-        chunk.set_len(4);
+        chunk.set_len(5);
 
         assert_eq!(
             String::try_from(&*chunk).unwrap(),
             r#"Chunk - [1 Columns]
-- FLAT TIME: 4 = [ 00:00:02, 00:00:03, 00:00:04, 00:00:05]
+- FLAT TIME: 5 = [ 00:00:02, 00:00:03, 00:00:04, 00:00:05, 00:00:06]
 "#
         );
     }

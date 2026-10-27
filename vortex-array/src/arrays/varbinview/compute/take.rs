@@ -225,20 +225,24 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::varbinview::compute::take::PrimitiveArray;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn take_nullable() -> VortexResult<()> {
@@ -254,7 +258,7 @@ mod tests {
         let taken = arr.take(buffer![0, 3].into_array())?;
 
         assert!(taken.dtype().is_nullable());
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let taken = taken.execute::<VarBinViewArray>(&mut ctx)?;
         let mask = taken.validity()?.execute_mask(taken.len(), &mut ctx)?;
         let result = (0..taken.len())
@@ -280,7 +284,7 @@ mod tests {
         let taken = arr.take(indices.into_array())?;
 
         assert!(taken.dtype().is_nullable());
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let taken = taken.execute::<VarBinViewArray>(&mut ctx)?;
         let mask = taken.validity()?.execute_mask(taken.len(), &mut ctx)?;
         let result = (0..taken.len())
@@ -311,9 +315,6 @@ mod tests {
     ))]
     #[case(VarBinViewArray::from_iter(["single"].map(Some), DType::Utf8(NonNullable)))]
     fn test_take_varbinview_conformance(#[case] array: VarBinViewArray) {
-        test_take_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_take_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

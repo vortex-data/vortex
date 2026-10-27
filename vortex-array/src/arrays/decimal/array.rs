@@ -255,7 +255,7 @@ impl DecimalData {
         let maximum = DecimalType::smallest_decimal_value_type(&decimal_dtype);
         vortex_ensure!(
             values_type <= maximum,
-            InvalidArgument: "decimal storage {values_type} exceeds precision storage {maximum} for {decimal_dtype}",
+            "decimal storage {values_type} exceeds precision storage {maximum} for {decimal_dtype}",
         );
 
         // SAFETY: buffer layout is validated and storage is bounded by the precision.
@@ -285,7 +285,7 @@ impl DecimalData {
         }
         vortex_ensure!(
             values.is_on_host(),
-            InvalidArgument: "decimal device storage {values_type} exceeds precision storage {maximum}",
+            "decimal device storage {values_type} exceeds precision storage {maximum}",
         );
         let narrowed = match_each_decimal_value_type!(values_type, |In| {
             let buffer = Buffer::<In>::from_byte_buffer(values.unwrap_host());
@@ -363,14 +363,14 @@ impl DecimalData {
         let byte_width = values_type.byte_width();
         vortex_ensure!(
             buffer.len().is_multiple_of(byte_width),
-            InvalidArgument: "decimal buffer size {} is not divisible by element width {}",
+            "decimal buffer size {} is not divisible by element width {}",
             buffer.len(),
             byte_width,
         );
         match_each_decimal_value_type!(values_type, |D| {
             vortex_ensure!(
                 buffer.is_aligned_to(Alignment::of::<D>()),
-                InvalidArgument: "decimal buffer alignment {:?} is invalid for values type {:?}",
+                "decimal buffer alignment {:?} is invalid for values type {:?}",
                 buffer.alignment(),
                 D::DECIMAL_TYPE,
             );
@@ -492,7 +492,9 @@ impl Array<Decimal> {
         let len = buffer.len();
         let slots = DecimalData::make_slots(&validity, len);
         let data = unsafe { DecimalData::new_unchecked(buffer, decimal_dtype) };
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data, slots)) }
+        unsafe {
+            Self::from_decimal_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data, slots))
+        }
     }
 
     /// Creates a new [`DecimalArray`] from a host-native buffer with validation.
@@ -505,7 +507,27 @@ impl Array<Decimal> {
         let len = buffer.len();
         let slots = DecimalData::make_slots(&validity, len);
         let data = DecimalData::try_new(buffer, decimal_dtype)?;
-        Array::try_from_parts(ArrayParts::new(Decimal, dtype, len, data, slots))
+        Self::try_from_decimal_parts(ArrayParts::new(Decimal, dtype, len, data, slots))
+    }
+
+    /// Creates the array from parts without validation.
+    ///
+    /// The generic constructors call this function. It is not generic, so crates that call those
+    /// constructors do not each compile the `Decimal` array vtable.
+    ///
+    /// # Safety
+    ///
+    /// The parts must be logically consistent.
+    unsafe fn from_decimal_parts_unchecked(parts: ArrayParts<Decimal>) -> Self {
+        unsafe { Array::from_parts_unchecked(parts) }
+    }
+
+    /// Creates the array from parts after validation.
+    ///
+    /// The generic constructors call this function. It is not generic, so crates that call those
+    /// constructors do not each compile the `Decimal` array vtable.
+    fn try_from_decimal_parts(parts: ArrayParts<Decimal>) -> VortexResult<Self> {
+        Array::try_from_parts(parts)
     }
 
     /// Creates a new [`DecimalArray`] from a host-native buffer, narrowing storage wider than

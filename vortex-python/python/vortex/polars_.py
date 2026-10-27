@@ -1,12 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+from __future__ import annotations
+
 import json
 import operator
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import polars as pl
+import pyarrow as pa
 
 import vortex.expr as ve
 
@@ -102,12 +105,19 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
         elif "Time" in scalar:
             return ve.literal(_dtype.time("ns"), scalar["Time"])
         elif "Decimal" in scalar:
-            value, precision, scale = scalar["Decimal"]
+            # Polars <1.35 omits the precision: [value, scale].
+            if len(scalar["Decimal"]) == 2:
+                value, scale = scalar["Decimal"]
+                precision = 38
+            else:
+                value, precision, scale = scalar["Decimal"]
             return ve.literal(_dtype.decimal(precision=precision, scale=scale), value)
         elif "Date" in scalar:
             return ve.literal(_dtype.date("days"), scalar["Date"])
         elif "Binary" in scalar:
             return ve.literal(_dtype.binary(), bytes(scalar["Binary"]))
+        elif "Datetime" in scalar:
+            return _datetime_literal(scalar["Datetime"])
         elif len(scalar) == 1 and next(iter(scalar)) in _LITERAL_TYPES:
             dtype, value = next(iter(scalar.items()))
         else:
@@ -129,20 +139,7 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
 
         # Special-case date-times
         if literal_type == "DateTime":
-            (value, unit, tz) = expr[literal_type]
-            if unit == "Nanoseconds":
-                unit = "ns"
-            elif unit == "Microseconds":
-                unit = "us"
-            elif unit == "Milliseconds":
-                unit = "ms"
-            elif unit == "Seconds":
-                unit = "s"
-            else:
-                raise NotImplementedError(f"Unsupported Polars date time unit: {unit}")
-
-            dtype = _dtype.timestamp(unit, tz=tz, nullable=value)
-            return ve.literal(dtype, value)
+            return _datetime_literal(expr[literal_type])
 
         # Unwrap 'Dyn' scalars, whose type hasn't been established yet.
         # (post https://github.com/pola-rs/polars/pull/21849)
@@ -157,9 +154,35 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
 
     if "Function" in expr:
         expr = expr["Function"]
+
+        # The members of `is_in` are a list literal, which is not a scalar of its own.
+        is_in = expr["function"].get("Boolean", {}) if isinstance(expr["function"], dict) else {}
+        if isinstance(is_in, dict) and "IsIn" in is_in:
+            needle, members = expr["input"]
+            return _is_in(_polars_to_vortex(needle), members, nulls_equal=is_in["IsIn"]["nulls_equal"])
+
         _inputs = [_polars_to_vortex(e) for e in expr["input"]]
 
+        if expr["function"] == "FillNull":
+            if "Literal" in expr["input"][1]:
+                return ve.fill_null(_inputs[0], _inputs[1])
+            return ve.zip_(ve.is_null(_inputs[0]), _inputs[1], _inputs[0])
         fn = expr["function"]
+        if isinstance(fn, dict) and "FieldByName" in fn.get("StructExpr", {}):
+            return ve.get_item(fn["StructExpr"]["FieldByName"], _inputs[0])
+        if isinstance(fn, dict) and "ReplaceTimeZone" in fn.get("TemporalExpr", {}):
+            time_zone, non_existent = fn["TemporalExpr"]["ReplaceTimeZone"]
+            if isinstance(time_zone, dict):
+                time_zone = time_zone["inner"]
+            if non_existent not in ("Raise", "Null"):
+                raise NotImplementedError(f"Unsupported Polars nonexistent-time policy: {non_existent}")
+            return ve.replace_time_zone(
+                _inputs[0],
+                time_zone,
+                ambiguous=_inputs[1],
+                non_existent="raise" if non_existent == "Raise" else "null",
+            )
+
         if "Boolean" in fn:
             fn = fn["Boolean"]
 
@@ -178,13 +201,6 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
             if fn == "Not":
                 return ve.not_(_inputs[0])
 
-            if "IsIn" in fn:
-                fn = fn["IsIn"]
-                if fn["nulls_equal"]:
-                    raise ValueError(f"Unsupported nulls_equal argument in fn {expr}")
-
-                # Vortex doesn't support is-in, so we need to construct a series of ORs?
-
         if "StringExpr" in fn:
             fn = fn["StringExpr"]
             if "Contains" in fn:
@@ -193,3 +209,64 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
         raise NotImplementedError(f"Unsupported Polars function: {fn}")
 
     raise NotImplementedError(f"Unsupported Polars expression: {expr}")
+
+
+def _is_in(needle: ve.Expr, members: dict[str, Any], *, nulls_equal: bool) -> ve.Expr:
+    """``needle.is_in(members)`` for a literal list of members, with the null semantics of Polars.
+
+    Polars ignores a null member unless nulls are equal, and a null needle gives null, even against
+    an empty list. Vortex's SQL null semantics agree with that for a list without a null, and its
+    default semantics for a list with one, which cannot be empty. With nulls equal, a null needle is
+    a member exactly when the list holds a null.
+    """
+    values = _literal_list(members)
+    has_null = values.null_count > 0
+    dtype = _dtype.list_(_dtype.DType.from_arrow(values.type))
+    members_expr = ve.literal(dtype, values.to_pylist())
+
+    if nulls_equal:
+        return ve.fill_null(ve.list_contains(members_expr, needle), has_null)
+    return ve.list_contains(members_expr, needle, sql_null_semantics=not has_null)
+
+
+def _literal_list(expr: dict[str, Any]) -> pa.Array[pa.Scalar[Any]]:
+    """The members of ``is_in``: a Polars list scalar, or a series of one list, as an Arrow array.
+
+    Polars writes both as an Arrow IPC stream. A list scalar holds the members as its values, and
+    an imploded series holds them as the list of its one row.
+    """
+    while "Alias" in expr:
+        expr = expr["Alias"][0]
+    literal = expr.get("Literal", {})
+
+    if "Series" in literal:
+        series = _ipc_values(literal["Series"])
+        if not isinstance(series, pa.ListArray | pa.LargeListArray) or len(series) != 1:
+            raise NotImplementedError(f"Unsupported Polars is_in series: {series.type} of {len(series)} rows")
+        return series.flatten()
+
+    if "List" in literal.get("Scalar", {}):
+        return _ipc_values(literal["Scalar"]["List"])
+
+    raise NotImplementedError(f"Unsupported Polars is_in members: {expr}")
+
+
+def _ipc_values(raw: list[int]) -> pa.Array[pa.Scalar[Any]]:
+    """The one column of an Arrow IPC stream that Polars writes for a literal."""
+    return pa.ipc.open_stream(bytes(raw)).read_all().column(0).combine_chunks()
+
+
+def _datetime_literal(data: list[Any]) -> ve.Expr:
+    value, unit, tz = data
+    units: dict[str, Literal["s", "ms", "us", "ns"]] = {
+        "Nanoseconds": "ns",
+        "Microseconds": "us",
+        "Milliseconds": "ms",
+        "Seconds": "s",
+    }
+    if unit not in units:
+        raise NotImplementedError(f"Unsupported Polars date time unit: {unit}")
+    if isinstance(tz, dict):
+        tz = tz["inner"]
+    dtype = _dtype.timestamp(units[unit], tz=tz, nullable=value is None)
+    return ve.literal(dtype, value)

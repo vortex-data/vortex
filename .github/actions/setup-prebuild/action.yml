@@ -48,7 +48,7 @@ runs:
 
     - name: Install Rust
       if: github.repository == 'vortex-data/vortex' && steps.check-rustup.outputs.exists != 'true'
-      uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87  # stable
+      uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec  # stable
       with:
         toolchain: ${{ steps.toolchain-config.outputs.toolchain }}
         targets: ${{ inputs.targets }}

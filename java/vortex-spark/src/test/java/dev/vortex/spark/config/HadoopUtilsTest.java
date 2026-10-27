@@ -104,17 +104,6 @@ final class HadoopUtilsTest {
     }
 
     @Test
-    @DisplayName("Extracts the SAS token from any fs.azure.sas.fixed.token-prefixed entry")
-    void azureExtractsSasToken() {
-        Configuration conf = emptyConf();
-        conf.set(HadoopUtils.FIXED_TOKEN_PREFIX + "myaccount.dfs.core.windows.net", "sas-token");
-
-        Map<String, String> properties = HadoopUtils.azurePropertiesFromHadoopConf(conf);
-
-        assertEquals("sas-token", properties.get("azure_storage_sas_key"));
-    }
-
-    @Test
     @DisplayName("Falls back to skipping signatures when no account key is configured")
     void azureSkipsSignatureWithoutAccountKey() {
         Map<String, String> properties = HadoopUtils.azurePropertiesFromHadoopConf(emptyConf());

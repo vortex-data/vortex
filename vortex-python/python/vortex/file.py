@@ -41,6 +41,7 @@ def open(
     without_segment_cache: bool = False,
     segment_cache: SegmentCache | None = None,
     cache_key: str | None = None,
+    memory_map: bool = False,
 ) -> VortexFile:
     """
     Lazily open a Vortex file located at the given path or URL.
@@ -64,6 +65,12 @@ def open(
     cache_key : :class:`str` | None
         Identifies this file's contents within ``segment_cache``. Files opened with the same key
         share cached segments, so the key must change whenever the file does.
+    memory_map : :class:`bool`
+        If true, map a local file into memory and read segments as slices of the map. Reads then
+        need no IO threads, IO requests or copies, and the page cache takes the place of the
+        segment cache, so this cannot be combined with ``store``, ``segment_cache`` or
+        ``cache_key``. The file must not change while it is open: a truncated file can crash the
+        process with ``SIGBUS``. With ``footer`` set, the open reads nothing.
 
     Examples
     --------
@@ -84,6 +91,7 @@ def open(
             without_segment_cache=without_segment_cache,
             segment_cache=segment_cache,
             cache_key=cache_key,
+            memory_map=memory_map,
         )
     )
 
@@ -353,14 +361,18 @@ class VortexFile:
 
             reader = self.to_arrow(projection=with_columns, expr=vx_predicate, limit=n_rows)
 
-            for batch in reader:
-                batch = pl.DataFrame._from_arrow(batch, rechunk=False)
-                # TODO(ngates): set sortedness on DataFrame based on stats?
-                yield batch
+            try:
+                for batch in reader:
+                    # TODO(ngates): set sortedness on DataFrame based on stats?
+                    yield pl.DataFrame(batch)
+            except pa.ArrowException as e:
+                # Polars 1 wraps exceptions raised by an IO source in a ComputeError, but Polars 2
+                # re-raises them unchanged. Raise a ComputeError on both.
+                raise pl.exceptions.ComputeError(str(e)) from e
 
             # Make sure we always yield at least one empty DataFrame
-            yield pl.DataFrame._from_arrow(
-                data=pa.RecordBatch.from_arrays(
+            yield pl.DataFrame(
+                pa.RecordBatch.from_arrays(
                     [pa.array([], type=field.type) for field in reader.schema],
                     schema=reader.schema,
                 ),

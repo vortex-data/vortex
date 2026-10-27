@@ -11,6 +11,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 
 use crate::ArrayRef;
@@ -30,7 +31,7 @@ use crate::match_each_integer_ptype;
 pub struct DictMetadata {
     #[prost(uint32, tag = "1")]
     pub(super) values_len: u32,
-    #[prost(enumeration = "PType", tag = "2")]
+    #[prost(int32, tag = "2")]
     pub(super) codes_ptype: i32,
     // nullable codes are optional since they were added after stabilisation.
     #[prost(optional, bool, tag = "3")]
@@ -40,6 +41,17 @@ pub struct DictMetadata {
     // false/None = unknown whether all values are referenced (conservative default).
     #[prost(optional, bool, tag = "4")]
     pub(super) all_values_referenced: Option<bool>,
+}
+
+impl DictMetadata {
+    pub(super) fn get_codes_ptype(&self) -> VortexResult<PType> {
+        PType::try_from(self.codes_ptype).map_err(|_| {
+            vortex_err!(
+                "DictMetadata codes_ptype must be a known PType, got {}",
+                self.codes_ptype
+            )
+        })
+    }
 }
 
 #[array_slots(Dict)]
@@ -116,7 +128,7 @@ impl DictData {
     /// It is an error to provide a nullable `codes` with non-nullable `values`.
     pub(crate) fn try_new(codes_dtype: &DType) -> VortexResult<Self> {
         if !codes_dtype.is_int() {
-            vortex_bail!(MismatchedTypes: "int", codes_dtype);
+            vortex_bail!("expected type: int but instead got {}", codes_dtype);
         }
 
         Ok(unsafe { Self::new_unchecked() })
@@ -154,35 +166,110 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
         let codes_primitive = codes.clone().execute::<PrimitiveArray>(ctx)?;
         let values_len = self.values().len();
 
-        let init_value = !referenced;
-        let referenced_value = referenced;
-
-        let mut values_vec = vec![init_value; values_len];
-        match codes_validity.bit_buffer() {
-            AllOr::All => {
-                match_each_integer_ptype!(codes_primitive.ptype(), |P| {
-                    for idx in codes_primitive.as_slice::<P>() {
-                        let idxu: usize = idx.as_();
-                        values_vec[idxu] = referenced_value;
-                    }
-                });
-            }
-            AllOr::None => {}
-            AllOr::Some(mask) => {
-                match_each_integer_ptype!(codes_primitive.ptype(), |P| {
-                    let codes = codes_primitive.as_slice::<P>();
-                    mask.set_indices().for_each(|idx| {
-                        let idxu: usize = codes[idx].as_();
-                        values_vec[idxu] = referenced_value;
-                    });
-                });
-            }
+        let mut values_vec = vec![!referenced; values_len];
+        let saturated = match codes_validity.bit_buffer() {
+            AllOr::All => match_each_integer_ptype!(codes_primitive.ptype(), |P| {
+                mark_codes(&mut values_vec, referenced, codes_primitive.as_slice::<P>())
+            }),
+            AllOr::None => false,
+            AllOr::Some(mask) => match_each_integer_ptype!(codes_primitive.ptype(), |P| {
+                mark_masked_codes(
+                    &mut values_vec,
+                    referenced,
+                    codes_primitive.as_slice::<P>(),
+                    mask,
+                    codes_validity.true_count(),
+                )
+            }),
+        };
+        if saturated {
+            return Ok(BitBuffer::full(referenced, values_len));
         }
 
         Ok(BitBuffer::from(values_vec))
     }
 }
 impl<T: TypedArrayRef<Dict>> DictArrayExt for T {}
+
+/// Number of codes visited between checks for whether every dictionary value is referenced.
+const EARLY_EXIT_CHUNK: usize = 2048;
+
+/// Sets `values[code]` to `referenced` for every code, returning `true` early once every entry
+/// of `values` is `referenced`, since further codes cannot change the result.
+///
+/// With fewer codes than values not every value can be referenced, so the saturation checks are
+/// skipped entirely.
+fn mark_codes<P: AsPrimitive<usize>>(values: &mut [bool], referenced: bool, codes: &[P]) -> bool {
+    if codes.len() < values.len() {
+        for code in codes {
+            values[code.as_()] = referenced;
+        }
+        return false;
+    }
+
+    let mut cursor = 0;
+    for chunk in codes.chunks(EARLY_EXIT_CHUNK) {
+        for code in chunk {
+            values[code.as_()] = referenced;
+        }
+        if is_saturated(values, &mut cursor, referenced) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Like [`mark_codes`], but only for the codes at the `valid_count` set positions of `mask`.
+fn mark_masked_codes<P: AsPrimitive<usize>>(
+    values: &mut [bool],
+    referenced: bool,
+    codes: &[P],
+    mask: &BitBuffer,
+    valid_count: usize,
+) -> bool {
+    if valid_count < values.len() {
+        mask.set_indices().for_each(|idx| {
+            values[codes[idx].as_()] = referenced;
+        });
+        return false;
+    }
+
+    let mut cursor = 0;
+    for start in (0..codes.len()).step_by(EARLY_EXIT_CHUNK) {
+        let end = (start + EARLY_EXIT_CHUNK).min(codes.len());
+        let codes = &codes[start..end];
+        mask.slice(start..end).set_indices().for_each(|idx| {
+            values[codes[idx].as_()] = referenced;
+        });
+        if is_saturated(values, &mut cursor, referenced) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Advances `cursor` past the entries of `values` equal to `referenced` and returns whether that
+/// is all of them. Callers share one cursor that only moves forward, so repeated checks cost
+/// `O(values.len())` in total.
+#[inline]
+fn is_saturated(values: &[bool], cursor: &mut usize, referenced: bool) -> bool {
+    // Skip whole blocks with a branch-free comparison the compiler can vectorize, then find the
+    // exact stopping point within the first block that is not fully marked.
+    const BLOCK: usize = 32;
+    let rest = &values[*cursor..];
+    let full_blocks = rest
+        .as_chunks::<BLOCK>()
+        .0
+        .iter()
+        .take_while(|block| block.iter().fold(true, |acc, &v| acc & (v == referenced)))
+        .count();
+    *cursor += full_blocks * BLOCK;
+    *cursor += values[*cursor..]
+        .iter()
+        .take_while(|&&v| v == referenced)
+        .count();
+    *cursor == values.len()
+}
 
 /// Concrete parts of a [`DictArray`](super::DictArray) after iterative execution.
 pub struct DictParts {
@@ -281,6 +368,9 @@ impl Array<Dict> {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
+    use prost::Message;
     use rand::RngExt;
     use rand::SeedableRng;
     use rand::distr::Distribution;
@@ -292,15 +382,19 @@ mod test {
     use vortex_error::VortexResult;
     use vortex_error::vortex_panic;
     use vortex_mask::AllOr;
+    use vortex_session::VortexSession;
 
+    use super::DictMetadata;
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
+    use crate::array::VTable;
     use crate::arrays::ChunkedArray;
+    use crate::arrays::Dict;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
+    use crate::arrays::dict::DictArrayExt;
     use crate::assert_arrays_eq;
     use crate::builders::VarBinBuilder;
     use crate::builders::builder_with_capacity_in;
@@ -310,6 +404,8 @@ mod test {
     use crate::dtype::PType;
     use crate::dtype::UnsignedPType;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn nullable_codes_validity() {
@@ -326,10 +422,7 @@ mod test {
             .as_ref()
             .validity()
             .unwrap()
-            .execute_mask(
-                dict.as_ref().len(),
-                &mut array_session().create_execution_ctx(),
-            )
+            .execute_mask(dict.as_ref().len(), &mut SESSION.create_execution_ctx())
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
@@ -352,10 +445,7 @@ mod test {
             .as_ref()
             .validity()
             .unwrap()
-            .execute_mask(
-                dict.as_ref().len(),
-                &mut array_session().create_execution_ctx(),
-            )
+            .execute_mask(dict.as_ref().len(), &mut SESSION.create_execution_ctx())
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
@@ -382,10 +472,7 @@ mod test {
             .as_ref()
             .validity()
             .unwrap()
-            .execute_mask(
-                dict.as_ref().len(),
-                &mut array_session().create_execution_ctx(),
-            )
+            .execute_mask(dict.as_ref().len(), &mut SESSION.create_execution_ctx())
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
@@ -408,10 +495,7 @@ mod test {
             .as_ref()
             .validity()
             .unwrap()
-            .execute_mask(
-                dict.as_ref().len(),
-                &mut array_session().create_execution_ctx(),
-            )
+            .execute_mask(dict.as_ref().len(), &mut SESSION.create_execution_ctx())
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
@@ -423,13 +507,14 @@ mod test {
         len: usize,
         unique_values: usize,
         chunk_count: usize,
-    ) -> ArrayRef
+    ) -> (ArrayRef, Vec<T>)
     where
         StandardUniform: Distribution<T>,
     {
         let mut rng = StdRng::seed_from_u64(0);
 
-        (0..chunk_count)
+        let mut expected = Vec::with_capacity(len * chunk_count);
+        let array = (0..chunk_count)
             .map(|_| {
                 let values = (0..unique_values)
                     .map(|_| rng.random::<T>())
@@ -440,12 +525,16 @@ mod test {
                     })
                     .collect::<PrimitiveArray>();
 
+                expected.extend(codes.as_slice::<Code>().iter().map(|code| {
+                    values.as_slice::<T>()[<Code as num_traits::AsPrimitive<usize>>::as_(*code)]
+                }));
                 DictArray::try_new(codes.into_array(), values.into_array())
                     .vortex_expect("DictArray creation should succeed in arbitrary impl")
                     .into_array()
             })
             .collect::<ChunkedArray>()
-            .into_array()
+            .into_array();
+        (array, expected)
     }
 
     #[test]
@@ -453,7 +542,7 @@ mod test {
         let values = VarBinViewArray::from_iter_str(["zero", "one", "two"]);
         let dict = DictArray::try_new(buffer![2u8, 0, 2, 1].into_array(), values.into_array())?;
         let expected = VarBinViewArray::from_iter_str(["two", "zero", "two", "one"]);
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut builder = VarBinBuilder::<i32>::with_capacity_in(
             dict.dtype().clone(),
             dict.len(),
@@ -469,25 +558,23 @@ mod test {
 
     #[test]
     fn test_dict_array_from_primitive_chunks() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let len = 2;
         let chunk_count = 2;
-        let array = make_dict_primitive_chunks::<u64, u64>(len, 2, chunk_count);
+        let (array, expected) = make_dict_primitive_chunks::<u64, u64>(len, 2, chunk_count);
 
         let mut builder = builder_with_capacity_in(
             &DType::Primitive(PType::U64, NonNullable),
             len * chunk_count,
             ctx.allocator(),
         );
-        array.append_to_builder(
-            builder.as_mut(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        array.append_to_builder(builder.as_mut(), &mut SESSION.create_execution_ctx())?;
 
-        let into_prim = array.execute::<PrimitiveArray>(&mut ctx)?;
         let prim_into = builder.finish_into_canonical(&mut ctx).into_primitive();
 
-        assert_arrays_eq!(into_prim, prim_into, &mut ctx);
+        let expected = PrimitiveArray::from_iter(expected);
+        assert_arrays_eq!(array, expected, &mut ctx);
+        assert_arrays_eq!(prim_into, expected, &mut ctx);
         Ok(())
     }
 
@@ -509,5 +596,80 @@ mod test {
             }
             .encode_to_vec(),
         );
+    }
+
+    #[test]
+    fn test_deserialize_rejects_unknown_codes_ptype() -> VortexResult<()> {
+        let metadata = DictMetadata {
+            codes_ptype: 11,
+            ..Default::default()
+        }
+        .encode_to_vec();
+        let children: Vec<ArrayRef> = Vec::new();
+        let result = Dict.deserialize(
+            &DType::Primitive(PType::I32, NonNullable),
+            0,
+            &metadata,
+            &[],
+            &children,
+            &SESSION,
+        );
+        assert!(result.is_err_and(|err| {
+            err.to_string()
+                .contains("DictMetadata codes_ptype must be a known PType, got 11")
+        }));
+
+        let known = DictMetadata {
+            codes_ptype: PType::U32 as i32,
+            ..Default::default()
+        };
+        assert_eq!(known.get_codes_ptype()?, PType::U32);
+
+        Ok(())
+    }
+
+    /// Covers the early exit taken once every value is referenced, including when that happens
+    /// after the first chunk, alongside cases that never saturate.
+    #[rstest::rstest]
+    #[case::saturates_in_first_chunk(16, 5000, 16, None)]
+    #[case::saturates_in_later_chunk(4096, 60_000, 4096, None)]
+    #[case::saturates_unaligned_to_scan_block(4001, 60_000, 4001, None)]
+    #[case::never_saturates(1024, 10_000, 1000, None)]
+    #[case::fewer_codes_than_values(1024, 1000, 1024, None)]
+    #[case::fewer_valid_codes_than_values(1024, 1500, 1024, Some(0.5))]
+    #[case::saturates_with_nulls(64, 10_000, 64, Some(0.5))]
+    #[case::never_saturates_with_nulls(64, 10_000, 63, Some(0.5))]
+    fn referenced_values_mask_matches_reference(
+        #[case] num_values: u32,
+        #[case] num_codes: usize,
+        #[case] referenced_range: u32,
+        #[case] valid_fraction: Option<f64>,
+        #[values(true, false)] referenced: bool,
+    ) -> VortexResult<()> {
+        let mut rng = StdRng::seed_from_u64(0);
+        let codes: Vec<Option<u32>> = (0..num_codes)
+            .map(|_| {
+                valid_fraction
+                    .is_none_or(|f| rng.random_bool(f))
+                    .then(|| rng.random_range(0..referenced_range))
+            })
+            .collect();
+
+        let mut expected = vec![!referenced; num_values as usize];
+        for code in codes.iter().flatten() {
+            expected[*code as usize] = referenced;
+        }
+
+        let codes = match valid_fraction {
+            Some(_) => PrimitiveArray::from_option_iter(codes).into_array(),
+            None => PrimitiveArray::from_iter(codes.into_iter().flatten()).into_array(),
+        };
+        let dict =
+            DictArray::try_new(codes, PrimitiveArray::from_iter(0..num_values).into_array())?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let mask = dict.compute_referenced_values_mask(referenced, &mut ctx)?;
+
+        assert_eq!(mask, BitBuffer::from(expected));
+        Ok(())
     }
 }

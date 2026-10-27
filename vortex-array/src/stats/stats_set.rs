@@ -597,13 +597,15 @@ impl MutTypedStatsSetRef<'_, '_> {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use enum_iterator::all;
     use itertools::Itertools;
     use rstest::rstest;
     use smallvec::smallvec;
+    use vortex_session::VortexSession;
 
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
@@ -621,6 +623,8 @@ mod test {
     use crate::scalar::ScalarValue;
     use crate::stats::StatsSet;
     use crate::stats::stats_set::Scalar;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_iter() {
@@ -648,6 +652,7 @@ mod test {
             ),
             Precision::exact(42)
         );
+        assert!(iter.next().is_none());
     }
 
     #[test]
@@ -676,6 +681,7 @@ mod test {
             ),
             Precision::exact(42)
         );
+        assert!(set.next().is_none());
     }
 
     #[test]
@@ -954,17 +960,12 @@ mod test {
         first.set(Stat::Max, Precision::exact(1));
         let mut second = StatsSet::of(Stat::IsStrictSorted, Precision::exact(false));
         second.set(Stat::Min, Precision::exact(2));
-        first.merge_ordered(
+        let merged = first.merge_ordered(
             &second,
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
 
-        let second_ref =
-            second.as_typed_ref(&DType::Primitive(PType::I32, Nullability::NonNullable));
-        assert_eq!(
-            second_ref.get_as::<bool>(Stat::IsStrictSorted),
-            Precision::exact(false)
-        );
+        assert!(merged.get(Stat::IsStrictSorted).is_absent());
     }
 
     #[test]
@@ -1007,7 +1008,7 @@ mod test {
             .collect_vec();
         array
             .statistics()
-            .compute_all(&all_stats, &mut array_session().create_execution_ctx())
+            .compute_all(&all_stats, &mut SESSION.create_execution_ctx())
             .unwrap();
 
         let stats = array.statistics().to_owned();
@@ -1019,29 +1020,20 @@ mod test {
             &stats,
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
-        for stat in &all_stats {
-            assert_eq!(
-                !merged.get(*stat).is_absent(),
-                stat.is_commutative(),
-                "Stat {stat} remains after merge_unordered despite not being commutative, or was removed despite being commutative"
-            )
+        for (stat, expected) in [
+            (Stat::Min, Precision::exact(ScalarValue::from(1i32))),
+            (Stat::Max, Precision::exact(ScalarValue::from(10000i32))),
+            (Stat::NullCount, Precision::exact(ScalarValue::from(4u64))),
+            (
+                Stat::UncompressedSizeInBytes,
+                Precision::exact(ScalarValue::from(50u64)),
+            ),
+            (Stat::IsConstant, Precision::exact(ScalarValue::from(false))),
+            (Stat::IsSorted, Precision::Absent),
+            (Stat::IsStrictSorted, Precision::Absent),
+        ] {
+            assert_eq!(merged.get(stat), expected, "{stat}");
         }
-
-        let merged_ref = merged.as_typed_ref(&DType::Primitive(PType::I32, Nullability::Nullable));
-        let stats_ref = stats.as_typed_ref(&DType::Primitive(PType::I32, Nullability::Nullable));
-
-        assert_eq!(
-            merged_ref.get_as::<i32>(Stat::Min),
-            stats_ref.get_as::<i32>(Stat::Min)
-        );
-        assert_eq!(
-            merged_ref.get_as::<i32>(Stat::Max),
-            stats_ref.get_as::<i32>(Stat::Max)
-        );
-        assert_eq!(
-            merged_ref.get_as::<u64>(Stat::NullCount),
-            stats_ref.get_as::<u64>(Stat::NullCount).map(|s| s * 2)
-        );
     }
 
     #[test]
@@ -1142,7 +1134,7 @@ mod test {
     fn test_combine_sets_with_missing_stats() {
         let mut stats1 = StatsSet::from_iter([
             (Stat::Min, Precision::exact(42)),
-            (Stat::UncompressedSizeInBytes, Precision::exact(1000)),
+            (Stat::UncompressedSizeInBytes, Precision::exact(1000u64)),
         ]);
 
         let stats2 = StatsSet::from_iter([
@@ -1160,6 +1152,10 @@ mod test {
         let stats_ref =
             stats1.as_typed_ref(&DType::Primitive(PType::I32, Nullability::NonNullable));
 
+        assert_eq!(
+            stats_ref.get_as::<u64>(Stat::UncompressedSizeInBytes),
+            Precision::exact(1000u64)
+        );
         // Min should remain unchanged
         assert_eq!(stats_ref.get_as::<i32>(Stat::Min), Precision::exact(42));
         // Max should be added
@@ -1196,6 +1192,10 @@ mod test {
         let stats_ref =
             stats1.as_typed_ref(&DType::Primitive(PType::I32, Nullability::NonNullable));
 
+        assert_eq!(
+            stats_ref.get_as::<bool>(Stat::IsConstant),
+            Precision::exact(false)
+        );
         // Min should remain unchanged since it's more restrictive than the inexact value
         assert_eq!(stats_ref.get_as::<i32>(Stat::Min), Precision::exact(42));
         // Check that max was updated with the exact value

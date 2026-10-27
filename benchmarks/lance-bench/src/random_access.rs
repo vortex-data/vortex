@@ -7,8 +7,9 @@ use std::path::PathBuf;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use lance::Dataset;
-use lance::dataset::ProjectionRequest;
 use lance::dataset::WriteParams;
+use lance::dataset::fragment::FileFragment;
+use lance::datatypes::Schema;
 use lance_file::version::LanceFileVersion;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use vortex_bench::Format;
@@ -30,7 +31,12 @@ async fn parquet_to_lance_file(parquet_path: PathBuf, lance_path: &str) -> anyho
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
         let reader = builder.build()?;
 
-        let write_params = WriteParams::with_storage_version(LanceFileVersion::V2_1);
+        // Write Lance's current stable format into a single fragment, so a take reads one file
+        // like the Vortex and Parquet accessors do instead of opening a reader per fragment.
+        let write_params = WriteParams {
+            max_rows_per_file: usize::MAX,
+            ..WriteParams::with_storage_version(LanceFileVersion::Stable)
+        };
         Dataset::write(
             reader,
             output_fname
@@ -79,11 +85,14 @@ pub async fn nested_structs_lance() -> anyhow::Result<PathBuf> {
 
 /// Random accessor for Lance format files.
 ///
-/// The dataset handle is opened at construction time and reused across `take()` calls.
+/// Like the Vortex and Parquet accessors, this reads the dataset's single file: rows are taken
+/// straight from its one fragment, opened once at construction and reused across `take()` calls.
+/// Going through `Dataset::take` would instead rebuild a projection plan and map dataset offsets
+/// to fragments on every call.
 pub struct LanceRandomAccessor {
     name: String,
-    dataset: Dataset,
-    projection: ProjectionRequest,
+    fragment: FileFragment,
+    schema: Schema,
 }
 
 impl LanceRandomAccessor {
@@ -100,11 +109,18 @@ impl LanceRandomAccessor {
     /// Open a Lance dataset from any URI (local path, `s3://...`, ...).
     pub async fn open_uri(uri: &str, name: impl Into<String>) -> anyhow::Result<Self> {
         let dataset = Dataset::open(uri).await?;
-        let projection = ProjectionRequest::from_schema(dataset.schema().clone());
+        let schema = dataset.schema().clone();
+        let fragment = match <[_; 1]>::try_from(dataset.get_fragments()) {
+            Ok([fragment]) => fragment,
+            Err(fragments) => anyhow::bail!(
+                "Lance random access expects one fragment, found {}",
+                fragments.len()
+            ),
+        };
         Ok(Self {
             name: name.into(),
-            dataset,
-            projection,
+            fragment,
+            schema,
         })
     }
 }
@@ -120,7 +136,11 @@ impl RandomAccessor for LanceRandomAccessor {
     }
 
     async fn take(&self, indices: &[u64]) -> anyhow::Result<RandomAccessorRet> {
-        let batch = self.dataset.take(indices, self.projection.clone()).await?;
+        let indices = indices
+            .iter()
+            .map(|&idx| u32::try_from(idx))
+            .collect::<Result<Vec<_>, _>>()?;
+        let batch = self.fragment.take(&indices, &self.schema).await?;
         Ok(RandomAccessorRet::Native(Box::new(batch)))
     }
 }

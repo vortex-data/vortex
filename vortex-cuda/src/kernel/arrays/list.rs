@@ -4,8 +4,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use cudarc::driver::DeviceRepr;
-use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
@@ -24,6 +22,8 @@ use vortex::dtype::Nullability;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
+use vortex_cuda_driver::DeviceRepr;
+use vortex_cuda_driver::PushKernelArg;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -68,6 +68,7 @@ impl CudaExecute for ListExecutor {
                 empty.clone().into_array(),
                 empty.into_array(),
                 validity,
+                ctx.execution_ctx(),
             )?));
         }
 
@@ -134,11 +135,14 @@ async fn list_views_typed<O: DeviceRepr + NativePType>(
         view_offsets.into_array(),
         view_sizes.into_array(),
         validity,
+        ctx.execution_ctx(),
     )?))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::ListArray;
@@ -146,18 +150,21 @@ mod tests {
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
     use vortex::error::VortexExpect;
+    use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::CanonicalCudaExt;
     use crate::session::CudaSession;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[rstest]
     #[case::single_run(vec![0i32, 2, 5, 9])]
     #[case::empty_lists(vec![0i32, 0, 3, 3])]
     #[crate::test]
     async fn test_cuda_list_decompression(#[case] offsets: Vec<i32>) -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -169,13 +176,18 @@ mod tests {
         .into_array();
         let offsets_array =
             PrimitiveArray::new(Buffer::from(offsets), Validity::NonNullable).into_array();
-        let list = ListArray::try_new(elements, offsets_array, Validity::NonNullable)?;
+        let list = ListArray::try_new(
+            elements,
+            offsets_array,
+            Validity::NonNullable,
+            cuda_ctx.execution_ctx(),
+        )?;
 
         let gpu_result = ListExecutor
             .execute(list.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 
@@ -186,7 +198,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_list_with_nulls() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -196,13 +208,13 @@ mod tests {
             PrimitiveArray::new(buffer![0i32, 2, 2, 4], Validity::NonNullable).into_array();
         let validity =
             Validity::Array(BoolArray::from_iter([true, false, true].into_iter()).into_array());
-        let list = ListArray::try_new(elements, offsets, validity)?;
+        let list = ListArray::try_new(elements, offsets, validity, cuda_ctx.execution_ctx())?;
 
         let gpu_result = ListExecutor
             .execute(list.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 

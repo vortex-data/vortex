@@ -326,13 +326,15 @@ impl ScalarFnVTable for Binary {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Bool;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
@@ -361,6 +363,8 @@ mod tests {
     use crate::expr::test_harness;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn and_collect_balanced() {
@@ -541,7 +545,7 @@ mod tests {
         let result_equal = lhs_struct.binary(rhs_struct_equal, Operator::Eq).unwrap();
         assert_eq!(
             result_equal
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(0, &mut SESSION.create_execution_ctx())
                 .vortex_expect("value"),
             Scalar::bool(true, Nullability::NonNullable),
             "Equal structs should be equal"
@@ -552,7 +556,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             result_different
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(0, &mut SESSION.create_execution_ctx())
                 .vortex_expect("value"),
             Scalar::bool(false, Nullability::NonNullable),
             "Different structs should not be equal"
@@ -561,7 +565,7 @@ mod tests {
 
     #[test]
     fn test_or_kleene_validity() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         use crate::arrays::StructArray;
         use crate::expr::col;
 
@@ -586,86 +590,8 @@ mod tests {
     }
 
     #[test]
-    fn test_scalar_subtract_unsigned() {
-        let mut ctx = array_session().create_execution_ctx();
-        use vortex_buffer::buffer;
-
-        use crate::IntoArray;
-        use crate::arrays::ConstantArray;
-        use crate::arrays::PrimitiveArray;
-
-        let values = buffer![1u16, 2, 3].into_array();
-        let rhs = ConstantArray::new(Scalar::from(1u16), 3).into_array();
-        let result = values.binary(rhs, Operator::Sub).unwrap();
-        assert_arrays_eq!(result, PrimitiveArray::from_iter([0u16, 1, 2]), &mut ctx);
-    }
-
-    #[test]
-    fn test_scalar_subtract_signed() {
-        let mut ctx = array_session().create_execution_ctx();
-        use vortex_buffer::buffer;
-
-        use crate::IntoArray;
-        use crate::arrays::ConstantArray;
-        use crate::arrays::PrimitiveArray;
-
-        let values = buffer![1i64, 2, 3].into_array();
-        let rhs = ConstantArray::new(Scalar::from(-1i64), 3).into_array();
-        let result = values.binary(rhs, Operator::Sub).unwrap();
-        assert_arrays_eq!(result, PrimitiveArray::from_iter([2i64, 3, 4]), &mut ctx);
-    }
-
-    #[test]
-    fn test_scalar_subtract_nullable() {
-        let mut ctx = array_session().create_execution_ctx();
-        use crate::IntoArray;
-        use crate::arrays::ConstantArray;
-        use crate::arrays::PrimitiveArray;
-
-        let values = PrimitiveArray::from_option_iter([Some(1u16), Some(2), None, Some(3)]);
-        let rhs = ConstantArray::new(Scalar::from(Some(1u16)), 4).into_array();
-        let result = values.into_array().binary(rhs, Operator::Sub).unwrap();
-        assert_arrays_eq!(
-            result,
-            PrimitiveArray::from_option_iter([Some(0u16), Some(1), None, Some(2)]),
-            &mut ctx
-        );
-    }
-
-    #[test]
-    fn test_scalar_subtract_float() {
-        let mut ctx = array_session().create_execution_ctx();
-        use vortex_buffer::buffer;
-
-        use crate::IntoArray;
-        use crate::arrays::ConstantArray;
-        use crate::arrays::PrimitiveArray;
-
-        let values = buffer![1.0f64, 2.0, 3.0].into_array();
-        let rhs = ConstantArray::new(Scalar::from(-1f64), 3).into_array();
-        let result = values.binary(rhs, Operator::Sub).unwrap();
-        assert_arrays_eq!(
-            result,
-            PrimitiveArray::from_iter([2.0f64, 3.0, 4.0]),
-            &mut ctx
-        );
-    }
-
-    #[test]
-    fn test_scalar_subtract_float_underflow_is_ok() {
-        use vortex_buffer::buffer;
-
-        let values = buffer![f32::MIN, 2.0, 3.0].into_array();
-        let rhs1 = ConstantArray::new(Scalar::from(1.0f32), 3).into_array();
-        let _results = values.binary(rhs1, Operator::Sub).unwrap();
-        let values = buffer![f32::MIN, 2.0, 3.0].into_array();
-        let rhs2 = ConstantArray::new(Scalar::from(f32::MAX), 3).into_array();
-        let _results = values.binary(rhs2, Operator::Sub).unwrap();
-    }
-
-    #[test]
     fn test_and_reduce() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let left = BoolArray::from_iter([true, true, false]).into_array();
         let right = ConstantArray::new(true, 3).into_array();
 
@@ -684,35 +610,35 @@ mod tests {
         let array = Binary::try_new(left.clone(), right.clone(), Operator::Or)?
             .into_array()
             .optimize()?;
-        assert_eq!(array.as_constant(), Some(true.into())); // or(left, const) -> true
+        assert_eq!(array.as_constant(), Some(&true.into())); // or(left, const) -> true
 
         let array = Binary::try_new(right.clone(), left, Operator::Or)?
             .into_array()
             .optimize()?;
-        assert_eq!(array.as_constant(), Some(true.into())); // or(const, left) -> true
+        assert_eq!(array.as_constant(), Some(&true.into())); // or(const, left) -> true
 
         let array = Binary::try_new(right.clone(), right.clone(), Operator::Or)?
             .into_array()
             .optimize()?;
-        assert_eq!(array.as_constant(), Some(true.into())); // or(const, const) -> const
+        assert_eq!(array.as_constant(), Some(&true.into())); // or(const, const) -> const
 
         let left_false = ConstantArray::new(false, 3).into_array();
 
         let array = Binary::try_new(right.clone(), left_false.clone(), Operator::Or)?
             .into_array()
             .optimize()?;
-        assert_eq!(array.as_constant(), Some(true.into()));
+        assert_eq!(array.as_constant(), Some(&true.into()));
         let array = Binary::try_new(left_false, right, Operator::And)?
             .into_array()
             .optimize()?;
-        assert_eq!(array.as_constant(), Some(false.into()));
+        assert_eq!(array.as_constant(), Some(&false.into()));
 
         Ok(())
     }
 
     #[test]
     fn test_and_reduce_nullable() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let nullable_true =
             ConstantArray::new(Scalar::bool(true, Nullability::Nullable), 3).into_array();
         let right = BoolArray::from_iter([true, false, true]).into_array();
@@ -733,7 +659,7 @@ mod tests {
 
     #[test]
     fn test_isnull_and_reduce() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let left = BoolArray::from_iter([Some(true), Some(true), None]).into_array();
         let right = BoolArray::from_iter([true, false, true]).into_array();
 
@@ -751,13 +677,14 @@ mod tests {
                 &mut ctx
             );
             assert_arrays_eq!(array.as_::<ScalarFn>().get_child(1), right, &mut ctx);
+            assert_arrays_eq!(array, BoolArray::from_iter([false, false, true]), &mut ctx);
         }
         Ok(())
     }
 
     #[test]
     fn test_isnotnull_or_reduce() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let left = BoolArray::from_iter([Some(true), Some(true), None]).into_array();
         let right = BoolArray::from_iter([true, false, true]).into_array();
 
@@ -775,6 +702,7 @@ mod tests {
                 &mut ctx
             );
             assert_arrays_eq!(array.as_::<ScalarFn>().get_child(1), right, &mut ctx);
+            assert_arrays_eq!(array, BoolArray::from_iter([true, true, true]), &mut ctx);
         }
         Ok(())
     }

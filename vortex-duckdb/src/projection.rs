@@ -25,6 +25,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::convert::try_from_table_filter;
 use crate::convert::try_from_virtual_column_filter;
+use crate::duckdb::ExpressionClass;
 use crate::duckdb::LogicalType;
 use crate::duckdb::TableFilterClass;
 use crate::duckdb::TableFilterSetRef;
@@ -218,7 +219,14 @@ impl Filter {
                 let idx_u: usize = idx.as_();
                 !is_virtual_column(column_ids[idx_u])
             }) {
-                has_non_optional_filter |= !matches!(ex.as_class(), TableFilterClass::Optional(_));
+                has_non_optional_filter |= match ex.as_class() {
+                    TableFilterClass::Optional(_) => false,
+                    TableFilterClass::ExpressionRef(expr) => match expr.as_class() {
+                        Some(ExpressionClass::BoundFunction(bfn)) => bfn.optional().is_none(),
+                        _ => true,
+                    },
+                    _ => true,
+                };
 
                 let idx_u: usize = idx.as_();
                 let col_idx: usize = column_ids[idx_u].as_();
@@ -326,13 +334,39 @@ mod tests {
         assert_eq!(result.file_row_number_column_pos, Some(0));
 
         input.column_ids = &[0, 1];
-        assert_ne!(Projection::new(input.clone()).projection, root());
+        assert_eq!(
+            Projection::new(input.clone()).projection,
+            pack(
+                [("a", get_item("a", root())), ("b", get_item("b", root()))],
+                false.into()
+            )
+        );
 
         input.column_ids = &[0, 2, 2];
-        assert_ne!(Projection::new(input.clone()).projection, root());
+        assert_eq!(
+            Projection::new(input.clone()).projection,
+            pack(
+                [
+                    ("a", get_item("a", root())),
+                    ("c", get_item("c", root())),
+                    ("c", get_item("c", root()))
+                ],
+                false.into()
+            )
+        );
 
         input.column_ids = &[2, 1, 0];
-        assert_ne!(Projection::new(input.clone()).projection, root());
+        assert_eq!(
+            Projection::new(input.clone()).projection,
+            pack(
+                [
+                    ("c", get_item("c", root())),
+                    ("b", get_item("b", root())),
+                    ("a", get_item("a", root()))
+                ],
+                false.into()
+            )
+        );
 
         // If any column has a projection expression, we can't use SELECT *
         let mut fields = [field("a"), field("b"), field("c")];
@@ -342,7 +376,17 @@ mod tests {
             projection_ids: &[],
             column_fields: &fields,
         };
-        assert_ne!(Projection::new(input).projection, root());
+        assert_eq!(
+            Projection::new(input).projection,
+            pack(
+                [
+                    ("a", lit(true)),
+                    ("b", get_item("b", root())),
+                    ("c", get_item("c", root())),
+                ],
+                false.into()
+            )
+        );
     }
 
     #[test]

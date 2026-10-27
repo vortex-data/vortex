@@ -91,7 +91,9 @@ public final class VortexSqlTest {
         assertEquals("Bob", rows.get(0).getString(0));
 
         spark.sql("INSERT OVERWRITE managed_students VALUES (3, 'Carol', 22)");
-        assertEquals(1, spark.sql("SELECT * FROM managed_students").count(), "Overwrite should replace all rows");
+        assertEquals(
+                List.of(RowFactory.create(3, "Carol", 22)),
+                spark.sql("SELECT * FROM managed_students").collectAsList());
 
         Path tableDir = warehouseDir.resolve("managed_students");
         assertTrue(Files.exists(tableDir), "Managed table data should live under the warehouse dir");
@@ -107,9 +109,9 @@ public final class VortexSqlTest {
         spark.sql("INSERT INTO ctas_source VALUES (1, 'Alice'), (2, 'Bob')");
 
         spark.sql("CREATE TABLE ctas_target USING vortex AS SELECT * FROM ctas_source WHERE id > 1");
-        List<Row> rows = spark.sql("SELECT name FROM ctas_target").collectAsList();
-        assertEquals(1, rows.size());
-        assertEquals("Bob", rows.get(0).getString(0));
+        assertEquals(
+                List.of(RowFactory.create(2, "Bob")),
+                spark.sql("SELECT * FROM ctas_target").collectAsList());
 
         spark.sql("DROP TABLE ctas_target");
         spark.sql("DROP TABLE ctas_source");
@@ -145,8 +147,13 @@ public final class VortexSqlTest {
 
         spark.sql(String.format("INSERT INTO vortex.`%s` VALUES (4, 'Dave', 50)", dataDir));
         assertEquals(
-                4,
-                spark.sql(String.format("SELECT * FROM vortex.`%s`", dataDir)).count());
+                List.of(
+                        RowFactory.create(1, "Alice", 34),
+                        RowFactory.create(2, "Bob", 27),
+                        RowFactory.create(3, "Carol", 45),
+                        RowFactory.create(4, "Dave", 50)),
+                spark.sql(String.format("SELECT * FROM vortex.`%s` ORDER BY id", dataDir))
+                        .collectAsList());
     }
 
     @Test

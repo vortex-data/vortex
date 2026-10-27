@@ -74,7 +74,9 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
@@ -86,7 +88,7 @@ mod tests {
     use crate::zigzag_encode;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -96,10 +98,12 @@ mod tests {
         let zigzag = zigzag_encode(
             PrimitiveArray::new(buffer![-189, -160, 1], Validity::AllValid).as_view(),
         )?;
+        let scalar = zigzag.execute_scalar(1, &mut SESSION.create_execution_ctx())?;
         assert_eq!(
-            zigzag.execute_scalar(1, &mut SESSION.create_execution_ctx())?,
-            Scalar::primitive(-160, Nullability::Nullable)
+            scalar.dtype(),
+            &DType::Primitive(PType::I32, Nullability::Nullable)
         );
+        assert_eq!(scalar, Scalar::primitive(-160, Nullability::Nullable));
         Ok(())
     }
 

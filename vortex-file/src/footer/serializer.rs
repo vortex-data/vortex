@@ -147,7 +147,7 @@ impl FooterSerializer {
 
         let statistics_segment = match self.footer.statistics() {
             None => None,
-            Some(stats) if stats.stats_sets().is_empty() => None,
+            Some(stats) if stats.is_empty() => None,
             Some(stats) => {
                 let (buffer, stats_segment) = write_flatbuffer(&mut self.offset, stats)?;
                 buffers.push(buffer);

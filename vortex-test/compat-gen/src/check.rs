@@ -6,12 +6,12 @@ use std::path::Path;
 use clap::ValueEnum;
 use serde::Serialize;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::assert_arrays_eq;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use crate::adapter;
 use crate::fixtures::all_fixtures;
@@ -42,13 +42,13 @@ struct FailedFixture {
 /// Check `.vortex` files in `dir` against in-memory fixtures.
 ///
 /// For each known fixture, generates fresh files in a temp directory via
-/// `fixture.write(tmp_dir)`, then reads both the stored file and fresh file,
+/// `fixture.write_expected(tmp_dir)`, then reads both the stored file and fresh file,
 /// decodes them, and compares the arrays.
 ///
 /// Prints JSON result to stdout, human-readable progress to stderr.
 /// Returns error if any fixture failed or if mode constraints are violated.
 pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = VortexSession::empty().create_execution_ctx();
     let fixtures = all_fixtures();
     let fixtures: Vec<_> = fixtures
         .into_iter()
@@ -67,7 +67,7 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
 
     eprintln!("generating fresh fixtures for comparison...");
     for fixture in &fixtures {
-        fixture.write(tmp_dir.path(), &mut ctx)?;
+        fixture.write_expected(tmp_dir.path(), &mut ctx)?;
     }
 
     // Collect .vortex files in the check directory.

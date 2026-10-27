@@ -30,7 +30,7 @@ impl CompareKernel for FSST {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         match rhs.as_constant() {
-            Some(constant) => compare_fsst_constant(lhs, &constant, operator, ctx),
+            Some(constant) => compare_fsst_constant(lhs, constant, operator, ctx),
             // Otherwise, fall back to the default comparison behavior.
             _ => Ok(None),
         }
@@ -143,7 +143,7 @@ mod tests {
     use crate::fsst_train_compressor;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -172,8 +172,7 @@ mod tests {
         let equals = lhs
             .clone()
             .into_array()
-            .binary(rhs.clone().into_array(), Operator::Eq)?
-            .execute::<BoolArray>(&mut ctx)?;
+            .binary(rhs.clone().into_array(), Operator::Eq)?;
 
         assert_eq!(equals.dtype(), &DType::Bool(Nullability::Nullable));
 
@@ -187,8 +186,7 @@ mod tests {
         let not_equals = lhs
             .clone()
             .into_array()
-            .binary(rhs.into_array(), Operator::NotEq)?
-            .execute::<BoolArray>(&mut ctx)?;
+            .binary(rhs.into_array(), Operator::NotEq)?;
 
         assert_eq!(not_equals.dtype(), &DType::Bool(Nullability::Nullable));
         assert_arrays_eq!(

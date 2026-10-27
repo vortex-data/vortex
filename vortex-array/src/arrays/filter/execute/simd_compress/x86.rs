@@ -34,8 +34,7 @@ use std::arch::x86_64::_mm512_storeu_epi16;
 use std::arch::x86_64::_mm512_storeu_epi32;
 use std::arch::x86_64::_mm512_storeu_epi64;
 
-use vortex_mask::MaskValues;
-
+use super::super::slice::MaskBits;
 use super::super::slice::for_each_mask_word;
 use super::super::slice::low_bits_mask;
 use super::Kernel;
@@ -47,7 +46,7 @@ use super::generic::compress_generic_16;
 ///
 /// Sparse masks stay on the scalar set-bit walk. See `benches/filter_fixed_width.rs` when
 /// changing these thresholds.
-pub(super) fn select_kernel<T, const IN_PLACE: bool>(mask: &MaskValues) -> Option<Kernel> {
+pub(super) fn select_kernel<T, const IN_PLACE: bool>(density: f64) -> Option<Kernel> {
     let (kernel, min_density) = match size_of::<T>() {
         1 if avx512_vbmi2() => (compress_avx512_epi8::<IN_PLACE> as Kernel, 0.0),
         2 if avx512_vbmi2() => (compress_avx512_epi16::<IN_PLACE> as Kernel, 0.15),
@@ -61,21 +60,22 @@ pub(super) fn select_kernel<T, const IN_PLACE: bool>(mask: &MaskValues) -> Optio
         _ => return None,
     };
 
-    (mask.density() >= min_density).then_some(kernel)
+    (density >= min_density).then_some(kernel)
 }
 
 fn avx512f() -> bool {
-    is_x86_feature_detected!("avx512f")
+    is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("popcnt")
 }
 
 fn avx512_vbmi2() -> bool {
     is_x86_feature_detected!("avx512f")
         && is_x86_feature_detected!("avx512bw")
         && is_x86_feature_detected!("avx512vbmi2")
+        && is_x86_feature_detected!("popcnt")
 }
 
 fn avx2() -> bool {
-    is_x86_feature_detected!("avx2")
+    is_x86_feature_detected!("avx2") && is_x86_feature_detected!("popcnt")
 }
 
 /// Generate an AVX-512 kernel for one element width.
@@ -171,10 +171,10 @@ macro_rules! avx512_compress_kernel {
         pub(super) unsafe fn $walk_fn<const IN_PLACE: bool>(
             src: *const u8,
             dst: *mut u8,
-            mask: &MaskValues,
+            bits: MaskBits<'_>,
         ) -> usize {
             let mut write_pos = 0;
-            for_each_mask_word(mask, |word, word_start, word_len| {
+            for_each_mask_word(bits, |word, word_start, word_len| {
                 // SAFETY: forwarded from the caller contract.
                 write_pos = unsafe {
                     $word_fn::<IN_PLACE>(src, dst, word, word_start, word_len, write_pos)
@@ -187,7 +187,7 @@ macro_rules! avx512_compress_kernel {
 
 avx512_compress_kernel!(
     compress_word_avx512_epi8, compress_avx512_epi8,
-    features: "avx512f,avx512bw,avx512vbmi2",
+    features: "avx512f,avx512bw,avx512vbmi2,popcnt",
     elem: i8,
     lanes: 64,
     kmask: u64,
@@ -200,7 +200,7 @@ avx512_compress_kernel!(
 
 avx512_compress_kernel!(
     compress_word_avx512_epi16, compress_avx512_epi16,
-    features: "avx512f,avx512bw,avx512vbmi2",
+    features: "avx512f,avx512bw,avx512vbmi2,popcnt",
     elem: i16,
     lanes: 32,
     kmask: u32,
@@ -213,7 +213,7 @@ avx512_compress_kernel!(
 
 avx512_compress_kernel!(
     compress_word_avx512_epi32, compress_avx512_epi32,
-    features: "avx512f",
+    features: "avx512f,popcnt",
     elem: i32,
     lanes: 16,
     kmask: u16,
@@ -226,7 +226,7 @@ avx512_compress_kernel!(
 
 avx512_compress_kernel!(
     compress_word_avx512_epi64, compress_avx512_epi64,
-    features: "avx512f",
+    features: "avx512f,popcnt",
     elem: i64,
     lanes: 8,
     kmask: u8,
@@ -329,7 +329,7 @@ macro_rules! avx2_compress_kernel {
             clippy::cast_possible_truncation,
             reason = "deliberate submask narrowing"
         )]
-        #[target_feature(enable = "avx2")]
+        #[target_feature(enable = "avx2,popcnt")]
         #[inline]
         unsafe fn $word_fn<const IN_PLACE: bool>(
             src: *const u8,
@@ -409,14 +409,14 @@ macro_rules! avx2_compress_kernel {
         /// The CPU must support AVX2 and the pointer contract of
         /// [`filter_slice_by_bitmap`](super::filter_slice_by_bitmap) /
         /// [`filter_slice_mut_by_bitmap`](super::filter_slice_mut_by_bitmap) must hold.
-        #[target_feature(enable = "avx2")]
+        #[target_feature(enable = "avx2,popcnt")]
         pub(super) unsafe fn $walk_fn<const IN_PLACE: bool>(
             src: *const u8,
             dst: *mut u8,
-            mask: &MaskValues,
+            bits: MaskBits<'_>,
         ) -> usize {
             let mut write_pos = 0;
-            for_each_mask_word(mask, |word, word_start, word_len| {
+            for_each_mask_word(bits, |word, word_start, word_len| {
                 // SAFETY: forwarded from the caller contract.
                 write_pos = unsafe {
                     $word_fn::<IN_PLACE>(src, dst, word, word_start, word_len, write_pos)

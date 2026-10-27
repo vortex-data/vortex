@@ -5,6 +5,7 @@
 
 import importlib.util
 from contextlib import nullcontext
+from copy import deepcopy
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -75,10 +76,11 @@ def test_late_invalid_record_never_starts_transaction(writer, commit, records, i
 
 def test_fact_rows_apply_in_lock_order(writer, commit, records, monkeypatch):
     records += [{**records[0], "query_idx": idx} for idx in (2, 3)]
+    expected_records = deepcopy(records)
     applied = []
 
     def apply(connection, mid, record) -> bool:
-        applied.append((record["kind"], mid))
+        applied.append((record["kind"], mid, record))
         return False
 
     for kind in writer._APPLY_RECORD:
@@ -86,5 +88,8 @@ def test_fact_rows_apply_in_lock_order(writer, commit, records, monkeypatch):
     connection = SimpleNamespace(transaction=nullcontext, execute=lambda *args: None)
     # Every input order must produce the same row lock order, or overlapping writers could deadlock.
     assert writer.ingest_postgres(connection, commit, records[::-1]) == (len(records), 0)
-    assert len(applied) == len(records)
-    assert applied == sorted(applied)
+    assert sorted(
+        (record for _, _, record in applied), key=lambda record: (record["kind"], record.get("query_idx", 0))
+    ) == sorted(expected_records, key=lambda record: (record["kind"], record.get("query_idx", 0)))
+    keys = [(kind, mid) for kind, mid, _ in applied]
+    assert keys == sorted(keys)

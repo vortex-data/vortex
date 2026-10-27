@@ -28,6 +28,9 @@ val sparkVersion: String =
         }
     }
 
+// Tests can run against a newer Spark than the jar compiles against, e.g. -PsparkTestVersion=4.2.0.
+val sparkTestVersion: String = (findProperty("sparkTestVersion") as String?) ?: sparkVersion
+
 // Both vortex-spark_2.12 and vortex-spark_2.13 share this projectDir.
 // Give each its own build directory to avoid output conflicts.
 layout.buildDirectory = layout.projectDirectory.dir("build/${project.name}")
@@ -51,8 +54,8 @@ testing {
 
             dependencies {
                 implementation(libs.junit.jupiter)
-                implementation("org.apache.spark:spark-core_$scalaVersion:$sparkVersion")
-                implementation("org.apache.spark:spark-sql_$scalaVersion:$sparkVersion")
+                implementation("org.apache.spark:spark-core_$scalaVersion:$sparkTestVersion")
+                implementation("org.apache.spark:spark-sql_$scalaVersion:$sparkTestVersion")
                 implementation(libs.s3mock.testcontainers)
                 implementation(libs.testcontainers.juputer)
                 runtimeOnly(libs.slf4j.simple)

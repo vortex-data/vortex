@@ -39,6 +39,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::assert_arrays_eq;
 use vortex_array::display::EncodingSummaryExtractor;
 use vortex_array::display::MetadataExtractor;
 use vortex_array::display::TreeContext;
@@ -62,7 +63,7 @@ use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 /// Number of values in each numeric corpus entry: comfortably above the 1024-value sampling
 /// threshold so scheme selection runs on sampled estimates, as it does for real file chunks.
@@ -114,13 +115,15 @@ fn golden_snapshots(
     entries: Vec<(&'static str, ArrayRef)>,
 ) -> VortexResult<()> {
     for (name, array) in entries {
-        let rendered = {
+        let (rendered, compressed) = {
             let mut exec_ctx = SESSION.create_execution_ctx();
-            render(&array, &compressor.compress(&array, &mut exec_ctx)?)
+            let compressed = compressor.compress(&array, &mut exec_ctx)?;
+            (render(&array, &compressed), compressed)
         };
-        let rendered_again = {
+        let (rendered_again, compressed_again) = {
             let mut exec_ctx = SESSION.create_execution_ctx();
-            render(&array, &compressor.compress(&array, &mut exec_ctx)?)
+            let compressed = compressor.compress(&array, &mut exec_ctx)?;
+            (render(&array, &compressed), compressed)
         };
         assert_eq!(
             rendered, rendered_again,
@@ -128,6 +131,9 @@ fn golden_snapshots(
         );
 
         insta::assert_snapshot!(format!("{variant}__{name}"), rendered);
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        assert_arrays_eq!(&compressed, &array, &mut exec_ctx);
+        assert_arrays_eq!(&compressed_again, &array, &mut exec_ctx);
     }
     Ok(())
 }
@@ -403,6 +409,7 @@ fn struct_mixed() -> VortexResult<ArrayRef> {
 
 /// Variable-length lists of run-heavy ints: pins the list offsets/elements path.
 fn list_of_int_runs() -> VortexResult<ArrayRef> {
+    let mut ctx = SESSION.create_execution_ctx();
     let mut rng = StdRng::seed_from_u64(118);
     let elements = int_runs();
     let mut offsets: Vec<i32> = Vec::with_capacity(N / 4 + 1);
@@ -413,7 +420,13 @@ fn list_of_int_runs() -> VortexResult<ArrayRef> {
         offsets.push(offset);
     }
     let offsets = PrimitiveArray::new(Buffer::copy_from(&offsets), Validity::NonNullable);
-    Ok(ListArray::try_new(elements, offsets.into_array(), Validity::NonNullable)?.into_array())
+    Ok(ListArray::try_new(
+        elements,
+        offsets.into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )?
+    .into_array())
 }
 
 /// Excludes OnPair from the `regular` and `compact` variants: it beats FSST on
@@ -427,7 +440,7 @@ fn without_onpair(builder: BtrBlocksCompressorBuilder) -> BtrBlocksCompressorBui
 }
 
 fn edition_session(editions: &[EditionId]) -> VortexResult<VortexSession> {
-    let session = vortex_array::array_session().with::<EditionSession>();
+    let session = VortexSession::empty().with::<EditionSession>();
     // The compressor only produces encodings registered on the session.
     vortex_alp::initialize(&session);
     vortex_datetime_parts::initialize(&session);

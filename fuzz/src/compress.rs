@@ -4,9 +4,7 @@
 //! Fuzzer module for testing compressed encoding canonicalization.
 //!
 //! This module generates arbitrary instances of compressed encodings (DictArray, etc.),
-//! then verifies that `to_canonical()` works and produces correct `len` and `dtype`.
-
-use std::backtrace::Backtrace;
+//! then checks canonicalization against the original encoding's scalar lookups.
 
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
@@ -19,6 +17,7 @@ use vortex_array::arrays::dict::ArbitraryDictArray;
 use vortex_runend::ArbitraryRunEndArray;
 
 use crate::SESSION;
+use crate::error::Backtrace;
 use crate::error::VortexFuzzError;
 use crate::error::VortexFuzzResult;
 
@@ -77,6 +76,12 @@ pub fn run_compress_roundtrip(fuzz: FuzzCompressRoundtrip) -> VortexFuzzResult<b
 
     let mut ctx = SESSION.create_execution_ctx();
 
+    // Encoded point lookups use a different path from batch canonicalization.
+    let expected = (0..original_len)
+        .map(|idx| array.execute_scalar(idx, &mut ctx))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| VortexFuzzError::VortexError(e, Backtrace::capture()))?;
+
     // Try to canonicalize - this is the main thing we're testing
     let canonical = match array.clone().execute::<Canonical>(&mut ctx) {
         Ok(c) => c,
@@ -108,6 +113,23 @@ pub fn run_compress_roundtrip(fuzz: FuzzCompressRoundtrip) -> VortexFuzzResult<b
             0,
             Backtrace::capture(),
         ));
+    }
+
+    for (idx, expected_scalar) in expected.into_iter().enumerate() {
+        let actual_scalar = canonical_array
+            .execute_scalar(idx, &mut ctx)
+            .map_err(|e| VortexFuzzError::VortexError(e, Backtrace::capture()))?;
+        if expected_scalar != actual_scalar {
+            return Err(VortexFuzzError::ArrayNotEqual(
+                expected_scalar,
+                actual_scalar,
+                idx,
+                array,
+                canonical_array,
+                0,
+                Backtrace::capture(),
+            ));
+        }
     }
 
     Ok(true)

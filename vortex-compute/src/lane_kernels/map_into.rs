@@ -665,7 +665,11 @@ mod tests {
             .try_map_masked_into(&mask, &mut branchful, |v| u32::try_from(v).ok())
             .unwrap();
 
-        assert_eq!(write_t(branchful), write_t(branchless));
+        let mut expected: Vec<u32> = (0..130).map(|i| i * 7).collect();
+        expected[2] = 0;
+        expected[65] = u32::MAX;
+        assert_eq!(write_t(branchful), expected);
+        assert_eq!(write_t(branchless), expected);
     }
 
     #[test]
@@ -749,7 +753,9 @@ mod tests {
             .map_checked_into(&mut out, |v| (v as u32, v > u32::MAX as u64));
         assert!(failed);
         // Failing lanes still write their (wrapped) value.
-        assert_eq!(write_t(out)[76], 76);
+        let mut expected: Vec<u32> = (0..130).collect();
+        expected[77] = 0;
+        assert_eq!(write_t(out), expected);
     }
 
     #[test]

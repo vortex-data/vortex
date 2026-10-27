@@ -37,10 +37,13 @@ use vortex_array::expr::is_not_null;
 use vortex_array::expr::lit;
 use vortex_array::expr::or;
 use vortex_array::expr::root;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
+use vortex_expr::stats::session::StatsSession;
 use vortex_layout::layouts::zoned::zone_map::ZoneMap;
-use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -48,11 +51,16 @@ use vortex_utils::aliases::hash_map::HashMap;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| vortex_array::array_session().with::<LayoutSession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<MemorySession>()
+        .with::<StatsSession>()
+});
 
 /// Zone counts to sweep. The small case exposes per-call fixed cost, the large case exposes
 /// per-zone evaluation cost.

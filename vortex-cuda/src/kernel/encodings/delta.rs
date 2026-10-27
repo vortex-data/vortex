@@ -15,8 +15,6 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use cudarc::driver::LaunchConfig;
-use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
@@ -33,6 +31,8 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
+use vortex_cuda_driver::LaunchConfig;
+use vortex_cuda_driver::PushKernelArg;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -157,21 +157,29 @@ async fn decode_delta(array: DeltaArray, ctx: &mut CudaExecutionCtx) -> VortexRe
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex::array::IntoArray;
     use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::error::VortexExpect;
+    use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::CanonicalCudaExt;
     use crate::session::CudaSession;
 
-    /// Decodes `array` on the GPU and asserts it matches the CPU canonical form.
-    async fn assert_gpu_matches_cpu(delta: DeltaArray) -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    /// Decodes on the GPU and compares against the independent uncompressed fixture.
+    async fn assert_gpu_matches_expected(
+        delta: DeltaArray,
+        expected: ArrayRef,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -179,11 +187,11 @@ mod tests {
             .execute(delta.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 
-        assert_arrays_eq!(delta, gpu, &mut ctx);
+        assert_arrays_eq!(gpu, expected, &mut ctx);
         Ok(())
     }
 
@@ -193,61 +201,61 @@ mod tests {
     /// spans several chunks.
     #[crate::test]
     async fn test_cuda_delta_u8() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let primitive = PrimitiveArray::new(
             Buffer::from_iter((0u8..=255).cycle().take(3000)),
             Validity::NonNullable,
         );
 
         let delta = Delta::try_from_primitive_array(&primitive, &mut ctx)?;
-        assert_gpu_matches_cpu(delta).await
+        assert_gpu_matches_expected(delta, primitive.into_array()).await
     }
 
     #[crate::test]
     async fn test_cuda_delta_u16() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let primitive = PrimitiveArray::new(Buffer::from_iter(0u16..3000), Validity::NonNullable);
 
         let delta = Delta::try_from_primitive_array(&primitive, &mut ctx)?;
-        assert_gpu_matches_cpu(delta).await
+        assert_gpu_matches_expected(delta, primitive.into_array()).await
     }
 
     #[crate::test]
     async fn test_cuda_delta_u32() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let primitive = PrimitiveArray::new(
             Buffer::from_iter((0u32..3000).map(|i| i * 7)),
             Validity::NonNullable,
         );
 
         let delta = Delta::try_from_primitive_array(&primitive, &mut ctx)?;
-        assert_gpu_matches_cpu(delta).await
+        assert_gpu_matches_expected(delta, primitive.into_array()).await
     }
 
     #[crate::test]
     async fn test_cuda_delta_u64() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let primitive = PrimitiveArray::new(
             Buffer::from_iter((0u64..3000).map(|i| i * 1_000_003)),
             Validity::NonNullable,
         );
 
         let delta = Delta::try_from_primitive_array(&primitive, &mut ctx)?;
-        assert_gpu_matches_cpu(delta).await
+        assert_gpu_matches_expected(delta, primitive.into_array()).await
     }
 
     /// Deltas across negative values wrap at compress time, so signed input must decode
     /// through the unsigned kernel unchanged.
     #[crate::test]
     async fn test_cuda_delta_signed_values() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let primitive = PrimitiveArray::new(
             Buffer::from_iter((0..3000i32).map(|i| i - 1500)),
             Validity::NonNullable,
         );
 
         let delta = Delta::try_from_primitive_array(&primitive, &mut ctx)?;
-        assert_gpu_matches_cpu(delta).await
+        assert_gpu_matches_expected(delta, primitive.into_array()).await
     }
 
     /// A sliced Delta keeps whole chunks and carries a nonzero offset, which the decode
@@ -257,7 +265,7 @@ mod tests {
     #[case::across_chunks(1000, 1500)]
     #[crate::test]
     async fn test_cuda_delta_sliced(#[case] start: usize, #[case] end: usize) -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let primitive = PrimitiveArray::new(
             Buffer::from_iter((0..3000u32).map(|i| i * 3)),
             Validity::NonNullable,
@@ -266,22 +274,22 @@ mod tests {
         let delta = Delta::try_from_primitive_array(&primitive, &mut ctx)?
             .into_array()
             .slice(start..end)?;
-        let Ok(delta) = delta.try_downcast::<Delta>() else {
-            // A slice that the encoding chose to canonicalise is not this test's concern.
-            return Ok(());
-        };
-        assert_gpu_matches_cpu(delta).await
+        let delta = delta
+            .try_downcast::<Delta>()
+            .ok()
+            .vortex_expect("slice fixture must exercise the Delta GPU decoder");
+        assert_gpu_matches_expected(delta, primitive.slice(start..end)?).await
     }
 
     /// Nulls ride alongside the values, and the validity is narrowed to the logical slice.
     #[crate::test]
     async fn test_cuda_delta_nullable() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let primitive = PrimitiveArray::from_option_iter(
             (0..3000u32).map(|value| (value % 7 != 0).then_some(value)),
         );
 
         let delta = Delta::try_from_primitive_array(&primitive, &mut ctx)?;
-        assert_gpu_matches_cpu(delta).await
+        assert_gpu_matches_expected(delta, primitive.into_array()).await
     }
 }

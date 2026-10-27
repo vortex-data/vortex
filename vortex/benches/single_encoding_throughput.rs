@@ -13,29 +13,40 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::prelude::IndexedRandom;
 use rand::rngs::StdRng;
-use vortex::VortexSessionDefault;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
+use vortex::array::aggregate_fn::session::AggregateFnSession;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::builders::dict::dict_encode;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::dtype::Nullability;
+use vortex::array::memory::MemorySession;
+use vortex::array::optimizer::kernels::KernelSession;
+use vortex::array::session::ArraySession;
 use vortex::dtype::PType;
+use vortex::editions::EditionSession;
+use vortex::encodings::alp;
 use vortex::encodings::alp::RDEncoder;
 use vortex::encodings::alp::RDEncoderExt;
 use vortex::encodings::alp::alp_encode;
+use vortex::encodings::fastlanes;
 use vortex::encodings::fastlanes::Delta;
 use vortex::encodings::fastlanes::DeltaData;
 use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::fastlanes::delta_compress;
+use vortex::encodings::fsst;
 use vortex::encodings::fsst::fsst_compress;
 use vortex::encodings::fsst::fsst_train_compressor;
 use vortex::encodings::pco::Pco;
+use vortex::encodings::runend;
 use vortex::encodings::runend::RunEnd;
+use vortex::encodings::sequence;
 use vortex::encodings::sequence::sequence_encode;
+use vortex::encodings::zigzag;
 use vortex::encodings::zigzag::zigzag_encode;
+use vortex::encodings::zstd;
 use vortex::encodings::zstd::Zstd;
 use vortex::encodings::zstd::ZstdData;
 use vortex_array::VortexSessionExecute;
@@ -46,7 +57,22 @@ use vortex_session::VortexSession;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>()
+        .with::<EditionSession>();
+    alp::initialize(&session);
+    fastlanes::initialize(&session);
+    fsst::initialize(&session);
+    runend::initialize(&session);
+    sequence::initialize(&session);
+    zigzag::initialize(&session);
+    zstd::initialize(&session);
+    session
+});
 
 fn main() {
     LazyLock::force(&SESSION);

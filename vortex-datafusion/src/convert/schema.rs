@@ -302,12 +302,7 @@ mod tests {
 
         let physical_schema =
             calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
-
-        // Should preserve the dictionary type from the logical schema
-        assert_eq!(
-            physical_schema.field(0).data_type(),
-            &DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8))
-        );
+        assert_eq!(physical_schema, logical_schema);
     }
 
     #[test]
@@ -328,11 +323,7 @@ mod tests {
 
         let physical_schema =
             calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default())?;
-
-        assert_eq!(
-            physical_schema.metadata().get("table"),
-            Some(&"metadata".to_string())
-        );
+        assert_eq!(physical_schema, logical_schema);
         Ok(())
     }
 
@@ -359,11 +350,7 @@ mod tests {
 
         let physical_schema =
             calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
-
-        assert_eq!(physical_schema.field(0).data_type(), &DataType::Utf8);
-        assert_eq!(physical_schema.field(1).data_type(), &DataType::LargeUtf8);
-        assert_eq!(physical_schema.field(2).data_type(), &DataType::Binary);
-        assert_eq!(physical_schema.field(3).data_type(), &DataType::LargeBinary);
+        assert_eq!(physical_schema, logical_schema);
     }
 
     #[test]
@@ -446,19 +433,7 @@ mod tests {
 
         let physical_schema =
             calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
-
-        // Check outer structure
-        assert_eq!(physical_schema.fields().len(), 2);
-
-        // Check nested struct preserves Utf8 (not Utf8View)
-        let outer_field = physical_schema.field(0);
-        if let DataType::Struct(inner_fields) = outer_field.data_type() {
-            assert_eq!(inner_fields.len(), 2);
-            assert_eq!(inner_fields[0].data_type(), &DataType::Utf8);
-            assert_eq!(inner_fields[1].data_type(), &DataType::Int64);
-        } else {
-            panic!("Expected struct type for outer_col");
-        }
+        assert_eq!(physical_schema, logical_schema);
     }
 
     #[test]
@@ -488,15 +463,7 @@ mod tests {
 
         let physical_schema =
             calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
-
-        if let DataType::List(elem_field) = physical_schema.field(0).data_type() {
-            assert_eq!(
-                elem_field.data_type(),
-                &DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8))
-            );
-        } else {
-            panic!("Expected list type");
-        }
+        assert_eq!(physical_schema, logical_schema);
     }
 
     #[test]
@@ -528,34 +495,7 @@ mod tests {
 
         let physical_schema =
             calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
-        let field = physical_schema.field(0);
-        assert!(field.is_nullable());
-        let DataType::Map(entries, keys_sorted) = field.data_type() else {
-            panic!("expected Map type, got {:?}", field.data_type());
-        };
-        assert!(*keys_sorted);
-        assert_eq!(entries.name(), "custom_entries");
-        assert_eq!(
-            entries.metadata().get("entries_metadata"),
-            Some(&"entries_value".to_owned())
-        );
-        let DataType::Struct(fields) = entries.data_type() else {
-            panic!("expected map entries struct, got {:?}", entries.data_type());
-        };
-        assert_eq!(fields[0].name(), "custom_key");
-        assert_eq!(fields[0].data_type(), &DataType::Int32);
-        assert!(!fields[0].is_nullable());
-        assert_eq!(
-            fields[0].metadata().get("key_metadata"),
-            Some(&"key_value".to_owned())
-        );
-        assert_eq!(fields[1].name(), "custom_value");
-        assert_eq!(fields[1].data_type(), &DataType::Utf8);
-        assert!(fields[1].is_nullable());
-        assert_eq!(
-            fields[1].metadata().get("value_metadata"),
-            Some(&"value_value".to_owned())
-        );
+        assert_eq!(physical_schema, logical_schema);
     }
 
     #[test]
@@ -602,13 +542,7 @@ mod tests {
 
         let physical_schema =
             calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
-
-        let names: Vec<&str> = physical_schema
-            .fields()
-            .iter()
-            .map(|f| f.name().as_str())
-            .collect();
-        assert_eq!(names, column_names);
+        assert_eq!(physical_schema, logical_schema);
     }
 
     /// Same, one level down: struct children are built at a separate call
@@ -650,12 +584,7 @@ mod tests {
 
         let physical_schema =
             calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
-
-        let DataType::Struct(labels) = physical_schema.field(0).data_type() else {
-            panic!("expected labels to be a struct");
-        };
-        let names: Vec<&str> = labels.iter().map(|f| f.name().as_str()).collect();
-        assert_eq!(names, label_names);
+        assert_eq!(physical_schema, logical_schema);
     }
 
     #[test]
@@ -688,18 +617,7 @@ mod tests {
 
         let physical_schema =
             calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default())?;
-
-        for name in ["list_col", "fsl_col", "listview_col"] {
-            let elem_field = match physical_schema.field_with_name(name)?.data_type() {
-                DataType::List(f) | DataType::FixedSizeList(f, _) | DataType::ListView(f) => f,
-                other => panic!("expected list-family type for {name}, got {other:?}"),
-            };
-            assert_eq!(
-                elem_field.metadata().get("elem_meta"),
-                Some(&"v".to_owned()),
-                "element metadata dropped for {name}"
-            );
-        }
+        assert_eq!(physical_schema, logical_schema);
         Ok(())
     }
 }

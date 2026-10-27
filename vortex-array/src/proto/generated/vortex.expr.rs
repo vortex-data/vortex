@@ -31,6 +31,13 @@ pub struct NumericalAggregateOpts {
     #[prost(bool, tag = "1")]
     pub skip_nans: bool,
 }
+/// Options for `vortex.uncompressed_size_in_bytes`: whether the size is an approximation from the
+/// buffers the array holds (the default) or the actual bytes its rows use.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct UncompressedSizeInBytesOpts {
+    #[prost(bool, tag = "1")]
+    pub exact: bool,
+}
 /// Options for `vortex.literal`
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LiteralOpts {
@@ -216,4 +223,12 @@ pub mod select_opts {
 pub struct CaseWhenOpts {
     #[prost(uint32, tag = "1")]
     pub num_children: u32,
+}
+/// Options for `vortex.replace_time_zone`. Ambiguity policy is an expression child.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ReplaceTimeZoneOpts {
+    #[prost(string, optional, tag = "1")]
+    pub time_zone: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(bool, tag = "2")]
+    pub null_on_non_existent: bool,
 }

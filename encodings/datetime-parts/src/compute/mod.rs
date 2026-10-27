@@ -13,22 +13,25 @@ mod take;
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::DateTimeParts;
     use crate::DateTimePartsArray;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     fn dtp_from_temporal(temporal: TemporalArray) -> DateTimePartsArray {
-        DateTimeParts::try_from_temporal(temporal, &mut array_session().create_execution_ctx())
-            .unwrap()
+        DateTimeParts::try_from_temporal(temporal, &mut SESSION.create_execution_ctx()).unwrap()
     }
 
     #[rstest]
@@ -79,7 +82,7 @@ mod tests {
     )))]
 
     fn test_datetime_parts_consistency(#[case] array: DateTimePartsArray) {
-        let ctx = &mut array_session().create_execution_ctx();
+        let ctx = &mut SESSION.create_execution_ctx();
         test_array_consistency(&array.into_array(), ctx);
     }
 }

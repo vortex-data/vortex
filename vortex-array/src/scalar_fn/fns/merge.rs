@@ -254,14 +254,16 @@ impl Display for DuplicateHandling {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
@@ -280,8 +282,10 @@ mod tests {
     use crate::scalar_fn::fns::merge::StructArray;
     use crate::scalar_fn::fns::pack::Pack;
 
-    fn primitive_field(array: &ArrayRef, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
-        let mut ctx = array_session().create_execution_ctx();
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    fn field_array(array: &ArrayRef, field_path: &[&str]) -> VortexResult<ArrayRef> {
+        let mut ctx = SESSION.create_execution_ctx();
         let mut field_path = field_path.iter();
 
         let Some(field) = field_path.next() else {
@@ -301,13 +305,12 @@ mod tests {
                 .clone();
             array = next;
         }
-        let result = array.execute::<PrimitiveArray>(&mut ctx)?;
-        Ok(result)
+        Ok(array)
     }
 
     #[test]
     pub fn test_merge_right_most() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expr = merge_opts(
             vec![
                 get_item("0", root()),
@@ -356,27 +359,27 @@ mod tests {
         );
 
         assert_arrays_eq!(
-            primitive_field(&actual_array, &["a"]).unwrap(),
+            field_array(&actual_array, &["a"]).unwrap(),
             PrimitiveArray::from_iter([0i32, 0, 0]),
             &mut ctx
         );
         assert_arrays_eq!(
-            primitive_field(&actual_array, &["b"]).unwrap(),
+            field_array(&actual_array, &["b"]).unwrap(),
             PrimitiveArray::from_iter([2i32, 2, 2]),
             &mut ctx
         );
         assert_arrays_eq!(
-            primitive_field(&actual_array, &["c"]).unwrap(),
+            field_array(&actual_array, &["c"]).unwrap(),
             PrimitiveArray::from_iter([3i32, 3, 3]),
             &mut ctx
         );
         assert_arrays_eq!(
-            primitive_field(&actual_array, &["d"]).unwrap(),
+            field_array(&actual_array, &["d"]).unwrap(),
             PrimitiveArray::from_iter([4i32, 4, 4]),
             &mut ctx
         );
         assert_arrays_eq!(
-            primitive_field(&actual_array, &["e"]).unwrap(),
+            field_array(&actual_array, &["e"]).unwrap(),
             PrimitiveArray::from_iter([5i32, 5, 5]),
             &mut ctx
         );
@@ -437,7 +440,14 @@ mod tests {
             .into_array();
         let actual_array = test_array.clone().apply(&expr).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
-        assert_eq!(actual_array.nchildren(), 0);
+        let expected = StructArray::try_new(
+            Default::default(),
+            vec![],
+            3,
+            crate::validity::Validity::NonNullable,
+        )
+        .unwrap();
+        assert_arrays_eq!(actual_array, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -478,32 +488,34 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let actual_array = test_array
             .apply(&expr)
             .unwrap()
             .execute::<StructArray>(&mut ctx)
             .unwrap();
 
-        let inner_struct = actual_array
-            .unmasked_field_by_name("a")
-            .unwrap()
-            .clone()
-            .execute::<StructArray>(&mut ctx)
-            .unwrap();
+        let inner_struct = actual_array.unmasked_field_by_name("a").unwrap();
         assert_eq!(
             inner_struct
+                .dtype()
+                .as_struct_fields()
                 .names()
                 .iter()
                 .map(|name| name.as_ref())
                 .collect::<Vec<_>>(),
             vec!["x"]
         );
+        assert_arrays_eq!(
+            inner_struct,
+            StructArray::from_fields(&[("x", buffer![0i32, 0, 0].into_array())]).unwrap(),
+            &mut ctx
+        );
     }
 
     #[test]
     pub fn test_merge_order() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expr = merge(vec![get_item("0", root()), get_item("1", root())]);
 
         let test_array = StructArray::from_fields(&[
@@ -528,13 +540,20 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = test_array
-            .apply(&expr)
-            .unwrap()
-            .execute::<StructArray>(&mut ctx)
-            .unwrap();
+        let actual_array = test_array.apply(&expr).unwrap();
 
-        assert_eq!(actual_array.names(), ["a", "c", "b", "d"]);
+        assert_eq!(
+            actual_array.dtype().as_struct_fields().names(),
+            ["a", "c", "b", "d"]
+        );
+        let expected = StructArray::from_fields(&[
+            ("a", buffer![0i32, 0, 0].into_array()),
+            ("c", buffer![1i32, 1, 1].into_array()),
+            ("b", buffer![2i32, 2, 2].into_array()),
+            ("d", buffer![3i32, 3, 3].into_array()),
+        ])
+        .unwrap();
+        assert_arrays_eq!(actual_array, expected, &mut ctx);
     }
 
     #[test]

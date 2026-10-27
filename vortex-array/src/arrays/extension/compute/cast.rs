@@ -64,7 +64,7 @@ mod tests {
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn cast_same_ext_dtype() {

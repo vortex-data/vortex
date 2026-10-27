@@ -72,7 +72,12 @@ TEST_CASE("Struct DataType", "[dtype]") {
     REQUIRE(d.nullable());
     const std::vector<StructField> built = d.fields();
     REQUIRE(built.size() == 2);
+    REQUIRE(built[0].name == "col1");
+    REQUIRE(built[0].dtype.primitive_type() == U8);
+    REQUIRE_FALSE(built[0].dtype.nullable());
     REQUIRE(built[1].name == "col2");
+    REQUIRE(built[1].dtype.variant() == DataTypeVariant::Utf8);
+    REQUIRE_FALSE(built[1].dtype.nullable());
 
     fields_vec = {};
     fields_vec.emplace_back("\xFF\xFE", dtype::uint8());

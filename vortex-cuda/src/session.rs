@@ -7,7 +7,6 @@ use std::panic::AssertUnwindSafe;
 use std::panic::catch_unwind;
 use std::sync::Arc;
 
-use cudarc::driver::CudaContext;
 use vortex::array::ArrayId;
 use vortex::array::VortexSessionExecute;
 use vortex::error::VortexResult;
@@ -16,6 +15,7 @@ use vortex::session::SessionExt;
 use vortex::session::SessionGuard;
 use vortex::session::SessionVar;
 use vortex::utils::aliases::dash_map::DashMap;
+use vortex_cuda_driver::CudaContext;
 
 use crate::ExportDeviceArray;
 use crate::arrow::CanonicalDeviceArrayExport;
@@ -131,8 +131,8 @@ impl CudaSession {
     /// Unlike [`Default::default`], this returns an error instead of panicking when CUDA cannot be
     /// initialized.
     pub fn try_default() -> VortexResult<Self> {
-        // cudarc panics rather than returning an error when the CUDA driver library cannot be
-        // loaded, so catch any unwind here to uphold this constructor's no-panic contract.
+        // The driver crate panics rather than returning an error when the CUDA driver library
+        // cannot be loaded, so catch any unwind here to uphold this constructor's no-panic contract.
         match catch_unwind(AssertUnwindSafe(|| -> VortexResult<Self> {
             let context = CudaContext::new(0)
                 .map_err(|err| vortex_err!("failed to initialize CUDA device 0: {err}"))?;
@@ -212,7 +212,7 @@ impl CudaSession {
         &self,
         module_name: &str,
         type_suffixes: &[&str],
-    ) -> VortexResult<cudarc::driver::CudaFunction> {
+    ) -> VortexResult<vortex_cuda_driver::CudaFunction> {
         self.kernel_loader
             .load_function(module_name, type_suffixes, &self.context)
     }

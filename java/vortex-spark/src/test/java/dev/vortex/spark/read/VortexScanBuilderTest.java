@@ -5,8 +5,6 @@ package dev.vortex.spark.read;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.Map;
@@ -18,6 +16,7 @@ import org.apache.spark.sql.connector.expressions.NamedReference;
 import org.apache.spark.sql.connector.expressions.Transform;
 import org.apache.spark.sql.connector.expressions.filter.Predicate;
 import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.StructType;
 import org.apache.spark.unsafe.types.UTF8String;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -152,16 +151,39 @@ final class VortexScanBuilderTest {
     @DisplayName("pushedPredicates returns a defensive copy")
     void pushedPredicatesReturnsCopy() {
         VortexScanBuilder builder = builderWithColumns(new Transform[0], Column.create("id", DataTypes.IntegerType));
-        builder.pushPredicates(new Predicate[] {equality("id", 1)});
+        Predicate predicate = equality("id", 1);
+        builder.pushPredicates(new Predicate[] {predicate});
 
         Predicate[] first = builder.pushedPredicates();
-        Predicate[] second = builder.pushedPredicates();
-        assertNotSame(first, second);
 
         // Mutating one returned array must not leak into subsequent calls.
         first[0] = null;
-        assertEquals(1, builder.pushedPredicates().length);
-        assertNotNull(builder.pushedPredicates()[0]);
+        assertArrayEquals(new Predicate[] {predicate}, builder.pushedPredicates());
+    }
+
+    // --- pruneColumns ---
+
+    @Test
+    @DisplayName("Required columns keep their full table type, so readSchema matches what the reader returns")
+    void pruneColumnsKeepsTableTypes() {
+        StructType abc = new StructType()
+                .add("a", DataTypes.LongType)
+                .add("b", DataTypes.LongType)
+                .add("c", DataTypes.LongType);
+        VortexScanBuilder builder = builderWithColumns(
+                new Transform[0],
+                Column.create("id", DataTypes.IntegerType),
+                Column.create("s", abc),
+                Column.create("name", DataTypes.StringType));
+
+        // With nested schema pruning, Spark asks for s with only the field the query uses.
+        builder.pruneColumns(new StructType()
+                .add("s", new StructType().add("c", DataTypes.LongType))
+                .add("id", DataTypes.IntegerType));
+
+        assertEquals(
+                new StructType().add("id", DataTypes.IntegerType).add("s", abc),
+                builder.build().readSchema());
     }
 
     // --- build ---
@@ -171,6 +193,8 @@ final class VortexScanBuilderTest {
     void buildWithoutPathsThrows() {
         VortexScanBuilder builder = new VortexScanBuilder(Map.of());
         builder.addColumn(Column.create("id", DataTypes.IntegerType));
-        assertThrows(IllegalStateException.class, builder::build);
+        assertEquals(
+                "paths cannot be empty",
+                assertThrows(IllegalStateException.class, builder::build).getMessage());
     }
 }

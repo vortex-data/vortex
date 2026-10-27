@@ -33,9 +33,8 @@ def path(tmp_path_factory: pytest.TempPathFactory, table: pa.Table) -> Path:
 
 
 @pytest.fixture(scope="module")
-def expected(path: Path) -> pa.Table:
-    """The file as read through the native path reader, which every Python reader must match."""
-    return vx.open(str(path)).to_arrow().read_all()
+def expected(table: pa.Table) -> pa.Table:
+    return table.cast(pa.schema([("index", pa.int64()), ("string", pa.string_view())]))
 
 
 def read_all(source: ReadBytesAt | ReadAt | IO[bytes]) -> pa.Table:
@@ -233,8 +232,15 @@ def test_pickle_is_refused(path: Path) -> None:
 def test_read_at_concurrency_limit(path: Path, concurrency: int) -> None:
     class Slow(PReadFile):
         def read_into(self, offset: int, buffer: memoryview) -> int:
-            time.sleep(0.01)
-            return super().read_into(offset, buffer)
+            with self._lock:
+                self._in_flight += 1
+                self.max_in_flight = max(self.max_in_flight, self._in_flight)
+            try:
+                time.sleep(0.01)
+                return os.preadv(self._fd, [buffer], offset)
+            finally:
+                with self._lock:
+                    self._in_flight -= 1
 
     reader = Slow(path)
     try:

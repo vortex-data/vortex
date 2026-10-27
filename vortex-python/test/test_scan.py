@@ -37,15 +37,13 @@ def vxfile(tmpdir_factory) -> vx.VortexFile:
 
 
 def test_execute(vxscan: RepeatedScan) -> None:
-    for _ in vxscan.execute():
-        pass
+    rows = [row for batch in vxscan.execute() for row in batch.to_pylist()]
+    assert rows == [record(x) for x in range(1_000)]
 
 
 def test_execute_row_range(vxscan: RepeatedScan) -> None:
-    total_rows = 0
-    for rb in vxscan.execute(row_range=(10, 20)):
-        total_rows += len(rb)
-    assert total_rows == 10
+    rows = [row for batch in vxscan.execute(row_range=(10, 20)) for row in batch.to_pylist()]
+    assert rows == [record(x) for x in range(10, 20)]
 
 
 def test_scalar_at(vxscan: RepeatedScan) -> None:
@@ -63,7 +61,7 @@ def test_scan_with_cast(vxfile: vx.VortexFile) -> None:
     expected = pa.array(
         [{"index": 1, "string": pa.scalar("1", pa.string_view()), "bool": False, "float": math.sqrt(1)}]
     )
-    assert str(actual.to_arrow_array()) == str(expected)
+    assert actual.to_arrow_array(combine_chunks=True) == expected
 
 
 def test_scanner_property_projected(vxfile: vx.VortexFile) -> None:

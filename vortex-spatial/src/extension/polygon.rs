@@ -158,17 +158,24 @@ pub(crate) fn build_polygon_storage(
         ),
     ])?
     .into_array();
-    let rings = ListArray::try_new(
-        coordinates,
-        PrimitiveArray::new(ring_offsets.freeze(), Validity::NonNullable).into_array(),
-        Validity::NonNullable,
-    )?
+    // SAFETY: the offsets start at zero and are pushed as the running coordinate and ring counts,
+    // so they are sorted and end at the length of their elements.
+    let rings = unsafe {
+        ListArray::new_unchecked(
+            coordinates,
+            PrimitiveArray::new(ring_offsets.freeze(), Validity::NonNullable).into_array(),
+            Validity::NonNullable,
+        )
+    }
     .into_array();
-    let storage = ListArray::try_new(
-        rings,
-        PrimitiveArray::new(polygon_offsets.freeze(), Validity::NonNullable).into_array(),
-        Validity::NonNullable,
-    )?
+    // SAFETY: as above, for the polygon offsets into the rings.
+    let storage = unsafe {
+        ListArray::new_unchecked(
+            rings,
+            PrimitiveArray::new(polygon_offsets.freeze(), Validity::NonNullable).into_array(),
+            Validity::NonNullable,
+        )
+    }
     .into_array();
     Ok(storage)
 }
@@ -317,7 +324,7 @@ impl ArrowImportVTable for Polygon {
                 vortex_ensure!(
                     polygon_meta.coord_type() == CoordType::Separated,
                     "geoarrow.polygon with interleaved coordinates is not supported; \
-                 re-encode with separated (struct) coordinates"
+             re-encode with separated (struct) coordinates"
                 );
                 (
                     polygon_meta.dimension().into(),

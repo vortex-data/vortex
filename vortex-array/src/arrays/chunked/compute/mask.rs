@@ -39,18 +39,22 @@ impl MaskKernel for Chunked {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     #[case(ChunkedArray::try_new(
@@ -80,9 +84,6 @@ mod test {
         DType::Primitive(PType::F32, Nullability::NonNullable),
     ).unwrap())]
     fn test_mask_chunked_conformance(#[case] chunked: ChunkedArray) {
-        test_mask_conformance(
-            &chunked.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_mask_conformance(&chunked.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

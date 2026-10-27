@@ -36,26 +36,32 @@ impl CastReduce for DecimalByteParts {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::Nullability;
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::DecimalByteParts;
     use crate::DecimalBytePartsArray;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_cast_decimal_byte_parts_nullability() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(10, 2);
         let array =
             DecimalByteParts::try_new(buffer![100i32, 200, 300, 400].into_array(), decimal_dtype)
@@ -72,13 +78,20 @@ mod tests {
         );
 
         // Verify the values are preserved
-        let decoded = casted.execute::<DecimalArray>(&mut ctx).unwrap();
-        assert_eq!(decoded.len(), 4);
+        assert_arrays_eq!(
+            casted,
+            DecimalArray::new(
+                buffer![100i32, 200, 300, 400],
+                decimal_dtype,
+                Validity::AllValid
+            ),
+            &mut ctx
+        );
     }
 
     #[test]
     fn test_cast_decimal_byte_parts_nullable_to_non_nullable() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(10, 2);
         let array = DecimalByteParts::try_new(
             PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
@@ -117,9 +130,6 @@ mod tests {
         DecimalDType::new(10, 2),
     ).unwrap())]
     fn test_cast_decimal_byte_parts_conformance(#[case] array: DecimalBytePartsArray) {
-        test_cast_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

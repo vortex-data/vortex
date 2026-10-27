@@ -16,6 +16,7 @@ use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
 use futures::executor::block_on;
+use mimalloc::MiMalloc;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ListViewArray;
@@ -32,6 +33,9 @@ use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
 use crate::timed_launch_strategy::TimedLaunchStrategy;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 const LIST_VIEW_CONTIGUOUS_BENCH_SIZES: &[(usize, &str)] = &[(10_000_000, "10M")];
 const LIST_VIEW_REBUILD_BENCH_SIZES: &[(usize, &str)] = &[(10_000_000, "10M")];
@@ -52,7 +56,14 @@ async fn contiguous_list_view(len: usize, ctx: &mut CudaExecutionCtx) -> VortexR
     let offsets = primitive_i32_on_device((0..len).map(|value| value as i32), ctx).await?;
     let sizes = primitive_i32_on_device(std::iter::repeat_n(1i32, len), ctx).await?;
 
-    Ok(ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array())
+    Ok(ListViewArray::new(
+        elements,
+        offsets,
+        sizes,
+        Validity::NonNullable,
+        ctx.execution_ctx(),
+    )
+    .into_array())
 }
 
 async fn non_contiguous_primitive_list_view(
@@ -63,7 +74,14 @@ async fn non_contiguous_primitive_list_view(
     let offsets = primitive_i32_on_device((0..len).rev().map(|value| value as i32), ctx).await?;
     let sizes = primitive_i32_on_device(std::iter::repeat_n(1i32, len), ctx).await?;
 
-    Ok(ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array())
+    Ok(ListViewArray::new(
+        elements,
+        offsets,
+        sizes,
+        Validity::NonNullable,
+        ctx.execution_ctx(),
+    )
+    .into_array())
 }
 
 unsafe fn release_arrow_device_array(array: &mut ArrowDeviceArray) {

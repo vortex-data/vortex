@@ -88,6 +88,7 @@ mod tests {
     use std::any::Any;
     use std::ops::Range;
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use futures::future::BoxFuture;
     use num_traits::AsPrimitive;
@@ -98,10 +99,10 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Decimal;
     use crate::arrays::DecimalArray;
     use crate::arrays::decimal::DecimalData;
@@ -112,6 +113,8 @@ mod tests {
     use crate::dtype::DecimalType;
     use crate::match_each_decimal_value_type;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn oversized_device_storage_is_rejected() {
@@ -181,7 +184,7 @@ mod tests {
         )]
         values_type: DecimalType,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let bytes = match_each_decimal_value_type!(values_type, |D| {
             Buffer::<D>::from_iter([-12i8, 34, -56, 78, 90, 12].map(|value| value.as_()))
                 .into_byte_buffer()

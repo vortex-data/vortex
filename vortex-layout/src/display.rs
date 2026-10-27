@@ -459,7 +459,7 @@ vortex.flat, dtype: i32?, segment 0, buffers=[20B], total=20B
     #[test]
     fn test_display_tree_without_inline_node() {
         if std::env::var("NEXTEST_RUN_ID").is_ok() {
-            temp_env::with_var("FLAT_LAYOUT_INLINE_ARRAY_NODE", Some("1"), || {
+            temp_env::with_var("FLAT_LAYOUT_INLINE_ARRAY_NODE", None::<&str>, || {
                 let ctx = ArrayContext::empty();
                 let segments = Arc::new(TestSegments::default());
                 let (ptr, eof) = SequenceId::root().split();
@@ -480,11 +480,11 @@ vortex.flat, dtype: i32?, segment 0, buffers=[20B], total=20B
                         .unwrap()
                 });
 
-                // Test display_tree exact output (with inline array_tree enabled by env var from other test)
+                // Without inline metadata or a segment source, only the segment ID is available.
                 assert_eq!(
                     layout.display_tree().to_string(),
                     "\
-vortex.flat, dtype: i64, segment 0, buffers=[24B], total=24B
+vortex.flat, dtype: i64, segment: 0
 "
                 );
             })

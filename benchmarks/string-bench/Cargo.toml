@@ -19,6 +19,7 @@ bytes = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
 indicatif = { workspace = true }
+mimalloc = { workspace = true }
 parquet = { workspace = true }
 regex = { workspace = true }
 tabled = { workspace = true, features = ["std"] }

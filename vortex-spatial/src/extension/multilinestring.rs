@@ -264,7 +264,7 @@ impl ArrowImportVTable for MultiLineString {
                 vortex_ensure!(
                     multilinestring_meta.coord_type() == CoordType::Separated,
                     "geoarrow.multilinestring with interleaved coordinates is not supported; \
-                 re-encode with separated (struct) coordinates"
+             re-encode with separated (struct) coordinates"
                 );
                 (
                     multilinestring_meta.dimension().into(),

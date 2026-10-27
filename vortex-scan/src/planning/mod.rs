@@ -6,6 +6,10 @@
 //! Planners and morsels are `Send` and move between threads with the run that owns them;
 //! stage-specific phases remain private to those implementations.
 
+pub mod driver;
 pub mod morsel;
 pub mod next;
 pub mod planner;
+
+#[cfg(test)]
+mod tests;

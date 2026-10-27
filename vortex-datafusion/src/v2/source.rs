@@ -94,6 +94,9 @@ use datafusion_physical_expr_common::sort_expr::LexOrdering;
 use datafusion_physical_plan::DisplayFormatType;
 use datafusion_physical_plan::filter_pushdown::FilterPushdownPropagation;
 use datafusion_physical_plan::filter_pushdown::PushedDown;
+use datafusion_physical_plan::limit::LimitStream;
+use datafusion_physical_plan::metrics::BaselineMetrics;
+use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use futures::StreamExt;
 use futures::TryStreamExt;
@@ -105,7 +108,7 @@ use vortex::dtype::Nullability;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::expr::Expression;
-use vortex::expr::and as vx_and;
+use vortex::expr::and_collect;
 use vortex::expr::get_item;
 use vortex::expr::pack;
 use vortex::expr::root;
@@ -118,10 +121,10 @@ use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_utils::parallelism::get_available_parallelism;
 
-use crate::convert::exprs::DefaultExpressionConvertor;
-use crate::convert::exprs::ExpressionConvertor;
+use crate::convert::exprs::DefaultExpressionConverter;
+use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
-use crate::convert::exprs::make_vortex_predicate;
+use crate::convert::schema::calculate_physical_schema;
 use crate::convert::stats::stats_set_to_df;
 
 /// Builder for [`VortexDataSource`].
@@ -169,6 +172,7 @@ pub struct VortexDataSourceBuilder {
 
     arrow_schema: Option<SchemaRef>,
     projection: Option<Vec<usize>>,
+    expression_converter: Arc<dyn ExpressionConverter>,
 }
 
 impl VortexDataSourceBuilder {
@@ -196,6 +200,19 @@ impl VortexDataSourceBuilder {
     /// Like [`Self::with_projection`], but accepts an optional projection.
     pub fn with_some_projection(mut self, indices: Option<Vec<usize>>) -> Self {
         self.projection = indices;
+        self
+    }
+
+    /// Sets the converter used for filter and projection pushdown.
+    ///
+    /// Defaults to [`DefaultExpressionConverter`] using the builder's session.
+    /// Unsupported expressions remain in DataFusion. Custom converters must preserve
+    /// DataFusion values, nulls, and evaluation errors for expressions they accept.
+    pub fn with_expression_converter(
+        mut self,
+        expression_converter: Arc<dyn ExpressionConverter>,
+    ) -> Self {
+        self.expression_converter = expression_converter;
         self
     }
 
@@ -263,6 +280,7 @@ impl VortexDataSourceBuilder {
         Ok(VortexDataSource {
             data_source: self.data_source,
             session: self.session,
+            expression_converter: self.expression_converter,
             initial_schema: Arc::clone(&arrow_schema),
             initial_projection: projection.clone(),
             initial_statistics: statistics.clone(),
@@ -285,6 +303,7 @@ impl VortexDataSource {
     pub fn builder(data_source: DataSourceRef, session: VortexSession) -> VortexDataSourceBuilder {
         VortexDataSourceBuilder {
             data_source,
+            expression_converter: Arc::new(DefaultExpressionConverter::new(session.clone())),
             session,
             arrow_schema: None,
             projection: None,
@@ -303,8 +322,10 @@ impl VortexDataSource {
 /// current projection, pushed filters, ordering hints, and row limit.
 ///
 /// This integration intentionally reports a single DataFusion output partition.
-/// Vortex then handles split-level concurrency internally by polling multiple
-/// split streams concurrently.
+/// Vortex then handles split-level concurrency internally: when ordering is not
+/// requested it polls multiple split streams concurrently, and when ordering is
+/// requested it emits split output in partition order. In both cases it trims
+/// the combined output of all splits to the fetch limit.
 ///
 /// Use [`crate::VortexSource`] instead when DataFusion should discover and plan
 /// `.vortex` files on its own.
@@ -314,6 +335,7 @@ pub struct VortexDataSource {
     data_source: DataSourceRef,
     /// Vortex session handle.
     session: VortexSession,
+    expression_converter: Arc<dyn ExpressionConverter>,
 
     // --- Phase 1: Initial (from the builder, before any optimizer pushdown) ---
     /// The Arrow schema of the data source before any DataFusion projection pushdown.
@@ -384,6 +406,13 @@ impl DataSource for VortexDataSource {
             )));
         }
 
+        if self.limit == Some(0) {
+            return Ok(Box::pin(RecordBatchStreamAdapter::new(
+                Arc::clone(&self.leftover_schema),
+                futures::stream::empty(),
+            )));
+        }
+
         // Build the scan request with pushed-down projection, filter, and limit.
         // The projection is included so the scan can prune columns at the I/O level.
         let scan_request = ScanRequest {
@@ -403,6 +432,8 @@ impl DataSource for VortexDataSource {
         ));
         let session = self.session.clone();
         let num_partitions = self.num_partitions;
+        let ordered = self.ordered;
+        let limit = self.limit;
 
         // Pre-build the leftover projector (if any) so we can apply it after batch conversion.
         let leftover_projector = self
@@ -419,17 +450,26 @@ impl DataSource for VortexDataSource {
                 .map_err(|e| DataFusionError::External(Box::new(e)))?;
 
             // Each split.execute() returns a lazy stream whose early polls do preparation
-            // work (expression resolution, layout traversal, first I/O spawns). We use
-            // try_flatten_unordered to poll multiple split streams concurrently so that
-            // the next split is already warm when the current one finishes.
+            // work (expression resolution, layout traversal, first I/O spawns).
             let scan_streams = scan.partitions().map(|split_result| {
                 let split = split_result?;
                 split.execute()
             });
 
+            // When ordering is requested we must emit partition output in partition order, so we
+            // flatten the split streams sequentially. Otherwise we use try_flatten_unordered to
+            // poll multiple split streams concurrently so that the next split is already warm when
+            // the current one finishes.
+            let flattened = if ordered {
+                scan_streams.try_flatten().left_stream()
+            } else {
+                scan_streams
+                    .try_flatten_unordered(Some(num_partitions * 2))
+                    .right_stream()
+            };
+
             let handle = session.handle();
-            let stream = scan_streams
-                .try_flatten_unordered(Some(num_partitions * 2))
+            let stream = flattened
                 .map(move |result| {
                     let session = session.clone();
                     let target_field = Arc::clone(&projected_target_field);
@@ -447,6 +487,20 @@ impl DataSource for VortexDataSource {
                 })
                 .buffered(num_partitions)
                 .map(|result| result.map_err(|e| DataFusionError::External(Box::new(e))));
+
+            // DataFusion drops its own limit operator once `with_fetch` accepts the limit, so the
+            // fetch must be exact here. Unordered scans share the limit across partitions, but
+            // ordered partitions each apply it locally and rely on this trim.
+            let stream = match limit {
+                Some(limit) => LimitStream::new(
+                    Box::pin(RecordBatchStreamAdapter::new(projected_schema, stream)),
+                    0,
+                    Some(limit),
+                    BaselineMetrics::new(&ExecutionPlanMetricsSet::new(), partition),
+                )
+                .boxed(),
+                None => stream.boxed(),
+            };
 
             // Apply leftover projection (expressions that couldn't be pushed into Vortex).
             let stream = if let Some(projector) = leftover_projector {
@@ -506,8 +560,6 @@ impl DataSource for VortexDataSource {
     }
 
     fn partition_statistics(&self, _partition: Option<usize>) -> DFResult<Arc<Statistics>> {
-        // FIXME(ngates): this should be adjusted based on filters. See DuckDB for heuristics,
-        //  and in the future, store the selectivity stats in the session.
         let num_rows = estimate_to_df_precision(&self.data_source.row_count());
 
         // FIXME(ngates): byte size should be adjusted for the initial projection...
@@ -517,11 +569,19 @@ impl DataSource for VortexDataSource {
         // from the initial schema after try_swapping_with_projection adds computed columns.
         let column_statistics = self.leftover_statistics.clone();
 
-        Ok(Arc::new(Statistics {
+        let statistics = Statistics {
             num_rows,
             total_byte_size,
             column_statistics,
-        }))
+        };
+        // A filter can remove the rows that supplied an exact count or extremum.
+        let statistics = if self.filter.is_some() {
+            statistics.to_inexact()
+        } else {
+            statistics
+        };
+        // The adapter exposes one output partition, so fetch applies globally.
+        Ok(Arc::new(statistics.with_fetch(self.limit, 0, 1)?))
     }
 
     fn with_fetch(&self, limit: Option<usize>) -> Option<Arc<dyn DataSource>> {
@@ -545,32 +605,32 @@ impl DataSource for VortexDataSource {
             projection
         );
 
-        let convertor = DefaultExpressionConvertor::default();
+        let converter = &self.expression_converter;
         let input_schema = self.initial_schema.as_ref();
         let projected_schema = projection.project_schema(input_schema)?;
 
-        // Use the shared ExpressionConvertor to split the projection into a Vortex
+        // Use the shared ExpressionConverter to split the projection into a Vortex
         // scan_projection and a leftover DataFusion projection for expressions that
         // can't be pushed down (e.g., unsupported scalar functions, decimal binary).
         let ProcessedProjection {
             scan_projection,
+            scan_reference_schema,
             leftover_projection,
-        } = convertor.split_projection(projection.clone(), input_schema, &projected_schema)?;
+        } = converter.split_projection(projection.clone(), input_schema, &projected_schema)?;
 
         // Compose with the initial projection so the scan operates on the original
         // source columns, not the initial projection's output columns.
         let scan_projection = replace(scan_projection, &root(), self.initial_projection.clone());
 
-        // Compute the scan output schema from the Vortex expression's return dtype.
+        // Retain Arrow storage types and metadata required by the leftover expressions.
         let scan_dtype = scan_projection
             .return_dtype(self.data_source.dtype())
             .map_err(|e| DataFusionError::External(Box::new(e)))?;
-        let scan_output_schema = Arc::new(
-            self.session
-                .arrow()
-                .to_arrow_schema(&scan_dtype)
-                .map_err(|e| DataFusionError::External(Box::new(e)))?,
-        );
+        let scan_output_schema = Arc::new(calculate_physical_schema(
+            &scan_dtype,
+            &scan_reference_schema,
+            &self.session.arrow(),
+        )?);
 
         // Remap the leftover column references to match the scan output schema.
         let leftover_projection = leftover_projection
@@ -602,15 +662,28 @@ impl DataSource for VortexDataSource {
             ));
         }
 
-        let convertor = DefaultExpressionConvertor::default();
-        let input_schema = self.initial_schema.as_ref();
+        let converter = &self.expression_converter;
+        let filters = filters
+            .into_iter()
+            .map(|filter| {
+                let filter = match &self.leftover_projection {
+                    Some(projection) => projection.unproject_expr(&filter)?,
+                    None => filter,
+                };
+                reassign_expr_columns(filter, &self.projected_schema)
+            })
+            .collect::<DFResult<Vec<_>>>()?;
 
         // Classify each filter: pushable filters are passed into the ScanRequest in open(),
         // so we can safely claim PushedDown::Yes for them.
-        let pushdown_results: Vec<PushedDown> = filters
+        let converted = filters
+            .iter()
+            .map(|expr| converter.try_convert(expr, &self.projected_schema))
+            .collect::<DFResult<Vec<_>>>()?;
+        let pushdown_results: Vec<PushedDown> = converted
             .iter()
             .map(|expr| {
-                if convertor.can_be_pushed_down(expr, input_schema) {
+                if expr.is_some() {
                     PushedDown::Yes
                 } else {
                     PushedDown::No
@@ -625,29 +698,14 @@ impl DataSource for VortexDataSource {
             ));
         }
 
-        // Collect the pushable filter expressions.
-        let pushable: Vec<Arc<dyn PhysicalExpr>> = filters
-            .iter()
-            .zip(pushdown_results.iter())
-            .filter_map(|(expr, pushed)| match pushed {
-                PushedDown::Yes => Some(Arc::clone(expr)),
-                PushedDown::No => None,
-            })
-            .collect();
-
-        // Convert to Vortex conjunction.
-        let vortex_pred = make_vortex_predicate(&convertor, &pushable)?;
-
-        // Combine with existing filter.
-        let new_filter = match (&self.filter, vortex_pred) {
-            (Some(existing), Some(new_pred)) => Some(vx_and(existing.clone(), new_pred)),
-            (Some(existing), None) => Some(existing.clone()),
-            (None, Some(new_pred)) => Some(new_pred),
-            (None, None) => None,
-        };
-
+        // Rewrite the pushed filters over the scan's source columns and conjoin them with any
+        // existing filter.
+        let pushed = converted
+            .into_iter()
+            .flatten()
+            .map(|expr| replace(expr, &root(), self.projected_projection.clone()));
         let mut this = self.clone();
-        this.filter = new_filter;
+        this.filter = and_collect(self.filter.iter().cloned().chain(pushed));
         Ok(
             FilterPushdownPropagation::with_parent_pushdown_result(pushdown_results)
                 .with_updated_node(Arc::new(this) as _),
@@ -677,5 +735,289 @@ fn estimate_to_df_precision(est: &Precision<u64>) -> DFPrecision<usize> {
         Precision::Exact(v) => DFPrecision::Exact(usize::try_from(*v).unwrap_or(usize::MAX)),
         Precision::Inexact(v) => DFPrecision::Inexact(usize::try_from(*v).unwrap_or(usize::MAX)),
         Precision::Absent => DFPrecision::Absent,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::any::Any;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+    use std::task::Poll;
+
+    use arrow_array::cast::AsArray;
+    use arrow_array::types::Int32Type;
+    use arrow_schema::DataType;
+    use async_trait::async_trait;
+    use datafusion::prelude::SessionContext;
+    use futures::TryStreamExt;
+    use rstest::rstest;
+    use vortex::VortexSessionDefault;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::array::stats::StatsSet;
+    use vortex::array::stream::ArrayStreamAdapter;
+    use vortex::array::stream::ArrayStreamExt;
+    use vortex::array::stream::SendableArrayStream;
+    use vortex::buffer::ByteBufferMut;
+    use vortex::buffer::buffer;
+    use vortex::dtype::FieldPath;
+    use vortex::dtype::PType;
+    use vortex::dtype::StructFields;
+    use vortex::error::VortexError;
+    use vortex::file::OpenOptionsSessionExt;
+    use vortex::file::WriteOptionsSessionExt;
+    use vortex::layout::scan::layout::LayoutReaderDataSource;
+    // Aliased so it does not shadow the DataFusion `DataSource` trait brought in via `super::*`,
+    // which provides the `open` method exercised below.
+    use vortex::scan::DataSource as VortexScanDataSource;
+    use vortex::scan::DataSourceScan;
+    use vortex::scan::DataSourceScanRef;
+    use vortex::scan::Partition;
+    use vortex::scan::PartitionRef;
+    use vortex::scan::PartitionStream;
+    use vortex::session::VortexSession;
+    use vortex_arrow::ArrowSessionExt;
+
+    use super::*;
+    use crate::v2::VortexTable;
+
+    /// The source enforces a pushed-down `LIMIT` itself: DataFusion removes its limit operator
+    /// once the fetch is accepted, so a filtered scan over several partitions must still return
+    /// exactly `LIMIT` rows.
+    #[tokio::test]
+    async fn filtered_limit_returns_exactly_limit_rows() -> anyhow::Result<()> {
+        let session = VortexSession::default();
+        let array = StructArray::from_fields(&[(
+            "a",
+            buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].into_array(),
+        )])?
+        .into_array();
+        let mut buf = ByteBufferMut::empty();
+        session
+            .write_options()
+            .write(&mut buf, array.to_array_stream())
+            .await?;
+        let file = session.open_options().open_buffer(buf)?;
+        let data_source = Arc::new(
+            LayoutReaderDataSource::new(file.layout_reader()?, session.clone())
+                .with_split_max_row_count(3),
+        );
+        let schema = session.arrow().to_arrow_schema(file.dtype())?;
+
+        let ctx = SessionContext::new();
+        ctx.register_table(
+            "t",
+            Arc::new(VortexTable::new(data_source, session, Arc::new(schema))),
+        )?;
+        let batches = ctx
+            .sql("SELECT a FROM t WHERE a >= 4 LIMIT 5")
+            .await?
+            .collect()
+            .await?;
+
+        let values = batches
+            .iter()
+            .flat_map(|batch| {
+                batch
+                    .column(0)
+                    .as_primitive::<Int32Type>()
+                    .values()
+                    .iter()
+                    .copied()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(values.len(), 5);
+        assert!(values.iter().all(|value| (4..12).contains(value)));
+        let mut unique = values;
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), 5);
+        assert!(
+            batches
+                .iter()
+                .all(|batch| batch.column(0).null_count() == 0)
+        );
+        Ok(())
+    }
+
+    /// A single-column `{ x: i32 }` struct dtype used by the test data source.
+    fn test_dtype() -> DType {
+        DType::Struct(
+            StructFields::from_iter([(
+                "x",
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+            )]),
+            Nullability::NonNullable,
+        )
+    }
+
+    /// One batch, with the first partition yielding once before it is ready.
+    struct TestPartition {
+        index: usize,
+        values: &'static [i32],
+        polls: Arc<AtomicUsize>,
+    }
+
+    impl Partition for TestPartition {
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+
+        fn index(&self) -> usize {
+            self.index
+        }
+
+        fn row_count(&self) -> Precision<u64> {
+            Precision::exact(self.values.len() as u64)
+        }
+
+        fn byte_size(&self) -> Precision<u64> {
+            Precision::Absent
+        }
+
+        fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
+            let mut yield_once = self.index == 0;
+            let mut values = Some(self.values);
+            let polls = self.polls;
+            let stream = futures::stream::poll_fn(move |cx| {
+                polls.fetch_add(1, Ordering::Relaxed);
+                if yield_once {
+                    yield_once = false;
+                    cx.waker().wake_by_ref();
+                    return Poll::Pending;
+                }
+                Poll::Ready(values.take().map(|values| {
+                    StructArray::from_fields(&[(
+                        "x",
+                        PrimitiveArray::from_iter(values.iter().copied()).into_array(),
+                    )])
+                    .map(IntoArray::into_array)
+                }))
+            });
+            Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+                test_dtype(),
+                stream,
+            )))
+        }
+    }
+
+    struct TestScan {
+        dtype: DType,
+        limit: Option<u64>,
+        polls: Arc<AtomicUsize>,
+    }
+
+    impl DataSourceScan for TestScan {
+        fn dtype(&self) -> &DType {
+            &self.dtype
+        }
+
+        fn partition_count(&self) -> Precision<usize> {
+            Precision::Exact(2)
+        }
+
+        fn partitions(self: Box<Self>) -> PartitionStream {
+            let limit = self
+                .limit
+                .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
+            let partitions: Vec<VortexResult<PartitionRef>> = [&[0, 1][..], &[100, 101][..]]
+                .into_iter()
+                .enumerate()
+                .map(|(index, values)| {
+                    // Ordered partitions enforce their own limit; the adapter must enforce the
+                    // global limit when it concatenates their outputs.
+                    let values = &values[..limit.unwrap_or(values.len()).min(values.len())];
+                    Ok(Box::new(TestPartition {
+                        index,
+                        values,
+                        polls: Arc::clone(&self.polls),
+                    }) as PartitionRef)
+                })
+                .collect();
+            futures::stream::iter(partitions).boxed()
+        }
+    }
+
+    struct TestDataSource {
+        dtype: DType,
+        polls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl VortexScanDataSource for TestDataSource {
+        fn dtype(&self) -> &DType {
+            &self.dtype
+        }
+
+        async fn scan(&self, request: ScanRequest) -> VortexResult<DataSourceScanRef> {
+            Ok(Box::new(TestScan {
+                dtype: self.dtype.clone(),
+                limit: request.limit,
+                polls: Arc::clone(&self.polls),
+            }))
+        }
+
+        async fn field_statistics(&self, _field_path: &FieldPath) -> VortexResult<StatsSet> {
+            Ok(StatsSet::default())
+        }
+    }
+
+    /// The first partition yields once, so completion order differs from partition order.
+    /// Fetch three also requires slicing the batch that crosses the global limit.
+    #[rstest]
+    #[case::all(None, &[0, 1, 100, 101])]
+    #[case::empty(Some(0), &[])]
+    #[case::first(Some(1), &[0])]
+    #[case::across_partitions(Some(3), &[0, 1, 100])]
+    #[tokio::test]
+    async fn ordered_scan_enforces_global_fetch(
+        #[case] limit: Option<usize>,
+        #[case] expected: &[i32],
+    ) -> VortexResult<()> {
+        let arrow_schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int32, false)]));
+        let polls = Arc::new(AtomicUsize::new(0));
+        let data_source: DataSourceRef = Arc::new(TestDataSource {
+            dtype: test_dtype(),
+            polls: Arc::clone(&polls),
+        });
+
+        let mut source = VortexDataSource::builder(data_source, VortexSession::default())
+            .with_arrow_schema(arrow_schema)
+            .build()
+            .await?;
+        source.ordered = true;
+        source.limit = limit;
+
+        let mut stream = source
+            .open(0, Arc::new(TaskContext::default()))
+            .map_err(VortexError::external)?;
+        let batches: Vec<RecordBatch> = stream
+            .by_ref()
+            .try_collect()
+            .await
+            .map_err(VortexError::external)?;
+        let values = batches
+            .iter()
+            .flat_map(|batch| {
+                batch
+                    .column(0)
+                    .as_primitive::<Int32Type>()
+                    .values()
+                    .iter()
+                    .copied()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(values, expected);
+
+        let finished_polls = polls.load(Ordering::Relaxed);
+        assert!(stream.next().await.is_none());
+        assert_eq!(polls.load(Ordering::Relaxed), finished_polls);
+        if limit == Some(0) {
+            assert_eq!(finished_polls, 0);
+        }
+        Ok(())
     }
 }

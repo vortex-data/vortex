@@ -144,6 +144,8 @@ mod tests {
         assert!(prec.is_valid(99));
         assert!(prec.is_valid(-9));
         assert!(prec.is_valid(0));
-        assert!(prec.is_valid(-99))
+        assert!(prec.is_valid(-99));
+        assert!(!prec.is_valid(100));
+        assert!(!prec.is_valid(-100));
     }
 }

@@ -17,14 +17,18 @@ use std::time::Duration;
 use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
-use cudarc::driver::DevicePtr;
-use cudarc::driver::DevicePtrMut;
-use cudarc::driver::sys;
-use cudarc::driver::sys::CUevent_flags;
+use mimalloc::MiMalloc;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
+use vortex_cuda_driver::DevicePtr;
+use vortex_cuda_driver::DevicePtrMut;
+use vortex_cuda_driver::sys;
+use vortex_cuda_driver::sys::CUevent_flags;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 /// Total data budget per benchmark iteration (100 MiB).
 const TOTAL_BYTES: usize = 100 * 1024 * 1024;

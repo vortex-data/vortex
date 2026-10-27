@@ -48,11 +48,13 @@ impl FillNullKernel for Primitive {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::primitive::compute::fill_null::BoolArray;
     use crate::assert_arrays_eq;
@@ -60,29 +62,22 @@ mod test {
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn fill_null_leading_none() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = PrimitiveArray::from_option_iter([None, Some(8u8), None, Some(10), None]);
-        let p = arr
-            .into_array()
-            .fill_null(Scalar::from(42u8))
-            .unwrap()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+        let p = arr.into_array().fill_null(Scalar::from(42u8)).unwrap();
         assert_arrays_eq!(
             p,
             PrimitiveArray::from_iter([42u8, 8, 42, 10, 42]),
             &mut ctx
         );
         assert!(
-            p.as_ref()
-                .validity()
+            p.validity()
                 .unwrap()
-                .execute_mask(
-                    p.as_ref().len(),
-                    &mut array_session().create_execution_ctx()
-                )
+                .execute_mask(p.len(), &mut SESSION.create_execution_ctx())
                 .unwrap()
                 .all_true()
         );
@@ -90,28 +85,19 @@ mod test {
 
     #[test]
     fn fill_null_all_none() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = PrimitiveArray::from_option_iter([Option::<u8>::None, None, None, None, None]);
 
-        let p = arr
-            .into_array()
-            .fill_null(Scalar::from(255u8))
-            .unwrap()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+        let p = arr.into_array().fill_null(Scalar::from(255u8)).unwrap();
         assert_arrays_eq!(
             p,
             PrimitiveArray::from_iter([255u8, 255, 255, 255, 255]),
             &mut ctx
         );
         assert!(
-            p.as_ref()
-                .validity()
+            p.validity()
                 .unwrap()
-                .execute_mask(
-                    p.as_ref().len(),
-                    &mut array_session().create_execution_ctx()
-                )
+                .execute_mask(p.len(), &mut SESSION.create_execution_ctx())
                 .unwrap()
                 .all_true()
         );
@@ -119,30 +105,21 @@ mod test {
 
     #[test]
     fn fill_null_nullable_non_null() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = PrimitiveArray::new(
             buffer![8u8, 10, 12, 14, 16],
             Validity::Array(BoolArray::from_iter([true, true, true, true, true]).into_array()),
         );
-        let p = arr
-            .into_array()
-            .fill_null(Scalar::from(255u8))
-            .unwrap()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+        let p = arr.into_array().fill_null(Scalar::from(255u8)).unwrap();
         assert_arrays_eq!(
             p,
             PrimitiveArray::from_iter([8u8, 10, 12, 14, 16]),
             &mut ctx
         );
         assert!(
-            p.as_ref()
-                .validity()
+            p.validity()
                 .unwrap()
-                .execute_mask(
-                    p.as_ref().len(),
-                    &mut array_session().create_execution_ctx()
-                )
+                .execute_mask(p.len(), &mut SESSION.create_execution_ctx())
                 .unwrap()
                 .all_true()
         );
@@ -150,26 +127,18 @@ mod test {
 
     #[test]
     fn fill_null_non_nullable() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = buffer![8u8, 10, 12, 14, 16].into_array();
-        let p = arr
-            .fill_null(Scalar::from(255u8))
-            .unwrap()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+        let p = arr.fill_null(Scalar::from(255u8)).unwrap();
         assert_arrays_eq!(
             p,
             PrimitiveArray::from_iter([8u8, 10, 12, 14, 16]),
             &mut ctx
         );
         assert!(
-            p.as_ref()
-                .validity()
+            p.validity()
                 .unwrap()
-                .execute_mask(
-                    p.as_ref().len(),
-                    &mut array_session().create_execution_ctx()
-                )
+                .execute_mask(p.len(), &mut SESSION.create_execution_ctx())
                 .unwrap()
                 .all_true()
         );

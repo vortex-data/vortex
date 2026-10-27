@@ -54,9 +54,7 @@ impl<T: NativePType> ColumnExporter for PrimitiveExporter<T> {
         assert!(self.len >= offset + len);
 
         let pos = unsafe { self.start.add(offset) };
-        unsafe { vector.set_vector_buffer(&self.shared_buffer) };
-        // While we are setting a *mut T this is an artifact of the C API, this is in fact const.
-        unsafe { vector.set_data_ptr(pos as *mut T) };
+        unsafe { vector.set_vector_buffer(&self.shared_buffer, pos, len) };
 
         Ok(())
     }
@@ -116,8 +114,7 @@ mod tests {
     }
 
     /// Export a large nullable primitive array over many chunks to exercise the
-    /// zero-copy validity path. The non-zero-copy fallback currently panics,
-    /// so this test proves every chunk goes through the zero-copy branch.
+    /// zero-copy value and validity paths.
     #[test]
     fn test_primitive_exporter_with_nulls_zero_copy() {
         let vector_size = duckdb_vector_size();
@@ -131,13 +128,15 @@ mod tests {
         );
 
         let mut ctx = SESSION.create_execution_ctx();
+        let values_ptr = arr.to_buffer::<i32>().as_ptr();
+        let mask = arr.validity().unwrap().execute_mask(len, &mut ctx).unwrap();
+        let validity_ptr = mask.values().unwrap().bit_buffer().inner().as_ptr();
         let exporter = new_exporter(arr, &mut ctx).unwrap();
 
         for chunk_idx in 0..NUM_CHUNKS {
             let mut chunk =
                 DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
-            // This will panic if the non-zero-copy path is hit.
             exporter
                 .export(
                     chunk_idx * vector_size,
@@ -149,6 +148,16 @@ mod tests {
             chunk.set_len(vector_size);
 
             let vec = chunk.get_vector(0);
+            assert_eq!(
+                vec.as_slice_with_len::<i32>(vector_size).as_ptr(),
+                values_ptr.wrapping_add(chunk_idx * vector_size)
+            );
+            assert_eq!(
+                unsafe { cpp::duckdb_vector_get_validity(vec.as_ptr()) }.cast::<u8>(),
+                validity_ptr
+                    .wrapping_add(chunk_idx * vector_size / 8)
+                    .cast_mut()
+            );
             for i in 0..vector_size {
                 let global_idx = chunk_idx * vector_size + i;
                 if global_idx % 3 == 1 {
@@ -160,6 +169,10 @@ mod tests {
                     assert!(
                         !vec.row_is_null(i as u64),
                         "expected non-null at global index {global_idx}"
+                    );
+                    assert_eq!(
+                        i64::from(vec.as_slice_with_len::<i32>(vector_size)[i]),
+                        global_idx as i64
                     );
                 }
             }

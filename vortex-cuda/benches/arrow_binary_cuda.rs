@@ -16,6 +16,7 @@ use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
 use futures::executor::block_on;
+use mimalloc::MiMalloc;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::VarBinViewArray;
@@ -36,6 +37,9 @@ use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
 use crate::timed_launch_strategy::TimedLaunchStrategy;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 const BINARY_BENCH_SIZES: &[(usize, &str)] = &[(10_000_000, "10M")];
 const VALUE_BYTES: usize = 16;

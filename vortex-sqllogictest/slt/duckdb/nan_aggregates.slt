@@ -24,7 +24,7 @@ EXPLAIN
 SELECT count(*), count(x), sum(x), max(x), avg(x)
 FROM '${WORK_DIR}/nan-agg.vortex';
 ----
-<!REGEX>:.*UNGROUPED_AGGREGATE.*
+<!REGEX>:.*Ungrouped Aggregate.*
 
 query IIRRR
 SELECT count(*), count(x), sum(x), max(x), avg(x) FROM '${WORK_DIR}/nan-agg.vortex';
@@ -35,7 +35,7 @@ query TT
 EXPLAIN
 SELECT min(x) FROM '${WORK_DIR}/nan-agg.vortex';
 ----
-<REGEX>:.*UNGROUPED_AGGREGATE.*
+<REGEX>:.*Ungrouped Aggregate.*
 
 query R
 SELECT min(x) FROM '${WORK_DIR}/nan-agg.vortex';
@@ -46,7 +46,7 @@ query TT
 EXPLAIN
 SELECT min(x), max(x) FROM '${WORK_DIR}/nan-agg.vortex';
 ----
-<REGEX>:.*UNGROUPED_AGGREGATE.*
+<REGEX>:.*Ungrouped Aggregate.*
 
 query RR
 SELECT min(x), max(x) FROM '${WORK_DIR}/nan-agg.vortex';
@@ -140,7 +140,7 @@ query TT
 EXPLAIN
 SELECT count(x), sum(x), max(x), avg(x) FROM '${WORK_DIR}/big-plain.vortex';
 ----
-<!REGEX>:.*UNGROUPED_AGGREGATE.*
+<!REGEX>:.*Ungrouped Aggregate.*
 
 query IRRR
 SELECT count(x), sum(x), max(x), avg(x) FROM '${WORK_DIR}/big-plain.vortex';

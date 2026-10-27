@@ -5,10 +5,13 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::list_contains::ListContainsElementReduce;
 use vortex_array::scalar_fn::fns::list_contains::ListContainsOptions;
+use vortex_array::scalar_fn::fns::list_contains::PreparedSet;
+use vortex_array::scalar_fn::fns::list_contains::PreparedSetData;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
@@ -23,7 +26,14 @@ impl ListContainsElementReduce for Sequence {
         element: ArrayView<'_, Self>,
         options: &ListContainsOptions,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(list_scalar) = list.as_constant() else {
+        // Optimization prepares a constant list as a set, so the list is usually a prepared set.
+        let Some(list_scalar) = PreparedSet::set_of(list)
+            .map(PreparedSetData::list)
+            .or_else(|| {
+                list.as_opt::<Constant>()
+                    .map(|constant| constant.data().scalar())
+            })
+        else {
             return Ok(None);
         };
 
@@ -77,9 +87,12 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
+    use rstest::rstest;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ScalarFn;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -90,12 +103,13 @@ mod tests {
     use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::fns::list_contains::ListContainsOptions;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::Sequence;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -135,6 +149,37 @@ mod tests {
             let expected = BoolArray::from_iter([Some(true), Some(true), Some(false)]);
             assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
         }
+    }
+
+    /// Applies `list_contains(set, root())` to `array`, as given or optimized first.
+    fn apply_list_contains(array: ArrayRef, set: Scalar, optimize: bool) -> VortexResult<ArrayRef> {
+        let expr = list_contains(lit(set), root());
+        if !optimize {
+            return array.apply(&expr);
+        }
+        let expr = expr.bind(array.dtype())?.optimize()?;
+        array.apply_bound(&expr)
+    }
+
+    #[rstest]
+    #[case::applied(false)]
+    #[case::optimized(true)]
+    fn test_list_contains_reduces_a_prepared_set(#[case] optimize: bool) -> VortexResult<()> {
+        // The constant list becomes a prepared set before the sequence sees it. The sequence
+        // still answers from its bounds rather than leaving the lookup to execution.
+        let list_scalar = Scalar::list(
+            Arc::new(I32.into()),
+            vec![1.into(), 3.into()],
+            Nullability::NonNullable,
+        );
+        let array = Sequence::try_new_typed(1, 1, Nullability::NonNullable, 3)?.into_array();
+
+        let result = apply_list_contains(array, list_scalar, optimize)?;
+
+        assert!(!result.is::<ScalarFn>());
+        let expected = BoolArray::from_iter([true, false, true]);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
     }
 
     #[test]

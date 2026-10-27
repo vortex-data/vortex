@@ -106,10 +106,6 @@ pub mod scalar_fn;
 pub use scalar_fn::ScalarFn;
 pub use scalar_fn::ScalarFnArray;
 
-pub mod shared;
-pub use shared::Shared;
-pub use shared::SharedArray;
-
 pub mod slice;
 pub use slice::Slice;
 pub use slice::SliceArray;
@@ -146,6 +142,7 @@ pub(crate) fn initialize(session: &VortexSession) {
     list::initialize(session);
     listview::initialize(session);
     map::initialize(session);
+    null::initialize(session);
     patched::initialize(session);
     primitive::initialize(session);
     struct_::initialize(session);

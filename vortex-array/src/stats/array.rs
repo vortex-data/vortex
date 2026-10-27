@@ -25,6 +25,7 @@ use crate::aggregate_fn::fns::min_max::MinMaxResult;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::fns::nan_count::nan_count;
 use crate::aggregate_fn::fns::sum::sum;
+use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
@@ -113,6 +114,24 @@ impl StatsSetRef<'_> {
             return;
         }
         *self.array_stats.shared().write() = stats;
+    }
+
+    /// Set every stat in `stats`, overwriting existing values for the same stats.
+    ///
+    /// When the array has no stats yet, the set is moved in whole rather than merged one stat at
+    /// a time.
+    pub fn set_all(&self, stats: StatsSet) {
+        if stats.is_empty() {
+            return;
+        }
+        let mut guard = self.array_stats.shared().write();
+        if guard.is_empty() {
+            *guard = stats;
+        } else {
+            for (stat, value) in stats {
+                guard.set(stat, value);
+            }
+        }
     }
 
     pub fn set_iter(&self, iter: StatsSetIntoIter) {
@@ -237,7 +256,13 @@ impl StatsSetRef<'_> {
             Stat::UncompressedSizeInBytes => Stat::UncompressedSizeInBytes
                 .dtype(self.dyn_array_ref.dtype())
                 .is_some()
-                .then(|| uncompressed_size_in_bytes(self.dyn_array_ref, ctx))
+                .then(|| {
+                    uncompressed_size_in_bytes(
+                        self.dyn_array_ref,
+                        UncompressedSizeOpts::exact(),
+                        ctx,
+                    )
+                })
                 .transpose()?
                 .map(|s| s.into()),
             Stat::NaNCount => {

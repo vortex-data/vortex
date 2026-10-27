@@ -6,18 +6,17 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use cudarc::driver::CudaContext;
-use cudarc::driver::CudaFunction;
-use cudarc::driver::CudaModule;
-use cudarc::driver::CudaStream;
-use cudarc::driver::LaunchArgs;
-use cudarc::driver::LaunchConfig;
-use cudarc::driver::sys::CUevent_flags;
-use cudarc::nvrtc::Ptx;
 use tracing::trace;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::utils::aliases::dash_map::DashMap;
+use vortex_cuda_driver::CudaContext;
+use vortex_cuda_driver::CudaFunction;
+use vortex_cuda_driver::CudaModule;
+use vortex_cuda_driver::CudaStream;
+use vortex_cuda_driver::LaunchArgs;
+use vortex_cuda_driver::LaunchConfig;
+use vortex_cuda_driver::sys::CUevent_flags;
 
 mod arrays;
 // Fatbins let the CUDA driver select among the configured real and virtual architectures.
@@ -259,90 +258,7 @@ impl KernelLoader {
         })?;
 
         cuda_context
-            .load_module(Ptx::from_binary(fatbin.to_vec()))
+            .load_module(fatbin)
             .map_err(|e| vortex_err!("Failed to load embedded CUDA module {module_name}: {e}"))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-
-    use cudarc::driver::CudaContext;
-    use cudarc::driver::PushKernelArg;
-    use vortex::error::VortexExpect;
-
-    use super::KernelLoader;
-
-    /// Test that verifies Rust launch config constants match CUDA kernel constants.
-    ///
-    /// This test launches a special config_check kernel that reports the kernel-side
-    /// constants, then verifies they match the Rust-side constants used in
-    /// `launch_cuda_kernel_impl`.
-    #[crate::test]
-    fn test_kernel_config_matches_rust_config() {
-        // These must match the constants in launch_cuda_kernel_impl
-        const THREADS_PER_BLOCK: u32 = 64;
-        const ELEMENTS_PER_THREAD: u32 = 32;
-        const ELEMENTS_PER_BLOCK: u32 = THREADS_PER_BLOCK * ELEMENTS_PER_THREAD;
-
-        let ctx = CudaContext::new(0).expect("failed to create CUDA context");
-        let stream = ctx.new_stream().expect("failed to create CUDA stream");
-
-        // Allocate output buffer for 3 u32 values
-        // SAFETY: Allocating uninitialized memory that will be written by kernel
-        let mut output = unsafe {
-            stream
-                .alloc::<u32>(3)
-                .expect("failed to allocate output buffer")
-        };
-
-        // Load and launch the config_check kernel
-        let kernel_loader = KernelLoader::new();
-        let function = kernel_loader
-            .load_function("config_check", &[], &ctx)
-            .vortex_expect("failed to load config_check kernel");
-
-        let config = cudarc::driver::LaunchConfig {
-            grid_dim: (1, 1, 1),
-            block_dim: (THREADS_PER_BLOCK, 1, 1),
-            shared_mem_bytes: 0,
-        };
-
-        let mut launch_args = stream.launch_builder(&function);
-        launch_args.arg(&mut output);
-
-        // SAFETY: kernel only writes to output buffer
-        unsafe {
-            launch_args
-                .launch(config)
-                .expect("failed to launch config_check kernel");
-        }
-
-        // Copy results back to host
-        let host_output = stream
-            .clone_dtoh(&output)
-            .expect("failed to copy results to host");
-
-        let kernel_elements_per_thread = host_output[0];
-        let kernel_block_dim_x = host_output[1];
-        let kernel_elements_per_block = host_output[2];
-
-        assert_eq!(
-            kernel_elements_per_thread, ELEMENTS_PER_THREAD,
-            "ELEMENTS_PER_THREAD mismatch: kernel has {}, Rust has {}",
-            kernel_elements_per_thread, ELEMENTS_PER_THREAD
-        );
-
-        assert_eq!(
-            kernel_block_dim_x, THREADS_PER_BLOCK,
-            "block_dim.x mismatch: kernel received {}, Rust sent {}",
-            kernel_block_dim_x, THREADS_PER_BLOCK
-        );
-
-        assert_eq!(
-            kernel_elements_per_block, ELEMENTS_PER_BLOCK,
-            "ELEMENTS_PER_BLOCK mismatch: kernel computed {}, Rust expects {}",
-            kernel_elements_per_block, ELEMENTS_PER_BLOCK
-        );
     }
 }

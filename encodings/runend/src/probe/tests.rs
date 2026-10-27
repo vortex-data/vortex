@@ -14,6 +14,7 @@ use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
@@ -93,10 +94,16 @@ fn lazy_value_validity_only_evaluates_requested_runs() -> VortexResult<()> {
     let values = PrimitiveArray::new(buffer![42u32, 99], Validity::Array(validity));
     let array =
         RunEnd::try_new(buffer![4u32, 8].into_array(), values.into_array(), &mut ctx)?.into_array();
-    let expected = array.execute_scalar(0, &mut ctx)?;
+    let expected = Scalar::primitive(42u32, Nullability::Nullable);
+    let actual = array.execute_scalar(0, &mut ctx)?;
+    assert_eq!(actual.dtype(), expected.dtype());
+    assert_eq!(actual, expected);
     let mut probe = array.repeated_probe();
-    assert_eq!(probe.execute_scalar(0, &mut ctx)?, expected);
-    assert_eq!(probe.execute_scalar(3, &mut ctx)?, expected);
+    for index in [0, 3] {
+        let actual = probe.execute_scalar(index, &mut ctx)?;
+        assert_eq!(actual.dtype(), expected.dtype());
+        assert_eq!(actual, expected);
+    }
     assert!(probe.execute_scalar(4, &mut ctx).is_err());
     Ok(())
 }

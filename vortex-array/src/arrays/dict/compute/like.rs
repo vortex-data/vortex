@@ -27,7 +27,7 @@ impl LikeReduce for Dict {
             return Ok(None);
         }
         if let Some(pattern) = pattern.as_constant() {
-            let pattern = ConstantArray::new(pattern, array.values().len()).into_array();
+            let pattern = ConstantArray::new(pattern.clone(), array.values().len()).into_array();
 
             let values = Like::try_new(array.values().clone(), pattern, options)?
                 .into_array()
@@ -51,12 +51,14 @@ impl LikeReduce for Dict {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::DictArray;
     use crate::arrays::VarBinArray;
@@ -66,9 +68,11 @@ mod tests {
     use crate::scalar_fn::fns::like::Like;
     use crate::scalar_fn::fns::like::LikeOptions;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn like_reduce_dict() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dict = DictArray::try_new(
             buffer![0u8, 1, 0, 2].into_array(),
             VarBinArray::from(vec!["hello", "world", "help"]).into_array(),

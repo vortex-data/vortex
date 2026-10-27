@@ -93,7 +93,7 @@ logical_plan
 02)--SubqueryAlias: sq3
 03)----Union
 04)------Projection: customer.c_last_name, customer.c_first_name, sum(catalog_sales.cs_quantity * catalog_sales.cs_list_price) AS sales
-05)--------Aggregate: groupBy=[[customer.c_last_name, customer.c_first_name]], aggr=[[sum(CAST(catalog_sales.cs_quantity AS Decimal128(20, 0)) * catalog_sales.cs_list_price)]]
+05)--------Aggregate: groupBy=[[customer.c_last_name, customer.c_first_name]], aggr=[[sum(CAST(catalog_sales.cs_quantity AS Decimal128(10, 0)) * catalog_sales.cs_list_price)]]
 06)----------Projection: catalog_sales.cs_quantity, catalog_sales.cs_list_price, customer.c_first_name, customer.c_last_name
 07)------------LeftSemi Join: catalog_sales.cs_bill_customer_sk = best_ss_customer.c_customer_sk
 08)--------------Projection: catalog_sales.cs_bill_customer_sk, catalog_sales.cs_quantity, catalog_sales.cs_list_price, customer.c_first_name, customer.c_last_name
@@ -105,8 +105,8 @@ logical_plan
 14)--------------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_bill_customer_sk, cs_item_sk, cs_quantity, cs_list_price]
 15)--------------------------TableScan: customer projection=[c_customer_sk, c_first_name, c_last_name]
 16)----------------------Projection: date_dim.d_date_sk
-17)------------------------Filter: date_dim.d_year = Int64(2000) AND date_dim.d_moy = Int64(2)
-18)--------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(2000), date_dim.d_moy = Int64(2)]
+17)------------------------Filter: date_dim.d_year = Int32(2000) AND date_dim.d_moy = Int32(2)
+18)--------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int32(2000), date_dim.d_moy = Int32(2)]
 19)------------------SubqueryAlias: frequent_ss_items
 20)--------------------Projection: sq1.i_item_sk AS item_sk
 21)----------------------Filter: count(Int64(1)) > Int64(4)
@@ -118,15 +118,15 @@ logical_plan
 27)----------------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
 28)------------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk]
 29)------------------------------------Projection: date_dim.d_date_sk, date_dim.d_date
-30)--------------------------------------Filter: date_dim.d_year IN ([Int64(2000), Int64(2001), Int64(2002), Int64(2003)])
-31)----------------------------------------TableScan: date_dim projection=[d_date_sk, d_date, d_year], partial_filters=[date_dim.d_year IN ([Int64(2000), Int64(2001), Int64(2002), Int64(2003)])]
+30)--------------------------------------Filter: date_dim.d_year IN ([Int32(2000), Int32(2001), Int32(2002), Int32(2003)])
+31)----------------------------------------TableScan: date_dim projection=[d_date_sk, d_date, d_year], partial_filters=[date_dim.d_year IN ([Int32(2000), Int32(2001), Int32(2002), Int32(2003)])]
 32)--------------------------------SubqueryAlias: sq1
 33)----------------------------------Projection: substr(item.i_item_desc, Int64(1), Int64(30)) AS itemdesc, item.i_item_sk
 34)------------------------------------TableScan: item projection=[i_item_sk, i_item_desc]
 35)--------------SubqueryAlias: best_ss_customer
 36)----------------Projection: customer.c_customer_sk
 37)------------------Filter: CAST(sum(store_sales.ss_quantity * store_sales.ss_sales_price) AS Decimal128(38, 15)) > CAST(Float64(0.5) * CAST(max(max_store_sales.tpcds_cmax) AS Float64) AS Decimal128(38, 15))
-38)--------------------Aggregate: groupBy=[[customer.c_customer_sk]], aggr=[[sum(CAST(store_sales.ss_quantity AS Decimal128(20, 0)) * store_sales.ss_sales_price), max(max_store_sales.tpcds_cmax)]]
+38)--------------------Aggregate: groupBy=[[customer.c_customer_sk]], aggr=[[sum(CAST(store_sales.ss_quantity AS Decimal128(10, 0)) * store_sales.ss_sales_price), max(max_store_sales.tpcds_cmax)]]
 39)----------------------Cross Join:
 40)------------------------Projection: store_sales.ss_quantity, store_sales.ss_sales_price, customer.c_customer_sk
 41)--------------------------Inner Join: store_sales.ss_customer_sk = customer.c_customer_sk
@@ -137,7 +137,7 @@ logical_plan
 46)----------------------------Aggregate: groupBy=[[]], aggr=[[max(sq2.csales)]]
 47)------------------------------SubqueryAlias: sq2
 48)--------------------------------Projection: sum(store_sales.ss_quantity * store_sales.ss_sales_price) AS csales
-49)----------------------------------Aggregate: groupBy=[[customer.c_customer_sk]], aggr=[[sum(CAST(store_sales.ss_quantity AS Decimal128(20, 0)) * store_sales.ss_sales_price)]]
+49)----------------------------------Aggregate: groupBy=[[customer.c_customer_sk]], aggr=[[sum(CAST(store_sales.ss_quantity AS Decimal128(10, 0)) * store_sales.ss_sales_price)]]
 50)------------------------------------Projection: store_sales.ss_quantity, store_sales.ss_sales_price, customer.c_customer_sk
 51)--------------------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
 52)----------------------------------------Projection: store_sales.ss_sold_date_sk, store_sales.ss_quantity, store_sales.ss_sales_price, customer.c_customer_sk
@@ -145,10 +145,10 @@ logical_plan
 54)--------------------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_customer_sk, ss_quantity, ss_sales_price]
 55)--------------------------------------------TableScan: customer projection=[c_customer_sk]
 56)----------------------------------------Projection: date_dim.d_date_sk
-57)------------------------------------------Filter: date_dim.d_year IN ([Int64(2000), Int64(2001), Int64(2002), Int64(2003)])
-58)--------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year IN ([Int64(2000), Int64(2001), Int64(2002), Int64(2003)])]
+57)------------------------------------------Filter: date_dim.d_year IN ([Int32(2000), Int32(2001), Int32(2002), Int32(2003)])
+58)--------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year IN ([Int32(2000), Int32(2001), Int32(2002), Int32(2003)])]
 59)------Projection: customer.c_last_name, customer.c_first_name, sum(web_sales.ws_quantity * web_sales.ws_list_price) AS sales
-60)--------Aggregate: groupBy=[[customer.c_last_name, customer.c_first_name]], aggr=[[sum(CAST(web_sales.ws_quantity AS Decimal128(20, 0)) * web_sales.ws_list_price)]]
+60)--------Aggregate: groupBy=[[customer.c_last_name, customer.c_first_name]], aggr=[[sum(CAST(web_sales.ws_quantity AS Decimal128(10, 0)) * web_sales.ws_list_price)]]
 61)----------Projection: web_sales.ws_quantity, web_sales.ws_list_price, customer.c_first_name, customer.c_last_name
 62)------------LeftSemi Join: web_sales.ws_bill_customer_sk = best_ss_customer.c_customer_sk
 63)--------------Projection: web_sales.ws_bill_customer_sk, web_sales.ws_quantity, web_sales.ws_list_price, customer.c_first_name, customer.c_last_name
@@ -160,8 +160,8 @@ logical_plan
 69)--------------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_item_sk, ws_bill_customer_sk, ws_quantity, ws_list_price]
 70)--------------------------TableScan: customer projection=[c_customer_sk, c_first_name, c_last_name]
 71)----------------------Projection: date_dim.d_date_sk
-72)------------------------Filter: date_dim.d_year = Int64(2000) AND date_dim.d_moy = Int64(2)
-73)--------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(2000), date_dim.d_moy = Int64(2)]
+72)------------------------Filter: date_dim.d_year = Int32(2000) AND date_dim.d_moy = Int32(2)
+73)--------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int32(2000), date_dim.d_moy = Int32(2)]
 74)------------------SubqueryAlias: frequent_ss_items
 75)--------------------Projection: sq1.i_item_sk AS item_sk
 76)----------------------Filter: count(Int64(1)) > Int64(4)
@@ -173,15 +173,15 @@ logical_plan
 82)----------------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
 83)------------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk]
 84)------------------------------------Projection: date_dim.d_date_sk, date_dim.d_date
-85)--------------------------------------Filter: date_dim.d_year IN ([Int64(2000), Int64(2001), Int64(2002), Int64(2003)])
-86)----------------------------------------TableScan: date_dim projection=[d_date_sk, d_date, d_year], partial_filters=[date_dim.d_year IN ([Int64(2000), Int64(2001), Int64(2002), Int64(2003)])]
+85)--------------------------------------Filter: date_dim.d_year IN ([Int32(2000), Int32(2001), Int32(2002), Int32(2003)])
+86)----------------------------------------TableScan: date_dim projection=[d_date_sk, d_date, d_year], partial_filters=[date_dim.d_year IN ([Int32(2000), Int32(2001), Int32(2002), Int32(2003)])]
 87)--------------------------------SubqueryAlias: sq1
 88)----------------------------------Projection: substr(item.i_item_desc, Int64(1), Int64(30)) AS itemdesc, item.i_item_sk
 89)------------------------------------TableScan: item projection=[i_item_sk, i_item_desc]
 90)--------------SubqueryAlias: best_ss_customer
 91)----------------Projection: customer.c_customer_sk
 92)------------------Filter: CAST(sum(store_sales.ss_quantity * store_sales.ss_sales_price) AS Decimal128(38, 15)) > CAST(Float64(0.5) * CAST(max(max_store_sales.tpcds_cmax) AS Float64) AS Decimal128(38, 15))
-93)--------------------Aggregate: groupBy=[[customer.c_customer_sk]], aggr=[[sum(CAST(store_sales.ss_quantity AS Decimal128(20, 0)) * store_sales.ss_sales_price), max(max_store_sales.tpcds_cmax)]]
+93)--------------------Aggregate: groupBy=[[customer.c_customer_sk]], aggr=[[sum(CAST(store_sales.ss_quantity AS Decimal128(10, 0)) * store_sales.ss_sales_price), max(max_store_sales.tpcds_cmax)]]
 94)----------------------Cross Join:
 95)------------------------Projection: store_sales.ss_quantity, store_sales.ss_sales_price, customer.c_customer_sk
 96)--------------------------Inner Join: store_sales.ss_customer_sk = customer.c_customer_sk
@@ -192,7 +192,7 @@ logical_plan
 101)----------------------------Aggregate: groupBy=[[]], aggr=[[max(sq2.csales)]]
 102)------------------------------SubqueryAlias: sq2
 103)--------------------------------Projection: sum(store_sales.ss_quantity * store_sales.ss_sales_price) AS csales
-104)----------------------------------Aggregate: groupBy=[[customer.c_customer_sk]], aggr=[[sum(CAST(store_sales.ss_quantity AS Decimal128(20, 0)) * store_sales.ss_sales_price)]]
+104)----------------------------------Aggregate: groupBy=[[customer.c_customer_sk]], aggr=[[sum(CAST(store_sales.ss_quantity AS Decimal128(10, 0)) * store_sales.ss_sales_price)]]
 105)------------------------------------Projection: store_sales.ss_quantity, store_sales.ss_sales_price, customer.c_customer_sk
 106)--------------------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
 107)----------------------------------------Projection: store_sales.ss_sold_date_sk, store_sales.ss_quantity, store_sales.ss_sales_price, customer.c_customer_sk
@@ -200,8 +200,8 @@ logical_plan
 109)--------------------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_customer_sk, ss_quantity, ss_sales_price]
 110)--------------------------------------------TableScan: customer projection=[c_customer_sk]
 111)----------------------------------------Projection: date_dim.d_date_sk
-112)------------------------------------------Filter: date_dim.d_year IN ([Int64(2000), Int64(2001), Int64(2002), Int64(2003)])
-113)--------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year IN ([Int64(2000), Int64(2001), Int64(2002), Int64(2003)])]
+112)------------------------------------------Filter: date_dim.d_year IN ([Int32(2000), Int32(2001), Int32(2002), Int32(2003)])
+113)--------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year IN ([Int32(2000), Int32(2001), Int32(2002), Int32(2003)])]
 physical_plan
 01)SortPreservingMergeExec: [c_last_name@0 ASC, c_first_name@1 ASC, sales@2 ASC], fetch=100
 02)--SortExec: TopK(fetch=100), expr=[c_last_name@0 ASC, c_first_name@1 ASC, sales@2 ASC], preserve_partitioning=[true]

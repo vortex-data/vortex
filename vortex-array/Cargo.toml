@@ -26,10 +26,8 @@ workspace = true
 arbitrary = { workspace = true, optional = true }
 arcref = { workspace = true }
 arrow-buffer = { workspace = true }
-async-lock = { workspace = true }
 bytes = { workspace = true }
 cfg-if = { workspace = true }
-cudarc = { workspace = true, optional = true }
 enum-iterator = { workspace = true }
 fearless_simd = { workspace = true }
 fearless_simd_macros = { workspace = true }
@@ -77,7 +75,6 @@ vortex-utils = { workspace = true, features = ["dyn-traits"] }
 [features]
 arbitrary = ["dep:arbitrary", "dep:primitive-types"]
 canonical_counter = []
-cudarc = ["dep:cudarc"]
 table-display = ["dep:tabled"]
 _test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
 serde = ["dep:serde", "vortex-buffer/serde", "vortex-mask/serde"]
@@ -211,11 +208,6 @@ harness = false
 [[bench]]
 name = "expr_optimize"
 path = "benches/expr/optimize_bench.rs"
-harness = false
-
-[[bench]]
-name = "expr_optimize_predicate"
-path = "benches/expr/optimize_predicate.rs"
 harness = false
 
 [[bench]]

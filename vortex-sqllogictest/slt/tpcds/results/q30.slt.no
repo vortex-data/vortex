@@ -1,0 +1,75 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTTTTIIITTTIR
+WITH customer_total_return AS
+  (SELECT wr_returning_customer_sk AS ctr_customer_sk,
+          ca_state AS ctr_state,
+          sum(wr_return_amt) AS ctr_total_return
+   FROM web_returns,
+        date_dim,
+        customer_address
+   WHERE wr_returned_date_sk = d_date_sk
+     AND d_year = 2002
+     AND wr_returning_addr_sk = ca_address_sk
+   GROUP BY wr_returning_customer_sk,
+            ca_state)
+SELECT c_customer_id,
+       c_salutation,
+       c_first_name,
+       c_last_name,
+       c_preferred_cust_flag,
+       c_birth_day,
+       c_birth_month,
+       c_birth_year,
+       c_birth_country,
+       c_login,
+       c_email_address,
+       c_last_review_date_sk,
+       ctr_total_return
+FROM customer_total_return ctr1,
+     customer_address,
+     customer
+WHERE ctr1.ctr_total_return >
+    (SELECT avg(ctr_total_return)*1.2
+     FROM customer_total_return ctr2
+     WHERE ctr1.ctr_state = ctr2.ctr_state)
+  AND ca_address_sk = c_current_addr_sk
+  AND ca_state = 'GA'
+  AND ctr1.ctr_customer_sk = c_customer_sk
+ORDER BY c_customer_id NULLS FIRST,
+         c_salutation NULLS FIRST,
+         c_first_name NULLS FIRST,
+         c_last_name NULLS FIRST,
+         c_preferred_cust_flag NULLS FIRST,
+         c_birth_day NULLS FIRST,
+         c_birth_month NULLS FIRST,
+         c_birth_year NULLS FIRST,
+         c_birth_country NULLS FIRST,
+         c_login NULLS FIRST,
+         c_email_address NULLS FIRST,
+         c_last_review_date_sk NULLS FIRST,
+         ctr_total_return NULLS FIRST
+LIMIT 100;
+----
+AAAAAAAAAEHAAAAA Ms. Monique Carlson Y 14 11 1937 BOTSWANA NULL Monique.Carlson@pez.org 2452426 7596.47
+AAAAAAAAAGBAAAAA Sir Steven Moore N 5 10 1983 BULGARIA NULL Steven.Moore@XquVULA.com 2452346 1174.29
+AAAAAAAABMCAAAAA Miss Heather Cady N 21 8 1971 CROATIA NULL Heather.Cady@s2c.edu 2452536 3276.8
+AAAAAAAAECDCAAAA Sir Calvin Brady Y 5 8 1957 PANAMA NULL Calvin.Brady@2bHANUUTKos.edu 2452554 4432.69
+AAAAAAAAEGLBAAAA Mrs. Melanie Cole Y 18 5 1948 UNITED KINGDOM NULL Melanie.Cole@tO.org 2452303 12028.62
+AAAAAAAAEOHBAAAA Sir Charley Sanchez Y 18 7 1931 SERBIA NULL Charley.Sanchez@AqkFISyalOeyC.com 2452631 4553.58
+AAAAAAAAFAIBAAAA Dr. Matthew Sandoval Y 24 6 1935 JORDAN NULL Matthew.Sandoval@fMRKiEEEsiKFD.org 2452623 1645.38
+AAAAAAAAGLPBAAAA Dr. Rhonda Jewell N 28 2 1926 SOLOMON ISLANDS NULL Rhonda.Jewell@1kbfUKKlzuxGYC7.org 2452368 2113.8
+AAAAAAAAGMEAAAAA Sir John Hopkins Y 10 4 1979 AZERBAIJAN NULL John.Hopkins@uVJIsak4vx5Oj5U.org 2452383 2625.48
+AAAAAAAAHJFAAAAA Dr. Gary Wilkins N 21 2 1962 NEW ZEALAND NULL Gary.Wilkins@KhnF0y6SAkq.edu 2452637 849.28
+AAAAAAAAHNEAAAAA Sir John Dumas Y 3 3 1963 MOZAMBIQUE NULL John.Dumas@a.com 2452432 6251
+AAAAAAAAIBABAAAA Dr. John Wilmoth N 10 11 1984 MYANMAR NULL John.Wilmoth@QmuRYpepDtK.org 2452510 2372.09
+AAAAAAAAIBECAAAA Dr. Betty Ramirez Y 9 7 1980 SINGAPORE NULL Betty.Ramirez@35I8mxVK3TJt.edu 2452417 1454.96
+AAAAAAAAJKGBAAAA Dr. Stephen Davidson Y 24 4 1951 KUWAIT NULL Stephen.Davidson@STCUEsfUGxE.edu 2452328 1786.56
+AAAAAAAAJMAAAAAA Dr. James Scott Y 29 3 1988 CANADA NULL James.Scott@Cqo77afYrMqPEL.org 2452622 2025.54
+AAAAAAAALFOAAAAA Sir John Chavez Y 12 10 1970 UNITED ARAB EMIRATES NULL John.Chavez@HYpqkZ3M8gLdQ.edu 2452424 2844.48
+AAAAAAAALMBAAAAA Dr. Howard Chan N 7 2 1925 LESOTHO NULL Howard.Chan@rf.org 2452423 7876.58
+AAAAAAAALMBAAAAA Dr. Howard Chan N 7 2 1925 LESOTHO NULL Howard.Chan@rf.org 2452423 8939.16
+AAAAAAAAMICCAAAA Ms. Patti Evans N 5 1 1939 CAYMAN ISLANDS NULL Patti.Evans@zU7GatFYMxsU.edu 2452502 1510.04
+AAAAAAAANBCBAAAA Ms. Ana Cary N 24 1 1969 VENEZUELA NULL Ana.Cary@imJui63o9G08Nas.com 2452453 3532.77
+AAAAAAAAOAIBAAAA Mr. Roger Noonan N 17 5 1960 ICELAND NULL Roger.Noonan@r2Ux7qoYmdfy.edu 2452325 1540.16

@@ -6,6 +6,7 @@ mod global;
 
 pub use blocked::bitpack_blocked_to_best_bit_widths;
 pub use blocked::bitpack_encode_blocked;
+pub use blocked::find_best_bit_widths;
 pub use global::bit_width_histogram;
 pub use global::bitpack_encode;
 pub use global::bitpack_encode_unchecked;
@@ -32,7 +33,7 @@ fn ensure_non_negative_integers(
 ) -> VortexResult<()> {
     vortex_ensure!(
         array.ptype().is_int(),
-        InvalidArgument: "cannot bitpack {} array",
+        "cannot bitpack {} array",
         array.ptype()
     );
     if array.ptype().is_signed_int() {
@@ -40,7 +41,7 @@ fn ensure_non_negative_integers(
             array.statistics().compute_min::<P>(ctx).unwrap_or_default() < 0
         });
         if has_negative_values {
-            vortex_bail!(InvalidArgument: "cannot bitpack array containing negative integers")
+            vortex_bail!("cannot bitpack array containing negative integers")
         }
     }
     Ok(())

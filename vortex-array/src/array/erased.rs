@@ -29,7 +29,6 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::VTable;
-use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::sum::sum;
 use crate::array::ArrayData;
 use crate::array::ArrayId;
@@ -48,7 +47,6 @@ use crate::dtype::DType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
-use crate::legacy_session;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
@@ -266,16 +264,6 @@ impl ArrayRef {
             .optimize()
     }
 
-    /// Fetch the scalar at the given index.
-    #[deprecated(
-        note = "Use `execute_scalar` instead, which allows passing an execution context for more \
-        efficient execution when fetching multiple scalars from the same array."
-    )]
-    #[allow(clippy::disallowed_methods)]
-    pub fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        self.execute_scalar(index, &mut legacy_session().create_execution_ctx())
-    }
-
     /// Execute the array to extract a scalar at the given index.
     ///
     /// A one-off read; the same as `self.probe().execute_scalar(index, ctx)`.
@@ -289,11 +277,12 @@ impl ArrayRef {
     /// many reads of the same array use [`Self::repeated_probe`].
     ///
     /// ```
+    /// use vortex_session::VortexSession;
     /// use vortex_array::{IntoArray, VortexSessionExecute};
     /// use vortex_array::arrays::PrimitiveArray;
     ///
     /// let array = PrimitiveArray::from_iter([10i32, 20, 30]).into_array();
-    /// let mut ctx = vortex_array::array_session().create_execution_ctx();
+    /// let mut ctx = VortexSession::empty().create_execution_ctx();
     /// assert_eq!(array.probe().execute_scalar(2, &mut ctx)?, 30i32.into());
     /// # Ok::<(), vortex_error::VortexError>(())
     /// ```
@@ -306,11 +295,12 @@ impl ArrayRef {
     /// probe and child probes between reads.
     ///
     /// ```
+    /// use vortex_session::VortexSession;
     /// use vortex_array::{IntoArray, VortexSessionExecute};
     /// use vortex_array::arrays::PrimitiveArray;
     ///
     /// let array = PrimitiveArray::from_iter([10i32, 20, 30]).into_array();
-    /// let mut ctx = vortex_array::array_session().create_execution_ctx();
+    /// let mut ctx = VortexSession::empty().create_execution_ctx();
     /// let mut probe = array.repeated_probe();
     /// assert_eq!(probe.execute_scalar(2, &mut ctx)?, 30i32.into());
     /// assert_eq!(probe.execute_scalar(0, &mut ctx)?, 10i32.into());
@@ -399,21 +389,6 @@ impl ArrayRef {
         self.0.data.validity(self)
     }
 
-    /// Returns the canonical representation of the array.
-    #[deprecated(note = "use `array.execute::<Canonical>(ctx)` instead")]
-    #[allow(clippy::disallowed_methods)]
-    pub fn into_canonical(self) -> VortexResult<Canonical> {
-        self.execute(&mut legacy_session().create_execution_ctx())
-    }
-
-    /// Returns the canonical representation of the array.
-    #[deprecated(note = "use `array.execute::<Canonical>(ctx)` instead")]
-    pub fn to_canonical(&self) -> VortexResult<Canonical> {
-        #[expect(deprecated)]
-        let result = self.clone().into_canonical();
-        result
-    }
-
     /// Writes the array into the canonical builder.
     pub fn append_to_builder(
         &self,
@@ -482,8 +457,8 @@ impl ArrayRef {
     }
 
     /// Returns the constant scalar if this is a constant array.
-    pub fn as_constant(&self) -> Option<Scalar> {
-        self.as_opt::<Constant>().map(|a| a.scalar().clone())
+    pub fn as_constant(&self) -> Option<&Scalar> {
+        self.as_opt::<Constant>().map(|a| a.data().scalar())
     }
 
     /// Total size of the array in bytes, including all children and buffers.

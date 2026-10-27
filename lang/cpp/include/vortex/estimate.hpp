@@ -31,7 +31,7 @@ public:
      */
     inline uint64_t value() const {
         if (type() == EstimateType::Unknown) {
-            throw VortexException("estimate is unknown", ErrorCode::InvalidArgument);
+            throw VortexException("estimate is unknown");
         }
         return raw_.estimate;
     }

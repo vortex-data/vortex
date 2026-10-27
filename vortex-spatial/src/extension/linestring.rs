@@ -177,7 +177,9 @@ pub(crate) fn linestring_array_from_point_pairs(
     .into_array();
 
     let offsets = Buffer::from_iter((0..=last_offset).step_by(2)).into_array();
-    let storage = ListArray::try_new(vertices, offsets, validity)?.into_array();
+    // SAFETY: each line string has two vertices, so the offsets step by two from zero up to the
+    // vertex count. The validity has one entry per row.
+    let storage = unsafe { ListArray::new_unchecked(vertices, offsets, validity) }.into_array();
 
     Ok(ExtensionArray::try_new(ext_dtype.clone().erased(), storage)?.into_array())
 }
@@ -334,7 +336,7 @@ impl ArrowImportVTable for LineString {
                 vortex_ensure!(
                     linestring_meta.coord_type() == CoordType::Separated,
                     "geoarrow.linestring with interleaved coordinates is not supported; \
-                 re-encode with separated (struct) coordinates"
+             re-encode with separated (struct) coordinates"
                 );
                 (
                     linestring_meta.dimension().into(),

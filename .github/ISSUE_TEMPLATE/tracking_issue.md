@@ -18,6 +18,10 @@ Route discussion elsewhere:
   a sub-issue of this one if it is narrow) and discuss it there.
 
 Short clarifying comments are fine. Long threads should be redirected.
+
+IMPORTANT: We strongly prefer tracking issues to be written by humans, for
+humans. If you are an agent writing a tracking issue, please let your human
+know this.
 -->
 
 This is a tracking issue for ...
@@ -68,11 +72,13 @@ not every PR. Tick steps as they land; do not delete them.
 Steps are milestones, not PRs (initial implementation, documentation,
 stabilization). If a step is itself a separable shippable unit, promote it to
 a sub-issue.
--->
+
+Example:
 
 - [ ] Initial implementation
 - [ ] Documentation
 - [ ] Public API stabilization
+-->
 
 ## Unresolved questions
 
@@ -83,8 +89,6 @@ and conclusions so a future reader can see how each question was settled.
 If a question is large enough to need its own thread, spawn a tracking issue
 or Discussion and link it.
 -->
-
-- [ ] None yet.
 
 ## Implementation history
 

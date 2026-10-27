@@ -31,12 +31,14 @@ impl CastReduce for Chunked {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -46,9 +48,11 @@ mod test {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_cast_chunked() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let arr0 = buffer![0u32, 1].into_array();
         let arr1 = buffer![2u32, 3].into_array();
 
@@ -97,6 +101,6 @@ mod test {
         DType::Primitive(PType::U8, Nullability::NonNullable)
     ).unwrap().into_array())]
     fn test_cast_chunked_conformance(#[case] array: crate::ArrayRef) {
-        test_cast_conformance(&array, &mut array_session().create_execution_ctx());
+        test_cast_conformance(&array, &mut SESSION.create_execution_ctx());
     }
 }

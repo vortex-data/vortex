@@ -2,12 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use vortex_buffer::buffer;
+use vortex_session::VortexSession;
 
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
@@ -16,6 +17,8 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 #[test]
 fn test_basic_fixed_size_list() {
@@ -41,19 +44,19 @@ fn test_basic_fixed_size_list() {
     let first_list = fsl.fixed_size_list_elements_at(0).unwrap();
     assert_eq!(
         first_list
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(0, &mut SESSION.create_execution_ctx())
             .unwrap(),
         1i32.into()
     );
     assert_eq!(
         first_list
-            .execute_scalar(1, &mut array_session().create_execution_ctx())
+            .execute_scalar(1, &mut SESSION.create_execution_ctx())
             .unwrap(),
         2i32.into()
     );
     assert_eq!(
         first_list
-            .execute_scalar(2, &mut array_session().create_execution_ctx())
+            .execute_scalar(2, &mut SESSION.create_execution_ctx())
             .unwrap(),
         3i32.into()
     );
@@ -61,19 +64,19 @@ fn test_basic_fixed_size_list() {
     let second_list = fsl.fixed_size_list_elements_at(1).unwrap();
     assert_eq!(
         second_list
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(0, &mut SESSION.create_execution_ctx())
             .unwrap(),
         4i32.into()
     );
     assert_eq!(
         second_list
-            .execute_scalar(1, &mut array_session().create_execution_ctx())
+            .execute_scalar(1, &mut SESSION.create_execution_ctx())
             .unwrap(),
         5i32.into()
     );
     assert_eq!(
         second_list
-            .execute_scalar(2, &mut array_session().create_execution_ctx())
+            .execute_scalar(2, &mut SESSION.create_execution_ctx())
             .unwrap(),
         6i32.into()
     );
@@ -81,19 +84,19 @@ fn test_basic_fixed_size_list() {
     let third_list = fsl.fixed_size_list_elements_at(2).unwrap();
     assert_eq!(
         third_list
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(0, &mut SESSION.create_execution_ctx())
             .unwrap(),
         7i32.into()
     );
     assert_eq!(
         third_list
-            .execute_scalar(1, &mut array_session().create_execution_ctx())
+            .execute_scalar(1, &mut SESSION.create_execution_ctx())
             .unwrap(),
         8i32.into()
     );
     assert_eq!(
         third_list
-            .execute_scalar(2, &mut array_session().create_execution_ctx())
+            .execute_scalar(2, &mut SESSION.create_execution_ctx())
             .unwrap(),
         9i32.into()
     );
@@ -101,19 +104,19 @@ fn test_basic_fixed_size_list() {
     let fourth_list = fsl.fixed_size_list_elements_at(3).unwrap();
     assert_eq!(
         fourth_list
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(0, &mut SESSION.create_execution_ctx())
             .unwrap(),
         10i32.into()
     );
     assert_eq!(
         fourth_list
-            .execute_scalar(1, &mut array_session().create_execution_ctx())
+            .execute_scalar(1, &mut SESSION.create_execution_ctx())
             .unwrap(),
         11i32.into()
     );
     assert_eq!(
         fourth_list
-            .execute_scalar(2, &mut array_session().create_execution_ctx())
+            .execute_scalar(2, &mut SESSION.create_execution_ctx())
             .unwrap(),
         12i32.into()
     );
@@ -129,7 +132,7 @@ fn test_scalar_at() {
 
     // First list: [1, 2, 3].
     let first = fsl
-        .execute_scalar(0, &mut array_session().create_execution_ctx())
+        .execute_scalar(0, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert_eq!(
         first,
@@ -144,26 +147,26 @@ fn test_scalar_at() {
     let first_list = fsl.fixed_size_list_elements_at(0).unwrap();
     assert_eq!(
         first_list
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(0, &mut SESSION.create_execution_ctx())
             .unwrap(),
         1i32.into()
     );
     assert_eq!(
         first_list
-            .execute_scalar(1, &mut array_session().create_execution_ctx())
+            .execute_scalar(1, &mut SESSION.create_execution_ctx())
             .unwrap(),
         2i32.into()
     );
     assert_eq!(
         first_list
-            .execute_scalar(2, &mut array_session().create_execution_ctx())
+            .execute_scalar(2, &mut SESSION.create_execution_ctx())
             .unwrap(),
         3i32.into()
     );
 
     // Second list: [4, 5, 6].
     let second = fsl
-        .execute_scalar(1, &mut array_session().create_execution_ctx())
+        .execute_scalar(1, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert_eq!(
         second,
@@ -178,19 +181,19 @@ fn test_scalar_at() {
     let second_list = fsl.fixed_size_list_elements_at(1).unwrap();
     assert_eq!(
         second_list
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(0, &mut SESSION.create_execution_ctx())
             .unwrap(),
         4i32.into()
     );
     assert_eq!(
         second_list
-            .execute_scalar(1, &mut array_session().create_execution_ctx())
+            .execute_scalar(1, &mut SESSION.create_execution_ctx())
             .unwrap(),
         5i32.into()
     );
     assert_eq!(
         second_list
-            .execute_scalar(2, &mut array_session().create_execution_ctx())
+            .execute_scalar(2, &mut SESSION.create_execution_ctx())
             .unwrap(),
         6i32.into()
     );
@@ -209,13 +212,13 @@ fn test_fixed_size_list_at() {
     assert_eq!(first_list.len(), list_size as usize);
     assert_eq!(
         first_list
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(0, &mut SESSION.create_execution_ctx())
             .unwrap(),
         1.0f64.into()
     );
     assert_eq!(
         first_list
-            .execute_scalar(1, &mut array_session().create_execution_ctx())
+            .execute_scalar(1, &mut SESSION.create_execution_ctx())
             .unwrap(),
         2.0f64.into()
     );
@@ -225,13 +228,13 @@ fn test_fixed_size_list_at() {
     assert_eq!(third_list.len(), list_size as usize);
     assert_eq!(
         third_list
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(0, &mut SESSION.create_execution_ctx())
             .unwrap(),
         5.0f64.into()
     );
     assert_eq!(
         third_list
-            .execute_scalar(1, &mut array_session().create_execution_ctx())
+            .execute_scalar(1, &mut SESSION.create_execution_ctx())
             .unwrap(),
         6.0f64.into()
     );

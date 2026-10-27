@@ -11,9 +11,9 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::BoolArray;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -25,7 +25,8 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
 
 const LEN: usize = 65_536;
 

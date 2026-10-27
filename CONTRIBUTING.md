@@ -192,15 +192,17 @@ At the time of writing, the following individuals serve as Committers (non-votin
 2. Alexander Droste
 3. Alfonso Subiotto
 4. Andy Pavlo
-5. Connor Tsui
-6. Daniel King
-7. Dmitrii Blaginin
-8. Lorenz Hübschle
-9. Marko Bakovic
-10. Mikhail Kot
-11. Mosha Pasumansky
-12. Onur Satici
-13. Xinyu Zeng
+5. Ashvin Agrawal
+6. Connor Tsui
+7. Daniel King
+8. Dmitrii Blaginin
+9. Lorenz Hübschle
+10. Marko Bakovic
+11. Matthew Katz
+12. Mikhail Kot
+13. Mosha Pasumansky
+14. Onur Satici
+15. Xinyu Zeng
 
 ### Maintainers
 

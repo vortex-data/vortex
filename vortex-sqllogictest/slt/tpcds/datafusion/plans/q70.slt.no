@@ -54,8 +54,8 @@ logical_plan
 11)--------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_store_sk, ss_net_profit]
 12)--------------------SubqueryAlias: d1
 13)----------------------Projection: date_dim.d_date_sk
-14)------------------------Filter: date_dim.d_month_seq >= Int64(1200) AND date_dim.d_month_seq <= Int64(1211)
-15)--------------------------TableScan: date_dim projection=[d_date_sk, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int64(1200), date_dim.d_month_seq <= Int64(1211)]
+14)------------------------Filter: date_dim.d_month_seq >= Int32(1200) AND date_dim.d_month_seq <= Int32(1211)
+15)--------------------------TableScan: date_dim projection=[d_date_sk, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int32(1200), date_dim.d_month_seq <= Int32(1211)]
 16)----------------TableScan: store projection=[s_store_sk, s_county, s_state]
 17)------------SubqueryAlias: __correlated_sq_1
 18)--------------SubqueryAlias: tmp1
@@ -71,8 +71,8 @@ logical_plan
 28)----------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_store_sk, ss_net_profit]
 29)----------------------------------TableScan: store projection=[s_store_sk, s_state]
 30)------------------------------Projection: date_dim.d_date_sk
-31)--------------------------------Filter: date_dim.d_month_seq >= Int64(1200) AND date_dim.d_month_seq <= Int64(1211)
-32)----------------------------------TableScan: date_dim projection=[d_date_sk, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int64(1200), date_dim.d_month_seq <= Int64(1211)]
+31)--------------------------------Filter: date_dim.d_month_seq >= Int32(1200) AND date_dim.d_month_seq <= Int32(1211)
+32)----------------------------------TableScan: date_dim projection=[d_date_sk, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int32(1200), date_dim.d_month_seq <= Int32(1211)]
 physical_plan
 01)SortPreservingMergeExec: [lochierarchy@3 DESC, CASE WHEN lochierarchy@3 = 0 THEN s_state@1 END ASC NULLS LAST, rank_within_parent@4 ASC NULLS LAST], fetch=100
 02)--SortExec: TopK(fetch=100), expr=[lochierarchy@3 DESC, CASE WHEN lochierarchy@3 = 0 THEN s_state@1 END ASC NULLS LAST, rank_within_parent@4 ASC NULLS LAST], preserve_partitioning=[true]

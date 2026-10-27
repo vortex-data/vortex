@@ -36,13 +36,13 @@ use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::internal::row_count::RowCount;
 use vortex_array::scalar_fn::internal::row_count::contains_row_count;
 use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
-use vortex_array::stats::bind::StatBinder;
-use vortex_array::stats::bind::bind_stats;
 use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
+use vortex_expr::stats::bind::StatBinder;
+use vortex_expr::stats::bind::bind_stats;
 use vortex_mask::Mask;
 use vortex_runend::RunEnd;
 use vortex_session::VortexSession;
@@ -131,7 +131,7 @@ impl ZoneMap {
     /// Apply a pruning predicate to this zone map.
     ///
     /// `predicate` should be a stats rewrite expression such as the result of
-    /// [`BoundExpression::falsify`]. The returned mask has one value per zone, where
+    /// [`BoundExpressionPruneExt::falsify`]. The returned mask has one value per zone, where
     /// `true` means the zone cannot contain matching rows and can be skipped.
     ///
     /// If the predicate contains [`row_count`][vortex_array::scalar_fn::internal::row_count]
@@ -141,17 +141,32 @@ impl ZoneMap {
     /// `row_count` is a layout property rather than a stored stats field, and the
     /// final zone may be shorter than the nominal zone length, so it is materialized
     /// only after the predicate has been lowered to the zone-map table.
+    ///
+    /// [`BoundExpressionPruneExt::falsify`]: vortex_expr::stats::rewrite::BoundExpressionPruneExt::falsify
     pub fn prune(
+        &self,
+        predicate: &BoundExpression,
+        session: &VortexSession,
+    ) -> VortexResult<Mask> {
+        let predicate = self.lower_stats(predicate.clone())?;
+        self.prune_lowered(&predicate, session)
+    }
+
+    /// Apply a predicate that [`Self::lower_stats`] already lowered to this zone map's
+    /// stats table.
+    ///
+    /// Lowering depends only on the column and stats-table dtypes, so callers that evaluate
+    /// the same predicate many times lower it once and call this function for each evaluation.
+    pub(super) fn prune_lowered(
         &self,
         predicate: &BoundExpression,
         session: &VortexSession,
     ) -> VortexResult<Mask> {
         let mut ctx = session.create_execution_ctx();
         let num_zones = self.array.len();
-        let predicate = self.lower_stats(predicate.clone())?;
 
         let array = self.array.clone().into_array();
-        let applied = array.apply_bound(&predicate)?;
+        let applied = array.apply_bound(predicate)?;
 
         if !contains_row_count(&applied) {
             return null_as_false_mask(applied, &mut ctx);
@@ -162,7 +177,8 @@ impl ZoneMap {
         null_as_false_mask(substituted, &mut ctx)
     }
 
-    fn lower_stats(&self, predicate: BoundExpression) -> VortexResult<BoundExpression> {
+    /// Rewrite the stats references in `predicate` into expressions over the stats table.
+    pub(super) fn lower_stats(&self, predicate: BoundExpression) -> VortexResult<BoundExpression> {
         let binder = ZoneMapStatsBinder { zone_map: self };
         bind_stats(predicate, &binder)
     }
@@ -377,6 +393,8 @@ fn row_count_array(zone_len: u64, row_count: u64, num_zones: usize) -> VortexRes
 mod tests {
     use std::num::NonZeroUsize;
     use std::sync::Arc;
+    use std::sync::atomic::AtomicI32;
+    use std::sync::atomic::Ordering;
 
     use rstest::rstest;
     use vortex_array::IntoArray;
@@ -408,6 +426,7 @@ mod tests {
     use vortex_array::expr::BoundExpression;
     use vortex_array::expr::Expression;
     use vortex_array::expr::cast;
+    use vortex_array::expr::dynamic;
     use vortex_array::expr::gt;
     use vortex_array::expr::gt_eq;
     use vortex_array::expr::is_not_null;
@@ -417,14 +436,17 @@ mod tests {
     use vortex_array::expr::not_eq;
     use vortex_array::expr::root;
     use vortex_array::expr::stats::Stat;
-    use vortex_array::stats::all_nan;
-    use vortex_array::stats::all_non_nan;
-    use vortex_array::stats::all_non_null;
-    use vortex_array::stats::all_null;
+    use vortex_array::scalar::ScalarValue;
+    use vortex_array::scalar_fn::fns::operators::CompareOperator;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_expr::stats::all_nan;
+    use vortex_expr::stats::all_non_nan;
+    use vortex_expr::stats::all_non_null;
+    use vortex_expr::stats::all_null;
+    use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
     use vortex_mask::Mask;
 
     use crate::layouts::zoned::zone_map::ZoneMap;
@@ -966,7 +988,7 @@ mod tests {
         let max_fn = Stat::Max
             .aggregate_fn()
             .expect("max should have an aggregate function");
-        let predicate = is_null(vortex_array::stats::stat(root(), max_fn));
+        let predicate = is_null(vortex_expr::stats::stat(root(), max_fn));
 
         // Missing StatFn lowers to a nullable null literal, so `is_null(...)` is true for every zone.
         let mask = prune(&zone_map, &predicate).unwrap();
@@ -991,7 +1013,7 @@ mod tests {
         let max_fn = Stat::Max
             .aggregate_fn()
             .expect("max should have an aggregate function");
-        let predicate = is_null(vortex_array::stats::stat(root(), max_fn));
+        let predicate = is_null(vortex_expr::stats::stat(root(), max_fn));
         let error = prune(&zone_map, &predicate).unwrap_err();
 
         assert!(
@@ -1075,5 +1097,61 @@ mod tests {
             BoolArray::from_iter([true, false, false]),
             &mut SESSION.create_execution_ctx()
         );
+    }
+
+    #[test]
+    fn lowered_dynamic_predicate_tracks_rhs_updates() -> VortexResult<()> {
+        let max = Max.bind(NumericalAggregateOpts::skip_nans());
+        let min = Min.bind(NumericalAggregateOpts::skip_nans());
+        let zone_map = ZoneMap::try_new(
+            PType::I32.into(),
+            StructArray::from_fields(&[
+                (
+                    max.to_string(),
+                    PrimitiveArray::new(buffer![5i32, 6i32, 7i32], Validity::AllValid).into_array(),
+                ),
+                (
+                    min.to_string(),
+                    PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::AllValid).into_array(),
+                ),
+            ])?,
+            Arc::new([max, min]),
+            3,
+            10,
+        )?;
+        let ctx = &mut SESSION.create_execution_ctx();
+
+        let threshold = Arc::new(AtomicI32::new(5));
+        let rhs = Arc::clone(&threshold);
+        let expr = dynamic(
+            CompareOperator::Gt,
+            move || Some(ScalarValue::from(rhs.load(Ordering::Relaxed))),
+            PType::I32.into(),
+            true,
+            root(),
+        );
+
+        // Lower once, as the zoned reader does, and evaluate the lowered predicate after each
+        // update of the dynamic value.
+        let lowered = zone_map.lower_stats(falsify(&expr, PType::I32.into()))?;
+
+        // A > 5 => A.max <= 5
+        let mask = zone_map.prune_lowered(&lowered, &SESSION)?;
+        assert_arrays_eq!(
+            mask.into_array(),
+            BoolArray::from_iter([true, false, false]),
+            ctx
+        );
+
+        // A > 6 => A.max <= 6
+        threshold.store(6, Ordering::Relaxed);
+        let mask = zone_map.prune_lowered(&lowered, &SESSION)?;
+        assert_arrays_eq!(
+            mask.into_array(),
+            BoolArray::from_iter([true, true, false]),
+            ctx
+        );
+
+        Ok(())
     }
 }

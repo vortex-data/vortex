@@ -13,6 +13,7 @@ use vortex_error::vortex_err;
 
 use super::FoR;
 use crate::FL_CHUNK_SIZE;
+use crate::FoRReferences;
 use crate::for_::array::FoRArrayExt;
 use crate::for_::array::FoRSlots;
 impl OperationsVTable<FoR> for FoR {
@@ -29,11 +30,16 @@ impl OperationsVTable<FoR> for FoR {
             .ok_or_else(|| vortex_err!("FoR encoded slot is missing"))?
             .execute_scalar(index, ctx)?;
         let encoded_pvalue = encoded_pvalue.as_primitive();
-        let chunk = (usize::from(array.offset()) + index) / FL_CHUNK_SIZE;
-        let reference = state
-            .slot(FoRSlots::REFERENCES)?
-            .ok_or_else(|| vortex_err!("FoR references slot is missing"))?
-            .execute_scalar(chunk, ctx)?;
+        let reference = match array.references() {
+            FoRReferences::Global(reference) => reference.clone(),
+            FoRReferences::Blocked(_) => {
+                let chunk = (usize::from(array.offset()) + index) / FL_CHUNK_SIZE;
+                state
+                    .slot(FoRSlots::BLOCKED_REFERENCES)?
+                    .ok_or_else(|| vortex_err!("FoR blocked references slot is missing"))?
+                    .execute_scalar(chunk, ctx)?
+            }
+        };
         let reference = reference.as_primitive();
 
         Ok(match_each_integer_ptype!(array.ptype(), |P| {
@@ -67,12 +73,13 @@ mod test {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::scalar::Scalar;
     use vortex_session::VortexSession;
 
     use crate::FoRData;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -87,5 +94,11 @@ mod test {
         .unwrap();
         let expected = PrimitiveArray::from_iter([-100, 1100, 1500, 1900]);
         assert_arrays_eq!(for_arr, expected, &mut ctx);
+        for (index, value) in [-100i32, 1100, 1500, 1900].into_iter().enumerate() {
+            let scalar = for_arr.execute_scalar(index, &mut ctx).unwrap();
+            let expected = Scalar::from(value);
+            assert_eq!(scalar.dtype(), expected.dtype());
+            assert_eq!(scalar, expected);
+        }
     }
 }

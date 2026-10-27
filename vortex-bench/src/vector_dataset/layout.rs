@@ -142,14 +142,15 @@ mod tests {
 
     #[test]
     fn label_round_trips_through_value_enum() {
-        for layout in [
-            TrainLayout::Single,
-            TrainLayout::SingleShuffled,
-            TrainLayout::Partitioned,
-            TrainLayout::PartitionedShuffled,
+        for (layout, label) in [
+            (TrainLayout::Single, "single"),
+            (TrainLayout::SingleShuffled, "single-shuffled"),
+            (TrainLayout::Partitioned, "partitioned"),
+            (TrainLayout::PartitionedShuffled, "partitioned-shuffled"),
         ] {
-            let parsed = TrainLayout::from_str(layout.label(), true).unwrap();
-            assert_eq!(parsed, layout);
+            assert_eq!(layout.label(), label);
+            assert_eq!(layout.to_string(), label);
+            assert_eq!(TrainLayout::from_str(label, true).unwrap(), layout);
         }
     }
 

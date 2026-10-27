@@ -4,6 +4,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::mem::MaybeUninit;
+use std::ops::Range;
 
 use fastlanes::BitPacking;
 use vortex_array::ArrayRef;
@@ -107,7 +108,7 @@ pub(crate) fn validate_block_offsets(
 
 /// Check that each block between `boundaries` is a whole number of 128-byte rows of at most
 /// `max_bit_width` bits, and that the boundaries span `packed_len` bytes.
-fn validate_primitive_offsets<T: Copy + Display>(
+fn validate_primitive_offsets<T: Copy>(
     boundaries: &[T],
     max_bit_width: u64,
     packed_len: usize,
@@ -115,14 +116,15 @@ fn validate_primitive_offsets<T: Copy + Display>(
 where
     u64: From<T>,
 {
+    let base = boundaries.first().map_or(0, |&first| u64::from(first));
     for pair in boundaries.windows(2) {
-        let size = u64::from(pair[1]).checked_sub(u64::from(pair[0]));
-        vortex_ensure!(
-            size.is_some_and(|size| size % 128 == 0 && size / 128 <= max_bit_width),
-            "Block boundaries {} and {} do not hold a supported bit width (at most {max_bit_width} bits)",
-            pair[0],
-            pair[1]
-        );
+        block_range(
+            base,
+            u64::from(pair[0]),
+            u64::from(pair[1]),
+            max_bit_width,
+            packed_len,
+        )?;
     }
     let span = match boundaries {
         [first, .., last] => u64::from(*last) - u64::from(*first),
@@ -133,6 +135,41 @@ where
         "Block offsets span {span} bytes, but the packed buffer has {packed_len}"
     );
     Ok(())
+}
+
+/// Return the bytes of the block between boundaries `start` and `end`, relative to the first
+/// boundary `base`.
+///
+/// The block must lie within `packed_len` bytes and be a whole number of 128-byte rows of at most
+/// `max_bit_width` bits.
+fn block_range(
+    base: u64,
+    start: u64,
+    end: u64,
+    max_bit_width: u64,
+    packed_len: usize,
+) -> VortexResult<Range<usize>> {
+    vortex_ensure!(
+        base <= start,
+        "Block boundary {start} is below the first boundary {base}"
+    );
+    vortex_ensure!(
+        start <= end,
+        "Block boundaries {start} and {end} are decreasing"
+    );
+    vortex_ensure!(
+        end - base <= packed_len as u64,
+        "Block boundaries {start} and {end} are outside the packed buffer (base {base})"
+    );
+    let size = end - start;
+    vortex_ensure!(
+        (start - base).is_multiple_of(128)
+            && size.is_multiple_of(128)
+            && size / 128 <= max_bit_width,
+        "Block boundaries {start} and {end} do not hold a supported bit width (at most {max_bit_width} bits)"
+    );
+    // Both differences are at most `packed_len`, so they fit in `usize`.
+    Ok((start - base) as usize..(end - base) as usize)
 }
 
 /// How the blocks of a [`BitPackedArray`] are packed, borrowing block offsets if present.
@@ -293,7 +330,11 @@ impl BitPackedData {
         length: usize,
         offset: u16,
     ) -> VortexResult<()> {
-        vortex_ensure!(ptype.is_int(), MismatchedTypes: "integer", ptype);
+        vortex_ensure!(
+            ptype.is_int(),
+            "expected type: integer but instead got {}",
+            ptype
+        );
 
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure_eq!(
@@ -400,10 +441,12 @@ impl BitPackedData {
         bit_width: u8,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<BitPackedArray> {
-        let parray: PrimitiveArray = array
-            .clone()
-            .try_downcast::<Primitive>()
-            .map_err(|a| vortex_err!(InvalidArgument: "Bitpacking can only encode primitive arrays, got {}", a.encoding_id()))?;
+        let parray: PrimitiveArray = array.clone().try_downcast::<Primitive>().map_err(|a| {
+            vortex_err!(
+                "Bitpacking can only encode primitive arrays, got {}",
+                a.encoding_id()
+            )
+        })?;
         bitpack_encode(&parray, bit_width, None, ctx)
     }
 
@@ -423,10 +466,12 @@ impl BitPackedData {
         bit_widths: &[u8],
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<BitPackedArray> {
-        let parray: PrimitiveArray = array
-            .clone()
-            .try_downcast::<Primitive>()
-            .map_err(|a| vortex_err!(InvalidArgument: "Bitpacking can only encode primitive arrays, got {}", a.encoding_id()))?;
+        let parray: PrimitiveArray = array.clone().try_downcast::<Primitive>().map_err(|a| {
+            vortex_err!(
+                "Bitpacking can only encode primitive arrays, got {}",
+                a.encoding_id()
+            )
+        })?;
         bitpack_encode_blocked(&parray, bit_widths, None, ctx)
     }
 }
@@ -501,7 +546,7 @@ mod test {
     use crate::bitpacking::array::BitPackedArrayExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -521,12 +566,7 @@ mod test {
         let uncompressed = PrimitiveArray::from_option_iter(values);
         let packed = BitPackedData::encode(&uncompressed.into_array(), 1, &mut ctx).unwrap();
         let expected = PrimitiveArray::from_option_iter(values);
-        let packed_primitive = packed
-            .as_array()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
-        assert_arrays_eq!(packed_primitive, expected, &mut ctx);
+        assert_arrays_eq!(packed, expected, &mut ctx);
     }
 
     #[test]
@@ -548,13 +588,8 @@ mod test {
 
         let packed_with_patches = BitPackedData::encode(&parray, 9, &mut ctx).unwrap();
         assert!(packed_with_patches.patches().is_some());
-        let packed_primitive = packed_with_patches
-            .as_array()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
         assert_arrays_eq!(
-            packed_primitive,
+            packed_with_patches,
             PrimitiveArray::new(values, vortex_array::validity::Validity::NonNullable),
             &mut ctx
         );

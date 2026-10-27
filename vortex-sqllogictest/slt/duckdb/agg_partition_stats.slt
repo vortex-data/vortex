@@ -15,13 +15,13 @@ query TT
 EXPLAIN SELECT count(*)
 FROM '${WORK_DIR}/agg_partition_stats.vortex';
 ----
-<REGEX>:.*COLUMN_DATA_SCAN.*
+<REGEX>:.*Column Data Scan.*
 
 query TT
 EXPLAIN SELECT count(*)
 FROM '${WORK_DIR}/agg_partition_stats.vortex';
 ----
-<!REGEX>:.*(READ_VORTEX|AGGREGATE).*
+<!REGEX>:.*(Read Vortex|AGGREGATE).*
 
 query I
 SELECT count(*)
@@ -33,13 +33,13 @@ query TT
 EXPLAIN SELECT min(i), max(i)
 FROM '${WORK_DIR}/agg_partition_stats.vortex';
 ----
-<REGEX>:.*COLUMN_DATA_SCAN.*
+<REGEX>:.*Column Data Scan.*
 
 query TT
 EXPLAIN SELECT min(i), max(i)
 FROM '${WORK_DIR}/agg_partition_stats.vortex';
 ----
-<!REGEX>:.*(READ_VORTEX|AGGREGATE).*
+<!REGEX>:.*(Read Vortex|AGGREGATE).*
 
 query II
 SELECT min(i), max(i) FROM '${WORK_DIR}/agg_partition_stats.vortex';
@@ -62,21 +62,87 @@ query TT
 EXPLAIN SELECT min(d), max(d)
 FROM '${WORK_DIR}/agg_partition_stats-date.vortex';
 ----
-<REGEX>:.*COLUMN_DATA_SCAN.*
+<REGEX>:.*Column Data Scan.*
 
 query DD
 SELECT min(d), max(d) FROM '${WORK_DIR}/agg_partition_stats-date.vortex';
 ----
 2013-07-01 2013-07-30
 
+statement ok
+COPY (SELECT i::DOUBLE AS x FROM generate_series(1, 5000) t(i))
+TO '${WORK_DIR}/agg_partition_stats-double.vortex';
+
+query TT
+EXPLAIN SELECT max(x) FROM '${WORK_DIR}/agg_partition_stats-double.vortex';
+----
+<REGEX>:.*Column Data Scan.*
+
+query R
+SELECT max(x) FROM '${WORK_DIR}/agg_partition_stats-double.vortex';
+----
+5000
+
+statement ok
+COPY (SELECT CASE WHEN i = 2500 THEN 'nan'::DOUBLE ELSE i::DOUBLE END AS x FROM generate_series(1, 5000) t(i))
+TO '${WORK_DIR}/agg_partition_stats-double-nan.vortex';
+
+query TT
+EXPLAIN SELECT min(x), max(x) FROM '${WORK_DIR}/agg_partition_stats-double-nan.vortex';
+----
+<REGEX>:.*Column Data Scan.*
+
+query RR
+SELECT min(x), max(x) FROM '${WORK_DIR}/agg_partition_stats-double-nan.vortex';
+----
+1 NaN
+
 query TT
 EXPLAIN SELECT count(*) FROM '${WORK_DIR}/agg_partition_stats.vortex'
 WHERE i > 50000;
 ----
-<REGEX>:.*READ_VORTEX.*
+<REGEX>:.*Read Vortex.*
 
 query I
 SELECT count(*) FROM '${WORK_DIR}/agg_partition_stats.vortex'
 WHERE i > 50000;
 ----
 50000
+
+statement ok
+COPY (
+    SELECT ((i - 2500) / 100)::DECIMAL(4, 2) AS d,
+           (i * 10000000000000000000)::DECIMAL(38, 0) AS h
+    FROM generate_series(1, 5000) t(i))
+TO '${WORK_DIR}/agg_partition_stats-decimal.vortex';
+
+query TT
+EXPLAIN SELECT min(d), max(d), min(h), max(h)
+FROM '${WORK_DIR}/agg_partition_stats-decimal.vortex';
+----
+<REGEX>:.*Column Data Scan.*
+
+query RRRR
+SELECT min(d), max(d), min(h), max(h)
+FROM '${WORK_DIR}/agg_partition_stats-decimal.vortex';
+----
+-24.99 25 10000000000000000000 50000000000000000000000
+
+statement ok
+COPY (
+    SELECT * FROM (VALUES
+        ('12:00:00'::TIME_NS),
+        ('01:02:03.123456789'::TIME_NS),
+        ('23:59:59.999999999'::TIME_NS)) t(tn))
+TO '${WORK_DIR}/agg_partition_stats-time_ns.vortex';
+
+query TT
+EXPLAIN SELECT min(tn), max(tn)
+FROM '${WORK_DIR}/agg_partition_stats-time_ns.vortex';
+----
+<REGEX>:.*Column Data Scan.*
+
+query ??
+SELECT min(tn), max(tn) FROM '${WORK_DIR}/agg_partition_stats-time_ns.vortex';
+----
+01:02:03.123456789 23:59:59.999999999

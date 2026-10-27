@@ -41,7 +41,7 @@ use crate::ShreddingSpec;
 use crate::json_to_variant;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty();
     crate::initialize(&session);
     session
 });
@@ -106,20 +106,23 @@ fn converts_json_extension_rows() -> VortexResult<()> {
 
     assert_eq!(result.dtype(), &DType::Variant(Nullability::NonNullable));
     let mut ctx = SESSION.create_execution_ctx();
-    let row0 = result.execute_scalar(0, &mut ctx)?;
-    let object = row0
-        .as_variant()
-        .value()
-        .ok_or_else(|| vortex_err!("expected non-null variant"))?;
-    let field = object
-        .as_struct()
-        .field("a")
-        .ok_or_else(|| vortex_err!("expected field a"))?
-        .as_variant()
-        .value()
-        .ok_or_else(|| vortex_err!("expected non-null field a"))?
-        .cast(&i64_dtype())?;
-    assert_eq!(field.as_primitive().typed_value::<i64>(), Some(1));
+    assert_eq!(result.len(), 3);
+    for (index, expected) in [(0, 1), (2, 3)] {
+        let row0 = result.execute_scalar(index, &mut ctx)?;
+        let object = row0
+            .as_variant()
+            .value()
+            .ok_or_else(|| vortex_err!("expected non-null variant"))?;
+        let field = object
+            .as_struct()
+            .field("a")
+            .ok_or_else(|| vortex_err!("expected field a"))?
+            .as_variant()
+            .value()
+            .ok_or_else(|| vortex_err!("expected non-null field a"))?
+            .cast(&i64_dtype())?;
+        assert_eq!(field.as_primitive().typed_value::<i64>(), Some(expected));
+    }
 
     let row1 = result.execute_scalar(1, &mut ctx)?;
     let value = row1
@@ -217,14 +220,11 @@ fn shredding_produces_typed_value_child() -> VortexResult<()> {
     assert!(shredded.unmasked_field_by_name_opt("a").is_some());
 
     // Typed extraction must serve shredded rows and fall back for mismatched rows.
-    let typed = result
-        .clone()
-        .apply(&variant_get(
-            root(),
-            VariantPath::field("a"),
-            Some(i64_dtype()),
-        ))?
-        .execute::<ArrayRef>(&mut ctx)?;
+    let typed = result.clone().apply(&variant_get(
+        root(),
+        VariantPath::field("a"),
+        Some(i64_dtype()),
+    ))?;
     assert_arrays_eq!(
         typed,
         PrimitiveArray::from_option_iter([Some(1i64), Some(2), None, None]),
@@ -259,13 +259,11 @@ fn shredding_preserves_null_rows() -> VortexResult<()> {
     assert_eq!(result.dtype(), &DType::Variant(Nullability::Nullable));
     let mut ctx = SESSION.create_execution_ctx();
     assert_nth_scalar_is_null!(result, 1, &mut ctx);
-    let typed = result
-        .apply(&variant_get(
-            root(),
-            VariantPath::field("a"),
-            Some(i64_dtype()),
-        ))?
-        .execute::<ArrayRef>(&mut ctx)?;
+    let typed = result.apply(&variant_get(
+        root(),
+        VariantPath::field("a"),
+        Some(i64_dtype()),
+    ))?;
     assert_arrays_eq!(
         typed,
         PrimitiveArray::from_option_iter([Some(1i64), None, Some(3)]),

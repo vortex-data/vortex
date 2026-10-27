@@ -258,6 +258,7 @@ fn truncate_min(value: Scalar, max_bytes: usize) -> VortexResult<Option<Scalar>>
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroUsize;
+    use std::sync::LazyLock;
 
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -276,24 +277,25 @@ mod tests {
     use crate::aggregate_fn::fns::bounded_min::BoundedMinOptions;
     use crate::aggregate_fn::fns::max::Max;
     use crate::aggregate_fn::fns::min::Min;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     fn max_bytes(value: usize) -> NonZeroUsize {
         NonZeroUsize::new(value).vortex_expect("non-zero max_bytes")
     }
 
     fn fresh_session() -> VortexSession {
-        array_session()
+        VortexSession::empty()
     }
 
     #[test]
     fn bounded_min_truncates_utf8_to_lower_bound() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array =
             VarBinViewArray::from_iter_str(["snowman⛄️snowman", "untruncated"]).into_array();
         let mut acc = Accumulator::try_new(
@@ -315,7 +317,7 @@ mod tests {
 
     #[test]
     fn bounded_min_keeps_fixed_width_values_exact() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::new(buffer![10i32, 20, 5], Validity::NonNullable).into_array();
         let mut acc = Accumulator::try_new(
             BoundedMin,
@@ -413,7 +415,7 @@ mod tests {
         let metadata = BoundedMin
             .serialize(&options)?
             .expect("serializable options");
-        let roundtrip = BoundedMin.deserialize(&metadata, &VortexSession::empty())?;
+        let roundtrip = BoundedMin.deserialize(&metadata, &SESSION)?;
 
         assert_eq!(roundtrip, options);
         Ok(())

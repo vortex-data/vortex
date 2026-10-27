@@ -77,8 +77,9 @@ pub fn list_to_vector_ext(input: ArrayRef) -> VortexResult<ArrayRef> {
 
     // `parquet_to_vortex_chunks` produces `ListView` arrays for list columns by default;
     // materialize them into a flat `List` representation before we validate offsets.
+    let mut ctx = SESSION.create_execution_ctx();
     if input.as_opt::<ListView>().is_some() {
-        let flat = recursive_list_from_list_view(input, &mut SESSION.create_execution_ctx())?;
+        let flat = recursive_list_from_list_view(input, &mut ctx)?;
         return list_to_vector_ext(flat);
     }
 
@@ -114,7 +115,7 @@ pub fn list_to_vector_ext(input: ArrayRef) -> VortexResult<ArrayRef> {
 
     // Extract the flat elements buffer up front: the nullable-handling branch below
     // needs to inspect runtime validity before we can decide whether to rewrap it.
-    let raw_elements = list.sliced_elements()?;
+    let raw_elements = list.sliced_elements(&mut ctx)?;
 
     let num_rows = input.len();
     if num_rows == 0 {
@@ -127,8 +128,8 @@ pub fn list_to_vector_ext(input: ArrayRef) -> VortexResult<ArrayRef> {
     // `Primitive` array (direct slice index). That's the common case after
     // `parquet_to_vortex_chunks`, so for a 100K-row column we do ~100K primitive
     // slice indexes rather than 200K. The loop body is O(1) either way.
-    let mut prev_end = list.offset_at(0)?;
-    let first_end = list.offset_at(1)?;
+    let mut prev_end = list.offset_at(0, &mut ctx)?;
+    let first_end = list.offset_at(1, &mut ctx)?;
 
     let dim = first_end.checked_sub(prev_end).ok_or_else(|| {
         vortex_err!("list_to_vector_ext: offsets are not monotonically increasing")
@@ -140,7 +141,7 @@ pub fn list_to_vector_ext(input: ArrayRef) -> VortexResult<ArrayRef> {
     prev_end = first_end;
 
     for i in 1..num_rows {
-        let end = list.offset_at(i + 1)?;
+        let end = list.offset_at(i + 1, &mut ctx)?;
 
         let row_len = end
             .checked_sub(prev_end)
@@ -221,19 +222,35 @@ pub fn list_to_vector_ext(input: ArrayRef) -> VortexResult<ArrayRef> {
 mod tests {
     use vortex::array::Array;
     use vortex::array::ArrayRef;
+    use vortex::array::EmptyMetadata;
     use vortex::array::IntoArray;
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::ChunkedArray;
-    use vortex::array::arrays::Extension;
+    use vortex::array::arrays::ExtensionArray;
+    use vortex::array::arrays::FixedSizeListArray;
     use vortex::array::arrays::List;
     use vortex::array::arrays::ListViewArray;
     use vortex::array::arrays::PrimitiveArray;
-    use vortex::array::arrays::extension::ExtensionArrayExt;
     use vortex::array::validity::Validity;
     use vortex::buffer::BufferMut;
-    use vortex::dtype::DType;
+    use vortex::dtype::extension::ExtDType;
+    use vortex_array::assert_arrays_eq;
+    use vortex_tensor::vector::Vector;
 
     use super::list_to_vector_ext;
+    use crate::SESSION;
+
+    fn expected_vector(values: &[f32]) -> ArrayRef {
+        let elements = PrimitiveArray::from_iter(values.iter().copied()).into_array();
+        let storage =
+            FixedSizeListArray::try_new(elements, 3, Validity::NonNullable, values.len() / 3)
+                .unwrap();
+        let dtype = ExtDType::<Vector>::try_new(EmptyMetadata, storage.dtype().clone())
+            .unwrap()
+            .erased();
+        ExtensionArray::new(dtype, storage.into_array()).into_array()
+    }
 
     /// Build a `List<f32>` whose elements carry the given [`Validity`]. Passing
     /// `Validity::NonNullable` produces a `List<f32>`; any other variant produces
@@ -244,6 +261,7 @@ mod tests {
         dim: usize,
         element_validity: Validity,
     ) -> ArrayRef {
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(
             values.len() % dim,
             0,
@@ -261,10 +279,11 @@ mod tests {
         }
         let offsets =
             PrimitiveArray::new::<i32>(offsets_buf.freeze(), Validity::NonNullable).into_array();
-        Array::<List>::new(elements, offsets, Validity::NonNullable).into_array()
+        Array::<List>::new(elements, offsets, Validity::NonNullable, &mut ctx).into_array()
     }
 
     fn list_f32(rows: &[&[f32]]) -> ArrayRef {
+        let mut ctx = SESSION.create_execution_ctx();
         let mut elements = BufferMut::<f32>::with_capacity(rows.iter().map(|r| r.len()).sum());
         let mut offsets = BufferMut::<i32>::with_capacity(rows.len() + 1);
         offsets.push(0);
@@ -279,19 +298,24 @@ mod tests {
             PrimitiveArray::new::<f32>(elements.freeze(), Validity::NonNullable).into_array();
         let offsets_array =
             PrimitiveArray::new::<i32>(offsets.freeze(), Validity::NonNullable).into_array();
-        Array::<List>::new(elements_array, offsets_array, Validity::NonNullable).into_array()
+        Array::<List>::new(
+            elements_array,
+            offsets_array,
+            Validity::NonNullable,
+            &mut ctx,
+        )
+        .into_array()
     }
 
     #[test]
     fn uniform_list_becomes_vector_extension() {
         let list = list_f32(&[&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0], &[7.0, 8.0, 9.0]]);
         let wrapped = list_to_vector_ext(list).unwrap();
-        assert_eq!(wrapped.len(), 3);
-        let ext = wrapped.as_opt::<Extension>().expect("returns Extension");
-        assert!(matches!(
-            ext.storage_array().dtype(),
-            DType::FixedSizeList(_, 3, _)
-        ));
+        assert_arrays_eq!(
+            wrapped,
+            expected_vector(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -334,6 +358,7 @@ mod tests {
     /// `list_to_vector_ext` fast-path that collapses `ListView` → `List` before
     /// validating offsets.
     fn list_view_f32(dim: usize, rows: &[&[f32]]) -> ArrayRef {
+        let mut ctx = SESSION.create_execution_ctx();
         let mut values = BufferMut::<f32>::with_capacity(rows.len() * dim);
         for row in rows {
             assert_eq!(row.len(), dim);
@@ -361,7 +386,7 @@ mod tests {
         let sizes =
             PrimitiveArray::new::<i32>(sizes_buf.freeze(), Validity::NonNullable).into_array();
 
-        ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable)
+        ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable, &mut ctx)
             .unwrap()
             .into_array()
     }
@@ -374,16 +399,16 @@ mod tests {
         // `List` form.
         let list_view = list_view_f32(3, &[&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0]]);
         let wrapped = list_to_vector_ext(list_view).unwrap();
-        assert_eq!(wrapped.len(), 2);
-        let ext = wrapped.as_opt::<Extension>().expect("returns Extension");
-        assert!(matches!(
-            ext.storage_array().dtype(),
-            DType::FixedSizeList(_, 3, _)
-        ));
+        assert_arrays_eq!(
+            wrapped,
+            expected_vector(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
     fn all_invalid_list_validity_is_rejected() {
+        let mut ctx = SESSION.create_execution_ctx();
         // A list with `Validity::AllInvalid` means every row is null. The Vector
         // extension type requires non-nullable elements at the FSL level, so we
         // must reject this input rather than silently dropping the validity mask.
@@ -397,7 +422,8 @@ mod tests {
             Validity::NonNullable,
         )
         .into_array();
-        let list = Array::<List>::new(elements, offsets, Validity::AllInvalid).into_array();
+        let list =
+            Array::<List>::new(elements, offsets, Validity::AllInvalid, &mut ctx).into_array();
 
         let err = list_to_vector_ext(list).unwrap_err().to_string();
         assert!(
@@ -408,6 +434,7 @@ mod tests {
 
     #[test]
     fn non_float_element_type_is_rejected() {
+        let mut ctx = SESSION.create_execution_ctx();
         // Build a List<i32>.
         let elements = PrimitiveArray::new::<i32>(
             BufferMut::<i32>::from_iter([1i32, 2, 3, 4]).freeze(),
@@ -419,7 +446,8 @@ mod tests {
             Validity::NonNullable,
         )
         .into_array();
-        let list = Array::<List>::new(elements, offsets, Validity::NonNullable).into_array();
+        let list =
+            Array::<List>::new(elements, offsets, Validity::NonNullable, &mut ctx).into_array();
 
         let err = list_to_vector_ext(list).unwrap_err().to_string();
         assert!(
@@ -465,12 +493,11 @@ mod tests {
             list_f32_with_element_validity(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 3, Validity::AllValid);
 
         let wrapped = list_to_vector_ext(list).unwrap();
-        assert_eq!(wrapped.len(), 2);
-        let ext = wrapped.as_opt::<Extension>().expect("returns Extension");
-        assert!(matches!(
-            ext.storage_array().dtype(),
-            DType::FixedSizeList(_, 3, _)
-        ));
+        assert_arrays_eq!(
+            wrapped,
+            expected_vector(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]

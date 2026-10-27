@@ -643,10 +643,16 @@ mod tests {
     #[test]
     fn min_max_value() {
         assert_eq!(PValue::min_value(PType::U8), PValue::U8(0));
+        assert_eq!(PValue::min_value(PType::U8).ptype(), PType::U8);
         assert_eq!(PValue::max_value(PType::U64), PValue::U64(u64::MAX));
+        assert_eq!(PValue::max_value(PType::U64).ptype(), PType::U64);
         assert_eq!(PValue::min_value(PType::I8), PValue::I8(i8::MIN));
+        assert_eq!(PValue::min_value(PType::I8).ptype(), PType::I8);
         assert_eq!(PValue::max_value(PType::I64), PValue::I64(i64::MAX));
+        assert_eq!(PValue::max_value(PType::I64).ptype(), PType::I64);
         assert_eq!(PValue::min_value(PType::F32), PValue::F32(f32::MIN));
+        assert_eq!(PValue::min_value(PType::F32).ptype(), PType::F32);
         assert_eq!(PValue::max_value(PType::F64), PValue::F64(f64::MAX));
+        assert_eq!(PValue::max_value(PType::F64).ptype(), PType::F64);
     }
 }

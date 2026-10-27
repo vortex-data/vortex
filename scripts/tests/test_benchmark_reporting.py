@@ -171,47 +171,6 @@ def markdown_row(report: str, name: str) -> list[str]:
     return [cell.strip() for cell in line.strip("|").split("|")]
 
 
-def test_select_latest_baseline_rows_uses_latest_matching_benchmark_commit() -> None:
-    compare = load_compare_module()
-    history = pd.DataFrame(
-        [
-            stored_timing_row(
-                "base-old",
-                "tpch_q01/datafusion:parquet",
-                100,
-                "nvme",
-                {"scale_factor": "1.0"},
-            ),
-            file_size_record_for("base-old", 100, "tpch", "1.0", "vortex-file-compressed", "part-0.vortex"),
-            stored_timing_row(
-                "base-current",
-                "tpch_q01/datafusion:parquet",
-                110,
-                "nvme",
-                {"scale_factor": "1.0"},
-            ),
-            file_size_record_for("base-current", 120, "tpch", "1.0", "vortex-file-compressed", "part-0.vortex"),
-            stored_timing_row("base-other", "clickbench_q01/datafusion:parquet", 200, "nvme"),
-        ]
-    )
-    pr = pd.DataFrame(
-        [
-            stored_timing_row(
-                "pr-sha",
-                "tpch_q01/datafusion:parquet",
-                115,
-                "nvme",
-                {"scale_factor": "1.0"},
-            ),
-        ]
-    )
-
-    selected = compare.select_latest_baseline_rows(history, pr, {"base-old", "base-current"})
-
-    assert set(selected["commit_id"]) == {"base-current"}
-    assert len(selected) == 2
-
-
 def test_read_latest_baseline_rows_streams_latest_matching_benchmark_commit(tmp_path: Path) -> None:
     compare = load_compare_module()
     history_path = tmp_path / "history.jsonl"
@@ -266,10 +225,13 @@ def test_read_latest_baseline_rows_streams_latest_matching_benchmark_commit(tmp_
         ]
     )
 
-    selected = compare.read_latest_baseline_rows(history_path, pr, {"base-old", "base-current"})
+    selected = compare.read_latest_baseline_rows(
+        history_path,
+        pr,
+        {"base-old", "base-current", "base-wrong-unit", "base-wrong-target", "base-other"},
+    )
 
-    assert set(selected["commit_id"]) == {"base-current"}
-    assert len(selected) == 2
+    pd.testing.assert_frame_equal(selected, pd.DataFrame(history_rows[2:4]))
 
 
 def test_read_latest_baseline_rows_skips_commits_outside_git_tree(tmp_path: Path) -> None:
@@ -303,8 +265,7 @@ def test_read_latest_baseline_rows_skips_commits_outside_git_tree(tmp_path: Path
 
     selected = compare.read_latest_baseline_rows(history_path, pr, {"base-reachable"})
 
-    assert set(selected["commit_id"]) == {"base-reachable"}
-    assert len(selected) == 2
+    pd.testing.assert_frame_equal(selected, pd.DataFrame(history_rows[:2]))
 
 
 def test_read_latest_baseline_rows_returns_empty_without_reachable_match(tmp_path: Path) -> None:
@@ -338,8 +299,9 @@ def test_read_latest_baseline_rows_uses_last_result_from_rerun(tmp_path: Path) -
 
     selected = compare.read_latest_baseline_rows(history_path, pr, {"base"})
 
-    assert len(selected) == 1
-    assert selected.iloc[0]["value"] == 110
+    pd.testing.assert_frame_equal(
+        selected, pd.DataFrame([stored_timing_row("base", "tpch_q01/datafusion:parquet", 110)])
+    )
 
 
 def test_within_engine_analysis_uses_each_engines_own_parquet_control() -> None:
@@ -360,22 +322,24 @@ def test_within_engine_analysis_uses_each_engines_own_parquet_control() -> None:
     assert compare.build_verdict(analyses["duckdb"])["impact"] == "+20.0%"
 
 
-def test_random_access_attribution_excludes_lance_rows() -> None:
+def test_random_access_attribution_excludes_competitor_rows() -> None:
     compare = load_compare_module()
     rows = [
         timing_row("random-access/taxi/correlated/parquet-tokio-local-disk", 100, 110),
         timing_row("random-access/taxi/correlated/vortex-tokio-local-disk", 100, 99),
         timing_row("random-access/taxi/correlated/lance-tokio-local-disk", 100, 200),
+        timing_row("random-access/taxi/correlated/litdata-tokio-local-disk", 100, 300),
         timing_row("random-access/taxi/uniform/parquet-tokio-local-disk", 100, 110),
         timing_row("random-access/taxi/uniform/vortex-tokio-local-disk", 100, 99),
         timing_row("random-access/taxi/uniform/lance-tokio-local-disk", 100, 200),
+        timing_row("random-access/taxi/uniform/litdata-tokio-local-disk", 100, 300),
     ]
     df = pd.DataFrame(rows)
     df[["engine", "file_format", "query"]] = df["name"].apply(compare.extract_target_fields)
 
     analyses = compare.build_within_engine_statistical_analyses(df, threshold_pct=5)
 
-    assert df.loc[df["file_format"] == "lance", "query"].isna().all()
+    assert df.loc[df["file_format"].isin(["lance", "litdata"]), "query"].isna().all()
     assert set(analyses) == {"random-access"}
     assert set(analyses["random-access"]["detail_df"]["file_format"]) == {
         "parquet",
@@ -384,14 +348,16 @@ def test_random_access_attribution_excludes_lance_rows() -> None:
     assert compare.build_verdict(analyses["random-access"])["status"] == "Likely improvement"
 
 
-def test_random_access_report_keeps_lance_details_without_attribution(tmp_path: Path) -> None:
+def test_random_access_report_keeps_competitor_details_without_attribution(tmp_path: Path) -> None:
     names_and_values = [
         ("random-access/taxi/correlated/parquet-tokio-local-disk", 110),
         ("random-access/taxi/correlated/vortex-tokio-local-disk", 99),
         ("random-access/taxi/correlated/lance-tokio-local-disk", 200),
+        ("random-access/taxi/correlated/litdata-tokio-local-disk", 300),
         ("random-access/taxi/uniform/parquet-tokio-local-disk", 110),
         ("random-access/taxi/uniform/vortex-tokio-local-disk", 99),
         ("random-access/taxi/uniform/lance-tokio-local-disk", 200),
+        ("random-access/taxi/uniform/litdata-tokio-local-disk", 300),
     ]
     base_rows = [stored_timing_row("base-sha", name, 100) for name, _pr_value in names_and_values]
     pr_rows = [stored_timing_row("pr-sha", name, pr_value) for name, pr_value in names_and_values]
@@ -400,6 +366,7 @@ def test_random_access_report_keeps_lance_details_without_attribution(tmp_path: 
 
     assert "**Attributed Vortex impact**: -10.0%" in report
     assert "<summary>random-access / lance / ns " in report
+    assert "<summary>random-access / litdata / ns " in report
 
 
 def test_comparison_report_groups_by_target_and_unit(tmp_path: Path) -> None:

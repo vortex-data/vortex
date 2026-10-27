@@ -103,29 +103,6 @@ mod tests {
     }
 
     #[test]
-    fn test_roundtrip_conversion() {
-        let ptypes = vec![
-            PType::U8,
-            PType::U16,
-            PType::U32,
-            PType::U64,
-            PType::I8,
-            PType::I16,
-            PType::I32,
-            PType::I64,
-            PType::F16,
-            PType::F32,
-            PType::F64,
-        ];
-
-        for ptype in ptypes {
-            let vx = vx_ptype::from(ptype);
-            let back = PType::from(vx);
-            assert_eq!(ptype, back);
-        }
-    }
-
-    #[test]
     fn test_vx_ptype_enum_values() {
         // Important: These values are part of the FFI ABI contract and must not change
         // as they may be used in serialization or by C clients

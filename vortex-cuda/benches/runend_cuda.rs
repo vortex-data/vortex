@@ -17,8 +17,8 @@ use std::time::Duration;
 use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
-use cudarc::driver::DeviceRepr;
 use futures::executor::block_on;
+use mimalloc::MiMalloc;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -29,10 +29,14 @@ use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::RunEndArray;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
+use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
 use crate::timed_launch_strategy::TimedLaunchStrategy;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 /// Creates a run-end encoded array with the specified output length and average run length.
 fn make_runend_array_typed<T>(

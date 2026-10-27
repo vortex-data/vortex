@@ -15,10 +15,10 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::transform::BoundPartitionedExpr;
 use vortex_array::validity::Validity;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_expr::transform::BoundPartitionedExpr;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 

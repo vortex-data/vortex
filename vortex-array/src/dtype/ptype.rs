@@ -1010,27 +1010,51 @@ mod tests {
 
     #[test]
     fn to_bytes_rt() {
-        assert_eq!(&0x01u8.to_le_bytes(), &[0x01]);
-        assert_eq!(&0x0201u16.to_le_bytes(), &[0x01, 0x02]);
+        assert_eq!(ToBytes::to_le_bytes(&0x01u8), &[0x01]);
+        assert_eq!(ToBytes::to_le_bytes(&0x0201u16), &[0x01, 0x02]);
 
-        assert_eq!(u8::try_from_le_bytes(&42_u8.to_le_bytes()).unwrap(), 42);
-        assert_eq!(u16::try_from_le_bytes(&42_u16.to_le_bytes()).unwrap(), 42);
-        assert_eq!(u32::try_from_le_bytes(&42_u32.to_le_bytes()).unwrap(), 42);
-        assert_eq!(u64::try_from_le_bytes(&42_u64.to_le_bytes()).unwrap(), 42);
-        assert_eq!(i8::try_from_le_bytes(&42_i8.to_le_bytes()).unwrap(), 42);
-        assert_eq!(i16::try_from_le_bytes(&42_i16.to_le_bytes()).unwrap(), 42);
-        assert_eq!(i32::try_from_le_bytes(&42_i32.to_le_bytes()).unwrap(), 42);
-        assert_eq!(i64::try_from_le_bytes(&42_i64.to_le_bytes()).unwrap(), 42);
         assert_eq!(
-            f16::try_from_le_bytes(&f16::from_f32(42.0).to_le_bytes()).unwrap(),
+            u8::try_from_le_bytes(ToBytes::to_le_bytes(&42_u8)).unwrap(),
+            42
+        );
+        assert_eq!(
+            u16::try_from_le_bytes(ToBytes::to_le_bytes(&42_u16)).unwrap(),
+            42
+        );
+        assert_eq!(
+            u32::try_from_le_bytes(ToBytes::to_le_bytes(&42_u32)).unwrap(),
+            42
+        );
+        assert_eq!(
+            u64::try_from_le_bytes(ToBytes::to_le_bytes(&42_u64)).unwrap(),
+            42
+        );
+        assert_eq!(
+            i8::try_from_le_bytes(ToBytes::to_le_bytes(&42_i8)).unwrap(),
+            42
+        );
+        assert_eq!(
+            i16::try_from_le_bytes(ToBytes::to_le_bytes(&42_i16)).unwrap(),
+            42
+        );
+        assert_eq!(
+            i32::try_from_le_bytes(ToBytes::to_le_bytes(&42_i32)).unwrap(),
+            42
+        );
+        assert_eq!(
+            i64::try_from_le_bytes(ToBytes::to_le_bytes(&42_i64)).unwrap(),
+            42
+        );
+        assert_eq!(
+            f16::try_from_le_bytes(ToBytes::to_le_bytes(&f16::from_f32(42.0))).unwrap(),
             f16::from_f32(42.0)
         );
         assert_eq!(
-            f32::try_from_le_bytes(&42.0_f32.to_le_bytes()).unwrap(),
+            f32::try_from_le_bytes(ToBytes::to_le_bytes(&42.0_f32)).unwrap(),
             42.0
         );
         assert_eq!(
-            f64::try_from_le_bytes(&42.0_f64.to_le_bytes()).unwrap(),
+            f64::try_from_le_bytes(ToBytes::to_le_bytes(&42.0_f64)).unwrap(),
             42.0
         );
     }

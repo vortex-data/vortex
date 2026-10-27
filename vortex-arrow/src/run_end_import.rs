@@ -18,9 +18,9 @@ use vortex_runend::RunEnd;
 
 /// Build a Vortex run-end array from an Arrow [`RunArray`] and its already-converted `values`.
 ///
-/// The caller converts `values` separately (rather than this function calling
-/// [`crate::FromArrowArray`] on `array.values()`) so that extension metadata on the Arrow values
-/// field dispatches through the session's registered import plugins.
+/// The caller converts `values` separately (rather than this function converting
+/// `array.values()` itself) so that extension metadata on the Arrow values field dispatches
+/// through the session's registered import plugins.
 pub(crate) fn run_end_from_arrow<R: RunEndIndexType>(
     array: &RunArray<R>,
     values: ArrayRef,
@@ -98,7 +98,7 @@ mod tests {
     use crate::ArrowSessionExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         vortex_runend::initialize(&session);
         session
     });
@@ -256,6 +256,11 @@ mod tests {
         assert_eq!(
             vortex_array.dtype(),
             &DType::Primitive(PType::I64, Nullability::Nullable)
+        );
+        assert_arrays_eq!(
+            vortex_array,
+            PrimitiveArray::from_option_iter([] as [Option<i64>; 0]),
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }

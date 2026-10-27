@@ -195,6 +195,7 @@ pub(crate) fn logical_shredded_from_parquet_typed_value(
             elements,
             list_array.offsets().clone(),
             list_array.list_validity(),
+            ctx,
         )?
         .into_array());
     }
@@ -341,6 +342,7 @@ pub(crate) fn parquet_typed_value_from_logical_shredded(
             elements,
             list_array.offsets().clone(),
             list_array.list_validity(),
+            ctx,
         )?
         .into_array());
     }
@@ -531,7 +533,7 @@ mod tests {
     use crate::array::parquet_typed_value_from_logical_shredded;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -539,6 +541,15 @@ mod tests {
     fn assert_arrow_variant_storage_roundtrip(struct_array: StructArray) -> VortexResult<()> {
         let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
         let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant, &SESSION.arrow())?;
+        assert_eq!(vortex_arr.len(), struct_array.len());
+        assert_eq!(
+            vortex_arr.dtype(),
+            &DType::Variant(if struct_array.nulls().is_some() {
+                Nullability::Nullable
+            } else {
+                Nullability::NonNullable
+            })
+        );
         let inner = vortex_arr
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant child"))?;
@@ -582,25 +593,6 @@ mod tests {
     }
 
     #[test]
-    fn test_from_arrow_variant_basic() -> VortexResult<()> {
-        let mut builder = VariantArrayBuilder::new(3);
-        builder.append_variant(PqVariant::from(42i32));
-        builder.append_variant(PqVariant::from("hello"));
-        builder.append_variant(PqVariant::from(true));
-        let arrow_variant = builder.build();
-
-        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant, &SESSION.arrow())?;
-
-        assert_eq!(vortex_arr.len(), 3);
-        assert_eq!(
-            vortex_arr.dtype(),
-            &DType::Variant(Nullability::NonNullable)
-        );
-
-        Ok(())
-    }
-
-    #[test]
     fn test_from_arrow_variant_with_shredded_typed_value() -> VortexResult<()> {
         let mut metadata_builder = BinaryViewBuilder::new();
         let min_metadata = [1u8, 0];
@@ -633,9 +625,7 @@ mod tests {
             .ok_or_else(|| vortex_err!("expected parquet variant array"))?;
         let typed_value = parquet_array
             .typed_value()
-            .ok_or_else(|| vortex_err!("expected typed_value child"))?
-            .clone()
-            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
+            .ok_or_else(|| vortex_err!("expected typed_value child"))?;
         assert_arrays_eq!(
             typed_value,
             PrimitiveArray::from_option_iter([Some(10), None, Some(30)]),
@@ -658,6 +648,16 @@ mod tests {
         assert_eq!(struct_arr.num_columns(), 2);
         assert_eq!(struct_arr.column_names(), &["metadata", "value"]);
 
+        assert_eq!(struct_arr.len(), 2);
+        assert_eq!(struct_arr.null_count(), 0);
+        assert_eq!(
+            struct_arr.column(0).to_data(),
+            binary_view_array([b"\x01\x00", b"\x01\x00"]).to_data()
+        );
+        assert_eq!(
+            struct_arr.column(1).to_data(),
+            binary_view_array([b"\x10", b"\x11"]).to_data()
+        );
         Ok(())
     }
 
@@ -683,6 +683,20 @@ mod tests {
             &["metadata", "value", "typed_value"]
         );
 
+        assert_eq!(struct_arr.len(), 2);
+        assert_eq!(struct_arr.null_count(), 0);
+        assert_eq!(
+            struct_arr.column(0).to_data(),
+            binary_view_array([b"\x01\x00", b"\x01\x00"]).to_data()
+        );
+        assert_eq!(
+            struct_arr.column(1).to_data(),
+            binary_view_array([b"\x10", b"\x11"]).to_data()
+        );
+        assert_eq!(
+            struct_arr.column(2).to_data(),
+            Int32Array::from(vec![1, 2]).to_data()
+        );
         Ok(())
     }
 
@@ -724,9 +738,7 @@ mod tests {
 
         let typed_value = parquet_array
             .typed_value()
-            .ok_or_else(|| vortex_err!("expected typed_value child"))?
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?;
+            .ok_or_else(|| vortex_err!("expected typed_value child"))?;
         assert_arrays_eq!(
             typed_value,
             PrimitiveArray::from_option_iter([Some(10i32), Some(20), Some(30)]),

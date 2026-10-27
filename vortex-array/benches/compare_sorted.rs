@@ -6,6 +6,8 @@
 
 #![expect(clippy::unwrap_used)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use divan::counter::ItemsCount;
 use mimalloc::MiMalloc;
@@ -22,15 +24,25 @@ use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_buffer::Buffer;
+use vortex_session::VortexSession;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<MemorySession>()
+});
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
@@ -42,11 +54,10 @@ fn bench_compare(bencher: Bencher, lhs: ArrayRef, constant: Scalar, op: Operator
         lhs.statistics()
             .set(Stat::IsSorted, Precision::exact(ScalarValue::from(true)));
     }
-    let session = vortex_array::array_session();
     let rhs = ConstantArray::new(constant, lhs.len()).into_array();
     bencher
         .counter(ItemsCount::new(lhs.len()))
-        .with_inputs(|| (&lhs, &rhs, session.create_execution_ctx()))
+        .with_inputs(|| (&lhs, &rhs, SESSION.create_execution_ctx()))
         .bench_refs(|input| {
             input
                 .0

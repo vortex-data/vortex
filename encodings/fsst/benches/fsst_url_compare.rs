@@ -19,8 +19,11 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::like;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::session::ArraySession;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 use vortex_fsst::test_utils::HIGH_MATCH_DOMAIN;
@@ -33,11 +36,15 @@ use vortex_session::VortexSession;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<MemorySession>();
     vortex_fsst::initialize(&session);
     session
 });
@@ -70,7 +77,7 @@ fn pick_url_with_domain(data: &VarBinArray, domain: &str) -> String {
         .unwrap();
     (0..data.len())
         .filter(|&i| mask.value(i))
-        .map(|i| unsafe { String::from_utf8_unchecked(data.bytes_at(i).to_vec()) })
+        .map(|i| unsafe { String::from_utf8_unchecked(data.bytes_at(i, &mut ctx).to_vec()) })
         .find(|u| u.contains(domain))
         .unwrap_or_else(|| format!("http://{domain}/missing"))
 }

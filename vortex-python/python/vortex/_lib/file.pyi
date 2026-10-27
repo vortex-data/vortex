@@ -84,6 +84,7 @@ def open(
     without_segment_cache: bool = False,
     segment_cache: SegmentCache | None = None,
     cache_key: str | None = None,
+    memory_map: bool = False,
 ) -> VortexFile: ...
 def open_readable(
     reader: ReadBytesAt | ReadAt | IO[bytes],

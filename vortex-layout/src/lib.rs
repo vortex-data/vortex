@@ -14,6 +14,7 @@
 //! Scanning is built with [`scan::scan_builder::ScanBuilder`]. It accepts a bound projection,
 //! optional bound filter, optional row range, [`Selection`](vortex_scan::selection::Selection),
 //! split strategy, and task concurrency settings, then produces array streams or iterators.
+pub mod arrays;
 pub mod layouts;
 pub mod plan;
 

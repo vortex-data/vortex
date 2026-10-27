@@ -11,6 +11,10 @@ using namespace duckdb;
 // Convert Vortex statistics to DuckDB statistics
 unique_ptr<BaseStatistics> to_duckdb_statistics(duckdb_column_statistics &statistics);
 
+bool SkipMultiFileReaderColumn(size_t i,
+                               optional_idx filename_idx,
+                               const std::vector<HivePartitioningIndex> &hive_indices);
+
 struct VortexBindData final : TableFunctionData {
     VortexBindData() = default;
     unique_ptr<FunctionData> Copy() const override;
@@ -21,7 +25,7 @@ struct VortexBindData final : TableFunctionData {
 
 struct VortexBindResult {
     vector<LogicalType> &return_types;
-    vector<string> &names;
+    vector<Identifier> &names;
 };
 
 struct VortexGlobalState final : GlobalTableFunctionState {
@@ -84,16 +88,16 @@ struct VortexReaderInterface final : MultiFileReaderInterface {
     }
 
     inline bool ParseCopyOption(ClientContext &,
-                                const string &,
+                                const Identifier &,
                                 const vector<Value> &,
                                 BaseFileReaderOptions &,
-                                vector<string> &,
+                                vector<Identifier> &,
                                 vector<LogicalType> &) override {
         return false;
     };
 
     inline bool ParseOption(ClientContext &,
-                            const string &,
+                            const Identifier &,
                             const Value &,
                             MultiFileOptions &,
                             BaseFileReaderOptions &) override {
@@ -107,14 +111,14 @@ struct VortexReaderInterface final : MultiFileReaderInterface {
 
     void BindReader(ClientContext &context,
                     vector<LogicalType> &types,
-                    vector<string> &names,
+                    vector<Identifier> &names,
                     MultiFileBindData &bind_data) override;
 
     unique_ptr<GlobalTableFunctionState> InitializeGlobalState(ClientContext &context,
                                                                MultiFileBindData &bind_data,
                                                                MultiFileGlobalState &global_state) override;
 
-    unique_ptr<LocalTableFunctionState> InitializeLocalState(ExecutionContext &context,
+    unique_ptr<LocalTableFunctionState> InitializeLocalState(ClientContext &context,
                                                              GlobalTableFunctionState &global_state) override;
 
     inline shared_ptr<BaseFileReader> CreateReader(ClientContext &,
@@ -188,7 +192,7 @@ struct VortexBaseReader final : BaseFileReader {
     double GetProgressInFile(ClientContext &) override;
 
     // Called on first file in scan after BindReader() has been called on it
-    unique_ptr<BaseStatistics> GetStatistics(ClientContext &context, const string &name) override;
+    unique_ptr<BaseStatistics> GetStatistics(ClientContext &context, const Identifier &name) override;
 
     inline string GetReaderType() const override {
         return "Vortex";

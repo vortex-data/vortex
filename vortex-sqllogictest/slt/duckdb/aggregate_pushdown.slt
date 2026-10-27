@@ -14,7 +14,7 @@ SELECT (CASE WHEN i > 0 THEN i::INTEGER ELSE NULL END) AS i FROM cte
 TO '${WORK_DIR}/agg-pushdown.vortex';
 
 query TT
-EXPLAIN
+EXPLAIN (FORMAT json)
 SELECT sum(i), min(i), max(i), avg(i), mean(i), any_value(i), first(i), count(*), count(i)
 FROM '${WORK_DIR}/agg-pushdown.vortex';
 ----
@@ -49,12 +49,12 @@ SELECT count(i), count(*) FROM '${WORK_DIR}/agg-pushdown.vortex';
 # Just count() is rejected because not pushing it down is faster:
 # we just set chunk length and don't do any aggregation ourselves
 query TT
-EXPLAIN SELECT count(*) FROM '${WORK_DIR}/agg-pushdown.vortex';
+EXPLAIN (FORMAT json) SELECT count(*) FROM '${WORK_DIR}/agg-pushdown.vortex';
 ----
 <REGEX>:.*UNGROUPED_AGGREGATE.*
 
 query TT
-EXPLAIN SELECT count(), count(), count() FROM '${WORK_DIR}/agg-pushdown.vortex';
+EXPLAIN (FORMAT json) SELECT count(), count(), count() FROM '${WORK_DIR}/agg-pushdown.vortex';
 ----
 <REGEX>:.*UNGROUPED_AGGREGATE.*
 
@@ -64,7 +64,7 @@ SELECT count(), count(), count() FROM '${WORK_DIR}/agg-pushdown.vortex';
 100001 100001 100001
 
 query TT
-EXPLAIN SELECT min(i), min(i) FROM '${WORK_DIR}/agg-pushdown.vortex';
+EXPLAIN (FORMAT json) SELECT min(i), min(i) FROM '${WORK_DIR}/agg-pushdown.vortex';
 ----
 <!REGEX>:.*UNGROUPED_AGGREGATE.*
 

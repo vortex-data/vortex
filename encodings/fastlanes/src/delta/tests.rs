@@ -36,7 +36,7 @@ use crate::FL_CHUNK_SIZE;
 use crate::bitpack_compress::bitpack_encode;
 
 fn session() -> VortexSession {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty();
     crate::initialize(&session);
     session
 }

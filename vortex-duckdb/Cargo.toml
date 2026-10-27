@@ -54,6 +54,7 @@ anyhow = { workspace = true }
 divan = { workspace = true }
 geo-types = { workspace = true }
 jiff = { workspace = true }
+mimalloc = { workspace = true }
 rstest = { workspace = true }
 tempfile = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
@@ -63,6 +64,10 @@ wkb = { workspace = true }
 
 [[bench]]
 name = "bool_export"
+harness = false
+
+[[bench]]
+name = "decimal_export"
 harness = false
 
 [lints]

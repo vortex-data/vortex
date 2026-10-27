@@ -54,7 +54,7 @@ mod tests {
     use crate::RunEndArray;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -78,25 +78,10 @@ mod tests {
             &DType::Primitive(PType::I64, Nullability::NonNullable)
         );
 
-        // Verify by decoding to canonical form
-        let decoded = casted.execute::<PrimitiveArray>(&mut ctx).unwrap();
-        // RunEnd encoding should expand to [100, 100, 100, 200, 200, 100, 100, 100, 300, 300]
-        assert_eq!(decoded.len(), 10);
-        assert_eq!(
-            TryInto::<i64>::try_into(&decoded.execute_scalar(0, &mut ctx).unwrap()).unwrap(),
-            100i64
-        );
-        assert_eq!(
-            TryInto::<i64>::try_into(&decoded.execute_scalar(3, &mut ctx).unwrap()).unwrap(),
-            200i64
-        );
-        assert_eq!(
-            TryInto::<i64>::try_into(&decoded.execute_scalar(5, &mut ctx).unwrap()).unwrap(),
-            100i64
-        );
-        assert_eq!(
-            TryInto::<i64>::try_into(&decoded.execute_scalar(8, &mut ctx).unwrap()).unwrap(),
-            300i64
+        assert_arrays_eq!(
+            casted,
+            PrimitiveArray::from_iter([100i64, 100, 100, 200, 200, 100, 100, 100, 300, 300]),
+            &mut ctx
         );
     }
 
@@ -117,6 +102,19 @@ mod tests {
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::I64, Nullability::Nullable)
+        );
+        assert_arrays_eq!(
+            casted,
+            PrimitiveArray::from_option_iter([
+                Some(10i64),
+                Some(10),
+                None,
+                None,
+                Some(20),
+                Some(20),
+                Some(20)
+            ]),
+            &mut ctx
         );
     }
 

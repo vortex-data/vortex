@@ -27,6 +27,8 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -191,9 +193,11 @@ public final class NativeIOBridgeTest {
                         VectorSchemaRoot root = reader.getVectorSchemaRoot();
                         ViewVarCharVector nameOut = (ViewVarCharVector) root.getVector("name");
                         IntVector ageOut = (IntVector) root.getVector("age");
-                        if (rows == 0) {
-                            assertEquals("Alice", nameOut.getObject(0).toString());
-                            assertEquals(30, ageOut.get(0));
+                        for (int i = 0; i < root.getRowCount(); i++) {
+                            assertEquals(
+                                    List.of("Alice", "Bob", "Carol").get(rows + i),
+                                    nameOut.getObject(i).toString());
+                            assertEquals(List.of(30, 25, 40).get(rows + i), ageOut.getObject(i));
                         }
                         rows += root.getRowCount();
                     }
@@ -263,16 +267,22 @@ public final class NativeIOBridgeTest {
             assertEquals(6L, ds.rowCount().asOptional().orElseThrow());
 
             Scan scan = ds.scan(ScanOptions.of());
-            long rows = 0;
+            List<String> rows = new ArrayList<>();
             while (scan.hasNext()) {
                 Partition p = scan.next();
                 try (ArrowReader reader = p.scanArrow(allocator)) {
                     while (reader.loadNextBatch()) {
-                        rows += reader.getVectorSchemaRoot().getRowCount();
+                        VectorSchemaRoot root = reader.getVectorSchemaRoot();
+                        ViewVarCharVector names = (ViewVarCharVector) root.getVector("name");
+                        IntVector ages = (IntVector) root.getVector("age");
+                        for (int i = 0; i < root.getRowCount(); i++) {
+                            rows.add(names.getObject(i).toString() + ":" + ages.getObject(i));
+                        }
                     }
                 }
             }
-            assertEquals(6, rows);
+            rows.sort(String::compareTo);
+            assertEquals(List.of("Alice:30", "Alice:30", "Bob:25", "Bob:25", "Carol:40", "Carol:40"), rows);
         }
     }
 
@@ -330,15 +340,23 @@ public final class NativeIOBridgeTest {
             DataSource ds = DataSource.open(session, List.of(readable), 4);
             Scan scan = ds.scan(ScanOptions.of());
             long rows = 0;
-            long ageSum = 0;
+            BitSet seen = new BitSet(batches * rowsPerBatch);
             while (scan.hasNext()) {
                 Partition p = scan.next();
                 try (ArrowReader reader = p.scanArrow(allocator)) {
                     while (reader.loadNextBatch()) {
                         VectorSchemaRoot root = reader.getVectorSchemaRoot();
                         IntVector ageOut = (IntVector) root.getVector("age");
+                        ViewVarCharVector names = (ViewVarCharVector) root.getVector("name");
                         for (int i = 0; i < root.getRowCount(); i++) {
-                            ageSum += ageOut.get(i);
+                            assertTrue(!ageOut.isNull(i));
+                            int age = ageOut.get(i);
+                            assertTrue(age >= 0 && age < batches * rowsPerBatch);
+                            assertTrue(!seen.get(age), "duplicate age " + age);
+                            seen.set(age);
+                            assertEquals(
+                                    "name-" + age / rowsPerBatch + "-" + age % rowsPerBatch,
+                                    names.getObject(i).toString());
                         }
                         rows += root.getRowCount();
                     }
@@ -346,7 +364,7 @@ public final class NativeIOBridgeTest {
             }
             long total = (long) batches * rowsPerBatch;
             assertEquals(total, rows);
-            assertEquals(total * (total - 1) / 2, ageSum, "ages should be 0..N-1 exactly once");
+            assertEquals(total, seen.cardinality());
         }
     }
 

@@ -15,6 +15,8 @@ use crate::EditionMember;
 use crate::EditionSession;
 use crate::EditionSessionExt;
 use crate::EnabledEditions;
+use crate::UNSTABLE;
+use crate::declarations::unstable;
 
 static TEST_FAMILY: EditionFamily = EditionFamily {
     name: "test",
@@ -35,6 +37,7 @@ static DECLARATIONS: &[EditionDeclaration] = &[
     EditionDeclaration {
         edition: Edition {
             id: FIRST,
+            immutable: true,
             min_library_version: None,
         },
         added: &[
@@ -45,6 +48,7 @@ static DECLARATIONS: &[EditionDeclaration] = &[
     EditionDeclaration {
         edition: Edition {
             id: SECOND,
+            immutable: true,
             min_library_version: None,
         },
         added: &[
@@ -148,12 +152,14 @@ fn drafts_and_current() {
     editions
         .declare_edition(Edition {
             id: FIRST,
+            immutable: true,
             min_library_version: Some("0.60.0"),
         })
         .unwrap();
     editions
         .declare_edition(Edition {
             id: SECOND,
+            immutable: true,
             min_library_version: None,
         })
         .unwrap();
@@ -223,6 +229,7 @@ fn enabled_editions_are_independent_across_families() -> VortexResult<()> {
     static OTHER_DECLARATION: EditionDeclaration = EditionDeclaration {
         edition: Edition {
             id: OTHER,
+            immutable: true,
             min_library_version: None,
         },
         added: &[EditionMember::array(&"other.delta")],
@@ -250,6 +257,7 @@ fn serialized_array_ids_can_be_added_by_an_opt_in_family() -> VortexResult<()> {
     static OPT_IN_DECLARATION: EditionDeclaration = EditionDeclaration {
         edition: Edition {
             id: OPT_IN,
+            immutable: true,
             min_library_version: None,
         },
         added: &[EditionMember::array(&"test.alpha_v2")],
@@ -282,6 +290,7 @@ fn duplicate_declarations_error() {
         editions
             .declare_edition(Edition {
                 id: FIRST,
+                immutable: true,
                 min_library_version: None,
             })
             .is_err()
@@ -298,48 +307,86 @@ fn validate_rejects_inconsistent_declarations() -> VortexResult<()> {
     // An inclusion referencing an undeclared edition.
     let editions = EditionSession::empty();
     editions.declare_inclusion(EditionInclusion::array("test.alpha", FIRST))?;
-    assert!(editions.validate().is_err());
+    assert!(
+        editions
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("included in undeclared edition")
+    );
 
     // A member requiring a release newer than its edition declares.
     let editions = EditionSession::empty();
+    editions.declare_family(&TEST_FAMILY)?;
     editions.declare_edition(Edition {
         id: FIRST,
+        immutable: true,
         min_library_version: Some("0.70.0"),
     })?;
     editions.declare_inclusion(EditionInclusion {
         required_vortex_release: Some("0.80.0"),
         ..EditionInclusion::array("test.alpha", FIRST)
     })?;
-    assert!(editions.validate().is_err());
+    assert!(
+        editions
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("requires release 0.80.0")
+    );
 
     // A frozen edition following a draft within the same family.
     let editions = EditionSession::empty();
+    editions.declare_family(&TEST_FAMILY)?;
     editions.declare_edition(Edition {
         id: FIRST,
+        immutable: true,
         min_library_version: None,
     })?;
     editions.declare_edition(Edition {
         id: SECOND,
+        immutable: true,
         min_library_version: Some("0.70.0"),
     })?;
-    assert!(editions.validate().is_err());
+    assert!(
+        editions
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("follows draft")
+    );
 
-    // A malformed edition id (family not lowercase, month out of range).
-    let editions = EditionSession::empty();
-    editions.declare_edition(Edition {
-        id: EditionId::new("Test", 2026, 13, 0),
-        min_library_version: None,
-    })?;
-    assert!(editions.validate().is_err());
+    for (id, expected) in [
+        (EditionId::new("Test", 2026, 1, 0), "lowercase family"),
+        (EditionId::new("test", 2026, 13, 0), "month in 01-12"),
+    ] {
+        let editions = EditionSession::empty();
+        editions.declare_family(&TEST_FAMILY)?;
+        editions.declare_edition(Edition {
+            id,
+            immutable: true,
+            min_library_version: None,
+        })?;
+        let error = editions.validate().unwrap_err().to_string();
+        assert!(error.contains(expected), "{id}: {error}");
+    }
 
     // A malformed encoding id.
     let editions = EditionSession::empty();
+    editions.declare_family(&TEST_FAMILY)?;
     editions.declare_edition(Edition {
         id: FIRST,
+        immutable: true,
         min_library_version: None,
     })?;
     editions.declare_inclusion(EditionInclusion::array("Test.ALPHA", FIRST))?;
-    assert!(editions.validate().is_err());
+    assert!(
+        editions
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("expected lowercase `namespace.name`")
+    );
 
     Ok(())
 }
@@ -408,6 +455,7 @@ fn kinds_are_resolved_independently() -> VortexResult<()> {
     static MIXED: EditionDeclaration = EditionDeclaration {
         edition: Edition {
             id: FIRST,
+            immutable: true,
             min_library_version: None,
         },
         added: &[
@@ -442,5 +490,21 @@ fn kinds_are_resolved_independently() -> VortexResult<()> {
             .declare_inclusion(EditionInclusion::array("test.alpha", FIRST))
             .is_err()
     );
+    Ok(())
+}
+
+/// An edition that never freezes, such as `UNSTABLE`, can never record a minimum version.
+#[test]
+fn edition_that_never_freezes_must_remain_a_draft() -> VortexResult<()> {
+    let editions = EditionSession::empty();
+    editions.declare_family(&unstable::FAMILY)?;
+    editions.declare_edition(Edition {
+        id: UNSTABLE,
+        immutable: false,
+        min_library_version: Some("1.0.0"),
+    })?;
+
+    let error = editions.validate().unwrap_err().to_string();
+    assert!(error.contains("never freezes"), "{error}");
     Ok(())
 }

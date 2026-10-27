@@ -10,12 +10,17 @@ use futures::StreamExt as _;
 use futures::pin_mut;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::LayoutRef;
@@ -143,11 +148,11 @@ impl LayoutStrategy for RepartitionStrategy {
                 while offset < chunk.len() {
                     let end = (offset + block_len).min(chunk.len());
                     let sliced = chunk.slice(offset..end)?;
-                    chunks.push_back(sliced);
+                    chunks.push_back(sliced, &mut ctx)?;
                     offset = end;
 
                     if chunks.have_enough() {
-                        let output_chunks = chunks.collect_exact_blocks()?;
+                        let output_chunks = chunks.collect_exact_blocks(&mut ctx)?;
                         assert!(!output_chunks.is_empty());
                         let chunked =
                             ChunkedArray::try_new(output_chunks, dtype_clone.clone())?;
@@ -188,8 +193,12 @@ impl LayoutStrategy for RepartitionStrategy {
     }
 }
 
+/// Buffers blocks until they hold enough rows and bytes to emit.
+///
+/// Bytes are the exact uncompressed size of each block, not the buffers it holds: a view array
+/// read from Arrow points into whole decompressed pages, which `nbytes()` would count in full.
 struct ChunksBuffer {
-    /// Each entry stores the chunk and the `nbytes()` snapshot taken at push time.
+    /// Each entry stores the chunk and the size snapshot taken at push time.
     /// This avoids accounting mismatches when interior-mutable arrays (e.g. `SharedArray`)
     /// change their reported size after being pushed.
     data: VecDeque<(ArrayRef, u64)>,
@@ -214,7 +223,7 @@ impl ChunksBuffer {
         self.nbytes >= self.block_size_minimum && self.row_count >= self.block_len_multiple
     }
 
-    fn collect_exact_blocks(&mut self) -> VortexResult<Vec<ArrayRef>> {
+    fn collect_exact_blocks(&mut self, ctx: &mut ExecutionCtx) -> VortexResult<Vec<ArrayRef>> {
         let nblocks = self.row_count / self.block_len_multiple;
         let mut res = Vec::with_capacity(self.data.len());
         let mut remaining = nblocks * self.block_len_multiple;
@@ -227,7 +236,7 @@ impl ChunksBuffer {
             if len > remaining {
                 let left = chunk.slice(0..remaining)?;
                 let right = chunk.slice(remaining..len)?;
-                self.push_front(right);
+                self.push_front(right, ctx)?;
                 res.push(left);
                 remaining = 0;
             } else {
@@ -238,18 +247,20 @@ impl ChunksBuffer {
         Ok(res)
     }
 
-    fn push_back(&mut self, chunk: ArrayRef) {
-        let nb = chunk.nbytes();
+    fn push_back(&mut self, chunk: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+        let nb = exact_size(&chunk, ctx)?;
         self.row_count += chunk.len();
         self.nbytes += nb;
         self.data.push_back((chunk, nb));
+        Ok(())
     }
 
-    fn push_front(&mut self, chunk: ArrayRef) {
-        let nb = chunk.nbytes();
+    fn push_front(&mut self, chunk: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+        let nb = exact_size(&chunk, ctx)?;
         self.row_count += chunk.len();
         self.nbytes += nb;
         self.data.push_front((chunk, nb));
+        Ok(())
     }
 
     fn pop_front(&mut self) -> Option<(ArrayRef, u64)> {
@@ -262,28 +273,44 @@ impl ChunksBuffer {
     }
 }
 
+/// The bytes a block's rows reference, or the bytes it holds for a dtype that cannot be
+/// measured, such as variant.
+fn exact_size(chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<u64> {
+    if !UncompressedSizeInBytes::supports_dtype(chunk.dtype()) {
+        return Ok(chunk.nbytes());
+    }
+    let size = uncompressed_size_in_bytes(chunk, UncompressedSizeOpts::exact(), ctx)?;
+    u64::try_from(size).map_err(|e| vortex_err!("block size does not fit in u64: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::SharedArray;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::varbinview::BinaryView;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_buffer::ByteBuffer;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::LayoutStrategy;
+    use crate::arrays::shared::Shared;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
@@ -291,38 +318,9 @@ mod tests {
     use crate::sequence::SequentialArrayStreamExt;
     use crate::test::new_session;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     const ONE_MEG: u64 = 1 << 20;
-
-    #[test]
-    fn effective_block_len_small_elements() {
-        // f64 = 8 bytes/element. 8192 * 8 = 64 KiB << 1 MiB, so no reduction.
-        let dtype = DType::Primitive(PType::F64, NonNullable);
-        let options = RepartitionWriterOptions {
-            block_size_minimum: 0,
-            block_len_multiple: 8192,
-            block_size_target: Some(ONE_MEG),
-            canonicalize: false,
-        };
-        assert_eq!(options.effective_block_len(&dtype), 8192);
-    }
-
-    #[test]
-    fn effective_block_len_large_elements() {
-        // FixedSizeList(f64, 1000) = 8000 bytes/element.
-        // div_ceil(1 MiB, 8000) = 132, so effective block len = min(8192, 132) = 132.
-        let dtype = DType::FixedSizeList(
-            Arc::new(DType::Primitive(PType::F64, NonNullable)),
-            1000,
-            NonNullable,
-        );
-        let options = RepartitionWriterOptions {
-            block_size_minimum: 0,
-            block_len_multiple: 8192,
-            block_size_target: Some(ONE_MEG),
-            canonicalize: false,
-        };
-        assert_eq!(options.effective_block_len(&dtype), 132);
-    }
 
     #[test]
     fn effective_block_len_variable_width() {
@@ -359,7 +357,7 @@ mod tests {
     fn repartition_large_element_type_produces_small_blocks() -> VortexResult<()> {
         // Create a FixedSizeList(f64, 1000) array with 1000 lists.
         // Each list is 8000 bytes, so 1000 lists = 8 MiB total.
-        // With block_size_target = 1 MiB, effective block_len = 133.
+        // With block_size_target = 1 MiB, effective block_len = 132.
         // We expect the repartition to produce blocks of 132 rows each.
         let list_size: u32 = 1000;
         let num_lists: usize = 1000;
@@ -409,7 +407,7 @@ mod tests {
         //   - Total: 8 blocks, 1000 rows
         assert_eq!(layout.row_count(), num_lists as u64);
 
-        // All non-last children should have 131 rows.
+        // All non-last children should have 132 rows.
         let nchildren = layout.nchildren();
         assert!(nchildren > 1, "expected multiple chunks, got {nchildren}");
 
@@ -418,7 +416,7 @@ mod tests {
             assert_eq!(
                 child.row_count(),
                 132,
-                "chunk {i} has {} rows, expected 131",
+                "chunk {i} has {} rows, expected 132",
                 child.row_count()
             );
         }
@@ -489,6 +487,77 @@ mod tests {
         Ok(())
     }
 
+    /// View blocks sharing a buffer far larger than the bytes they reference must still coalesce
+    /// up to `block_size_minimum`.
+    #[test]
+    fn repartition_coalesces_view_blocks_sharing_a_large_buffer() -> VortexResult<()> {
+        const VALUE_LEN: usize = 27;
+        const ROWS_PER_CHUNK: usize = 8192;
+        const NUM_CHUNKS: usize = 10;
+
+        // One 2 MiB buffer shared by every chunk, of which each row references 27 bytes.
+        let page = ByteBuffer::from(vec![b'x'; 2 << 20]);
+        let value = [b'x'; VALUE_LEN];
+        let dtype = DType::Utf8(NonNullable);
+        let chunks = (0..NUM_CHUNKS)
+            .map(|_| {
+                let views = (0..ROWS_PER_CHUNK)
+                    .map(|row| {
+                        BinaryView::make_view(&value, 0, u32::try_from(row * VALUE_LEN).unwrap())
+                    })
+                    .collect::<Buffer<BinaryView>>();
+                // SAFETY: every view points at `VALUE_LEN` bytes inside the shared page.
+                unsafe {
+                    VarBinViewArray::new_unchecked(
+                        views,
+                        Arc::from([page.clone()]),
+                        dtype.clone(),
+                        Validity::NonNullable,
+                    )
+                }
+                .into_array()
+            })
+            .collect::<Vec<_>>();
+        let chunked = ChunkedArray::try_new(chunks, dtype)?.into_array();
+
+        let ctx = ArrayContext::empty();
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let strategy = RepartitionStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            RepartitionWriterOptions {
+                block_size_minimum: ONE_MEG,
+                block_len_multiple: ROWS_PER_CHUNK,
+                block_size_target: None,
+                canonicalize: false,
+            },
+        );
+
+        let stream = chunked.to_array_stream().sequenced(ptr);
+        let layout = block_on(|handle| async move {
+            let session = new_session().with_handle(handle);
+            strategy
+                .write_stream(
+                    ctx.into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    stream,
+                    eof,
+                    &session,
+                )
+                .await
+        })?;
+
+        // Each chunk references 8192 * (16 + 27) bytes, about 344 KiB, so three chunks make the
+        // 1 MiB minimum: blocks of 3, 3, 3 chunks and a 1-chunk tail.
+        assert_eq!(layout.row_count(), (NUM_CHUNKS * ROWS_PER_CHUNK) as u64);
+        assert_eq!(layout.nchildren(), 4);
+        for i in 0..3 {
+            let child = layout.slot(i)?.vortex_expect("chunk slot present");
+            assert_eq!(child.row_count(), (3 * ROWS_PER_CHUNK) as u64);
+        }
+        Ok(())
+    }
+
     /// Regression test: `SharedArray` slices sharing an `Arc<Mutex<SharedState>>` can
     /// transition from Source to Cached when any one of them is canonicalized. This caused
     /// `pop_front` to panic with `attempt to subtract with overflow` because the buffer's
@@ -496,12 +565,12 @@ mod tests {
     /// `pop_front` subtracted the larger Cached-era values.
     #[test]
     fn chunks_buffer_pop_front_no_panic_after_shared_execution() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let n = 20_000usize;
         let block_len = 10_000usize;
 
         let constant = ConstantArray::new(42i64, n);
-        let shared = SharedArray::new(constant.into_array());
+        let shared = Shared::new(constant.into_array());
         let shared_handle = shared.clone();
         let arr = shared.into_array();
 
@@ -509,13 +578,13 @@ mod tests {
         let s2 = arr.slice(block_len..n)?;
 
         let mut buf = ChunksBuffer::new(0, block_len);
-        buf.push_back(s1);
-        buf.push_back(s2);
+        buf.push_back(s1, &mut ctx)?;
+        buf.push_back(s2, &mut ctx)?;
 
         let _output = buf.pop_front().unwrap();
 
         // Transition SharedState from Source to Cached for ALL slices sharing this Arc.
-        use vortex_array::arrays::shared::SharedArrayExt;
+        use crate::arrays::shared::SharedArrayExt;
         let _canonical =
             shared_handle.get_or_compute(|source| source.clone().execute::<Canonical>(&mut ctx))?;
 

@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use arrow_array::RecordBatchReader;
 use arrow_schema::Schema;
+use memmap2::Mmap;
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::intern;
@@ -14,6 +15,7 @@ use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::builtins::ArrayBuiltins;
+use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::dtype::FieldNames;
 use vortex::dtype::Nullability::NonNullable;
@@ -70,8 +72,23 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
 /// Reopen a Vortex file by path. The unpickling half of [`PyVortexFile::__reduce__`].
 #[pyfunction]
-fn _reopen(py: Python, path: &str, without_segment_cache: bool) -> PyVortexResult<PyVortexFile> {
-    open(py, path, None, None, without_segment_cache, None, None)
+#[pyo3(signature = (path, without_segment_cache, memory_map = false))]
+fn _reopen(
+    py: Python,
+    path: &str,
+    without_segment_cache: bool,
+    memory_map: bool,
+) -> PyVortexResult<PyVortexFile> {
+    open(
+        py,
+        path,
+        None,
+        None,
+        without_segment_cache,
+        None,
+        None,
+        memory_map,
+    )
 }
 
 /// Open a Vortex file for reading.
@@ -87,7 +104,12 @@ fn _reopen(py: Python, path: &str, without_segment_cache: bool) -> PyVortexResul
     without_segment_cache = false,
     segment_cache = None,
     cache_key = None,
+    memory_map = false,
 ))]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "mirrors the keyword arguments of vortex.open"
+)]
 pub fn open(
     py: Python,
     path: &str,
@@ -96,7 +118,25 @@ pub fn open(
     without_segment_cache: bool,
     segment_cache: Option<PyRef<PySegmentCache>>,
     cache_key: Option<String>,
+    memory_map: bool,
 ) -> PyVortexResult<PyVortexFile> {
+    if memory_map {
+        if store.is_some() {
+            return Err(
+                PyValueError::new_err("memory_map=True needs a local path, not a store").into(),
+            );
+        }
+        if segment_cache.is_some() || cache_key.is_some() {
+            return Err(PyValueError::new_err(
+                "memory_map=True reads segments from the page cache; it cannot use a segment_cache",
+            )
+            .into());
+        }
+
+        let footer = footer.map(|footer| footer.footer.clone());
+        return open_memory_mapped(py, path, footer);
+    }
+
     let origin = if store.is_some() {
         Origin::Store
     } else {
@@ -129,6 +169,56 @@ pub fn open(
         path: path.to_string(),
         origin,
         without_segment_cache,
+        memory_map: false,
+    })
+}
+
+/// Open a local file as a memory map, whose segments are then slices of the map.
+///
+/// Reads then need no IO requests, no IO threads and no copies: the page cache serves them. A
+/// known `footer` means the open reads nothing, so it keeps the GIL. Without one, the footer read
+/// can fault pages in from disk, so the GIL is released.
+fn open_memory_mapped(
+    py: Python,
+    path: &str,
+    footer: Option<Footer>,
+) -> PyVortexResult<PyVortexFile> {
+    let path_buf = match resolve_store(path, None)? {
+        ResolvedStore::Path(path) => path,
+        ResolvedStore::ObjectStore(..) => {
+            return Err(PyValueError::new_err(format!(
+                "memory_map=True needs a local path, not {path:?}"
+            ))
+            .into());
+        }
+    };
+
+    let has_footer = footer.is_some();
+    let open = move || -> VortexResult<VortexFile> {
+        let file = std::fs::File::open(&path_buf)?;
+        // SAFETY: Vortex files are immutable once written. A file that is changed or truncated
+        // while mapped gives wrong data or SIGBUS, as with any memory-mapped reader.
+        let mmap = unsafe { Mmap::map(&file)? };
+
+        let mut options = session().open_options();
+        if let Some(footer) = footer {
+            options = options.with_footer(footer);
+        }
+        options.open_buffer(ByteBuffer::from(mmap))
+    };
+
+    let vxf = if has_footer {
+        open()?
+    } else {
+        py.detach(open)?
+    };
+
+    Ok(PyVortexFile {
+        vxf,
+        path: path.to_string(),
+        origin: Origin::Path,
+        without_segment_cache: true,
+        memory_map: true,
     })
 }
 
@@ -189,6 +279,7 @@ pub fn open_readable(
         path: name,
         origin: Origin::Readable,
         without_segment_cache,
+        memory_map: false,
     })
 }
 
@@ -326,6 +417,8 @@ pub struct PyVortexFile {
     path: String,
     origin: Origin,
     without_segment_cache: bool,
+    /// Whether the file is a memory map of a local file; a reopen maps it again.
+    memory_map: bool,
 }
 
 #[pymethods]
@@ -355,7 +448,9 @@ impl PyVortexFile {
     ///     If the file was opened with an explicit ``store``, since object stores cannot be
     ///     pickled, or from a Python file object or readable. Pass the URL to
     ///     :func:`vortex.open` in the worker instead.
-    fn __reduce__<'py>(slf: PyRef<'py, Self>) -> PyResult<(Bound<'py, PyAny>, (String, bool))> {
+    fn __reduce__<'py>(
+        slf: PyRef<'py, Self>,
+    ) -> PyResult<(Bound<'py, PyAny>, (String, bool, bool))> {
         match slf.origin {
             Origin::Path => {}
             Origin::Store => {
@@ -375,7 +470,10 @@ impl PyVortexFile {
         let py = slf.py();
         let module = PyModule::import(py, "vortex._lib.file")?;
         let reopen = module.getattr(intern!(py, "_reopen"))?;
-        Ok((reopen, (slf.path.clone(), slf.without_segment_cache)))
+        Ok((
+            reopen,
+            (slf.path.clone(), slf.without_segment_cache, slf.memory_map),
+        ))
     }
 
     #[getter]
@@ -482,7 +580,16 @@ impl PyVortexFile {
     }
 }
 
-/// Decode row indices into a sorted `u64` buffer, releasing the GIL since this is O(n).
+/// Index counts below this are decoded with the GIL held.
+///
+/// Releasing the GIL costs a wait to take it back. When other threads hold it, that wait is much
+/// longer than decoding a short index list, which is the usual request for random row reads.
+const DETACHED_ROW_INDICES: usize = 1 << 16;
+
+/// Decode row indices into a sorted `u64` buffer.
+///
+/// The decode is O(n), so it releases the GIL, but only for long lists (see
+/// [`DETACHED_ROW_INDICES`]).
 pub(crate) fn row_indices(
     py: Python,
     indices: Option<PyArrayRef>,
@@ -491,13 +598,17 @@ pub(crate) fn row_indices(
         return Ok(None);
     };
     let indices = indices.into_inner();
-    py.detach(move || {
+    let detach = indices.len() >= DETACHED_ROW_INDICES;
+
+    let decode = move || {
         let casted = indices.cast(DType::Primitive(PType::U64, NonNullable))?;
         let indices = casted
             .execute::<PrimitiveArray>(&mut session().create_execution_ctx())?
             .into_buffer::<u64>();
         Ok(Some(StrictSortedBuffer::try_new(indices)?))
-    })
+    };
+
+    if detach { py.detach(decode) } else { decode() }
 }
 
 fn scan_builder(

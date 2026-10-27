@@ -11,6 +11,8 @@
 
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferAllocatorRef;
+use vortex_compute::lane_kernels::collect_bits;
+use vortex_compute::lane_kernels::collect_zip_bits;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -26,8 +28,6 @@ use crate::dtype::Nullability;
 use crate::dtype::i256;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
-use crate::scalar_fn::fns::binary::compare::collect_bits;
-use crate::scalar_fn::fns::binary::compare::collect_zip_bits;
 use crate::scalar_fn::fns::binary::compare::compare_validity;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::validity::Validity;

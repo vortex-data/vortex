@@ -243,7 +243,8 @@ logical_opt [
                                     "Conditions": [
                                         "(file_index = file_index)",
                                         "(file_row_number = file_row_number)"
-                                    ]
+                                    ],
+                                    "Estimated Cardinality": "200000"
                                 }
                             }
                         ],
@@ -251,12 +252,14 @@ logical_opt [
                             "Expressions": [
                                 "SearchPhrase",
                                 "EventTime"
-                            ]
+                            ],
+                            "Estimated Cardinality": "200000"
                         }
                     }
                 ],
                 "extra_info": {
-                    "Order By": "#1"
+                    "Order By": "#1",
+                    "Estimated Cardinality": "200000"
                 }
             }
         ],
@@ -304,7 +307,8 @@ physical_plan [
                                 ],
                                 "extra_info": {
                                     "Top": "10",
-                                    "Order By": "#0 ASC"
+                                    "Order By": "#0 ASC",
+                                    "Estimated Cardinality": "10"
                                 }
                             }
                         ],
@@ -314,7 +318,7 @@ physical_plan [
                                 "file_index = file_index",
                                 "file_row_number = file_row_number"
                             ],
-                            "Estimated Cardinality": "0"
+                            "Estimated Cardinality": "200000"
                         }
                     }
                 ],
@@ -323,12 +327,13 @@ physical_plan [
                         "SearchPhrase",
                         "EventTime"
                     ],
-                    "Estimated Cardinality": "0"
+                    "Estimated Cardinality": "200000"
                 }
             }
         ],
         "extra_info": {
-            "Order By": "#1 ASC"
+            "Order By": "#1 ASC",
+            "Estimated Cardinality": "200000"
         }
     }
 ]

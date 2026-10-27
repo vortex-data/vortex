@@ -18,9 +18,11 @@ use std::time::Instant;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum::sum;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::assert_arrays_eq;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -29,7 +31,11 @@ use vortex_onpair::DEFAULT_CONFIG;
 use vortex_onpair::onpair_compress;
 use vortex_session::VortexSession;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty();
+    vortex_onpair::initialize(&session);
+    session
+});
 
 fn corpus(n: usize) -> Vec<String> {
     let templates: &[&str] = &[
@@ -102,15 +108,17 @@ fn smoke_100k_rows() -> vortex_error::VortexResult<()> {
     let needle_row = 42;
     let needle = strings[needle_row].clone();
     let want_eq = strings.iter().filter(|s| **s == needle).count();
-    let eq = arr_ref
-        .binary(
-            ConstantArray::new(needle.as_str(), n).into_array(),
-            Operator::Eq,
-        )?
-        .execute::<vortex_array::Canonical>(&mut ctx)?
-        .into_array();
+    let eq = arr_ref.binary(
+        ConstantArray::new(needle.as_str(), n).into_array(),
+        Operator::Eq,
+    )?;
     let eq_count = sum(&eq, &mut ctx)?.as_primitive().as_::<usize>().unwrap();
     assert_eq!(eq_count, want_eq);
+    assert_arrays_eq!(
+        eq,
+        BoolArray::from_iter(strings.iter().map(|s| *s == needle)),
+        &mut ctx
+    );
     eprintln!("eq pushdown matches reference count ({})", want_eq);
     Ok(())
 }

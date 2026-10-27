@@ -6,11 +6,10 @@
 use std::cmp::Ordering;
 use std::fmt;
 
-use num_traits::ToPrimitive as NumToPrimitive;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 
+use super::DecimalToFloatCast;
 use super::DecimalToIntegerCast;
 use super::arithmetic::checked_decimal_numeric;
 use super::arithmetic::decimal_numeric_result_dtype;
@@ -94,21 +93,13 @@ impl<'a> DecimalScalar<'a> {
             DType::Primitive(ptype, nullability) => {
                 // Cast decimal to primitive type
                 if let Some(decimal_value) = &self.decimal_value {
-                    // Convert decimal value to primitive, accounting for scale
-                    let scale_factor = 10_i128.pow(self.decimal_type.scale() as u32);
-
-                    // Convert to i128 for calculation
-                    let scaled_value = match_each_decimal_value!(decimal_value, |v| {
-                        NumToPrimitive::to_i128(v).ok_or_else(|| {
-                            vortex_err!("Decimal value too large to cast to primitive")
-                        })
-                    })?;
-
                     // TODO(connor): A lot of questionable stuff happening here, it would be good to
                     // either formally prove this is all correct or use more checked methods.
 
-                    // Apply scale to get the actual value.
-                    let actual_value = scaled_value as f64 / scale_factor as f64;
+                    // The array kernel uses the same cast, so both return the same bits.
+                    let cast = DecimalToFloatCast::new(self.decimal_type.scale());
+                    let actual_value =
+                        match_each_decimal_value!(decimal_value, |v| { cast.cast(*v) });
 
                     // Cast to target primitive type. Note that the `as` keyword does **MORE** than
                     // a simple bitcast / memory transmuation.

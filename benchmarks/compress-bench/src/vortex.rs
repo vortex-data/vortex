@@ -3,22 +3,26 @@
 
 use std::io::Cursor;
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
 use anyhow::Result;
 use anyhow::bail;
+use arrow_schema::Field;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::StreamExt;
 use futures::pin_mut;
 use vortex::array::IntoArray;
+use vortex::array::VortexSessionExecute;
 use vortex::dtype::FieldNames;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::file::v2::ScanDriver;
+use vortex::io::session::RuntimeSessionExt;
+use vortex::layout::scan::v2::ScanBuilder;
 use vortex_arrow::ArrowSessionExt;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
@@ -44,15 +48,20 @@ impl Compressor for VortexCompressor {
     }
 
     async fn compress(&self, input: &Uncompressed) -> Result<Compressed> {
-        let array = input.vortex()?;
+        let array = input.vortex()?.clone();
 
-        let mut buf = Vec::new();
+        // Run the timed work as a task so it uses only the runtime's worker threads, the same
+        // pool the Parquet compressor runs on.
         let start = Instant::now();
-        let mut cursor = Cursor::new(&mut buf);
-        SESSION
-            .write_options()
-            .write(&mut cursor, array.to_array_stream())
-            .await?;
+        let buf = tokio::spawn(async move {
+            let mut buf = Vec::new();
+            SESSION
+                .write_options()
+                .write(&mut Cursor::new(&mut buf), array.to_array_stream())
+                .await?;
+            anyhow::Ok(buf)
+        })
+        .await??;
         let elapsed = start.elapsed();
 
         Ok(Compressed {
@@ -66,29 +75,41 @@ impl Compressor for VortexCompressor {
         let CompressedData::Bytes(data) = &compressed.data else {
             bail!("Vortex decompression expects in-memory bytes");
         };
+        let data = data.clone();
 
         let start = Instant::now();
-        let mut scan = SESSION.open_options().open_buffer(data.clone())?.scan()?;
-        let source_dtype = scan.dtype()?;
-        let root_columns = source_dtype
-            .as_struct_fields_opt()
-            .map_or(0, |fields| fields.nfields());
-        if let Some(cols) = read_projection(root_columns) {
-            // Columns are named "0".."num_columns-1"; project the given subset.
-            let names: FieldNames = cols.iter().map(|i| i.to_string()).collect();
-            let projection = select(names, root())
-                .bind(&source_dtype)?
-                .optimize_recursive()?;
-            scan = scan.with_projection(projection);
-        }
-        let schema = Arc::new(SESSION.arrow().to_arrow_schema(&scan.dtype()?)?);
-
-        let stream = scan.into_record_batch_stream(schema)?;
-        pin_mut!(stream);
-
-        while let Some(batch) = stream.next().await {
-            let _batch = batch?;
-        }
+        tokio::spawn(vortex_decompress_read(data)).await??;
         Ok(start.elapsed())
     }
+}
+
+/// Scan every record batch out of an in-memory Vortex file.
+async fn vortex_decompress_read(data: Bytes) -> Result<()> {
+    let file = SESSION.open_options().open_buffer(data)?;
+    let mut scan = ScanBuilder::new(SESSION.clone(), file.scan_file());
+    let source_dtype = scan.dtype().clone();
+    let root_columns = source_dtype
+        .as_struct_fields_opt()
+        .map_or(0, |fields| fields.nfields());
+    if let Some(cols) = read_projection(root_columns) {
+        // Columns are named "0".."num_columns-1"; project the given subset.
+        let names: FieldNames = cols.iter().map(|i| i.to_string()).collect();
+        let projection = select(names, root())
+            .bind(&source_dtype)?
+            .optimize_recursive()?;
+        scan = scan.with_projection(projection);
+    }
+    let schema = SESSION.arrow().to_arrow_schema(scan.dtype())?;
+    let field = Field::new_struct("", schema.fields().clone(), false);
+
+    let stream = ScanDriver::new(SESSION.handle(), 4, true).run(scan);
+    pin_mut!(stream);
+
+    while let Some(chunk) = stream.next().await {
+        let mut ctx = SESSION.create_execution_ctx();
+        let _batch = SESSION
+            .arrow()
+            .execute_arrow(chunk?, Some(&field), &mut ctx)?;
+    }
+    Ok(())
 }

@@ -90,7 +90,17 @@ def test_publish_only_complete_coverage_union(minimizer, tmp_path, monkeypatch, 
 def test_merge_rejects_skipped_inputs_even_with_success_exit(minimizer, tmp_path):
     # libFuzzer's crash-resistant merge may exit zero after skipping a crashing seed.
     binary = tmp_path / "fuzzer"
-    binary.write_text("#!/bin/sh\nprintf '%s\\n' \"MERGE-INNER: input caused a failure\"\nexit 0\n")
+    binary.write_text(
+        "#!/bin/sh\n"
+        'for arg in "$@"; do\n'
+        '  case "$arg" in\n'
+        '    -merge_control_file=*) printf "COV 0 1\\n" > "${arg#*=}" ;;\n'
+        "  esac\n"
+        "done\n"
+        'printf "%s\\n" "MERGE-INNER: input caused a failure"\n'
+        "exit 0\n"
+    )
     binary.chmod(0o755)
     merge = minimizer.Merge("test", [], tmp_path / "merge", 1)
     assert not asyncio.run(minimizer.run_phase([merge], binary, tmp_path / "artifacts", {}))
+    assert merge.processed == merge.total

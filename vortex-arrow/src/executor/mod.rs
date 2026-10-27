@@ -292,7 +292,17 @@ pub(crate) fn infer_nearest_arrow_field(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
+    use arrow_array::Array;
+    use arrow_array::ArrayRef as ArrowArrayRef;
+    use arrow_array::BinaryArray;
+    use arrow_array::Date32Array;
+    use arrow_array::Float64Array;
+    use arrow_array::Int32Array;
+    use arrow_array::Int64Array;
+    use arrow_array::LargeStringArray;
+    use arrow_array::TimestampMicrosecondArray;
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::TimeUnit;
@@ -300,12 +310,14 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_session::VortexSession;
 
     use crate::ArrowSessionExt;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn utf8() -> ArrayRef {
         VarBinViewArray::from_iter_str(["a", "bb"]).into_array()
@@ -344,11 +356,10 @@ mod tests {
     #[case::byte_from_primitive(primitive(), DataType::Utf8)]
     #[case::byte_from_bool(boolean(), DataType::Binary)]
     fn incompatible_target_returns_error(#[case] array: ArrayRef, #[case] target: DataType) {
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let field = Field::new("f", target.clone(), array.dtype().is_nullable());
 
-        let result = session.arrow().execute_arrow(array, Some(&field), &mut ctx);
+        let result = SESSION.arrow().execute_arrow(array, Some(&field), &mut ctx);
 
         assert!(
             result.is_err(),
@@ -358,24 +369,23 @@ mod tests {
 
     /// Cross-class conversions that are genuinely supported must keep working.
     #[rstest]
-    #[case::bool_to_int32(boolean(), DataType::Int32)]
-    #[case::bool_to_float64(boolean(), DataType::Float64)]
-    #[case::primitive_to_int64(primitive(), DataType::Int64)]
-    #[case::primitive_to_date32(primitive(), DataType::Date32)]
-    #[case::primitive_to_timestamp(primitive(), DataType::Timestamp(TimeUnit::Microsecond, None))]
-    #[case::utf8_to_binary(utf8(), DataType::Binary)]
-    #[case::utf8_to_large_utf8(utf8(), DataType::LargeUtf8)]
-    fn supported_cross_class_target_still_works(#[case] array: ArrayRef, #[case] target: DataType) {
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
-        let field = Field::new("f", target.clone(), array.dtype().is_nullable());
+    #[case::bool_to_int32(boolean(), DataType::Int32, Arc::new(Int32Array::from(vec![1, 0])))]
+    #[case::bool_to_float64(boolean(), DataType::Float64, Arc::new(Float64Array::from(vec![1., 0.])))]
+    #[case::primitive_to_int64(primitive(), DataType::Int64, Arc::new(Int64Array::from(vec![1, 2])))]
+    #[case::primitive_to_date32(primitive(), DataType::Date32, Arc::new(Date32Array::from(vec![1, 2])))]
+    #[case::primitive_to_timestamp(primitive(), DataType::Timestamp(TimeUnit::Microsecond, None), Arc::new(TimestampMicrosecondArray::from(vec![1, 2])))]
+    #[case::utf8_to_binary(utf8(), DataType::Binary, Arc::new(BinaryArray::from(vec![b"a".as_slice(), b"bb".as_slice()])))]
+    #[case::utf8_to_large_utf8(utf8(), DataType::LargeUtf8, Arc::new(LargeStringArray::from(vec!["a", "bb"])))]
+    fn supported_cross_class_target_still_works(
+        #[case] array: ArrayRef,
+        #[case] target: DataType,
+        #[case] expected: ArrowArrayRef,
+    ) {
+        let mut ctx = SESSION.create_execution_ctx();
+        let field = Field::new("f", target, array.dtype().is_nullable());
 
-        let result = session.arrow().execute_arrow(array, Some(&field), &mut ctx);
+        let result = SESSION.arrow().execute_arrow(array, Some(&field), &mut ctx);
 
-        assert!(
-            result.is_ok(),
-            "expected {target:?} export to succeed, got {:?}",
-            result.err()
-        );
+        assert_eq!(result.unwrap().to_data(), expected.to_data());
     }
 }

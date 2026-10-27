@@ -36,7 +36,7 @@ REGULAR_IDS = (
 COMPACT_IDS = tuple(
     benchmark_id for benchmark_id in REGULAR_IDS if benchmark_id not in {"polarsignals", "vortex-queries"}
 )
-PR_ALL_IDS = tuple(benchmark_id for benchmark_id in REGULAR_IDS if benchmark_id != "vortex-queries")
+PR_FULL_IDS = (*REGULAR_IDS[:-1], "job-nvme", "vortex-queries")
 EXPECTED_IDS = {
     "develop": REGULAR_IDS,
     "pr": tuple(
@@ -53,9 +53,19 @@ EXPECTED_IDS = {
         }
     ),
     "pr-compact": COMPACT_IDS,
-    "pr-all": PR_ALL_IDS,
-    "pr-full": REGULAR_IDS,
-    "nightly": ("tpch-nvme", "tpch-s3"),
+    "pr-all": PR_FULL_IDS,
+    "pr-full": PR_FULL_IDS,
+    "nightly": (
+        "tpch-nvme",
+        "tpch-s3",
+        "tpcds-nvme-10",
+        "tpcds-s3-10",
+        *(
+            f"tpcds-{storage}-100-{target}"
+            for storage in ("nvme", "s3")
+            for target in ("datafusion-parquet", "datafusion-vortex", "duckdb-parquet", "duckdb-vortex")
+        ),
+    ),
 }
 
 
@@ -77,6 +87,17 @@ def test_matrix_presets(preset: str, expected_ids: tuple[str, ...]) -> None:
     assert len(ids) == len(set(ids))
     assert all(entry["targets"] for entry in entries)
     assert "${{" not in json.dumps(entries)
+
+
+def test_tpcds_sf100_runs_one_target_per_job() -> None:
+    nightly = [
+        entry for entry in _entries("nightly") if str(entry["id"]).startswith("tpcds-") and "-100-" in str(entry["id"])
+    ]
+
+    assert len(nightly) == 8
+    assert all(len(_targets(entry)) == 1 for entry in nightly)
+    s3_keys = [entry["remote_key"] for entry in nightly if "remote_key" in entry]
+    assert len(s3_keys) == len(set(s3_keys)) == 4
 
 
 def test_pr_target_selection() -> None:
@@ -102,16 +123,15 @@ def test_pr_target_selection() -> None:
         assert set(cast("list[str]", entry["data_formats"])) == {"parquet", "vortex-compact"}
 
 
-def test_pr_all_covers_focused_presets() -> None:
-    pr = {entry["id"]: entry for entry in _entries("pr")}
-    pr_compact = {entry["id"]: entry for entry in _entries("pr-compact")}
+def test_pr_all_is_union_of_pr_compact_and_full() -> None:
+    sources = [{entry["id"]: entry for entry in _entries(preset)} for preset in ("pr", "pr-compact", "pr-full")]
     pr_all = {entry["id"]: entry for entry in _entries("pr-all")}
 
-    assert set(pr_all) == set(pr) | set(pr_compact)
+    assert set(pr_all) == set().union(*sources)
     for benchmark_id, entry in pr_all.items():
-        for preset in (pr, pr_compact):
+        assert _targets(entry) == set().union(*(_targets(p[benchmark_id]) for p in sources if benchmark_id in p))
+        for preset in sources:
             if source := preset.get(benchmark_id):
-                assert _targets(source) <= _targets(entry)
                 assert set(cast("list[str]", source["data_formats"])) <= set(cast("list[str]", entry["data_formats"]))
 
 

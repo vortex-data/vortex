@@ -390,13 +390,25 @@ impl LayoutReader for ChunkedReader {
         let mut chunk_evals = vec![];
 
         for (chunk_idx, _, chunk_range, mask_range) in self.ranges(row_range) {
+            let chunk_mask = mask.slice(mask_range);
+
+            // A chunk known to have no selected rows is not read, decoded or filtered, and adds
+            // no empty chunk to the result. Random row reads select few rows from many chunks.
+            if chunk_mask.peek().is_some_and(Mask::all_false) {
+                continue;
+            }
+
             let chunk_reader = self.chunk_reader(chunk_idx)?;
             let chunk_eval = chunk_reader
-                .projection_evaluation(&chunk_range, expr, mask.slice(mask_range))
+                .projection_evaluation(&chunk_range, expr, chunk_mask)
                 .map_err(|err| {
                     err.with_context(format!("While evaluating projection on chunk {chunk_idx}"))
                 })?;
             chunk_evals.push(chunk_eval);
+        }
+
+        if chunk_evals.is_empty() {
+            return Ok(future::ready(Ok(Canonical::empty(expr.dtype()).into_array())).boxed());
         }
 
         Ok(async move {
@@ -430,9 +442,12 @@ mod test {
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::ArrayContext;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::Chunked;
+    use vortex_array::arrays::chunked::ChunkedArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldMask;
@@ -442,6 +457,7 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_mask::Mask;
     use vortex_session::registry::ReadContext;
 
     use crate::LayoutRef;
@@ -569,5 +585,58 @@ mod test {
             let expected = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
             assert_arrays_eq!(result, expected, &mut ctx);
         })
+    }
+
+    /// Evaluate the whole layout with `mask`, as a projection of every column.
+    fn evaluate(
+        (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+        mask: MaskFuture,
+    ) -> ArrayRef {
+        block_on(|_h| async {
+            let reader = layout
+                .new_reader("".into(), segments, &SESSION, &Default::default())
+                .unwrap();
+            let expr = root().bind(reader.dtype()).unwrap();
+            reader
+                .projection_evaluation(&(0..layout.row_count()), &expr, mask)
+                .unwrap()
+                .await
+                .unwrap()
+        })
+    }
+
+    #[rstest]
+    fn test_known_mask_skips_unselected_chunks(
+        #[from(chunked_layout)] layout: (Arc<dyn SegmentSource>, LayoutRef),
+    ) {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mask = Mask::from_indices(9, vec![0, 7]);
+        let result = evaluate(layout, MaskFuture::ready(mask));
+
+        // The middle chunk has no selected rows, so it adds no chunk.
+        let chunked = result.as_opt::<Chunked>().unwrap();
+        assert_eq!(chunked.nchunks(), 2);
+        assert_arrays_eq!(result, buffer![1i32, 8].into_array(), &mut ctx);
+    }
+
+    #[rstest]
+    fn test_known_all_false_mask_reads_nothing(
+        #[from(chunked_layout)] layout: (Arc<dyn SegmentSource>, LayoutRef),
+    ) {
+        let result = evaluate(layout, MaskFuture::ready(Mask::new_false(9)));
+        assert_eq!(result.len(), 0);
+    }
+
+    #[rstest]
+    fn test_pending_mask_selects_the_same_rows(
+        #[from(chunked_layout)] layout: (Arc<dyn SegmentSource>, LayoutRef),
+    ) {
+        let mut ctx = SESSION.create_execution_ctx();
+        let mask = Mask::from_indices(9, vec![0, 7]);
+        let pending = MaskFuture::new(9, async move { Ok(mask) });
+        assert!(pending.peek().is_none());
+
+        let result = evaluate(layout, pending);
+        assert_arrays_eq!(result, buffer![1i32, 8].into_array(), &mut ctx);
     }
 }

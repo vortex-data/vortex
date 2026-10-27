@@ -39,8 +39,8 @@ logical_plan
 10)------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_item_sk, ws_net_paid]
 11)------------------SubqueryAlias: d1
 12)--------------------Projection: date_dim.d_date_sk
-13)----------------------Filter: date_dim.d_month_seq >= Int64(1200) AND date_dim.d_month_seq <= Int64(1211)
-14)------------------------TableScan: date_dim projection=[d_date_sk, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int64(1200), date_dim.d_month_seq <= Int64(1211)]
+13)----------------------Filter: date_dim.d_month_seq >= Int32(1200) AND date_dim.d_month_seq <= Int32(1211)
+14)------------------------TableScan: date_dim projection=[d_date_sk, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int32(1200), date_dim.d_month_seq <= Int32(1211)]
 15)--------------TableScan: item projection=[i_item_sk, i_class, i_category]
 physical_plan
 01)SortPreservingMergeExec: [lochierarchy@3 DESC, CASE WHEN lochierarchy@3 = 0 THEN i_category@1 END ASC, rank_within_parent@4 ASC], fetch=100

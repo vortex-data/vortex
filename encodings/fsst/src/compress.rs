@@ -353,25 +353,29 @@ impl<'c, O: OffsetBuilderPType + 'static> FsstSink<'c, O> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::varbin::VarBinArraySlotsExt;
     use vortex_array::dtype::PType;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::fsst_compress;
     use super::fsst_output_fits_in_i32_offsets;
     use super::fsst_train_compressor;
     use crate::array::FSSTArrayExt;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     /// Regression for #7833: the i32-vs-i64 codes-offsets decision must cross at
-    /// `i32::MAX` against the worst-case bound `2 * total + 7 * non_null`.
+    /// `i32::MAX` against the worst-case bound `2 * total`.
     #[test]
     fn offset_width_boundary() {
         let m = i32::MAX as usize;
-        assert!(fsst_output_fits_in_i32_offsets(m / 2 - 7));
         assert!(fsst_output_fits_in_i32_offsets(m / 2));
+        assert!(!fsst_output_fits_in_i32_offsets(m / 2 + 1));
         assert!(fsst_output_fits_in_i32_offsets(0));
         assert!(!fsst_output_fits_in_i32_offsets(usize::MAX));
     }
@@ -381,7 +385,7 @@ mod tests {
     #[test]
     fn codes_offsets_dtype_small_input_is_i32() -> VortexResult<()> {
         let array = VarBinViewArray::from_iter_str(["hello", "world", "fsst encoded"]);
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let compressor = fsst_train_compressor(array.as_array(), &mut ctx)?;
         let fsst = fsst_compress(array.as_array(), &compressor, &mut ctx)?;
         assert_eq!(fsst.codes().offsets().dtype().as_ptype(), PType::I32);

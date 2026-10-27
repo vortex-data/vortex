@@ -11,11 +11,14 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use vortex_array::ArrayRef;
+use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
 use vortex_array::scalar::Scalar;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_error::VortexError;
+
+use crate::SESSION;
 
 #[cfg(target_arch = "wasm32")]
 #[derive(Default)]
@@ -107,8 +110,10 @@ impl Display for VortexFuzzError {
             ) => {
                 let expected_tree = expected_array.display_tree();
                 let current_tree = current_array.display_tree();
-                let expected_values = expected_array.display_values();
-                let current_values = current_array.display_values();
+                // Error formatting has no execution context of its own, so use the fuzzer's session.
+                let ctx = SESSION.create_execution_ctx();
+                let expected_values = expected_array.display_values(&ctx);
+                let current_values = current_array.display_values(&ctx);
                 write!(
                     f,
                     "Mismatch at step {step} at index {idx}\n\

@@ -1,0 +1,176 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTTTIIRRRR
+WITH v1 AS
+  (SELECT i_category,
+          i_brand,
+          s_store_name,
+          s_company_name,
+          d_year,
+          d_moy,
+          sum(ss_sales_price) sum_sales,
+          avg(sum(ss_sales_price)) OVER (PARTITION BY i_category,
+                                                      i_brand,
+                                                      s_store_name,
+                                                      s_company_name,
+                                                      d_year) avg_monthly_sales,
+                                        rank() OVER (PARTITION BY i_category,
+                                                                  i_brand,
+                                                                  s_store_name,
+                                                                  s_company_name
+                                                     ORDER BY d_year,
+                                                              d_moy) rn
+   FROM item,
+        store_sales,
+        date_dim,
+        store
+   WHERE ss_item_sk = i_item_sk
+     AND ss_sold_date_sk = d_date_sk
+     AND ss_store_sk = s_store_sk
+     AND (d_year = 1999
+          OR (d_year = 1999-1
+              AND d_moy =12)
+          OR (d_year = 1999+1
+              AND d_moy =1))
+   GROUP BY i_category,
+            i_brand,
+            s_store_name,
+            s_company_name,
+            d_year,
+            d_moy),
+     v2 AS
+  (SELECT v1.i_category,
+          v1.i_brand,
+          v1.s_store_name,
+          v1.s_company_name,
+          v1.d_year,
+          v1.d_moy,
+          v1.avg_monthly_sales,
+          v1.sum_sales,
+          v1_lag.sum_sales psum,
+          v1_lead.sum_sales nsum
+   FROM v1,
+        v1 v1_lag,
+        v1 v1_lead
+   WHERE v1.i_category = v1_lag.i_category
+     AND v1.i_category = v1_lead.i_category
+     AND v1.i_brand = v1_lag.i_brand
+     AND v1.i_brand = v1_lead.i_brand
+     AND v1.s_store_name = v1_lag.s_store_name
+     AND v1.s_store_name = v1_lead.s_store_name
+     AND v1.s_company_name = v1_lag.s_company_name
+     AND v1.s_company_name = v1_lead.s_company_name
+     AND v1.rn = v1_lag.rn + 1
+     AND v1.rn = v1_lead.rn - 1)
+SELECT *
+FROM v2
+WHERE d_year = 1999
+  AND avg_monthly_sales > 0
+  AND CASE
+          WHEN avg_monthly_sales > 0 THEN abs(sum_sales - avg_monthly_sales) / avg_monthly_sales
+          ELSE NULL
+      END > 0.1
+ORDER BY sum_sales - avg_monthly_sales, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+LIMIT 100;
+----
+Shoes edu packedu pack #1 ought Unknown 1999 6 1708.964166 619.86 835.47 798.89
+Shoes edu packedu pack #1 able Unknown 1999 3 1622.899166 567.76 741.01 1095.15
+Women exportiamalg #1 able Unknown 1999 2 1226.355 227.66 814.87 1050.7
+Shoes exportiedu pack #1 ought Unknown 1999 2 1557.910833 563.08 1359.29 827.26
+Shoes edu packedu pack #1 able Unknown 1999 6 1622.899166 655.08 898.91 655.45
+Shoes edu packedu pack #1 able Unknown 1999 7 1622.899166 655.45 655.08 3188.73
+Shoes exportiedu pack #1 ought Unknown 1999 5 1557.910833 615.39 1000.84 1016.83
+Shoes exportiedu pack #1 able Unknown 1999 6 1510.575833 569.29 642.1 825.19
+Shoes exportiedu pack #1 ought Unknown 1999 7 1557.910833 646.64 1016.83 2422.65
+Shoes edu packedu pack #1 ought Unknown 1999 7 1708.964166 798.89 619.86 2245.21
+Women edu packamalg #1 able Unknown 1999 6 1419.25 521.96 965.95 612.49
+Women edu packamalg #1 able Unknown 1999 4 1419.25 523.37 860.31 965.95
+Shoes edu packedu pack #1 ought Unknown 1999 3 1708.964166 813.72 1181.1 1598.16
+Shoes edu packedu pack #1 able Unknown 1999 2 1622.899166 741.01 1559.06 567.76
+Shoes edu packedu pack #1 ought Unknown 1999 5 1708.964166 835.47 1598.16 619.86
+Shoes exportiedu pack #1 able Unknown 1999 5 1510.575833 642.1 1268.59 569.29
+Music amalgscholar #1 able Unknown 1999 2 1154.36 296.15 624.22 806.68
+Shoes amalgedu pack #1 able Unknown 1999 7 1164.94 316.89 432.64 1265.2
+Women amalgamalg #1 ought Unknown 1999 3 1248.403333 412.38 652.12 802.55
+Music importoscholar #1 able Unknown 1999 2 1187.996666 374.99 939.65 886.17
+Women edu packamalg #1 able Unknown 1999 7 1419.25 612.49 521.96 1625.96
+Men importoimporto #1 ought Unknown 1999 5 1157.811666 352.43 445.02 393.84
+Music importoscholar #1 ought Unknown 1999 5 1145.970833 342.79 960.35 701.03
+Children exportiexporti #1 ought Unknown 1999 5 1250.963333 451.68 763.7 899.09
+Children importoexporti #1 able Unknown 1999 6 1047.8075 248.62 445.6 418.86
+Women edu packamalg #1 ought Unknown 1999 3 1392.289166 596.4 975.03 1128.55
+Men edu packimporto #1 able Unknown 1999 6 1247.44 460.54 799.47 749.49
+Men edu packimporto #1 ought Unknown 1999 4 1281.571666 507.34 706.59 676.54
+Men importoimporto #1 ought Unknown 1999 6 1157.811666 393.84 352.43 988.45
+Shoes exportiedu pack #1 able Unknown 1999 2 1510.575833 747.3 1228.1 870.66
+Women amalgamalg #1 able Unknown 1999 7 1145.325833 382.54 444.75 1540.63
+Music exportischolar #2 able Unknown 1999 2 1035.294166 273.07 1165.77 372.7
+Women amalgamalg #1 ought Unknown 1999 7 1248.403333 489.26 968.48 1423.45
+Women exportiamalg #1 able Unknown 1999 6 1226.355 472.93 825.38 632.51
+Children amalgexporti #2 able Unknown 1999 6 1008.124166 255.74 375.75 365.42
+Children importoexporti #1 ought Unknown 1999 3 1189.8625 444.53 745.61 633.82
+Shoes amalgedu pack #1 able Unknown 1999 1 1164.94 420.24 2485.05 559.95
+Shoes amalgedu pack #1 able Unknown 1999 6 1164.94 432.64 623.63 316.89
+Shoes exportiedu pack #1 ought Unknown 1999 3 1557.910833 827.26 563.08 1000.84
+Music amalgscholar #1 ought Unknown 1999 7 1159.356666 429.65 793.23 1761.92
+Music exportischolar #2 ought Unknown 1999 5 899.6925 170.79 805.31 408.91
+Shoes edu packedu pack #1 able Unknown 1999 5 1622.899166 898.91 1095.15 655.08
+Men exportiimporto #1 able Unknown 1999 2 1137.546666 415.85 976.14 641.82
+Men importoimporto #1 ought Unknown 1999 4 1157.811666 445.02 536.87 352.43
+Men edu packimporto #1 ought Unknown 1999 7 1281.571666 569.33 693.93 1693.92
+Children exportiexporti #1 ought Unknown 1999 3 1250.963333 548.57 642.2 763.7
+Women amalgamalg #1 able Unknown 1999 6 1145.325833 444.75 672.42 382.54
+Music importoscholar #1 able Unknown 1999 6 1187.996666 489.69 980.39 593.72
+Music importoscholar #1 ought Unknown 1999 3 1145.970833 451.4 506.27 960.35
+Children edu packexporti #1 able Unknown 1999 4 1096.379166 403.62 510.14 580.63
+Children exportiexporti #1 able Unknown 1999 6 1148.705 457.44 600.12 555.94
+Music exportischolar #1 ought Unknown 1999 5 923.798333 235.39 971.4 374.4
+Music amalgscholar #1 able Unknown 1999 7 1154.36 468.97 1115.76 874.13
+Shoes exportiedu pack #1 able Unknown 1999 7 1510.575833 825.19 569.29 1191.03
+Women exportiamalg #1 ought Unknown 1999 5 1021.025 336.12 665.01 544.83
+Men importoimporto #1 able Unknown 1999 2 1256.874166 576.07 869.35 628.09
+Shoes importoedu pack #1 ought Unknown 1999 5 951.604166 275.59 832.6 541.19
+Men importoimporto #1 able Unknown 1999 6 1256.874166 581.87 978.5 671.47
+Men edu packimporto #1 able Unknown 1999 2 1247.44 573.13 1065.84 1154.03
+Women importoamalg #1 able Unknown 1999 3 925.719166 257.48 485.65 807.1
+Music exportischolar #2 able Unknown 1999 3 1035.294166 372.7 273.07 621.47
+Children exportiexporti #1 able Unknown 1999 4 1148.705 486.65 516.49 600.12
+Women edu packamalg #1 ought Unknown 1999 6 1392.289166 731.47 947.4 901.89
+Shoes importoedu pack #1 ought Unknown 1999 2 951.604166 292.55 607.91 677.71
+Shoes importoedu pack #1 able Unknown 1999 6 1036.704166 377.82 751.19 932.07
+Shoes amalgedu pack #1 ought Unknown 1999 2 1050.5225 391.87 440.17 966.23
+Children edu packexporti #1 able Unknown 1999 7 1096.379166 441.6 778.86 1288.74
+Music exportischolar #1 able Unknown 1999 6 806.626666 157.55 439.56 472.29
+Children amalgexporti #2 ought Unknown 1999 3 871.1525 224.06 687.28 563.29
+Children amalgexporti #2 able Unknown 1999 7 1008.124166 365.42 255.74 1311.83
+Men edu packimporto #2 ought Unknown 1999 5 701.33 61.41 608.25 236.46
+Shoes exportiedu pack #1 able Unknown 1999 3 1510.575833 870.66 747.3 1268.59
+Music importoscholar #1 ought Unknown 1999 2 1145.970833 506.27 995.07 451.4
+Women importoamalg #1 ought Unknown 1999 6 1003.6675 367.38 622.68 723.6
+Children importoexporti #1 able Unknown 1999 10 1047.8075 412.87 1239.64 2516.4
+Children amalgexporti #2 able Unknown 1999 5 1008.124166 375.75 539.8 255.74
+Children exportiexporti #1 able Unknown 1999 3 1148.705 516.49 753.67 486.65
+Children importoexporti #1 able Unknown 1999 7 1047.8075 418.86 248.62 1655.16
+Men importoimporto #1 able Unknown 1999 3 1256.874166 628.09 576.07 732.08
+Men importoimporto #1 ought Unknown 1999 3 1157.811666 536.87 851.36 445.02
+Women amalgamalg #1 able Unknown 1999 3 1145.325833 526.59 553.22 576.21
+Music edu packscholar #1 ought Unknown 1999 3 910.586666 292.84 476.29 635.91
+Shoes amalgedu pack #1 ought Unknown 1999 4 1050.5225 433.03 966.23 850.41
+Shoes amalgedu pack #1 ought Unknown 1999 6 1050.5225 435.99 850.41 801.95
+Shoes amalgedu pack #1 ought Unknown 1999 1 1050.5225 440.17 2167.11 391.87
+Children exportiexporti #1 ought Unknown 1999 2 1250.963333 642.2 916.36 548.57
+Children edu packexporti #1 ought Unknown 1999 4 1157.0225 548.85 596.63 637.73
+Children amalgexporti #2 ought Unknown 1999 1 871.1525 264.77 2247.5 687.28
+Men edu packimporto #1 ought Unknown 1999 5 1281.571666 676.54 507.34 693.93
+Shoes amalgedu pack #1 able Unknown 1999 2 1164.94 559.95 420.24 682.05
+Children importoexporti #1 able Unknown 1999 5 1047.8075 445.6 815.64 248.62
+Children amalgexporti #2 able Unknown 1999 2 1008.124166 411.78 683.04 866.76
+Women amalgamalg #1 ought Unknown 1999 2 1248.403333 652.12 811.41 412.38
+Music exportischolar #2 able Unknown 1999 5 1035.294166 439.71 621.47 920.86
+Music importoscholar #1 able Unknown 1999 7 1187.996666 593.72 489.69 1246.92
+Women exportiamalg #1 able Unknown 1999 7 1226.355 632.51 472.93 1138.59
+Children exportiexporti #1 able Unknown 1999 7 1148.705 555.94 457.44 1996.72
+Women amalgamalg #1 able Unknown 1999 2 1145.325833 553.22 910.99 526.59
+Women importoamalg #2 ought Unknown 1999 4 880.200833 289.13 472.48 717.06
+Music exportischolar #1 ought Unknown 1999 7 923.798333 333.54 374.4 1321.53

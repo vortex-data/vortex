@@ -1,10 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+from __future__ import annotations
+
 import math
 import os
-from datetime import date, time
+from datetime import UTC, date, datetime, time
 from decimal import Decimal
+from typing import Any, cast
+from zoneinfo import ZoneInfo
 
 import polars as pl
 import pyarrow as pa
@@ -55,7 +59,7 @@ def vxf(tmpdir_factory) -> vx.VortexFile:
 
 def test_to_polars_with_limit(vxf: vx.VortexFile) -> None:
     df = vxf.to_polars().limit(100).collect()
-    assert len(df) == 100
+    assert df.to_dicts() == [{"index": x, "value": math.sqrt(x)} for x in range(100)]
 
 
 def test_to_polars_with_filter(vxf: vx.VortexFile) -> None:
@@ -67,13 +71,13 @@ def test_to_polars_with_filter(vxf: vx.VortexFile) -> None:
 def test_to_polars_with_projection(vxf: vx.VortexFile) -> None:
     df = vxf.to_polars().select("index").limit(10).collect()
     assert df.columns == ["index"]
-    assert len(df) == 10
+    assert df["index"].to_list() == list(range(10))
 
 
 def test_to_polars_with_projection_and_filter(vxf: vx.VortexFile) -> None:
     df = vxf.to_polars().select("index", "value").filter(pl.col("index") < 100).collect()
     assert df.columns == ["index", "value"]
-    assert len(df) == 100
+    assert df.to_dicts() == [{"index": x, "value": math.sqrt(x)} for x in range(100)]
 
 
 def test_polars_time_literals(tmp_path):
@@ -204,3 +208,268 @@ def test_polars_boolean_not(tmp_path):
     actual = vx.open(str(path)).to_polars().filter(expr).collect()
     assert_frame_equal(actual, expected_frame)
     assert actual["id"].to_list() == [2]
+
+
+def test_polars_fill_null(tmp_path):
+    frame = pl.DataFrame({"id": [0, 1, 2, 3], "x": [1, None, None, 5], "y": [4, 5, None, 6]})
+    expr = pl.col("x").fill_null(pl.col("y")) == 5
+    path = tmp_path / "fill_null.vortex"
+    vx.io.write(vx.array(frame.to_arrow()), str(path))
+    expected_frame = frame.lazy().filter(expr).collect()
+    actual = vx.open(str(path)).to_polars().filter(expr).collect()
+    assert_frame_equal(actual, expected_frame)
+    assert actual["id"].to_list() == [1, 3]
+
+
+@pytest.mark.parametrize("fill_value, expected_ids", [(5, [1, 2, 3]), (0, [1, 2]), (-1, [1, 2])])
+def test_polars_fill_null_literal(tmp_path, fill_value, expected_ids):
+    frame = pl.DataFrame({"id": [0, 1, 2, 3], "x": [1, None, None, 5]})
+    filled = pl.col("x").fill_null(fill_value)
+    assert polars_to_vortex(filled).serialize() == ve.fill_null(ve.column("x"), fill_value).serialize()
+    predicate = filled == fill_value
+    path = tmp_path / "fill_null_literal.vortex"
+    vx.io.write(vx.array(frame.to_arrow()), str(path))
+    expected_frame = frame.lazy().filter(predicate).collect()
+    actual = vx.open(str(path)).to_polars().filter(predicate).collect()
+    assert_frame_equal(actual, expected_frame)
+    assert actual["id"].to_list() == expected_ids
+
+
+def test_polars_fill_null_string_literal(tmp_path):
+    frame = pl.DataFrame({"id": [0, 1, 2], "x": ["a", None, "c"]})
+    filled = pl.col("x").fill_null("z")
+    assert polars_to_vortex(filled).serialize() == ve.fill_null(ve.column("x"), "z").serialize()
+    expr = filled == "z"
+    path = tmp_path / "fill_null_string.vortex"
+    vx.io.write(vx.array(frame.to_arrow()), str(path))
+    expected_frame = frame.lazy().filter(expr).collect()
+    actual = vx.open(str(path)).to_polars().filter(expr).collect()
+    assert_frame_equal(actual, expected_frame)
+    assert actual["id"].to_list() == [1]
+
+
+def test_datetime_predicate_pushdown(tmp_path):
+    table = pa.table(
+        {
+            "id": [0, 1, 2],
+            "value": pa.array(
+                [datetime(2026, 9, day, tzinfo=UTC) for day in [16, 17, 18]],
+                type=pa.timestamp("us", tz="UTC"),
+            ),
+        }
+    )
+    path = tmp_path / "datetimes.vortex"
+    vx.io.write(vx.array(table), str(path))
+    predicate = pl.col("value") >= datetime(2026, 9, 17, tzinfo=UTC)
+    expected = pl.DataFrame(table).lazy().filter(predicate).collect()
+    result = vx.open(str(path)).to_polars().filter(predicate).collect()
+    assert_frame_equal(result, expected)
+    assert result["id"].to_list() == [1, 2]
+
+
+@pytest.mark.parametrize("unit, scale", [("ms", 1_000), ("us", 1_000_000), ("ns", 1_000_000_000)])
+@pytest.mark.parametrize("source_zone", [None, "UTC", "Europe/London"])
+@pytest.mark.parametrize("target_zone", [None, "UTC", "America/New_York"])
+def test_replace_time_zone_columns(tmp_path, unit, scale, source_zone, target_zone):
+    seconds = [1_705_320_000, 1_721_041_200 if source_zone == "Europe/London" else 1_721_044_800, None]
+    values = pa.array(
+        [None if value is None else value * scale for value in seconds],
+        type=pa.timestamp(unit, tz=source_zone),
+    )
+    reference, frame = _time_zone_scan(tmp_path, values)
+    expression = pl.col("dt").dt.replace_time_zone(target_zone)
+    threshold = pl.lit(
+        datetime(2024, 7, 15, 12, tzinfo=None if target_zone is None else ZoneInfo(target_zone)),
+        dtype=pl.Datetime(unit, target_zone),
+    )
+    expected_frame = reference.filter(expression >= threshold).collect()
+    actual = frame.filter(expression >= threshold).collect()
+    assert_frame_equal(actual, expected_frame)
+    assert actual["id"].to_list() == [1]
+
+
+@pytest.mark.parametrize(
+    "ambiguous, fold, expected",
+    [
+        ("earliest", 0, [0]),
+        ("earliest", 1, []),
+        ("latest", 0, []),
+        ("latest", 1, [0]),
+        ("null", 0, []),
+        ("null", 1, []),
+    ],
+)
+def test_replace_time_zone_ambiguous(tmp_path, ambiguous, fold, expected):
+    values = pa.array([datetime(2024, 11, 3, 1, 30), None], type=pa.timestamp("us"))
+    reference, frame = _time_zone_scan(tmp_path, values)
+    expression = pl.col("dt").dt.replace_time_zone("America/New_York", ambiguous=ambiguous)
+    threshold = datetime(2024, 11, 3, 1, 30, tzinfo=ZoneInfo("America/New_York"), fold=fold)
+    expected_frame = reference.filter(expression == threshold).collect()
+    actual = frame.filter(expression == threshold).collect()
+    assert_frame_equal(actual, expected_frame)
+    assert actual["id"].to_list() == expected
+
+
+@pytest.mark.parametrize("fold, expected", [(0, [0]), (1, [1])])
+def test_replace_time_zone_policy_column(tmp_path, fold, expected):
+    values = pa.array([datetime(2024, 11, 3, 1, 30)] * 4, type=pa.timestamp("us"))
+    reference, frame = _time_zone_scan(tmp_path, values, ["earliest", "latest", "null", None])
+    expression = pl.col("dt").dt.replace_time_zone("America/New_York", ambiguous=pl.col("policy"))
+    threshold = datetime(2024, 11, 3, 1, 30, tzinfo=ZoneInfo("America/New_York"), fold=fold)
+    expected_frame = reference.filter(expression == threshold).collect()
+    actual = frame.filter(expression == threshold).collect()
+    assert_frame_equal(actual, expected_frame)
+    assert actual["id"].to_list() == expected
+
+
+def test_replace_time_zone_non_existent_null(tmp_path):
+    values = pa.array([datetime(2024, 3, 10, 2, 30), datetime(2024, 3, 10, 3, 30)], type=pa.timestamp("us"))
+    reference, frame = _time_zone_scan(tmp_path, values)
+    expression = pl.col("dt").dt.replace_time_zone("America/New_York", non_existent="null")
+    threshold = datetime(2024, 3, 10, 3, 30, tzinfo=ZoneInfo("America/New_York"))
+    expected_frame = reference.filter(expression == threshold).collect()
+    actual = frame.filter(expression == threshold).collect()
+    assert_frame_equal(actual, expected_frame)
+    assert actual["id"].to_list() == [1]
+
+
+@pytest.mark.parametrize("value", [datetime(2024, 11, 3, 1, 30), datetime(2024, 3, 10, 2, 30)])
+def test_replace_time_zone_raises(tmp_path, value):
+    reference, frame = _time_zone_scan(tmp_path, pa.array([value], type=pa.timestamp("us")))
+    expression = pl.col("dt").dt.replace_time_zone("America/New_York")
+    threshold = datetime(2024, 1, 1, tzinfo=ZoneInfo("America/New_York"))
+    with pytest.raises(pl.exceptions.ComputeError):
+        reference.filter(expression >= threshold).collect()
+    with pytest.raises((RuntimeError, pl.exceptions.ComputeError), match="ambiguous|gap|fold"):
+        frame.filter(expression >= threshold).collect()
+
+
+def test_replace_time_zone_maps_to_native_expression():
+    expression = pl.col("dt").dt.replace_time_zone("America/New_York", ambiguous=pl.col("policy"), non_existent="null")
+    expected = ve.replace_time_zone(
+        ve.column("dt"), "America/New_York", ambiguous=ve.column("policy"), non_existent="null"
+    )
+    assert polars_to_vortex(expression).serialize() == expected.serialize()
+
+
+def test_replace_time_zone_same_zone_during_fold(tmp_path):
+    # 2024-11-03 06:30 UTC is the second 01:30 in New York.
+    values = pa.array([1_730_615_400_000_000], type=pa.timestamp("us", tz="America/New_York"))
+    reference, frame = _time_zone_scan(tmp_path, values)
+    expression = pl.col("dt").dt.replace_time_zone("America/New_York")
+    threshold = datetime(2024, 11, 3, 1, 30, tzinfo=ZoneInfo("America/New_York"), fold=1)
+    expected_frame = reference.filter(expression == threshold).collect()
+    actual = frame.filter(expression == threshold).collect()
+    assert_frame_equal(actual, expected_frame)
+    assert actual["id"].to_list() == [0]
+
+
+def _time_zone_scan(tmp_path, values, policy=None) -> tuple[pl.LazyFrame, pl.LazyFrame]:
+    columns = {"id": pa.array(range(len(values))), "dt": values}
+    if policy is not None:
+        columns["policy"] = pa.array(policy)
+    path = tmp_path / "timezones.vortex"
+    table = pa.table(columns)
+    vx.io.write(vx.array(table), str(path))
+    return pl.DataFrame(table).lazy(), vx.open(str(path)).to_polars()
+
+
+def test_polars_struct_field(tmp_path):
+    frame = pl.DataFrame({"id": [0, 1, 2, 3], "x": [{"a": 1}, None, {"a": 3}, {"a": None}]})
+    expr = pl.col("x").struct.field("a") >= 2
+    path = tmp_path / "struct_field.vortex"
+    vx.io.write(vx.array(frame.to_arrow()), str(path))
+    expected_frame = frame.lazy().filter(expr).collect()
+    actual = vx.open(str(path)).to_polars().filter(expr).collect()
+    assert_frame_equal(actual, expected_frame)
+    assert actual["id"].to_list() == [2]
+
+
+def _unmasked_field(array: pa.Array[Any], *names: str) -> pa.Array[Any]:
+    for name in names:
+        array = cast(pa.StructArray, array).field(name)
+    return array
+
+
+def _assert_struct_field_scan(tmp_path, array, predicate, expected):
+    table = pa.table({"id": list(range(len(array))), "x": array})
+    polars_result = pl.DataFrame(table).lazy().filter(predicate).collect()
+    path = tmp_path / "struct_parent_nulls.vortex"
+    vx.io.write(vx.array(table), str(path))
+    vortex_result = vx.open(str(path)).to_polars().filter(predicate).collect()
+    assert_frame_equal(polars_result, expected)
+    assert_frame_equal(vortex_result, expected)
+
+
+def test_polars_struct_field_null_parent(tmp_path):
+    leaf = pa.array([10, 20])
+    parent = pa.StructArray.from_arrays([leaf], names=["value"], mask=pa.array([True, False]))
+    assert parent.field("value").to_pylist() == [10, 20]
+    predicate = pl.col("x").struct.field("value") >= 0
+    expected = pl.DataFrame({"id": [1], "x": [{"value": 20}]})
+    _assert_struct_field_scan(tmp_path, parent, predicate, expected)
+
+
+def test_polars_struct_field_null_inner_parent(tmp_path):
+    leaf = pa.array([10, 20])
+    inner = pa.StructArray.from_arrays([leaf], names=["value"], mask=pa.array([True, False]))
+    outer = pa.StructArray.from_arrays([inner], names=["child"])
+    assert _unmasked_field(outer, "child", "value").to_pylist() == [10, 20]
+    predicate = pl.col("x").struct.field("child").struct.field("value") >= 0
+    expected = pl.DataFrame({"id": [1], "x": [{"child": {"value": 20}}]})
+    _assert_struct_field_scan(tmp_path, outer, predicate, expected)
+
+
+def test_polars_struct_field_null_outer_parent(tmp_path):
+    leaf = pa.array([10, 20])
+    inner = pa.StructArray.from_arrays([leaf], names=["value"])
+    outer = pa.StructArray.from_arrays([inner], names=["child"], mask=pa.array([True, False]))
+    assert _unmasked_field(outer, "child", "value").to_pylist() == [10, 20]
+    predicate = pl.col("x").struct.field("child").struct.field("value") >= 0
+    expected = pl.DataFrame({"id": [1], "x": [{"child": {"value": 20}}]})
+    _assert_struct_field_scan(tmp_path, outer, predicate, expected)
+
+
+def test_polars_struct_field_null_middle_parent(tmp_path):
+    leaf = pa.array([10, 20])
+    inner = pa.StructArray.from_arrays([leaf], names=["value"])
+    middle = pa.StructArray.from_arrays([inner], names=["child"], mask=pa.array([True, False]))
+    outer = pa.StructArray.from_arrays([middle], names=["child"])
+    assert _unmasked_field(outer, "child", "child", "value").to_pylist() == [10, 20]
+    predicate = pl.col("x").struct.field("child").struct.field("child").struct.field("value") >= 0
+    expected = pl.DataFrame({"id": [1], "x": [{"child": {"child": {"value": 20}}}]})
+    _assert_struct_field_scan(tmp_path, outer, predicate, expected)
+
+
+def test_polars_struct_field_null_parents_and_leaf(tmp_path):
+    leaf = pa.array([10, 20, 30, None, 50])
+    inner = pa.StructArray.from_arrays([leaf], names=["value"], mask=pa.array([True, False, True, False, False]))
+    outer = pa.StructArray.from_arrays([inner], names=["child"], mask=pa.array([False, True, True, False, False]))
+    assert _unmasked_field(outer, "child", "value").to_pylist() == [10, 20, 30, None, 50]
+    predicate = pl.col("x").struct.field("child").struct.field("value") >= 0
+    expected = pl.DataFrame({"id": [4], "x": [{"child": {"value": 50}}]})
+    _assert_struct_field_scan(tmp_path, outer, predicate, expected)
+
+
+@pytest.mark.parametrize(
+    "expr",
+    [
+        pl.col("x").is_in([1, 3]),
+        pl.col("x").is_in([1, None]),
+        pl.col("x").is_in([]),
+        pl.col("x").is_in([1, None], nulls_equal=True),
+        pl.col("x").is_in([1], nulls_equal=True),
+        ~pl.col("x").is_in([1, 3]),
+        ~pl.col("x").is_in([1, None]),
+        pl.col("x").is_in(pl.Series([2, 3]).implode()),
+        pl.col("s").is_in(["a", "c"]),
+        ~pl.col("s").is_in(["a", None]),
+    ],
+)
+def test_polars_is_in(tmp_path, expr):
+    frame = pl.DataFrame({"id": [0, 1, 2, 3], "x": [1, 2, None, 3], "s": ["a", "b", None, "c"]})
+    path = tmp_path / "is_in.vortex"
+    vx.io.write(vx.array(frame.to_arrow()), str(path))
+    expected = frame.lazy().filter(expr).collect()
+    actual = vx.open(str(path)).to_polars().filter(expr).collect()
+    assert_frame_equal(actual, expected)

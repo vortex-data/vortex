@@ -155,7 +155,9 @@ fn assemble_wide_decimal_from_arrays(
                 validity,
             )?
             .into_array(),
-            _ => vortex_bail!("expected between one and {MAX_LOWER_PARTS} lower parts"),
+            _ => {
+                vortex_bail!("expected between one and {MAX_LOWER_PARTS} lower parts")
+            }
         }
     }))
 }
@@ -200,10 +202,11 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Constant;
     use vortex_array::arrays::DecimalArray;
@@ -220,9 +223,12 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::assemble_decimal;
     use crate::decimal_byte_parts::split_decimal;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     #[case::empty_non_nullable(0, Validity::NonNullable)]
@@ -243,7 +249,7 @@ mod tests {
         )]
         values_type: DecimalType,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let decimal = match_each_decimal_value_type!(values_type, |T| {
             DecimalArray::new(
                 Buffer::<T>::zeroed(len),
@@ -261,7 +267,7 @@ mod tests {
         );
         let round_tripped = round_trip(decimal.clone())?;
         assert_eq!(round_tripped.values_type(), values_type);
-        assert_arrays_eq!(decimal, round_tripped, &mut ctx);
+        assert_arrays_eq!(round_tripped, decimal, &mut ctx);
         Ok(())
     }
 
@@ -277,7 +283,7 @@ mod tests {
         #[values(false, true)] wide_256: bool,
         #[values(0, 1, 63, 64, 65, 257)] len: usize,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let decimal = if wide_256 {
             DecimalArray::new(
                 buffer![i256::from_i128(-1); 263],
@@ -304,14 +310,14 @@ mod tests {
             &DType::Primitive(PType::I64, decimal.dtype().nullability())
         );
         for lower in parts.lower_parts {
-            assert_arrays_eq!(expected.clone(), lower, &mut ctx);
+            assert_arrays_eq!(lower, expected.clone(), &mut ctx);
         }
-        assert_arrays_eq!(decimal.clone(), round_trip(decimal)?, &mut ctx);
+        assert_arrays_eq!(round_trip(decimal.clone())?, decimal, &mut ctx);
         Ok(())
     }
 
     fn round_trip(decimal: DecimalArray) -> VortexResult<DecimalArray> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let parts = split_decimal(&decimal, &mut ctx)?;
         assemble_decimal(
             &parts.msp,
@@ -368,7 +374,7 @@ mod tests {
         #[values(Validity::NonNullable, Validity::from_iter([true, false, true]))]
         validity: Validity,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let decimal = DecimalArray::new(buffer![1i8, 2, 3], DecimalDType::new(2, 0), validity);
         let parts = split_decimal(&decimal, &mut ctx)?;
         assert!(parts.lower_parts.is_empty());
@@ -378,7 +384,7 @@ mod tests {
             msp.as_slice::<i8>().as_ptr(),
             decimal.buffer::<i8>().as_ptr()
         );
-        assert_arrays_eq!(decimal.clone(), round_trip(decimal)?, &mut ctx);
+        assert_arrays_eq!(round_trip(decimal.clone())?, decimal, &mut ctx);
         Ok(())
     }
 
@@ -401,7 +407,7 @@ mod tests {
             .into_iter()
             .map(IntoArray::into_array)
             .collect::<Vec<_>>();
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert!(assemble_decimal(&msp.into_array(), &lower, dtype, &mut ctx).is_err());
     }
 
@@ -420,7 +426,7 @@ mod tests {
             .into_iter()
             .map(IntoArray::into_array)
             .collect::<Vec<_>>();
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert!(assemble_decimal(&msp.into_array(), &lower, dtype, &mut ctx).is_err());
     }
 
@@ -429,7 +435,7 @@ mod tests {
         #[values(false, true)] narrow_msp: bool,
         #[values(2, 3)] lower_count: usize,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let msp = if narrow_msp {
             PrimitiveArray::new(buffer![3i8, -3], Validity::NonNullable)
         } else {
@@ -453,8 +459,8 @@ mod tests {
             ]
         };
         assert_arrays_eq!(
-            DecimalArray::new(expected, dtype, Validity::NonNullable),
             actual,
+            DecimalArray::new(expected, dtype, Validity::NonNullable),
             &mut ctx
         );
         Ok(())

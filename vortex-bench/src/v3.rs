@@ -283,6 +283,7 @@ fn canonical_tpc_scale_factor(scale_factor: &str) -> String {
 /// | `Fineweb`                   | `fineweb`      | `None`              | `None`                                              | |
 /// | `GhArchive`                 | `gharchive`    | `None`              | `None`                                              | |
 /// | `Appian`                    | `appian`       | `None`              | `None`                                              | Static dataset; no scale factor. |
+/// | `Job`                       | `job`          | `None`              | `None`                                              | Static IMDB dataset; no scale factor. |
 /// | `PublicBi { name }`         | `public-bi`    | dataset name (e.g. `cms-provider`) | `None`               | Sub-dataset name lives in `dataset_variant`. |
 /// | `SpatialBench { scale_factor }` | `spatialbench` | `None`         | SF as string | Same canonicalization as TPC-H; no historical v2 records to merge with. |
 /// | `VortexQueries` | `vortex` | `None` | `None` | Own microbenchmarks |
@@ -321,6 +322,7 @@ pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, 
         BenchmarkDataset::Fineweb => ("fineweb".to_string(), None, None),
         BenchmarkDataset::GhArchive => ("gharchive".to_string(), None, None),
         BenchmarkDataset::Appian => ("appian".to_string(), None, None),
+        BenchmarkDataset::Job => ("job".to_string(), None, None),
         BenchmarkDataset::VortexQueries => ("vortex".to_string(), None, None),
     }
 }
@@ -736,6 +738,7 @@ mod tests {
             (BenchmarkDataset::Fineweb, "fineweb"),
             (BenchmarkDataset::GhArchive, "gharchive"),
             (BenchmarkDataset::Appian, "appian"),
+            (BenchmarkDataset::Job, "job"),
         ] {
             let (ds, variant, sf) = benchmark_dataset_dims(&case);
             assert_eq!(ds, expected, "dataset for {case:?}");
@@ -824,15 +827,25 @@ mod tests {
 
     #[test]
     fn jsonl_round_trips_one_record_per_line() -> anyhow::Result<()> {
-        let record = compression_size_record("taxi", None, Format::Parquet, 100, 1_000);
+        let records = [
+            compression_size_record("taxi", None, Format::Parquet, 100, 1_000),
+            compression_size_record("other", Some("variant"), Format::Lance, 200, 2_000),
+        ];
         let mut buf: Vec<u8> = Vec::new();
-        write_jsonl(&mut buf, &[record.clone(), record])?;
+        write_jsonl(&mut buf, &records)?;
         let s = String::from_utf8(buf)?;
-        assert_eq!(s.lines().count(), 2);
-        for line in s.lines() {
-            let v: serde_json::Value = serde_json::from_str(line)?;
-            assert_eq!(v["kind"], "compression_size");
-        }
+        assert!(s.ends_with('\n'));
+        let actual = s
+            .lines()
+            .map(serde_json::from_str::<serde_json::Value>)
+            .collect::<Result<Vec<_>, _>>()?;
+        assert_eq!(
+            actual,
+            [
+                serde_json::json!({"kind":"compression_size", "commit_sha":GIT_COMMIT_ID.as_str(), "dataset":"taxi", "format":"parquet", "value_bytes":100, "uncompressed_bytes":1000}),
+                serde_json::json!({"kind":"compression_size", "commit_sha":GIT_COMMIT_ID.as_str(), "dataset":"other", "dataset_variant":"variant", "format":"lance", "value_bytes":200, "uncompressed_bytes":2000}),
+            ]
+        );
         Ok(())
     }
 }
