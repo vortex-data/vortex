@@ -259,8 +259,17 @@ impl CudaContext {
     }
 
     /// Loads a module from a cubin, fatbin or PTX image.
-    pub fn load_module(self: &Arc<Self>, image: &[u8]) -> Result<Arc<CudaModule>, DriverError> {
-        CudaModule::load(self, image)
+    ///
+    /// # Safety
+    ///
+    /// The driver takes no length and reads the image's own: `image` must be a complete cubin
+    /// or fatbin, or PTX text followed by a NUL byte.
+    pub unsafe fn load_module(
+        self: &Arc<Self>,
+        image: &[u8],
+    ) -> Result<Arc<CudaModule>, DriverError> {
+        // SAFETY: Under the caller's guarantees.
+        unsafe { CudaModule::load(self, image) }
     }
 
     /// A timing-disabled event from the pool, or a new one.
