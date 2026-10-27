@@ -28,17 +28,6 @@ pub struct LaunchConfig {
     pub shared_mem_bytes: u32,
 }
 
-impl LaunchConfig {
-    /// One-dimensional blocks of 1024 threads covering `n` elements.
-    pub fn for_num_elems(n: u32) -> Self {
-        Self {
-            grid_dim: (n.div_ceil(1024), 1, 1),
-            block_dim: (1024, 1, 1),
-            shared_mem_bytes: 0,
-        }
-    }
-}
-
 /// A kernel launch being assembled on a stream; create with [`CudaStream::launch_builder`].
 ///
 /// Device memory arguments are ordered after earlier conflicting accesses and recorded as

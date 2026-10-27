@@ -203,28 +203,6 @@ pub mod mem_pool {
 pub mod stream {
     use super::*;
 
-    /// The (least, greatest) stream priorities of the current context.
-    pub fn get_priority_range() -> Result<(i32, i32), DriverError> {
-        let (mut least, mut greatest) = (0, 0);
-        // SAFETY: The driver writes both values.
-        unsafe { sys::cuCtxGetStreamPriorityRange(&raw mut least, &raw mut greatest) }.result()?;
-        Ok((least, greatest))
-    }
-
-    /// Makes `stream` wait for the work recorded in `event`.
-    ///
-    /// # Safety
-    ///
-    /// Both handles must be valid and belong to the current context.
-    pub unsafe fn wait_event(
-        stream: sys::CUstream,
-        event: sys::CUevent,
-        flags: sys::CUevent_wait_flags,
-    ) -> Result<(), DriverError> {
-        // SAFETY: Under the caller's guarantees.
-        unsafe { sys::cuStreamWaitEvent(stream, event, flags.0) }.result()
-    }
-
     /// Enqueues a host function on `stream`.
     ///
     /// # Safety
