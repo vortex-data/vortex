@@ -71,15 +71,19 @@ pub fn accumulate_stats(
     // Each chunk's stats are computed into their own accumulators on a CPU task, so chunks are
     // processed in parallel instead of serially in front of the rest of the write pipeline.
     let chunk_accumulator = accumulator.clone();
-    let session = session.clone();
+    let handle = session.handle();
+
+    // Every task clones one context, which shares its kernel snapshot instead of taking a new
+    // snapshot of the session for each chunk.
+    let exec_ctx = session.create_execution_ctx();
     let concurrency = get_available_parallelism().unwrap_or(1);
     let stream = stream
         .map(move |item| {
             let accumulator = chunk_accumulator.clone();
-            let session = session.clone();
-            session.handle().spawn_cpu(move || {
+            let mut exec_ctx = exec_ctx.clone();
+            handle.spawn_cpu(move || {
                 let (sequence_id, chunk) = item?;
-                let stats = accumulator.chunk_stats(&chunk, &mut session.create_execution_ctx())?;
+                let stats = accumulator.chunk_stats(&chunk, &mut exec_ctx)?;
                 Ok::<_, VortexError>((sequence_id, chunk, stats))
             })
         })
@@ -701,9 +705,9 @@ mod tests {
     fn push(
         acc: &FileStatsAccumulator,
         chunk: &ArrayRef,
-        session: &VortexSession,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        acc.merge(acc.chunk_stats(chunk, &mut session.create_execution_ctx())?)
+        acc.merge(acc.chunk_stats(chunk, ctx)?)
     }
 
     fn stats_set(acc: &StatsAccumulator) -> VortexResult<StatsSet> {
@@ -1077,7 +1081,7 @@ mod tests {
     fn legacy_aggregate_stats_cover_only_top_level_fields() -> VortexResult<()> {
         // The legacy accumulation must have exactly one entry per top-level field, built against
         // that field's own dtype without recursing into it, even though it's a nested struct.
-        let session = VortexSession::empty();
+        let mut exec_ctx = SESSION.create_execution_ctx();
         let inner_dtype = DType::struct_([("b", i32_dtype())], Nullability::Nullable);
         let dtype = DType::struct_([("a", inner_dtype)], Nullability::NonNullable);
 
@@ -1099,7 +1103,7 @@ mod tests {
         let outer = StructArray::new(FieldNames::from(["a"]), [inner], 3, Validity::NonNullable)
             .into_array();
 
-        push(&acc, &outer, &session)?;
+        push(&acc, &outer, &mut exec_ctx)?;
 
         let legacy = acc.legacy_aggregate_stats()?;
         assert_eq!(legacy.len(), 1);
@@ -1116,7 +1120,7 @@ mod tests {
     fn legacy_aggregate_stats_record_non_nullable_struct_field() -> VortexResult<()> {
         // The nested layout has no entry for a non-nullable struct's own stats, but the legacy
         // layout still records them for a top-level field.
-        let session = VortexSession::empty();
+        let mut exec_ctx = SESSION.create_execution_ctx();
         let inner_dtype = DType::struct_([("b", i32_dtype())], Nullability::NonNullable);
         let dtype = DType::struct_([("a", inner_dtype)], Nullability::NonNullable);
 
@@ -1133,7 +1137,7 @@ mod tests {
         let outer = StructArray::new(FieldNames::from(["a"]), [inner], 3, Validity::NonNullable)
             .into_array();
 
-        push(&acc, &outer, &session)?;
+        push(&acc, &outer, &mut exec_ctx)?;
 
         let legacy = acc.legacy_aggregate_stats()?;
         assert_eq!(legacy.len(), 1);
@@ -1148,7 +1152,7 @@ mod tests {
 
     #[test]
     fn legacy_aggregate_stats_of_nullable_root_are_unrecorded() -> VortexResult<()> {
-        let session = VortexSession::empty();
+        let mut exec_ctx = SESSION.create_execution_ctx();
         let dtype = DType::struct_([("a", i32_dtype())], Nullability::Nullable);
 
         let acc = FileStatsAccumulator::try_new(
@@ -1162,7 +1166,7 @@ mod tests {
         let validity = Validity::Array(BoolArray::from_iter([true, false, true]).into_array());
         let root = StructArray::new(FieldNames::from(["a"]), [a], 3, validity).into_array();
 
-        push(&acc, &root, &session)?;
+        push(&acc, &root, &mut exec_ctx)?;
 
         let legacy = acc.legacy_aggregate_stats()?;
         assert_eq!(legacy.len(), 1);
@@ -1180,7 +1184,7 @@ mod tests {
     ) -> VortexResult<()> {
         // Readers that predate nested stats reject a legacy layout without one entry per
         // top-level field, so excluding legacy stats keeps the entries and records nothing.
-        let session = VortexSession::empty();
+        let mut exec_ctx = SESSION.create_execution_ctx();
         let acc = FileStatsAccumulator::try_new(
             &dtype,
             Some(Arc::from([agg(Stat::Min), agg(Stat::Max)])),
@@ -1188,7 +1192,7 @@ mod tests {
             &LayoutWriterContext::new(ArrayContext::empty()),
         )?;
 
-        push(&acc, &chunk, &session)?;
+        push(&acc, &chunk, &mut exec_ctx)?;
 
         let legacy = acc.legacy_aggregate_stats()?;
         assert_eq!(legacy.len(), top_level_fields);
@@ -1269,7 +1273,7 @@ mod tests {
 
     #[test]
     fn forbidden_aggregates_are_gated() -> VortexResult<()> {
-        let session = VortexSession::empty();
+        let mut exec_ctx = SESSION.create_execution_ctx();
         let dtype = DType::struct_([("a", i32_dtype())], Nullability::NonNullable);
         let ctx = LayoutWriterContext::new(ArrayContext::empty())
             .with_allowed_aggregates(HashSet::from_iter([Min.id(), Max.id(), NanCount.id()]));
@@ -1291,7 +1295,7 @@ mod tests {
             Validity::NonNullable,
         )
         .into_array();
-        push(&acc, &chunk, &session)?;
+        push(&acc, &chunk, &mut exec_ctx)?;
 
         let aggregates = acc.aggregate_stats()?;
         assert!(
@@ -1315,7 +1319,7 @@ mod tests {
 
     #[test]
     fn defaults_do_not_record_sum() -> VortexResult<()> {
-        let session = VortexSession::empty();
+        let mut exec_ctx = SESSION.create_execution_ctx();
         let dtype = DType::struct_([("a", i32_dtype())], Nullability::NonNullable);
         let acc = FileStatsAccumulator::try_new(
             &dtype,
@@ -1330,7 +1334,7 @@ mod tests {
             Validity::NonNullable,
         )
         .into_array();
-        push(&acc, &chunk, &session)?;
+        push(&acc, &chunk, &mut exec_ctx)?;
 
         let sum = agg(Stat::Sum);
         assert!(acc.aggregate_stats()?[0].get(&sum).is_absent());
