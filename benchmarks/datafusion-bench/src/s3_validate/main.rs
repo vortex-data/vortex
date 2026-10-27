@@ -61,6 +61,11 @@ struct Args {
     /// Zero means unlimited. Applied to the model only.
     #[arg(long, default_value_t = 0)]
     max_inflight: usize,
+    /// Request-derived parameters, including an optional empirical latency distribution.
+    #[arg(long)]
+    model_parameters: Option<PathBuf>,
+    #[arg(long, default_value_t = 20261027)]
+    seed: u64,
     #[arg(long)]
     output: PathBuf,
     /// Allows a local filesystem source for development smoke runs.
@@ -136,13 +141,31 @@ async fn query(session: &SessionContext, sql: &str) -> anyhow::Result<usize> {
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     anyhow::ensure!(args.iterations > 0, "iterations must be positive");
+    let model = match &args.model_parameters {
+        Some(path) => serde_json::from_reader(File::open(path)?)?,
+        None => Model {
+            ttfb_ms: args.ttfb_ms,
+            request_mib_per_sec: args.request_mib_per_sec,
+            max_inflight: args.max_inflight,
+            latency_cdf_ms: Vec::new(),
+            seed: args.seed,
+        },
+    };
     anyhow::ensure!(
-        args.ttfb_ms.is_finite() && args.ttfb_ms >= 0.0,
+        model.ttfb_ms.is_finite() && model.ttfb_ms >= 0.0,
         "invalid TTFB"
     );
     anyhow::ensure!(
-        args.request_mib_per_sec.is_finite() && args.request_mib_per_sec > 0.0,
+        model.request_mib_per_sec.is_finite() && model.request_mib_per_sec > 0.0,
         "invalid throughput"
+    );
+    anyhow::ensure!(
+        model
+            .latency_cdf_ms
+            .iter()
+            .all(|v| v.is_finite() && *v >= 0.0)
+            && model.latency_cdf_ms.windows(2).all(|w| w[0] <= w[1]),
+        "latency CDF must be finite, nonnegative and sorted"
     );
     let source_url = Url::parse(&args.source)?;
     anyhow::ensure!(
@@ -162,11 +185,6 @@ async fn main() -> anyhow::Result<()> {
     let source = datafusion_bench::make_object_store(&setup_session, &source_url)?;
     let prefix = Path::from_url_path(source_url.join(&format!("{}/", args.format.name()))?.path())?;
     let snapshot = store::snapshot(source.as_ref(), &prefix).await?;
-    let model = Model {
-        ttfb_ms: args.ttfb_ms,
-        request_mib_per_sec: args.request_mib_per_sec,
-        max_inflight: args.max_inflight,
-    };
     let real = Arc::new(Store::new(
         Arc::clone(&source),
         Some(Arc::clone(&snapshot)),
@@ -176,7 +194,7 @@ async fn main() -> anyhow::Result<()> {
     let simulated = Arc::new(Store::new(
         source,
         Some(snapshot),
-        Some(model),
+        Some(model.clone()),
         !args.adaptive_io,
     ));
     let mut writer = BufWriter::new(File::create(&args.output)?);

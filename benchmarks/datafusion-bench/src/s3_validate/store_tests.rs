@@ -15,8 +15,59 @@ async fn model(cap: usize) -> anyhow::Result<(Store, ObjectMeta)> {
         ttfb_ms: 10.0,
         request_mib_per_sec: 100.0,
         max_inflight: cap,
+        latency_cdf_ms: Vec::new(),
+        seed: 42,
     };
     Ok((Store::new(source, Some(snapshot), Some(model), true), meta))
+}
+
+#[test]
+fn latency_draws_are_repeatable_and_independent_of_request_order() {
+    let model = Model {
+        ttfb_ms: 10.0,
+        request_mib_per_sec: 100.0,
+        max_inflight: 0,
+        latency_cdf_ms: (0..1000).map(f64::from).collect(),
+        seed: 42,
+    };
+    let draw =
+        |key: usize, sample| model.delay_ms("GET", &format!("table/{key}"), "0..100", sample, 0);
+    let forward = (0..1000).map(|key| draw(key, 1)).collect::<Vec<_>>();
+    let reverse = (0..1000)
+        .rev()
+        .map(|key| draw(key, 1))
+        .rev()
+        .collect::<Vec<_>>();
+    assert_eq!(forward, reverse);
+    assert_ne!(
+        forward,
+        (0..1000).map(|key| draw(key, 2)).collect::<Vec<_>>()
+    );
+    let mean = forward.iter().sum::<f64>() / forward.len() as f64;
+    assert!((450.0..550.0).contains(&mean));
+    assert_eq!(model.delay_ms("HEAD", "table", "", 1, 0), 10.0);
+}
+
+#[tokio::test]
+async fn empirical_delays_preserve_request_metrics() -> anyhow::Result<()> {
+    let (mut store, meta) = model(0).await?;
+    if let Some(model) = store.model.as_mut() {
+        Arc::make_mut(model).latency_cdf_ms = vec![2.0, 5.0, 10.0, 20.0];
+    }
+    futures::future::try_join_all(
+        (0..8).map(|_| async { store.get(&meta.location).await?.bytes().await }),
+    )
+    .await?;
+    let (counts, requests) = store.take()?;
+    assert_eq!(counts.get, 8);
+    assert_eq!(counts.bytes, 64);
+    assert_eq!(counts.peak_inflight, 8);
+    assert!(
+        requests
+            .iter()
+            .all(|r| r.model_delay_ms.is_some_and(|delay| r.duration_ms >= delay))
+    );
+    Ok(())
 }
 
 #[tokio::test]

@@ -29,7 +29,7 @@ byte counters measure underlying operations after this cache; `get_calls` and `t
 expose total logical GET calls and the calls served by the cache, respectively. The real backend still fetches every cache miss
 from its source object store.
 
-Each of five iterations creates fresh DataFusion and Vortex sessions, registers tables, runs the
+Each of three iterations by default creates fresh DataFusion and Vortex sessions, registers tables, runs the
 query cold, then immediately runs it warm. Query timers include planning and execution; table
 registration has separate timings and request counters. The file catalog is prepared during registration.
 Footer metadata and file-statistics caches are cleared after registration so schema inference does not
@@ -41,13 +41,25 @@ samples. Cold therefore means fresh database caches, rather than cold TLS or S3 
 The initial deterministic model uses 25 ms per request, 100 MiB/s per request and no concurrency
 cap. Sleeps use Tokio timers and response streams retain their semaphore permit until completed
 or cancelled. Transfer waits use absolute deadlines to avoid accumulating a timer tick per chunk.
-No randomness is used. Calibration estimates TTFB from small S3 requests and throughput from
-large S3 requests, preferring low concurrency. The programmed delay accounts for the measured model timer overhead, which is reported separately. It uses request traces, without adjusting query
-results or applying per-query runtime factors. A second complete paired run tests these parameters
+Calibration estimates TTFB from small S3 requests and throughput from large S3 requests, preferring
+low concurrency. It also learns 1,000 equally weighted latency quantiles from real GET durations
+after subtracting the transfer cost. This preserves the long tail that parallel scans wait for.
+The extreme 0.05% at each end is represented by the nearest quantile. Programmed delays account
+for measured model timer overhead, which is reported separately. Draws use seed 20261027 and a
+stable hash of the operation, object, range, measurement number and per-key request ordinal,
+so concurrent task polling order does not choose the delays. HEAD/LIST use the scalar TTFB.
+`--model-parameters parameters.json` loads the learned distribution. Traces include each
+programmed request delay. Calibration uses request measurements without adjusting query results
+or applying per-query runtime factors. A second complete paired run tests these parameters
 against fresh S3 samples on the same runner.
 
+The Python driver refreshes a private GitHub OIDC token file every two minutes. The object_store
+web-identity provider renews AWS credentials from that file, so a suite can exceed one STS session.
+This uses the workflow's existing benchmark role; tokens are kept outside the result artifacts.
+
 Artifacts include raw JSONL with per-request traces, query samples, initial/tuned reports, and
-`parameters.json`. Each sample records GET/PUT/LIST/HEAD counts, consumed bytes, errors, peak and
+`parameters.json`. The workflow uploads a checkpoint after each suite so its evidence is available
+while the next suite runs. Each sample records GET/PUT/LIST/HEAD counts, consumed bytes, errors, peak and
 time-averaged in-flight requests, plus registration counts. These are object-store API metrics;
 HTTP retries inside the S3 client are not separately instrumented. The current snapshot is flat
 and smaller than 1,000 objects, so each LIST is a single S3 page.

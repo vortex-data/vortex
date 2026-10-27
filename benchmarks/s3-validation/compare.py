@@ -68,7 +68,7 @@ def calibrate(records: list[Record]) -> Record:
     observed_ttfb = statistics.median(small)
     timer_overheads = [
         request["first_byte_ms"]
-        - record["model"]["ttfb_ms"]
+        - request.get("model_delay_ms", record["model"]["ttfb_ms"])
         - request["bytes"] / 1048576 / record["model"]["request_mib_per_sec"] * 1000
         for record in records
         if record.get("kind") == "sample" and record["backend"] == "model" and not record["error"]
@@ -93,11 +93,25 @@ def calibrate(records: list[Record]) -> Record:
         ]
     if not rates:
         raise ValueError("No large S3 requests available to estimate throughput")
+    rate = min(10000.0, max(1.0, quantile(rates, 0.75)))
+    # Learn the whole latency distribution: parallel scans wait for slow requests, so
+    # matching only median TTFB can substantially underestimate their runtime.
+    residuals = sorted(max(0.0, r["duration_ms"] - r["bytes"] / 1048576 / rate * 1000) for r in requests)
+    cdf = []
+    for index in range(1000):
+        position = (len(residuals) - 1) * (index + 0.5) / 1000
+        low, high = math.floor(position), math.ceil(position)
+        delay = residuals[low] + (residuals[high] - residuals[low]) * (position - low)
+        cdf.append(round(max(0.0, delay - timer_overhead), 3))
     return {
         "ttfb_ms": round(ttfb, 3),
         "observed_s3_ttfb_ms": round(observed_ttfb, 3),
         "timer_overhead_ms": round(timer_overhead, 3),
-        "request_mib_per_sec": round(min(10000.0, max(1.0, quantile(rates, 0.75))), 3),
+        "request_mib_per_sec": round(rate, 3),
+        "latency_cdf_ms": cdf,
+        "seed": 20261027,
+        "latency_quantiles_ms": {str(p): round(quantile(residuals, p), 3) for p in (0.5, 0.9, 0.99, 0.999)},
+        "calibration_get_requests": len(requests),
         # Observed concurrency alone does not establish a service-side limit.
         "max_inflight": 0,
         "calibration_small_requests": len(small),

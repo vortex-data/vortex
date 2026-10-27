@@ -106,6 +106,21 @@ class ComparisonTests(unittest.TestCase):
         parameters = compare.calibrate([{"kind": "sample", "backend": "real", "error": None, "requests": requests}])
         self.assertEqual(parameters["ttfb_ms"], 10)
         self.assertEqual(parameters["request_mib_per_sec"], 100)
+        self.assertEqual(len(parameters["latency_cdf_ms"]), 1000)
+        self.assertEqual(parameters["latency_cdf_ms"], sorted(parameters["latency_cdf_ms"]))
+
+    def test_calibration_retains_latency_tails(self):
+        requests = [
+            {"operation": "GET", "bytes": 1024, "first_byte_ms": 10, "duration_ms": delay, "inflight_at_start": 1}
+            for delay in [10] * 80 + [40] * 19 + [150]
+        ]
+        requests.append(
+            {"operation": "GET", "bytes": 1048576, "first_byte_ms": 10, "duration_ms": 20, "inflight_at_start": 1}
+        )
+        parameters = compare.calibrate([{"kind": "sample", "backend": "real", "error": None, "requests": requests}])
+        self.assertLess(parameters["latency_cdf_ms"][500], 11)
+        self.assertGreater(parameters["latency_cdf_ms"][900], 39)
+        self.assertGreater(parameters["latency_cdf_ms"][-1], 100)
 
 
 if __name__ == "__main__":

@@ -34,19 +34,54 @@ use object_store::PutResult;
 use object_store::Result;
 use object_store::path::Path;
 use parking_lot::Mutex;
+use serde::Deserialize;
 use serde::Serialize;
 use tokio::sync::OwnedSemaphorePermit;
 use tokio::sync::Semaphore;
+use vortex::error::VortexExpect;
 
 #[cfg(test)]
 #[path = "store_tests.rs"]
 mod tests;
 
-#[derive(Clone, Copy, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub(super) struct Model {
     pub ttfb_ms: f64,
     pub request_mib_per_sec: f64,
     pub max_inflight: usize,
+    #[serde(default)]
+    pub latency_cdf_ms: Vec<f64>,
+    #[serde(default)]
+    pub seed: u64,
+}
+
+impl Model {
+    fn delay_ms(&self, operation: &str, path: &str, range: &str, sample: u64, ordinal: u64) -> f64 {
+        if operation != "GET" || self.latency_cdf_ms.is_empty() {
+            return self.ttfb_ms;
+        }
+        // Stable request keys make draws independent of the order concurrent tasks are polled.
+        let mut hash = 0xcbf29ce484222325u64;
+        for byte in operation
+            .bytes()
+            .chain([0])
+            .chain(path.bytes())
+            .chain([0])
+            .chain(range.bytes())
+            .chain(self.seed.to_le_bytes())
+            .chain(sample.to_le_bytes())
+            .chain(ordinal.to_le_bytes())
+        {
+            hash = (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3);
+        }
+        // Mix the FNV result so nearby keys do not select nearby latency quantiles.
+        hash = (hash ^ (hash >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+        hash = (hash ^ (hash >> 27)).wrapping_mul(0x94d049bb133111eb);
+        hash ^= hash >> 31;
+        let index = usize::try_from(hash % self.latency_cdf_ms.len() as u64)
+            .vortex_expect("quantile index is bounded by the vector length");
+        self.latency_cdf_ms[index]
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -74,12 +109,15 @@ pub(super) struct Request {
     first_byte_ms: Option<f64>,
     duration_ms: f64,
     inflight_at_start: usize,
+    model_delay_ms: Option<f64>,
 }
 
 #[derive(Debug, Default)]
 struct Metrics {
     counts: Counts,
     requests: Vec<Request>,
+    sample: u64,
+    ordinals: BTreeMap<(String, String, String), u64>,
 }
 
 #[derive(Debug)]
@@ -87,6 +125,7 @@ struct Guard {
     metrics: Arc<Mutex<Metrics>>,
     start: Instant,
     request: Request,
+    delay_ms: f64,
     // Hold admission until the response stream completes or is cancelled.
     _permit: Option<OwnedSemaphorePermit>,
 }
@@ -116,6 +155,7 @@ impl Drop for Guard {
             first_byte_ms: self.request.first_byte_ms,
             duration_ms: self.request.duration_ms,
             inflight_at_start: self.request.inflight_at_start,
+            model_delay_ms: self.request.model_delay_ms,
         });
     }
 }
@@ -178,7 +218,7 @@ pub(super) async fn snapshot(store: &dyn ObjectStore, prefix: &Path) -> anyhow::
 pub(super) struct Store {
     source: Arc<dyn ObjectStore>,
     snapshot: Option<Snapshot>,
-    model: Option<Model>,
+    model: Option<Arc<Model>>,
     admission: Option<Arc<Semaphore>>,
     metrics: Arc<Mutex<Metrics>>,
     cache_tail: bool,
@@ -226,13 +266,15 @@ impl Store {
         model: Option<Model>,
         cache_tail: bool,
     ) -> Self {
+        let admission = model
+            .as_ref()
+            .filter(|m| m.max_inflight > 0)
+            .map(|m| Arc::new(Semaphore::new(m.max_inflight)));
         Self {
             source,
             snapshot,
-            model,
-            admission: model
-                .filter(|m| m.max_inflight > 0)
-                .map(|m| Arc::new(Semaphore::new(m.max_inflight))),
+            model: model.map(Arc::new),
+            admission,
             metrics: Arc::default(),
             cache_tail,
             tail_reads: Arc::default(),
@@ -246,7 +288,11 @@ impl Store {
             metrics.counts.inflight == 0,
             "Requests still in flight at measurement boundary"
         );
-        *metrics = Metrics::default();
+        let sample = metrics.sample + 1;
+        *metrics = Metrics {
+            sample,
+            ..Metrics::default()
+        };
         Ok(())
     }
 
@@ -275,6 +321,16 @@ impl Store {
         };
         let guard = {
             let mut metrics = self.metrics.lock();
+            let delay_ms = self.model.as_ref().map(|model| {
+                let sample = metrics.sample;
+                let ordinal = metrics
+                    .ordinals
+                    .entry((operation.to_string(), path.clone(), range.clone()))
+                    .or_default();
+                let delay = model.delay_ms(operation, &path, &range, sample, *ordinal);
+                *ordinal += 1;
+                delay
+            });
             match operation {
                 "GET" => metrics.counts.get += 1,
                 "HEAD" => metrics.counts.head += 1,
@@ -288,6 +344,7 @@ impl Store {
             Guard {
                 metrics: Arc::clone(&self.metrics),
                 start: Instant::now(),
+                delay_ms: delay_ms.unwrap_or(0.0),
                 request: Request {
                     operation,
                     path,
@@ -296,12 +353,13 @@ impl Store {
                     first_byte_ms: None,
                     duration_ms: 0.0,
                     inflight_at_start: metrics.counts.inflight,
+                    model_delay_ms: delay_ms,
                 },
                 _permit: permit,
             }
         };
-        if let Some(model) = self.model.filter(|m| m.ttfb_ms > 0.0) {
-            tokio::time::sleep(Duration::from_secs_f64(model.ttfb_ms / 1000.0)).await;
+        if guard.delay_ms > 0.0 {
+            tokio::time::sleep(Duration::from_secs_f64(guard.delay_ms / 1000.0)).await;
         }
         Ok(guard)
     }
@@ -312,6 +370,7 @@ impl Store {
         options: &GetOptions,
         objects: &Snapshot,
         request_start: Instant,
+        delay_ms: f64,
     ) -> Result<GetResult> {
         let object = objects
             .get(location)
@@ -349,20 +408,17 @@ impl Store {
             })?;
             object.data.slice(start..end)
         };
-        let model = self.model;
+        let rate = self.model.as_ref().map(|m| m.request_mib_per_sec);
         let start = tokio::time::Instant::from_std(request_start);
         let payload = stream::try_unfold((data, 0usize), move |(data, offset)| async move {
             if offset == data.len() {
                 return Ok(None);
             }
             let end = (offset + 256 * 1024).min(data.len());
-            if let Some(model) = model {
+            if let Some(rate) = rate {
                 // Absolute deadlines avoid adding a timer tick for each response chunk.
                 let deadline = start
-                    + Duration::from_secs_f64(
-                        model.ttfb_ms / 1000.0
-                            + end as f64 / (model.request_mib_per_sec * 1048576.0),
-                    );
+                    + Duration::from_secs_f64(delay_ms / 1000.0 + end as f64 / (rate * 1048576.0));
                 tokio::time::sleep_until(deadline).await;
             }
             Ok(Some((data.slice(offset..end), (data, end))))
@@ -404,7 +460,7 @@ impl Store {
             )
             .await?;
         let result = match self.snapshot.as_ref().filter(|_| self.model.is_some()) {
-            Some(objects) => self.ram_get(location, &options, objects, guard.start),
+            Some(objects) => self.ram_get(location, &options, objects, guard.start, guard.delay_ms),
             None => self.source.get_opts(location, options).await,
         };
         let response = match result {
@@ -509,48 +565,21 @@ impl ObjectStore for Store {
 
     fn list(&self, prefix: Option<&Path>) -> BoxStream<'static, Result<ObjectMeta>> {
         let prefix = prefix.cloned();
-        let metrics = Arc::clone(&self.metrics);
-        let model = self.model;
+        let store = self.clone();
         let source = Arc::clone(&self.source);
-        let objects = self.snapshot.clone().filter(|_| model.is_some());
-        let admission = self.admission.clone();
+        let objects = self.snapshot.clone().filter(|_| self.model.is_some());
         stream::once(async move {
-            let permit = match admission {
-                Some(semaphore) => Some(semaphore.acquire_owned().await.map_err(|e| {
-                    object_store::Error::Generic {
-                        store: "s3-model",
-                        source: Box::new(e),
-                    }
-                })),
-                None => None,
-            };
-            let permit = match permit.transpose() {
-                Ok(permit) => permit,
+            let guard = match store
+                .begin(
+                    "LIST",
+                    prefix.as_ref().map(ToString::to_string).unwrap_or_default(),
+                    String::new(),
+                )
+                .await
+            {
+                Ok(guard) => guard,
                 Err(error) => return stream::once(async { Err(error) }).boxed(),
             };
-            let guard = {
-                let mut stats = metrics.lock();
-                stats.counts.list += 1;
-                stats.counts.inflight += 1;
-                stats.counts.peak_inflight = stats.counts.peak_inflight.max(stats.counts.inflight);
-                Guard {
-                    metrics: Arc::clone(&metrics),
-                    start: Instant::now(),
-                    _permit: permit,
-                    request: Request {
-                        operation: "LIST",
-                        path: prefix.as_ref().map(ToString::to_string).unwrap_or_default(),
-                        requested_range: String::new(),
-                        bytes: 0,
-                        first_byte_ms: None,
-                        duration_ms: 0.0,
-                        inflight_at_start: stats.counts.inflight,
-                    },
-                }
-            };
-            if let Some(model) = model.filter(|m| m.ttfb_ms > 0.0) {
-                tokio::time::sleep(Duration::from_secs_f64(model.ttfb_ms / 1000.0)).await;
-            }
             let inner = match objects {
                 Some(objects) => stream::iter(
                     objects
