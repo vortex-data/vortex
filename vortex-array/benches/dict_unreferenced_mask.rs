@@ -29,8 +29,7 @@ fn main() {
     divan::main();
 }
 
-/// Benchmark with many codes (65K) relative to 1024 values.
-/// This tests performance when the values dictionary is small but many codes reference it.
+/// Benchmark with many codes (65K) relative to a small values dictionary.
 #[divan::bench(args = [
     1024,    // Small dictionary
     2048,    // Medium dictionary
@@ -44,10 +43,10 @@ fn bench_many_codes_few_values(bencher: Bencher, num_values: i32) {
     // Create values array with the specified number of unique values
     let values = PrimitiveArray::from_iter(0..num_values).into_array();
 
-    // Create codes that randomly reference the values
+    // Create codes that randomly reference all values except the last one
     #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let codes = PrimitiveArray::from_iter(
-        (0..num_codes).map(|_| rng.random_range(0..num_values as usize) as u32),
+        (0..num_codes).map(|_| rng.random_range(0..num_values as usize - 1) as u32),
     )
     .into_array();
 

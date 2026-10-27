@@ -198,6 +198,10 @@ impl VTable for Pco {
         array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
+        vortex_ensure!(
+            array.slice_start() == 0 && array.slice_stop() == array.unsliced_n_rows(),
+            "cannot serialize sliced PCO arrays; materialize the slice first"
+        );
         Ok(Some(array.metadata.clone().encode_to_vec()))
     }
 

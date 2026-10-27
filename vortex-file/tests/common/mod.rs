@@ -20,6 +20,7 @@ pub fn enable_all_registered_array_encodings(session: &VortexSession) {
     editions
         .declare_edition(Edition {
             id: TEST_EDITION,
+            immutable: true,
             min_library_version: None,
         })
         .vortex_expect("test edition is valid");

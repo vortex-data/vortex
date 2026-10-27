@@ -10,12 +10,10 @@ import sys
 
 suite, scale = sys.argv[1:3]
 current = Path('target/release_debug/datafusion-bench')
-published = Path('target/accepted-baseline/datafusion-bench')
-published.chmod(0o755)
-variants = [('v1', published, False), ('accepted', published, True), ('combined', current, True)]
+variants = [('v1', current, False), ('combined', current, True)]
 env = dict(os.environ, TOKIO_WORKER_THREADS='8', DATAFUSION_EXECUTION_TARGET_PARTITIONS='8', RUST_LOG='warn')
 records = []
-Path('scan-provenance.json').write_text(json.dumps({'baseline_binary_run': 40475426727, 'baseline_head': '208cd6358f3370cb5cc04a174b092699ef4bfe9f', 'candidate_binary_run': 40517832617, 'candidate': 'Sparse string/binary dictionary takes; frozen binary d5aaa1932d5383b8612d187f332f1b3ee243f4dd', 'scope': 'all queries; timeouts retained, not parity'}, indent=2))
+Path('scan-provenance.json').write_text(json.dumps({'binary_run': 40550058821, 'head': '83eadcb5d4fdf5eeafd25e254457ba897c052818', 'scope': 'same-binary V1/V2 all queries; timeouts retained, not parity'}, indent=2))
 metadata = {name: hashlib.sha256(binary.read_bytes()).hexdigest() for name, binary, _ in variants}
 Path('scan-binaries.json').write_text(json.dumps(metadata, indent=2))
 queries = range(43) if suite == 'clickbench' else range(1, 100)
@@ -27,7 +25,7 @@ for stage, rounds, iterations, selected in [('all', 1, 5, queries), ('guards', 3
             for name, binary, v2 in variants[shift:] + variants[:shift]:
                 label = f'scan-{stage}-r{rnd}-q{q}-{name}'
                 query_iterations = 1 if suite == 'tpcds' and q == 72 else iterations
-                cmd = [str(binary), suite, '--formats', 'vortex', '--queries', str(q), '--iterations', str(query_iterations), '--scan-v2', str(v2).lower(), '--hide-progress-bar', '--runner', 'scan-combined-all-8workers', '--display-format', 'gh-json', '--ingest-jsonl', label + '.jsonl']
+                cmd = [str(binary), suite, '--formats', 'vortex', '--queries', str(q), '--iterations', str(query_iterations), '--scan-v2', str(v2).lower(), '--hide-progress-bar', '--runner', 'scan-current-head-all-8workers', '--display-format', 'gh-json', '--ingest-jsonl', label + '.jsonl']
                 if suite == 'tpcds':
                     cmd += ['--opt', f'scale-factor={scale}']
                 Path(label + '.command.json').write_text(json.dumps({'command': cmd, 'env': {k: env[k] for k in ['TOKIO_WORKER_THREADS', 'DATAFUSION_EXECUTION_TARGET_PARTITIONS', 'RUST_LOG']}}, indent=2))

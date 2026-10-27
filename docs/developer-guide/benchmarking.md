@@ -193,7 +193,8 @@ and memory access costs. As a result:
   [Known unstable benchmarks](#known-unstable-benchmarks)).
 - System calls are not measured. A benchmark that depends on I/O or kernel calls **must** use the
   [walltime instrument](https://codspeed.io/docs/instruments/walltime) or be gated with
-  `#[cfg(not(codspeed))]`.
+  `#[cfg(not(codspeed))]`. The simulation job keeps mimalloc and glibc from returning freed
+  memory to the OS, so that allocator system calls do not land in a measured iteration.
 
 **Walltime legs.** A walltime leg is one CI job that measures wall-clock time on a dedicated
 machine for one CPU feature set (AVX2, AVX-512 or NEON). `.github/workflows/codspeed.yml` defines
@@ -255,6 +256,11 @@ unnoticed. When a section above explains a rule, the rule links to that section.
   [How CodSpeed measures a benchmark](#how-codspeed-measures-a-benchmark).
 - **Do not measure code that a pull request cannot change.** See
   [Keep third-party and frozen baselines out of CodSpeed](#keep-third-party-and-frozen-baselines-out-of-codspeed).
+- **Do not leave one-time process setup to the first measured iteration.** In simulation, each
+  benchmark runs one cold iteration. Lazy statics, such as the session id interner or the state
+  that the first regex compilation creates, then initialize inside whichever benchmark runs
+  first, often with system calls. Run the operation once in `main()` before `divan::main()`, as
+  `vortex-array/benches/like.rs` and `vortex-array/benches/run_end_filter.rs` do.
 - **Do not drop the `mimalloc` global allocator when you rewrite a benchmark file.** See
   [Use `mimalloc` as the global allocator](#use-mimalloc-as-the-global-allocator).
 - **Do not read a one-time change in later benchmarks as a regression after you add or remove

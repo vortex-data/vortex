@@ -67,13 +67,13 @@ pub struct ParquetVariant;
 struct ParquetVariantMetadataProto {
     /// Whether the un-shredded `value` child is present.
     #[prost(bool, tag = "1")]
-    pub has_value: bool,
+    pub(crate) has_value: bool,
     /// DType of the shredded `typed_value`, if present.
     #[prost(message, optional, tag = "2")]
-    pub typed_value_dtype: Option<pb::DType>,
+    pub(crate) typed_value_dtype: Option<pb::DType>,
     /// Whether the `value` child is nullable.
     #[prost(bool, tag = "3")]
-    pub value_nullable: bool,
+    pub(crate) value_nullable: bool,
 }
 
 /// A [`ParquetVariant`]-encoded Vortex array.
@@ -409,6 +409,7 @@ mod tests {
         let editions = session.editions();
         editions.declare_edition(Edition {
             id: TEST_EDITION,
+            immutable: true,
             min_library_version: None,
         })?;
         let component_ids = [

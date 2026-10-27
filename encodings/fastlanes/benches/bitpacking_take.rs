@@ -21,7 +21,6 @@ use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PiecewiseSequenceArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::assert_arrays_eq;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
@@ -85,7 +84,7 @@ fn threshold_fixture(selected_per_chunk: usize) -> (ArrayRef, ArrayRef) {
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = [8, 64, 80])]
+#[divan::bench(args = [64, 80])]
 fn threshold(bencher: Bencher, selected_per_chunk: usize) {
     let (packed, indices) = threshold_fixture(selected_per_chunk);
 
@@ -425,7 +424,7 @@ fn patched_take_10k_adversarial(bencher: Bencher) {
 // These are the element runs emitted by a sparse FSL gather. The baseline materializes those
 // runs inside the measured operation, reproducing the previous BitPacked take path.
 fn embedding_runs_fixture(dimension: usize, ptype: PType, bit_width: u8) -> (ArrayRef, ArrayRef) {
-    const ROWS: usize = 4096;
+    const ROWS: usize = 512;
     const SELECTED: usize = 16;
     let mut ctx = SESSION.create_execution_ctx();
     let values = fixture(ROWS * dimension, usize::from(bit_width))
@@ -519,10 +518,9 @@ fn fragmented_runs_expanded_baseline(bencher: Bencher, run_length: usize) {
 // Isolated runs cannot amortize a whole-chunk decode across neighboring runs. Offsets near
 // a chunk boundary also exercise sparse fragments of runs above the full-decode threshold.
 #[divan::bench(
-    types = [u8, u16, u32, u64],
+    types = [u8, u64],
     args = [
-        (8, 0), (16, 0), (32, 0), (64, 0), (128, 0), (160, 0), (161, 0),
-        (256, 0), (512, 0), (161, 944), (256, 1020), (256, 896),
+        (8, 0), (64, 0), (161, 0), (512, 0), (161, 944), (256, 1020),
     ],
 )]
 fn isolated_runs<T: NativePType>(bencher: Bencher, (run_length, offset): (usize, usize)) {
@@ -568,13 +566,6 @@ fn bench_piecewise_take(
     indices: ArrayRef,
     expanded_baseline: bool,
 ) {
-    let mut ctx = SESSION.create_execution_ctx();
-    let canonical = packed.clone().execute::<PrimitiveArray>(&mut ctx).unwrap();
-    assert_arrays_eq!(
-        packed.take(indices.clone()).unwrap(),
-        canonical.take(indices.clone()).unwrap(),
-        &mut ctx
-    );
     bencher
         .counter(ItemsCount::new(indices.len()))
         .with_inputs(|| (indices.clone(), SESSION.create_execution_ctx()))

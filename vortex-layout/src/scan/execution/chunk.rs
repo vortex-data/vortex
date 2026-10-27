@@ -39,7 +39,8 @@ pub(crate) fn rows_per_chunk(row_count: u64, locations: &[SegmentLocation]) -> u
         return MAX_ROWS_PER_CHUNK;
     }
     let blocks = blocks_per_target_bytes(total_bytes(locations), row_count);
-    blocks.clamp(1, (MAX_ROWS_PER_CHUNK / ROW_BLOCK_SIZE) as u64) as usize * ROW_BLOCK_SIZE
+    let blocks = blocks.clamp(1, (MAX_ROWS_PER_CHUNK / ROW_BLOCK_SIZE) as u64);
+    usize::try_from(blocks).vortex_expect("at most MAX_ROWS_PER_CHUNK blocks") * ROW_BLOCK_SIZE
 }
 
 /// Rows per chunk of a filtered scan over `rows` rows of the file.
@@ -90,19 +91,21 @@ pub(crate) fn row_chunks(rows: Range<u64>, rows_per_chunk: usize) -> Vec<Range<u
 }
 
 /// Emits one planner per chunk of a scan's rows, in row order, each spawned as independent so
-/// its owner may run it beside the others. A chunk none of whose rows is selected and kept is
+/// the driver may run it beside the others. A chunk none of whose rows is selected and kept is
 /// never planned.
-pub(in crate::scan) struct ChunkPlanner {
+pub struct ChunkPlanner {
     scan: Arc<PreparedScan>,
     rows: Range<u64>,
     chunks: IntoIter<Range<u64>>,
     selection: Selection,
-    /// The rows zone pruning kept, over `rows`, or `None` when nothing was proved.
+    /// The rows zone pruning kept, over `rows`, or `None` when nothing was pruned.
     kept: Option<Mask>,
 }
 
 impl ChunkPlanner {
-    pub(super) fn new(
+    /// The planner of the chunks of `rows`, planning only what `selection` and `kept`, the rows
+    /// zone pruning left over `rows`, leave something of.
+    pub fn new(
         scan: Arc<PreparedScan>,
         rows: Range<u64>,
         selection: Selection,

@@ -145,7 +145,7 @@ pub fn plan_row_idx_expression(
         (true, true) => {}
     }
 
-    let partitioned = partition_bound(expression.clone(), |node| {
+    let partitioned = partition_bound(expression, |node| {
         if node
             .as_scalar()
             .is_some_and(|scalar_fn| scalar_fn.is::<RowIdxFn>())

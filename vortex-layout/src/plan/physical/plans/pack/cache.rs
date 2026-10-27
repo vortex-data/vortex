@@ -140,19 +140,24 @@ fn lower_partitions(
 ) -> VortexResult<Lowered> {
     let mut collapsed = Vec::with_capacity(partitioned.partitions.len());
     let mut lowered = Vec::with_capacity(partitioned.partitions.len());
-    for (name, partition) in partitioned.partition_names.iter().zip(partitioned.partitions.iter()) {
-        let index = fields.find(name).ok_or_else(|| {
-            vortex_err!("Struct expression references unknown field '{name}'")
-        })?;
+    for (name, partition) in partitioned
+        .partition_names
+        .iter()
+        .zip(partitioned.partitions.iter())
+    {
+        let index = fields
+            .find(name)
+            .ok_or_else(|| vortex_err!("Struct expression references unknown field '{name}'"))?;
         let dtype = fields.field(name).vortex_expect("Partition field exists");
         let expression = if let Some(pack) = partition
             .as_scalar()
             .and_then(|scalar_fn| scalar_fn.as_opt::<PackFn>())
             && partition.children().len() == 1
         {
-            let value_name = pack.names.get(0).ok_or_else(|| {
-                vortex_err!("Struct expression partition pack is empty")
-            })?;
+            let value_name = pack
+                .names
+                .get(0)
+                .ok_or_else(|| vortex_err!("Struct expression partition pack is empty"))?;
             collapsed.push((name.clone(), value_name.clone()));
             partition.children()[0].clone()
         } else {
@@ -167,11 +172,14 @@ fn lower_partitions(
         });
     }
     lowered.sort_by_key(|field| field.index);
-    let fields_changed = lowered.len() != fields.nfields()
-        || lowered.iter().any(|field| !field.identity);
+    let fields_changed =
+        lowered.len() != fields.nfields() || lowered.iter().any(|field| !field.identity);
     let root_dtype = DType::Struct(
         StructFields::from_iter(lowered.iter().map(|field| {
-            (fields.names()[field.index].clone(), field.expression.dtype().clone())
+            (
+                fields.names()[field.index].clone(),
+                field.expression.dtype().clone(),
+            )
         })),
         Nullability::NonNullable,
     );

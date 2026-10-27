@@ -3,7 +3,6 @@
 
 use std::io::Cursor;
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -19,8 +18,9 @@ use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::file::v2::ScanDriver;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::scan::v2::ScanBuilder;
-use vortex_arrow::ArrowSessionExt;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
 use vortex_bench::compress::Compressed;
@@ -96,9 +96,7 @@ async fn vortex_decompress_read(data: Bytes) -> Result<()> {
             .optimize_recursive()?;
         scan = scan.with_projection(projection);
     }
-    let schema = Arc::new(SESSION.arrow().to_arrow_schema(scan.dtype())?);
-
-    let stream = scan.into_record_batch_stream(schema)?;
+    let stream = ScanDriver::new(SESSION.handle(), 4, true).run_record_batches(scan, None);
     pin_mut!(stream);
 
     while let Some(batch) = stream.next().await {

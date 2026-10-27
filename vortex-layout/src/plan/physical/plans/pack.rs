@@ -357,7 +357,9 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
                 return Ok(Some(EvalPlan::try_new(lowered, field)?.into_plan()));
             }
         }
-        let cached = session.get::<PartitionCache>().partition(expression, fields)?;
+        let cached = session
+            .get::<PartitionCache>()
+            .partition(expression, fields)?;
         let expanded = &cached.expanded;
         let referenced_fields = &cached.referenced_fields;
         let partitioned = &cached.partitions;
@@ -401,7 +403,10 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
             return Ok(Some(EvalPlan::try_new(lowered, field)?.into_plan()));
         }
 
-        let lowered = cached.lowered.as_ref().vortex_expect("Multiple partitions are lowered");
+        let lowered = cached
+            .lowered
+            .as_ref()
+            .vortex_expect("Multiple partitions are lowered");
         let fields_changed = lowered.fields_changed;
         let mut pruned_fields = Vec::with_capacity(lowered.fields.len());
         for lowered_field in &lowered.fields {
@@ -442,14 +447,20 @@ fn project_fields(
     {
         selection.normalize_to_included_fields(fields.names())?
     } else if expression.as_opt::<PackFn>().is_some()
-        && expression.children().iter().all(|value| {
-            value.as_opt::<GetItem>().is_some() && value.children()[0].is_root()
-        })
+        && expression
+            .children()
+            .iter()
+            .all(|value| value.as_opt::<GetItem>().is_some() && value.children()[0].is_root())
     {
         expression
             .children()
             .iter()
-            .map(|value| value.as_opt::<GetItem>().vortex_expect("Direct field reference").clone())
+            .map(|value| {
+                value
+                    .as_opt::<GetItem>()
+                    .vortex_expect("Direct field reference")
+                    .clone()
+            })
             .collect::<FieldNames>()
     } else {
         return Ok(None);

@@ -196,11 +196,11 @@ impl<O: IntegerPType, S: IntegerPType> ColumnExporter for ListViewExporter<O, S>
 mod tests {
     use vortex::array::IntoArray as _;
     use vortex::array::VortexSessionExecute;
+    use vortex::array::arrays::RunEnd;
     use vortex::array::arrays::VarBinArray;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
-    use vortex_runend::RunEnd;
 
     use super::*;
     use crate::SESSION;

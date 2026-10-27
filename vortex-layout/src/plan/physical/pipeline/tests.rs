@@ -26,8 +26,8 @@ use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
 use vortex_array::expr::pack;
-use vortex_array::expr::select;
 use vortex_array::expr::root;
+use vortex_array::expr::select;
 use vortex_array::serde::SerializeOptions;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
@@ -634,8 +634,8 @@ fn pack_splits_filtered_dictionary_codes(
     .into_array();
     let dict = DictArray::try_new(codes.clone(), values.clone())?.into_array();
     let other = PrimitiveArray::from_iter(0..ROWS as i64).into_array();
-    let expected = StructArray::from_fields(&[("dict", dict), ("other", other.clone())])?
-        .into_array();
+    let expected =
+        StructArray::from_fields(&[("dict", dict), ("other", other.clone())])?.into_array();
     let dictionary = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).into_layout();
     let layout = StructLayout::new(
         ROWS,
@@ -656,9 +656,14 @@ fn pack_splits_filtered_dictionary_codes(
 #[rstest]
 #[case::values(false)]
 #[case::predicate(true)]
-fn take_waits_for_whole_values_and_keeps_them(#[case] predicate: bool) -> VortexResult<()> {
+fn take_waits_for_whole_values_and_keeps_them(
+    #[case] predicate: bool,
+    #[values(3, 1536)] values_len: usize,
+) -> VortexResult<()> {
     let mut store = Store::default();
-    let values = VarBinViewArray::from_iter_str(["a", "b", "c"]).into_array();
+    let values =
+        VarBinViewArray::from_iter_str((0..values_len).map(|row| ["a", "b", "c"][row % 3]))
+            .into_array();
     let codes = PrimitiveArray::from_iter((0..ROWS).map(|v| (v % 3) as u8)).into_array();
     let layout = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).into_layout();
     let mut plan = lower(&layout)?;
@@ -965,13 +970,13 @@ fn pack_splits_filtered_values(
     #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
 ) -> VortexResult<()> {
     let mut store = Store::default();
-    let values = PrimitiveArray::from_option_iter(
-        (0..ROWS).map(|row| (row % 5 != 0).then_some(row as i32)),
-    )
-    .into_array();
+    let values =
+        PrimitiveArray::from_option_iter((0..ROWS).map(|row| (row % 5 != 0).then_some(row as i32)))
+            .into_array();
     let other = PrimitiveArray::from_iter(0..ROWS as i64).into_array();
-    let expected = StructArray::from_fields(&[("values", values.clone()), ("other", other.clone())])?
-        .into_array();
+    let expected =
+        StructArray::from_fields(&[("values", values.clone()), ("other", other.clone())])?
+            .into_array();
     let layout = StructLayout::new(
         ROWS,
         expected.dtype().clone(),
@@ -995,8 +1000,11 @@ fn direct_projection_preserves_field_order_and_aliases(#[case] aliases: bool) ->
     let (expression, expected) = if aliases {
         (
             pack(
-                [("x", get_item("b", root())), ("y", get_item("a", root())),
-                 ("z", get_item("a", root()))],
+                [
+                    ("x", get_item("b", root())),
+                    ("y", get_item("a", root())),
+                    ("z", get_item("a", root())),
+                ],
                 Nullability::NonNullable,
             ),
             StructArray::from_fields(&[("x", b), ("y", a.clone()), ("z", a)])?.into_array(),

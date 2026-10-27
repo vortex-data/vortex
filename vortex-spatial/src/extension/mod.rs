@@ -282,7 +282,19 @@ fn spatial_ext_scalar<V: ExtVTable<Metadata = SpatialMetadata>>(
 #[derive(Clone, PartialEq, Eq, Hash, prost::Message)]
 pub struct SpatialMetadata {
     #[prost(optional, string, tag = "1")]
-    pub crs: Option<String>,
+    pub(crate) crs: Option<String>,
+}
+
+impl SpatialMetadata {
+    /// Creates metadata with an optional coordinate reference system (CRS).
+    pub fn new(crs: Option<String>) -> Self {
+        Self { crs }
+    }
+
+    /// Returns the coordinate reference system, or `None` for unreferenced geometry.
+    pub fn get_crs(&self) -> Option<&str> {
+        self.crs.as_deref()
+    }
 }
 
 impl Display for SpatialMetadata {

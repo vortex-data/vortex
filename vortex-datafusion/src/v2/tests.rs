@@ -10,6 +10,7 @@ use datafusion::prelude::SessionContext;
 use datafusion_common::ScalarValue;
 use datafusion_common::arrow::compute::concat_batches;
 use datafusion_common::config::ConfigOptions;
+use datafusion_common::stats::Precision;
 use datafusion_datasource::source::DataSource;
 use datafusion_datasource::source::DataSourceExec;
 use datafusion_expr::Operator;
@@ -155,5 +156,25 @@ async fn projection_preserves_arrow_types(
     };
     let actual = concat_batches(&expected_schema, &batches)?;
     assert_eq!(actual.columns(), expected.columns());
+    Ok(())
+}
+
+#[tokio::test]
+async fn statistics_follow_filter_and_fetch() -> anyhow::Result<()> {
+    let source = vortex_source().await?;
+    let filter = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        Operator::Gt,
+        df_expr::lit(1_i32),
+    ));
+    let filtered = source
+        .try_pushdown_filters(vec![filter], &ConfigOptions::new())?
+        .updated_node
+        .expect("filter accepted");
+    let limited = filtered.with_fetch(Some(1)).expect("fetch accepted");
+    assert_eq!(
+        limited.partition_statistics(None)?.num_rows,
+        Precision::Inexact(1)
+    );
     Ok(())
 }

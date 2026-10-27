@@ -46,6 +46,8 @@ const BENCH_ARGS: &[(usize, usize)] = &[
     (2_000, 512),
 ];
 
+const DECODE_BENCH_ARGS: &[(usize, usize)] = &[(1_000, 2), (1_000, 512), (2_000, 2), (2_000, 512)];
+
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     VortexSession::empty()
         .with::<KernelSession>()
@@ -85,7 +87,7 @@ fn encode_varbinview(bencher: Bencher, (len, unique_values): (usize, usize)) {
         .bench_refs(|(arr, ctx)| dict_encode(arr, ctx));
 }
 
-#[divan::bench(types = [u8, f32, i64], args = BENCH_ARGS)]
+#[divan::bench(types = [u8, f32, i64], args = DECODE_BENCH_ARGS)]
 fn decode_primitives<T>(bencher: Bencher, (len, unique_values): (usize, usize))
 where
     T: NativePType,
@@ -101,7 +103,7 @@ where
         .bench_refs(|(dict, ctx)| (**dict).clone().execute::<Canonical>(ctx));
 }
 
-#[divan::bench(args = BENCH_ARGS)]
+#[divan::bench(args = DECODE_BENCH_ARGS)]
 fn decode_varbin(bencher: Bencher, (len, unique_values): (usize, usize)) {
     let varbin_arr = VarBinArray::from(gen_varbin_words(len, unique_values)).into_array();
     let dict = dict_encode(&varbin_arr, &mut SESSION.create_execution_ctx())
@@ -113,7 +115,7 @@ fn decode_varbin(bencher: Bencher, (len, unique_values): (usize, usize)) {
         .bench_refs(|(dict, ctx)| (**dict).clone().execute::<Canonical>(ctx));
 }
 
-#[divan::bench(args = BENCH_ARGS)]
+#[divan::bench(args = DECODE_BENCH_ARGS)]
 fn decode_varbinview(bencher: Bencher, (len, unique_values): (usize, usize)) {
     let varbinview_arr =
         VarBinViewArray::from_iter_str(gen_varbin_words(len, unique_values)).into_array();

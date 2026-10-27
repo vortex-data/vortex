@@ -134,7 +134,7 @@ impl VTable for Slice {
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         // TODO(joe): make this configurable
-        vortex_bail!("Slice array is not serializable")
+        Ok(None)
     }
 
     fn deserialize(

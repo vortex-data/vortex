@@ -78,13 +78,14 @@ impl VTable for List {
         args: &LayoutDeserializeArgs<'_>,
         metadata: &ListLayoutMetadata,
     ) -> VortexResult<Self::LayoutData> {
+        let offsets_ptype = metadata.get_offsets_ptype()?;
         ListLayout::validate_children(args.dtype, args.children.nchildren())?;
         let elements_dtype = args
             .dtype
             .as_list_element_opt()
             .ok_or_else(|| vortex_err!("ListLayout requires a List dtype, got {}", args.dtype))?;
         args.children.child(ELEMENTS_CHILD_INDEX, elements_dtype)?;
-        let offsets_dtype = DType::Primitive(metadata.offsets_ptype(), Nullability::NonNullable);
+        let offsets_dtype = DType::Primitive(offsets_ptype, Nullability::NonNullable);
         let offsets = args.children.child(OFFSETS_CHILD_INDEX, &offsets_dtype)?;
         vortex_ensure_eq!(
             offsets.row_count().saturating_sub(1),
@@ -101,9 +102,7 @@ impl VTable for List {
                 "List validity row count does not match parent"
             );
         }
-        Ok(ListData {
-            offsets_ptype: metadata.offsets_ptype(),
-        })
+        Ok(ListData { offsets_ptype })
     }
 
     fn nslots(_layout: &Layout<Self>) -> usize {
@@ -227,14 +226,77 @@ impl Layout<List> {
 
 #[derive(prost::Message)]
 pub struct ListLayoutMetadata {
-    #[prost(enumeration = "PType", tag = "1")]
+    #[prost(int32, tag = "1")]
     offsets_ptype: i32,
 }
 
 impl ListLayoutMetadata {
     pub fn new(offsets_ptype: PType) -> Self {
-        let mut metadata = Self::default();
-        metadata.set_offsets_ptype(offsets_ptype);
-        metadata
+        Self {
+            offsets_ptype: offsets_ptype as i32,
+        }
+    }
+
+    fn get_offsets_ptype(&self) -> VortexResult<PType> {
+        PType::try_from(self.offsets_ptype).map_err(|_| {
+            vortex_err!(
+                "ListLayoutMetadata offsets_ptype must be a known PType, got {}",
+                self.offsets_ptype
+            )
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use prost::Message;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_error::VortexResult;
+    use vortex_session::registry::ReadContext;
+
+    use super::List;
+    use super::ListLayoutMetadata;
+    use crate::LayoutBuildContext;
+    use crate::LayoutVTablePlugin;
+    use crate::layout_children;
+    use crate::test::SESSION;
+
+    #[test]
+    fn test_build_rejects_unknown_offsets_ptype() -> VortexResult<()> {
+        let dtype = DType::List(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            Nullability::NonNullable,
+        );
+        let metadata = ListLayoutMetadata { offsets_ptype: 11 }.encode_to_vec();
+        let children = layout_children(vec![]);
+        let read_ctx = ReadContext::new([]);
+        let build_ctx = LayoutBuildContext {
+            session: &SESSION,
+            array_read_ctx: &read_ctx,
+        };
+        let result = LayoutVTablePlugin::build(
+            &List,
+            &dtype,
+            0,
+            &metadata,
+            vec![],
+            children.as_ref(),
+            &build_ctx,
+        );
+        assert!(result.is_err_and(|err| {
+            err.to_string()
+                .contains("ListLayoutMetadata offsets_ptype must be a known PType, got 11")
+        }));
+
+        assert_eq!(
+            ListLayoutMetadata::new(PType::U32).get_offsets_ptype()?,
+            PType::U32
+        );
+
+        Ok(())
     }
 }

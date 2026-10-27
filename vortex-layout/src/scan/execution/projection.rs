@@ -96,7 +96,8 @@ impl ProjectionPlanner {
                 .collect()
         };
         Self {
-            announced: scan.filter.is_some() || scan.projection.row_count() <= MAX_OUTPUT_ROWS as u64,
+            announced: scan.filter.is_some()
+                || scan.projection.row_count() <= MAX_OUTPUT_ROWS as u64,
             scan,
             selected: selected.into_iter(),
         }
@@ -135,7 +136,8 @@ impl Planner for ProjectionPlanner {
             segments.dedup();
             // Register every range before starting any read, allowing adjacent ranges to
             // coalesce. Prefetch is limited to this work chunk's selected projection.
-            let bytes: u64 = segments.iter()
+            let bytes: u64 = segments
+                .iter()
                 .map(|segment| u64::from(self.scan.locations[**segment as usize].length))
                 .sum();
             if bytes <= 8 * 1024 * 1024 {

@@ -471,10 +471,7 @@ fn geoparquet_columns(metadata: &ParquetMetaData) -> HashSet<String> {
 
 /// The erased `vortex.st.wkb` extension dtype over a binary `storage` dtype.
 fn wkb_ext_dtype(storage: &DType) -> VortexResult<ExtDTypeRef> {
-    Ok(
-        ExtDType::<WellKnownBinary>::try_new(SpatialMetadata { crs: None }, storage.clone())?
-            .erased(),
-    )
+    Ok(ExtDType::<WellKnownBinary>::try_new(SpatialMetadata::default(), storage.clone())?.erased())
 }
 
 /// Re-type the named binary columns of a struct `dtype` as `vortex.st.wkb`, so the column
