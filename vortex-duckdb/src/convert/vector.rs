@@ -311,7 +311,7 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             match precision_to_duckdb_storage_size(&decimal_dtype)? {
                 DecimalType::I16 => {
                     let data = vector.as_slice_with_len::<i16>(len);
-                    if DecimalType::smallest_decimal_value_type(&decimal_dtype) == DecimalType::I8 {
+                    if decimal_dtype.canonical_values_type() == DecimalType::I8 {
                         // Lossy conversion is defined behavior in Rust so this is fine
                         let buf =
                             Buffer::<i8>::from_trusted_len_iter(data.iter().map(|&v| v.as_()));

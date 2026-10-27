@@ -412,17 +412,14 @@ pub fn builder_with_capacity_in(
             })
         }
         DType::Decimal(decimal_type, n) => {
-            match_each_decimal_value_type!(
-                DecimalType::smallest_decimal_value_type(decimal_type),
-                |D| {
-                    Box::new(DecimalBuilder::with_capacity_in::<D>(
-                        capacity,
-                        *decimal_type,
-                        *n,
-                        allocator,
-                    ))
-                }
-            )
+            match_each_decimal_value_type!(decimal_type.canonical_values_type(), |D| {
+                Box::new(DecimalBuilder::with_capacity_in::<D>(
+                    capacity,
+                    *decimal_type,
+                    *n,
+                    allocator,
+                ))
+            })
         }
         DType::Utf8(n) => Box::new(VarBinViewBuilder::with_capacity_in(
             DType::Utf8(*n),

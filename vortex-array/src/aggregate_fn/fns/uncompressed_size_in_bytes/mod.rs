@@ -53,7 +53,6 @@ use crate::arrays::ListView;
 use crate::arrays::map::MapArraySlotsExt;
 use crate::arrays::varbinview::BinaryView;
 use crate::dtype::DType;
-use crate::dtype::DecimalType;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::PType;
 use crate::expr::stats::Precision;
@@ -362,7 +361,7 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
         }
         DType::Decimal(decimal_type, _) => checked_len_mul(
             array.len(),
-            DecimalType::smallest_decimal_value_type(decimal_type).byte_width(),
+            decimal_type.canonical_values_type().byte_width(),
             "decimal",
         )?,
         DType::Utf8(_) => constant_varbinview_value_size(
@@ -525,8 +524,8 @@ mod tests {
 
     /// The size the array occupies once rebuilt through the canonical builders, which is the
     /// layout [`UncompressedSizeInBytes`] is defined against: the builders normalize physical
-    /// widths that the input array is free to choose differently, picking the smallest decimal
-    /// value type for a precision and `u64` list-view offsets and sizes.
+    /// widths that the input array is free to choose differently, picking the canonical decimal
+    /// width of a precision and `u64` list-view offsets and sizes.
     ///
     /// Builders no longer canonicalize their children, so the finished array is only canonical at
     /// the top level - recursively canonicalize it before measuring.
