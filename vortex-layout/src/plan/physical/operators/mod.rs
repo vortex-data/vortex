@@ -56,11 +56,9 @@ fn take_rows(inlet: &mut Inlet<'_>, len: usize) -> VortexResult<ArrayRef> {
             left -= front.len();
             pieces.extend(inlet.take());
         } else {
-            // Misaligned fields can split one lazy filter across several output batches.
-            // Materialize selected values once when a consumer first needs either slice.
-            if front.is::<Filter>() {
-                *front = Shared::new(front.clone()).into_array();
-            } else if let Some(dict) = front.as_opt::<Dict>()
+            // Misaligned fields can split one lazy code filter across several output batches.
+            // Materialize those selected codes once when a consumer first needs either slice.
+            if let Some(dict) = front.as_opt::<Dict>()
                 && dict.codes().is::<Filter>()
             {
                 *front = DictArray::try_new(
