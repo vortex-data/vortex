@@ -92,7 +92,7 @@ jobs:
           groups = {
               "dictionary": ("dict_", "chunked_dict_", "patches_"),
               "selection": ("take_", "filter_", "piecewise_sequence_"),
-              "compute": ("aggregate_", "cast_", "expr_", "binary_ops", "compare", "kleene_bool", "like", "list_sum"),
+              "compute": ("aggregate_", "cast_", "expr_", "binary_ops", "compare", "kleene_bool", "like", "list_sum", "widen"),
           }
           manifest = tomllib.loads(pathlib.Path("vortex-array/Cargo.toml").read_text())
           benches = []
