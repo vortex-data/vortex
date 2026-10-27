@@ -12,7 +12,6 @@ use crate::array_slots;
 use crate::arrays::Widen;
 use crate::arrays::WidenArray;
 use crate::dtype::DType;
-use crate::scalar::Scalar;
 
 /// The child slots of a [`WidenArray`].
 #[array_slots(Widen)]
@@ -76,14 +75,4 @@ pub(super) fn validate_dtypes(values: &DType, logical: &DType) -> VortexResult<(
     );
 
     Ok(())
-}
-
-/// Decodes `value`, a scalar of the values of a `Widen`, to the `logical` dtype of the `Widen`.
-///
-/// The result keeps the nullability of `value`, so a null value decodes to a null, and the
-/// non-nullable extrema of the values decode to non-nullable extrema. Every scalar that leaves a
-/// `Widen` goes through this function, so that scalar access and the aggregate kernels give the
-/// same values.
-pub(super) fn decode_scalar(value: &Scalar, logical: &DType) -> VortexResult<Scalar> {
-    value.cast(&logical.with_nullability(value.dtype().nullability()))
 }

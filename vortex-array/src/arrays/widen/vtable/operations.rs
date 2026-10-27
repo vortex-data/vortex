@@ -10,7 +10,7 @@ use crate::array::OperationsVTable;
 use crate::array::ProbeState;
 use crate::arrays::Widen;
 use crate::arrays::widen::WidenSlots;
-use crate::arrays::widen::array::decode_scalar;
+use crate::dtype::DType;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Widen> for Widen {
@@ -27,7 +27,7 @@ impl OperationsVTable<Widen> for Widen {
             .ok_or_else(|| vortex_err!("Widen values slot is missing"))?
             .execute_scalar(index, ctx)?;
 
-        decode_scalar(&value, array.dtype())
+        decode_narrow_scalar(&value, array.dtype())
     }
 
     fn scalar_at(
@@ -37,4 +37,11 @@ impl OperationsVTable<Widen> for Widen {
     ) -> VortexResult<Scalar> {
         Self::probe_scalar(&mut ProbeState::once(array), index, ctx)
     }
+}
+
+/// Decodes `value`, a scalar of the values of a `Widen`, to its `logical` dtype.
+///
+/// The values have the nullability of the logical dtype, so a null value decodes to a null.
+fn decode_narrow_scalar(value: &Scalar, logical: &DType) -> VortexResult<Scalar> {
+    value.cast(logical)
 }
