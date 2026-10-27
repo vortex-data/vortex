@@ -33,6 +33,7 @@ mod compute;
 mod decoder;
 mod page_index;
 mod probe;
+mod range_take;
 mod rules;
 mod slice;
 mod take;

@@ -43,6 +43,9 @@ pub(crate) struct LogicalPageIndex {
     chunk_ends: Vec<usize>,
 }
 impl LogicalPageIndex {
+    pub fn page_count(&self) -> usize {
+        self.chunk_ends.last().copied().unwrap_or(0)
+    }
     pub fn find_row(&self, row: usize) -> usize {
         self.ends().partition_point(|end| *end <= row as u64)
     }

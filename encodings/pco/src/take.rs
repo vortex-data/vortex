@@ -14,6 +14,7 @@ use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
 use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::PiecewiseSequence;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::dtype::NativePType;
@@ -35,6 +36,7 @@ use crate::decoder::PageDecoder;
 use crate::decoder::PageLookup;
 use crate::page_index::LogicalPageIndex;
 use crate::page_index::PageIndex;
+use crate::range_take::take as take_ranges;
 
 impl TakeExecute for Pco {
     fn take(
@@ -45,6 +47,9 @@ impl TakeExecute for Pco {
         let PageIndex::IndexedFast(index) = array.page_index()? else {
             return Ok(None);
         };
+        if let Some(sequence) = indices.as_opt::<PiecewiseSequence>() {
+            return take_ranges(array, index.as_ref(), sequence, ctx);
+        }
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
         let mask = indices.validity()?.execute_mask(indices.len(), ctx)?;
         let Some(extrema) =

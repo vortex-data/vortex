@@ -50,6 +50,17 @@ impl<T: Number + NativePType> PageDecoder<T> {
         unsafe {
             values.set_len(n_values);
         }
+        self.read_into(chunk, chunk_meta, n_values, buffer, &mut values)?;
+        Ok(PrimitiveArray::new(values.freeze(), Validity::NonNullable))
+    }
+    pub fn read_into(
+        &mut self,
+        chunk: usize,
+        chunk_meta: &[u8],
+        n_values: usize,
+        buffer: &[u8],
+        output: &mut [T],
+    ) -> VortexResult<()> {
         let chunk = match self.chunks.entry(chunk) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
@@ -63,8 +74,8 @@ impl<T: Number + NativePType> PageDecoder<T> {
         let mut decoder = chunk
             .page_decompressor(buffer, n_values)
             .map_err(vortex_err_from_pco)?;
-        decoder.read(&mut values).map_err(vortex_err_from_pco)?;
-        Ok(PrimitiveArray::new(values.freeze(), Validity::NonNullable))
+        decoder.read(output).map_err(vortex_err_from_pco)?;
+        Ok(())
     }
 }
 
@@ -96,5 +107,53 @@ impl PageLookup {
             .get(page - last.pages.start)
             .ok_or_else(|| vortex_err!("Pco page metadata is missing"))?;
         Ok((last.chunk, info.n_values as usize))
+    }
+}
+
+/// Operation-owned decoded pages for compact repeated/range selections. The physical
+/// descriptor is derived from the chosen mode only when a page is decoded for the first time.
+pub(crate) struct DecodedPages<T: Number> {
+    decoder: PageDecoder<T>,
+    lookup: PageLookup,
+    pages: BTreeMap<usize, PrimitiveArray>,
+}
+
+impl<T: Number + NativePType> DecodedPages<T> {
+    pub fn new(array: ArrayView<'_, Pco>) -> VortexResult<Self> {
+        Ok(Self {
+            decoder: PageDecoder::new(array.metadata.header.as_slice())?,
+            lookup: PageLookup::default(),
+            pages: BTreeMap::new(),
+        })
+    }
+    pub fn values(
+        &mut self,
+        view: &LogicalPageIndex,
+        array: ArrayView<'_, Pco>,
+        page: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<&PrimitiveArray> {
+        let entry = match self.pages.entry(page) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => {
+                let (chunk_id, n_values) = self.lookup.resolve(view, array, page)?;
+                let buffer = array
+                    .pages
+                    .get(page)
+                    .ok_or_else(|| vortex_err!("Pco compressed page is missing"))?;
+                let chunk = array
+                    .chunk_metas
+                    .get(chunk_id)
+                    .ok_or_else(|| vortex_err!("Pco chunk metadata is missing"))?;
+                entry.insert(self.decoder.read(
+                    chunk_id,
+                    chunk.as_slice(),
+                    n_values,
+                    buffer.as_slice(),
+                    ctx,
+                )?)
+            }
+        };
+        Ok(entry)
     }
 }
