@@ -43,7 +43,7 @@ def command(v2, query, iterations, label):
 current_binary = binary
 published_binary = root / 'target/structural-baseline/datafusion-bench'
 published_binary.chmod(0o755)
-variants = [('v1', current_binary, False), ('published', published_binary, True), ('casts', current_binary, True)]
+variants = [('v1', current_binary, False), ('published', published_binary, True), ('pieces', current_binary, True)]
 for round in range(3):
     for name, binary, v2 in variants[round:] + variants[:round]:
         label = f'scan-timing-r{round}-{name}'
