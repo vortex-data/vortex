@@ -21,6 +21,7 @@ use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::session::RuntimeSessionExt;
 
 use super::*;
+use crate::CudaBufferExt;
 use crate::CudaSessionExt;
 
 const WAIT: Duration = Duration::from_secs(30);
@@ -592,6 +593,33 @@ async fn deleted_files_are_unmapped_by_later_opens() -> VortexResult<()> {
 #[test]
 fn unmappable_files_are_not_mapped() -> VortexResult<()> {
     assert!(FileMapping::open(&File::open("/proc/self/status")?)?.is_none());
+    Ok(())
+}
+
+/// Staged reads honor the requested alignment, even when direct I/O reads padding before them.
+#[crate::test]
+async fn staged_reads_honor_requested_alignment() -> VortexResult<()> {
+    let backend = Arc::new(FakeFileReadBackend {
+        padded: true,
+        ..Default::default()
+    });
+    let (_runtime, reader) = reader(backend)?;
+    let buffer = reader.read_at(1, 8, Alignment::of::<u64>()).await?;
+    assert!(buffer.cuda_device_ptr()?.is_multiple_of(8));
+    assert_bytes(buffer, 1, 8).await
+}
+
+/// Mapped reads honor the requested alignment, even at offsets the mapped copy keeps.
+#[crate::test]
+async fn mapped_reads_honor_requested_alignment() -> VortexResult<()> {
+    let (_runtime, reader, _file) = mapped_reader()?;
+    for (offset, alignment) in [(5, 8), (8, 8), (4099, 1)] {
+        let buffer = reader
+            .read_at(offset, 64, Alignment::new(alignment))
+            .await?;
+        assert!(buffer.cuda_device_ptr()?.is_multiple_of(alignment as u64));
+        assert_bytes(buffer, offset, 64).await?;
+    }
     Ok(())
 }
 

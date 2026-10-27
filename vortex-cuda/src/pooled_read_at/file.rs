@@ -584,7 +584,12 @@ impl PooledFileReadAt {
     ///
     /// Residency checks and allocation stay on the submitting future; only page-table fills and
     /// copy launches run on a blocking worker.
-    async fn read_mapped(&self, offset: u64, length: usize) -> VortexResult<Option<BufferHandle>> {
+    async fn read_mapped(
+        &self,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+    ) -> VortexResult<Option<BufferHandle>> {
         let Some(mapped) = &self.mapped else {
             return Ok(None);
         };
@@ -592,8 +597,11 @@ impl PooledFileReadAt {
             return Ok(None);
         };
         // Start the target at the source's offset within 16 bytes so the copy moves aligned
-        // words. The slice keeps the file's alignment, which the caller's alignment follows.
+        // words. Staged reads serve offsets at which that would break the requested alignment.
         let pad = range.start % 16;
+        if !pad.is_multiple_of(alignment.as_usize()) {
+            return Ok(None);
+        }
         let output = mapped.stream.device_alloc::<u8>(pad + length)?;
         // The job owns the mapping and output until its copies are queued, even if cancelled.
         let mapped = Arc::clone(mapped);
@@ -645,11 +653,13 @@ impl VortexReadAt for PooledFileReadAt {
         async move { backend.size() }.boxed()
     }
 
+    /// Reads at device allocations' alignment of 256 bytes, which covers every requested
+    /// alignment the CUDA buffers support.
     fn read_at(
         &self,
         offset: u64,
         length: usize,
-        _alignment: Alignment,
+        alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         let reader = self.clone();
         async move {
@@ -657,15 +667,12 @@ impl VortexReadAt for PooledFileReadAt {
                 offset.checked_add(u64::try_from(length)?).is_some(),
                 "file read range overflow: offset={offset}, length={length}"
             );
-            if let Some(buffer) = reader.read_mapped(offset, length).await? {
+            if let Some(buffer) = reader.read_mapped(offset, length, alignment).await? {
                 return Ok(buffer);
             }
-            if length <= FILE_READ_CHUNK_BYTES {
-                let read = reader.read_host(offset, length).await?;
-                let cuda_buf = read.buffer.transfer_to_device(&reader.stream)?;
-                return Ok(BufferHandle::new_device(Arc::new(cuda_buf)).slice(read.requested_range));
-            }
 
+            // Staged chunks copy only their requested bytes, leaving out any padding direct I/O
+            // reads, so the output starts at the allocation and has its alignment.
             let mut output = reader.stream.device_alloc::<u8>(length)?;
             let mut reads = stream::iter((0..length).step_by(FILE_READ_CHUNK_BYTES).map(|start| {
                 let size = (length - start).min(FILE_READ_CHUNK_BYTES);
