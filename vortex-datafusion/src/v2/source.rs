@@ -88,6 +88,7 @@ use datafusion_common::Result as DFResult;
 use datafusion_common::Statistics;
 use datafusion_common::arrow::array::AsArray;
 use datafusion_common::arrow::array::RecordBatch;
+use datafusion_common::config::ConfigOptions;
 use datafusion_common::stats::Precision as DFPrecision;
 use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::source::DataSource;
@@ -117,6 +118,7 @@ use futures::TryStreamExt;
 use futures::future::try_join_all;
 use futures::lock::Mutex;
 use futures::stream;
+use futures::task::AtomicWaker;
 use tokio::sync::OnceCell;
 use vortex::array::VortexSessionExecute;
 use vortex::dtype::DType;
@@ -490,10 +492,10 @@ impl VortexDataSource {
                 "scan execution cancelled".into(),
             ));
         }
-        let claimed = execution.claimed.get(partition).ok_or_else(|| {
+        let lane = execution.lanes.get(partition).ok_or_else(|| {
             DataFusionError::Execution(format!("invalid scan output partition {partition}"))
         })?;
-        if claimed.swap(true, Ordering::AcqRel) {
+        if lane.claimed.swap(true, Ordering::AcqRel) {
             return Err(DataFusionError::Execution(
                 "scan output partition already opened; reset the execution plan before replay"
                     .into(),
@@ -562,6 +564,7 @@ impl VortexDataSource {
             self.batch_stream(partitions, partition, metrics.clone())?
         };
         Ok(Box::pin(ScanLane {
+            partition,
             schema: Arc::clone(&self.leftover_schema),
             stream: Some(stream),
             execution,
@@ -672,8 +675,14 @@ impl VortexDataSource {
     }
 }
 
+#[derive(Default)]
+struct ScanLaneState {
+    claimed: AtomicBool,
+    waker: AtomicWaker,
+}
+
 struct ScanExecution {
-    claimed: Vec<AtomicBool>,
+    lanes: Vec<ScanLaneState>,
     remaining: AtomicUsize,
     cancelled: AtomicBool,
     source: OnceLock<VortexResult<DataSourceRef>>,
@@ -683,16 +692,25 @@ struct ScanExecution {
 impl ScanExecution {
     fn new(lanes: usize) -> Self {
         Self {
-            claimed: (0..lanes).map(|_| AtomicBool::new(false)).collect(),
+            lanes: (0..lanes).map(|_| ScanLaneState::default()).collect(),
             remaining: AtomicUsize::new(lanes),
             cancelled: AtomicBool::new(false),
             source: OnceLock::new(),
             partitions: OnceCell::new(),
         }
     }
+
+    fn cancel(&self) {
+        if !self.cancelled.swap(true, Ordering::AcqRel) {
+            for lane in &self.lanes {
+                lane.waker.wake();
+            }
+        }
+    }
 }
 
 struct ScanLane {
+    partition: usize,
     schema: SchemaRef,
     stream: Option<SendableRecordBatchStream>,
     execution: Arc<ScanExecution>,
@@ -705,18 +723,26 @@ impl Stream for ScanLane {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let metrics = self.metrics.clone();
         let _timer = metrics.elapsed_compute().timer();
-        let result = if self.stream.is_some() && self.execution.cancelled.load(Ordering::Acquire) {
-            Poll::Ready(Some(Err(DataFusionError::Execution(
-                "scan execution cancelled".into(),
-            ))))
+        self.execution.lanes[self.partition].waker.register(cx.waker());
+        let mut result = if self.execution.cancelled.load(Ordering::Acquire) {
+            Poll::Ready(None)
         } else {
             match self.stream.as_mut() {
                 Some(stream) => stream.as_mut().poll_next(cx),
                 None => Poll::Ready(None),
             }
         };
+        if self.stream.is_some() && self.execution.cancelled.load(Ordering::Acquire) {
+            result = Poll::Ready(Some(Err(DataFusionError::Execution(
+                "scan execution cancelled".into(),
+            ))));
+        }
+        if matches!(result, Poll::Ready(Some(Err(_)))) {
+            self.execution.cancel();
+        }
         if matches!(result, Poll::Ready(None | Some(Err(_)))) {
             self.stream = None;
+            drop(self.execution.lanes[self.partition].waker.take());
         }
         metrics.record_poll(result)
     }
@@ -731,9 +757,10 @@ impl RecordBatchStream for ScanLane {
 impl Drop for ScanLane {
     fn drop(&mut self) {
         if self.stream.is_some() {
-            self.execution.cancelled.store(true, Ordering::Release);
+            self.execution.cancel();
         }
         drop(self.stream.take());
+        drop(self.execution.lanes[self.partition].waker.take());
         let remaining = self.execution.remaining.fetch_sub(1, Ordering::AcqRel);
         if (remaining == 1 || self.execution.cancelled.load(Ordering::Acquire))
             && let Some(Ok(partitions)) = self.execution.partitions.get()
@@ -922,7 +949,7 @@ impl DataSource for VortexDataSource {
     fn try_pushdown_filters(
         &self,
         filters: Vec<Arc<dyn PhysicalExpr>>,
-        _config: &datafusion_common::config::ConfigOptions,
+        _config: &ConfigOptions,
     ) -> DFResult<FilterPushdownPropagation<Arc<dyn DataSource>>> {
         if filters.is_empty() {
             return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
@@ -1084,6 +1111,8 @@ mod tests {
     use datafusion_physical_plan::expressions::BinaryExpr;
     use datafusion_physical_plan::expressions::lit;
     use futures::TryStreamExt;
+    use futures::task::ArcWake;
+    use futures::task::waker_ref;
     use rstest::rstest;
     use vortex::VortexSessionDefault;
     use vortex::array::IntoArray;
@@ -1115,6 +1144,15 @@ mod tests {
 
     use super::*;
     use crate::v2::VortexTable;
+
+    #[derive(Default)]
+    struct WakeCounter(AtomicUsize);
+
+    impl ArcWake for WakeCounter {
+        fn wake_by_ref(arc_self: &Arc<Self>) {
+            arc_self.0.fetch_add(1, Ordering::Relaxed);
+        }
+    }
 
     /// The source enforces a pushed-down `LIMIT` itself: DataFusion removes its limit operator
     /// once the fetch is accepted, so a filtered scan over several partitions must still return
@@ -1429,6 +1467,30 @@ mod tests {
                 .execute(1, Arc::new(TaskContext::default()))
                 .is_err()
         );
+
+        let execution = Arc::new(ScanExecution::new(2));
+        let lane = |partition| ScanLane {
+            partition,
+            schema: plan.schema(),
+            stream: Some(Box::pin(RecordBatchStreamAdapter::new(
+                plan.schema(),
+                stream::pending(),
+            ))),
+            execution: Arc::clone(&execution),
+            metrics: BaselineMetrics::new(&ExecutionPlanMetricsSet::new(), partition),
+        };
+        let cancelled = lane(0);
+        let mut pending = Box::pin(lane(1));
+        let wakes = Arc::new(WakeCounter::default());
+        let waker = waker_ref(&wakes);
+        let mut cx = Context::from_waker(&waker);
+        assert!(pending.as_mut().poll_next(&mut cx).is_pending());
+        drop(cancelled);
+        assert_eq!(wakes.0.load(Ordering::Relaxed), 1);
+        assert!(matches!(
+            pending.as_mut().poll_next(&mut cx),
+            Poll::Ready(Some(Err(_)))
+        ));
         Ok(())
     }
 
