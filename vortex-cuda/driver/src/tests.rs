@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use crate::CudaContext;
@@ -148,5 +149,20 @@ fn first_recorded_error_is_kept() -> Result<(), DriverError> {
     context.record_err::<()>(Err(first));
     context.record_err::<()>(Err(second));
     assert_eq!(context.check_err(), Err(first));
+    context.check_err()
+}
+
+/// Memory of one context cannot be accessed from another context's stream.
+#[test]
+fn rejects_access_from_another_context() -> Result<(), DriverError> {
+    let Some((context, owner, _)) = streams() else {
+        return Ok(());
+    };
+    let other = CudaContext::new_non_primary(0, 0)?;
+    let stream = other.new_stream()?;
+    let device = owner.clone_htod(&[1u32; 16])?;
+    let access = std::panic::catch_unwind(AssertUnwindSafe(|| drop(device.device_ptr(&stream))));
+    assert!(access.is_err());
+    drop(device);
     context.check_err()
 }
