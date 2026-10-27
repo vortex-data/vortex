@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+pub mod latency_store;
 pub mod metrics;
 pub mod tracer;
 
@@ -17,12 +18,11 @@ use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::prelude::SessionConfig;
 use datafusion::prelude::SessionContext;
 use datafusion_common::GetExt;
+use latency_store::LatencyStore;
 use object_store::ObjectStore;
 use object_store::aws::AmazonS3Builder;
 use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::local::LocalFileSystem;
-use object_store::throttle::ThrottleConfig;
-use object_store::throttle::ThrottledStore;
 use url::Url;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
@@ -98,12 +98,9 @@ pub fn make_object_store(
                 .and_then(|v| v.parse::<u64>().ok())
             {
                 // EXPERIMENT: emulate object storage round trips on local files.
-                Some(ms) => Arc::new(ThrottledStore::new(
+                Some(ms) => Arc::new(LatencyStore::new(
                     LocalFileSystem::default(),
-                    ThrottleConfig {
-                        wait_get_per_call: Duration::from_millis(ms),
-                        ..Default::default()
-                    },
+                    Duration::from_millis(ms),
                 )),
                 None => Arc::new(LocalFileSystem::default()),
             };
