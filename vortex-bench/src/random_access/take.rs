@@ -35,6 +35,8 @@ use vortex::array::stream::ArrayStreamExt;
 use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
+use vortex::file::v2::ScanDriver;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::scan::v2::ScanBuilder;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 
@@ -190,9 +192,9 @@ impl RandomAccessor for VortexRandomAccessor {
 
     async fn take(&self, indices: &[u64]) -> anyhow::Result<RandomAccessorRet> {
         let indices = StrictSortedBuffer::try_new(Buffer::from(indices.to_vec()))?;
-        let stream = ScanBuilder::new(SESSION.clone(), self.file.scan_file())
-            .with_row_indices(indices)
-            .into_stream()?;
+        let scan =
+            ScanBuilder::new(SESSION.clone(), self.file.scan_file()).with_row_indices(indices);
+        let stream = ScanDriver::new(SESSION.handle(), 4, true).run(scan);
         let array = ArrayStreamAdapter::new(self.file.dtype().clone(), stream)
             .read_all()
             .await?;

@@ -15,6 +15,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -71,6 +72,7 @@ impl VTable for Dict {
         args: &LayoutDeserializeArgs<'_>,
         metadata: &DictLayoutMetadata,
     ) -> VortexResult<Self::LayoutData> {
+        let codes_ptype = metadata.get_codes_ptype()?;
         vortex_ensure_eq!(
             args.children.nchildren(),
             2,
@@ -80,7 +82,7 @@ impl VTable for Dict {
             .is_nullable_codes
             .map(Nullability::from)
             .unwrap_or_else(|| args.dtype.nullability());
-        let codes_dtype = DType::Primitive(metadata.codes_ptype(), codes_nullable);
+        let codes_dtype = DType::Primitive(codes_ptype, codes_nullable);
         args.children.child(0, args.dtype)?;
         let codes = args.children.child(1, &codes_dtype)?;
         vortex_ensure_eq!(
@@ -162,7 +164,7 @@ impl Layout<Dict> {
 
 #[derive(prost::Message)]
 pub struct DictLayoutMetadata {
-    #[prost(enumeration = "PType", tag = "1")]
+    #[prost(int32, tag = "1")]
     codes_ptype: i32,
     #[prost(optional, bool, tag = "2")]
     is_nullable_codes: Option<bool>,
@@ -172,8 +174,70 @@ pub struct DictLayoutMetadata {
 
 impl DictLayoutMetadata {
     pub fn new(codes_ptype: PType) -> Self {
-        let mut metadata = Self::default();
-        metadata.set_codes_ptype(codes_ptype);
-        metadata
+        Self {
+            codes_ptype: codes_ptype as i32,
+            ..Default::default()
+        }
+    }
+
+    fn get_codes_ptype(&self) -> VortexResult<PType> {
+        PType::try_from(self.codes_ptype).map_err(|_| {
+            vortex_err!(
+                "DictLayoutMetadata codes_ptype must be a known PType, got {}",
+                self.codes_ptype
+            )
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use prost::Message;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_error::VortexResult;
+    use vortex_session::registry::ReadContext;
+
+    use super::Dict;
+    use super::DictLayoutMetadata;
+    use crate::LayoutBuildContext;
+    use crate::LayoutVTablePlugin;
+    use crate::layout_children;
+    use crate::test::SESSION;
+
+    #[test]
+    fn test_build_rejects_unknown_codes_ptype() -> VortexResult<()> {
+        let metadata = DictLayoutMetadata {
+            codes_ptype: 11,
+            ..Default::default()
+        }
+        .encode_to_vec();
+        let children = layout_children(vec![]);
+        let read_ctx = ReadContext::new([]);
+        let build_ctx = LayoutBuildContext {
+            session: &SESSION,
+            array_read_ctx: &read_ctx,
+        };
+        let result = LayoutVTablePlugin::build(
+            &Dict,
+            &DType::Primitive(PType::I32, Nullability::NonNullable),
+            0,
+            &metadata,
+            vec![],
+            children.as_ref(),
+            &build_ctx,
+        );
+        assert!(result.is_err_and(|err| {
+            err.to_string()
+                .contains("DictLayoutMetadata codes_ptype must be a known PType, got 11")
+        }));
+
+        assert_eq!(
+            DictLayoutMetadata::new(PType::U32).get_codes_ptype()?,
+            PType::U32
+        );
+
+        Ok(())
     }
 }

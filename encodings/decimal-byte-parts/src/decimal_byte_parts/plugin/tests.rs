@@ -254,11 +254,9 @@ fn bare_vtable_refuses_serde() -> VortexResult<()> {
     session.arrays().register(DecimalByteParts);
     let msp = msp();
     let array = DecimalByteParts::try_new(msp.clone(), DecimalDType::new(19, 2))?.into_array();
-    let result = session.array_serialize(&array);
+    let result = session.array_serialize(&array)?;
     assert!(
-        result.as_ref().is_err_and(|err| err
-            .to_string()
-            .contains("DecimalByteParts serialization requires DecimalBytePartsPlugin")),
+        result.is_none(),
         "expected unsupported VTable serialization, got {result:?}"
     );
 

@@ -35,7 +35,7 @@ use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 
 /// Byte ranges of a file's segments, keyed by `(offset, length)`, back to their segment ids.
-pub(super) type SegmentRanges = Arc<HashMap<(u64, usize), SegmentId>>;
+pub(crate) type SegmentRanges = Arc<HashMap<(u64, usize), SegmentId>>;
 
 pub(super) fn segment_ranges(locations: &[SegmentLocation]) -> SegmentRanges {
     let ranges = locations.iter().enumerate().map(|(id, location)| {
@@ -46,13 +46,13 @@ pub(super) fn segment_ranges(locations: &[SegmentLocation]) -> SegmentRanges {
 }
 
 /// Serves splits from any [`SegmentSource`], by segment id.
-pub(super) struct SegmentScanIo {
+pub(crate) struct SegmentScanIo {
     segments: Arc<dyn SegmentSource>,
     ranges: SegmentRanges,
 }
 
 impl SegmentScanIo {
-    pub(super) fn new(segments: Arc<dyn SegmentSource>, ranges: SegmentRanges) -> Self {
+    pub(crate) fn new(segments: Arc<dyn SegmentSource>, ranges: SegmentRanges) -> Self {
         Self { segments, ranges }
     }
 }

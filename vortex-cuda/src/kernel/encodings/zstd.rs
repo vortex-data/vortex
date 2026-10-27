@@ -27,7 +27,6 @@ use vortex::encodings::zstd::ZstdArray;
 use vortex::encodings::zstd::ZstdDataParts;
 use vortex::encodings::zstd::ZstdMetadata;
 use vortex::encodings::zstd::reconstruct_views;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
@@ -93,14 +92,11 @@ pub async fn zstd_kernel_prepare(
 ) -> VortexResult<ZstdKernelPrep> {
     // Gather frames' metadata.
     let frame_sizes: Vec<usize> = frames.iter().map(|f| f.len()).collect();
-    let output_sizes: Vec<usize> = metadata
-        .frames
+    let output_sizes = metadata
+        .frames()
         .iter()
-        .map(|m| {
-            usize::try_from(m.uncompressed_size)
-                .vortex_expect("uncompressed size must fit in usize")
-        })
-        .collect();
+        .map(|frame| frame.get_uncompressed_size())
+        .collect::<VortexResult<Vec<_>>>()?;
     let output_size_total: usize = output_sizes.iter().sum();
     let output_size_max = output_sizes.iter().copied().max().unwrap_or(0);
 
@@ -357,6 +353,7 @@ mod tests {
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::assert_arrays_eq;
     use vortex::encodings::zstd::Zstd;
+    use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;

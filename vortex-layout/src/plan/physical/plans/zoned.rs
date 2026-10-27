@@ -241,15 +241,6 @@ impl ZonedPlan {
         self.child_required(index)
     }
 
-    /// Whether an earlier execution already proved this pruning plan's expression over its zones,
-    /// so compiling it emits the kept result without reading the zone table.
-    pub(crate) fn is_proved(&self, session: &VortexSession) -> VortexResult<bool> {
-        match (self.pruned_zones(), self.pruning_expression()) {
-            (Some(pruned), Some(expression)) => Ok(pruned.get(expression, session)?.is_some()),
-            _ => Ok(false),
-        }
-    }
-
     /// Returns whether this plan represents a zone-backed pruning proof.
     pub fn is_pruning(&self) -> bool {
         self.data().pruning.is_some()
@@ -465,7 +456,7 @@ impl PlanParentReduceRule<Zoned> for ExpressionZonedRule {
         _child_idx: usize,
         _session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
-        if !is_zone_proof(parent)? {
+        if !is_zone_pruning(parent)? {
             return Ok(None);
         }
         Ok(child
@@ -475,8 +466,8 @@ impl PlanParentReduceRule<Zoned> for ExpressionZonedRule {
 }
 
 /// Whether `eval` is a boolean expression over abstract statistics alone, which a zone table can
-/// prove without reading the data it summarises.
-pub(crate) fn is_zone_proof(eval: &Plan<Eval>) -> VortexResult<bool> {
+/// prune without reading the data it summarises.
+pub(crate) fn is_zone_pruning(eval: &Plan<Eval>) -> VortexResult<bool> {
     let mut contains_stat = false;
     let mut contains_root = false;
     eval.expression().clone().transform_down(|expression| {
@@ -498,8 +489,8 @@ pub(crate) fn is_zone_proof(eval: &Plan<Eval>) -> VortexResult<bool> {
 }
 
 /// Replaces a zoned data plan by its data: a scan reads the data through it and never its zone
-/// table. Pruning proofs are derived from the filter over the lowered plan before this runs, so
-/// an optimized plan carries a zone table only where a proof reads it.
+/// table. Pruning plans are derived from the filter over the lowered plan before this runs, so
+/// an optimized plan carries a zone table only where a pruning plan reads it.
 #[derive(Debug)]
 pub(crate) struct ZonedDataRule;
 

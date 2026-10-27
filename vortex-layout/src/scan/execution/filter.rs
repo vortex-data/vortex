@@ -49,10 +49,10 @@ use crate::scan::filter::FilterExpr;
 use crate::segments::SegmentId;
 
 /// Plans and adaptive conjunct ordering shared by every chunk of a scan.
-pub(in crate::scan) struct FilterPlans {
+pub struct FilterPlans {
     expression: FilterExpr,
     predicates: Vec<PredicatePlan>,
-    /// A metadata-only proof per conjunct, where the conjunct has one.
+    /// A metadata-only pruning plan per conjunct, where the conjunct has one.
     pruning: Vec<Option<PlanRef>>,
 }
 
@@ -64,7 +64,7 @@ struct PredicatePlan {
 }
 
 impl FilterPlans {
-    pub(in crate::scan) fn new(
+    pub(crate) fn new(
         expression: BoundExpression,
         root: &PlanRef,
         session: &VortexSession,
@@ -97,7 +97,9 @@ impl FilterPlans {
             .iter()
             .map(|expr| {
                 expr.falsify(session)?
-                    .map(|proof| optimize(plan_row_idx_expression(proof, root.clone())?, session))
+                    .map(|pruning| {
+                        optimize(plan_row_idx_expression(pruning, root.clone())?, session)
+                    })
                     .transpose()
             })
             .map(|plan| {
@@ -115,8 +117,8 @@ impl FilterPlans {
         })
     }
 
-    /// The pruning proofs, run once over a scan's rows before its chunks are planned.
-    pub(in crate::scan) fn proofs(&self) -> impl Iterator<Item = &PlanRef> {
+    /// The pruning plans, run once over a scan's rows before its chunks are planned.
+    pub(crate) fn pruning(&self) -> impl Iterator<Item = &PlanRef> {
         self.pruning.iter().flatten()
     }
 }
@@ -128,7 +130,7 @@ fn infallible(expression: &BoundExpression) -> bool {
         && expression.children().iter().all(infallible)
 }
 
-/// A pruning proof must not fetch data when its requested statistics are unavailable.
+/// A pruning plan must not fetch data when its requested statistics are unavailable.
 fn metadata_only(plan: &PlanRef) -> VortexResult<bool> {
     if plan
         .as_opt::<Zoned>()

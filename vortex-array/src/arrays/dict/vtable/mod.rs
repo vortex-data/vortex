@@ -165,6 +165,7 @@ impl VTable for Dict {
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         let metadata = DictMetadata::decode(metadata)?;
+        let codes_ptype = metadata.get_codes_ptype()?;
         if children.len() != 2 {
             vortex_bail!(
                 "Expected 2 children for dict encoding, found {}",
@@ -177,7 +178,7 @@ impl VTable for Dict {
             // If no `is_nullable_codes` metadata use the nullability of the values
             // (and whole array) as before.
             .unwrap_or_else(|| dtype.nullability());
-        let codes_dtype = DType::Primitive(metadata.codes_ptype(), codes_nullable);
+        let codes_dtype = DType::Primitive(codes_ptype, codes_nullable);
         let codes = children.get(0, &codes_dtype, len)?;
         let values = children.get(1, dtype, metadata.values_len as usize)?;
         let all_values_referenced = metadata.all_values_referenced.unwrap_or(false);

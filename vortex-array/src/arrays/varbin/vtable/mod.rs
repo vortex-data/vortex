@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::registry::CachedId;
 
@@ -59,8 +60,19 @@ pub(crate) fn initialize(session: &VortexSession) {
 
 #[derive(Clone, prost::Message)]
 pub struct VarBinMetadata {
-    #[prost(enumeration = "PType", tag = "1")]
+    #[prost(int32, tag = "1")]
     pub(crate) offsets_ptype: i32,
+}
+
+impl VarBinMetadata {
+    fn get_offsets_ptype(&self) -> VortexResult<PType> {
+        PType::try_from(self.offsets_ptype).map_err(|_| {
+            vortex_err!(
+                "VarBinMetadata offsets_ptype must be a known PType, got {}",
+                self.offsets_ptype
+            )
+        })
+    }
 }
 
 impl ArrayHash for VarBinData {
@@ -166,6 +178,7 @@ impl VTable for VarBin {
         session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         let metadata = VarBinMetadata::decode(metadata)?;
+        let offsets_ptype = metadata.get_offsets_ptype()?;
         let validity = if children.len() == 1 {
             Validity::from(dtype.nullability())
         } else if children.len() == 2 {
@@ -177,7 +190,7 @@ impl VTable for VarBin {
 
         let offsets = children.get(
             0,
-            &DType::Primitive(metadata.offsets_ptype(), Nullability::NonNullable),
+            &DType::Primitive(offsets_ptype, Nullability::NonNullable),
             len + 1,
         )?;
 
@@ -271,3 +284,47 @@ fn append_to_varbinview(
 
 #[derive(Clone, Debug)]
 pub struct VarBin;
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use prost::Message;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use super::VarBin;
+    use super::VarBinMetadata;
+    use crate::ArrayRef;
+    use crate::array::VTable;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[test]
+    fn test_deserialize_rejects_unknown_offsets_ptype() -> VortexResult<()> {
+        let metadata = VarBinMetadata { offsets_ptype: 11 }.encode_to_vec();
+        let children: Vec<ArrayRef> = Vec::new();
+        let result = VarBin.deserialize(
+            &DType::Utf8(Nullability::NonNullable),
+            0,
+            &metadata,
+            &[],
+            &children,
+            &SESSION,
+        );
+        assert!(result.is_err_and(|err| {
+            err.to_string()
+                .contains("VarBinMetadata offsets_ptype must be a known PType, got 11")
+        }));
+
+        let known = VarBinMetadata {
+            offsets_ptype: PType::U32 as i32,
+        };
+        assert_eq!(known.get_offsets_ptype()?, PType::U32);
+
+        Ok(())
+    }
+}

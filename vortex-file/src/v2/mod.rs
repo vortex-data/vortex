@@ -2,5 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod file_stats_reader;
+mod scan;
 
 pub use file_stats_reader::*;
+pub use scan::ScanDriver;

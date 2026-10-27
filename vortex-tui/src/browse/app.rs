@@ -14,7 +14,6 @@ use vortex::file::Footer;
 use vortex::file::SegmentSpec;
 use vortex::file::VortexFile;
 use vortex::layout::LayoutRef;
-use vortex::layout::VTable;
 use vortex::layout::layouts::flat::Flat;
 use vortex::layout::layouts::zoned::LegacyStats;
 use vortex::layout::layouts::zoned::Zoned;
@@ -124,9 +123,8 @@ impl LayoutCursor {
     /// Panics if the current layout is not a [`Flat`] layout.
     pub fn flat_layout_metadata_info(&self) -> String {
         let flat_layout = self.layout.as_::<Flat>();
-        let metadata = Flat::metadata(flat_layout);
 
-        match metadata.0.array_encoding_tree.as_ref() {
+        match flat_layout.array_tree() {
             Some(tree) => {
                 let size = tree.len();
                 format!(

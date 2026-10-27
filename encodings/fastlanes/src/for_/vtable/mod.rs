@@ -132,7 +132,7 @@ impl VTable for FoR {
         _array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        vortex_bail!("FoR serialization requires FoRPlugin")
+        Ok(None)
     }
 
     fn deserialize(

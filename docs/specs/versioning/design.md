@@ -250,9 +250,9 @@ historical writing implementation.
 ## New formats
 
 A new format starts in a draft edition so it can be tested before its origin commits to reading it
-indefinitely. Drafts have no recorded minimum version or frozen guarantee. A format intended for
-`core` can progress from its own family to `preview` for broader testing, then to `core` for default
-use. Promotion preserves its wire ID and interpretation. The
+indefinitely. Drafts have no recorded minimum version or frozen guarantee, and their members can
+change or be removed. A format intended for `core` can progress to `preview` for broader testing,
+then to `core` for default use. Promotion preserves its wire ID and interpretation. The
 [registry instructions](editions.md#format-testing-and-promotion) cover promotion, freezing, and
 recording the minimum version.
 
@@ -271,9 +271,10 @@ variant, which splits values too wide for one 64-bit child into several children
 `vortex.decimal_byte_parts.v2` is allowed. Otherwise its v1 variant constructs only single-child
 arrays, and values too wide for one child remain in the standard uncompressed decimal
 representation. The v2 variant also writes the v1 ID for arrays that fit the v1 format, so allowing
-only the v2 ID excludes the scheme. No declared edition permits `vortex.decimal_byte_parts.v2` yet,
-so a writer that enforces editions writes only single-child decimal arrays.
+only the v2 ID excludes the scheme. No frozen edition permits `vortex.decimal_byte_parts.v2`, so a
+writer that enforces editions writes multi-child decimal arrays only when a selected draft edition
+permits it.
 
 [^decimal-availability]:
-    No declared edition currently permits the multi-child format. The
+    No frozen edition currently permits the multi-child format. The
     [compression section](#compression) describes what the default compressor produces today.

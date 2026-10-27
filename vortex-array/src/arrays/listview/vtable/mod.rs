@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -57,10 +58,30 @@ pub struct ListView;
 pub struct ListViewMetadata {
     #[prost(uint64, tag = "1")]
     elements_len: u64,
-    #[prost(enumeration = "PType", tag = "2")]
+    #[prost(int32, tag = "2")]
     offset_ptype: i32,
-    #[prost(enumeration = "PType", tag = "3")]
+    #[prost(int32, tag = "3")]
     size_ptype: i32,
+}
+
+impl ListViewMetadata {
+    fn get_offset_ptype(&self) -> VortexResult<PType> {
+        PType::try_from(self.offset_ptype).map_err(|_| {
+            vortex_err!(
+                "ListViewMetadata offset_ptype must be a known PType, got {}",
+                self.offset_ptype
+            )
+        })
+    }
+
+    fn get_size_ptype(&self) -> VortexResult<PType> {
+        PType::try_from(self.size_ptype).map_err(|_| {
+            vortex_err!(
+                "ListViewMetadata size_ptype must be a known PType, got {}",
+                self.size_ptype
+            )
+        })
+    }
 }
 
 impl ArrayHash for ListViewData {
@@ -164,6 +185,8 @@ impl VTable for ListView {
         session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         let metadata = ListViewMetadata::decode(metadata)?;
+        let offset_ptype = metadata.get_offset_ptype()?;
+        let size_ptype = metadata.get_size_ptype()?;
         vortex_ensure!(
             buffers.is_empty(),
             "`ListViewArray::build` expects no buffers"
@@ -195,14 +218,14 @@ impl VTable for ListView {
         // Get offsets with proper type from metadata.
         let offsets = children.get(
             1,
-            &DType::Primitive(metadata.offset_ptype(), Nullability::NonNullable),
+            &DType::Primitive(offset_ptype, Nullability::NonNullable),
             len,
         )?;
 
         // Get sizes with proper type from metadata.
         let sizes = children.get(
             2,
-            &DType::Primitive(metadata.size_ptype(), Nullability::NonNullable),
+            &DType::Primitive(size_ptype, Nullability::NonNullable),
             len,
         )?;
 
@@ -255,5 +278,56 @@ impl VTable for ListView {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::LazyLock;
+
+    use prost::Message;
+    use rstest::rstest;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use super::ListView;
+    use super::ListViewMetadata;
+    use crate::ArrayRef;
+    use crate::array::VTable;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[rstest]
+    #[case::offset_ptype(
+        |raw| ListViewMetadata { offset_ptype: raw, ..Default::default() },
+        ListViewMetadata::get_offset_ptype,
+        "ListViewMetadata offset_ptype must be a known PType, got 11",
+    )]
+    #[case::size_ptype(
+        |raw| ListViewMetadata { size_ptype: raw, ..Default::default() },
+        ListViewMetadata::get_size_ptype,
+        "ListViewMetadata size_ptype must be a known PType, got 11",
+    )]
+    fn test_deserialize_rejects_unknown_ptype(
+        #[case] with_ptype: fn(i32) -> ListViewMetadata,
+        #[case] get_ptype: fn(&ListViewMetadata) -> VortexResult<PType>,
+        #[case] expected: &str,
+    ) -> VortexResult<()> {
+        let dtype = DType::List(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            Nullability::NonNullable,
+        );
+        let metadata = with_ptype(11).encode_to_vec();
+        let children: Vec<ArrayRef> = Vec::new();
+        let result = ListView.deserialize(&dtype, 0, &metadata, &[], &children, &SESSION);
+        assert!(result.is_err_and(|err| err.to_string().contains(expected)));
+
+        assert_eq!(get_ptype(&with_ptype(PType::U32 as i32))?, PType::U32);
+
+        Ok(())
     }
 }

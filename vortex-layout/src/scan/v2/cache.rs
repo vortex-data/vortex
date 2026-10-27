@@ -28,8 +28,8 @@ use crate::segments::SegmentSource;
 /// over it, indexes every segment's byte range, and decodes the dictionary values it needs. A scan
 /// that finds an entry here reuses it, and one that misses builds the entry and keeps it for later
 /// scans. The lowered plan keeps the children it has initialized, each distinct projection keeps
-/// its optimized plan, each distinct filter keeps its conjunct and zone-proof plans along with the
-/// zones those proofs have already excluded, and dictionary values stay keyed by the cached plan
+/// its optimized plan, each distinct filter keeps its conjunct and pruning plans along with the
+/// zones those plans have already excluded, and dictionary values stay keyed by the cached plan
 /// that produced them. Recently read segments are retained up to a byte budget, so the chunks of
 /// the file's scans that share a stored segment read it once.
 ///
@@ -46,8 +46,8 @@ struct Inner {
     /// them, so a projection must reuse its plan for its values to be found again.
     projections: Mutex<FxHashMap<ScanExpression, PlanRef>>,
     ranges: Mutex<Option<SegmentRanges>>,
-    /// Plans of filters, keyed by the exact filter expression. A proof plan remembers the zones it
-    /// excluded, so sharing the plans proves a file's zones once for every scan of that filter.
+    /// Plans of filters, keyed by the exact filter expression. A pruning plan remembers the zones it
+    /// excluded, so sharing the plans prunes a file's zones once for every scan of that filter.
     filters: Mutex<FxHashMap<ScanExpression, Arc<FilterPlans>>>,
     /// Serialized bytes the whole-file projection reads, by projection.
     projection_bytes: Mutex<FxHashMap<ScanExpression, u64>>,

@@ -52,7 +52,7 @@ pub(crate) fn initialize(session: &VortexSession) {
 pub struct BoolMetadata {
     // The offset in bits must be <8
     #[prost(uint32, tag = "1")]
-    pub offset: u32,
+    pub(crate) offset: u32,
 }
 
 impl ArrayHash for BoolData {

@@ -81,10 +81,24 @@ pub(crate) fn validate_frame_content_size(
 pub struct ZstdFrameMetadata {
     /// Uncompressed byte size of this frame.
     #[prost(uint64, tag = "1")]
-    pub uncompressed_size: u64,
+    pub(crate) uncompressed_size: u64,
     /// Number of valid values stored in this frame.
     #[prost(uint64, tag = "2")]
-    pub n_values: u64,
+    pub(crate) n_values: u64,
+}
+
+impl ZstdFrameMetadata {
+    /// Returns the uncompressed byte size of this frame.
+    ///
+    /// Returns an error if the stored size does not fit in [`usize`].
+    pub fn get_uncompressed_size(&self) -> VortexResult<usize> {
+        usize::try_from(self.uncompressed_size).map_err(|_| {
+            vortex_err!(
+                "ZstdFrameMetadata uncompressed_size must fit in usize, got {}",
+                self.uncompressed_size
+            )
+        })
+    }
 }
 
 #[derive(Clone, prost::Message)]
@@ -93,10 +107,17 @@ pub struct ZstdMetadata {
     // optional, will be 0 if there's no dictionary
     /// Dictionary size in bytes, or `0` when no dictionary is present.
     #[prost(uint32, tag = "1")]
-    pub dictionary_size: u32,
+    pub(crate) dictionary_size: u32,
     /// Metadata for each compressed frame.
     #[prost(message, repeated, tag = "2")]
-    pub frames: Vec<ZstdFrameMetadata>,
+    pub(crate) frames: Vec<ZstdFrameMetadata>,
+}
+
+impl ZstdMetadata {
+    /// Returns the metadata for the compressed frames in storage order.
+    pub fn frames(&self) -> &[ZstdFrameMetadata] {
+        &self.frames
+    }
 }
 
 #[derive(Clone, prost::Message)]
@@ -104,29 +125,29 @@ pub struct ZstdMetadata {
 pub struct ZstdBuffersMetadata {
     /// Encoding id of the inner array whose buffers were compressed.
     #[prost(string, tag = "1")]
-    pub inner_encoding_id: String,
+    pub(crate) inner_encoding_id: String,
     /// Serialized metadata of the inner array.
     #[prost(bytes = "vec", tag = "2")]
-    pub inner_metadata: Vec<u8>,
+    pub(crate) inner_metadata: Vec<u8>,
     /// Uncompressed byte size of each compressed buffer.
     #[prost(uint64, repeated, tag = "3")]
-    pub uncompressed_sizes: Vec<u64>,
+    pub(crate) uncompressed_sizes: Vec<u64>,
     /// Alignment of each buffer in bytes (must be a power of two).
     #[prost(uint32, repeated, tag = "4")]
-    pub buffer_alignments: Vec<u32>,
+    pub(crate) buffer_alignments: Vec<u32>,
     /// DType of child arrays. Children belong to inner encodings, and their
     /// dtypes don't persist after serialization, so we need to retrieve them
     /// from metadata.
     #[prost(message, repeated, tag = "5")]
-    pub child_dtypes: Vec<pb::DType>,
+    pub(crate) child_dtypes: Vec<pb::DType>,
     /// Length of each child array, ordered as "child_dtypes"
     #[prost(uint64, repeated, tag = "6")]
-    pub child_lens: Vec<u64>,
+    pub(crate) child_lens: Vec<u64>,
     /// Number of leading children that belong to the inner array. Any child after them holds
     /// the validity. Absent in arrays written before the validity was stored separately.
     #[prost(uint32, optional, tag = "7")]
-    pub inner_child_count: Option<u32>,
+    pub(crate) inner_child_count: Option<u32>,
     /// Index of the child holding the validity, if it is not implied by the dtype.
     #[prost(uint32, optional, tag = "8")]
-    pub validity_child: Option<u32>,
+    pub(crate) validity_child: Option<u32>,
 }

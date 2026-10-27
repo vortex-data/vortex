@@ -247,7 +247,7 @@ fn vtable_serde_requires_plugin() -> VortexResult<()> {
     let array = BitPackedData::encode(&values, 2, &mut SESSION.create_execution_ctx())?;
     let session = VortexSession::empty();
     session.arrays().register(BitPacked);
-    assert!(session.array_serialize(&array.into_array()).is_err());
+    assert!(session.array_serialize(&array.into_array())?.is_none());
     Ok(())
 }
 

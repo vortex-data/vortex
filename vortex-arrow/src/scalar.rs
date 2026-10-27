@@ -9,6 +9,7 @@ use arrow_array::Scalar as ArrowScalar;
 use arrow_array::*;
 use arrow_buffer::NullBuffer;
 use arrow_buffer::OffsetBuffer;
+use arrow_data::transform::MutableArrayData;
 use arrow_schema::Field;
 use arrow_schema::Fields;
 use vortex_array::dtype::DType;
@@ -235,11 +236,16 @@ fn concat_scalar_arrays(
         return Ok(new_empty_array(&to_data_type_naive(dtype)?));
     }
 
-    let arrays = scalars
+    // Every scalar is a single-element array of the same Arrow type, so append them in order.
+    let data = scalars
         .iter()
-        .map(|scalar| scalar.get().0)
+        .map(|scalar| scalar.get().0.to_data())
         .collect::<Vec<_>>();
-    Ok(arrow_select::concat::concat(&arrays)?)
+    let mut builder = MutableArrayData::new(data.iter().collect(), false, data.len());
+    for index in 0..data.len() {
+        builder.try_extend(index, 0, SCALAR_ARRAY_LEN)?;
+    }
+    Ok(make_array(builder.freeze()))
 }
 
 /// Convert an [`ExtScalar`] to an Arrow [`Datum`].

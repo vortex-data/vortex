@@ -32,6 +32,7 @@ use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::scalar::Scalar;
+use vortex::scan::planning::driver::Run;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::convert::PushedAggregate;
@@ -140,6 +141,8 @@ pub struct GlobalState {
     pub projection: BoundExpression,
     pub filter: Filter,
     pub file_row_number_column_pos: Option<usize>,
+    /// Whether the scan runs on the planner-driven V2 executor.
+    pub scan_v2: bool,
 
     // Following fields are used only in aggregate scans.
     pub aggregate_state: Mutex<AggregateState>,
@@ -156,7 +159,13 @@ pub struct AggregateState {
 }
 assert_impl_all!(GlobalState: Send, Sync);
 
-pub type Split = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
+/// A unit of scan work that one thread takes at a time.
+pub enum Split {
+    /// A V1 scan task yielding one array, or `None` if the filter removed every row.
+    V1(BoxFuture<'static, VortexResult<Option<ArrayRef>>>),
+    /// Chunks of the file's V2 scan, taken by the thread until the scan has none left.
+    V2,
+}
 
 /// field position, accumulator
 pub type Partials = Vec<(usize, Box<dyn DynAccumulator>)>;
@@ -170,6 +179,8 @@ pub struct LocalState {
     /// Scan states that this thread no longer uses. They are dropped outside
     /// DuckDB's global multi-file lock; see `OpenFileReader`.
     pub(crate) retired_files: Vec<Arc<FileScanState>>,
+    /// The planning run on which this thread runs the chunks of V2 scans.
+    pub(crate) run: Run,
 
     /// Empty for non-aggregate scan
     pub partials: Partials,
@@ -304,6 +315,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         aggregate_state: Mutex::new(AggregateState::default()),
         row_count: AtomicU64::new(0),
         file_row_number_column_pos,
+        scan_v2: crate::scan_v2(),
     })
 }
 
@@ -370,6 +382,7 @@ pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
         split: None,
         file: None,
         retired_files: Vec::new(),
+        run: Run::new(),
         finished: false,
     }
 }

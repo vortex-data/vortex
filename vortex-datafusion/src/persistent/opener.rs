@@ -54,15 +54,20 @@ use vortex::error::VortexExpect;
 use vortex::expr::and_collect;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::scan_builder::ScanBuilder;
+use vortex::layout::scan::v2::ChunkPlanner;
+use vortex::layout::scan::v2::PrunePlanner;
 use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
 use vortex::layout::scan::v2::ScanCache;
 use vortex::layout::scan::v2::WeakScanCache;
 use vortex::layout::scan::v2::partition_row_range;
 use vortex::layout::segments::SegmentSource;
+use vortex::mask::Mask;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
+use vortex::scan::planning::planner::Planner;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_utils::aliases::dash_map::DashMap;
@@ -78,6 +83,7 @@ use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
 use crate::persistent::reader::VortexReaderFactory;
+use crate::persistent::scan_v2::ScanDriver;
 use crate::persistent::source::FileVersion;
 use crate::persistent::stream::PrunableStream;
 
@@ -118,7 +124,7 @@ pub(crate) struct VortexOpener {
     /// shared layout reader.
     pub segment_sources: Arc<DashMap<FileVersion, Weak<dyn SegmentSource>>>,
     /// The V2 scan cache each open file's partitions share: its lowered layout, filter and
-    /// projection plans, proved zones and dictionary values, built once per file.
+    /// projection plans, pruned zones and dictionary values, built once per file.
     pub scan_caches: Arc<DashMap<FileVersion, WeakScanCache>>,
     /// Shared V1 full-file natural splits keyed by file path.
     pub natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
@@ -439,8 +445,7 @@ impl FileOpener for VortexOpener {
                 scan_file.cache = Some(shared_scan_cache(&scan_caches, &file.object_meta));
                 let mut builder = V2ScanBuilder::new(vxf.session().clone(), scan_file)
                     .with_projection(scan_projection)
-                    .with_some_filter(native_filter)
-                    .with_ordered(has_output_ordering);
+                    .with_some_filter(native_filter);
                 if let Some(bytes) = byte_range {
                     // Every partition maps the same byte boundary to the same row boundary.
                     let rows = partition_row_range(bytes, file.object_meta.size, vxf.row_count());
@@ -464,8 +469,35 @@ impl FileOpener for VortexOpener {
                         .div_ceil(partitions)
                         .max(1)
                 });
-                builder = builder.with_concurrency(concurrency);
-                builder.map(map_batch).into_stream()
+                let handle = vxf.session().handle();
+                // Lowering and planning a wide file is real CPU: it runs where compute runs.
+                let scan = handle
+                    .spawn_cpu(move || builder.prepare())
+                    .await
+                    .map_err(|e| exec_datafusion_err!("Failed to plan Vortex scan: {e}"))?;
+                let scan = Arc::new(scan);
+
+                // The planners, composed: with a filter, its pruning plans first over the whole
+                // partition, continuing into the chunks of the rows they keep; without a
+                // filter, the chunks directly. A chunk plans its conjuncts, then its
+                // projection.
+                let chunks = {
+                    let scan = Arc::clone(&scan);
+                    move |kept: Option<Mask>| -> Box<dyn Planner> {
+                        let rows = scan.rows().clone();
+                        let selection = scan.selection().clone();
+                        Box::new(ChunkPlanner::new(scan, rows, selection, kept))
+                    }
+                };
+                let root: Box<dyn Planner> = if scan.filter().is_some() {
+                    let rows = scan.rows().clone();
+                    Box::new(PrunePlanner::new(Arc::clone(&scan), rows, Box::new(chunks)))
+                } else {
+                    chunks(None)
+                };
+
+                let driver = ScanDriver::new(handle, concurrency, has_output_ordering);
+                Ok(driver.run(scan, root, map_batch))
             } else {
                 // Share V1 layout readers across partitions of the file.
                 let layout_reader = match layout_readers.entry(file.object_meta.location.clone()) {

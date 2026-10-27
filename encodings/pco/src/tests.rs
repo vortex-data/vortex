@@ -222,3 +222,17 @@ fn test_serde() -> VortexResult<()> {
     assert_eq!(decoded_arrow.as_ref(), expected_arrow.as_ref());
     Ok(())
 }
+
+#[test]
+fn sliced_pco_cannot_be_serialized() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = PrimitiveArray::from_iter(0..100_i32);
+    let array = Pco::from_primitive(values.as_view(), 3, 0, &mut ctx)?.into_array();
+    let context = ArrayContext::empty();
+    let options = SerializeOptions::default();
+
+    array.serialize(&context, &SESSION, &options)?;
+    let slice = array.slice(10..20)?;
+    assert!(slice.serialize(&context, &SESSION, &options).is_err());
+    Ok(())
+}

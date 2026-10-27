@@ -52,7 +52,8 @@ use super::CORE_2026_08_3;
 use super::DEFAULT_CORE_EDITION;
 use super::DEFAULT_PREVIEW_EDITION;
 use super::EDITION_DECLARATIONS;
-use super::PREVIEW_2026_08_0;
+use super::UNSTABLE;
+use crate::VortexSessionDefault;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -146,19 +147,6 @@ fn core_2026_08_3_is_frozen_and_adds_variants() {
 }
 
 #[test]
-fn preview_starts_empty() {
-    let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
-    for kind in [
-        ComponentKind::Array,
-        ComponentKind::Layout,
-        ComponentKind::DType,
-        ComponentKind::Aggregate,
-    ] {
-        assert!(session.components_in(&PREVIEW_2026_08_0, kind).is_empty());
-    }
-}
-
-#[test]
 fn earlier_editions_are_subsets() {
     let session = session().unwrap_or_else(|e| panic!("registering editions: {e}"));
     let first = session.components_in(&CORE_2025_05_0, ComponentKind::Array);
@@ -215,8 +203,6 @@ fn core_2026_08_editions_add_onpair_before_map() {
 
 #[test]
 fn default_session_enables_the_write_editions() {
-    use crate::VortexSessionDefault;
-
     let session = VortexSession::default();
     let enabled = session.enabled_editions().editions();
     assert!(enabled.contains(&DEFAULT_CORE_EDITION));
@@ -227,13 +213,37 @@ fn default_session_enables_the_write_editions() {
     );
 
     assert!(!enabled.contains(&DEFAULT_PREVIEW_EDITION));
+    assert!(!enabled.contains(&UNSTABLE));
+}
+
+#[test]
+fn enabling_unstable_permits_only_persisted_aggregates() -> VortexResult<()> {
+    let session = VortexSession::default();
+    let core_aggregates = session.enabled_component_ids(ComponentKind::Aggregate);
+    session.enable_edition(UNSTABLE)?;
+    let enabled = session.enabled_component_ids(ComponentKind::Aggregate);
+    assert!(
+        enabled
+            .iter()
+            .all(|id| !id.as_str().starts_with("vortex.all_"))
+    );
+    let newly_enabled: Vec<Id> = enabled
+        .into_iter()
+        .filter(|id| !core_aggregates.contains(id))
+        .collect();
+    assert_eq!(
+        newly_enabled,
+        [
+            Id::from("vortex.bloom_filter.sbbf"),
+            Id::from("vortex.sum_v2")
+        ]
+    );
+    Ok(())
 }
 
 #[test]
 fn core_edition_ids_are_registered_array_encodings() {
     use vortex_array::session::ArraySessionExt;
-
-    use crate::VortexSessionDefault;
 
     let session = VortexSession::default();
     let registry = session.arrays().registry().clone();
@@ -252,8 +262,6 @@ fn core_edition_ids_are_registered_array_encodings() {
 #[test]
 fn core_dtype_ids_are_registered_extension_dtypes() {
     use vortex_array::dtype::session::DTypeSessionExt;
-
-    use crate::VortexSessionDefault;
 
     let session = VortexSession::default();
     let registry = session.dtypes().registry().clone();
@@ -274,8 +282,6 @@ fn core_dtype_ids_are_registered_extension_dtypes() {
 #[test]
 fn core_aggregate_ids_are_registered_aggregate_fns() {
     use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
-
-    use crate::VortexSessionDefault;
 
     let session = VortexSession::default();
     let declared = session
@@ -303,8 +309,6 @@ fn core_aggregate_ids_are_registered_aggregate_fns() {
 /// maps record, for every dtype, or ordinary writes fail.
 #[tokio::test]
 async fn default_session_writes_every_default_zone_aggregate() -> VortexResult<()> {
-    use crate::VortexSessionDefault;
-
     let session = VortexSession::default();
     // Strings take the bounded min/max branch of the default aggregates, integers the plain
     // min/max branch, so one file exercises both.
@@ -359,6 +363,7 @@ const WRITER_TEST_EDITION: EditionId = EditionId::new("writer-test", 2026, 7, 0)
 static WRITER_TEST_DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: WRITER_TEST_EDITION,
+        immutable: true,
         min_library_version: None,
     },
     added: &[
@@ -497,6 +502,7 @@ fn session_declaring(members: &[(ComponentKind, Id)]) -> VortexResult<VortexSess
     let editions = session.editions();
     editions.declare_edition(Edition {
         id: EDITION,
+        immutable: true,
         min_library_version: None,
     })?;
     for inclusion in session
@@ -539,8 +545,6 @@ async fn writer_restricts_layouts_to_the_enabled_editions() -> VortexResult<()> 
     );
 
     // Discover the layout tree through the fully declared core edition.
-    use crate::VortexSessionDefault;
-
     let baseline = VortexSession::default();
     let written = written_layout_ids(&baseline, write_with(&baseline, array.clone()).await?)?;
     assert!(written.len() > 1, "expected a layout tree, got {written:?}");
@@ -698,8 +702,6 @@ async fn serialization_context_rejects_unsupported_compressor_output() -> Vortex
 /// compressor itself from the edition.
 #[tokio::test]
 async fn serialization_context_accepts_supported_compressor_output() -> VortexResult<()> {
-    use crate::VortexSessionDefault;
-
     let session = VortexSession::default();
     let strategy = WriteStrategyBuilder::from_session(&session)
         .with_compressor(forbidden_sequence_compressor)
