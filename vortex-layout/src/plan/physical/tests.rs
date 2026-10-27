@@ -630,6 +630,42 @@ fn expression_partitions_across_row_idx_and_struct() -> VortexResult<()> {
     Ok(())
 }
 
+/// A projection of row ids and renamed columns, as an engine fetching rows by id plans it,
+/// reads each column's plan directly beside the row indices.
+#[test]
+fn field_projection_with_row_idx_packs_column_plans() -> VortexResult<()> {
+    let value_dtype = primitive(PType::I32, Nullability::NonNullable);
+    let layout = StructLayout::new(
+        3,
+        DType::Struct(
+            StructFields::from_iter([("a", value_dtype.clone()), ("b", value_dtype.clone())]),
+            Nullability::NonNullable,
+        ),
+        vec![flat(3, value_dtype.clone(), 0), flat(3, value_dtype, 1)],
+    )
+    .into_layout();
+    let projection = pack(
+        [
+            ("id", row_idx()),
+            ("y", get_item("b", root())),
+            ("x", get_item("a", root())),
+        ],
+        Nullability::NonNullable,
+    );
+    let plan = make_row_idx_plan(projection, make_plan(layout)?)?;
+
+    let optimized = optimize(plan, &SESSION)?;
+    insta::assert_snapshot!(optimized.display_tree(), @"
+    root: vortex.plan.pack({id=u64, y=i32, x=i32}, rows=3)
+      id: vortex.plan.row_idx(u64, rows=3)
+      y: vortex.plan.filter(i32, rows=3)
+        child: vortex.plan.segment_scan(i32, rows=3)
+      x: vortex.plan.filter(i32, rows=3)
+        child: vortex.plan.segment_scan(i32, rows=3)
+    ");
+    Ok(())
+}
+
 #[test]
 fn empty_projection_prunes_row_idx_child_fields() -> VortexResult<()> {
     let value_dtype = primitive(PType::I32, Nullability::NonNullable);
