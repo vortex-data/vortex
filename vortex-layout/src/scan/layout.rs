@@ -550,7 +550,7 @@ mod tests {
         .with_split_max_row_count(2);
         let dynamic_filter = Arc::new(RejectRemaining::default());
         let scan = runtime.block_on(source.scan(ScanRequest {
-            dynamic_filter: Some(dynamic_filter.clone()),
+            dynamic_filter: Some(Arc::clone(&dynamic_filter) as Arc<dyn DynamicFilter>),
             ..Default::default()
         }))?;
         let mut partitions = runtime
