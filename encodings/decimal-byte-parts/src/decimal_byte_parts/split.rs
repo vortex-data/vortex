@@ -32,17 +32,15 @@ impl DecimalByteParts {
     ///
     /// # Errors
     ///
-    /// Returns an error if the decimal cannot be split.
+    /// Returns an error if the decimal cannot be split, or if its storage is wider than the
+    /// canonical width of its dtype and splits into more lower parts than the dtype allows (see
+    /// [`super::DecimalBytePartsData::validate`]).
     pub fn encode(
         decimal: &DecimalArray,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<DecimalBytePartsArray> {
         let parts = split_decimal(decimal, exec_ctx)?;
-        // SAFETY: splitting produces a signed MSP and zero, one, or three non-nullable u64 lower
-        // parts, all with the decimal's length and in most-significant-first order. This also
-        // holds for the constant parts used for empty and all-null inputs. The decimal dtype is
-        // preserved.
-        Ok(unsafe { Self::new_unchecked(parts.msp, parts.lower_parts, decimal.decimal_dtype()) })
+        Self::try_new_with_lower_parts(parts.msp, parts.lower_parts, decimal.decimal_dtype())
     }
 }
 

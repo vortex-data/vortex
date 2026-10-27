@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Reassembling integer slices, including output-buffer allocation.
-//! Array benchmarks also include validation, part execution, and casts.
+//!
+//! Array benchmarks also include validation and part execution.
 
 mod common;
 
@@ -145,15 +146,8 @@ mod arrays {
     fn dbp_assemble_narrowed(bencher: Bencher, (values_type, len): (DecimalType, usize)) {
         let (precision, lower_parts) = match values_type {
             DecimalType::I64 => (18, vec![]),
-            DecimalType::I128 => (38, vec![buffer![u8::MAX; len].into_array()]),
-            DecimalType::I256 => (
-                76,
-                vec![
-                    buffer![u8::MAX; len].into_array(),
-                    buffer![u16::MAX; len].into_array(),
-                    buffer![u32::MAX; len].into_array(),
-                ],
-            ),
+            DecimalType::I128 => (38, vec![buffer![u64::MAX; len].into_array()]),
+            DecimalType::I256 => (76, vec![buffer![u64::MAX; len].into_array(); 3]),
             _ => vortex_panic!("unsupported benchmark storage type: {values_type}"),
         };
         bench_parts(

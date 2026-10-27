@@ -11,7 +11,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::NativeDecimalType;
 use vortex_array::dtype::i256;
@@ -22,58 +22,36 @@ use vortex_buffer::BufferMut;
 use vortex_buffer::trusted_len::TrustedLen;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
-use vortex_error::vortex_ensure_eq;
 
+use super::DecimalBytePartsData;
 use super::LOWER_PART_BITS;
-use super::LOWER_PART_DTYPE;
 use super::MAX_LOWER_PARTS;
 
 /// Reassemble decimal parts into a decimal array.
 ///
-/// The MSP must have a signed integer dtype, and every lower part must have a non-nullable
-/// unsigned integer dtype. All parts must have the same length.
+/// The parts are checked with [`DecimalBytePartsData::validate`], which owns the rules for part
+/// dtypes, lengths and counts.
 ///
 /// With no lower parts, the MSP buffer is reused as the decimal values. One lower part
 /// assembles into `i128`. Two or three lower parts assemble into `i256`.
 ///
-/// If there are lower parts, each part (including the MSP) is widened into a 64 bit array.
-/// For example, parts consisting of a `i8` MSP and a single `u32` lower part is assembled into
-/// a decimal array with `64 + 64 = 128` bit storage.
-///
 /// # Errors
 ///
-/// Returns an error for invalid part dtypes, lengths, or counts, or if executing a part fails.
+/// Returns an error if [`DecimalBytePartsData::validate`] rejects the parts, or if executing a part
+/// fails.
 pub fn assemble_decimal(
     msp: &ArrayRef,
     lower_parts: &[ArrayRef],
     decimal_dtype: DecimalDType,
     exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    vortex_ensure!(
-        msp.dtype().is_signed_int(),
-        "MSP must have a signed integer dtype"
-    );
+    let dtype = DType::Decimal(decimal_dtype, msp.dtype().nullability());
+    DecimalBytePartsData::validate(msp, lower_parts.iter(), decimal_dtype, &dtype, msp.len())?;
 
     let validity = msp.validity()?;
 
     if lower_parts.is_empty() {
         return assemble_narrow_decimal(msp, validity, decimal_dtype, exec_ctx);
-    }
-
-    vortex_ensure!(
-        lower_parts.len() <= MAX_LOWER_PARTS,
-        "at most {MAX_LOWER_PARTS} lower parts are supported, got {}",
-        lower_parts.len()
-    );
-    let len = msp.len();
-    for (idx, part) in lower_parts.iter().enumerate() {
-        vortex_ensure!(
-            part.dtype().is_unsigned_int() && !part.dtype().is_nullable(),
-            "lower part {idx} must have a non-nullable unsigned integer dtype, got {}",
-            part.dtype()
-        );
-        vortex_ensure_eq!(part.len(), len, "lower part {idx} length mismatch");
     }
 
     assemble_wide_decimal_from_arrays(msp, lower_parts, validity, decimal_dtype, exec_ctx)
@@ -92,7 +70,7 @@ fn assemble_narrow_decimal(
     }))
 }
 
-/// Execute the MSP at its signed integer width and cast lower parts to `u64` before assembly.
+/// Execute the MSP at its signed integer width and the `u64` lower parts, then assemble them.
 /// The number of lower parts determines the decimal storage type: one produces `i128`, while
 /// two or three produce `i256`.
 fn assemble_wide_decimal_from_arrays(
@@ -104,15 +82,9 @@ fn assemble_wide_decimal_from_arrays(
 ) -> VortexResult<ArrayRef> {
     // TODO(mk): Broadcast constant parts directly instead of materializing their buffers.
     let msp = msp.clone().execute::<PrimitiveArray>(exec_ctx)?;
-    // TODO(mk): Revisit dispatching on lower-part dtypes and widening values during assembly.
-    // Casting narrowed parts allocates temporary buffers and adds passes over the data.
-    // Nested dtype dispatch is significantly in benchmarks, but adds code and generic instantiations.
     let lower = lower_parts
         .iter()
-        .map(|part| {
-            part.cast(LOWER_PART_DTYPE)?
-                .execute::<PrimitiveArray>(exec_ctx)
-        })
+        .map(|part| part.clone().execute::<PrimitiveArray>(exec_ctx))
         .collect::<VortexResult<Vec<_>>>()?;
 
     Ok(match_each_signed_integer_ptype!(msp.ptype(), |Msp| {
@@ -389,6 +361,7 @@ mod tests {
 
     #[rstest]
     #[case::signed(PrimitiveArray::new(buffer![0i64; 2], Validity::NonNullable))]
+    #[case::narrow(PrimitiveArray::new(buffer![0u32; 2], Validity::NonNullable))]
     #[case::float(PrimitiveArray::new(buffer![0f32; 2], Validity::NonNullable))]
     #[case::nullable_all_valid(PrimitiveArray::new(buffer![0u64; 2], Validity::AllValid))]
     #[case::nullable_all_null(PrimitiveArray::new(buffer![0u64; 2], Validity::AllInvalid))]

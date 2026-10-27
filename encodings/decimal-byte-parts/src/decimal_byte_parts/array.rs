@@ -23,6 +23,7 @@ use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::DecimalType;
 use vortex_array::require_child;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
@@ -40,6 +41,9 @@ use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use super::LOWER_PART_DTYPE;
+use super::MAX_I128_LOWER_PARTS;
+use super::MAX_I256_LOWER_PARTS;
 use super::MAX_LOWER_PARTS;
 use super::assemble::assemble_decimal;
 use super::assemble::assemble_wide_decimal_value;
@@ -51,11 +55,14 @@ pub type DecimalBytePartsArray = Array<DecimalByteParts>;
 
 /// This array encodes decimals by splitting them between 1-4 columns of primitive typed children.
 ///
-/// The most significant part (MSP) stores the most significant decimal bits. It is signed and is
-/// nullable iff the decimal is nullable.
+/// The most significant part (MSP) stores the most significant decimal bits. It is a signed integer
+/// of at most 64 bits, and it is nullable iff the decimal is nullable. Only the MSP may use a
+/// narrower dtype when its values fit.
 ///
-/// Every lower part is a non-nullable unsigned integer holding a 64-bit window of the value.
-/// Parts may have narrower integer dtypes when their values fit; their positions stay 64 bits apart.
+/// Every lower part is a non-nullable `u64` array holding a 64-bit window of the value. The lower
+/// parts never assemble wider than the canonical width of the decimal dtype: precision up to 18
+/// allows no lower parts, precision 19 to 38 allows at most one, and precision 39 to 76 allows
+/// up to three.
 ///
 /// e.g. for a decimal i128 \[ 127..64 | 63..0 \] msp = 127..64 and lower_part\[0\] = 63..0
 ///
@@ -85,8 +92,9 @@ impl DecimalBytePartsData {
     /// # Errors
     ///
     /// Returns an error if the MSP is not a signed integer array of length `len`, if `dtype`
-    /// does not match the MSP's nullability, if there are more than `MAX_LOWER_PARTS`
-    /// lower parts, or if any lower part is not a non-nullable unsigned integer array of length `len`.
+    /// does not match the MSP's nullability, if the lower parts assemble wider than the canonical
+    /// width of `decimal_dtype`, or if any lower part is not a non-nullable `u64` array of length
+    /// `len`.
     pub fn validate<'a>(
         msp: &ArrayRef,
         lower_parts: impl ExactSizeIterator<Item = &'a ArrayRef>,
@@ -103,20 +111,35 @@ impl DecimalBytePartsData {
         vortex_ensure_eq!(msp.len(), len);
 
         let lower_part_count = lower_parts.len();
-
+        let max_lower_parts = max_lower_parts(decimal_dtype);
         vortex_ensure!(
-            lower_part_count <= MAX_LOWER_PARTS,
-            "at most {MAX_LOWER_PARTS} lower parts are supported, got {lower_part_count}"
+            lower_part_count <= max_lower_parts,
+            "{decimal_dtype} allows at most {max_lower_parts} lower parts, got {lower_part_count}"
         );
+
         for (idx, part) in lower_parts.enumerate() {
             vortex_ensure!(
-                part.dtype().is_unsigned_int() && !part.dtype().is_nullable(),
-                "lower part {idx} must have a non-nullable unsigned integer dtype, got {}",
+                part.dtype() == &LOWER_PART_DTYPE,
+                "lower part {idx} must have dtype {LOWER_PART_DTYPE}, got {}",
                 part.dtype()
             );
             vortex_ensure_eq!(part.len(), len, "lower part {idx} length mismatch");
         }
         Ok(())
+    }
+}
+
+/// The largest number of lower parts that assemble to at most the canonical width of
+/// `decimal_dtype`.
+///
+/// One lower part assembles to `i128`, and two or three assemble to `i256`. An MSP is at most
+/// `i64`, so a canonical width of `i64` or less allows no lower parts. With this bound, decoding
+/// never narrows values that it assembled from lower parts.
+fn max_lower_parts(decimal_dtype: DecimalDType) -> usize {
+    match decimal_dtype.canonical_values_type() {
+        DecimalType::I8 | DecimalType::I16 | DecimalType::I32 | DecimalType::I64 => 0,
+        DecimalType::I128 => MAX_I128_LOWER_PARTS,
+        DecimalType::I256 => MAX_I256_LOWER_PARTS,
     }
 }
 
@@ -139,8 +162,8 @@ impl DecimalByteParts {
     /// Construct a new [`DecimalBytePartsArray`] from an MSP array, its lower parts, and a
     /// decimal dtype.
     ///
-    /// Lower parts are ordered most significant first and must each be a non-nullable unsigned integer
-    /// array of the same length as the MSP. See [`super::split_decimal`] for producing them from a
+    /// Lower parts are ordered most significant first and must each be a non-nullable `u64` array
+    /// of the same length as the MSP. See [`super::split_decimal`] for producing them from a
     /// decimal array.
     ///
     /// # Errors
@@ -162,34 +185,6 @@ impl DecimalByteParts {
             DecimalBytePartsData,
             slots,
         ))
-    }
-
-    /// Construct a [`DecimalBytePartsArray`] from parts whose invariants are already established.
-    ///
-    /// # Safety
-    ///
-    /// The MSP must have a signed integer dtype (`i8`, `i16`, `i32`, or `i64`). There must be
-    /// at most `MAX_LOWER_PARTS` lower parts, each a non-nullable unsigned integer array with the same
-    /// length as the MSP. Lower parts are ordered most significant first.
-    pub(super) unsafe fn new_unchecked(
-        msp: ArrayRef,
-        lower_parts: Vec<ArrayRef>,
-        decimal_dtype: DecimalDType,
-    ) -> DecimalBytePartsArray {
-        let len = msp.len();
-        let dtype = DType::Decimal(decimal_dtype, msp.dtype().nullability());
-        let slots = DecimalBytePartsSlots { msp, lower_parts }.into_slots();
-        // SAFETY: the caller guarantees the part types, lengths, and count. The slot builder
-        // fills every required slot, and the length and nullability come from the MSP.
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(
-                DecimalByteParts,
-                dtype,
-                len,
-                DecimalBytePartsData,
-                slots,
-            ))
-        }
     }
 }
 
@@ -369,7 +364,6 @@ impl OperationsVTable<DecimalByteParts> for DecimalByteParts {
         let primitive_scalar = scalar.as_primitive();
         let msp = primitive_scalar.as_::<i64>().vortex_expect("non-null");
 
-        // Zero-extend each narrowed lower value to its 64-bit window.
         let lower_parts = array
             .lower_parts()
             .iter()
@@ -577,12 +571,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case([PType::U8, PType::U16, PType::U32])]
-    #[case([PType::U16, PType::U32, PType::U64])]
-    #[case([PType::U32, PType::U64, PType::U8])]
-    #[case([PType::U64, PType::U8, PType::U16])]
-    fn test_independently_narrowed_parts(
-        #[case] lower_ptypes: [PType; 3],
+    fn test_narrow_msp_with_u64_lower_parts(
         #[values(PType::I8, PType::I16, PType::I32, PType::I64)] msp_ptype: PType,
         #[values(1, 2, 3)] lower_count: usize,
     ) -> VortexResult<()> {
@@ -591,18 +580,14 @@ mod tests {
         let msp = PrimitiveArray::new(buffer![0i64, 1, -1], validity.clone())
             .into_array()
             .cast(DType::Primitive(msp_ptype, Nullability::Nullable))?;
-        // Set the unsigned type's highest bit to catch accidental sign extension.
-        let words = lower_ptypes.map(|ptype| 1u64 << (ptype.byte_width() * 8 - 1));
-        let lower = lower_ptypes
+        // Set the highest bit of each word to catch accidental sign extension. The low bits
+        // differ, so a swapped word shows up too.
+        let words = [(1u64 << 63) | 1, (1 << 63) | 2, (1 << 63) | 3];
+        let lower = words
             .into_iter()
-            .zip(words)
             .take(lower_count)
-            .map(|(ptype, word)| {
-                buffer![0u64, word, word]
-                    .into_array()
-                    .cast(DType::Primitive(ptype, Nullability::NonNullable))
-            })
-            .collect::<VortexResult<Vec<_>>>()?;
+            .map(|word| buffer![0u64, word, word].into_array())
+            .collect();
         let dtype = DecimalDType::new(if lower_count == 1 { 38 } else { 76 }, 0);
         let encoded = DecimalByteParts::try_new_with_lower_parts(msp, lower, dtype)?;
         let expected = match lower_count {
@@ -659,22 +644,62 @@ mod tests {
     }
 
     #[rstest]
-    #[case::signed_lower_part(vec![buffer![1i64, 2, 3].into_array()], DecimalDType::new(38, 2))]
+    #[case::signed_lower_part(
+        vec![buffer![1i64, 2, 3].into_array()],
+        DecimalDType::new(38, 2),
+        "must have dtype u64, got i64"
+    )]
     #[case::nullable_lower_part(
         vec![PrimitiveArray::new(buffer![1u64, 2, 3], Validity::AllValid).into_array()],
-        DecimalDType::new(38, 2)
+        DecimalDType::new(38, 2),
+        "must have dtype u64, got u64?"
     )]
-    #[case::mismatched_length(vec![buffer![1u64, 2].into_array()], DecimalDType::new(38, 2))]
+    #[case::u8_lower_part(
+        vec![buffer![1u8, 2, 3].into_array()],
+        DecimalDType::new(38, 2),
+        "must have dtype u64, got u8"
+    )]
+    #[case::u16_lower_part(
+        vec![buffer![1u16, 2, 3].into_array()],
+        DecimalDType::new(38, 2),
+        "must have dtype u64, got u16"
+    )]
+    #[case::u32_lower_part(
+        vec![buffer![1u32, 2, 3].into_array()],
+        DecimalDType::new(38, 2),
+        "must have dtype u64, got u32"
+    )]
+    #[case::mismatched_length(
+        vec![buffer![1u64, 2].into_array()],
+        DecimalDType::new(38, 2),
+        "length mismatch"
+    )]
     #[case::too_many_parts(
         vec![lower_part(), lower_part(), lower_part(), lower_part()],
-        DecimalDType::new(76, 2)
+        DecimalDType::new(76, 2),
+        "expected 1..=4 slots, got 5"
+    )]
+    #[case::one_lower_part_at_p18(
+        vec![lower_part()],
+        DecimalDType::new(18, 2),
+        "allows at most 0 lower parts, got 1"
+    )]
+    #[case::three_lower_parts_at_p38(
+        vec![lower_part(), lower_part(), lower_part()],
+        DecimalDType::new(38, 2),
+        "allows at most 1 lower parts, got 3"
     )]
     fn test_rejects_invalid_parts(
         #[case] lower_parts: Vec<ArrayRef>,
         #[case] decimal_dtype: DecimalDType,
+        #[case] expected_error: &str,
     ) {
+        let result = DecimalByteParts::try_new_with_lower_parts(msp(), lower_parts, decimal_dtype);
         assert!(
-            DecimalByteParts::try_new_with_lower_parts(msp(), lower_parts, decimal_dtype).is_err()
+            result
+                .as_ref()
+                .is_err_and(|err| err.to_string().contains(expected_error)),
+            "expected {expected_error}, got {result:?}"
         );
     }
 
