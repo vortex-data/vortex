@@ -27,7 +27,6 @@ use std::sync::atomic::Ordering;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -651,8 +650,9 @@ fn finalize_done(
             encoding_id
         );
         if let Some(expected_dtype) = expected_dtype {
-            vortex_ensure!(
-                output.dtype() == &expected_dtype,
+            vortex_ensure_eq!(
+                output.dtype(),
+                &expected_dtype,
                 "Executed canonical dtype mismatch for {:?}",
                 encoding_id
             );

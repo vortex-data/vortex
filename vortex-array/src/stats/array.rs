@@ -151,6 +151,7 @@ impl StatsSetRef<'_> {
         let Some(source) = stats.inner.get() else {
             return;
         };
+
         if self
             .array_stats
             .inner
@@ -159,10 +160,12 @@ impl StatsSetRef<'_> {
         {
             return;
         }
+
         let source = source.read();
         if source.is_empty() {
             return;
         }
+
         let mut guard = self.array_stats.shared().write();
         for (stat, value) in source.iter() {
             guard.set(*stat, value.clone());
@@ -497,5 +500,18 @@ mod tests {
             target.statistics().to_owned().get(Stat::Max),
             Precision::exact(2i32)
         );
+    }
+
+    #[test]
+    fn transfer_from_uninitialised_source_keeps_target_lazy() {
+        let source = buffer![1i32].into_array();
+        let target = buffer![2i32].into_array();
+
+        target
+            .statistics()
+            .transfer_from(&source.statistics().share_existing());
+
+        assert!(source.statistics().array_stats.inner.get().is_none());
+        assert!(target.statistics().array_stats.inner.get().is_none());
     }
 }
