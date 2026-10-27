@@ -209,3 +209,19 @@ fn host_copies_check_copied_slices() -> Result<(), DriverError> {
     assert_eq!(host.0, [0, 7, 7, 7]);
     context.check_err()
 }
+
+/// Reinterpreting memory as more elements than fit fails, even if their size overflows.
+#[test]
+fn transmute_rejects_overflowing_lengths() -> Result<(), DriverError> {
+    let Some((context, stream, _)) = streams() else {
+        return Ok(());
+    };
+    let device = stream.alloc_zeros::<u8>(16)?;
+    // SAFETY: Zeroed bytes are valid `u32`s, and allocations are aligned for them.
+    unsafe {
+        assert!(device.transmute::<u32>(4).is_some());
+        assert!(device.transmute::<u32>(5).is_none());
+        assert!(device.transmute::<u32>(usize::MAX / 2 + 1).is_none());
+    }
+    context.check_err()
+}
