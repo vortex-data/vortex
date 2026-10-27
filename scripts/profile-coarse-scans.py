@@ -41,8 +41,8 @@ def command(v2, query, iterations, label):
             '--ingest-jsonl', label + '.jsonl', '--opt', f'scale-factor={scale}']
 
 current_binary = binary
-variants = [('v1', current_binary, False), ('published', root / 'target/coarse-baseline/datafusion-bench', True), ('planning', root / 'target/planning-baseline/datafusion-bench', True), ('combined', current_binary, True)]
-for round in range(4):
+variants = [('v1', current_binary, False), ('published', root / 'target/coarse-baseline/datafusion-bench', True), ('planning', current_binary, True)]
+for round in range(3):
     for label_name, binary, v2 in variants[round:] + variants[:round]:
         label = f'scan-timing-r{round}-{label_name}'
         queries = '8,11,13,16,19,20,21,22,28,32,35,41,49,54,55,65,70,76,92,93' if float(scale) == 1 else '13,20,28,32,40,41,48,49,58,62,76'

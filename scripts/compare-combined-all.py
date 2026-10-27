@@ -17,11 +17,11 @@ planning.chmod(0o755)
 variants = [('v1', current, False), ('accepted', published, True), ('planning', planning, True), ('combined', current, True)]
 env = dict(os.environ, TOKIO_WORKER_THREADS='8', DATAFUSION_EXECUTION_TARGET_PARTITIONS='8', RUST_LOG='warn')
 records = []
-Path('scan-provenance.json').write_text(json.dumps({'baseline_binary_run': 40444903733, 'baseline_production_head': 'eb29280cffbea33f1a5c5fa6b22c71efb5ad0a0b', 'planning_binary_run': 40456212933, 'candidate': 'baseline plus cached expression lowering, direct projections and dense comparison masks', 'scope': 'all queries; timeouts retained, not parity'}, indent=2))
+Path('scan-provenance.json').write_text(json.dumps({'baseline_binary_run': 40444903733, 'baseline_production_head': 'eb29280cffbea33f1a5c5fa6b22c71efb5ad0a0b', 'planning_binary_run': 40460958606, 'candidate': 'baseline plus cached expression lowering, direct projections, dense comparison masks, early empty partitions and wider bounded IO prefetch', 'scope': 'all queries; timeouts retained, not parity'}, indent=2))
 metadata = {name: hashlib.sha256(binary.read_bytes()).hexdigest() for name, binary, _ in variants}
 Path('scan-binaries.json').write_text(json.dumps(metadata, indent=2))
 queries = range(43) if suite == 'clickbench' else range(1, 100)
-guards = [0, 1, 4, 6, 7, 9, 10, 11, 15, 16, 17, 22, 24, 25, 26, 28, 31, 32, 33, 36, 37, 38, 40, 41, 42] if suite == 'clickbench' else [1, 6, 10, 13, 15, 16, 18, 20, 21, 22, 28, 32, 35, 37, 38, 39, 40, 41, 42, 45, 47, 48, 49, 51, 55, 57, 58, 59, 62, 66, 67, 76, 82, 86, 87, 91, 93, 94, 95, 97, 98, 99]
+guards = [0, 1, 4, 6, 7, 9, 10, 11, 15, 16, 17, 22, 24, 25, 26, 28, 31, 32, 33, 36, 37, 38, 40, 41, 42] if suite == 'clickbench' else [1, 6, 10, 13, 15, 16, 18, 20, 21, 22, 28, 32, 35, 37, 38, 39, 40, 41, 42, 45, 47, 48, 49, 51, 55, 57, 58, 59, 62, 65, 66, 67, 76, 82, 86, 87, 91, 93, 94, 95, 97, 98, 99]
 for stage, rounds, iterations, selected in [('all', 1, 5, queries), ('guards', 3, 9, guards)]:
     for rnd in range(rounds):
         for q in selected:
