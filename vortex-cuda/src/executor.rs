@@ -363,8 +363,10 @@ impl CudaExecutionCtx {
 ///
 /// - **Page-locked memory** (allocated via `cuMemAllocHost` / `cudaMallocHost`):
 ///   the GPU's DMA engine holds a stable physical address for the allocation and
-///   can transfer directly without CPU involvement. The call returns immediately
-///   and the copy proceeds in parallel with subsequent CPU work.
+///   can transfer directly without CPU involvement. Pooled pinned buffers return
+///   immediately and the copy proceeds in parallel with subsequent CPU work, as
+///   the pool keeps each buffer until its copy completes. Copies of borrowed
+///   page-locked slices wait for the copy instead, as the borrow may end next.
 ///
 /// - **Pageable memory** (ordinary `malloc` / Rust allocator): CUDA must first
 ///   stage the data through an internal page-locked bounce buffer, performing a

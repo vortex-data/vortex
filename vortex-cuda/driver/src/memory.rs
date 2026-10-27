@@ -32,6 +32,7 @@
     reason = "out-of-range views and overflowing sizes are caller bugs, as with std slices"
 )]
 
+use std::ffi::c_uint;
 use std::marker::PhantomData;
 use std::ops::Bound;
 use std::ops::RangeBounds;
@@ -272,6 +273,7 @@ enum Pending<'a> {
     None,
     Access(&'a Access, &'a CudaStream, &'a CudaStream, AccessKind),
     Event(&'a CudaEvent, &'a CudaStream),
+    Wait(&'a CudaStream),
 }
 
 impl<'a> SyncOnDrop<'a> {
@@ -299,6 +301,13 @@ impl<'a> SyncOnDrop<'a> {
             pending: Pending::Event(event, stream),
         }
     }
+
+    /// A guard that waits for `stream`'s work when dropped.
+    pub fn wait_for(stream: &'a CudaStream) -> Self {
+        Self {
+            pending: Pending::Wait(stream),
+        }
+    }
 }
 
 impl Drop for SyncOnDrop<'_> {
@@ -317,6 +326,10 @@ impl Drop for SyncOnDrop<'_> {
                         .and_then(|()| stream.record_raw(event.cu_event())),
                 );
             }
+            Pending::Wait(stream) => {
+                // If this fails, the context is broken and its copies do not complete.
+                stream.context().record_err(stream.synchronize_in_place());
+            }
         }
     }
 }
@@ -327,6 +340,7 @@ impl std::fmt::Debug for SyncOnDrop<'_> {
             Pending::None => "none",
             Pending::Access(..) => "access",
             Pending::Event(..) => "event",
+            Pending::Wait(..) => "wait",
         };
         f.debug_struct("SyncOnDrop")
             .field("pending", &pending)
@@ -939,6 +953,30 @@ pub trait HostSlice<T> {
     ) -> (&'a mut [T], SyncOnDrop<'a>);
 }
 
+/// The guard of a copy of a borrowed host slice on `stream`, which must not outlive the borrow.
+///
+/// Copies read and write page-locked memory asynchronously, so the guard waits for them. The
+/// driver stages copies of pageable memory, which no longer read the slice once enqueued.
+fn borrowed<'a, T>(slice: &[T], stream: &'a CudaStream) -> SyncOnDrop<'a> {
+    let mut memory_type: c_uint = 0;
+    // SAFETY: The driver writes the memory type, or fails for memory it does not know, such as
+    // pageable memory.
+    let known = unsafe {
+        sys::cuPointerGetAttribute(
+            (&raw mut memory_type).cast(),
+            sys::CUpointer_attribute::CU_POINTER_ATTRIBUTE_MEMORY_TYPE,
+            slice.as_ptr() as sys::CUdeviceptr,
+        )
+    }
+    .result()
+    .is_ok();
+    if known && memory_type == sys::CU_MEMORYTYPE_HOST {
+        SyncOnDrop::wait_for(stream)
+    } else {
+        SyncOnDrop::none()
+    }
+}
+
 impl<T> HostSlice<T> for [T] {
     fn len(&self) -> usize {
         <[T]>::len(self)
@@ -946,16 +984,17 @@ impl<T> HostSlice<T> for [T] {
 
     unsafe fn stream_synced_slice<'a>(
         &'a self,
-        _stream: &'a CudaStream,
+        stream: &'a CudaStream,
     ) -> (&'a [T], SyncOnDrop<'a>) {
-        (self, SyncOnDrop::none())
+        (self, borrowed(self, stream))
     }
 
     unsafe fn stream_synced_mut_slice<'a>(
         &'a mut self,
-        _stream: &'a CudaStream,
+        stream: &'a CudaStream,
     ) -> (&'a mut [T], SyncOnDrop<'a>) {
-        (self, SyncOnDrop::none())
+        let guard = borrowed(self, stream);
+        (self, guard)
     }
 }
 
@@ -966,16 +1005,17 @@ impl<T, const N: usize> HostSlice<T> for [T; N] {
 
     unsafe fn stream_synced_slice<'a>(
         &'a self,
-        _stream: &'a CudaStream,
+        stream: &'a CudaStream,
     ) -> (&'a [T], SyncOnDrop<'a>) {
-        (self, SyncOnDrop::none())
+        (self, borrowed(self, stream))
     }
 
     unsafe fn stream_synced_mut_slice<'a>(
         &'a mut self,
-        _stream: &'a CudaStream,
+        stream: &'a CudaStream,
     ) -> (&'a mut [T], SyncOnDrop<'a>) {
-        (self, SyncOnDrop::none())
+        let guard = borrowed(self, stream);
+        (self, guard)
     }
 }
 
@@ -986,16 +1026,17 @@ impl<T> HostSlice<T> for Vec<T> {
 
     unsafe fn stream_synced_slice<'a>(
         &'a self,
-        _stream: &'a CudaStream,
+        stream: &'a CudaStream,
     ) -> (&'a [T], SyncOnDrop<'a>) {
-        (self, SyncOnDrop::none())
+        (self, borrowed(self, stream))
     }
 
     unsafe fn stream_synced_mut_slice<'a>(
         &'a mut self,
-        _stream: &'a CudaStream,
+        stream: &'a CudaStream,
     ) -> (&'a mut [T], SyncOnDrop<'a>) {
-        (self, SyncOnDrop::none())
+        let guard = borrowed(self, stream);
+        (self, guard)
     }
 }
 
@@ -1051,8 +1092,9 @@ impl CudaStream {
 
     /// Copies `source` into `target` on this stream.
     ///
-    /// Pageable sources are staged by the driver before this returns; page-locked sources must
-    /// stay alive and unmodified until the copy completes.
+    /// Returns once the copy no longer reads `source`, as the guard of its [`HostSlice`]
+    /// implementation ensures: for slices, the driver stages pageable memory before this
+    /// returns, and the guard waits for copies of page-locked memory.
     ///
     /// # Panics
     ///
@@ -1064,6 +1106,26 @@ impl CudaStream {
     ) -> Result<(), DriverError> {
         // SAFETY: The slice is used only by the copy below, enqueued on this stream.
         let (source, _record_source) = unsafe { source.stream_synced_slice(self) };
+        // SAFETY: The guard keeps the source borrowed until the copy no longer reads it.
+        unsafe { self.memcpy_htod_async(source, target) }
+    }
+
+    /// Copies `source` into `target` on this stream, without waiting for copies of page-locked
+    /// memory.
+    ///
+    /// # Safety
+    ///
+    /// `source` must stay alive and unmodified until the copy completes, such as until an event
+    /// recorded after it completes.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `target` is shorter than `source`.
+    pub unsafe fn memcpy_htod_async<T: DeviceRepr, Target: DevicePtrMut<T>>(
+        self: &Arc<Self>,
+        source: &[T],
+        target: &mut Target,
+    ) -> Result<(), DriverError> {
         // The copied slice, not `HostSlice::len`, bounds the copy.
         assert!(target.len() >= source.len());
         let (pointer, _record) = target.device_ptr_mut(self);
