@@ -52,6 +52,7 @@ use crate::table_function::Cardinality;
 use crate::table_function::GlobalState;
 use crate::table_function::LocalState;
 use crate::table_function::cardinality;
+use crate::table_function::deserialize;
 use crate::table_function::finalize_scan;
 use crate::table_function::finish_reading;
 use crate::table_function::init_global;
@@ -59,6 +60,7 @@ use crate::table_function::init_local;
 use crate::table_function::pushdown_complex_filter;
 use crate::table_function::pushdown_projection_aggregates;
 use crate::table_function::pushdown_projection_expression;
+use crate::table_function::serialize;
 use crate::table_function::to_string;
 
 #[unsafe(no_mangle)]
@@ -165,6 +167,18 @@ pub unsafe extern "C-unwind" fn duckdb_table_function_init_local(
     let global = unsafe { global.cast::<GlobalState>().as_ref() }.vortex_expect("null pointer");
     let local = init_local(bind, global);
     Data::from(Box::new(local)).as_ptr()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn duckdb_table_function_serialize(
+    bind: *const c_void,
+    error_out: *mut cpp::duckdb_vx_error,
+) -> cpp::duckdb_vx_data {
+    let bind = unsafe { bind.cast::<BindState>().as_ref() }.vortex_expect("null pointer");
+    try_or_null(error_out, || {
+        let state = serialize(bind)?;
+        Ok(Data::from(Box::new(state)).as_ptr())
+    })
 }
 
 #[unsafe(no_mangle)]

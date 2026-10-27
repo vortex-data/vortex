@@ -667,3 +667,7 @@ pub fn to_string(bind_data: &BindState, map: &mut DuckdbStringMapRef) {
         map.push("SELECT projections", &projections);
     }
 }
+
+pub fn serialize(bind_data: &BindState) -> VortexResult<()> {
+
+}

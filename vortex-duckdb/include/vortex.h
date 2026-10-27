@@ -48,6 +48,8 @@ duckdb_vx_data duckdb_table_function_init_global(const duckdb_vx_tfunc_init_inpu
 
 extern duckdb_vx_data duckdb_table_function_init_local(const void *bind, const void *global);
 
+extern duckdb_vx_data duckdb_table_function_serialize(const void *bind, duckdb_vx_error *error_out);
+
 extern
 duckdb_vx_data duckdb_reader_bind(const void *first_file,
                                   duckdb_bind_result result,

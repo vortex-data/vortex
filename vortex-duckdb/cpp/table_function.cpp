@@ -193,23 +193,22 @@ static void serialize(Serializer& serializer, const optional_ptr<FunctionData> b
     if (!base_bind_data) return;
     const auto& bind_data = *static_cast<const MultiFileBindData*>(base_bind_data.get());
 
-    // multi file reader file list
-    // + MultiFileOptions
-    // + rust-side state: filters, columns.(except name), .aggregates
+    // TODO
+    serializer.WriteProperty(100, "files", bind_data.file_list);
+
+    serializer.WriteProperty(101, "types", bind_data.types);
+    serializer.WriteProperty(102, "names", bind_data.names);
+
+    // 103
+    bind_data.file_options.Serialize(serializer);
 
     void* const ffi_bind = get_ffi_bind(bind_data.bind_data.get());
     duckdb_vx_error error_out = nullptr;
-
-    serializer.WriteProperty();
-
     duckdb_table_function_serialize(ffi_bind, &error_out);
     if (error_out) {
         throw BinderException(IntoErrString(error_out));
     }
-
-    serializer.WriteProperty();
-
-    bind_data.file_options.Serialize(serializer);
+    serializer.WriteProperty(104, "rust_state", ptr, count);
 }
 
 static unique_ptr<FunctionData> deserialize(Deserializer& deserializer, BoundTableFunction&) {
