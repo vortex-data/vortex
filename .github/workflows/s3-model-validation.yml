@@ -16,9 +16,9 @@ on:
         options: [vortex, parquet]
         default: vortex
       mode:
-        description: "Validate a frozen learned profile, or collect a new calibration"
+        description: "Validate the full suite, recalibrate, or measure S3 repeatability"
         type: choice
-        options: [learned, recalibrate]
+        options: [learned, recalibrate, repeatability]
         default: learned
       profile:
         description: "Checked-in profile to validate in learned mode"
@@ -149,9 +149,13 @@ jobs:
       - name: Validate TPC-H model against fresh real S3 samples
         run: |
           phase=tuned
-          if [ "$VALIDATION_MODE" = learned ]; then phase=validate; fi
+          if [ "$VALIDATION_MODE" != recalibrate ]; then phase=validate; fi
+          extra=()
+          if [ "$VALIDATION_MODE" = repeatability ]; then
+            extra=(--queries 1,2,6,15 --round-robin --real-repeat)
+          fi
           python3 benchmarks/s3-validation/run.py --source-root "$REMOTE_ROOT" \
-            --iterations "$ITERATIONS" --format "$BENCH_FORMAT" --phase "$phase" --suites tpch
+            --iterations "$ITERATIONS" --format "$BENCH_FORMAT" --phase "$phase" --suites tpch "${extra[@]}"
       - name: Preserve tuned TPC-H checkpoint
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
@@ -163,9 +167,15 @@ jobs:
       - name: Validate TPC-DS queries 1-71
         run: |
           phase=tuned
-          if [ "$VALIDATION_MODE" = learned ]; then phase=validate; fi
+          if [ "$VALIDATION_MODE" != recalibrate ]; then phase=validate; fi
+          queries="$(seq -s, 1 71)"
+          extra=()
+          if [ "$VALIDATION_MODE" = repeatability ]; then
+            queries=1,20,31,41,61,80,83,92
+            extra=(--round-robin --real-repeat)
+          fi
           python3 benchmarks/s3-validation/run.py --source-root "$REMOTE_ROOT" \
-            --iterations "$ITERATIONS" --format "$BENCH_FORMAT" --phase "$phase" --suites tpcds --queries "$(seq -s, 1 71)"
+            --iterations "$ITERATIONS" --format "$BENCH_FORMAT" --phase "$phase" --suites tpcds --queries "$queries" "${extra[@]}"
       - name: Preserve TPC-DS queries 1-71 checkpoint
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
@@ -175,13 +185,14 @@ jobs:
             s3-validation-results/tuned*
             s3-validation-results/parameters.json
       - name: Validate TPC-DS query 72
+        if: env.VALIDATION_MODE != 'repeatability'
         run: |
           phase=tuned
-          if [ "$VALIDATION_MODE" = learned ]; then phase=validate; fi
+          if [ "$VALIDATION_MODE" != recalibrate ]; then phase=validate; fi
           python3 benchmarks/s3-validation/run.py --source-root "$REMOTE_ROOT" \
             --iterations "$ITERATIONS" --format "$BENCH_FORMAT" --phase "$phase" --suites tpcds --queries 72
       - name: Preserve TPC-DS query 72 checkpoint
-        if: always()
+        if: always() && env.VALIDATION_MODE != 'repeatability'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: s3-validation-tpcds-q72-${{ github.run_attempt }}
@@ -189,15 +200,16 @@ jobs:
             s3-validation-results/tuned*
             s3-validation-results/parameters.json
       - name: Validate TPC-DS queries 73-99
+        if: env.VALIDATION_MODE != 'repeatability'
         run: |
           phase=tuned
-          if [ "$VALIDATION_MODE" = learned ]; then phase=validate; fi
+          if [ "$VALIDATION_MODE" != recalibrate ]; then phase=validate; fi
           python3 benchmarks/s3-validation/run.py --source-root "$REMOTE_ROOT" \
             --iterations "$ITERATIONS" --format "$BENCH_FORMAT" --phase "$phase" --suites tpcds --queries "$(seq -s, 73 99)"
       - name: Publish available reports
         if: always()
         run: |
-          for report in s3-validation-results/initial.md s3-validation-results/tuned.md; do
+          for report in s3-validation-results/initial.md s3-validation-results/tuned.md s3-validation-results/tuned-repeatability.md; do
             if [ -f "$report" ]; then cat "$report" >> "$GITHUB_STEP_SUMMARY"; fi
           done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7

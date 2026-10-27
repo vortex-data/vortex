@@ -128,6 +128,8 @@ pub(super) struct Request {
     path: String,
     requested_range: String,
     bytes: u64,
+    start_ms: f64,
+    response_ms: Option<f64>,
     first_byte_ms: Option<f64>,
     duration_ms: f64,
     inflight_at_start: usize,
@@ -140,6 +142,7 @@ struct Metrics {
     requests: Vec<Request>,
     sample: u64,
     ordinals: BTreeMap<(String, String, String), u64>,
+    started: Option<Instant>,
 }
 
 #[derive(Debug)]
@@ -174,6 +177,8 @@ impl Drop for Guard {
             path: std::mem::take(&mut self.request.path),
             requested_range: std::mem::take(&mut self.request.requested_range),
             bytes: self.request.bytes,
+            start_ms: self.request.start_ms,
+            response_ms: self.request.response_ms,
             first_byte_ms: self.request.first_byte_ms,
             duration_ms: self.request.duration_ms,
             inflight_at_start: self.request.inflight_at_start,
@@ -341,6 +346,7 @@ impl Store {
         let sample = metrics.sample + 1;
         *metrics = Metrics {
             sample,
+            started: Some(Instant::now()),
             ..Metrics::default()
         };
         Ok(())
@@ -377,6 +383,12 @@ impl Store {
         };
         let guard = {
             let mut metrics = self.metrics.lock();
+            let start_ms = metrics
+                .started
+                .get_or_insert_with(Instant::now)
+                .elapsed()
+                .as_secs_f64()
+                * 1000.0;
             let delay_ms = self.model.as_ref().map(|model| {
                 let sample = metrics.sample;
                 let ordinal = metrics
@@ -410,6 +422,8 @@ impl Store {
                     path,
                     requested_range: range,
                     bytes: 0,
+                    start_ms,
+                    response_ms: None,
                     first_byte_ms: None,
                     duration_ms: 0.0,
                     inflight_at_start: metrics.counts.inflight,
@@ -528,7 +542,7 @@ impl Store {
                     })
             })
             .unwrap_or(0);
-        let guard = self
+        let mut guard = self
             .begin(
                 if head { "HEAD" } else { "GET" },
                 location.to_string(),
@@ -540,6 +554,7 @@ impl Store {
             Some(objects) => self.ram_get(location, &options, objects, guard.start, guard.delay_ms),
             None => self.source.get_opts(location, options).await,
         };
+        guard.request.response_ms = Some(guard.start.elapsed().as_secs_f64() * 1000.0);
         let response = match result {
             Ok(response) => response,
             Err(error) => {

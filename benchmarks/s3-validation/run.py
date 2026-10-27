@@ -14,6 +14,7 @@ from pathlib import Path
 import aws_credentials
 import compare
 import learn
+import repeatability
 
 
 def append_chunk(chunk: Path, destination: Path):
@@ -34,6 +35,8 @@ def append_chunk(chunk: Path, destination: Path):
         "adaptive_io",
         "tail_cache_bytes",
         "objects",
+        "round_robin",
+        "real_repeat",
     )
     with chunk.open() as incoming:
         header_line = next(incoming)
@@ -72,6 +75,8 @@ def main():
     parser.add_argument("--profile", type=Path, default=os.environ.get("S3_MODEL_PROFILE"))
     parser.add_argument("--suites", choices=("tpch", "tpcds"), nargs="+", default=["tpch", "tpcds"])
     parser.add_argument("--queries", type=lambda value: [int(part) for part in value.split(",")])
+    parser.add_argument("--round-robin", action="store_true")
+    parser.add_argument("--real-repeat", action="store_true")
     args = parser.parse_args()
     if args.iterations < 3:
         parser.error("CI validation needs at least three iterations")
@@ -132,6 +137,10 @@ def run(args: argparse.Namespace, env: dict[str, str]):
                 command.extend(("--model-parameters", str(args.output / "parameters.json")))
             if args.queries:
                 command.extend(("--queries", ",".join(str(q) for q in args.queries)))
+            if args.round_robin:
+                command.append("--round-robin")
+            if args.real_repeat:
+                command.append("--real-repeat")
             if overrides := args.iteration_overrides.get(suite):
                 command.extend(("--iteration-overrides", ",".join(f"{q}={n}" for q, n in overrides.items())))
             print("Running", command, flush=True)
@@ -155,6 +164,8 @@ def run(args: argparse.Namespace, env: dict[str, str]):
             digest = hashlib.sha256(args.profile.read_bytes()).hexdigest()
             learn.attach_profile(result, frozen, digest)
         compare.write_reports(result, args.output / f"{phase}.md")
+        if args.real_repeat:
+            repeatability.write_reports(repeatability.analyze(records), args.output / f"{phase}-repeatability")
         print(phase, json.dumps({"adequate": result["adequate"], "correlations": result["correlations"]}), flush=True)
         if phase == "initial":
             # A request mismatch invalidates latency tuning; preserve the evidence and stop.

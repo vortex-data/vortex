@@ -13,6 +13,8 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
 use clap::Parser;
 use datafusion::datasource::listing::ListingOptions;
@@ -58,6 +60,12 @@ struct Args {
     iteration_overrides: Vec<(usize, usize)>,
     #[arg(long, value_delimiter = ',')]
     queries: Option<Vec<usize>>,
+    /// Spread query repetitions across rounds to observe changes over time.
+    #[arg(long)]
+    round_robin: bool,
+    /// Add an independent real S3 measurement to quantify reference repeatability.
+    #[arg(long)]
+    real_repeat: bool,
     #[arg(long, default_value_t = 25.0)]
     ttfb_ms: f64,
     #[arg(long, default_value_t = 100.0)]
@@ -90,6 +98,44 @@ fn iteration_override(value: &str) -> Result<(usize, usize), String> {
         return Err("Query and iteration count must be positive".to_string());
     }
     Ok((query, iterations))
+}
+
+fn schedule<'a>(
+    queries: &'a [(usize, String)],
+    iterations: usize,
+    overrides: &BTreeMap<usize, usize>,
+    round_robin: bool,
+) -> Vec<(usize, &'a str, usize)> {
+    let mut measurements = queries
+        .iter()
+        .flat_map(|(query, sql)| {
+            (0..overrides.get(query).copied().unwrap_or(iterations))
+                .map(move |iteration| (*query, sql.as_str(), iteration))
+        })
+        .collect::<Vec<_>>();
+    if round_robin {
+        let positions = queries
+            .iter()
+            .enumerate()
+            .map(|(position, (query, _))| (*query, position))
+            .collect::<BTreeMap<_, _>>();
+        measurements.sort_by_key(|(query, _, iteration)| {
+            (
+                *iteration,
+                (positions[query] + queries.len() - iteration % queries.len()) % queries.len(),
+            )
+        });
+    }
+    measurements
+}
+
+fn backend_order(count: usize, query: usize, iteration: usize) -> Vec<usize> {
+    let mut order = (0..count).collect::<Vec<_>>();
+    order.rotate_left((query + iteration) % count);
+    if count > 2 && (iteration / count) % 2 == 1 {
+        order.reverse();
+    }
+    order
 }
 
 async fn session(
@@ -155,6 +201,8 @@ async fn query(session: &SessionContext, sql: &str) -> anyhow::Result<usize> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let process_start = Instant::now();
+    let process_started_unix_ms = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
     let args = Args::parse();
     let iteration_overrides = args
         .iteration_overrides
@@ -221,6 +269,12 @@ async fn main() -> anyhow::Result<()> {
         None,
         !args.adaptive_io,
     ));
+    let real_repeat = Arc::new(Store::new(
+        Arc::clone(&source),
+        Some(Arc::clone(&snapshot)),
+        None,
+        !args.adaptive_io,
+    ));
     let simulated = Arc::new(Store::new(
         source,
         Some(snapshot),
@@ -235,6 +289,8 @@ async fn main() -> anyhow::Result<()> {
         "suite": benchmark.dataset_name(), "scale_factor": args.scale_factor, "format": args.format.name(),
         "model": model, "iterations": args.iterations, "cpus": system.cpus().len(),
         "iteration_overrides": iteration_overrides,
+        "round_robin": args.round_robin, "real_repeat": args.real_repeat,
+        "process_started_unix_ms": process_started_unix_ms,
         "objects": objects,
         "total_memory": system.total_memory(), "available_memory": system.available_memory(),
         "ci_run_id": std::env::var("GITHUB_RUN_ID").ok(), "sha": std::env::var("GITHUB_SHA").ok(),
@@ -243,87 +299,133 @@ async fn main() -> anyhow::Result<()> {
         "tail_cache_bytes": if args.adaptive_io { 0 } else { store::TAIL_CACHE_BYTES } }),
     )?;
     writeln!(writer)?;
-    let queries = benchmark.queries()?;
+    let queries = benchmark
+        .queries()?
+        .into_iter()
+        .filter(|(index, _)| args.queries.as_ref().is_none_or(|qs| qs.contains(index)))
+        .collect::<Vec<_>>();
     let expected = match (benchmark.dataset_name(), args.scale_factor.as_str()) {
         ("tpch", "10" | "10.0") => Some(vortex_bench::tpch::EXPECTED_ROW_COUNTS_SF10.to_vec()),
         ("tpch", "1" | "1.0") => Some(vortex_bench::tpch::EXPECTED_ROW_COUNTS_SF1.to_vec()),
         _ => None,
     };
-    for (index, sql) in queries {
-        if args.queries.as_ref().is_some_and(|qs| !qs.contains(&index)) {
-            continue;
-        }
-        let iterations = iteration_overrides
-            .get(&index)
-            .copied()
-            .unwrap_or(args.iterations);
-        for iteration in 0..iterations {
-            let pair = if (index + iteration) % 2 == 0 {
-                [("real", &real), ("model", &simulated)]
-            } else {
-                [("model", &simulated), ("real", &real)]
-            };
-            let mut pair_rows = None;
-            for (backend, store) in pair {
+    let mut backends = vec![("real", &real), ("model", &simulated)];
+    if args.real_repeat {
+        backends.push(("real_repeat", &real_repeat));
+    }
+    for (index, sql, iteration) in schedule(
+        &queries,
+        args.iterations,
+        &iteration_overrides,
+        args.round_robin,
+    ) {
+        let mut pair_rows = None;
+        for (position, backend_index) in backend_order(backends.len(), index, iteration)
+            .into_iter()
+            .enumerate()
+        {
+            let (backend, store) = backends[backend_index];
+            store.reset()?;
+            let setup_start = Instant::now();
+            let session = session(
+                benchmark.as_ref(),
+                args.format,
+                Arc::clone(store),
+                args.adaptive_io,
+            )
+            .await?;
+            let setup_seconds = setup_start.elapsed().as_secs_f64();
+            let (setup_counts, _) = store.take()?;
+            let runtime = session.runtime_env();
+            let caches = &runtime.cache_manager;
+            caches.get_file_metadata_cache().clear();
+            if let Some(cache) = caches.get_file_statistic_cache() {
+                cache.clear();
+            }
+            for cache in ["cold", "warm"] {
                 store.reset()?;
-                let setup_start = Instant::now();
-                let session = session(
-                    benchmark.as_ref(),
-                    args.format,
-                    Arc::clone(store),
-                    args.adaptive_io,
-                )
-                .await?;
-                let setup_seconds = setup_start.elapsed().as_secs_f64();
-                let (setup_counts, _) = store.take()?;
-                let runtime = session.runtime_env();
-                let caches = &runtime.cache_manager;
-                caches.get_file_metadata_cache().clear();
-                if let Some(cache) = caches.get_file_statistic_cache() {
-                    cache.clear();
-                }
-                for cache in ["cold", "warm"] {
-                    store.reset()?;
-                    let start = Instant::now();
-                    let result = query(&session, &sql).await;
-                    let seconds = start.elapsed().as_secs_f64();
-                    let (counts, requests) = store.take()?;
-                    let (rows, error) = match result {
-                        Ok(rows) => {
-                            if let Some(previous) = pair_rows {
-                                anyhow::ensure!(previous == rows, "Row mismatch q{index}");
-                            }
-                            pair_rows = Some(rows);
-                            if let Some(expected) = &expected {
-                                anyhow::ensure!(
-                                    expected[index] == rows,
-                                    "Unexpected row count q{index}"
-                                );
-                            }
-                            (Some(rows), None)
+                let started_ms = process_start.elapsed().as_secs_f64() * 1000.0;
+                let start = Instant::now();
+                let result = query(&session, sql).await;
+                let seconds = start.elapsed().as_secs_f64();
+                let (counts, requests) = store.take()?;
+                let (rows, error) = match result {
+                    Ok(rows) => {
+                        if let Some(previous) = pair_rows {
+                            anyhow::ensure!(previous == rows, "Row mismatch q{index}");
                         }
-                        Err(error) => (None, Some(format!("{error:#}"))),
-                    };
-                    eprintln!(
-                        "{} q{index:02} {backend} {cache} iteration={iteration} {seconds:.3}s GET={} bytes={} error={}",
-                        benchmark.dataset_name(),
-                        counts.get,
-                        counts.bytes,
-                        error.as_deref().unwrap_or("none")
-                    );
-                    serde_json::to_writer(
-                        &mut writer,
-                        &json!({"kind": "sample", "suite": benchmark.dataset_name(),
+                        pair_rows = Some(rows);
+                        if let Some(expected) = &expected {
+                            anyhow::ensure!(
+                                expected[index] == rows,
+                                "Unexpected row count q{index}"
+                            );
+                        }
+                        (Some(rows), None)
+                    }
+                    Err(error) => (None, Some(format!("{error:#}"))),
+                };
+                eprintln!(
+                    "{} q{index:02} {backend} {cache} iteration={iteration} {seconds:.3}s GET={} bytes={} error={}",
+                    benchmark.dataset_name(),
+                    counts.get,
+                    counts.bytes,
+                    error.as_deref().unwrap_or("none")
+                );
+                serde_json::to_writer(
+                    &mut writer,
+                    &json!({"kind": "sample", "suite": benchmark.dataset_name(),
                         "query": index, "backend": backend, "cache": cache, "iteration": iteration,
+                        "position": position, "started_ms": started_ms,
                         "seconds": seconds, "rows": rows, "error": error, "counts": counts,
                         "avg_inflight": counts.request_seconds / seconds, "requests": requests,
                         "setup_seconds": setup_seconds, "setup_counts": setup_counts, "model": model }),
-                    )?;
-                    writeln!(writer)?;
-                    writer.flush()?;
-                }
+                )?;
+                writeln!(writer)?;
+                writer.flush()?;
             }
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rounds_preserve_overrides_and_visit_queries_before_repeating() {
+        let queries = vec![(1, "one".to_string()), (2, "two".to_string())];
+        let overrides = BTreeMap::from([(2, 1)]);
+        let rounds = schedule(&queries, 3, &overrides, true);
+        assert_eq!(
+            rounds,
+            vec![(1, "one", 0), (2, "two", 0), (1, "one", 1), (1, "one", 2)]
+        );
+        assert_eq!(schedule(&queries, 3, &overrides, false).len(), rounds.len());
+    }
+
+    #[test]
+    fn three_backends_visit_every_order_in_six_rounds() {
+        let mut orders = (0..6)
+            .map(|iteration| backend_order(3, 1, iteration))
+            .collect::<Vec<_>>();
+        orders.sort();
+        orders.dedup();
+        assert_eq!(orders.len(), 6);
+    }
+
+    #[test]
+    fn query_positions_rotate_between_rounds() {
+        let queries = vec![
+            (1, "a".to_string()),
+            (2, "b".to_string()),
+            (3, "c".to_string()),
+        ];
+        let order = schedule(&queries, 3, &BTreeMap::new(), true)
+            .into_iter()
+            .map(|(query, ..)| query)
+            .collect::<Vec<_>>();
+        assert_eq!(order, vec![1, 2, 3, 2, 3, 1, 3, 1, 2]);
+    }
 }

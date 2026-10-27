@@ -72,6 +72,12 @@ async fn range_size_selects_the_learned_latency_class() -> anyhow::Result<()> {
     assert_eq!(counts.bytes, 11);
     assert_eq!(requests[0].model_delay_ms, Some(2.0));
     assert_eq!(requests[1].model_delay_ms, Some(20.0));
+    assert!(requests[0].start_ms <= requests[1].start_ms);
+    assert!(requests.iter().all(|request| {
+        request
+            .response_ms
+            .is_some_and(|response| response <= request.duration_ms)
+    }));
     Ok(())
 }
 

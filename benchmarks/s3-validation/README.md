@@ -124,6 +124,25 @@ Query failures and request mismatches are invalid comparisons, not latency calib
 gh workflow run s3-model-validation.yml --ref ji/ci-s3-model-validation -f iterations=5 -f format=vortex -f mode=learned
 ```
 
+To separate reference variance from model error, use the focused repeatability experiment:
+
+```bash
+gh workflow run s3-model-validation.yml --ref ji/ci-s3-model-validation -f iterations=24 -f mode=repeatability
+```
+
+This measures TPC-H 1,2,6,15 and TPC-DS 1,20,31,41,61,80,83,92 at SF10. Each query/round has
+independent real S3 controls plus the frozen model, in all six backend orders. Repetitions visit
+all selected queries before starting the next round, rotating query positions and spreading samples over time. Cold/warm
+semantics, objects, hardware and request checks are unchanged. Request start times and query
+positions, response-header times and body-consumption times are recorded. These focused diagnostics supplement full-suite validation; they do not
+replace its 121-query coverage.
+
+The repeatability report retains the fixed ratio flags and compares model/real absolute log
+errors with real/real errors. Paired circular blocks of consecutive rounds provide exploratory
+95% confidence intervals for median bias and excess error over the S3 control. An interval
+including one is inconclusive, rather than proof of equivalence. Query runtimes are diagnostic
+outcomes and remain excluded from profile learning.
+
 For local smoke testing, generate a small dataset and explicitly allow a filesystem reference.
 This tests the harness and never qualifies as S3 validation:
 
