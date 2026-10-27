@@ -161,6 +161,32 @@ fn test_cast_preserves_checked_nullability() -> VortexResult<()> {
     Ok(())
 }
 
+/// The cast rule of `Widen` declines a float target, so canonical execution casts the values. The
+/// cast conformance suite casts an integer array only to integer types, so this test covers the
+/// decline. The unsigned case checks the integer guard of the rule, because its signedness check
+/// alone accepts a float target for unsigned values.
+#[rstest]
+#[case::signed_to_f64(signed(), PType::F64)]
+#[case::unsigned_to_f32(unsigned(), PType::F32)]
+fn test_cast_to_float_matches_canonical(
+    #[case] array: WidenArray,
+    #[case] target: PType,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let target = DType::Primitive(target, array.dtype().nullability());
+    let canonical = array
+        .clone()
+        .into_array()
+        .execute::<PrimitiveArray>(&mut ctx)?;
+
+    let cast = array.into_array().cast(target.clone())?;
+
+    let expected = canonical.into_array().cast(target)?;
+    assert_arrays_eq!(cast, expected, &mut ctx);
+
+    Ok(())
+}
+
 #[rstest]
 #[case::non_nullable_fill(
     Scalar::primitive(2i64, Nullability::NonNullable),
