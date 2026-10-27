@@ -12,7 +12,7 @@ scale = sys.argv[1]
 binary = Path('target/release_debug/datafusion-bench')
 binary.chmod(0o755)
 Path('scan-binary-provenance.json').write_text(json.dumps({
-    'run_id': 40461998987, 'commit': '65c7c2a0e5b2abde9762582e14bb843d9cc7f019',
+    'run_id': 40475426727, 'commit': '208cd6358f3370cb5cc04a174b092699ef4bfe9f',
     'sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
     'note': 'Frozen combined planning, dense filters, early empty partitions and wide prefetch; same binary for V1 and V2.',
 }, indent=2))
