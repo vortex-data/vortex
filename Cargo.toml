@@ -169,8 +169,8 @@ fuzzy-matcher = "0.3"
 geo = "0.31.0"
 geo-traits = "0.3.0"
 geo-types = "0.7.19"
-geoarrow = "0.8.0"
-geoarrow-cast = "0.8.0"
+geoarrow = "0.9.0"
+geoarrow-cast = "0.9.0"
 get_dir = "0.5.0"
 git2 = { version = "0.21", default-features = false }
 glob = "0.3.2"
@@ -481,7 +481,7 @@ incremental = false
 debug = false
 
 [patch.crates-io]
-geoarrow = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }
-geoarrow-array = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }
-geoarrow-cast = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }
-geoarrow-schema = { version = "=0.8.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "855d2e138e54ce503c4488d5bb795ca1ea880d1f" }
+geoarrow = { version = "=0.9.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "ff61a948ac890b0e3071edd68825d081c4d06ac8" }
+geoarrow-array = { version = "=0.9.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "ff61a948ac890b0e3071edd68825d081c4d06ac8" }
+geoarrow-cast = { version = "=0.9.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "ff61a948ac890b0e3071edd68825d081c4d06ac8" }
+geoarrow-schema = { version = "=0.9.0", git = "https://github.com/geoarrow/geoarrow-rs", rev = "ff61a948ac890b0e3071edd68825d081c4d06ac8" }

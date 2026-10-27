@@ -5039,8 +5039,8 @@ dependencies = [
 
 [[package]]
 name = "geoarrow"
-version = "0.8.0"
-source = "git+https://github.com/geoarrow/geoarrow-rs?rev=855d2e138e54ce503c4488d5bb795ca1ea880d1f#855d2e138e54ce503c4488d5bb795ca1ea880d1f"
+version = "0.9.0"
+source = "git+https://github.com/geoarrow/geoarrow-rs?rev=ff61a948ac890b0e3071edd68825d081c4d06ac8#ff61a948ac890b0e3071edd68825d081c4d06ac8"
 dependencies = [
  "geoarrow-array",
  "geoarrow-schema",
@@ -5048,12 +5048,12 @@ dependencies = [
 
 [[package]]
 name = "geoarrow-array"
-version = "0.8.0"
-source = "git+https://github.com/geoarrow/geoarrow-rs?rev=855d2e138e54ce503c4488d5bb795ca1ea880d1f#855d2e138e54ce503c4488d5bb795ca1ea880d1f"
+version = "0.9.0"
+source = "git+https://github.com/geoarrow/geoarrow-rs?rev=ff61a948ac890b0e3071edd68825d081c4d06ac8#ff61a948ac890b0e3071edd68825d081c4d06ac8"
 dependencies = [
- "arrow-array 59.3.2",
- "arrow-buffer 59.3.2",
- "arrow-schema 59.3.2",
+ "arrow-array 60.0.0",
+ "arrow-buffer 60.0.0",
+ "arrow-schema 60.0.0",
  "geo-traits",
  "geoarrow-schema",
  "num-traits",
@@ -5063,10 +5063,10 @@ dependencies = [
 
 [[package]]
 name = "geoarrow-cast"
-version = "0.8.0"
-source = "git+https://github.com/geoarrow/geoarrow-rs?rev=855d2e138e54ce503c4488d5bb795ca1ea880d1f#855d2e138e54ce503c4488d5bb795ca1ea880d1f"
+version = "0.9.0"
+source = "git+https://github.com/geoarrow/geoarrow-rs?rev=ff61a948ac890b0e3071edd68825d081c4d06ac8#ff61a948ac890b0e3071edd68825d081c4d06ac8"
 dependencies = [
- "arrow-schema 59.3.2",
+ "arrow-schema 60.0.0",
  "geo-traits",
  "geoarrow-array",
  "geoarrow-schema",
@@ -5075,10 +5075,10 @@ dependencies = [
 
 [[package]]
 name = "geoarrow-schema"
-version = "0.8.0"
-source = "git+https://github.com/geoarrow/geoarrow-rs?rev=855d2e138e54ce503c4488d5bb795ca1ea880d1f#855d2e138e54ce503c4488d5bb795ca1ea880d1f"
+version = "0.9.0"
+source = "git+https://github.com/geoarrow/geoarrow-rs?rev=ff61a948ac890b0e3071edd68825d081c4d06ac8#ff61a948ac890b0e3071edd68825d081c4d06ac8"
 dependencies = [
- "arrow-schema 59.3.2",
+ "arrow-schema 60.0.0",
  "geo-traits",
  "serde",
  "serde_json",
