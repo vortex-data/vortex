@@ -85,6 +85,7 @@ use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::source::DataSource;
 use datafusion_execution::SendableRecordBatchStream;
 use datafusion_execution::TaskContext;
+use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::EquivalenceProperties;
 use datafusion_physical_expr::Partitioning;
 use datafusion_physical_expr::PhysicalExpr;
@@ -121,6 +122,7 @@ use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_utils::parallelism::get_available_parallelism;
 
+use super::dynamic_filters::convert_dynamic_filter;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
@@ -208,6 +210,8 @@ impl VortexDataSourceBuilder {
     /// Defaults to [`DefaultExpressionConverter`] using the builder's session.
     /// Unsupported expressions remain in DataFusion. Custom converters must preserve
     /// DataFusion values, nulls, and evaluation errors for expressions they accept.
+    /// A producer-guaranteed fixed comparison may be converted to
+    /// [`DynamicComparison`](vortex::scalar_fn::fns::dynamic::DynamicComparison).
     pub fn with_expression_converter(
         mut self,
         expression_converter: Arc<dyn ExpressionConverter>,
@@ -291,6 +295,7 @@ impl VortexDataSourceBuilder {
             leftover_schema: arrow_schema,
             leftover_statistics: statistics,
             filter: None,
+            dynamic_filters: Vec::new(),
             limit: None,
             ordered: false,
             num_partitions: get_available_parallelism().unwrap_or(1),
@@ -369,6 +374,7 @@ pub struct VortexDataSource {
     /// An optional filter expression.
     /// Populated by [`DataSource::try_pushdown_filters`] when DataFusion pushes filters down.
     filter: Option<Expression>,
+    dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
     /// An optional row limit populated by [`DataSource::with_fetch`].
     limit: Option<usize>,
     /// Whether to preserve the order of the output rows.
@@ -585,6 +591,9 @@ impl DataSource for VortexDataSource {
     }
 
     fn with_fetch(&self, limit: Option<usize>) -> Option<Arc<dyn DataSource>> {
+        if limit.is_some() && !self.dynamic_filters.is_empty() {
+            return None;
+        }
         let mut this = self.clone();
         this.limit = limit;
         Some(Arc::new(this))
@@ -656,43 +665,42 @@ impl DataSource for VortexDataSource {
         filters: Vec<Arc<dyn PhysicalExpr>>,
         _config: &datafusion_common::config::ConfigOptions,
     ) -> DFResult<FilterPushdownPropagation<Arc<dyn DataSource>>> {
-        if filters.is_empty() {
+        // Filters arriving after fetch must remain above that row limit.
+        if filters.is_empty() || self.limit.is_some() {
             return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
-                vec![],
+                vec![PushedDown::No; filters.len()],
             ));
         }
 
-        let converter = &self.expression_converter;
-        let filters = filters
-            .into_iter()
-            .map(|filter| {
-                let filter = match &self.leftover_projection {
-                    Some(projection) => projection.unproject_expr(&filter)?,
-                    None => filter,
-                };
-                reassign_expr_columns(filter, &self.projected_schema)
-            })
-            .collect::<DFResult<Vec<_>>>()?;
+        let mut this = self.clone();
+        let mut pushdown_results = Vec::with_capacity(filters.len());
+        let mut converted = Vec::new();
+        for filter in filters {
+            let filter = match &self.leftover_projection {
+                Some(projection) => projection.unproject_expr(&filter)?,
+                None => filter,
+            };
+            let filter = reassign_expr_columns(filter, &self.projected_schema)?;
+            if DynamicFilterTracking::classify(&filter).contains_dynamic_filter() {
+                converted.push(convert_dynamic_filter(
+                    Arc::clone(&filter),
+                    Arc::clone(&self.projected_schema),
+                    Arc::clone(&self.expression_converter),
+                ));
+                this.dynamic_filters.push(filter);
+                pushdown_results.push(PushedDown::No);
+            } else if let Some(expression) = self
+                .expression_converter
+                .try_convert(&filter, &self.projected_schema)?
+            {
+                converted.push(expression);
+                pushdown_results.push(PushedDown::Yes);
+            } else {
+                pushdown_results.push(PushedDown::No);
+            }
+        }
 
-        // Classify each filter: pushable filters are passed into the ScanRequest in open(),
-        // so we can safely claim PushedDown::Yes for them.
-        let converted = filters
-            .iter()
-            .map(|expr| converter.try_convert(expr, &self.projected_schema))
-            .collect::<DFResult<Vec<_>>>()?;
-        let pushdown_results: Vec<PushedDown> = converted
-            .iter()
-            .map(|expr| {
-                if expr.is_some() {
-                    PushedDown::Yes
-                } else {
-                    PushedDown::No
-                }
-            })
-            .collect();
-
-        // If nothing can be pushed down, return early.
-        if pushdown_results.iter().all(|p| matches!(p, PushedDown::No)) {
+        if converted.is_empty() {
             return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
                 pushdown_results,
             ));
@@ -702,9 +710,7 @@ impl DataSource for VortexDataSource {
         // existing filter.
         let pushed = converted
             .into_iter()
-            .flatten()
             .map(|expr| replace(expr, &root(), self.projected_projection.clone()));
-        let mut this = self.clone();
         this.filter = and_collect(self.filter.iter().cloned().chain(pushed));
         Ok(
             FilterPushdownPropagation::with_parent_pushdown_result(pushdown_results)
@@ -720,7 +726,8 @@ impl DataSource for VortexDataSource {
             self.leftover_projection
                 .iter()
                 .flat_map(|projection| projection.iter())
-                .map(|expr| &expr.expr),
+                .map(|expr| &expr.expr)
+                .chain(self.dynamic_filters.iter()),
             f,
         )
     }

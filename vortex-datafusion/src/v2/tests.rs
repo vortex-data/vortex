@@ -5,21 +5,27 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use arrow_array::RecordBatch;
+use arrow_array::cast::AsArray;
+use arrow_array::types::Int32Type;
 use datafusion::assert_batches_eq;
 use datafusion::prelude::SessionContext;
 use datafusion_common::ScalarValue;
 use datafusion_common::arrow::compute::concat_batches;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::stats::Precision;
+use datafusion_common::tree_node::TreeNode;
+use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::source::DataSource;
 use datafusion_datasource::source::DataSourceExec;
 use datafusion_expr::Operator;
 use datafusion_physical_expr::PhysicalExpr;
+use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion_physical_expr::projection::ProjectionExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::expressions as df_expr;
 use datafusion_physical_plan::filter_pushdown::PushedDown;
+use futures::TryStreamExt;
 use rstest::rstest;
 use vortex::VortexSessionDefault;
 use vortex::buffer::ByteBufferMut;
@@ -176,5 +182,104 @@ async fn statistics_follow_filter_and_fetch() -> anyhow::Result<()> {
         limited.partition_statistics(None)?.num_rows,
         Precision::Inexact(1)
     );
+    let rejected = limited.try_pushdown_filters(
+        vec![
+            df_expr::lit(false),
+            Arc::new(DynamicFilterPhysicalExpr::new(vec![], df_expr::lit(false))),
+        ],
+        &ConfigOptions::new(),
+    )?;
+    assert!(matches!(
+        rejected.filters.as_slice(),
+        [PushedDown::No, PushedDown::No]
+    ));
+    assert!(rejected.updated_node.is_none());
+    Ok(())
+}
+
+#[rstest]
+#[case(Operator::And, vec![30, 20], vec![30], vec![20])]
+#[case(Operator::Or, vec![30, 10, 20], vec![30, 20], vec![30, 20])]
+#[tokio::test]
+async fn dynamic_filters_refresh_projected_bounds_and_keep_residuals(
+    #[case] operator: Operator,
+    #[case] unrestricted: Vec<i32>,
+    #[case] above_bound: Vec<i32>,
+    #[case] equal_bound: Vec<i32>,
+) -> anyhow::Result<()> {
+    let source = vortex_source()
+        .await?
+        .try_swapping_with_projection(&ProjectionExprs::from(vec![ProjectionExpr::new(
+            Arc::new(df_expr::Column::new("b", 1)),
+            "value",
+        )]))?
+        .unwrap();
+    let column = Arc::new(df_expr::Column::new("value", 0)) as Arc<dyn PhysicalExpr>;
+    let above = |value| {
+        Arc::new(df_expr::BinaryExpr::new(
+            Arc::clone(&column),
+            Operator::Gt,
+            df_expr::lit(value),
+        )) as Arc<dyn PhysicalExpr>
+    };
+    let bound = Arc::new(DynamicFilterPhysicalExpr::new(
+        vec![Arc::clone(&column)],
+        df_expr::lit(true),
+    ));
+    let pushed = source.try_pushdown_filters(
+        vec![Arc::new(df_expr::BinaryExpr::new(
+            above(15_i32),
+            operator,
+            Arc::clone(&bound) as Arc<dyn PhysicalExpr>,
+        ))],
+        &ConfigOptions::new(),
+    )?;
+    assert!(matches!(pushed.filters.as_slice(), [PushedDown::No]));
+    let source = pushed.updated_node.unwrap();
+    assert!(source.with_fetch(Some(1)).is_none());
+    let mut visited = false;
+    source.apply_expressions(&mut |expression| {
+        expression.apply(|expr| {
+            visited |= expr.is::<DynamicFilterPhysicalExpr>();
+            Ok(TreeNodeRecursion::Continue)
+        })
+    })?;
+    assert!(visited);
+    // An unsupported dynamic predicate must not erase the static AND restriction.
+    let unsupported = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::BinaryExpr::new(
+            Arc::clone(&column),
+            Operator::Modulo,
+            df_expr::lit(2_i32),
+        )),
+        Operator::Eq,
+        df_expr::lit(1_i32),
+    ));
+    for (predicate, expected) in [
+        (df_expr::lit(true), unrestricted.clone()),
+        (above(25_i32), above_bound),
+        (
+            Arc::new(df_expr::BinaryExpr::new(
+                Arc::clone(&column),
+                Operator::Eq,
+                df_expr::lit(20_i32),
+            )) as Arc<dyn PhysicalExpr>,
+            equal_bound,
+        ),
+        (unsupported as Arc<dyn PhysicalExpr>, unrestricted),
+    ] {
+        let stream = source.open(0, SessionContext::new().task_ctx())?;
+        let schema = stream.schema();
+        bound.update(predicate)?;
+        let batch = concat_batches(&schema, &stream.try_collect::<Vec<_>>().await?)?;
+        assert_eq!(
+            batch
+                .column(0)
+                .as_primitive::<Int32Type>()
+                .values()
+                .as_ref(),
+            expected
+        );
+    }
     Ok(())
 }
