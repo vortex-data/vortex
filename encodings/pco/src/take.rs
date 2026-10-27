@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Batched selection using compact request descriptors and one operation-owned page cache.
-
-use std::collections::BTreeSet;
-use std::ops::Range;
+//! Primitive take that decodes only pages containing requested non-null values.
 
 use pco::data_types::Number;
 use pco::data_types::NumberType;
@@ -22,7 +19,6 @@ use vortex_array::arrays::PiecewiseSequence;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::dtype::NativePType;
-use vortex_array::dtype::Nullability;
 use vortex_array::dtype::half;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::Scalar;
@@ -32,7 +28,6 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_mask::Mask;
 
 use crate::Pco;
 use crate::PcoArrayExt;
@@ -43,20 +38,13 @@ use crate::decoder::PageLookup;
 use crate::page_index::LogicalPageIndex;
 use crate::page_index::PageIndex;
 
-/// Compact descriptor; null indices have no start. Zero-length runs consume no source rows.
-struct Run {
-    start: Option<usize>,
-    length: usize,
-    stride: usize,
-}
-
 impl TakeExecute for Pco {
     fn take(
         array: ArrayView<'_, Pco>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        if array.metadata.logical_row_prefix.is_none() {
+        if array.metadata.logical_row_prefix.is_none() || indices.is::<PiecewiseSequence>() {
             return Ok(None);
         }
         if indices.is_empty() {
@@ -66,79 +54,46 @@ impl TakeExecute for Pco {
                 .union_nullability(indices.dtype().nullability());
             return Ok(Some(Canonical::empty(&dtype).into_array()));
         }
-        // Compact range execution is introduced separately; preserve the normal fallback.
-        if indices.is::<PiecewiseSequence>() {
-            return Ok(None);
+        let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
+        let mask = indices.validity()?.execute_mask(indices.len(), ctx)?;
+        let extrema = min_max(indices.as_array(), ctx, NumericalAggregateOpts::default())?;
+        if let Some(extrema) = extrema {
+            match_each_integer_ptype!(indices.ptype(), |I| {
+                validate_extrema::<I>(&extrema, array.len())?
+            });
+        }
+        if mask.all_false() || array.pages.is_empty() {
+            return Ok(Some(
+                ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
+                    .into_array(),
+            ));
         }
         let PageIndex::IndexedFast(index) = array.page_index()? else {
             return Ok(None);
         };
-        let view = index.as_ref();
-        let grouped;
-        let runs = {
-            let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
-            let mask = indices.validity()?.execute_mask(indices.len(), ctx)?;
-            // Reuse native logical-null-aware extrema and their immutable-array stats cache.
-            // Numeric extrema prove every defined index is representable and in bounds.
-            let extrema = min_max(indices.as_array(), ctx, NumericalAggregateOpts::default())?;
-            if let Some(extrema) = extrema {
-                match_each_integer_ptype!(indices.ptype(), |I| {
-                    validate_extrema::<I>(&extrema, array.len())?
-                });
-            }
-            let defined = mask.true_count();
-            if defined == 0 {
-                return Ok(Some(
-                    ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
-                        .into_array(),
-                ));
-            }
-            let contiguous = match &mask {
-                Mask::AllTrue(_) => match_each_integer_ptype!(indices.ptype(), |I| {
-                    indices.as_slice::<I>().windows(2).all(|pair| {
-                        checked_index(pair[0])
-                            .ok()
-                            .and_then(|row| row.checked_add(1))
-                            == checked_index(pair[1]).ok()
-                    })
-                }),
-                _ => false,
-            };
-            if let Some(result) = zero_page_take(array, indices.len(), ctx)? {
-                return Ok(Some(result));
-            }
-            grouped = (!contiguous).then_some(defined);
-            if let Some(defined) = grouped {
-                if descriptor_bytes(defined) >= canonical_bytes(array)
-                    || match_each_integer_ptype!(indices.ptype(), |I| {
-                        prefer_canonical_primitive(
-                            array,
-                            view,
-                            indices.as_slice::<I>(),
-                            &mask,
-                            defined,
-                        )?
-                    })
-                {
-                    return Ok(None);
-                }
-            }
-            match_each_integer_ptype!(indices.ptype(), |I| {
-                primitive_runs(indices.as_slice::<I>(), &mask)?
-            })
-        };
+        let requests = match_each_integer_ptype!(indices.ptype(), |I| {
+            indices
+                .as_slice::<I>()
+                .iter()
+                .zip(mask.iter())
+                .enumerate()
+                .filter_map(|(output, (&row, valid))| valid.then_some((output, row)))
+                .map(|(output, row)| Ok((array.slice_start() + checked_index(row)?, output)))
+                .collect::<VortexResult<Vec<_>>>()?
+        });
         let nullable = array.dtype().nullability() | indices.dtype().nullability();
         let result = match_number_enum!(number_type_from_ptype(array.dtype().as_ptype()), NumberType<T> => {
-            gather::<T>(array, view, &runs, indices.len(), nullable, grouped, ctx)?
+            if nullable.is_nullable() {
+                gather::<T, true>(array, index.as_ref(), requests, indices.len(), ctx)?
+            } else {
+                gather::<T, false>(array, index.as_ref(), requests, indices.len(), ctx)?
+            }
         });
         Ok(Some(result.into_array()))
     }
 }
 
-fn validate_extrema<I: NativePType>(
-    extrema: &MinMaxResult,
-    source_len: usize,
-) -> VortexResult<()>
+fn validate_extrema<I: NativePType>(extrema: &MinMaxResult, source_len: usize) -> VortexResult<()>
 where
     usize: TryFrom<I>,
 {
@@ -161,70 +116,6 @@ where
     Ok(())
 }
 
-fn zero_page_take(
-    array: ArrayView<'_, Pco>,
-    len: usize,
-    _ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<ArrayRef>> {
-    if !array.pages.is_empty() {
-        return Ok(None);
-    }
-    Ok(Some(
-        ConstantArray::new(Scalar::null(array.dtype().as_nullable()), len).into_array(),
-    ))
-}
-
-fn canonical_bytes(array: ArrayView<'_, Pco>) -> usize {
-    // Fallback canonicalizes the visible array, not its potentially much larger owner.
-    array
-        .len()
-        .saturating_mul(array.dtype().as_ptype().byte_width())
-}
-
-fn descriptor_bytes(requests: usize) -> usize {
-    // Request-planning cost heuristic, not a heap bound: Run/sorting/resolved descriptors.
-    // Null runs, vector capacity, tree nodes, masks, ranks and decoder state are excluded.
-    // Output storage is common to both strategies.
-    requests.saturating_mul(
-        size_of::<Run>() + size_of::<(usize, usize)>() + size_of::<(usize, usize, Range<usize>)>(),
-    )
-}
-
-/// Borrow validated primitive inputs during planning. Broad requests stop once selected
-/// physical values plus prospective descriptors exceed the visible canonical values buffer.
-/// Only the chosen sparse strategy allocates Runs/sorting descriptors; no source-sized bitmap.
-fn prefer_canonical_primitive<I: Copy>(
-    array: ArrayView<'_, Pco>,
-    view: &LogicalPageIndex,
-    indices: &[I],
-    mask: &Mask,
-    requests: usize,
-) -> VortexResult<bool>
-where
-    usize: TryFrom<I>,
-{
-    let full_bytes = canonical_bytes(array);
-    let setup = descriptor_bytes(requests);
-    let width = array.dtype().as_ptype().byte_width();
-    let mut touched = BTreeSet::new();
-    let mut selected = 0usize;
-    let mut lookup = PageLookup::default();
-    for (&row, valid) in indices.iter().zip(mask.iter()) {
-        if !valid {
-            continue;
-        }
-        let row = array.slice_start() + checked_index(row)?;
-        let page = view.find_row(row);
-        if touched.insert(page) {
-            selected = selected.saturating_add(lookup.resolve(view, array, page)?.1);
-            if setup.saturating_add(selected.saturating_mul(width)) >= full_bytes {
-                return Ok(true);
-            }
-        }
-    }
-    Ok(false)
-}
-
 fn checked_index<I>(value: I) -> VortexResult<usize>
 where
     usize: TryFrom<I>,
@@ -232,90 +123,16 @@ where
     usize::try_from(value).map_err(|_| vortex_err!("Pco take index is negative or exceeds usize"))
 }
 
-fn primitive_runs<I: Copy>(indices: &[I], mask: &Mask) -> VortexResult<Vec<Run>>
-where
-    usize: TryFrom<I>,
-{
-    let mut runs: Vec<Run> = Vec::with_capacity(indices.len().min(64));
-    for (&value, valid) in indices.iter().zip(mask.iter()) {
-        let start = if valid {
-            Some(checked_index(value)?)
-        } else {
-            None
-        };
-        if let Some(previous) = runs.last_mut() {
-            let contiguous = match (previous.start, start) {
-                (Some(first), Some(next)) => {
-                    previous.stride == 1 && first.checked_add(previous.length) == Some(next)
-                }
-                (None, None) => true,
-                _ => false,
-            };
-            if contiguous {
-                previous.length += 1;
-                continue;
-            }
-        }
-        runs.push(Run {
-            start,
-            length: 1,
-            stride: 1,
-        });
-    }
-    Ok(runs)
-}
-
-fn gather<T: Number + NativePType>(
-    array: ArrayView<'_, Pco>,
-    view: &LogicalPageIndex,
-    runs: &[Run],
-    output_len: usize,
-    nullability: Nullability,
-    grouped: Option<usize>,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray> {
-    if let [
-        Run {
-            start: Some(start),
-            length,
-            stride: 1,
-        },
-    ] = runs
-    {
-        return stream_range::<T>(array, view, *start..*start + *length, nullability, ctx);
-    }
-    let defined = grouped.unwrap_or(output_len);
-    if nullability.is_nullable() {
-        gather_grouped::<T, true>(array, view, runs, output_len, defined, ctx)
-    } else {
-        gather_grouped::<T, false>(array, view, runs, output_len, defined, ctx)
-    }
-}
-
 /// Sort requests once, resolve each repeated logical position once, then invoke the native
 /// primitive gather once per physical page. Only the final scatter visits output positions;
 /// it does no page-index search, validity rank, decoder lookup, or cache lookup.
-fn gather_grouped<T: Number + NativePType, const NULLABLE: bool>(
+fn gather<T: Number + NativePType, const NULLABLE: bool>(
     array: ArrayView<'_, Pco>,
     view: &LogicalPageIndex,
-    runs: &[Run],
+    mut requests: Vec<(usize, usize)>,
     output_len: usize,
-    defined: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
-    let mut requests = Vec::with_capacity(defined);
-    let mut output = 0usize;
-    for run in runs {
-        if let Some(start) = run.start {
-            for offset in 0..run.length {
-                requests.push((
-                    array.slice_start() + start + offset * run.stride,
-                    output + offset,
-                ));
-            }
-        }
-        output += run.length;
-    }
     requests.sort_unstable();
     let mut state = AccessState::default();
     let mut resolved = Vec::with_capacity(requests.len().min(64));
@@ -386,91 +203,5 @@ fn gather_grouped<T: Number + NativePType, const NULLABLE: bool>(
     } else {
         Validity::NonNullable
     };
-    Ok(PrimitiveArray::new(values.freeze(), validity))
-}
-
-/// One initialized final output buffer. Nullable outputs leave null positions at the
-/// allocator's safe zero initialization instead of eagerly touching every null gap.
-/// Contiguous selections stream pages into the final initialized values buffer and retain
-/// exact sliced source validity. No output validity copy or retained decoded-page cache.
-fn stream_range<T: Number + NativePType>(
-    array: ArrayView<'_, Pco>,
-    view: &LogicalPageIndex,
-    range: Range<usize>,
-    nullability: Nullability,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray> {
-    let global_start = array.slice_start() + range.start;
-    let mut values = BufferMut::<T>::zeroed_in(range.len(), ctx.allocator().clone());
-    let mut scratch = BufferMut::<T>::with_capacity_in(0, ctx.allocator().clone());
-    if view.page_count() == 0 {
-        let validity = array
-            .unsliced_validity()
-            .slice(global_start..global_start + range.len())?
-            .union_nullability(nullability);
-        return Ok(PrimitiveArray::new(values.freeze(), validity));
-    }
-    let mut state = AccessState::default();
-    let mut decoder = PageDecoder::<T>::new(array.metadata.header.as_slice())?;
-    let stop = array.slice_start() + range.end;
-    let mut row = global_start;
-    // Descriptor-count iteration bounds work even when optional index contents are bad.
-    // Valid files visit at most one span per physical page; an all-null span needs one turn.
-    for _ in 0..=view.page_count() {
-        if row >= stop {
-            break;
-        }
-        let span = state.span(view, array, row, stop, ctx)?;
-        let start = row - global_start;
-        let output = values
-            .get_mut(start..start + span.mask.len())
-            .ok_or_else(|| vortex_err!("Pco contiguous output exceeds visible range"))?;
-        if !span.mask.all_false() {
-            let page = view.physical(span.page)?;
-            let buffer = array
-                .pages
-                .get(span.page)
-                .ok_or_else(|| vortex_err!("Pco compressed page is missing"))?;
-            let chunk = array
-                .chunk_metas
-                .get(page.chunk)
-                .ok_or_else(|| vortex_err!("Pco chunk metadata is missing"))?;
-            let n = page.n_values;
-            if span.mask.all_true() && span.values == (0..n) {
-                decoder.read_into(page.chunk, chunk.as_slice(), n, buffer.as_slice(), output)?;
-            } else {
-                if scratch.len() < n {
-                    scratch.push_n(T::default(), n - scratch.len());
-                }
-                decoder.read_into(
-                    page.chunk,
-                    chunk.as_slice(),
-                    n,
-                    buffer.as_slice(),
-                    &mut scratch[..n],
-                )?;
-                let source = scratch
-                    .get(span.values)
-                    .ok_or_else(|| vortex_err!("Pco compact range exceeds page output"))?;
-                match &span.mask {
-                    Mask::AllTrue(_) => output.copy_from_slice(source),
-                    Mask::AllFalse(_) => {}
-                    Mask::Values(mask) => {
-                        let mut compact = 0;
-                        for (start, end) in mask.bit_buffer().set_slices() {
-                            let len = end - start;
-                            output[start..end].copy_from_slice(&source[compact..compact + len]);
-                            compact += len;
-                        }
-                    }
-                }
-            }
-        }
-        row = span.stop;
-    }
-    let validity = array
-        .unsliced_validity()
-        .slice(global_start..stop)?
-        .union_nullability(nullability);
     Ok(PrimitiveArray::new(values.freeze(), validity))
 }

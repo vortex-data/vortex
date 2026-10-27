@@ -141,31 +141,4 @@ impl AccessState {
             .value_index::<RANKED>(row - cached.rows.start)
             .map(|value| (page, value)))
     }
-    pub fn span(
-        &mut self,
-        view: &LogicalPageIndex,
-        array: ArrayView<'_, Pco>,
-        row: usize,
-        stop: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<PageSpan> {
-        let (page, cached) = self.page(view, array, row, ctx)?;
-        let end = stop.min(cached.rows.end);
-        let start_in_page = row - cached.rows.start;
-        let end_in_page = end - cached.rows.start;
-        Ok(PageSpan {
-            page,
-            stop: end,
-            values: cached.mask.boundary_rank(start_in_page)
-                ..cached.mask.boundary_rank(end_in_page),
-            mask: cached.mask.mask.slice(start_in_page..end_in_page),
-        })
-    }
-}
-pub(crate) struct PageSpan {
-    pub page: usize,
-    pub stop: usize,
-    /// Dense-value positions within this physical page, never global value ordinals.
-    pub values: Range<usize>,
-    pub mask: Mask,
 }
