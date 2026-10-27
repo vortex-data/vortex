@@ -9,7 +9,9 @@ WR1 needs NR1, CD3, CD4 and CD8a on `develop`. WR3 also needs NR5 and CD7. In pr
 and CD3 to CD8a are all on `develop` by then. Integer and decimal `Narrow` then exist in memory with
 no wire form, and one DecimalByteParts (DBP) scheme takes the canonical decimal array.
 
-Paths under `vortex-array/src/arrays/narrow/` do not exist at `b70206818f`. NR1 creates them. The
+Paths under `vortex-array/src/arrays/narrow/` do not exist at `b70206818f`. NR1 creates them, with
+the layout that the section "Module layout as landed in #10864" of `02-integer-narrow.md` describes:
+the vtable lives in `vtable/mod.rs`, not `vtable.rs`. The
 briefs cite the local rewrite (`f7408481ce`) or the closed #10333 (`adc1e83b9d`) for them. Every
 other `file:line` is checked against the `develop` checkout at `b70206818f`.
 

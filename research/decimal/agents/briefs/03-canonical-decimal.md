@@ -9,6 +9,9 @@ These briefs cover issue #10701: one canonical width for each decimal dtype, and
 `Narrow` in memory. The strict construction step is split into CD8a, CD8b and CD8c.
 
 - A `file:line` without a commit points at the `develop` checkout at `b70206818f`.
+- `vortex-array/src/arrays/narrow/` has the layout that #10864 gave it: operations in
+  `compute/`, one file each, and the vtable in `vtable/`. The section "Module layout as landed in #10864" of
+  `02-integer-narrow.md` maps the flat paths below to that layout.
 - A reference with a commit, for example `af4b663059:vortex-array/src/arrays/narrow/mod.rs:73`,
   points at the local integer `Narrow` rewrite in `/Users/connor/spiral/vortex-data/vortex3`. The
   NR PRs are written from scratch with that rewrite as a reference (D38), so the landed code can

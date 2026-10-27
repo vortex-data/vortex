@@ -252,6 +252,22 @@ accepts decimals:
 | `af4b663059:vortex-array/src/arrays/narrow/numeric.rs:70` | `PType::try_from(array.dtype())` | Declines decimals | Yes |
 | `af4b663059:vortex-array/src/arrays/narrow/encoding.rs:29` `encode` | Takes a `PrimitiveArray`, rejects non-integers | No decimal producer. CD4 adds one | Yes |
 
+### Module layout as landed in #10864
+
+`vortex-array/src/arrays/narrow/` has the layout of `Extension`, `Masked` and `Dict`. Put new code
+in this layout, even where a brief below or a reference commit names a flat file such as
+`narrow/rules.rs` or `narrow/aggregates.rs`:
+
+- `mod.rs`: the module doc, declarations, re-exports and `initialize`.
+- `array.rs`: `NarrowSlots`, `try_new` and `validate_dtypes`. `encode.rs`: `encode`,
+  `encode_values` and the width helper.
+- `compute/`: one file per operation (`cast.rs`, `compare.rs`, `fill_null.rs`, `filter.rs`,
+  `mask.rs`, `slice.rs`, `take.rs`), `PARENT_RULES` in `compute/rules.rs`, and `wrap_values` in
+  `compute/mod.rs`. Aggregate kernels also go here, one file per aggregate, as in `dict/compute/`.
+- `vtable/`: `Narrow`, `NarrowArray` and the `VTable` impl in `vtable/mod.rs`, `probe_scalar` in
+  `vtable/operations.rs`, `ValidityChild` in `vtable/validity.rs`, and the kernel registrations in
+  `vtable/kernel.rs`.
+
 ## Briefs
 
 ### NR1: In-memory integer `Narrow` encoding
@@ -658,7 +674,7 @@ Open questions: None.
   Blocks: NR4 (stack), CD4.
 - Decisions: D15, D36, D38.
 - Branch: `ct/narrow-aggregate-kernels`, based on NR2.
-- Scope: Four kernels in `narrow/aggregates.rs` and their registrations in
+- Scope: Four kernels in `narrow/compute/` and their registrations in
   `AggregateFnSession::default`. A shared `SumState::to_scalar`, a crate-private kernel lookup by
   exact id, and two doc comments in the aggregate code. `8d548646ee` is the reference for the test
   oracle and the test cases only.
@@ -753,9 +769,9 @@ Files (checked at `afa4bc87cd`):
 
 | Path | Change |
 | --- | --- |
-| `vortex-array/src/arrays/narrow/aggregates.rs` | New. The module doc owns the rule. Four `pub(crate)` kernels, each with a short exactness argument in its doc |
-| `vortex-array/src/arrays/narrow/mod.rs` | `pub(crate) mod aggregates;`. The module doc names the aggregate kernels |
-| `vortex-array/src/arrays/narrow/vtable.rs` | Move the cast of `probe_scalar` into the `pub(super)` decode function, which the kernels also call |
+| `vortex-array/src/arrays/narrow/compute/min_max.rs`, `is_constant.rs`, `is_sorted.rs`, `sum.rs` | New. One `pub(crate)` kernel each, with a short exactness argument in its doc. The rule of D36 is stated once, in the doc of `compute/mod.rs` |
+| `vortex-array/src/arrays/narrow/compute/mod.rs` | Declare the four modules. The module doc states the aggregate rule |
+| `vortex-array/src/arrays/narrow/vtable/operations.rs` | Move the cast of `probe_scalar` into the decode function, which the kernels also call |
 | `vortex-array/src/aggregate_fn/session.rs:45-51` | Import `Narrow` and the four kernels |
 | `vortex-array/src/aggregate_fn/session.rs:133-135` | The six registrations after the `Dict` kernels |
 | `vortex-array/src/aggregate_fn/session.rs:298-326` | The `pub(crate)` exact-id lookup on `AggregateKernels` |
@@ -771,8 +787,8 @@ Steps:
 
 1. Run `gh stack add ct/narrow-aggregate-kernels` on top of NR2.
 2. Add `SumState::to_scalar`, the exact-id lookup and the two doc comments. No behavior changes.
-3. Move the cast of `probe_scalar` into the decode function. Write `narrow/aggregates.rs` and the
-   registrations in `aggregate_fn/session.rs`.
+3. Move the cast of `probe_scalar` into the decode function. Write the kernels in
+   `narrow/compute/` and the registrations in `aggregate_fn/session.rs`.
 4. Write the tests with the module `SESSION`, and the fastlanes integration test with the closure
    session.
 5. Commit with the sign-off line.
@@ -827,7 +843,7 @@ the exact-id lookup of the child kernel, and the `NB:` comment on the 2^32 bound
 registrations in `AggregateFnSession::default`, with no `None` fallback. Every value goes through
 the one `Narrow` decode function. Statistics land on the right array.
 
-Size: Medium. About 150 lines of source in `narrow/aggregates.rs`, small changes in the sum
+Size: Medium. About 150 lines of source in `narrow/compute/`, small changes in the sum
 modules, and the tests.
 
 Decimal readiness for CD4: The extrema, `IsConstant` and `IsSorted` kernels are exact for decimals
@@ -863,10 +879,11 @@ Files (checked at `afa4bc87cd`):
 
 | Path | Change |
 | --- | --- |
-| `vortex-array/src/arrays/narrow/numeric.rs` | New. Reference: `74aa17644e`. A kernel for `Binary` that implements `ExecuteParentKernel` directly |
-| `vortex-array/src/arrays/narrow/rules.rs` | Extend the cast and fill-null rules. Add `ZipReduce`, `ZipFalseReduce` and `BetweenReduce` |
+| `vortex-array/src/arrays/narrow/compute/numeric.rs` | New. Reference: `74aa17644e`. A kernel for `Binary` that implements `ExecuteParentKernel` directly |
+| `vortex-array/src/arrays/narrow/compute/cast.rs`, `fill_null.rs` | Extend the cast and fill-null rules |
+| `vortex-array/src/arrays/narrow/compute/zip.rs`, `between.rs`, `rules.rs` | New `ZipReduce`, `ZipFalseReduce` and `BetweenReduce`, listed in `PARENT_RULES` |
 | `vortex-array/src/arrays/narrow/encode.rs` | Created by NR1. The numeric kernel, `integer_storage_type` and `encode` use its `pub(super)` width helper. There is no `integer_types` list |
-| `vortex-array/src/arrays/narrow/mod.rs` | `mod numeric;`, `initialize` registers the numeric kernel |
+| `vortex-array/src/arrays/narrow/compute/mod.rs`, `vtable/kernel.rs` | `mod numeric;`, and `vtable/kernel.rs` registers the numeric kernel |
 | `vortex-array/src/scalar_fn/fns/between/mod.rs:129` | Make `as_two_compares` `pub(crate)` |
 | `vortex-array/src/arrays/narrow/tests/mod.rs` | `mod numeric;` and `mod pushdown;` |
 | `vortex-array/src/arrays/narrow/tests/numeric.rs` | New. Port the cases of the reference tests |
@@ -981,7 +998,7 @@ Files (checked at `b70206818f`):
 
 | Path | Change |
 | --- | --- |
-| `vortex-array/src/arrays/narrow/rules.rs` | The pull-up rules for `Dict`, `Constant`, `Masked`, `Chunked` and `Interleave`. `TakeIndicesReduce` for `Dict` codes, from `af4b663059` |
+| `vortex-array/src/arrays/narrow/compute/rules.rs` and new files in `compute/` | The pull-up rules for `Dict`, `Constant`, `Masked`, `Chunked` and `Interleave`. `TakeIndicesReduce` for `Dict` codes, from `af4b663059` |
 | `vortex-array/src/arrays/narrow/tests/mod.rs` | `mod structural;` |
 | `vortex-array/src/arrays/narrow/tests/structural.rs` | New. The pull-up tests, `test_narrowed_take_indices` from `af4b663059`, and `test_fill_null_after_narrowing_take_indices` from `7e2e5e4d7a`, with the module `SESSION` |
 | `encodings/runend/src/` | A parent-reduce rule that moves `RunEnd` above a `Narrow` parent, with a test |
@@ -1076,7 +1093,7 @@ Review focus: The fill and constant casts to the parent dtype. Nullability of ea
 No rule pair loops. The dictionary rule copies `DictData`. Each `unsafe` constructor has a SAFETY
 comment that names why its precondition holds.
 
-Shares files with CD4: both edit `vortex-array/src/arrays/narrow/rules.rs`. Do not run NR5 and CD4
+Shares files with CD4: both edit `vortex-array/src/arrays/narrow/compute/`. Do not run NR5 and CD4
 at the same time.
 
 Size: Medium. Seven small rules in three crates, and their tests.
