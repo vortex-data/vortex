@@ -198,6 +198,8 @@ fn test_decimal_bitmap_across_storage_widths(
         .into();
     elements.push(Scalar::null(dtype.clone()));
     let list = Scalar::list(dtype, elements, Nullability::NonNullable);
+    // Storage may be any width up to the one the precision requires.
+    let needle_width = needle_width.min(DecimalType::smallest_decimal_value_type(&decimal));
     let needles = match_each_decimal_value_type!(needle_width, |T| {
         DecimalArray::from_option_iter::<T, _>(
             [Some(-2i8), Some(0), Some(1), None]
@@ -238,18 +240,23 @@ fn test_decimal_wide_values(
         Nullability::NonNullable,
     );
     // The last non-null value shares the low 64 bits of a member but must not match it.
-    let needles = DecimalArray::from_option_iter::<i256, _>(
-        [
-            Some(base),
-            Some(second),
-            Some(base - i256::ONE),
-            Some(i256::ZERO),
-            Some(base + i256::from_i128(1i128 << 64)),
-            None,
-        ],
-        decimal,
-    )
-    .into_array();
+    let needle_values = [
+        Some(base),
+        Some(second),
+        Some(base - i256::ONE),
+        Some(i256::ZERO),
+        Some(base + i256::from_i128(1i128 << 64)),
+        None,
+    ];
+    let needles =
+        match_each_decimal_value_type!(DecimalType::smallest_decimal_value_type(&decimal), |T| {
+            DecimalArray::from_option_iter::<T, _>(
+                needle_values
+                    .map(|value| value.map(|value| DecimalValue::from(value).cast::<T>().unwrap())),
+                decimal,
+            )
+            .into_array()
+        });
     let set = prepare(&list)?;
     assert_arrays_eq!(
         set.contains(&needles, &ListContainsOptions::default(), &mut ctx)?,

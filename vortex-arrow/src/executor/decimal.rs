@@ -318,7 +318,8 @@ mod tests {
         assert_eq!(arrow_decimal.value(2), 12);
         assert_eq!(
             arrow_decimal,
-            &Decimal128Array::from(vec![10, 11, 12]).with_precision_and_scale(2, 1)?
+            &Decimal128Array::from(vec![10, 11, 12])
+                .with_precision_and_scale(precision_for::<T>(), 1)?
         );
         Ok(())
     }
@@ -354,7 +355,8 @@ mod tests {
         assert_eq!(arrow_decimal.value(2), 12);
         assert_eq!(
             arrow_decimal,
-            &Decimal32Array::from(vec![10, 11, 12]).with_precision_and_scale(2, 1)?
+            &Decimal32Array::from(vec![10, 11, 12])
+                .with_precision_and_scale(precision_for::<T>(), 1)?
         );
         Ok(())
     }
@@ -391,7 +393,8 @@ mod tests {
         assert_eq!(arrow_decimal.value(2), 12);
         assert_eq!(
             arrow_decimal,
-            &Decimal64Array::from(vec![10, 11, 12]).with_precision_and_scale(2, 1)?
+            &Decimal64Array::from(vec![10, 11, 12])
+                .with_precision_and_scale(precision_for::<T>(), 1)?
         );
         Ok(())
     }
@@ -435,7 +438,7 @@ mod tests {
                 i256::from_i128(11),
                 i256::from_i128(12)
             ])
-            .with_precision_and_scale(2, 1)?
+            .with_precision_and_scale(precision_for::<T>(), 1)?
         );
         Ok(())
     }

@@ -840,7 +840,6 @@ mod tests {
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::dtype::i256;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::extension::datetime::Timestamp;
     use vortex_array::scalar::Scalar;
@@ -1057,14 +1056,14 @@ mod tests {
         assert_arrays_eq!(
             vortex_array,
             DecimalArray::from_option_iter(
-                [Some(12345i128), None, Some(67890i128), Some(11111i128)],
+                [Some(12345i64), None, Some(67890i64), Some(11111i64)],
                 DecimalDType::new(10, 2)
             ),
             &mut SESSION.create_execution_ctx()
         );
         assert_arrays_eq!(
             vortex_array_non_null,
-            DecimalArray::from_iter([12345i128, 67890i128, 11111i128], DecimalDType::new(10, 2)),
+            DecimalArray::from_iter([12345i64, 67890i64, 11111i64], DecimalDType::new(10, 2)),
             &mut SESSION.create_execution_ctx()
         );
     }
@@ -1107,26 +1106,14 @@ mod tests {
         assert_arrays_eq!(
             vortex_array,
             DecimalArray::from_option_iter(
-                [
-                    Some(i256::from_i128(12345)),
-                    None,
-                    Some(i256::from_i128(67890)),
-                    Some(i256::from_i128(11111))
-                ],
+                [Some(12345i128), None, Some(67890i128), Some(11111i128)],
                 DecimalDType::new(38, 10)
             ),
             &mut SESSION.create_execution_ctx()
         );
         assert_arrays_eq!(
             vortex_array_non_null,
-            DecimalArray::from_iter(
-                [
-                    i256::from_i128(12345),
-                    i256::from_i128(67890),
-                    i256::from_i128(11111)
-                ],
-                DecimalDType::new(38, 10)
-            ),
+            DecimalArray::from_iter([12345i128, 67890i128, 11111i128], DecimalDType::new(38, 10)),
             &mut SESSION.create_execution_ctx()
         );
     }

@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 use rstest::rstest;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -20,6 +21,7 @@ use crate::arrays::DecimalArray;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::BigCast;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
@@ -28,6 +30,7 @@ use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::i256;
+use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
@@ -685,14 +688,15 @@ fn test_decimal_result_uses_widened_logical_storage_width(
 
     assert_eq!(result.values_type(), expected_type);
     assert_eq!(result.decimal_dtype(), expected_dtype);
-    assert_arrays_eq!(
-        result,
-        DecimalArray::from_iter::<i256, _>(
-            [i256::from_i128(20), i256::from_i128(40)],
-            expected_dtype
-        ),
-        &mut SESSION.create_execution_ctx()
-    );
+    let expected = match_each_decimal_value_type!(expected_type, |T| {
+        DecimalArray::from_iter::<T, _>(
+            [20i8, 40].map(|value| {
+                <T as BigCast>::from(value).vortex_expect("small values fit every decimal type")
+            }),
+            expected_dtype,
+        )
+    });
+    assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
     Ok(())
 }
 

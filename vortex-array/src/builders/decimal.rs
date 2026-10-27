@@ -381,7 +381,7 @@ mod tests {
         for value in 0i8..42 {
             let expected = Scalar::decimal(
                 DecimalValue::I8(value),
-                DecimalDType::new(2, 1),
+                DecimalDType::new(20, 1),
                 Nullability::NonNullable,
             );
             assert_eq!(

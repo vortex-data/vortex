@@ -308,7 +308,7 @@ mod tests {
         assert!(decoded.is::<Decimal>());
         assert_arrays_eq!(
             decoded,
-            DecimalArray::from_iter([100i128, 200, 300, 400, 500], DecimalDType::new(10, 2)),
+            DecimalArray::from_iter([100i64, 200, 300, 400, 500], DecimalDType::new(10, 2)),
             &mut SESSION.create_execution_ctx()
         );
     }

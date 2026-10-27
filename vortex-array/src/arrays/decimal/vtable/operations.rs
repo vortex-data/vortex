@@ -78,7 +78,7 @@ mod tests {
         assert_eq!(sliced.len(), 2);
         assert_arrays_eq!(
             sliced,
-            DecimalArray::from_option_iter([Some(200i128), None], DecimalDType::new(3, 2)),
+            DecimalArray::from_option_iter([Some(200i16), None], DecimalDType::new(4, 2)),
             &mut SESSION.create_execution_ctx()
         );
     }

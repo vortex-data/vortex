@@ -191,10 +191,11 @@ mod tests {
         );
     }
 
-    /// fill_null with a value that overflows the array's storage type should upcast the array.
+    /// fill_null with a value that overflows the array's storage type should upcast the array,
+    /// but never beyond the storage its precision requires.
     #[rstest]
     #[case(DecimalValue::I16(200), DecimalType::I16)]
-    #[case(DecimalValue::I128(200), DecimalType::I128)]
+    #[case(DecimalValue::I128(200), DecimalType::I16)]
     fn fill_null_overflow_upcasts(#[case] fill: DecimalValue, #[case] expected_type: DecimalType) {
         let mut ctx = SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(3, 0);
