@@ -30,7 +30,7 @@ pub use array::WidenSlots;
 pub use array::WidenSlotsView;
 pub use vtable::WidenArray;
 
-mod compute;
+pub(crate) mod compute;
 mod encode;
 
 mod vtable;
