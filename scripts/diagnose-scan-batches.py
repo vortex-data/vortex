@@ -9,7 +9,7 @@ import sys
 scale = sys.argv[1]
 env = dict(os.environ, TOKIO_WORKER_THREADS='8', DATAFUSION_EXECUTION_TARGET_PARTITIONS='8', RUST_LOG='warn')
 def run(v2, label, iterations, diagnose=False):
-    cmd = ['target/release_debug/datafusion-bench', 'tpcds', '--formats', 'vortex', '--queries', '58', '--iterations', str(iterations), '--scan-v2', str(v2).lower(), '--hide-progress-bar', '--display-format', 'gh-json', '--runner', 'scan-batch-diagnostics-8workers', '--opt', 'scale-factor=' + scale, '--ingest-jsonl', label + '.jsonl']
+    cmd = ['target/release_debug/datafusion-bench', 'tpcds', '--formats', 'vortex', '--queries', ('58' if diagnose else '28,41,58'), '--iterations', str(iterations), '--scan-v2', str(v2).lower(), '--hide-progress-bar', '--display-format', 'gh-json', '--runner', 'scan-batch-diagnostics-8workers', '--opt', 'scale-factor=' + scale, '--ingest-jsonl', label + '.jsonl']
     run_env = dict(env)
     if diagnose:
         cmd.append('--show-metrics')
