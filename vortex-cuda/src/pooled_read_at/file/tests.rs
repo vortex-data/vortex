@@ -3,6 +3,7 @@
 
 use std::future::Future;
 use std::io;
+use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -336,7 +337,7 @@ fn mapped_reader() -> VortexResult<(
         Arc::clone(cuda.pinned_buffer_pool()),
         cuda.stream()?,
     )?
-    .with_mapped_copy(file.path(), &cuda)?;
+    .with_mapped_copy(file.as_file(), &cuda)?;
     Ok((runtime, reader, file))
 }
 
@@ -457,11 +458,11 @@ async fn reopened_files_share_mappings_until_modified() -> VortexResult<()> {
             .as_ref()
             .vortex_expect("open file has a mapping"),
     );
-    let again = FileMapping::open(file.path())?.vortex_expect("file is mappable");
+    let again = FileMapping::open(file.as_file())?.vortex_expect("file is mappable");
     assert!(Arc::ptr_eq(&first, &again));
 
     io::Write::write_all(&mut file, &[7; 4096])?;
-    let modified = FileMapping::open(file.path())?.vortex_expect("file is mappable");
+    let modified = FileMapping::open(file.as_file())?.vortex_expect("file is mappable");
     assert!(!Arc::ptr_eq(&first, &modified));
     assert_eq!(modified.mapping().len(), MAPPED_FILE_BYTES + 4096);
     assert_eq!(modified.mapping()[MAPPED_FILE_BYTES], 7);
@@ -486,7 +487,7 @@ async fn released_mappings_are_remapped() -> VortexResult<()> {
     release_file_mappings();
     // The open reader keeps its mapping.
     assert_eq!(in_use.mapping()[0], file_byte(0));
-    let reopened = FileMapping::open(file.path())?.vortex_expect("file is mappable");
+    let reopened = FileMapping::open(file.as_file())?.vortex_expect("file is mappable");
     assert!(!Arc::ptr_eq(&in_use, &reopened));
     Ok(())
 }
@@ -549,7 +550,68 @@ async fn evicted_mappings_are_unmapped_before_release_returns() -> VortexResult<
 #[cfg(target_os = "linux")]
 #[test]
 fn unmappable_files_are_not_mapped() -> VortexResult<()> {
-    assert!(FileMapping::open(Path::new("/proc/self/status"))?.is_none());
+    assert!(FileMapping::open(&File::open("/proc/self/status")?)?.is_none());
+    Ok(())
+}
+
+/// Opens a file of `file_byte` content, then replaces it at its path with zeroes.
+fn replaced_file() -> VortexResult<(tempfile::TempDir, PathBuf, File)> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("replaced");
+    let bytes: Vec<u8> = (0..MAPPED_FILE_BYTES as u64).map(file_byte).collect();
+    std::fs::write(&path, bytes)?;
+    let opened = File::open(&path)?;
+    let replacement = directory.path().join("replacement");
+    std::fs::write(&replacement, vec![0u8; MAPPED_FILE_BYTES])?;
+    std::fs::rename(&replacement, &path)?;
+    Ok((directory, path, opened))
+}
+
+/// A reader reads the file it was opened with, staged or mapped, even after its path was
+/// replaced, as the footer read from that file locates the segments.
+#[crate::test]
+async fn readers_read_the_opened_file_after_replacement() -> VortexResult<()> {
+    let (_directory, path, opened) = replaced_file()?;
+    let runtime = CurrentThreadRuntime::new();
+    let session = crate::cuda_session().with_handle(runtime.handle());
+    let cuda = session.cuda_session();
+    let reader = PooledFileReadAt::from_file(
+        &path,
+        &opened,
+        session.handle(),
+        Arc::clone(cuda.pinned_buffer_pool()),
+        cuda.stream()?,
+        PooledFileReadAtOptions::default(),
+    )?
+    .with_mapped_copy(&opened, &cuda)?;
+    let (offset, length) = (4091, MAPPED_FILE_BYTES - 4091);
+    let buffer = reader
+        .read_at(offset, length, Alignment::of::<u8>())
+        .await?;
+    assert_bytes(buffer, offset, length).await
+}
+
+/// Direct I/O opens the path again, which must still reach the file opened before.
+#[cfg(target_os = "linux")]
+#[crate::test]
+async fn direct_reads_reject_replaced_files() -> VortexResult<()> {
+    let (_directory, path, opened) = replaced_file()?;
+    if DirectFileReadBackend::open(&path).is_err() {
+        // The filesystem does not support direct I/O.
+        return Ok(());
+    }
+    let runtime = CurrentThreadRuntime::new();
+    let session = crate::cuda_session().with_handle(runtime.handle());
+    let cuda = session.cuda_session();
+    let reader = PooledFileReadAt::from_file(
+        &path,
+        &opened,
+        session.handle(),
+        Arc::clone(cuda.pinned_buffer_pool()),
+        cuda.stream()?,
+        PooledFileReadAtOptions::default().with_direct_io(),
+    );
+    assert!(matches!(reader, Err(error) if error.to_string().contains("was replaced")));
     Ok(())
 }
 
