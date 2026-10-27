@@ -332,3 +332,31 @@ harness = false
 [[bench]]
 name = "probe"
 harness = false
+
+[[bench]]
+name = "run_end_null_count"
+harness = false
+
+[[bench]]
+name = "run_end_compress"
+harness = false
+
+[[bench]]
+name = "run_end_decode"
+harness = false
+
+[[bench]]
+name = "run_end_take"
+harness = false
+
+[[bench]]
+name = "run_end_filter"
+harness = false
+
+[[bench]]
+name = "run_end_sum"
+harness = false
+
+[[bench]]
+name = "run_end_decode_primitive"
+harness = false

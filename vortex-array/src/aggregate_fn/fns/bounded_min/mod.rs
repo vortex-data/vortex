@@ -26,6 +26,7 @@ use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::min::Min;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::columnar_min_max;
+use crate::aggregate_fn::fns::min_max::min_max;
 use crate::dtype::DType;
 use crate::partial_ord::partial_min;
 use crate::scalar::Scalar;
@@ -196,6 +197,21 @@ impl AggregateFnVTable for BoundedMin {
         false
     }
 
+    fn try_accumulate(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        partial: &mut Self::Partial,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        // `min_max` computes both extrema in one pass and caches both on `batch`, so a
+        // `BoundedMax` over the same batch reads the cached value instead of a second scan.
+        if let Some(result) = min_max(batch, ctx, NumericalAggregateOpts::default())? {
+            merge_min(partial, result.min, args.options.max_bytes.get())?;
+        }
+        Ok(true)
+    }
+
     fn accumulate(
         &self,
         args: AggregateArgs<'_, Self::Options>,
@@ -208,10 +224,7 @@ impl AggregateFnVTable for BoundedMin {
         let Some(result) = columnar_min_max(batch, NumericalAggregateOpts::default(), ctx)? else {
             return Ok(());
         };
-        if let Some(bound) = truncate_min(result.min, args.options.max_bytes.get())? {
-            partial.merge(bound);
-        }
-        Ok(())
+        merge_min(partial, result.min, args.options.max_bytes.get())
     }
 
     fn finalize(
@@ -229,6 +242,14 @@ impl AggregateFnVTable for BoundedMin {
     ) -> VortexResult<Scalar> {
         self.to_scalar(args, partial)
     }
+}
+
+/// Merge the byte-bounded lower bound of `min` into `partial`.
+fn merge_min(partial: &mut BoundedMinPartial, min: Scalar, max_bytes: usize) -> VortexResult<()> {
+    if let Some(bound) = truncate_min(min, max_bytes)? {
+        partial.merge(bound);
+    }
+    Ok(())
 }
 
 fn supported_dtype<'a>(_options: &BoundedMinOptions, input_dtype: &'a DType) -> Option<&'a DType> {

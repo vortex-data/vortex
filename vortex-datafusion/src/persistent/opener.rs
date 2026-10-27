@@ -279,6 +279,34 @@ impl FileOpener for VortexOpener {
                 return Ok(stream::empty().boxed());
             }
 
+            let byte_range = file
+                .range
+                .as_ref()
+                .map(|range| -> DFResult<Range<u64>> {
+                    Ok(Range {
+                        start: u64::try_from(range.start).map_err(|_| {
+                            exec_datafusion_err!("Vortex file range start is negative")
+                        })?,
+                        end: u64::try_from(range.end).map_err(|_| {
+                            exec_datafusion_err!("Vortex file range end is negative")
+                        })?,
+                    })
+                })
+                .transpose()?;
+
+            // Coarse row boundaries are independent of the projection and predicates. Empty
+            // byte partitions can finish before adapting or converting those expressions.
+            let v2_rows = if scan_v2 {
+                byte_range
+                    .clone()
+                    .map(|bytes| partition_row_range(bytes, file.object_meta.size, vxf.row_count()))
+            } else {
+                None
+            };
+            if v2_rows.as_ref().is_some_and(Range::is_empty) {
+                return Ok(stream::empty().boxed());
+            }
+
             // This is the expected arrow types of the actual columns in the file, which might have different types
             // from the unified logical schema or miss. Every partition opening this file computes
             // the same schema, so it is shared across them.
@@ -405,21 +433,6 @@ impl FileOpener for VortexOpener {
                 .transpose()?;
             let projector = leftover_projection.make_projector(&stream_schema)?;
 
-            let byte_range = file
-                .range
-                .as_ref()
-                .map(|range| -> DFResult<Range<u64>> {
-                    Ok(Range {
-                        start: u64::try_from(range.start).map_err(|_| {
-                            exec_datafusion_err!("Vortex file range start is negative")
-                        })?,
-                        end: u64::try_from(range.end).map_err(|_| {
-                            exec_datafusion_err!("Vortex file range end is negative")
-                        })?,
-                    })
-                })
-                .transpose()?;
-
             let stream_target_field = Field::new_struct("", stream_schema.fields().clone(), false);
             let residual_path = file.path().clone();
             let native_limit = limit
@@ -443,12 +456,7 @@ impl FileOpener for VortexOpener {
                 let mut builder = V2ScanBuilder::new(vxf.session().clone(), scan_file)
                     .with_projection(scan_projection)
                     .with_some_filter(native_filter);
-                if let Some(bytes) = byte_range {
-                    // Every partition maps the same byte boundary to the same row boundary.
-                    let rows = partition_row_range(bytes, file.object_meta.size, vxf.row_count());
-                    if rows.is_empty() {
-                        return Ok(stream::empty().boxed());
-                    }
+                if let Some(rows) = v2_rows {
                     builder = builder.with_row_range(rows);
                 }
                 if let Some(selection) = file
@@ -693,7 +701,8 @@ fn contains_lambda(projection: &ProjectionExprs) -> DFResult<bool> {
 }
 
 /// Returns the scan cache for this object version, or registers a new one.
-/// A scan holds its cache until its stream ends, so the cache lives as long as one scan.
+/// Live streams for this file version own the cache; the registry holds only a weak reference.
+/// The last stream releases the cache, even if the multi-file scan is still running.
 fn shared_scan_cache(
     scan_caches: &DashMap<FileVersion, WeakScanCache>,
     meta: &ObjectMeta,

@@ -17,7 +17,6 @@ use divan::Bencher;
 use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
-use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
@@ -41,6 +40,7 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
+use vortex_sparse::SparseExt;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -152,18 +152,20 @@ fn sparse_null_count(bencher: Bencher) {
 
 #[divan::bench]
 fn sparse_compare(bencher: Bencher) {
+    let array = make_sparse(10_000, false);
     bencher
-        .with_inputs(|| (make_sparse(10_000, false), SESSION.create_execution_ctx()))
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| {
             let rhs = ConstantArray::new(Scalar::from(1i32), array.len()).into_array();
             let result = array.binary(rhs, Operator::Eq).vortex_expect("binary");
-            divan::black_box(materialize(result, &mut ctx))
+            let sparse = result
+                .execute_until::<Sparse>(&mut ctx)
+                .vortex_expect("execute to sparse");
+            let patch_values = sparse.as_::<Sparse>().patches().values().clone();
+            divan::black_box(
+                patch_values
+                    .execute::<Canonical>(&mut ctx)
+                    .vortex_expect("execute patch values"),
+            )
         });
-}
-
-fn materialize(array: ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
-    array
-        .execute::<Canonical>(ctx)
-        .vortex_expect("execute")
-        .into_array()
 }

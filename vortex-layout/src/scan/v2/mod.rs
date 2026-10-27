@@ -127,6 +127,11 @@ impl ScanBuilder {
         self.projection.dtype()
     }
 
+    /// The session the scan decodes and evaluates expressions with.
+    pub fn session(&self) -> &VortexSession {
+        &self.session
+    }
+
     /// Sets a projection bound against the file's dtype.
     pub fn with_projection(mut self, projection: BoundExpression) -> Self {
         self.projection = projection;
@@ -225,6 +230,10 @@ impl ScanBuilder {
             )
         } else if identity {
             rows_per_chunk(row_count, &file.locations)
+        } else if builder.concurrency <= 1 && row_count > MAX_ROWS_PER_CHUNK as u64 {
+            // The engine already supplies parallelism. Group read discovery across several
+            // output morsels without creating fewer parallel tasks.
+            4 * MAX_ROWS_PER_CHUNK
         } else {
             MAX_ROWS_PER_CHUNK
         };

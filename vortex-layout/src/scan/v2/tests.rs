@@ -361,7 +361,7 @@ async fn large_filtered_chunks_match_v1(#[case] cutoff: i32) -> VortexResult<()>
 async fn filter_matches_v1(
     #[values(Strategy::Flat, Strategy::Table, Strategy::ZonedTable)] strategy: Strategy,
     #[case] filter: Expression,
-    #[values(false, true)] sparse: bool,
+    #[values(1, 2, 7)] selection_step: usize,
 ) -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write(&session, strategy.get().as_ref()).await?;
@@ -374,9 +374,9 @@ async fn filter_matches_v1(
             .with_some_filter(Some(filter.bind(layout.dtype())?))
             .with_row_range(900..3100)
             .with_row_offset(100);
-        if sparse {
+        if selection_step > 1 {
             scan = scan.with_row_indices(StrictSortedBuffer::try_new(Buffer::from_iter(
-                (0..4000u64).step_by(7),
+                (0..4000u64).step_by(selection_step),
             ))?);
         }
         Ok(scan)
@@ -791,6 +791,39 @@ async fn scan_cache_reuses_values_between_scans(
     }
     // Every values chunk and the one selected codes chunk, then only the codes chunk if cached.
     assert_eq!(reads, vec![4, second_scan_reads]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn dictionary_cache_lives_with_its_file_streams() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let segments = Arc::new(TestSegments::default());
+    let values = chunked_ints(&session, &segments).await?;
+    let codes = chunked_ints(&session, &segments).await?;
+    let layout = DictLayout::new(values, codes).into_layout();
+    let segments = segments as Arc<dyn SegmentSource>;
+    let mut file = scan_file(&segments, &layout)?;
+    let cache = ScanCache::with_retained_bytes(0);
+    let weak = cache.downgrade();
+    file.cache = Some(cache);
+    let mut first = ScanBuilder::new(session.clone(), file.clone()).into_stream()?;
+    let second = ScanBuilder::new(session.clone(), file).into_stream()?;
+
+    let mut other_file = scan_file(&segments, &layout)?;
+    let other_cache = ScanCache::with_retained_bytes(0);
+    let other_weak = other_cache.downgrade();
+    other_file.cache = Some(other_cache);
+    let other = ScanBuilder::new(session, other_file).into_stream()?;
+
+    // Populate dictionary values before abandoning this file's streams.
+    assert!(first.try_next().await?.is_some());
+    drop(first);
+    assert!(weak.upgrade().is_some());
+    drop(second);
+    assert!(weak.upgrade().is_none());
+    assert!(other_weak.upgrade().is_some());
+    drop(other);
+    assert!(other_weak.upgrade().is_none());
     Ok(())
 }
 

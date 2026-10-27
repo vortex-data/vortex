@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 use super::UNBOUNDED;
 use super::join_inlet;
 use crate::arrays::shared::Shared;
+use crate::arrays::shared::SharedArrayExt;
 use crate::plan::physical::TakePlan;
 use crate::plan::physical::operator::Cx;
 use crate::plan::physical::operator::Input;
@@ -85,7 +86,20 @@ impl Operator for TakeSource {
             }
         };
         Ok(match cx.inlet(CODES).take() {
-            Some(codes) => Step::Final(DictArray::try_new(codes, values)?.into_array()),
+            Some(codes) => {
+                // Expose encoded values to sparse take kernels instead of forcing the shared
+                // dictionary to decode in full for a small projection.
+                let values = if (values.dtype().is_utf8() || values.dtype().is_binary())
+                    && values.len() >= 1024
+                    && codes.len().saturating_mul(4) < values.len()
+                    && let Some(shared) = values.as_opt::<Shared>()
+                {
+                    shared.current_array_ref().clone()
+                } else {
+                    values
+                };
+                Step::Final(DictArray::try_new(codes, values)?.into_array())
+            }
             None => Step::End,
         })
     }

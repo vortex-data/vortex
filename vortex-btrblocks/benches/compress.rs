@@ -58,7 +58,6 @@ mod benchmarks {
         vortex_fastlanes::initialize(&session);
         vortex_fsst::initialize(&session);
         vortex_onpair::initialize(&session);
-        vortex_runend::initialize(&session);
         vortex_sequence::initialize(&session);
         vortex_sparse::initialize(&session);
         vortex_zigzag::initialize(&session);
@@ -94,21 +93,23 @@ mod benchmarks {
     #[divan::bench]
     fn btrblocks(bencher: Bencher) {
         let mut ctx = SESSION.create_execution_ctx();
-        let array = make_clickbench_window_name()
+        let values = make_clickbench_window_name()
             .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+            .unwrap()
+            .to_buffer::<i32>();
         let compressor = BtrBlocksCompressorBuilder::from_session(&SESSION)
             .unrestricted()
             .build();
         bencher
-            .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+            .with_inputs(|| {
+                (
+                    PrimitiveArray::new(values.clone(), Validity::NonNullable).into_array(),
+                    SESSION.create_execution_ctx(),
+                )
+            })
             .input_counter(|(array, _)| ItemsCount::new(array.len()))
             .input_counter(|(array, _)| BytesCount::of_many::<i32>(array.len()))
-            .bench_refs(|(array, ctx)| {
-                compressor
-                    .compress(&array.clone().into_array(), ctx)
-                    .unwrap()
-            });
+            .bench_refs(|(array, ctx)| compressor.compress(array, ctx).unwrap());
     }
 
     /// Compresses a canonical `Decimal(12, 2)` column whose values are drawn like those of the

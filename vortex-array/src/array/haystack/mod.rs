@@ -7,6 +7,7 @@ use std::hash::BuildHasher;
 
 use num_traits::ToPrimitive;
 use num_traits::WrappingSub;
+use rustc_hash::FxBuildHasher;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
@@ -18,7 +19,6 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashTable;
 use vortex_utils::aliases::hash_map::HashTableEntry;
-use vortex_utils::aliases::hash_map::RandomState;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -230,7 +230,7 @@ impl<T: NativeDecimalType + SetInteger> HaystackState for DecimalSet<T> {
 /// removed: it helped short needles by about a tenth and cost long needles that share a prefix,
 /// whose heads collide, up to a quarter.
 struct BytesSet {
-    hasher: RandomState,
+    hasher: FxBuildHasher,
     /// The distinct whole views of the elements of at most 12 bytes.
     short: HashTable<u128>,
     /// The elements, for the bytes of the long ones.
@@ -241,7 +241,7 @@ struct BytesSet {
 
 impl BytesSet {
     fn new(elements: VarBinViewArray) -> Self {
-        let hasher = RandomState::default();
+        let hasher = FxBuildHasher;
         let views = elements.views();
         let buffers = data_buffers(&elements);
 
