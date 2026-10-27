@@ -83,10 +83,9 @@ async fn decode_zstd_buffers(
     }
 
     let output_ptrs = {
-        // We only need the allocation address to assemble output pointer metadata.
-        // The actual device write is tracked by `record_device_output` around
-        // `decompress_async`, so this guard can be dropped immediately.
-        let (base_ptr, _) = device_output.device_ptr(ctx.stream());
+        // Only the allocation address assembles the output pointer metadata. The actual device
+        // write is tracked by `record_device_output` around `decompress_async`.
+        let base_ptr = device_output.device_address();
         plan.output_offsets()
             .iter()
             .map(|offset| base_ptr + *offset as u64)

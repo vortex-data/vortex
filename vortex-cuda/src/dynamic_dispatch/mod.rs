@@ -640,7 +640,7 @@ mod tests {
                 .clone_htod(data)
                 .map_err(|e| vortex_err!("htod: {e}"))?,
         );
-        let (ptr, _) = device_buf.device_ptr(cuda_ctx.stream());
+        let ptr = device_buf.device_address();
         Ok((ptr, device_buf))
     }
 
@@ -2310,7 +2310,7 @@ mod tests {
                 .clone_htod(&i8_values)
                 .map_err(|e| vortex_err!("htod: {e}"))?,
         );
-        let (input_ptr, _) = device_buf.device_ptr(cuda_ctx.stream());
+        let input_ptr = device_buf.device_address();
 
         // Build a single-stage LOAD plan: source ptype = I8, output ptype = U32.
         // The kernel (instantiated as u32) must sign-extend each i8 element.
@@ -2348,7 +2348,7 @@ mod tests {
                 .clone_htod(&i16_values)
                 .map_err(|e| vortex_err!("htod: {e}"))?,
         );
-        let (input_ptr, _) = device_buf.device_ptr(cuda_ctx.stream());
+        let input_ptr = device_buf.device_address();
 
         let plan = CudaDispatchPlan::new(
             [MaterializedStage::new(

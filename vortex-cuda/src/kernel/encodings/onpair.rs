@@ -67,7 +67,6 @@ use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex_array::ArrayView;
 use vortex_cuda_driver::CudaSlice;
-use vortex_cuda_driver::DevicePtr;
 use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_driver::LaunchConfig;
 use vortex_cuda_driver::PushKernelArg;
@@ -496,7 +495,7 @@ where
     // Decode only batches intersecting the visible token window. The kernel's drain gates 16-byte
     // stores on `out_start % 16` relative to the buffer base, so the base must be 16-aligned.
     let mut bytes = ctx.device_alloc::<u8>(total_size)?;
-    let (bytes_base_ptr, _) = bytes.device_ptr(ctx.stream());
+    let bytes_base_ptr = bytes.device_address();
     assert_eq!(
         bytes_base_ptr % 16,
         0,

@@ -436,6 +436,14 @@ impl<T> CudaSlice<T> {
         &self.stream
     }
 
+    /// The device address, to inspect or compute pointers from without accessing the memory.
+    ///
+    /// Unlike [`DevicePtr::device_ptr`], this orders nothing: work using the address must be
+    /// ordered after the memory's other accesses, for example through a device pointer guard.
+    pub fn device_address(&self) -> sys::CUdeviceptr {
+        self.pointer
+    }
+
     /// The whole slice as a view.
     pub fn as_view(&self) -> CudaView<'_, T> {
         CudaView {

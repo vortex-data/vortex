@@ -34,7 +34,6 @@ use vortex::encodings::fsst::FSSTArraySlotsExt;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
-use vortex_cuda_driver::DevicePtr;
 use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_driver::PushKernelArg;
 
@@ -242,7 +241,7 @@ where
     // The kernel gates store widths on `out_pos % N` relative to the base, so the base must
     // satisfy the widest store (u128 → 16).
     let mut output = ctx.device_alloc::<u8>(total_size)?;
-    let (output_base_ptr, _) = output.device_ptr(ctx.stream());
+    let output_base_ptr = output.device_address();
     assert_eq!(
         output_base_ptr % 16,
         0,
@@ -336,7 +335,7 @@ where
     let mut device_views = (total_size <= MAX_BUFFER_LEN)
         .then(|| ctx.device_alloc::<i128>(num_strings))
         .transpose()?;
-    let (output_base_ptr, _) = device_output.device_ptr(ctx.stream());
+    let output_base_ptr = device_output.device_address();
     assert_eq!(
         output_base_ptr % 16,
         0,
