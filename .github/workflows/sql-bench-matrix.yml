@@ -40,7 +40,7 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps([x for x in json.load(sys.stdin) if x["id"] == "clickbench-nvme"]))')"
+          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps([dict(x, id="tpcds-nvme-"+str(sf), name="TPC-DS SF="+str(sf)+" on NVME", scale_factor=float(sf)) for x in json.load(sys.stdin) if x["id"] == "tpcds-nvme" for sf in (1,10,30)]))')"
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   build:
@@ -225,27 +225,35 @@ jobs:
             -o sizes.json
           cat sizes.json >> results.json
 
-      - name: Install LLVM symbolizer if needed
-        shell: bash
-        run: |
-          if ! command -v llvm-symbolizer >/dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y llvm
-          fi
+      - name: Download published baseline
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: bench-binaries
+          run-id: "40420842425"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: target/structural-baseline/
 
-      - name: Compare and profile ClickBench scans
+      - name: Download coordinated coarse baseline
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: bench-binaries
+          run-id: "40431157298"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: target/coordinated-coarse/
+
+      - name: Compare scan partition variants
         shell: bash
         env:
           TOKIO_WORKER_THREADS: "8"
           DATAFUSION_EXECUTION_TARGET_PARTITIONS: "8"
           RUST_LOG: warn
-        run: python3 scripts/profile-click-scans.py "${{ matrix.scale_factor }}"
+        run: python3 scripts/compare-scan-partitions.py "${{ matrix.scale_factor }}"
 
       - name: Upload scan comparison
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: scan-profiles-${{ matrix.id }}
+          name: scan-partition-comparison-${{ matrix.id }}
           path: scan-*
 
       - name: Compare results
