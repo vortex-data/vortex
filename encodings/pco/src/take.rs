@@ -39,7 +39,6 @@ use crate::PcoArrayExt;
 use crate::access::AccessState;
 use crate::array::number_type_from_ptype;
 use crate::decoder::PageDecoder;
-use crate::page_index::ChunkCursor;
 use crate::page_index::LogicalPageIndex;
 use crate::page_index::PageIndex;
 
@@ -218,7 +217,6 @@ fn prefer_canonical_primitive<I: Copy>(
 where
     usize: TryFrom<I>,
 {
-    let mut chunks = ChunkCursor::default();
     let full_bytes = canonical_bytes(array);
     let setup = descriptor_bytes(requests);
     let width = array.dtype().as_ptype().byte_width();
@@ -231,7 +229,7 @@ where
         let row = array.slice_start() + checked_index(row)?;
         let page = view.find_row(row);
         if touched.insert(page) {
-            selected = selected.saturating_add(view.physical(page, &mut chunks)?.n_values);
+            selected = selected.saturating_add(view.physical(page)?.n_values);
             if setup.saturating_add(selected.saturating_mul(width)) >= full_bytes {
                 return Ok(true);
             }
@@ -350,7 +348,6 @@ fn gather_grouped<T: Number + NativePType, const NULLABLE: bool>(
     drop(state);
     if !resolved.is_empty() {
         let mut decoder = PageDecoder::<T>::new(array.metadata.header.as_slice())?;
-        let mut chunks = ChunkCursor::default();
         let mut cursor = 0;
         while cursor < resolved.len() {
             let page = resolved[cursor].0;
@@ -365,7 +362,7 @@ fn gather_grouped<T: Number + NativePType, const NULLABLE: bool>(
                     .collect::<VortexResult<Vec<_>>>()?,
             )
             .into_array();
-            let info = view.physical(page, &mut chunks)?;
+            let info = view.physical(page)?;
             let buffer = array
                 .pages
                 .get(page)
@@ -427,7 +424,6 @@ fn stream_range<T: Number + NativePType>(
     }
     let mut state = AccessState::default();
     let mut decoder = PageDecoder::<T>::new(array.metadata.header.as_slice())?;
-    let mut chunks = ChunkCursor::default();
     let stop = array.slice_start() + range.end;
     let mut row = global_start;
     // Descriptor-count iteration bounds work even when optional index contents are bad.
@@ -442,7 +438,7 @@ fn stream_range<T: Number + NativePType>(
             .get_mut(start..start + span.mask.len())
             .ok_or_else(|| vortex_err!("Pco contiguous output exceeds visible range"))?;
         if !span.mask.all_false() {
-            let page = view.physical(span.page, &mut chunks)?;
+            let page = view.physical(span.page)?;
             let buffer = array
                 .pages
                 .get(span.page)

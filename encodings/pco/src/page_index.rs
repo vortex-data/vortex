@@ -64,31 +64,21 @@ impl LogicalPageIndex {
         let start = if page == 0 { 0 } else { ends[page - 1] };
         start..ends[page]
     }
-    pub fn physical(&self, page: usize, cursor: &mut ChunkCursor) -> VortexResult<PhysicalPage> {
-        if !cursor.pages.contains(&page) {
-            let chunk = self.chunk_ends.partition_point(|end| *end <= page);
-            let end = *self
-                .chunk_ends
-                .get(chunk)
-                .ok_or_else(|| vortex_err!("Pco physical page is missing"))?;
-            let start = if chunk == 0 {
-                0
-            } else {
-                self.chunk_ends[chunk - 1]
-            };
-            *cursor = ChunkCursor {
-                chunk,
-                pages: start..end,
-            };
-        }
+    pub fn physical(&self, page: usize) -> VortexResult<PhysicalPage> {
+        let chunk = self.chunk_ends.partition_point(|end| *end <= page);
+        let start = if chunk == 0 {
+            0
+        } else {
+            self.chunk_ends[chunk - 1]
+        };
         let info = self
             .metadata
             .chunks
-            .get(cursor.chunk)
-            .and_then(|chunk| chunk.pages.get(page - cursor.pages.start))
+            .get(chunk)
+            .and_then(|chunk| chunk.pages.get(page - start))
             .ok_or_else(|| vortex_err!("Pco page metadata is missing"))?;
         Ok(PhysicalPage {
-            chunk: cursor.chunk,
+            chunk,
             n_values: info.n_values as usize,
         })
     }
@@ -100,9 +90,4 @@ pub(crate) struct PhysicalPage {
     pub chunk: usize,
     /// Number of initialized primitive output slots required by this page.
     pub n_values: usize,
-}
-#[derive(Default)]
-pub(crate) struct ChunkCursor {
-    chunk: usize,
-    pages: Range<usize>,
 }
