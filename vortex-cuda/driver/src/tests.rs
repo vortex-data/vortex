@@ -225,3 +225,18 @@ fn transmute_rejects_overflowing_lengths() -> Result<(), DriverError> {
     }
     context.check_err()
 }
+
+/// Empty allocations succeed with either allocator and support every access.
+#[test]
+fn empty_allocations() -> Result<(), DriverError> {
+    let Some((context, owner, other)) = streams() else {
+        return Ok(());
+    };
+    let device = owner.clone_htod(&Vec::<u32>::new())?;
+    let mut copy = other.alloc_zeros::<u32>(0)?;
+    other.memcpy_dtod(&device, &mut copy)?;
+    assert!(owner.clone_dtoh(&copy)?.is_empty());
+    drop(device);
+    drop(copy);
+    context.check_err()
+}
