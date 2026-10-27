@@ -110,12 +110,20 @@ impl PooledFileReadAtOptions {
         self.direct_io
     }
 
-    fn open(self, path: &Path) -> VortexResult<Arc<dyn FileReadBackend>> {
+    /// The backend reading `file`, opened from `path`.
+    fn open(self, path: &Path, file: &File) -> VortexResult<Arc<dyn FileReadBackend>> {
         #[cfg(target_os = "linux")]
         if self.direct_io {
-            return Ok(Arc::new(DirectFileReadBackend::open(path)?));
+            // Direct I/O needs a descriptor of its own, which must reach the same file.
+            let backend = DirectFileReadBackend::open(path)?;
+            vortex_ensure!(
+                FileVersion::of(backend.file())? == FileVersion::of(file)?,
+                "{} was replaced while opening it",
+                path.display()
+            );
+            return Ok(Arc::new(backend));
         }
-        Ok(Arc::new(File::open(path)?))
+        Ok(Arc::new(file.try_clone()?))
     }
 }
 
@@ -215,11 +223,10 @@ struct FileMapping {
 }
 
 impl FileMapping {
-    /// The cached mapping of `path`'s current version, mapping it on first use, or `None` if the
+    /// The cached mapping of `file`'s current version, mapping it on first use, or `None` if the
     /// file cannot be mapped, such as on a filesystem without shared mappings.
-    fn open(path: &Path) -> VortexResult<Option<Arc<Self>>> {
-        let file = File::open(path)?;
-        let version = FileVersion::of(&file)?;
+    fn open(file: &File) -> VortexResult<Option<Arc<Self>>> {
+        let version = FileVersion::of(file)?;
         let mut mappings = FILE_MAPPINGS.lock();
         if let Some(index) = mappings.iter().position(|(cached, _)| *cached == version) {
             let entry = mappings.remove(index).vortex_expect("index is in bounds");
@@ -229,11 +236,11 @@ impl FileMapping {
         }
         // SAFETY: Vortex files are immutable while open. As with any file mapping, truncation
         // by another process would fault on access.
-        let mapping = match unsafe { Mmap::map(&file) } {
+        let mapping = match unsafe { Mmap::map(file) } {
             Ok(mapping) => mapping,
             Err(error) => {
                 // Mapping only speeds up reads, which staging serves as well.
-                tracing::debug!(path = %path.display(), %error, "staging reads of unmappable file");
+                tracing::debug!(%error, "staging reads of unmappable file");
                 return Ok(None);
             }
         };
@@ -311,7 +318,7 @@ struct MappedFile {
 
 impl MappedFile {
     fn open(
-        path: &Path,
+        file: &File,
         stream: &VortexCudaStream,
         session: &CudaSession,
     ) -> VortexResult<Option<Self>> {
@@ -328,7 +335,7 @@ impl MappedFile {
             return Ok(None);
         }
         let copy = session.load_function_with_suffixes("mapped_copy", &[])?;
-        let Some(file) = FileMapping::open(path)? else {
+        let Some(file) = FileMapping::open(file)? else {
             return Ok(None);
         };
         Ok(Some(Self {
@@ -490,8 +497,23 @@ impl PooledFileReadAt {
         options: PooledFileReadAtOptions,
     ) -> VortexResult<Self> {
         let path = path.as_ref();
+        Self::from_file(path, &File::open(path)?, handle, pool, stream, options)
+    }
+
+    /// Read the already open `file`, opened from `path`.
+    ///
+    /// Every read of the reader reaches `file`, even if `path` was replaced since, as direct I/O
+    /// checks when it opens `path` again.
+    pub(crate) fn from_file(
+        path: &Path,
+        file: &File,
+        handle: Handle,
+        pool: Arc<PinnedByteBufferPool>,
+        stream: VortexCudaStream,
+        options: PooledFileReadAtOptions,
+    ) -> VortexResult<Self> {
         let uri = Arc::from(path.to_string_lossy().to_string());
-        let backend = options.open(path)?;
+        let backend = options.open(path, file)?;
         Ok(Self {
             uri,
             backend,
@@ -505,12 +527,14 @@ impl PooledFileReadAt {
 
     /// Let the device copy buffered reads straight from the page cache when it reads pageable
     /// host memory through the host page tables. Otherwise the reader is unchanged.
+    ///
+    /// `file` must be the file the reader reads.
     pub(crate) fn with_mapped_copy(
         mut self,
-        path: &Path,
+        file: &File,
         session: &CudaSession,
     ) -> VortexResult<Self> {
-        self.mapped = MappedFile::open(path, &self.stream, session)?.map(Arc::new);
+        self.mapped = MappedFile::open(file, &self.stream, session)?.map(Arc::new);
         Ok(self)
     }
 
