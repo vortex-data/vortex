@@ -68,6 +68,10 @@ impl DirectFileReadBackend {
         let constraints = direct_io_constraints(&file)?;
         Ok(Self { file, constraints })
     }
+
+    pub(super) fn file(&self) -> &File {
+        &self.file
+    }
 }
 
 impl FileReadBackend for DirectFileReadBackend {
