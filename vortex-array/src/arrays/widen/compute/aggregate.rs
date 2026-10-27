@@ -15,15 +15,6 @@ use crate::dtype::DType;
 use crate::expr::stats::Stat;
 use crate::scalar::Scalar;
 
-/// The longest batch with a 64-bit logical dtype for which [`WidenArrayAggregate`] serves [`Sum`].
-///
-/// `Sum` adds integers narrower than 64 bits in blocks and checks for overflow once per block, but
-/// checks 64-bit integers after every value. So only a 64-bit logical dtype is checked at other
-/// points than its values. Its values have at most 32 bits, and no sum of at most 2^32 of them
-/// leaves the 64-bit range, so neither check fires. In a longer batch, a sum can overflow and come
-/// back inside one block, which only the check after every value sees.
-const MAX_EXACT_SUM_LEN: u64 = 1 << 32;
-
 /// Runs an aggregate of a [`Widen`] on its values and widens the partial to the logical dtype.
 ///
 /// The values run the same accumulator code as the canonical array, so edge cases such as an empty
@@ -49,11 +40,11 @@ impl DynAggregateKernel for WidenArrayAggregate {
             return Ok(None);
         }
 
-        if aggregate_fn.is::<Sum>() && !is_exact_sum(aggregate_fn, batch) {
+        let values = widen.values();
+        if aggregate_fn.is::<Sum>() && !is_exact_sum(aggregate_fn, batch, values) {
             return Ok(None);
         }
 
-        let values = widen.values();
         let mut accumulator = aggregate_fn.accumulator(values.dtype())?;
         accumulator.accumulate(values, ctx)?;
 
@@ -72,15 +63,20 @@ impl DynAggregateKernel for WidenArrayAggregate {
 ///   It does so for an aggregate with the legacy [`Stat::Sum`] slot. Otherwise it adds each value
 ///   to the running sum, which a batch total cannot match near the 64-bit bounds: from a running
 ///   sum of `i64::MAX - 5`, the values `[10, -10]` overflow, but their total of zero does not.
-/// - The overflow checks **must** agree. A logical dtype narrower than 64 bits is summed in the
-///   same blocks as its values, so they always agree. A 64-bit logical dtype needs a batch of at
-///   most [`MAX_EXACT_SUM_LEN`] rows.
+/// - The sum of the batch **must not** be able to overflow. `Sum` adds every integer type into a
+///   64-bit sum, but checks for overflow at different points for different widths: once per block
+///   for types narrower than 64 bits, and after every value for 64-bit types. A signed value of
+///   `b` bits lies in `[-2^(b-1), 2^(b-1))` and an unsigned one in `[0, 2^b)`, so no sum of at
+///   most `2^(64 - b)` of them leaves the range of `i64` or `u64`, and no check fires on either
+///   path.
 ///
 /// Only `Sum` with `skip_nans` has the slot. Integers have no NaNs, so `skip_nans` matters here
 /// only because it selects the slot.
-fn is_exact_sum(aggregate_fn: &AggregateFnRef, batch: &ArrayRef) -> bool {
-    let is_64_bit = matches!(batch.dtype(), DType::Primitive(ptype, _) if ptype.byte_width() == 8);
+fn is_exact_sum(aggregate_fn: &AggregateFnRef, batch: &ArrayRef, values: &ArrayRef) -> bool {
+    let DType::Primitive(values_ptype, _) = values.dtype() else {
+        return false;
+    };
+    let max_len = 1u64 << (64 - values_ptype.bit_width());
 
-    Stat::from_aggregate_fn(aggregate_fn) == Some(Stat::Sum)
-        && (!is_64_bit || batch.len() as u64 <= MAX_EXACT_SUM_LEN)
+    Stat::from_aggregate_fn(aggregate_fn) == Some(Stat::Sum) && batch.len() as u64 <= max_len
 }
