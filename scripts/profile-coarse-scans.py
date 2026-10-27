@@ -41,18 +41,18 @@ def command(v2, query, iterations, label):
             '--ingest-jsonl', label + '.jsonl', '--opt', f'scale-factor={scale}']
 
 current_binary = binary
-variants = [('v1', current_binary, False), ('published', root / 'target/coarse-baseline/datafusion-bench', True), ('early', current_binary, True)]
-for round in range(3):
+variants = [('v1', current_binary, False), ('published', root / 'target/coarse-baseline/datafusion-bench', True), ('prefetched', root / 'target/prefetch-baseline/datafusion-bench', True), ('wide', current_binary, True)]
+(root / 'target/prefetch-baseline/datafusion-bench').chmod(0o755)
+for round in range(4):
     for label_name, binary, v2 in variants[round:] + variants[:round]:
         label = f'scan-timing-r{round}-{label_name}'
-        queries = '8,11,13,16,19,20,21,22,28,32,35,41,49,54,55,65,70,76,92,93' if float(scale) == 1 else '13,20,28,32,40,41,48,49,58,62,76'
-        cmd = command(v2, queries, 9, label)
+        cmd = command(v2, '13,20,28,32,40,41,48,49,58,62,76', 9, label)
         Path(label + '.command.json').write_text(json.dumps({'command': cmd, 'env': profile_env}, indent=2))
         with open(label + '.log', 'w') as log:
             subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=600, check=True)
 for label_name, binary, v2 in variants:
     label = f'scan-metrics-{label_name}'
-    cmd = command(v2, '58', 1, label) + ['--show-metrics']
+    cmd = command(v2, '20,32', 1, label) + ['--show-metrics']
     with open(label + '.log', 'w') as log:
         subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=600, check=True)
 binary = current_binary
@@ -70,7 +70,7 @@ def frame_label(thread, index, symbols=None):
 
 summary.frame_label = frame_label
 binary_sha = hashlib.sha256(binary.read_bytes()).hexdigest()
-for query, iterations in [('41', 300), ('32', 200)]:
+for query, iterations in [('20', 100), ('32', 200)]:
     for label_name, binary, v2 in variants:
         binary_sha = hashlib.sha256(binary.read_bytes()).hexdigest()
         label = f'scan-q{query}-{label_name}'
