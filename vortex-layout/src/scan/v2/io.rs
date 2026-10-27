@@ -50,7 +50,8 @@ pub(super) fn segment_ranges(locations: &[SegmentLocation]) -> SegmentRanges {
 ///
 /// Its sessions share a segment's read while any of them still holds it, so splits that run at
 /// once and need the same segment, such as chunks that each cut into one column segment, read
-/// it once.
+/// it once. A scan that retains its reads keeps every read for its lifetime, so splits that run
+/// one after another share them too.
 pub(crate) struct SegmentScanIo {
     segments: Arc<dyn SegmentSource>,
     ranges: SegmentRanges,
@@ -58,11 +59,23 @@ pub(crate) struct SegmentScanIo {
 }
 
 impl SegmentScanIo {
-    pub(crate) fn new(segments: Arc<dyn SegmentSource>, ranges: SegmentRanges) -> Self {
+    /// A scan's IO, which retains its reads when `retain` is set.
+    ///
+    /// Retaining suits a sparse selection, such as an engine fetching a few rows by id: its
+    /// reads are few, but each wide column segment it touches is needed by every chunk that
+    /// selects a row of it.
+    pub(crate) fn new(
+        segments: Arc<dyn SegmentSource>,
+        ranges: SegmentRanges,
+        retain: bool,
+    ) -> Self {
         Self {
             segments,
             ranges,
-            reads: SharedReads::default(),
+            reads: Arc::new(Mutex::new(ScanReads {
+                retain,
+                reads: HashMap::default(),
+            })),
         }
     }
 }
@@ -77,9 +90,45 @@ impl IoService for SegmentScanIo {
     }
 }
 
-/// The reads of a scan's sessions, by segment, held weakly: a read lives only while a session
-/// holds it, so sharing it keeps no segment in memory longer.
-type SharedReads = Arc<Mutex<HashMap<SegmentId, WeakShared<SegmentRead>>>>;
+/// The reads of a scan's sessions, by segment.
+type SharedReads = Arc<Mutex<ScanReads>>;
+
+/// The reads of a scan's sessions, by segment.
+#[derive(Default)]
+struct ScanReads {
+    /// Whether reads are held for the scan's lifetime rather than while a session holds them.
+    retain: bool,
+    reads: HashMap<SegmentId, ScanRead>,
+}
+
+/// A read of a scan, held weakly so that sharing it keeps no segment in memory longer, or
+/// retained.
+enum ScanRead {
+    Weak(WeakShared<SegmentRead>),
+    Retained(Prefetched),
+}
+
+impl ScanReads {
+    /// The read of `segment` the scan still has.
+    fn get(&self, segment: SegmentId) -> Option<Prefetched> {
+        match self.reads.get(&segment)? {
+            ScanRead::Weak(read) => read.upgrade(),
+            ScanRead::Retained(read) => Some(read.clone()),
+        }
+    }
+
+    fn insert(&mut self, segment: SegmentId, read: &Prefetched) {
+        let read = if self.retain {
+            ScanRead::Retained(read.clone())
+        } else {
+            let Some(read) = read.downgrade() else {
+                return;
+            };
+            ScanRead::Weak(read)
+        };
+        self.reads.insert(segment, read);
+    }
+}
 
 /// Serves a split's range requests from a segment source, without blocking.
 ///
@@ -136,7 +185,7 @@ impl SegmentIoSource {
     /// announcement of it, else a new one.
     fn read(&self, segment: SegmentId) -> Prefetched {
         let mut shared = self.shared.lock();
-        if let Some(read) = shared.get(&segment).and_then(WeakShared::upgrade) {
+        if let Some(read) = shared.get(segment) {
             return read;
         }
         let read = self
@@ -148,9 +197,7 @@ impl SegmentIoSource {
             .map_err(Arc::new)
             .boxed()
             .shared();
-        if let Some(weak) = read.downgrade() {
-            shared.insert(segment, weak);
-        }
+        shared.insert(segment, &read);
         read
     }
 }
@@ -417,7 +464,11 @@ mod tests {
             length: 4,
             alignment: Alignment::none(),
         };
-        let scan = SegmentScanIo::new(Arc::clone(&segments) as _, segment_ranges(&[location]));
+        let scan = SegmentScanIo::new(
+            Arc::clone(&segments) as _,
+            segment_ranges(&[location]),
+            false,
+        );
         let first = scan.session();
         let second = scan.session();
         for (io, id) in [(&first, 0), (&second, 1)] {
@@ -439,6 +490,36 @@ mod tests {
                 .is_ok()
         );
         assert_eq!(segments.0.load(Ordering::Relaxed), 2);
+        Ok(())
+    }
+
+    /// A scan that retains its reads shares a read with a later session after the earlier one
+    /// let it go.
+    #[tokio::test]
+    async fn retained_reads_outlive_their_sessions() -> VortexResult<()> {
+        let segments = Arc::new(CountingSegments::default());
+        let location = SegmentLocation {
+            offset: 0,
+            length: 4,
+            alignment: Alignment::none(),
+        };
+        let scan = SegmentScanIo::new(
+            Arc::clone(&segments) as _,
+            segment_ranges(&[location]),
+            true,
+        );
+        for id in 0..2 {
+            let io = scan.session();
+            io.submit(IoOwnerId(0), vec![request(IoIntent::Fetch, id)])?;
+            assert!(
+                std::future::poll_fn(|cx| io.poll_completion(cx))
+                    .await?
+                    .result
+                    .is_ok()
+            );
+            io.clear();
+        }
+        assert_eq!(segments.0.load(Ordering::Relaxed), 1);
         Ok(())
     }
 

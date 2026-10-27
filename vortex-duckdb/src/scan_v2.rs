@@ -105,9 +105,17 @@ impl FileScan {
         let scan = Arc::new(builder.prepare()?);
         let io = scan.io();
         let rows = scan.rows().clone();
-        let parts = get_available_parallelism().unwrap_or(1) * PARTS_PER_THREAD;
+        let mut parts = get_available_parallelism().unwrap_or(1) * PARTS_PER_THREAD;
         let max_rows = (scan.chunk_rows() as u64).min(merged_rows(&rows, parts));
-        let chunks = chunk_ranges(rows.clone(), boundaries, max_rows);
+        let mut chunks = chunk_ranges(rows.clone(), boundaries, max_rows);
+        if scan.sparse_selection() {
+            // A sparse selection, such as an engine's fetch of a few rows by id, selects rows in
+            // few chunks: each of them is its own part, and the rest are not planned at all, so
+            // DuckDB gives the file a thread per chunk that has work, as V1 does with its splits.
+            let selection = scan.selection();
+            chunks.retain(|chunk| selection.row_count_in_range(chunk) > 0);
+            parts = chunks.len();
+        }
         let mut root = Run::new();
         root.admit(
             compose(&scan, chunks, parts, dynamic),
