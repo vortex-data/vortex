@@ -14,9 +14,12 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::array::vortex_err_from_pco;
+use crate::page_index::LogicalPageIndex;
+use crate::page_index::PhysicalPage;
 
 pub(crate) struct PageDecoder<T: Number> {
     file: FileDecompressor,
@@ -69,5 +72,36 @@ impl<T: Number + NativePType> PageDecoder<T> {
             .map_err(vortex_err_from_pco)?;
         decoder.read(output).map_err(vortex_err_from_pco)?;
         Ok(())
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct PageLookup {
+    last: Option<PhysicalPage>,
+}
+
+impl PageLookup {
+    pub fn resolve(
+        &mut self,
+        index: &LogicalPageIndex,
+        array: ArrayView<'_, Pco>,
+        page: usize,
+    ) -> VortexResult<(usize, usize)> {
+        if !self
+            .last
+            .as_ref()
+            .is_some_and(|last| last.pages.contains(&page))
+        {
+            let info = index.physical(page)?;
+            let result = (info.chunk, info.n_values);
+            self.last = Some(info);
+            return Ok(result);
+        }
+        let last = self.last.as_ref().vortex_expect("chunk lookup initialized");
+        let info = array.metadata.chunks[last.chunk]
+            .pages
+            .get(page - last.pages.start)
+            .ok_or_else(|| vortex_err!("Pco page metadata is missing"))?;
+        Ok((last.chunk, info.n_values as usize))
     }
 }

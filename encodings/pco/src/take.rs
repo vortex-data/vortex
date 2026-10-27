@@ -39,6 +39,7 @@ use crate::PcoArrayExt;
 use crate::access::AccessState;
 use crate::array::number_type_from_ptype;
 use crate::decoder::PageDecoder;
+use crate::decoder::PageLookup;
 use crate::page_index::LogicalPageIndex;
 use crate::page_index::PageIndex;
 
@@ -222,6 +223,7 @@ where
     let width = array.dtype().as_ptype().byte_width();
     let mut touched = BTreeSet::new();
     let mut selected = 0usize;
+    let mut lookup = PageLookup::default();
     for (&row, valid) in indices.iter().zip(mask.iter()) {
         if !valid {
             continue;
@@ -229,7 +231,7 @@ where
         let row = array.slice_start() + checked_index(row)?;
         let page = view.find_row(row);
         if touched.insert(page) {
-            selected = selected.saturating_add(view.physical(page)?.n_values);
+            selected = selected.saturating_add(lookup.resolve(view, array, page)?.1);
             if setup.saturating_add(selected.saturating_mul(width)) >= full_bytes {
                 return Ok(true);
             }
@@ -349,6 +351,7 @@ fn gather_grouped<T: Number + NativePType, const NULLABLE: bool>(
     if !resolved.is_empty() {
         let mut decoder = PageDecoder::<T>::new(array.metadata.header.as_slice())?;
         let mut cursor = 0;
+        let mut lookup = PageLookup::default();
         while cursor < resolved.len() {
             let page = resolved[cursor].0;
             let end = cursor + resolved[cursor..].partition_point(|request| request.0 == page);
@@ -362,19 +365,19 @@ fn gather_grouped<T: Number + NativePType, const NULLABLE: bool>(
                     .collect::<VortexResult<Vec<_>>>()?,
             )
             .into_array();
-            let info = view.physical(page)?;
+            let (chunk_id, n_values) = lookup.resolve(view, array, page)?;
             let buffer = array
                 .pages
                 .get(page)
                 .ok_or_else(|| vortex_err!("Pco compressed page is missing"))?;
             let chunk = array
                 .chunk_metas
-                .get(info.chunk)
+                .get(chunk_id)
                 .ok_or_else(|| vortex_err!("Pco chunk metadata is missing"))?;
             let decoded = decoder.read(
-                info.chunk,
+                chunk_id,
                 chunk.as_slice(),
-                info.n_values,
+                n_values,
                 buffer.as_slice(),
                 ctx,
             )?;

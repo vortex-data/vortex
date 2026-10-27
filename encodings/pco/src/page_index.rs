@@ -79,6 +79,7 @@ impl LogicalPageIndex {
             .ok_or_else(|| vortex_err!("Pco page metadata is missing"))?;
         Ok(PhysicalPage {
             chunk,
+            pages: start..self.chunk_ends[chunk],
             n_values: info.n_values as usize,
         })
     }
@@ -88,6 +89,8 @@ impl LogicalPageIndex {
 pub(crate) struct PhysicalPage {
     /// Zero-based position in metadata.chunks and chunk_metas.
     pub chunk: usize,
+    /// Flat page positions belonging to this chunk.
+    pub pages: Range<usize>,
     /// Number of initialized primitive output slots required by this page.
     pub n_values: usize,
 }
