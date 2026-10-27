@@ -4,8 +4,9 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use arrow_array::Int32Array;
 use arrow_array::RecordBatch;
+use arrow_array::cast::AsArray;
+use arrow_array::types::Int32Type;
 use datafusion::assert_batches_eq;
 use datafusion::prelude::SessionContext;
 use datafusion_common::ScalarValue;
@@ -196,30 +197,29 @@ async fn statistics_follow_filter_and_fetch() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn runtime_filters_refresh_projected_bounds_and_keep_residuals() -> anyhow::Result<()> {
-    let projection = ProjectionExprs::from(vec![ProjectionExpr::new(
-        Arc::new(df_expr::Column::new("b", 1)),
-        "value",
-    )]);
+async fn dynamic_filters_refresh_projected_bounds_and_keep_residuals() -> anyhow::Result<()> {
     let source = vortex_source()
         .await?
-        .try_swapping_with_projection(&projection)?
+        .try_swapping_with_projection(&ProjectionExprs::from(vec![ProjectionExpr::new(
+            Arc::new(df_expr::Column::new("b", 1)),
+            "value",
+        )]))?
         .unwrap();
     let column = Arc::new(df_expr::Column::new("value", 0)) as Arc<dyn PhysicalExpr>;
+    let above = |value| {
+        Arc::new(df_expr::BinaryExpr::new(
+            Arc::clone(&column),
+            Operator::Gt,
+            df_expr::lit(value),
+        )) as Arc<dyn PhysicalExpr>
+    };
     let source = source
-        .try_pushdown_filters(
-            vec![Arc::new(df_expr::BinaryExpr::new(
-                Arc::clone(&column),
-                Operator::Gt,
-                Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(15)))),
-            ))],
-            &ConfigOptions::new(),
-        )?
+        .try_pushdown_filters(vec![above(15_i32)], &ConfigOptions::new())?
         .updated_node
         .unwrap();
     let bound = Arc::new(DynamicFilterPhysicalExpr::new(
         vec![Arc::clone(&column)],
-        Arc::new(df_expr::Literal::new(ScalarValue::Boolean(Some(true)))),
+        df_expr::lit(true),
     ));
     let pushed = source.try_pushdown_filters(
         vec![Arc::clone(&bound) as Arc<dyn PhysicalExpr>],
@@ -234,51 +234,33 @@ async fn runtime_filters_refresh_projected_bounds_and_keep_residuals() -> anyhow
         Ok(TreeNodeRecursion::Continue)
     })?;
     assert!(visited);
+    // Modulo is unsupported: only the static filter may reject rows in that case.
+    let unsupported = Arc::new(df_expr::BinaryExpr::new(
+        Arc::new(df_expr::BinaryExpr::new(
+            Arc::clone(&column),
+            Operator::Modulo,
+            df_expr::lit(2_i32),
+        )),
+        Operator::Eq,
+        df_expr::lit(1_i32),
+    ));
     for (predicate, expected) in [
-        (
-            Arc::new(df_expr::Literal::new(ScalarValue::Boolean(Some(true))))
-                as Arc<dyn PhysicalExpr>,
-            vec![30, 20],
-        ),
-        (
-            Arc::new(df_expr::BinaryExpr::new(
-                Arc::clone(&column),
-                Operator::Gt,
-                Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(25)))),
-            )),
-            vec![30],
-        ),
-        // Modulo is unsupported: only the static filter may reject rows here.
-        (
-            Arc::new(df_expr::BinaryExpr::new(
-                Arc::new(df_expr::BinaryExpr::new(
-                    column,
-                    Operator::Modulo,
-                    Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(2)))),
-                )),
-                Operator::Eq,
-                Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(1)))),
-            )),
-            vec![30, 20],
-        ),
+        (df_expr::lit(true), vec![30, 20]),
+        (above(25_i32), vec![30]),
+        (unsupported as Arc<dyn PhysicalExpr>, vec![30, 20]),
     ] {
         let stream = source.open(0, SessionContext::new().task_ctx())?;
+        let schema = stream.schema();
         bound.update(predicate)?;
-        let batches: Vec<RecordBatch> = stream.try_collect().await?;
-        let values = batches
-            .iter()
-            .flat_map(|batch| {
-                batch
-                    .column(0)
-                    .as_any()
-                    .downcast_ref::<Int32Array>()
-                    .unwrap()
-                    .values()
-                    .iter()
-                    .copied()
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(values, expected);
+        let batch = concat_batches(&schema, &stream.try_collect::<Vec<_>>().await?)?;
+        assert_eq!(
+            batch
+                .column(0)
+                .as_primitive::<Int32Type>()
+                .values()
+                .as_ref(),
+            expected
+        );
     }
     Ok(())
 }
