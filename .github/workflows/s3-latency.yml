@@ -168,6 +168,9 @@ jobs:
     if: ${{ !cancelled() && needs.bench.result != 'skipped' }}
     timeout-minutes: 15
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write  # for commenting on PRs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
@@ -182,6 +185,31 @@ jobs:
           cat report.md >> "$GITHUB_STEP_SUMMARY"
           { head -n1 "$(find results -name requests.csv | head -n1)"; \
             find results -name requests.csv -exec tail -q -n +2 {} +; } | gzip > all-requests.csv.gz
+      - name: Build PR comment
+        if: github.event_name == 'pull_request'
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -Eeu -o pipefail
+          {
+            echo "# S3 latency"
+            echo
+            echo "From [this run]($RUN_URL). The latency model is the \`s3-latency-model\` artifact (\`model.json\`)."
+            echo
+            sed -n '/^## Latency model/,/^Raw per-request/p' report.md | sed '$d'
+            echo
+            echo "<details><summary>Full report</summary>"
+            echo
+            sed '1d' report.md
+            echo
+            echo "</details>"
+          } > comment.md
+      - name: Comment PR
+        if: github.event_name == 'pull_request'
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+        with:
+          file-path: comment.md
+          comment-tag: s3-latency
       - name: Upload latency model
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
