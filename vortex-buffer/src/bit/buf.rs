@@ -585,6 +585,24 @@ impl BitBuffer {
         Ok(())
     }
 
+    /// Invoke `f(index)` for every unset bit, in ascending order, processing a `u64` word at a
+    /// time.
+    ///
+    /// This is the counterpart of [`for_each_set_index`](Self::for_each_set_index) for unset bits.
+    #[inline]
+    pub fn for_each_unset_index<F: FnMut(usize)>(&self, mut f: F) {
+        let chunks = self.chunks();
+        let mut start = 0;
+        for chunk in chunks.iter() {
+            for_each_set_bit(!chunk, start, &mut f);
+            start += 64;
+        }
+        // The remainder word is zero padded, so its padding comes out set once inverted and has to
+        // be masked off.
+        let held = chunks.remainder_len();
+        for_each_set_bit(!chunks.remainder_bits() & ((1 << held) - 1), start, &mut f);
+    }
+
     /// Created a new BitBuffer with offset reset to 0
     pub fn sliced(&self) -> Self {
         if self.offset.is_multiple_of(8) {
@@ -597,6 +615,15 @@ impl BitBuffer {
 
         // Allocate directly rather than clone + identity op which would fail try_into_mut.
         bitwise_unary_op_copy(self, |a| a)
+    }
+}
+
+/// Call `f` with `start` plus the index of every set bit in `word`.
+#[inline]
+fn for_each_set_bit(mut word: u64, start: usize, f: &mut impl FnMut(usize)) {
+    while word != 0 {
+        f(start + word.trailing_zeros() as usize);
+        word &= word - 1;
     }
 }
 
@@ -805,7 +832,11 @@ impl<'a> IntoIterator for &'a BitBuffer {
 
 #[cfg(test)]
 mod tests {
+    use rand::RngExt;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use rstest::rstest;
+    use vortex_error::VortexResult;
 
     use crate::ByteBuffer;
     use crate::bit::BitBuffer;
@@ -1148,6 +1179,37 @@ mod tests {
                     .collect::<Vec<_>>()
             );
         }
+    }
+
+    #[rstest]
+    #[case(0)]
+    #[case(1)]
+    #[case(63)]
+    #[case(64)]
+    #[case(65)]
+    #[case(128)]
+    #[case(200)]
+    fn test_for_each_unset_index_agrees_with_naive(#[case] len: usize) -> VortexResult<()> {
+        let mut rng = StdRng::seed_from_u64(u64::try_from(len)?);
+        let random: BitBuffer = (0..len).map(|_| rng.random_bool(0.5)).collect();
+        // The same kind of bits, starting 3 bits into their buffer.
+        let offset: BitBuffer = (0..len + 3).map(|_| rng.random_bool(0.5)).collect();
+        for bits in [
+            random,
+            offset.slice(3..),
+            BitBuffer::new_set(len),
+            BitBuffer::new_unset(len),
+        ] {
+            let expected: Vec<usize> = bits
+                .iter()
+                .enumerate()
+                .filter_map(|(index, set)| (!set).then_some(index))
+                .collect();
+            let mut found = Vec::new();
+            bits.for_each_unset_index(|index| found.push(index));
+            assert_eq!(found, expected);
+        }
+        Ok(())
     }
 
     #[test]
