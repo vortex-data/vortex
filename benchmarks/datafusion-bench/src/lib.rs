@@ -5,6 +5,7 @@ pub mod metrics;
 pub mod tracer;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use datafusion::datasource::file_format::FileFormat;
 use datafusion::datasource::file_format::csv::CsvFormat;
@@ -20,6 +21,8 @@ use object_store::ObjectStore;
 use object_store::aws::AmazonS3Builder;
 use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::local::LocalFileSystem;
+use object_store::throttle::ThrottleConfig;
+use object_store::throttle::ThrottledStore;
 use url::Url;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
@@ -90,9 +93,21 @@ pub fn make_object_store(
             Ok(gcs)
         }
         _ => {
-            let fs = Arc::new(LocalFileSystem::default());
-            session
-                .register_object_store(&Url::parse("file:/")?, Arc::<LocalFileSystem>::clone(&fs));
+            let fs: Arc<dyn ObjectStore> = match std::env::var("VORTEX_SIM_GET_LATENCY_MS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+            {
+                // EXPERIMENT: emulate object storage round trips on local files.
+                Some(ms) => Arc::new(ThrottledStore::new(
+                    LocalFileSystem::default(),
+                    ThrottleConfig {
+                        wait_get_per_call: Duration::from_millis(ms),
+                        ..Default::default()
+                    },
+                )),
+                None => Arc::new(LocalFileSystem::default()),
+            };
+            session.register_object_store(&Url::parse("file:/")?, Arc::clone(&fs));
             Ok(fs)
         }
     }
