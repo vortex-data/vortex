@@ -227,7 +227,7 @@ async fn runtime_filters_refresh_projected_bounds_and_keep_residuals() -> anyhow
     assert!(source.with_fetch(Some(1)).is_none());
     let mut visited = false;
     source.apply_expressions(&mut |expression| {
-        visited |= expression.as_any().is::<DynamicFilterPhysicalExpr>();
+        visited |= expression.is::<DynamicFilterPhysicalExpr>();
         Ok(TreeNodeRecursion::Continue)
     })?;
     assert!(visited);
