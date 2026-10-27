@@ -4624,9 +4624,9 @@ dependencies = [
 
 [[package]]
 name = "fsst-rs"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03b614a2a7f2efc50d76c1e47d64b57c55acf6e0e718b0cae78236d147c487d0"
+checksum = "e5913457b566e8b6b401c99cd6eb4f32bfe9ce19e34f9790d39b019ec00c65db"
 dependencies = [
  "rustc-hash",
 ]
@@ -7672,12 +7672,12 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "onpair"
-version = "0.2.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34272d1ea63266148a9a5b2b96db80a45245d034862302735f2f93413a6f9172"
+checksum = "5362b0df3c0d019c103db2c25eab441ef5b74886e0219764022933c844707e60"
 dependencies = [
- "hashbrown 0.16.1",
- "rand 0.9.5",
+ "hashbrown 0.17.1",
+ "rand 0.10.3",
 ]
 
 [[package]]
