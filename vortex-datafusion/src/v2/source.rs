@@ -724,7 +724,9 @@ impl Stream for ScanLane {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let metrics = self.metrics.clone();
         let _timer = metrics.elapsed_compute().timer();
-        self.execution.lanes[self.partition].waker.register(cx.waker());
+        self.execution.lanes[self.partition]
+            .waker
+            .register(cx.waker());
         let mut result = if self.execution.cancelled.load(Ordering::Acquire) {
             Poll::Ready(None)
         } else {
@@ -963,9 +965,7 @@ impl DataSource for VortexDataSource {
         this.runtime_filters.0.extend(
             filters
                 .iter()
-                .filter(|filter| {
-                    DynamicFilterTracking::classify(filter).contains_dynamic_filter()
-                })
+                .filter(|filter| DynamicFilterTracking::classify(filter).contains_dynamic_filter())
                 .map(|filter| RuntimeFilter {
                     expression: Arc::clone(filter),
                     schema: Arc::clone(&self.projected_schema),
@@ -1448,7 +1448,7 @@ mod tests {
         assert_eq!(factories.load(Ordering::Relaxed), 1);
         assert_eq!(plan.metrics().expect("scan metrics").output_rows(), Some(4));
         assert!(plan.execute(0, Arc::clone(&context)).is_err());
-        let reset = plan.reset_state()?;
+        let reset = Arc::clone(&plan).reset_state()?;
         let independent = Arc::new(DataSourceExec::new(source)) as Arc<dyn ExecutionPlan>;
         let (reset, independent) = futures::try_join!(
             collect(reset, Arc::clone(&context)),
@@ -1458,7 +1458,7 @@ mod tests {
         assert_eq!(values(independent), [0, 1, 100, 101]);
         assert_eq!(scans.load(Ordering::Relaxed), 3);
         assert_eq!(factories.load(Ordering::Relaxed), 3);
-        let cancelled = plan.reset_state()?;
+        let cancelled = Arc::clone(&plan).reset_state()?;
         let mut lane = cancelled.execute(0, Arc::new(TaskContext::default()))?;
         assert!(lane.try_next().await?.is_some());
         drop(lane);
@@ -1524,8 +1524,8 @@ mod tests {
             .output_ordering()
             .expect("identity preserves ordering");
         assert_eq!(
-            ordering[0].expr,
-            Arc::new(Column::new("renamed", 0)) as Arc<dyn PhysicalExpr>
+            ordering[0].expr.as_ref(),
+            &Column::new("renamed", 0) as &dyn PhysicalExpr
         );
         let computed = source
             .try_swapping_with_projection(&ProjectionExprs::from(vec![ProjectionExpr::new(
