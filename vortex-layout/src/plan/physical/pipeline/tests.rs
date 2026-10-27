@@ -1055,7 +1055,7 @@ fn pack_splits_cast_filtered_values(
             .as_struct_fields_opt()
             .vortex_expect("struct")
             .clone(),
-        vortex_array::dtype::Nullability::NonNullable,
+        Nullability::NonNullable,
         ROWS,
         vec![
             EvalPlan::try_new(expression, values_plan)?.into_plan(),
