@@ -58,11 +58,7 @@ fn take_rows(inlet: &mut Inlet<'_>, len: usize) -> VortexResult<ArrayRef> {
         } else {
             // Misaligned fields can split one lazy filter across several output batches.
             // Materialize selected values once when a consumer first needs either slice.
-            // Extension encodings can push filtering into their component arrays.
-            let filters_components = front.dtype().is_extension()
-                && !front.is::<Shared>()
-                && front.children_iter().any(|child| child.is::<Filter>());
-            if front.is::<Filter>() || filters_components {
+            if front.is::<Filter>() {
                 *front = Shared::new(front.clone()).into_array();
             } else if let Some(dict) = front.as_opt::<Dict>()
                 && dict.codes().is::<Filter>()

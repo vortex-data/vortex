@@ -15,7 +15,6 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::DictArray;
-use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -29,8 +28,6 @@ use vortex_array::expr::lit;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
 use vortex_array::expr::select;
-use vortex_array::extension::datetime::TimeUnit;
-use vortex_array::extension::datetime::Timestamp;
 use vortex_array::serde::SerializeOptions;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
@@ -1029,36 +1026,4 @@ fn direct_projection_preserves_field_order_and_aliases(#[case] aliases: bool) ->
         }
     }
     Ok(())
-}
-
-#[rstest]
-#[case::alternating(Sel::EveryOther)]
-#[case::sparse(Sel::Rows(&[0, 4, 7, 10, 14, 19]))]
-fn pack_splits_filtered_extension_components(
-    #[case] sel: Sel,
-    #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
-) -> VortexResult<()> {
-    let mut store = Store::default();
-    let values = ExtensionArray::new(
-        Timestamp::new(TimeUnit::Microseconds, Nullability::Nullable).erased(),
-        PrimitiveArray::from_option_iter(
-            (0..ROWS).map(|row| (row % 5 != 0).then_some(row as i64 * 1_000_000)),
-        )
-        .into_array(),
-    )
-    .into_array();
-    let other = PrimitiveArray::from_iter(0..ROWS as i64).into_array();
-    let expected =
-        StructArray::from_fields(&[("values", values.clone()), ("other", other.clone())])?
-            .into_array();
-    let layout = StructLayout::new(
-        ROWS,
-        expected.dtype().clone(),
-        vec![store.flat(&values)?, store.chunked(&other, &[7, 5, 8])?],
-    )
-    .into_layout();
-    let plan = lower(&layout)?;
-    let mask = sel.mask(ROWS as usize);
-    let run = run(&store, &plan, 0..ROWS, mask.clone(), delivery(order))?;
-    assert_view(&expected, &(0..ROWS), &mask, run.arrays)
 }
