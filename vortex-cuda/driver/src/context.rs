@@ -290,9 +290,17 @@ impl CudaContext {
     }
 
     /// Keeps an error from a call that cannot return it, such as in `Drop`.
+    ///
+    /// An earlier error that was not yet checked is kept instead, as it is likely the cause.
     pub fn record_err<T>(&self, result: Result<T, DriverError>) {
         if let Err(error) = result {
-            self.error_state.store(error.0.0, Ordering::Relaxed);
+            // A failed exchange means an earlier error is pending, which takes precedence.
+            let _ = self.error_state.compare_exchange(
+                0,
+                error.0.0,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            );
         }
     }
 }
