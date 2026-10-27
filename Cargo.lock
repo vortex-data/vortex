@@ -12322,6 +12322,7 @@ version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
  "mimalloc",
+ "once_cell",
  "pco",
  "prost 0.14.4",
  "rstest",

@@ -16,6 +16,7 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
+once_cell = { workspace = true }
 pco = { workspace = true }
 prost = { workspace = true }
 vortex-array = { workspace = true }

@@ -8,8 +8,8 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
-use std::sync::OnceLock;
 
+use once_cell::sync::OnceCell;
 use pco::ChunkConfig;
 use pco::PagingSpec;
 use pco::data_types::Number;
@@ -409,7 +409,7 @@ pub struct PcoData {
     pub(crate) chunk_metas: Arc<Vec<ByteBuffer>>,
     pub(crate) pages: Arc<Vec<ByteBuffer>>,
     pub(crate) metadata: Arc<PcoMetadata>,
-    page_index: Arc<OnceLock<PageIndex>>,
+    page_index: Arc<OnceCell<PageIndex>>,
     ptype: PType,
     unsliced_n_rows: usize,
     slice_start: usize,
@@ -509,7 +509,7 @@ impl PcoData {
             chunk_metas: chunk_metas.into(),
             pages: pages.into(),
             metadata: Arc::new(metadata),
-            page_index: Arc::new(OnceLock::new()),
+            page_index: Arc::new(OnceCell::new()),
             ptype,
             unsliced_n_rows: len,
             slice_start: 0,
@@ -787,16 +787,8 @@ impl PcoData {
     }
 
     pub(crate) fn page_index(&self) -> VortexResult<&PageIndex> {
-        if self.page_index.get().is_none() {
-            let index = PageIndex::try_new(Arc::clone(&self.metadata))?;
-            // Concurrent first readers may prepare equivalent immutable descriptors. Only one
-            // index is retained, and no decoded values or validity are cached in the array.
-            drop(self.page_index.set(index));
-        }
-        Ok(self
-            .page_index
-            .get()
-            .vortex_expect("page index was initialized"))
+        self.page_index
+            .get_or_try_init(|| PageIndex::try_new(Arc::clone(&self.metadata)))
     }
 
     pub(crate) fn _slice(&self, start: usize, stop: usize) -> Self {
