@@ -76,11 +76,24 @@ const KLEENE_LUT: [[[bool; 2]; 2]; 2] = [
 
 /// Kleene and/or reduction where one argument is constant non-NULL and other
 /// is non-constant.
-fn kleene_one_const<T: ReduceNode>(node: T, constant: bool, is_and: bool) -> T {
-    match (is_and, constant) {
-        (true, true) | (false, false) => node,
-        (is_and, constant) => node.new_constant((constant && !is_and).into()),
-    }
+/// Reduces `node AND constant` or `node OR constant`, where the result has `nullability`.
+///
+/// Returns `None` when the result would be `node` itself but `node` has a different
+/// nullability than the result, which only a cast could fix.
+fn kleene_one_const<T: ReduceNode>(
+    node: T,
+    constant: bool,
+    is_and: bool,
+    nullability: Nullability,
+) -> VortexResult<Option<T>> {
+    Ok(match (is_and, constant) {
+        (true, true) | (false, false) => {
+            (node.node_dtype()?.nullability() == nullability).then_some(node)
+        }
+        (is_and, constant) => {
+            Some(node.new_constant(Scalar::bool(constant && !is_and, nullability)))
+        }
+    })
 }
 
 impl ScalarFnVTable for Binary {
@@ -293,15 +306,17 @@ impl ScalarFnVTable for Binary {
             .and_then(|s| s.value().cloned())
             .map(|v| v.as_bool());
         let is_and = *operator == Operator::And;
+        let nullability = node.node_dtype()?.nullability();
 
-        Ok(Some(match (left_const, right_const) {
-            (None, None) => return Ok(None),
-            (Some(left_const), Some(right_const)) => left.new_constant(
-                KLEENE_LUT[is_and as usize][left_const as usize][right_const as usize].into(),
-            ),
-            (Some(constant), None) => kleene_one_const(right, constant, is_and),
-            (None, Some(constant)) => kleene_one_const(left, constant, is_and),
-        }))
+        match (left_const, right_const) {
+            (None, None) => Ok(None),
+            (Some(left_const), Some(right_const)) => Ok(Some(left.new_constant(Scalar::bool(
+                KLEENE_LUT[is_and as usize][left_const as usize][right_const as usize],
+                nullability,
+            )))),
+            (Some(constant), None) => kleene_one_const(right, constant, is_and, nullability),
+            (None, Some(constant)) => kleene_one_const(left, constant, is_and, nullability),
+        }
     }
 
     fn is_strict(&self, operator: &Operator) -> bool {
@@ -337,6 +352,7 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::Bool;
     use crate::arrays::BoolArray;
+    use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::ScalarFn;
@@ -643,10 +659,42 @@ mod tests {
             ConstantArray::new(Scalar::bool(true, Nullability::Nullable), 3).into_array();
         let right = BoolArray::from_iter([true, false, true]).into_array();
 
-        let array = Binary::try_new(nullable_true, right.clone(), Operator::And)?
+        let array = Binary::try_new(nullable_true, right, Operator::And)?
             .into_array()
             .optimize()?;
-        assert_arrays_eq!(array, right, &mut ctx);
+        assert_arrays_eq!(
+            array,
+            BoolArray::from_iter([Some(true), Some(false), Some(true)]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    /// Short-circuiting against a constant keeps the result's nullability: `x AND false` over a
+    /// nullable `x` is a nullable false, which a parent rebuilt around it requires.
+    #[test]
+    fn test_short_circuit_keeps_nullability() -> VortexResult<()> {
+        let nullable = BoolArray::from_iter([Some(true), None, Some(false)]).into_array();
+        let non_nullable = BoolArray::from_iter([true, false, true]).into_array();
+        let false_ = ConstantArray::new(false, 3).into_array();
+        let nullable_false =
+            ConstantArray::new(Scalar::bool(false, Nullability::Nullable), 3).into_array();
+
+        let and_false = Binary::try_new(nullable, false_, Operator::And)?
+            .into_array()
+            .optimize()?;
+        assert_eq!(and_false.dtype(), &DType::Bool(Nullability::Nullable));
+        assert!(and_false.is::<Constant>());
+
+        let or_false = Binary::try_new(non_nullable, nullable_false, Operator::Or)?
+            .into_array()
+            .optimize()?;
+        assert_eq!(or_false.dtype(), &DType::Bool(Nullability::Nullable));
+        assert_arrays_eq!(
+            or_false,
+            BoolArray::from_iter([Some(true), Some(false), Some(true)]),
+            &mut SESSION.create_execution_ctx()
+        );
         Ok(())
     }
 
