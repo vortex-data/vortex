@@ -134,15 +134,23 @@ where
         "interleave row_indices length does not match array_indices length",
     );
 
-    let mut output = BufferMut::with_capacity_in(branches.len(), allocator.clone());
-    output.try_extend_trusted(branches.iter().zip(rows).map(|(branch, row)| {
+    // Write rows through a `&mut` slice. Yielding `Result<T, _>` per row splits each `[u8; W]` copy
+    // into narrow moves (the `Ok` payload is misaligned), and pushing through `BufferMut` reloads
+    // its length on every row.
+    let len = branches.len();
+    let mut output = BufferMut::with_capacity_in(len, allocator.clone());
+    let slots = &mut output.spare_capacity_mut()[..len];
+    for ((slot, branch), row) in slots.iter_mut().zip(branches).zip(rows) {
         let Some(source) = values.get((*branch).as_()) else {
             vortex_bail!("interleave array index out of bounds");
         };
         let row = (*row).as_();
         vortex_ensure!(row < source.len, "interleave row index out of bounds");
-        Ok(source.data[row & source.row_mask])
-    }))?;
+        slot.write(source.data[row & source.row_mask]);
+    }
+    // SAFETY: the loop returns on any error, so reaching here means it wrote all `len` slots:
+    // `slots`, `branches`, and `rows` all have length `len`.
+    unsafe { output.set_len(len) };
     Ok(output.freeze())
 }
 
