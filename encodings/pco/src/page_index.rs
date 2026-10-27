@@ -64,6 +64,10 @@ impl LogicalPageIndex {
         let start = if page == 0 { 0 } else { ends[page - 1] };
         start..ends[page]
     }
+    /// Looks up decode information for a zero-based page number across all chunks.
+    /// Returns the owning chunk, that chunk's page-number range, and this page's
+    /// decoded value count (excluding null rows). There are no separate logical pages:
+    /// `rows()` describes the logical rows covered by the same compressed page.
     pub fn physical(&self, page: usize) -> VortexResult<PhysicalPage> {
         let chunk = self.chunk_ends.partition_point(|end| *end <= page);
         let start = if chunk == 0 {
