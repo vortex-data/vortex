@@ -7,7 +7,6 @@ use rstest::rstest;
 use vortex_error::VortexResult;
 
 use super::SESSION;
-use super::partially_valid;
 use super::widen;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -35,31 +34,23 @@ use crate::aggregate_fn::fns::min::Min;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::null_count::NullCount;
 use crate::aggregate_fn::fns::sum::Sum;
-use crate::aggregate_fn::fns::sum::sum;
 use crate::aggregate_fn::fns::sum_v2::SumV2;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
-use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::Widen;
 use crate::arrays::WidenArray;
-use crate::arrays::widen::WidenArraySlotsExt;
-use crate::arrays::widen::compute::sum::WidenSumKernel;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::Nullability::Nullable;
 use crate::dtype::PType;
-use crate::expr::stats::Precision;
-use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
 
-/// Every aggregate that applies to integers, and whether the `Widen` kernels serve it. The others
-/// take the default path.
+/// Every aggregate that applies to integers, and whether the `Widen` aggregate kernel serves it.
 fn aggregates() -> Vec<(AggregateFnRef, bool)> {
     let skip_nans = NumericalAggregateOpts::default();
     let include_nans = NumericalAggregateOpts { skip_nans: false };
@@ -106,15 +97,29 @@ fn canonical_batch(
         .execute::<PrimitiveArray>(ctx)
 }
 
+/// Runs the kernel that the session registers for `aggregate` on `Widen` over `array`, and returns
+/// its partial, or `None` when no kernel is registered or the kernel declines.
+fn kernel_partial(
+    aggregate: &AggregateFnRef,
+    array: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<Scalar>> {
+    match ctx
+        .aggregate_kernels()
+        .find_aggregate_kernel(Widen.id(), aggregate.id())
+    {
+        Some(kernel) => kernel.aggregate(aggregate, array, ctx),
+        None => Ok(None),
+    }
+}
+
 /// Accumulates `batches` of `dtype` with `aggregate` once as [`WidenArray::encode`] encodes them
 /// and once as canonical arrays, and asserts that the running partials and the results are equal.
 ///
-/// On each batch that encodes to a `Widen`, the kernel that the session finds for `aggregate` on
-/// `Widen` must return a partial when `served`, and the partial must equal the partial of a fresh
-/// accumulator on the canonical batch. When not `served`, the lookup must miss or the kernel must
-/// decline. Encoding and each accumulator get their own canonical batch, because both cache
-/// statistics on the array they read, and an accumulator reads a cached statistic instead of the
-/// data.
+/// On each batch that encodes to a `Widen`, the kernel must return a partial exactly when
+/// `served`, and the partial must equal the partial of a fresh accumulator on the canonical batch.
+/// Encoding and each accumulator get their own canonical batch, because both cache statistics on
+/// the array they read, and an accumulator reads a cached statistic instead of the data.
 #[track_caller]
 fn assert_aggregate_batches(
     aggregate: &AggregateFnRef,
@@ -123,9 +128,6 @@ fn assert_aggregate_batches(
     dtype: &DType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    let kernel = ctx
-        .aggregate_kernels()
-        .find_aggregate_kernel(Widen.id(), aggregate.id());
     let mut actual = aggregate.accumulator(dtype)?;
     let mut expected = aggregate.accumulator(dtype)?;
 
@@ -133,10 +135,7 @@ fn assert_aggregate_batches(
         let encoded = WidenArray::encode(canonical_batch(values, dtype, ctx)?, ctx)?;
 
         if encoded.is::<Widen>() {
-            let partial = match kernel {
-                Some(kernel) => kernel.aggregate(aggregate, &encoded, ctx)?,
-                None => None,
-            };
+            let partial = kernel_partial(aggregate, &encoded, ctx)?;
             assert_eq!(partial.is_some(), served, "{aggregate} on {values:?}");
 
             if let Some(partial) = partial {
@@ -220,6 +219,8 @@ fn assert_aggregate_batches(
 #[case::empty_then_constant(vec![vec![], vec![Some(7), Some(7)]], PType::I64, Nullable)]
 // No narrower type holds `i64::MAX - 5`, so the first batch stays canonical.
 #[case::running_overflow(vec![vec![Some(i64::MAX - 5)], vec![Some(10)]], PType::I64, Nullable)]
+// A sum without the `Stat::Sum` slot adds 10 to the running sum and overflows, but the total of the
+// second batch is zero.
 #[case::running_overflow_recovers(
     vec![
         vec![Some(i64::MAX - 5)],  //
@@ -243,8 +244,11 @@ fn test_aggregate_partials(
     Ok(())
 }
 
-/// The sum kernel declines values that have a sum path of their own, and the default path gives the
-/// canonical sum.
+/// The kernel serves a `Widen` over values that are not primitive, and gives the canonical result.
+///
+/// The test compares results, not partials, because the accumulator stops at the first chunk that
+/// decides the result, so the partial of chunked values can differ from the canonical partial in
+/// fields that the result ignores, such as the last value of an unsorted batch.
 #[rstest]
 #[case::constant(ConstantArray::new(5i8, 4).into_array())]
 #[case::chunked(
@@ -254,21 +258,24 @@ fn test_aggregate_partials(
     ])
     .into_array()
 )]
-fn test_sum_declines_values_with_a_default_path(#[case] values: ArrayRef) -> VortexResult<()> {
+fn test_non_primitive_values(#[case] values: ArrayRef) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let array = widen(values, PType::I64).into_array();
-    let canonical = array
-        .clone()
-        .execute::<PrimitiveArray>(&mut ctx)?
-        .into_array();
-    let aggregate = Sum.bind(NumericalAggregateOpts::default());
 
-    assert!(
-        WidenSumKernel
-            .aggregate(&aggregate, &array, &mut ctx)?
-            .is_none()
-    );
-    assert_eq!(sum(&array, &mut ctx)?, sum(&canonical, &mut ctx)?);
+    for (aggregate, served) in aggregates() {
+        let partial = kernel_partial(&aggregate, &array, &mut ctx)?;
+        assert_eq!(partial.is_some(), served, "{aggregate}");
+
+        if let Some(partial) = partial {
+            let mut actual = aggregate.accumulator(array.dtype())?;
+            actual.combine_partials(&partial)?;
+            let canonical = array.clone().execute::<PrimitiveArray>(&mut ctx)?;
+            let mut expected = aggregate.accumulator(array.dtype())?;
+            expected.accumulate(&canonical.into_array(), &mut ctx)?;
+
+            assert_eq!(actual.finish()?, expected.finish()?, "{aggregate}");
+        }
+    }
 
     Ok(())
 }
@@ -302,40 +309,6 @@ fn test_chunked_matches_canonical() -> VortexResult<()> {
 
         assert_eq!(actual.finish()?, expected.finish()?, "{aggregate}");
     }
-
-    Ok(())
-}
-
-/// The accumulator caches a statistic of the `Widen` on the `Widen`, in the logical dtype. A
-/// kernel that asks the values caches their statistic on the values, in the values dtype.
-#[test]
-fn test_statistics_land_on_their_array() -> VortexResult<()> {
-    let mut ctx = SESSION.create_execution_ctx();
-    let array = partially_valid();
-    let values = array.values().clone();
-    let array = array.into_array();
-
-    sum(&array, &mut ctx)?;
-    let mut min = Min
-        .bind(NumericalAggregateOpts::default())
-        .accumulator(array.dtype())?;
-    min.accumulate(&array, &mut ctx)?;
-
-    let logical_min = Scalar::primitive(-300i64, NonNullable);
-    let values_min = Scalar::primitive(-300i16, NonNullable);
-    assert_eq!(
-        array.statistics().get(Stat::Sum),
-        Precision::Exact(Scalar::primitive(0i64, Nullable))
-    );
-    assert_eq!(
-        array.statistics().get(Stat::Min),
-        Precision::Exact(logical_min)
-    );
-    assert_eq!(
-        values.statistics().get(Stat::Min),
-        Precision::Exact(values_min)
-    );
-    assert_eq!(values.statistics().get(Stat::Sum), Precision::Absent);
 
     Ok(())
 }

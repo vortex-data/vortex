@@ -3,31 +3,27 @@
 
 //! Operations that run on the values of a [`Widen`](crate::arrays::Widen).
 //!
-//! The aggregate kernels follow one rule. An aggregate on a `Widen` runs in the accumulator of the
-//! logical dtype, and a kernel returns exactly the partial that this accumulator builds from the
-//! decoded values. No accumulator receives a batch of another dtype, and no partial is cast. A
-//! query on the values may run an accumulator of the values dtype, but only values or a verdict
-//! leave it. So a kernel either asks the values for extrema or a verdict that decoding does not
-//! change and decodes any value it returns, or it sums the values into the sum state of the logical
-//! dtype. A kernel that cannot prove the partial declines.
+//! An aggregate of a `Widen` runs on its values, so that it reads the narrow values instead of a
+//! widened copy, and the values keep their own cached statistics and aggregate kernels. Decoding a
+//! value is a strictly increasing, one-to-one map that keeps validity. So min and max, constancy,
+//! and sortedness (strict or not) are the same on the values and on the `Widen`, and every value
+//! that a partial holds widens exactly to the logical dtype. Sum needs two more conditions, which
+//! [`WidenArrayAggregate`](aggregate::WidenArrayAggregate) explains.
 //!
-//! [`AggregateFnSession::default`] registers the aggregate kernels for their exact aggregate ids.
-//! [`initialize`](super::initialize) cannot register them, because the kernel session runs it on a
-//! temporary session whose aggregate registry is dropped.
+//! [`AggregateFnSession::default`] registers the aggregate kernel, not
+//! [`initialize`](super::initialize), because the kernel session runs `initialize` on a temporary
+//! session and drops its aggregate registry.
 //!
 //! [`AggregateFnSession::default`]: crate::aggregate_fn::session::AggregateFnSession::default
 
+pub(crate) mod aggregate;
 mod cast;
 mod compare;
 mod fill_null;
 mod filter;
-pub(crate) mod is_constant;
-pub(crate) mod is_sorted;
 mod mask;
-pub(crate) mod min_max;
 pub(crate) mod rules;
 mod slice;
-pub(crate) mod sum;
 mod take;
 
 use vortex_error::VortexResult;

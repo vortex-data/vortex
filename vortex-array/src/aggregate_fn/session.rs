@@ -55,10 +55,7 @@ use crate::arrays::runend::compute::is_constant::RunEndIsConstantKernel;
 use crate::arrays::runend::compute::is_sorted::RunEndIsSortedKernel;
 use crate::arrays::runend::compute::min_max::RunEndMinMaxKernel;
 use crate::arrays::runend::compute::sum::RunEndSumKernel;
-use crate::arrays::widen::compute::is_constant::WidenIsConstantKernel;
-use crate::arrays::widen::compute::is_sorted::WidenIsSortedKernel;
-use crate::arrays::widen::compute::min_max::WidenMinMaxKernel;
-use crate::arrays::widen::compute::sum::WidenSumKernel;
+use crate::arrays::widen::compute::aggregate::WidenArrayAggregate;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtVTable;
 use crate::extension::datetime::Date;
@@ -148,12 +145,12 @@ impl Default for AggregateFnSession {
         this.register_aggregate_kernel(RunEnd.id(), Some(IsSorted.id()), &RunEndIsSortedKernel);
         this.register_aggregate_kernel(RunEnd.id(), Some(Sum.id()), &RunEndSumKernel);
         this.register_aggregate_kernel(RunEnd.id(), Some(SumV2.id()), &RunEndSumKernel);
-        this.register_aggregate_kernel(Widen.id(), Some(MinMax.id()), &WidenMinMaxKernel);
-        this.register_aggregate_kernel(Widen.id(), Some(Min.id()), &WidenMinMaxKernel);
-        this.register_aggregate_kernel(Widen.id(), Some(Max.id()), &WidenMinMaxKernel);
-        this.register_aggregate_kernel(Widen.id(), Some(IsConstant.id()), &WidenIsConstantKernel);
-        this.register_aggregate_kernel(Widen.id(), Some(IsSorted.id()), &WidenIsSortedKernel);
-        this.register_aggregate_kernel(Widen.id(), Some(Sum.id()), &WidenSumKernel);
+        this.register_aggregate_kernel(Widen.id(), Some(MinMax.id()), &WidenArrayAggregate);
+        this.register_aggregate_kernel(Widen.id(), Some(Min.id()), &WidenArrayAggregate);
+        this.register_aggregate_kernel(Widen.id(), Some(Max.id()), &WidenArrayAggregate);
+        this.register_aggregate_kernel(Widen.id(), Some(IsConstant.id()), &WidenArrayAggregate);
+        this.register_aggregate_kernel(Widen.id(), Some(IsSorted.id()), &WidenArrayAggregate);
+        this.register_aggregate_kernel(Widen.id(), Some(Sum.id()), &WidenArrayAggregate);
 
         // Register the built-in grouped aggregate kernels.
         this.register_grouped_kernel(Count.id(), &CountGroupedKernel);
