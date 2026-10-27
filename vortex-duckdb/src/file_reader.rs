@@ -10,6 +10,8 @@ use futures::FutureExt;
 use object_store::registry::ObjectStoreRegistry;
 use url::Url;
 use vortex::array::ArrayRef;
+use vortex::array::arrays::Chunked;
+use vortex::array::arrays::chunked::ChunkedArrayExt as _;
 use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::struct_::StructArrayExt as _;
 use vortex::dtype::FieldPath;
@@ -274,6 +276,10 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
             .block_on(task)?
             .map_or(SplitItem::Empty, SplitItem::Array)),
         Some(Split::V2) => {
+            if let Some(chunk) = local.pending.pop_front() {
+                local.split = Some(Split::V2);
+                return Ok(SplitItem::Array(chunk));
+            }
             let file = local.file.as_ref().vortex_expect("split without a file");
             let scan = file
                 .v2
@@ -283,6 +289,17 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
                 return Ok(SplitItem::Done);
             };
             local.split = Some(Split::V2);
+            let array = match array.as_opt::<Chunked>() {
+                Some(chunked) => {
+                    let mut chunks = chunked.non_empty_chunks().cloned();
+                    let Some(first) = chunks.next() else {
+                        return Ok(SplitItem::Empty);
+                    };
+                    local.pending.extend(chunks);
+                    first
+                }
+                None => array,
+            };
             Ok(if array.is_empty() {
                 SplitItem::Empty
             } else {

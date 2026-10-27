@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::cmp::max;
+use std::collections::VecDeque;
 use std::fmt::Formatter;
 use std::fmt::{self};
 use std::sync::Arc;
@@ -181,6 +182,9 @@ pub struct LocalState {
     pub(crate) retired_files: Vec<Arc<FileScanState>>,
     /// The planning run on which this thread runs the chunks of V2 scans.
     pub(crate) run: Run,
+    /// The chunks of a chunked V2 array not yet exported, exported one by one so a chunk of
+    /// structs keeps its fields' encodings instead of being canonicalized whole.
+    pub(crate) pending: VecDeque<ArrayRef>,
 
     /// Empty for non-aggregate scan
     pub partials: Partials,
@@ -383,6 +387,7 @@ pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
         file: None,
         retired_files: Vec::new(),
         run: Run::new(),
+        pending: VecDeque::new(),
         finished: false,
     }
 }

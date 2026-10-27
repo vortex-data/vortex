@@ -6,6 +6,8 @@
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::SerializedArray;
 use vortex_error::VortexResult;
@@ -41,20 +43,59 @@ fn decode(
     )
 }
 
+/// The rows of a block of a segment: a page of the block-compressed encodings (Pco, Zstd), which
+/// decode whole pages, and the row grid of the writer's chunks.
+const SELECT_BLOCK_ROWS: usize = 8192;
+
 /// Slices a whole decoded segment to `slice`, then keeps the rows `filter` selects.
+///
+/// A sparse `filter` is applied to the runs of blocks holding selected rows only, so an encoding
+/// that decodes every block of the range it filters, such as Pco or Zstd, skips the blocks the
+/// filter empties.
 fn select(
     array: ArrayRef,
     slice: Option<&Range<usize>>,
     filter: Option<&Mask>,
 ) -> VortexResult<ArrayRef> {
+    let first_row = slice.map_or(0, |slice| slice.start);
     let array = match slice {
         Some(slice) => array.slice(slice.clone())?,
         None => array,
     };
-    match filter {
-        Some(filter) => array.filter(filter.clone()),
-        None => Ok(array),
+    let Some(filter) = filter else {
+        return Ok(array);
+    };
+    let Some(runs) = selected_block_runs(first_row, filter) else {
+        return array.filter(filter.clone());
+    };
+    let pieces = runs
+        .into_iter()
+        .map(|run| array.slice(run.clone())?.filter(filter.slice(run)))
+        .collect::<VortexResult<Vec<_>>>()?;
+    Ok(ChunkedArray::try_new(pieces, array.dtype().clone())?.into_array())
+}
+
+/// The runs of `filter`, whose first position is row `first_row` of its segment, that cover the
+/// segment's [`SELECT_BLOCK_ROWS`] blocks holding a selected row, or `None` when those blocks
+/// cover more than half of `filter`, so filtering it whole decodes little it does not need.
+fn selected_block_runs(first_row: usize, filter: &Mask) -> Option<Vec<Range<usize>>> {
+    let len = filter.len();
+    let mut runs: Vec<Range<usize>> = Vec::new();
+    let mut covered = 0;
+    let mut start = 0;
+    while start < len {
+        let block = (first_row + start) / SELECT_BLOCK_ROWS;
+        let end = ((block + 1) * SELECT_BLOCK_ROWS - first_row).min(len);
+        if !filter.slice(start..end).all_false() {
+            covered += end - start;
+            match runs.last_mut() {
+                Some(run) if run.end == start => run.end = end,
+                _ => runs.push(start..end),
+            }
+        }
+        start = end;
     }
+    (!runs.is_empty() && covered * 2 <= len).then_some(runs)
 }
 
 /// Reads one segment, decodes it, and emits its rows of `slice`, filtered by `filter`.
@@ -113,5 +154,34 @@ impl Operator for ScanSource {
             self.slice.as_ref(),
             self.filter.as_ref(),
         )?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ops::Range;
+
+    use rstest::rstest;
+    use vortex_mask::Mask;
+
+    use super::SELECT_BLOCK_ROWS;
+    use super::selected_block_runs;
+
+    const B: usize = SELECT_BLOCK_ROWS;
+
+    #[rstest]
+    #[case::dense(0, 4 * B, &[0, B, 2 * B, 3 * B], None)]
+    #[case::one_block(0, 4 * B, &[B + 5], Some(vec![B..2 * B]))]
+    #[case::merged_runs(0, 8 * B, &[B, 2 * B + 1, 6 * B], Some(vec![B..3 * B, 6 * B..7 * B]))]
+    #[case::unaligned_slice(B / 2, 4 * B, &[1, 3 * B], Some(vec![0..B / 2, 5 * B / 2..7 * B / 2]))]
+    #[case::none_selected(0, 4 * B, &[], None)]
+    fn runs_cover_selected_blocks(
+        #[case] first_row: usize,
+        #[case] len: usize,
+        #[case] selected: &[usize],
+        #[case] expected: Option<Vec<Range<usize>>>,
+    ) {
+        let filter = Mask::from_indices(len, selected.to_vec());
+        assert_eq!(selected_block_runs(first_row, &filter), expected);
     }
 }
