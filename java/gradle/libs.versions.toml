@@ -4,7 +4,7 @@
 [versions]
 arrow = "19.0.0"
 errorprone = "2.36.0"
-guava = "33.7.2-android"
+guava = "33.7.2-jre"
 immutables = "2.12.2"
 junit-jupiter = "6.1.0"
 logback = "1.5.34"
