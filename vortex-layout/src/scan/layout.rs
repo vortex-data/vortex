@@ -32,10 +32,10 @@ use vortex_metrics::MetricsRegistry;
 use vortex_scan::DataSource;
 use vortex_scan::DataSourceScan;
 use vortex_scan::DataSourceScanRef;
+use vortex_scan::DynamicFilter;
 use vortex_scan::Partition;
 use vortex_scan::PartitionRef;
 use vortex_scan::PartitionStream;
-use vortex_scan::ScanNarrowing;
 use vortex_scan::ScanRequest;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
@@ -133,7 +133,7 @@ impl DataSource for LayoutReaderDataSource {
         if let DType::Struct(fields, Nullability::NonNullable) = &dtype
             && fields.nfields() == 0
             && filter.is_none()
-            && scan_request.narrowing.is_none()
+            && scan_request.dynamic_filter.is_none()
         {
             // FIXME(ngates): extract out maybe?
             let row_count = scan_request.selection.row_count_in_range(&row_range);
@@ -181,7 +181,7 @@ impl DataSource for LayoutReaderDataSource {
             dtype,
             projection,
             filter,
-            narrowing: scan_request.narrowing,
+            dynamic_filter: scan_request.dynamic_filter,
             remaining_limit: scan_request.limit,
             row_limit,
             selection: scan_request.selection,
@@ -204,7 +204,7 @@ struct LayoutReaderScan {
     dtype: DType,
     projection: BoundExpression,
     filter: Option<BoundExpression>,
-    narrowing: Option<Arc<dyn ScanNarrowing>>,
+    dynamic_filter: Option<Arc<dyn DynamicFilter>>,
     /// Limit rows not yet covered by the splits produced so far; production stops at zero.
     /// Decremented only for filterless scans, where each split's output is exactly its
     /// selected row count.
@@ -268,7 +268,7 @@ impl Stream for LayoutReaderScan {
         // receives the full remaining limit and the total is enforced by the shared `row_limit`
         // (unordered scans) or by the engine trimming the concatenated result (ordered scans).
         if this.filter.is_none()
-            && this.narrowing.is_none()
+            && this.dynamic_filter.is_none()
             && let Some(ref mut remaining) = this.remaining_limit
         {
             *remaining = remaining.saturating_sub(this.selection.row_count_in_range(&row_range));
@@ -279,7 +279,7 @@ impl Stream for LayoutReaderScan {
             session: this.session.clone(),
             projection: this.projection.clone(),
             filter: this.filter.clone(),
-            narrowing: this.narrowing.clone(),
+            dynamic_filter: this.dynamic_filter.clone(),
             limit: split_limit,
             row_limit: this.row_limit.clone(),
             ordered: this.ordered,
@@ -311,7 +311,7 @@ struct LayoutReaderSplit {
     session: VortexSession,
     projection: BoundExpression,
     filter: Option<BoundExpression>,
-    narrowing: Option<Arc<dyn ScanNarrowing>>,
+    dynamic_filter: Option<Arc<dyn DynamicFilter>>,
     /// Cap on this split's output rows: the scan's remaining limit when the split was produced.
     limit: Option<u64>,
     /// A row budget shared with the scan's other splits (unordered limited scans only).
@@ -337,7 +337,7 @@ impl Partition for LayoutReaderSplit {
         let row_count = self.selection.row_count_in_range(&self.row_range);
         let row_count = self.limit.map_or(row_count, |limit| row_count.min(limit));
 
-        if self.filter.is_some() || self.narrowing.is_some() || self.row_limit.is_some() {
+        if self.filter.is_some() || self.dynamic_filter.is_some() || self.row_limit.is_some() {
             Precision::inexact(row_count)
         } else {
             Precision::exact(row_count)
@@ -349,7 +349,11 @@ impl Partition for LayoutReaderSplit {
     }
 
     fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
-        let filter = current_filter(self.filter, self.narrowing.as_deref(), self.reader.dtype());
+        let filter = current_filter(
+            self.filter,
+            self.dynamic_filter.as_deref(),
+            self.reader.dtype(),
+        );
         let builder = ScanBuilder::new(self.session, self.reader)
             .with_row_range(self.row_range)
             .with_selection(self.selection)
@@ -451,7 +455,7 @@ mod tests {
     use vortex_io::runtime::BlockingRuntime;
     use vortex_io::runtime::single::SingleThreadRuntime;
     use vortex_scan::DataSource;
-    use vortex_scan::ScanNarrowing;
+    use vortex_scan::DynamicFilter;
     use vortex_scan::ScanRequest;
     use vortex_scan::selection::Selection;
     use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
@@ -528,14 +532,14 @@ mod tests {
     #[derive(Debug, Default)]
     struct RejectRemaining(AtomicBool);
 
-    impl ScanNarrowing for RejectRemaining {
+    impl DynamicFilter for RejectRemaining {
         fn current(&self) -> Option<Expression> {
             self.0.load(Ordering::Relaxed).then(|| lit(false))
         }
     }
 
     #[test]
-    fn runtime_narrowing_is_sampled_before_each_split_reads() -> VortexResult<()> {
+    fn runtime_dynamic_filter_is_sampled_before_each_split_reads() -> VortexResult<()> {
         let runtime = SingleThreadRuntime::default();
         let session = session_with_handle(runtime.handle());
         let projected = Arc::new(Mutex::new(Vec::new()));
@@ -544,9 +548,9 @@ mod tests {
             session,
         )
         .with_split_max_row_count(2);
-        let narrowing = Arc::new(RejectRemaining::default());
+        let dynamic_filter = Arc::new(RejectRemaining::default());
         let scan = runtime.block_on(source.scan(ScanRequest {
-            narrowing: Some(narrowing.clone()),
+            dynamic_filter: Some(dynamic_filter.clone()),
             ..Default::default()
         }))?;
         let mut partitions = runtime
@@ -558,7 +562,7 @@ mod tests {
             [0, 1]
         );
         let reads = projected.lock().len();
-        narrowing.0.store(true, Ordering::Relaxed);
+        dynamic_filter.0.store(true, Ordering::Relaxed);
         let second = partitions.next().unwrap();
         assert!(collect_scan_values(runtime.block_on_stream(second.execute()?))?.is_empty());
         assert_eq!(projected.lock().len(), reads);

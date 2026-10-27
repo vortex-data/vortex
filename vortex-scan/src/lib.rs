@@ -150,7 +150,7 @@ pub trait DataSource: 'static + Send + Sync {
 /// A producer must guarantee that rejected rows cannot be needed by its enclosing operation;
 /// consumers keep exact residual enforcement. Sources may ignore this hint and should sample it
 /// before opening or pruning each partition. Handles are not portable serialized state.
-pub trait ScanNarrowing: Debug + Send + Sync {
+pub trait DynamicFilter: Debug + Send + Sync {
     /// Returns the current predicate, or no restriction while a bound is unavailable.
     fn current(&self) -> Option<Expression>;
 }
@@ -163,7 +163,7 @@ pub struct ScanRequest {
     /// Filter expression, `None` implies no filter.
     pub filter: Option<Expression>,
     /// Optional live pruning hint; independent of exact static filter enforcement.
-    pub narrowing: Option<Arc<dyn ScanNarrowing>>,
+    pub dynamic_filter: Option<Arc<dyn DynamicFilter>>,
     /// The per-partition row range to read. Row range will be applied
     /// over every partition you scan.
     pub row_range: Option<Range<u64>>,
@@ -191,7 +191,7 @@ impl Default for ScanRequest {
         Self {
             projection: root(),
             filter: None,
-            narrowing: None,
+            dynamic_filter: None,
             row_range: None,
             selection: Selection::default(),
             partition_selection: Selection::default(),

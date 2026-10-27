@@ -123,7 +123,7 @@ fn build_scan_request(
         limit,
         partition_selection: Selection::All,
         partition_range: None,
-        narrowing: None,
+        dynamic_filter: None,
     })
 }
 

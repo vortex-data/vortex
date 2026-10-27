@@ -15,7 +15,7 @@ use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::root;
 use vortex::expr::transform::replace;
-use vortex::scan::ScanNarrowing;
+use vortex::scan::DynamicFilter;
 
 use crate::convert::ExpressionConverter;
 
@@ -58,7 +58,7 @@ impl fmt::Debug for RuntimeFilters {
     }
 }
 
-impl ScanNarrowing for RuntimeFilters {
+impl DynamicFilter for RuntimeFilters {
     fn current(&self) -> Option<Expression> {
         and_collect(self.0.iter().filter_map(RuntimeFilter::current))
     }
