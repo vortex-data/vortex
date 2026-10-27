@@ -81,27 +81,34 @@ impl TakeExecute for Pco {
             // Reuse native logical-null-aware extrema and their immutable-array stats cache.
             // Numeric extrema prove every defined index is representable and in bounds.
             let extrema = min_max(indices.as_array(), ctx, NumericalAggregateOpts::default())?;
-            let summary = if let Some(extrema) = extrema {
+            if let Some(extrema) = extrema {
                 match_each_integer_ptype!(indices.ptype(), |I| {
-                    validate_extrema(indices.as_slice::<I>(), &mask, &extrema, array.len())?
-                })
-            } else {
-                PlainSummary {
-                    defined: 0,
-                    contiguous: false,
-                }
-            };
-            if summary.defined == 0 {
+                    validate_extrema::<I>(&extrema, array.len())?
+                });
+            }
+            let defined = mask.true_count();
+            if defined == 0 {
                 return Ok(Some(
                     ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
                         .into_array(),
                 ));
             }
+            let contiguous = match &mask {
+                Mask::AllTrue(_) => match_each_integer_ptype!(indices.ptype(), |I| {
+                    indices.as_slice::<I>().windows(2).all(|pair| {
+                        checked_index(pair[0])
+                            .ok()
+                            .and_then(|row| row.checked_add(1))
+                            == checked_index(pair[1]).ok()
+                    })
+                }),
+                _ => false,
+            };
             if let Some(result) = zero_page_take(array, indices.len(), ctx)? {
                 return Ok(Some(result));
             }
-            grouped = (!summary.contiguous).then_some(summary.defined);
-            if grouped.is_some() && descriptor_bytes(summary.defined) >= canonical_bytes(array) {
+            grouped = (!contiguous).then_some(defined);
+            if grouped.is_some() && descriptor_bytes(defined) >= canonical_bytes(array) {
                 return Ok(None);
             }
             if grouped.is_some()
@@ -111,7 +118,7 @@ impl TakeExecute for Pco {
                         view,
                         indices.as_slice::<I>(),
                         &mask,
-                        summary.defined,
+                        defined,
                     )?
                 })
             {
@@ -129,17 +136,10 @@ impl TakeExecute for Pco {
     }
 }
 
-struct PlainSummary {
-    defined: usize,
-    contiguous: bool,
-}
-
 fn validate_extrema<I: NativePType>(
-    indices: &[I],
-    mask: &Mask,
     extrema: &MinMaxResult,
     source_len: usize,
-) -> VortexResult<PlainSummary>
+) -> VortexResult<()>
 where
     usize: TryFrom<I>,
 {
@@ -159,21 +159,7 @@ where
         max < source_len,
         "Pco take index {max} exceeds array length {source_len}"
     );
-    // Bounds/error category is guaranteed above. No contract chooses the first invalid row.
-    // Contiguous detection exits at the first mismatch; null physical values are never inspected.
-    let contiguous = match mask {
-        Mask::AllTrue(_) => indices.windows(2).all(|pair| {
-            checked_index(pair[0])
-                .ok()
-                .and_then(|row| row.checked_add(1))
-                == checked_index(pair[1]).ok()
-        }),
-        _ => false,
-    };
-    Ok(PlainSummary {
-        defined: mask.true_count(),
-        contiguous,
-    })
+    Ok(())
 }
 
 fn zero_page_take(
