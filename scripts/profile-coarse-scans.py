@@ -13,6 +13,7 @@ import tarfile
 import urllib.request
 
 scale = sys.argv[1]
+suite = 'tpcds' if scale and float(scale) > 0 else 'clickbench'
 root = Path.cwd()
 binary = root / 'target/release_debug/datafusion-bench'
 archive_name = 'samply-aarch64-unknown-linux-gnu.tar.xz'
@@ -34,26 +35,26 @@ env.update(TOKIO_WORKER_THREADS='8', DATAFUSION_EXECUTION_TARGET_PARTITIONS='8',
 profile_env = {key: env[key] for key in ('TOKIO_WORKER_THREADS', 'DATAFUSION_EXECUTION_TARGET_PARTITIONS', 'RUST_LOG')}
 
 def command(v2, query, iterations, label):
-    return [str(binary), 'tpcds', '--formats', 'vortex', '--queries', query,
+    return [str(binary), suite, '--formats', 'vortex', '--queries', query,
             '--iterations', str(iterations), '--scan-v2', str(v2).lower(),
             '--hide-progress-bar', '--display-format', 'gh-json',
             '--runner', 'isolated-coarse-profiles-8workers',
-            '--ingest-jsonl', label + '.jsonl', '--opt', f'scale-factor={scale}']
+            '--ingest-jsonl', label + '.jsonl'] + (['--opt', f'scale-factor={scale}'] if suite == 'tpcds' else [])
 
 current_binary = binary
 baseline = root / 'target/coarse-baseline/datafusion-bench'
 variants = [('v1', baseline, False), ('accepted', baseline, True), ('candidate', current_binary, True)]
-Path('scan-provenance.json').write_text(json.dumps({'baseline_run': 40475426727, 'baseline_source': '208cd6358f3370cb5cc04a174b092699ef4bfe9f', 'candidate': 'Two unfiltered output batches per prefetch window instead of four; output grid unchanged', 'binary_sha256': {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path, _ in variants}}, indent=2))
+Path('scan-provenance.json').write_text(json.dumps({'baseline_run': 40475426727, 'candidate': 'Projection announcements deferred until filter mask is final; four-batch unfiltered window preserved', 'binary_sha256': {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path, _ in variants}}, indent=2))
 for round in range(3):
     for label_name, binary, v2 in variants[round:] + variants[:round]:
         label = f'scan-timing-r{round}-{label_name}'
-        cmd = command(v2, '16,20,21,28,32,40,41,48,49,58,62,76,99', 9, label)
+        cmd = command(v2, ('13,20,21,28,32,40,41,48,49,58,62,76' if suite == 'tpcds' else '11,13,22,24,26,28,31,40'), 9, label)
         Path(label + '.command.json').write_text(json.dumps({'command': cmd, 'env': profile_env}, indent=2))
         with open(label + '.log', 'w') as log:
             subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=600, check=True)
 for label_name, binary, v2 in variants:
     label = f'scan-metrics-{label_name}'
-    cmd = command(v2, '20,28,32', 1, label) + ['--show-metrics']
+    cmd = command(v2, ('28,48' if suite == 'tpcds' else '22,28'), 1, label) + ['--show-metrics']
     with open(label + '.log', 'w') as log:
         subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=600, check=True)
 binary = current_binary
@@ -71,7 +72,7 @@ def frame_label(thread, index, symbols=None):
 
 summary.frame_label = frame_label
 binary_sha = hashlib.sha256(binary.read_bytes()).hexdigest()
-for query, iterations in [('20', 100), ('32', 100)]:
+for query, iterations in ([('28', 20)] if suite == 'tpcds' else [('22', 20), ('28', 3)]):
     for label_name, binary, v2 in variants:
         binary_sha = hashlib.sha256(binary.read_bytes()).hexdigest()
         label = f'scan-q{query}-{label_name}'

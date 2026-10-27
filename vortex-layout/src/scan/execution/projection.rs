@@ -96,7 +96,8 @@ impl ProjectionPlanner {
                 .collect()
         };
         Self {
-            announced: scan.filter.is_some() || scan.projection.row_count() <= MAX_OUTPUT_ROWS as u64,
+            announced: scan.filter.is_none()
+                && scan.projection.row_count() <= MAX_OUTPUT_ROWS as u64,
             scan,
             selected: selected.into_iter(),
         }
@@ -138,8 +139,13 @@ impl Planner for ProjectionPlanner {
             let bytes: u64 = segments.iter()
                 .map(|segment| u64::from(self.scan.locations[**segment as usize].length))
                 .sum();
-            if bytes <= 8 * 1024 * 1024 {
-                for intent in [IoIntent::Announce, IoIntent::Prefetch] {
+            let intents: &[IoIntent] = if self.scan.filter.is_some() {
+                &[IoIntent::Announce]
+            } else {
+                &[IoIntent::Announce, IoIntent::Prefetch]
+            };
+            if self.scan.filter.is_some() || bytes <= 8 * 1024 * 1024 {
+                for &intent in intents {
                     seen.clear();
                     hint(
                         &self.scan.locations,

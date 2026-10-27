@@ -153,9 +153,9 @@ fn metadata_only(plan: &PlanRef) -> VortexResult<bool> {
 
 /// Evaluates a chunk's conjuncts over its selected rows, then hands the mask to projection.
 ///
-/// The first compute starts the reads of every conjunct's segments for the selected rows and
-/// announces the projection's, so the conjuncts run back to back and the projection's reads
-/// coalesce with them. Conjuncts run in the order the shared [`FilterExpr`] picks.
+/// The first compute starts the reads of every conjunct's segments for the selected rows.
+/// Projection hints wait for the final mask to avoid pulling unselected data into these reads.
+/// Conjuncts run in the order the shared [`FilterExpr`] picks.
 pub(super) struct FilterPlanner {
     scan: Arc<PreparedScan>,
     selected: Option<SelectedRows>,
@@ -259,12 +259,6 @@ impl Planner for FilterPlanner {
             let predicates = segments_read(
                 session,
                 self.filter.predicates.iter().map(|predicate| &predicate.plan),
-                rows.clone(),
-                &selected.mask,
-            )?;
-            let projection = segments_read(
-                session,
-                std::iter::once(&self.scan.projection),
                 rows,
                 &selected.mask,
             )?;
@@ -276,14 +270,6 @@ impl Planner for FilterPlanner {
                 &mut self.next_hint,
                 IoIntent::Prefetch,
                 &predicates,
-                &mut seen,
-                &mut batch,
-            );
-            hint(
-                locations,
-                &mut self.next_hint,
-                IoIntent::Announce,
-                &projection,
                 &mut seen,
                 &mut batch,
             );
