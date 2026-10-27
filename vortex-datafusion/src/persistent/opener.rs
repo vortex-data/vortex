@@ -474,6 +474,7 @@ impl FileOpener for VortexOpener {
                         .div_ceil(partitions)
                         .max(1)
                 });
+                builder = builder.with_prefetch_batches(if concurrency <= 1 { 4 } else { 1 });
                 let handle = vxf.session().handle();
                 // Lowering and planning a wide file is real CPU: it runs where compute runs.
                 let scan = handle

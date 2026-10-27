@@ -795,7 +795,7 @@ async fn scan_cache_reuses_values_between_scans(
 }
 
 #[tokio::test]
-async fn dictionary_cache_lives_with_its_file_streams() -> VortexResult<()> {
+async fn dictionary_cache_lives_with_its_prepared_file_scans() -> VortexResult<()> {
     let session = new_session().with_tokio();
     let segments = Arc::new(TestSegments::default());
     let values = chunked_ints(&session, &segments).await?;
@@ -806,17 +806,17 @@ async fn dictionary_cache_lives_with_its_file_streams() -> VortexResult<()> {
     let cache = ScanCache::with_retained_bytes(0);
     let weak = cache.downgrade();
     file.cache = Some(cache);
-    let mut first = ScanBuilder::new(session.clone(), file.clone()).into_stream()?;
-    let second = ScanBuilder::new(session.clone(), file).into_stream()?;
+    let first = Arc::new(ScanBuilder::new(session.clone(), file.clone()).prepare()?);
+    let second = ScanBuilder::new(session.clone(), file).prepare()?;
 
     let mut other_file = scan_file(&segments, &layout)?;
     let other_cache = ScanCache::with_retained_bytes(0);
     let other_weak = other_cache.downgrade();
     other_file.cache = Some(other_cache);
-    let other = ScanBuilder::new(session, other_file).into_stream()?;
+    let other = ScanBuilder::new(session, other_file).prepare()?;
 
-    // Populate dictionary values before abandoning this file's streams.
-    assert!(first.try_next().await?.is_some());
+    // Populate dictionary values before releasing the plans owned by this file's drivers.
+    assert!(!run_rows(&first, first.rows().clone()).await?.is_empty());
     drop(first);
     assert!(weak.upgrade().is_some());
     drop(second);

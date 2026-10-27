@@ -106,6 +106,7 @@ pub struct ScanBuilder {
     row_range: Option<Range<u64>>,
     selection: Selection,
     row_offset: u64,
+    prefetch_batches: usize,
 }
 
 impl ScanBuilder {
@@ -119,6 +120,7 @@ impl ScanBuilder {
             row_range: None,
             selection: Selection::default(),
             row_offset: 0,
+            prefetch_batches: 1,
         }
     }
 
@@ -164,6 +166,13 @@ impl ScanBuilder {
     /// Sets the root row offset used by row-index expressions.
     pub fn with_row_offset(mut self, row_offset: u64) -> Self {
         self.row_offset = row_offset;
+        self
+    }
+
+    /// Groups up to four output batches into one unfiltered projection read window.
+    /// Drivers running one chunk at a time can widen IO discovery without changing output sizes.
+    pub fn with_prefetch_batches(mut self, batches: usize) -> Self {
+        self.prefetch_batches = batches.clamp(1, 4);
         self
     }
 
@@ -230,10 +239,10 @@ impl ScanBuilder {
             )
         } else if identity {
             rows_per_chunk(row_count, &file.locations)
-        } else if builder.concurrency <= 1 && row_count > MAX_ROWS_PER_CHUNK as u64 {
+        } else if self.prefetch_batches > 1 && row_count > MAX_ROWS_PER_CHUNK as u64 {
             // The engine already supplies parallelism. Group read discovery across several
             // output morsels without creating fewer parallel tasks.
-            4 * MAX_ROWS_PER_CHUNK
+            self.prefetch_batches * MAX_ROWS_PER_CHUNK
         } else {
             MAX_ROWS_PER_CHUNK
         };
