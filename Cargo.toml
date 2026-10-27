@@ -71,6 +71,7 @@ members = [
     "benchmarks/duckdb-bench",
     "benchmarks/random-access-bench",
     "benchmarks/string-bench",
+    "benchmarks/s3-latency-bench",
     "vortex-spatial",
 ]
 exclude = ["java/testfiles", "wasm-test"]

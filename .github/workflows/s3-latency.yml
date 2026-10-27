@@ -1,0 +1,199 @@
+# Measures S3 request latency for Vortex-like files and scan request patterns.
+#
+# One job uploads a dataset of synthetic Vortex-like files, then the benchmark runs N times, each
+# on a fresh runner, recording every request (size, offset, concurrency, TTFB, total latency).
+# The analyze job merges the runs into a report and a fitted latency model.
+#
+# Retention: objects under the s3-latency/ prefix are deleted once they are older than
+# RETENTION_HOURS, by a sweep at the start and at the end of every run. S3 lifecycle rules only
+# expire objects in whole days, so the sweep is what enforces an hours-long retention.
+
+name: S3 Latency
+
+on:
+  push:
+    branches: [ji/s3-latency-bench]
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "Number of benchmark runs, each on a fresh runner"
+        type: number
+        default: 10
+      files:
+        description: "Number of files in the dataset"
+        type: number
+        default: 100
+      file_size_mib:
+        description: "Size of each file in MiB"
+        type: number
+        default: 20
+      scale:
+        description: "Multiplier for repetitions and file counts per run"
+        type: string
+        default: "1.0"
+
+permissions:
+  id-token: write  # enables AWS-GitHub OIDC
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: "us-east-1"
+  DATA_ROOT: "s3://vortex-ci-benchmark-datasets/s3-latency/"
+  DATA_URL: "s3://vortex-ci-benchmark-datasets/s3-latency/${{ github.run_id }}-${{ github.run_attempt }}/"
+  RETENTION_HOURS: "3"
+
+jobs:
+  build:
+    if: github.repository == 'vortex-data/vortex'
+    timeout-minutes: 40
+    runs-on: runs-on=${{ github.run_id }}/runner=bench-dedicated/family=c8gd.8xlarge/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag=s3-latency-build
+    outputs:
+      runs: ${{ steps.runs.outputs.runs }}
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "true"
+      - name: Build binary
+        run: cargo build --locked --release --bin s3-latency-bench
+      - name: Run unit tests
+        run: cargo test --locked --release -p s3-latency-bench
+      - name: Upload binary
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: s3-latency-bench-binary
+          path: target/release/s3-latency-bench
+          retention-days: 1
+      - name: Compute run matrix
+        id: runs
+        env:
+          RUNS: ${{ inputs.runs || 10 }}
+        run: |
+          echo "runs=$(python3 -c "import json, os; print(json.dumps(list(range(1, int(os.environ['RUNS']) + 1))))")" >> "$GITHUB_OUTPUT"
+
+  prepare:
+    needs: build
+    timeout-minutes: 30
+    runs-on: runs-on=${{ github.run_id }}/runner=arm64-medium/image=ubuntu24-full-arm64-pre-v2/tag=s3-latency-prepare
+    steps:
+      - uses: runs-on/action@v2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: s3-latency-bench-binary
+      - run: chmod +x s3-latency-bench
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+      - name: Expire old datasets
+        run: ./s3-latency-bench sweep --url "$DATA_ROOT" --max-age-hours "$RETENTION_HOURS"
+      - name: Upload dataset
+        env:
+          FILES: ${{ inputs.files || 100 }}
+          FILE_SIZE_MIB: ${{ inputs.file_size_mib || 20 }}
+        run: |
+          ./s3-latency-bench prepare --url "$DATA_URL" \
+            --files "$FILES" --file-size-mib "$FILE_SIZE_MIB" --seed 42
+
+  bench:
+    needs: [build, prepare]
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      # Sequential runs on fresh instances: samples spread over time and hosts, without the runs
+      # contending with each other for the same S3 prefix.
+      max-parallel: 1
+      matrix:
+        run: ${{ fromJSON(needs.build.outputs.runs) }}
+    runs-on: runs-on=${{ github.run_id }}/runner=bench-dedicated/family=c8gd.8xlarge/image=ubuntu24-full-arm64-pre-v2/tag=s3-latency-run-${{ matrix.run }}
+    steps:
+      - uses: runs-on/action@v2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: s3-latency-bench-binary
+      - run: chmod +x s3-latency-bench
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+      - name: Run benchmark
+        env:
+          RUN: ${{ matrix.run }}
+          SCALE: ${{ inputs.scale || '1.0' }}
+        run: |
+          set -Eeu -o pipefail
+          token=$(curl -sf -X PUT http://169.254.169.254/latest/api/token \
+            -H "X-aws-ec2-metadata-token-ttl-seconds: 60" || true)
+          imds() {
+            curl -sf -H "X-aws-ec2-metadata-token: $token" "http://169.254.169.254/latest/meta-data/$1" || echo unknown
+          }
+          ./s3-latency-bench run --url "$DATA_URL" \
+            --run-label "run-$RUN" --seed "$RUN" --scale "$SCALE" \
+            --output "results/run-$RUN" \
+            --meta "instance_type=$(imds instance-type)" \
+            --meta "availability_zone=$(imds placement/availability-zone)" \
+            --meta "instance_id=$(imds instance-id)" \
+            --meta "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          gzip -k "results/run-$RUN/requests.csv"
+      - name: Upload results
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: s3-latency-run-${{ matrix.run }}
+          path: |
+            results/run-${{ matrix.run }}/requests.csv.gz
+            results/run-${{ matrix.run }}/scans.json
+            results/run-${{ matrix.run }}/meta.json
+
+  analyze:
+    needs: bench
+    if: ${{ !cancelled() }}
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          pattern: s3-latency-run-*
+          path: results
+      - name: Analyze
+        run: |
+          set -Eeu -o pipefail
+          find results -name requests.csv.gz -exec gunzip {} +
+          python3 scripts/s3-latency-analyze.py results --report report.md --model model.json
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+          { head -n1 "$(find results -name requests.csv | head -n1)"; \
+            find results -name requests.csv -exec tail -q -n +2 {} +; } | gzip > all-requests.csv.gz
+      - name: Upload report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: s3-latency-report
+          path: |
+            report.md
+            model.json
+            all-requests.csv.gz
+
+  expire:
+    needs: [prepare, bench]
+    if: ${{ always() && needs.prepare.result != 'skipped' }}
+    timeout-minutes: 15
+    runs-on: runs-on=${{ github.run_id }}/runner=arm64-medium/image=ubuntu24-full-arm64-pre-v2/tag=s3-latency-expire
+    steps:
+      - uses: runs-on/action@v2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: s3-latency-bench-binary
+      - run: chmod +x s3-latency-bench
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+      - name: Expire old datasets
+        run: ./s3-latency-bench sweep --url "$DATA_ROOT" --max-age-hours "$RETENTION_HOURS"
