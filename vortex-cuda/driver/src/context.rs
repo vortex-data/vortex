@@ -59,7 +59,7 @@ impl Eq for CudaContext {}
 
 impl Drop for CudaContext {
     fn drop(&mut self) {
-        self.record_err(self.bind_to_thread());
+        self.record_err(self.make_current());
         for event in std::mem::take(self.events.get_mut()) {
             // SAFETY: Pooled events are owned by the pool and no longer in use.
             self.record_err(unsafe { sys::cuEventDestroy_v2(event) }.result());
@@ -190,6 +190,14 @@ impl CudaContext {
         if self.error_state.load(Ordering::Relaxed) != 0 {
             self.check_err()?;
         }
+        self.make_current()
+    }
+
+    /// Makes this context current on the calling thread, leaving recorded errors in place.
+    ///
+    /// Cleanup and access tracking bind with this: an unrelated recorded error must not make
+    /// them skip a free or a record, nor be consumed where it cannot be reported.
+    pub(crate) fn make_current(&self) -> Result<(), DriverError> {
         let mut current = std::ptr::null_mut();
         // SAFETY: The driver writes the current context.
         unsafe { sys::cuCtxGetCurrent(&raw mut current) }.result()?;
@@ -247,7 +255,7 @@ impl CudaContext {
         if let Some(event) = self.events.lock().pop() {
             return Ok(event);
         }
-        self.bind_to_thread()?;
+        self.make_current()?;
         let mut event = std::ptr::null_mut();
         // SAFETY: The context is current; the driver writes the new event.
         unsafe {
