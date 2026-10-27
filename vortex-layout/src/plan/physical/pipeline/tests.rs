@@ -631,8 +631,8 @@ fn pack_splits_filtered_dictionary_codes(
     .into_array();
     let dict = DictArray::try_new(codes.clone(), values.clone())?.into_array();
     let other = PrimitiveArray::from_iter(0..ROWS as i64).into_array();
-    let expected = StructArray::from_fields(&[("dict", dict), ("other", other.clone())])?
-        .into_array();
+    let expected =
+        StructArray::from_fields(&[("dict", dict), ("other", other.clone())])?.into_array();
     let dictionary = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).into_layout();
     let layout = StructLayout::new(
         ROWS,
@@ -962,13 +962,13 @@ fn pack_splits_filtered_values(
     #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
 ) -> VortexResult<()> {
     let mut store = Store::default();
-    let values = PrimitiveArray::from_option_iter(
-        (0..ROWS).map(|row| (row % 5 != 0).then_some(row as i32)),
-    )
-    .into_array();
+    let values =
+        PrimitiveArray::from_option_iter((0..ROWS).map(|row| (row % 5 != 0).then_some(row as i32)))
+            .into_array();
     let other = PrimitiveArray::from_iter(0..ROWS as i64).into_array();
-    let expected = StructArray::from_fields(&[("values", values.clone()), ("other", other.clone())])?
-        .into_array();
+    let expected =
+        StructArray::from_fields(&[("values", values.clone()), ("other", other.clone())])?
+            .into_array();
     let layout = StructLayout::new(
         ROWS,
         expected.dtype().clone(),

@@ -957,14 +957,21 @@ async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
 #[case(28_800_991)]
 fn partition_rows_preserve_coverage(#[case] row_count: u64) {
     let rows: Vec<_> = (0..8)
-        .map(|partition| super::partition_row_range(partition * 125..(partition + 1) * 125, 1_000, row_count))
+        .map(|partition| {
+            super::partition_row_range(partition * 125..(partition + 1) * 125, 1_000, row_count)
+        })
         .collect();
     assert_eq!(rows[0].start, 0);
     assert_eq!(rows[7].end, row_count);
     for pair in rows.windows(2) {
         assert_eq!(pair[0].end, pair[1].start);
     }
-    assert_eq!(rows.iter().map(|range| range.end - range.start).sum::<u64>(), row_count);
+    assert_eq!(
+        rows.iter()
+            .map(|range| range.end - range.start)
+            .sum::<u64>(),
+        row_count
+    );
     if row_count == 102_000 {
         assert_eq!(rows.iter().filter(|range| !range.is_empty()).count(), 2);
     }

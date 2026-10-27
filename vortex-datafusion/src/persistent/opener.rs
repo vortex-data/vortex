@@ -437,11 +437,8 @@ impl FileOpener for VortexOpener {
             };
             let stream = if scan_v2 {
                 let mut scan_file = vxf.scan_file();
-                scan_file.segments = shared_segment_source(
-                    &segment_sources,
-                    &file.object_meta,
-                    scan_file.segments,
-                );
+                scan_file.segments =
+                    shared_segment_source(&segment_sources, &file.object_meta, scan_file.segments);
                 scan_file.cache = Some(shared_scan_cache(&scan_caches, &file.object_meta));
                 let mut builder = V2ScanBuilder::new(vxf.session().clone(), scan_file)
                     .with_projection(scan_projection)
@@ -697,7 +694,10 @@ fn contains_lambda(projection: &ProjectionExprs) -> DFResult<bool> {
 
 /// Returns the scan cache for this object version, or registers a new one.
 /// A scan holds its cache until its stream ends, so the cache lives as long as one scan.
-fn shared_scan_cache(scan_caches: &DashMap<FileVersion, WeakScanCache>, meta: &ObjectMeta) -> ScanCache {
+fn shared_scan_cache(
+    scan_caches: &DashMap<FileVersion, WeakScanCache>,
+    meta: &ObjectMeta,
+) -> ScanCache {
     let path = &meta.location;
     match scan_caches.entry(FileVersion(meta.clone())) {
         Entry::Occupied(mut entry) => {

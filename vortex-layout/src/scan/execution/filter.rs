@@ -256,7 +256,10 @@ impl Planner for FilterPlanner {
             let rows = selected.scope.rows.clone();
             let predicates = segments_read(
                 session,
-                self.filter.predicates.iter().map(|predicate| &predicate.plan),
+                self.filter
+                    .predicates
+                    .iter()
+                    .map(|predicate| &predicate.plan),
                 rows.clone(),
                 &selected.mask,
             )?;
