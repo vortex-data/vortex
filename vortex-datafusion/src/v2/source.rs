@@ -511,7 +511,8 @@ impl VortexDataSource {
             let scan_request = ScanRequest {
                 projection: self.projected_projection.clone(),
                 filter: self.filter.clone(),
-                narrowing: (!self.runtime_filters.0.is_empty()).then(|| Arc::new(self.runtime_filters.clone()) as Arc<dyn ScanNarrowing>),
+                narrowing: (!self.runtime_filters.0.is_empty())
+                    .then(|| Arc::new(self.runtime_filters.clone()) as Arc<dyn ScanNarrowing>),
                 limit: self.limit.map(|l| u64::try_from(l).unwrap_or(u64::MAX)),
                 ordered: self.ordered,
                 ..Default::default()
