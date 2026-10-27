@@ -10,14 +10,17 @@
 //! output.
 //!
 //! [`RowInputs`] borrows the input columns, and [`BatchProbe`] classifies them before dispatch.
-//! [`BatchInputs`] keeps the columns with their probe. [`BatchPlan`] carries the nullable execution
-//! strategy selected by a concrete dispatch. [`RowFnExecutionArgs`] applies that strategy, and
-//! [`BorrowedRowFnArgs`] pairs each kernel invocation with its planning metadata.
+//! [`BatchInputs`] keeps them when a visit cannot finish the batch directly. [`BatchPlan`] carries
+//! the nullable execution strategy selected by a concrete dispatch. [`RowFnExecutionArgs`] applies
+//! that strategy, and [`BorrowedRowFnArgs`] pairs each kernel invocation with its planning
+//! metadata. A [`PartiallyValidBatch`] carries a batch that needs a dense retry or valid-row
+//! execution after the planning visit.
 
 use std::borrow::Cow;
 
 use crate::ArrayRef;
 use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::scalar_fn::ScalarFnId;
 use crate::validity::Validity;
 
@@ -38,7 +41,8 @@ pub(super) use super::visitor::RowPolicy;
 
 /// What batch execution derives from its borrowed inputs before a dispatch plans them.
 ///
-/// A probe holds no input column. [`BatchInputs`] pairs it with the columns.
+/// A probe holds no input column. A visit that can finish the batch directly decodes the borrowed
+/// inputs. Any other visit keeps them in [`BatchInputs`].
 pub(crate) struct BatchProbe {
     /// The number of rows in the original execution scope.
     row_count: usize,
@@ -53,6 +57,9 @@ pub(crate) struct BatchProbe {
 
     /// Whether any input is a null literal constant.
     has_null_const: bool,
+
+    /// The strict result nullability: nullable when any input dtype is nullable.
+    nullability: Nullability,
 }
 
 /// The same-length input columns of one row-function execution, with their [`BatchProbe`].
@@ -65,6 +72,20 @@ pub(crate) struct BatchInputs<'a> {
 
     /// What batch execution derived from `inputs` before planning.
     probe: BatchProbe,
+}
+
+/// A partially valid batch that [`BatchInputs::try_execute_without_retry`] could not finish, with
+/// the plan that a dispatch selected for it.
+///
+/// Only that method creates this type. [`PartiallyValidBatch::execute`] therefore never receives
+/// an all-null, all-constant, or provably null-free batch, or a batch planned with
+/// [`RowPolicy::Dense`].
+pub(crate) struct PartiallyValidBatch<'a> {
+    /// The input columns and their probe.
+    batch: BatchInputs<'a>,
+
+    /// The plan that a dispatch selected for `batch`.
+    plan: BatchPlan,
 }
 
 /// The same-length input columns and metadata for one row-function execution.

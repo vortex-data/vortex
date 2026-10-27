@@ -16,7 +16,7 @@ impl RowFnExecutionArgs<'_> {
     /// Resolve validity and try direct valid-row execution before filtered execution.
     pub(super) fn execute_valid_only(
         &self,
-        kernel: impl Fn(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
+        kernel: impl FnOnce(BorrowedRowFnArgs<'_>, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
         try_valid_rows: impl FnOnce(
             BorrowedRowFnArgs<'_>,
             MaskValuesRef,

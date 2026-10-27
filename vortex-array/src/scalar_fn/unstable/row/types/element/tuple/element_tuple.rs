@@ -51,6 +51,28 @@ impl<T: InputElement> ArgColumn<T> {
         Ok(Self(ArgColumnKind::Column(T::decode(array, ctx)?)))
     }
 
+    /// Decode an input already classified as batch-constant or not by [`is_batch_const`].
+    #[inline]
+    pub(super) fn decode_rows(
+        array: &ArrayRef,
+        is_const: bool,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Self> {
+        if is_const {
+            // A literal constant is its own batch constant. Wrapped constants unwrap in `decode`.
+            if array.is::<Constant>() && !array.is_empty() {
+                return Ok(Self(ArgColumnKind::Const(T::decode_constant(
+                    array.clone(),
+                    ctx,
+                )?)));
+            }
+
+            return Self::decode(array.clone(), ctx);
+        }
+
+        Ok(Self(ArgColumnKind::Column(T::decode_ref(array, ctx)?)))
+    }
+
     fn decode_null_tolerant(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<Self>> {
         // Batch execution short-circuits null constants before selecting a strategy.
         if let Some(const_array) = batch_const(&array)

@@ -44,6 +44,7 @@ use crate::scalar_fn::unstable::row::execute::execute_owned_valid_rows;
 use crate::scalar_fn::unstable::row::execute::execute_sink;
 use crate::scalar_fn::unstable::row::execute::execute_sink_filtered;
 use crate::scalar_fn::unstable::row::execute::execute_sink_valid_rows;
+use crate::validity::Validity;
 
 /// The runtime visit that decodes every column once and runs the selected row loop.
 pub(crate) struct ExecuteRows<'args, 'ctx, F: RowFn> {
@@ -129,7 +130,12 @@ impl<F: RowFn> RowVisitor for ExecuteRows<'_, '_, F> {
         )?;
         self.plan.ensure_reproduced_by(&visited)?;
 
-        execute_owned_infallible_bool::<Args, MULTIVERSIONED>(self.args, self.ctx, apply)
+        execute_owned_infallible_bool::<Args, MULTIVERSIONED>(
+            self.args,
+            self.ctx,
+            Validity::NonNullable,
+            apply,
+        )
     }
 
     fn visit_prepared_into<Args, Sink, Prepared, ApplyResult>(

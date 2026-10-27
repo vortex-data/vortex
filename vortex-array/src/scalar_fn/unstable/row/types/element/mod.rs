@@ -24,6 +24,7 @@ mod primitive;
 mod tuple;
 pub use tuple::ElementTuple;
 pub use tuple::IndexedElementTuple;
+pub(in crate::scalar_fn::unstable::row) use tuple::decode_rows;
 pub(in crate::scalar_fn::unstable::row) use tuple::decoded_source;
 pub(in crate::scalar_fn::unstable::row) use tuple::is_batch_const;
 
