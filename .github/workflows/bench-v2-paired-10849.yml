@@ -9,9 +9,12 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   build:
+    # Both pinned binaries already built successfully in run 40489587701.
+    if: ${{ false }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -72,7 +75,6 @@ jobs:
           retention-days: 7
 
   compare:
-    needs: build
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -105,12 +107,15 @@ jobs:
           pattern: v2-*-binaries
           path: downloaded
           merge-multiple: true
+          run-id: 40489587701
+          github-token: ${{ github.token }}
       - name: Unpack binaries and prepare identical input data
         env:
           SUITE: ${{ matrix.suite }}
           SCALE: ${{ matrix.scale }}
         run: |
-          mkdir binaries
+          # Data generation writes its temporary files under the workspace's target directory.
+          mkdir -p binaries target
           for archive in downloaded/*.tar.gz; do tar -xzf "$archive" -C binaries; done
           export LD_LIBRARY_PATH="$PWD/binaries/head"
           options=()
