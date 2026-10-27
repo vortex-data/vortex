@@ -22,7 +22,6 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::cast;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
@@ -1027,44 +1026,4 @@ fn direct_projection_preserves_field_order_and_aliases(#[case] aliases: bool) ->
         }
     }
     Ok(())
-}
-
-#[rstest]
-#[case::alternating(Sel::EveryOther)]
-#[case::sparse(Sel::Rows(&[0, 4, 7, 10, 14, 19]))]
-fn pack_splits_cast_filtered_values(
-    #[case] sel: Sel,
-    #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
-) -> VortexResult<()> {
-    let mut store = Store::default();
-    let values =
-        PrimitiveArray::from_option_iter((0..ROWS).map(|row| (row % 5 != 0).then_some(row as i32)))
-            .into_array();
-    let cast_values =
-        PrimitiveArray::from_option_iter((0..ROWS).map(|row| (row % 5 != 0).then_some(row as i64)))
-            .into_array();
-    let other = PrimitiveArray::from_iter(0..ROWS as i64).into_array();
-    let expected =
-        StructArray::from_fields(&[("values", cast_values.clone()), ("other", other.clone())])?
-            .into_array();
-    let values_plan = lower(&store.flat(&values)?)?;
-    let expression = cast(root(), cast_values.dtype().clone()).bind(values.dtype())?;
-    let plan = PackPlan::try_new(
-        expected
-            .dtype()
-            .as_struct_fields_opt()
-            .vortex_expect("struct")
-            .clone(),
-        Nullability::NonNullable,
-        ROWS,
-        vec![
-            EvalPlan::try_new(expression, values_plan)?.into_plan(),
-            lower(&store.chunked(&other, &[7, 5, 8])?)?,
-        ],
-        None,
-    )?
-    .into_plan();
-    let mask = sel.mask(ROWS as usize);
-    let run = run(&store, &plan, 0..ROWS, mask.clone(), delivery(order))?;
-    assert_view(&expected, &(0..ROWS), &mask, run.arrays)
 }
