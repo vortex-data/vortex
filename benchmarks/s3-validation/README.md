@@ -16,6 +16,11 @@ The current profile, `profiles/us-east-1-c8gd-vortex.json`, was learned from 1,2
 real GETs in three earlier CI runs. Its JSON records the source run IDs, input SHA-256 hashes,
 hardware, region, coverage and calibration method. The first profile is preserved as
 `profiles/us-east-1-c8gd-vortex-v1.json`; [measured results](RESULTS.md) distinguish the versions.
+
+**[Full SF10 CI results](RESULTS.md):** 241/242 median comparisons inside 0.7–1.3×, with exact
+requests/ranges/bytes/rows across all 121 queries. The strict gate remains false; the report
+explains the one median flag and tail limitations.
+
 Training includes partial TPC-H/TPC-DS runs; it establishes request
 latency parameters, rather than full benchmark accuracy. Validation must use a different CI run,
 and verifies that the measured model exactly matches the frozen parameters. No refitting happens

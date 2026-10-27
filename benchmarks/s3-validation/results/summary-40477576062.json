@@ -1,0 +1,148 @@
+{
+  "ci_run": 40477576062,
+  "head": "7bac614d58bb6e7cd48eb2d2bac44ca6f42d9fa3",
+  "profile_sha256": "2aa62e3fe8486e3183d6b92de095a5429f22e3262242202891adb7b4400469fe",
+  "artifact_id": 12756048150,
+  "artifact_sha256": "76d9daae89092653ea8d88874aa37fe8965cd0fdcf4c7a95fb4906ba2c4fb22c",
+  "queries": 121,
+  "groups": 242,
+  "samples": 2412,
+  "requests_ranges_bytes_rows_exact": true,
+  "adequate": false,
+  "correlations": {
+    "tpch/cold": 0.9819311123658949,
+    "tpch/warm": 0.9898362507058159,
+    "tpcds/cold": 0.9867037724180582,
+    "tpcds/warm": 0.9880148423005566,
+    "all/cold": 0.9916745698414849,
+    "all/warm": 0.9928939168134399
+  },
+  "outside": [
+    {
+      "suite": "tpcds",
+      "query": 61,
+      "cache": "warm",
+      "iterations": 5,
+      "ratio": 1.3024591056541623,
+      "real_median_ms": 2408.94977,
+      "model_median_ms": 3137.5585629999996,
+      "real_p90_ms": 2445.2421024,
+      "model_p90_ms": 3268.4757480000003
+    }
+  ],
+  "tpch": {
+    "median_ratio": 1.1022918842066676,
+    "cold": {
+      "ratio_range": [
+        0.9582974856343797,
+        1.1540132204383455
+      ],
+      "outside": 0,
+      "p90_ratio_range": [
+        0.6771302524995908,
+        1.1525743661001275
+      ],
+      "p90_outside": 1
+    },
+    "warm": {
+      "ratio_range": [
+        0.9842545696564551,
+        1.1679317462501435
+      ],
+      "outside": 0,
+      "p90_ratio_range": [
+        0.9633961689643941,
+        1.159182431480573
+      ],
+      "p90_outside": 0
+    }
+  },
+  "tpcds": {
+    "median_ratio": 1.0696222781910143,
+    "cold": {
+      "ratio_range": [
+        0.7259491019203083,
+        1.266771616047459
+      ],
+      "outside": 0,
+      "p90_ratio_range": [
+        0.3945531967459846,
+        1.3196912190092416
+      ],
+      "p90_outside": 12
+    },
+    "warm": {
+      "ratio_range": [
+        0.7491208775383388,
+        1.3024591056541623
+      ],
+      "outside": 1,
+      "p90_ratio_range": [
+        0.6450170480980121,
+        1.530688304991965
+      ],
+      "p90_outside": 4
+    }
+  },
+  "all": {
+    "median_ratio": 1.0782618722319306,
+    "cold": {
+      "ratio_range": [
+        0.7259491019203083,
+        1.266771616047459
+      ],
+      "outside": 0,
+      "p90_ratio_range": [
+        0.3945531967459846,
+        1.3196912190092416
+      ],
+      "p90_outside": 13
+    },
+    "warm": {
+      "ratio_range": [
+        0.7491208775383388,
+        1.3024591056541623
+      ],
+      "outside": 1,
+      "p90_ratio_range": [
+        0.6450170480980121,
+        1.530688304991965
+      ],
+      "p90_outside": 4
+    }
+  },
+  "get_requests": {
+    "real": 1368393,
+    "model": 1368393
+  },
+  "bytes_read": {
+    "real": 380744124525,
+    "model": 380744124525
+  },
+  "environments": [
+    {
+      "suite": "tpch",
+      "instance_id": "i-0be42c9d4d298a70e",
+      "cpus": 64,
+      "total_memory": 132635594752,
+      "available_memory": 127569215488,
+      "iterations": 5,
+      "iteration_overrides": {},
+      "adaptive_io": false,
+      "tail_cache_bytes": 4194304
+    },
+    {
+      "suite": "tpcds",
+      "instance_id": "i-0be42c9d4d298a70e",
+      "cpus": 64,
+      "total_memory": 132635594752,
+      "available_memory": 127479906304,
+      "iterations": 5,
+      "iteration_overrides": {
+        "72": 3
+      },
+      "adaptive_io": false,
+      "tail_cache_bytes": 4194304
+    }
+  ]
+}

@@ -451,7 +451,7 @@ def write_reports(result: Record, path: Path):
     path.with_suffix(".json").write_text(json.dumps(result, indent=2) + "\n")
     path.write_text(markdown(result))
     with path.with_suffix(".csv").open("w") as output:
-        writer = csv.DictWriter(output, fieldnames=result["rows"][0].keys())
+        writer = csv.DictWriter(output, fieldnames=result["rows"][0].keys(), lineterminator="\n")
         writer.writeheader()
         writer.writerows(result["rows"])
 

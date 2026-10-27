@@ -1,97 +1,96 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- SPDX-FileCopyrightText: Copyright the Vortex contributors -->
 
-# Learned S3 model: validation evidence
+# Learned S3 model: full SF10 validation
 
-**Provisional:** the first learned profile passed TPC-H and most completed TPC-DS comparisons,
-but two ratios missed the band and the job timed out during q72. Full-suite validation has not
-passed. Keep real S3 as the reference until the revised profile completes validation.
+**Recommendation: keep real S3 as the default reference.** The learned RAM model closely
+predicts median runtimes in the controlled benchmark: **241 of 242 comparisons** fall within
+0.7–1.3×, with overall Spearman correlations of **0.992 cold / 0.993 warm**. It misses the strict
+all-query gate by one comparison, and query tails remain less accurate. Use it for repeatable
+median regression experiments in this configuration; it has not validated normal adaptive SQL scans.
 
-The first [profile](profiles/us-east-1-c8gd-vortex-v1.json) was learned from **519,095 real GETs**
-in two separate AWS CI runs:
-[40418787500](https://github.com/vortex-data/vortex/actions/runs/40418787500) and
-[40423433159](https://github.com/vortex-data/vortex/actions/runs/40423433159).
-These are partial TPC-H SF10 runs with five iterations per completed query. Their real request
-measurements remain usable for learning despite cancellation of the overall workflows.
-The profile contains input hashes, query coverage and source metadata. Query runtimes are
-excluded from fitting.
+[CI run 40477576062](https://github.com/vortex-data/vortex/actions/runs/40477576062) completed
+all **22 TPC-H and 99 TPC-DS queries at SF10**, commit
+`7bac614d58bb6e7cd48eb2d2bac44ca6f42d9fa3`. Both backends ran on the same on-demand
+`c8gd.16xlarge` instance, `i-0be42c9d4d298a70e`, in `us-east-1`, with identical Vortex objects.
+Five paired iterations per query, with three for TPC-DS q72, produced **2,412 samples**
+with separate cold/immediate warm results.
+The TPC-H/TPC-DS snapshots were 2.57/2.70 GiB, measured separately with 123.53 GiB host RAM
+and about 119 GiB initially available.
 
-| Parameter | Learned value |
-| --- | ---: |
-| Scalar TTFB | 26.473 ms |
-| Transfer rate per request | 126.042 MiB/s |
-| Concurrency cap | Unlimited |
-| Empirical delay distribution | 1,000 quantiles |
-| Seed | 20261027 |
+The [per-query comparison table](results/comparison-40477576062.csv) records median/p90 runtimes,
+ratios, GET/PUT/LIST/HEAD counts, bytes, peak/average concurrency and request equality for every
+query/cache pair. The [summary](results/summary-40477576062.json) records provenance. Local recomputation
+from raw traces matched the CI report exactly.
 
-The constant 25 ms / 100 MiB/s baseline was too fast. In run 40423433159, the completed TPC-H
-queries 1–11 had model/S3 median ratios of **0.529–0.693**. All 22 completed query/cache groups
-matched physical request counts, ranges, bytes and result row counts. The learned profile
-preserves real latency tails that the constant model omitted.
-
-An independent request-level check used **62,077 GETs** from
-[40427104780](https://github.com/vortex-data/vortex/actions/runs/40427104780), which was excluded
-from training:
-
-| Request duration | Observed S3 | Profile prediction |
-| --- | ---: | ---: |
-| Median | 28.268 ms | 28.727 ms |
-| p90 | 40.523 ms | 44.071 ms |
-| p99 | 100.928 ms | 92.302 ms |
-| Mean | 31.427 ms | 32.074 ms |
-
-Predictions apply the frozen distribution and transfer cost to that run's request sizes, using
-the same seeded sampler as the RAM store and the learned timer overhead. They are analytic
-request-duration predictions, rather than measured RAM-backed query runtimes.
-
-The attempted full query-level validation was
-[40428937016](https://github.com/vortex-data/vortex/actions/runs/40428937016), commit
-`5dcb2b7feeb40424ec828e01d4dee16aceca7a01`. It uses the frozen profile without refitting,
-paired real/model measurements on one `c8gd.16xlarge` host in `us-east-1`, all 22 TPC-H and
-99 TPC-DS queries at SF10, and three iterations with separate cold/warm results.
-The complete [TPC-H per-query comparison](results/tpch-40428937016.csv) contains medians, p90s,
-ratios, request counts, bytes and concurrency metrics for all 44 query/cache groups. Every
-paired iteration matched physical request counts, ranges, bytes and result row counts.
-
-| Suite/cache | Median ratio range (model/S3) | Spearman | Ratios outside 0.7–1.3 |
+| Suite/cache | Median ratio range (model/S3) | Spearman | Median ratios outside 0.7–1.3 |
 | --- | ---: | ---: | ---: |
-| TPC-H cold | 0.961–1.279 | 0.973 | 0 / 22 |
-| TPC-H warm | 0.994–1.235 | 0.993 | 0 / 22 |
-| TPC-DS cold, q1–71 | 0.591–1.232 | 0.983 | 1 / 71 |
-| TPC-DS warm, q1–71 | 0.781–1.327 | 0.982 | 1 / 71 |
-| All completed cold | — | 0.991 | 1 / 93 |
-| All completed warm | — | 0.991 | 1 / 93 |
+| TPC-H cold | 0.958–1.154 | 0.982 | 0 / 22 |
+| TPC-H warm | 0.984–1.168 | 0.990 | 0 / 22 |
+| TPC-DS cold | 0.726–1.267 | 0.987 | 0 / 99 |
+| TPC-DS warm | 0.749–1.302 | 0.988 | 1 / 99 |
+| All cold | 0.726–1.267 | 0.992 | 0 / 121 |
+| All warm | 0.749–1.302 | 0.993 | 1 / 121 |
 
-The median of all 44 runtime ratios is 1.126: the learned model is about 13% slower. It passes
-the TPC-H median-runtime gate without fitting to this validation run.
+The median of the 242 ratios is **1.078**. Every paired iteration matched request counts,
+range/byte traces and result row counts, including registration counters. Each backend made
+**1,368,393 measured GETs** and consumed **380,744,124,525 bytes**, with zero query/store errors.
+These count underlying object-store API calls after the identical per-sample footer cache;
+HTTP retries inside the S3 SDK are not counted separately.
 
-The [partial TPC-DS table](results/tpcds-partial-40428937016.csv) covers completed queries 1–71.
-Every paired sample matched physical requests, ranges, bytes and result row counts. Its median
-ratio is 1.069. The outliers are q13 warm (1.327) and q41 cold (0.591). Query 41 is short:
-real/model medians were 229.3/135.6 ms. Its real cold samples were 265.4, 229.3 and 130.3 ms,
-illustrating the uncertainty in a three-sample reference.
+The sole median flag is **TPC-DS q61 warm: 1.302459×**, real/model medians 2.409/3.138 s.
+Real request p90s were 35.4–37.5 ms versus 42.5–44.1 ms for the model: its tails were heavier
+than this S3 window. The threshold was not relaxed. The report has `adequate=false` and
+`default_ci_recommended=false`.
 
-Query 72 took 1,462–1,625 seconds per execution on both backends. The job reached its configured
-six-hour limit after nine of twelve required samples, so q72–99 are not validated. The first
-real cold sample took 1,524 s with 345 s of summed request lifetimes; at least 1,179 s occurred
-outside object-store requests. Local SF1 runs with zero latency took 12–14 s with either fixed
-or adaptive scans. Query execution dominates. The next run preserves the SQL and SF10 workload,
-increases the job budget and measures q72 in a separate sequential step on the same host.
+TPC-DS q72 completed all twelve executions with ratios **0.970 cold / 0.990 warm** and exact
+requests. Its 25–28 minute executions required sequential batches and a twelve-hour job budget.
+Every original query ran at SF10 without SQL changes.
 
-Tail prediction remains imperfect. Query 1 cold has a real p90 of 10.476 s versus 6.544 s in
-the model. Its first real iteration took 11.741 s, versus 5.417 s and 5.361 s subsequently, with
-identical GET counts. Mean request duration was 48.86 ms in that first iteration, versus
-30.31/30.42 ms subsequently. Independent per-request samples do not reproduce such coherent
-latency changes. Three iterations also provide limited information about a query's tail.
+The [frozen profile](profiles/us-east-1-c8gd-vortex.json) learns **1,205,642 eligible real GETs**
+from three earlier CI runs:
+[40418787500](https://github.com/vortex-data/vortex/actions/runs/40418787500),
+[40423433159](https://github.com/vortex-data/vortex/actions/runs/40423433159), and
+[40428937016](https://github.com/vortex-data/vortex/actions/runs/40428937016).
+The validation run is excluded from training. Query runtimes are never fitting targets;
+there are no per-query runtime multipliers.
 
-The [revised profile](profiles/us-east-1-c8gd-vortex.json) learns 1,205,642 eligible GETs from
-three runs, including these retained measurements. It uses 26.036 ms scalar TTFB, 131.728 MiB/s,
-and separate 1,000-quantile distributions for request-size classes. Four samples with stalled
-model timers and one unmatched sample were excluded from service-latency training. Dataset-relative
-paths keep seeded delays independent of unique CI prefixes. The revised profile requires a fresh
-CI run excluded from training; the preceding results do not validate it.
+| Final parameter | Value |
+| --- | ---: |
+| Scalar TTFB, used for HEAD/LIST | 26.036 ms |
+| Transfer rate per request | 131.728 MiB/s |
+| GET delay distributions | 1,000 quantiles per request-size class |
+| Size classes | ≤4 KiB, ≤64 KiB, ≤256 KiB, ≤1 MiB; larger requests use global fallback |
+| Concurrency cap | Unlimited; observations do not establish a service-side cap |
+| Random seed | 20261027 |
 
-The controlled validation profile disables adaptive coalescing, repartitioning and predicate
-pushdown, while retaining parallel operators and intra-file scans. Both backends use identical
-per-sample footer caching. A successful fit under these settings would support this controlled
-benchmark configuration; it would not establish equivalence for normal adaptive SQL scans.
+GET distributions subtract transfer cost and measured timer overhead. Four samples with
+median timer overshoot above 5 ms and one unmatched sample were excluded. Tokio sleeps overlap;
+seeded draws use dataset-relative request keys. Input hashes and coverage are recorded.
+Its SHA-256 is `2aa62e3fe8486e3183d6b92de095a5429f22e3262242202891adb7b4400469fe`;
+CI's parameter file matches it byte-for-byte.
+
+The constant 25 ms / 100 MiB/s baseline was too fast: completed TPC-H q1–11 in run 40423433159
+had ratios 0.529–0.693. Learning empirical latency tails corrected that underestimate. The current
+profile adds request-size classes to the [first learned profile](profiles/us-east-1-c8gd-vortex-v1.json).
+
+Query p90s miss the band in **17 of 242 comparisons**: 13 cold and four warm. TPC-DS q31 cold
+has real/model p90s of 20.303/8.011 s despite a median ratio of 1.093. Independent draws miss
+coherent S3 latency episodes; short queries amplify timing changes. Three to five iterations
+also limit tail estimates. Learning correlated service-latency epochs and validating them on
+additional held-out runs remains future work.
+
+The controlled profile disables predicate/dynamic-filter pushdown, repartitioning and
+opportunistic coalescing while retaining parallel query operators and intra-file scans.
+Both backends have the same per-sample footer cache. Native adaptive scans can issue different
+requests even between repeated real runs; this validation does not establish their equivalence.
+Shared bandwidth limits, connection startup, throttling/503s and SDK retries are also not
+explicitly modelled. Keep periodic real S3 measurements for those behaviors and for tail validation.
+
+Raw traces and reports are in
+[artifact 12756048150](https://github.com/vortex-data/vortex/actions/runs/40477576062/artifacts/12756048150),
+SHA-256 `76d9daae89092653ea8d88874aa37fe8965cd0fdcf4c7a95fb4906ba2c4fb22c`.
+CI refreshed credentials throughout the long run and successfully removed its temporary S3 objects.
+
+Validation: eight Rust store tests, sixteen Python tests, scoped Clippy, pinned Rust formatting,
+Ruff, strict YAML lint, local chunk/CLI smoke tests, and the complete AWS CI comparison.
