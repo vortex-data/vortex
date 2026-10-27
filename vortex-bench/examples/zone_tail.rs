@@ -28,13 +28,16 @@ fn walk(layout: &LayoutRef, path: String, in_zones: bool, out: &mut Vec<(String,
 
 #[tokio::main]
 async fn main() {
-    let mut tails = vec![];
     for path in std::env::args().skip(1) {
         let vxf = SESSION.open_options().open_path(&path).await.unwrap();
         let file_size = std::fs::metadata(&path).unwrap().len();
         let footer = vxf.footer();
         let specs = footer.segment_map();
-        let data_end = specs.iter().map(|s| s.offset + s.length as u64).max().unwrap_or(0);
+        let data_end = specs
+            .iter()
+            .map(|s| s.offset + s.length as u64)
+            .max()
+            .unwrap_or(0);
         let mut segs = vec![];
         walk(footer.layout(), String::new(), false, &mut segs);
         let zones: Vec<_> = segs
@@ -43,10 +46,21 @@ async fn main() {
             .map(|(p, _, id)| (p.clone(), specs[*id as usize]))
             .collect();
         let zone_bytes: u64 = zones.iter().map(|(_, s)| s.length as u64).sum();
-        let need = zones.iter().map(|(_, s)| file_size - s.offset).max().unwrap_or(0);
-        let in_64k = zones.iter().filter(|(_, s)| file_size - s.offset <= 65_535 + 8).count();
+        let need = zones
+            .iter()
+            .map(|(_, s)| file_size - s.offset)
+            .max()
+            .unwrap_or(0);
+        let in_64k = zones
+            .iter()
+            .filter(|(_, s)| file_size - s.offset <= 65_535 + 8)
+            .count();
         // Bytes of non-zone data interleaved inside the tail that would cover all zone maps.
-        let min_zone_off = zones.iter().map(|(_, s)| s.offset).min().unwrap_or(file_size);
+        let min_zone_off = zones
+            .iter()
+            .map(|(_, s)| s.offset)
+            .min()
+            .unwrap_or(file_size);
         let non_zone_in_tail: u64 = segs
             .iter()
             .filter(|(_, z, _)| !*z)
@@ -63,9 +77,12 @@ async fn main() {
         );
         if std::env::var("VERBOSE").is_ok() {
             for (p, s) in &zones {
-                println!("    {p:<40} len={:>8} from_eof={:>12}", s.length, file_size - s.offset);
+                println!(
+                    "    {p:<40} len={:>8} from_eof={:>12}",
+                    s.length,
+                    file_size - s.offset
+                );
             }
         }
-        tails.push(need);
     }
 }

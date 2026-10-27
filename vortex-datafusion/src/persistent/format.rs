@@ -630,15 +630,12 @@ impl FileFormat for VortexFormat {
                             .with_file_size(object.size),
                         &object,
                     );
-                    let vxf = open_opts
-                        .open_read(reader)
-                        .await
-                        .map_err(|e| {
-                            DataFusionError::Execution(format!(
-                                "Failed to open Vortex file {}: {e}",
-                                object.location
-                            ))
-                        })?;
+                    let vxf = open_opts.open_read(reader).await.map_err(|e| {
+                        DataFusionError::Execution(format!(
+                            "Failed to open Vortex file {}: {e}",
+                            object.location
+                        ))
+                    })?;
                     end_open();
 
                     // Cache the metadata

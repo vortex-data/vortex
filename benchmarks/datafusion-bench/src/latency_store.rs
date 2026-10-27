@@ -40,7 +40,12 @@ impl<T> LatencyStore<T> {
 
 impl<T: fmt::Display> fmt::Display for LatencyStore<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "LatencyStore({}, {:?})", self.inner, self.get_latency)
+        write!(
+            f,
+            "LatencyStore({}, {}ms)",
+            self.inner,
+            self.get_latency.as_millis()
+        )
     }
 }
 
