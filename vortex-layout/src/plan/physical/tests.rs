@@ -649,14 +649,15 @@ fn empty_projection_prunes_row_idx_child_fields() -> VortexResult<()> {
     let plan = make_row_idx_plan(projection, make_plan(layout)?)?;
 
     let optimized = optimize(plan, &SESSION)?;
-    let projection = optimized
-        .as_opt::<Eval>()
-        .ok_or_else(|| vortex_err!("optimized plan has no projection expression"))?;
-    let child = projection.child_plan()?;
-    let empty_struct = child
+    let empty_struct = optimized
         .as_opt::<Pack>()
         .ok_or_else(|| vortex_err!("empty projection did not prune the RowIdx child"))?;
 
+    assert_eq!(empty_struct.row_count(), 3);
+    assert_eq!(
+        empty_struct.dtype(),
+        &DType::Struct(StructFields::empty(), Nullability::NonNullable)
+    );
     assert_eq!(empty_struct.nfields(), 0);
     assert_eq!(empty_struct.children().len(), 0);
     Ok(())

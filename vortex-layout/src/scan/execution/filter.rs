@@ -44,6 +44,7 @@ use crate::plan::physical::Zoned;
 use crate::plan::physical::optimize;
 use crate::plan::physical::pipeline::Scan;
 use crate::plan::physical::pipeline::Split;
+use crate::plan::physical::pipeline::ValueCache;
 use crate::plan::physical::plan_row_idx_expression;
 use crate::scan::filter::FilterExpr;
 use crate::segments::SegmentId;
@@ -174,13 +175,20 @@ pub(super) struct FilterPlanner {
 /// them without IO.
 pub(super) fn segments_read<'a>(
     session: &VortexSession,
+    values: &ValueCache,
     plans: impl Iterator<Item = &'a PlanRef>,
     rows: Range<u64>,
     mask: &Mask,
 ) -> VortexResult<Vec<SegmentId>> {
     let mut segments = Vec::new();
     for plan in plans {
-        segments.extend(Scan::segments(session, plan, rows.clone(), mask)?);
+        segments.extend(Scan::segments_with_value_cache(
+            session,
+            plan,
+            rows.clone(),
+            mask,
+            values,
+        )?);
     }
     segments.sort_unstable();
     segments.dedup();
@@ -260,6 +268,7 @@ impl Planner for FilterPlanner {
             let rows = selected.scope.rows.clone();
             let predicates = segments_read(
                 session,
+                &self.scan.values,
                 self.filter
                     .predicates
                     .iter()
@@ -269,6 +278,7 @@ impl Planner for FilterPlanner {
             )?;
             let projection = segments_read(
                 session,
+                &self.scan.values,
                 std::iter::once(&self.scan.projection),
                 rows,
                 &selected.mask,

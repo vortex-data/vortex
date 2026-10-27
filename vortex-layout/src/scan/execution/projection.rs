@@ -130,6 +130,7 @@ impl Planner for ProjectionPlanner {
             for selected in self.selected.as_slice() {
                 segments.extend(segments_read(
                     &self.scan.session,
+                    &self.scan.values,
                     std::iter::once(&self.scan.projection),
                     selected.scope.rows.clone(),
                     &selected.mask,
