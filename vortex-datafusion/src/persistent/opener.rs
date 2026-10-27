@@ -434,12 +434,13 @@ impl FileOpener for VortexOpener {
                 Ok(RecordBatch::from(arrow.as_struct().clone()))
             };
             let stream = if scan_v2 {
-                let mut scan_file = vxf.scan_file();
-                scan_file.segments = shared_segment_source(
+                let shared = shared_segment_source(
                     &segment_sources,
                     &file.object_meta.location,
-                    scan_file.segments,
+                    vxf.segment_source(),
                 );
+                let vxf = vxf.clone().with_segment_source(shared);
+                let mut scan_file = vxf.scan_file();
                 scan_file.cache = Some(shared_scan_cache(&scan_caches, &file.object_meta.location));
                 let mut builder = V2ScanBuilder::new(vxf.session().clone(), scan_file)
                     .with_projection(scan_projection)

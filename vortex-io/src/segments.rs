@@ -12,9 +12,6 @@
 //!
 //! A [`SegmentIoService`] serves every registered source. Its sessions share and coalesce reads,
 //! so one session's announcement can widen another session's read.
-//!
-//! This protocol is to replace the byte-range protocol in [`request`](crate::request), which the
-//! planner-driven scan still uses.
 
 use std::any::Any;
 use std::pin::Pin;

@@ -13,10 +13,12 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_io::request;
-use vortex_io::request::IoBatch;
-use vortex_io::request::IoIntent;
-use vortex_io::request::IoResult;
+use vortex_io::segments::IoIntent;
+use vortex_io::segments::IoKey;
+use vortex_io::segments::IoRequest;
+use vortex_io::segments::SegmentSourceId;
+use vortex_io::segments::SourceRequest;
+use vortex_io::segments::SourceResult;
 use vortex_scan::planning::planner::State;
 
 use crate::plan::physical::pipeline::ReadId;
@@ -39,16 +41,16 @@ pub(super) enum AdaptorStep {
     /// Control returns to the owner with CPU work still ready.
     Yield,
     /// Requests to publish, each returned once.
-    NeedsIO(IoBatch),
+    NeedsIO(Vec<IoRequest>),
     /// Rows the plan produced.
     Piece(Piece),
 }
 
 /// Adapts a pipeline [`Scan`] to the planner I/O and compute protocol.
 ///
-/// The scan names segments by id; the protocol names byte ranges. Each scan read becomes a
-/// `Fetch` of the segment's range at the segment's alignment, and each delivery is handed back to
-/// the scan under its own id.
+/// Each scan read becomes a `Fetch` of its segment in the file's source, and each delivery is
+/// handed back to every scan read of that segment. A segment is fetched once while any read of it
+/// is outstanding.
 pub(super) struct ScanAdaptor {
     scan: Scan,
     /// A turn already taken while batching reads, retained for the next compute.
@@ -57,26 +59,29 @@ pub(super) struct ScanAdaptor {
     /// Orders the pieces handed out.
     next_piece: u64,
     locations: Arc<[SegmentLocation]>,
-    /// Published and undelivered requests, with the scan read and segment each one answers.
-    outstanding: FxHashMap<u32, (ReadId, SegmentId)>,
+    source: SegmentSourceId,
+    /// Segments fetched and not yet delivered, with the scan reads waiting for each.
+    outstanding: FxHashMap<u32, Vec<ReadId>>,
     /// A delivery the scan could not take, reported by the next compute.
     failed: Option<VortexError>,
-    /// The protocol id the next published request gets.
-    next_id: u32,
 }
 
 impl ScanAdaptor {
-    /// Wraps a scan, numbering requests uniquely within this adaptor's lifetime.
-    pub(super) fn new(scan: Scan, locations: Arc<[SegmentLocation]>) -> Self {
+    /// Wraps a scan of the file registered as `source`.
+    pub(super) fn new(
+        scan: Scan,
+        locations: Arc<[SegmentLocation]>,
+        source: SegmentSourceId,
+    ) -> Self {
         Self {
             scan,
             pending: None,
             done: false,
             next_piece: 0,
             locations,
+            source,
             outstanding: FxHashMap::default(),
             failed: None,
-            next_id: 0,
         }
     }
 
@@ -99,10 +104,11 @@ impl ScanAdaptor {
             Turn::Output(_, array) => AdaptorStep::Piece(self.piece(array)),
             Turn::Read(read) => {
                 // Publish every read the scan has ready together, so the owner can coalesce them.
-                let mut batch = vec![self.request(read.id, read.segment_id)?];
+                let mut batch = Vec::new();
+                self.request(read.id, read.segment_id, &mut batch)?;
                 loop {
                     match self.step()? {
-                        Turn::Read(read) => batch.push(self.request(read.id, read.segment_id)?),
+                        Turn::Read(read) => self.request(read.id, read.segment_id, &mut batch)?,
                         turn => {
                             if !matches!(turn, Turn::Waiting) {
                                 self.pending = Some(turn);
@@ -112,7 +118,12 @@ impl ScanAdaptor {
                         }
                     }
                 }
-                AdaptorStep::NeedsIO(batch)
+                if batch.is_empty() {
+                    // Every read rode on a fetch already outstanding.
+                    AdaptorStep::Yield
+                } else {
+                    AdaptorStep::NeedsIO(batch)
+                }
             }
         })
     }
@@ -139,32 +150,43 @@ impl ScanAdaptor {
         }
     }
 
-    fn request(&mut self, read: ReadId, segment_id: SegmentId) -> VortexResult<request::IoRequest> {
-        let location = self.location(segment_id)?;
-        let id = self.next_id;
-        self.next_id = self
-            .next_id
-            .checked_add(1)
-            .ok_or_else(|| vortex_err!("ScanAdaptor ran out of request ids"))?;
-        self.outstanding.insert(id, (read, segment_id));
-        Ok(request::IoRequest {
-            intent: IoIntent::Fetch,
-            request: request::IoRequestId(id),
-            target: location.target(),
-        })
+    /// Records a scan read of `segment_id`, adding a fetch to `batch` unless one of the segment
+    /// is already outstanding.
+    fn request(
+        &mut self,
+        read: ReadId,
+        segment_id: SegmentId,
+        batch: &mut Vec<IoRequest>,
+    ) -> VortexResult<()> {
+        self.location(segment_id)?;
+        let reads = self.outstanding.entry(*segment_id).or_default();
+        if reads.is_empty() {
+            batch.push(IoRequest::new(
+                IoKey::segment(self.source, *segment_id),
+                IoIntent::Fetch,
+            ));
+        }
+        reads.push(read);
+        Ok(())
     }
 
-    /// Hands a delivered read to the scan. The driver only delivers requests this adaptor
-    /// published, so anything else is a driver bug. Bytes the scan cannot take fail the owner's
-    /// next compute.
-    pub(super) fn set_io_result(&mut self, id: request::IoRequestId, result: IoResult) {
-        let Some((read, segment_id)) = self.outstanding.remove(&id.0) else {
-            vortex_panic!("ScanAdaptor: delivery of {id:?}, which is not outstanding");
+    /// Hands a delivered segment to every scan read waiting for it. The driver only delivers
+    /// fetches this adaptor published, so anything else is a driver bug. Bytes the scan cannot
+    /// take fail the owner's next compute.
+    pub(super) fn set_result(&mut self, key: IoKey, result: SourceResult) {
+        let SourceRequest::Segment(segment) = key.request else {
+            vortex_panic!("ScanAdaptor: delivery of {key:?}, though it only fetches segments");
         };
-        let IoResult::Bytes(bytes) = result else {
-            vortex_panic!("ScanAdaptor: segment {segment_id} answered with a size");
+        let segment_id = SegmentId::from(segment);
+        let Some(reads) = self.outstanding.remove(&segment) else {
+            vortex_panic!("ScanAdaptor: delivery of {key:?}, which is not outstanding");
         };
-        if let Err(error) = self.deliver(read, segment_id, bytes)
+        let delivered = result.into_bytes().and_then(|bytes| {
+            reads
+                .into_iter()
+                .try_for_each(|read| self.deliver(read, segment_id, bytes.clone()))
+        });
+        if let Err(error) = delivered
             && self.failed.is_none()
         {
             self.failed = Some(error.with_context(format!("delivering segment {segment_id}")));

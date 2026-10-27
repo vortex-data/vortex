@@ -27,11 +27,11 @@ use parking_lot::Mutex;
 use vortex::array::ArrayRef;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
-use vortex::io::request::IoConsumer;
-use vortex::io::request::IoRequestId;
-use vortex::io::request::IoResult;
-use vortex::io::request::IoService;
+use vortex::error::vortex_panic;
 use vortex::io::runtime::BlockingRuntime as _;
+use vortex::io::segments::IoKey;
+use vortex::io::segments::SegmentIoService;
+use vortex::io::segments::SourceResult;
 use vortex::layout::scan::v2::ChunkPlanner;
 use vortex::layout::scan::v2::PreparedScan;
 use vortex::layout::scan::v2::PrunePlanner;
@@ -59,7 +59,7 @@ const PART_ROW_BLOCK: u64 = 65_536;
 /// One file's V2 scan, shared by the threads scanning it.
 pub(crate) struct FileScan {
     scan: Arc<PreparedScan>,
-    io: Arc<dyn IoService>,
+    io: Arc<dyn SegmentIoService>,
     /// The run of the root planner, locked while a thread takes the chunk it spawns next.
     root: Mutex<Run>,
     /// Set once the root has spawned its last chunk.
@@ -223,11 +223,11 @@ impl PartPlanner {
     }
 }
 
-impl IoConsumer for PartPlanner {
-    fn set_io_result(&mut self, _request: IoRequestId, _result: IoResult) {}
-}
-
 impl Planner for PartPlanner {
+    fn deliver(&mut self, key: IoKey, _result: SourceResult) {
+        vortex_panic!("PartPlanner: delivery of {key:?}, though it never fetches");
+    }
+
     fn state(&self) -> State {
         if self.parts.as_slice().is_empty() {
             State::Done

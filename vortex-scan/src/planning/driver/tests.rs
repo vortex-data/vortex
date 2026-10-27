@@ -2,50 +2,46 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Range;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
-use std::task::Waker;
 
 use rstest::rstest;
 use vortex_array::assert_arrays_eq;
-use vortex_buffer::buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
-use vortex_io::request::IoRequest;
 
 use super::*;
 use crate::planning::tests::scripted::Log;
 use crate::planning::tests::scripted::MorselStep;
+use crate::planning::tests::scripted::Order;
 use crate::planning::tests::scripted::PlannerStep;
-use crate::planning::tests::scripted::RecordingIoSource;
+use crate::planning::tests::scripted::RecordingSession;
 use crate::planning::tests::scripted::ScriptedPlanner;
 use crate::planning::tests::scripted::array_of;
 use crate::planning::tests::scripted::ctx;
+use crate::planning::tests::scripted::fetch;
+use crate::planning::tests::scripted::key;
 use crate::planning::tests::scripted::scope;
 
-fn request(id: u32, offset: u64) -> IoRequest {
-    IoRequest {
-        intent: IoIntent::Fetch,
-        request: IoRequestId(id),
-        target: IoTarget::range(offset, 4),
-    }
+fn driver(session: &Arc<RecordingSession>) -> Driver {
+    Driver::new(Arc::clone(session) as Arc<dyn SegmentIoSession>).with_step_limit(1_000)
 }
 
-fn driver(source: &Arc<RecordingIoSource>) -> Driver {
-    Driver::new(Arc::clone(source) as Arc<dyn IoSource>).with_step_limit(1_000)
+/// A session that finishes one fetch per poll, oldest first.
+fn source() -> Arc<RecordingSession> {
+    Arc::new(RecordingSession::new(Order::Fifo, false))
 }
 
-fn source() -> Arc<RecordingIoSource> {
-    let source = RecordingIoSource::default();
-    source.canned_bytes(0, buffer![0u8, 1, 2, 3].into_byte_buffer());
-    source.canned_bytes(4, buffer![4u8, 5, 6, 7].into_byte_buffer());
-    Arc::new(source)
+/// A session that finishes one fetch per poll, newest first.
+fn lifo_source() -> Arc<RecordingSession> {
+    Arc::new(RecordingSession::new(Order::Lifo, false))
 }
 
-fn lifo_source() -> Arc<RecordingIoSource> {
-    let source = RecordingIoSource::lifo();
-    source.canned_bytes(0, buffer![0u8, 1, 2, 3].into_byte_buffer());
-    source.canned_bytes(4, buffer![4u8, 5, 6, 7].into_byte_buffer());
-    Arc::new(source)
+/// A session that finishes a fetch only once the test lets one arrive.
+fn gated_source() -> Arc<RecordingSession> {
+    Arc::new(RecordingSession::new(Order::Fifo, true))
+}
+
+fn with_intent(segment: u32, intent: IoIntent) -> IoRequest {
+    IoRequest::new(key(segment), intent)
 }
 
 fn one_batch_morsel(scope: WorkScope, rows: u64) -> PlannerStep {
@@ -147,24 +143,18 @@ fn needs_io_delivers_every_request_in_order() -> VortexResult<()> {
     let source = source();
     let root = ScriptedPlanner::boxed(
         "root",
-        vec![
-            PlannerStep::Io(vec![request(0, 4), request(1, 0)]),
-            PlannerStep::Done,
-        ],
+        vec![PlannerStep::Io(vec![fetch(1), fetch(0)]), PlannerStep::Done],
         &log,
     );
     let batches = driver(&source).run(root)?;
     assert!(batches.is_empty());
-    assert_eq!(
-        source.performed(),
-        vec![IoTarget::range(4, 4), IoTarget::range(0, 4)]
-    );
+    assert_eq!(source.performed(), vec![key(1), key(0)]);
     assert_eq!(
         log.events(),
         vec![
             "publish root",
-            "deliver root 0 bytes",
-            "deliver root 1 bytes",
+            "deliver root 1",
+            "deliver root 0",
             "compute root",
         ]
     );
@@ -180,21 +170,21 @@ fn fetch_published_ahead_is_delivered_when_awaited() -> VortexResult<()> {
     let root = ScriptedPlanner::boxed(
         "root",
         vec![
-            PlannerStep::NeedsIO(vec![request(0, 0)]),
+            PlannerStep::NeedsIO(vec![fetch(0)]),
             PlannerStep::Continue,
-            PlannerStep::Await(vec![IoRequestId(0)]),
+            PlannerStep::Await(vec![key(0)]),
             PlannerStep::Done,
         ],
         &log,
     );
     driver(&source).run(root)?;
-    assert_eq!(source.performed(), vec![IoTarget::range(0, 4)]);
+    assert_eq!(source.performed(), vec![key(0)]);
     assert_eq!(
         log.events(),
         vec![
             "compute root",
             "compute root",
-            "deliver root 0 bytes",
+            "deliver root 0",
             "compute root",
         ]
     );
@@ -228,13 +218,10 @@ fn continue_requeues() -> VortexResult<()> {
 fn io_failure_propagates_after_two_performs() -> VortexResult<()> {
     let log = Log::default();
     let source = source();
-    source.fail(IoTarget::range(4, 4), "disk on fire");
+    source.fail(1, "disk on fire");
     let root = ScriptedPlanner::boxed(
         "root",
-        vec![
-            PlannerStep::Io(vec![request(0, 0), request(1, 4)]),
-            PlannerStep::Done,
-        ],
+        vec![PlannerStep::Io(vec![fetch(0), fetch(1)]), PlannerStep::Done],
         &log,
     );
     let err = driver(&source).run(root).err().map(|e| e.to_string());
@@ -252,24 +239,21 @@ fn completions_out_of_order_within_one_batch() -> VortexResult<()> {
     let source = lifo_source();
     let root = ScriptedPlanner::boxed(
         "root",
-        vec![
-            PlannerStep::Io(vec![request(0, 0), request(1, 4)]),
-            PlannerStep::Done,
-        ],
+        vec![PlannerStep::Io(vec![fetch(0), fetch(1)]), PlannerStep::Done],
         &log,
     );
     driver(&source).run(root)?;
     assert_eq!(
         source.performed(),
-        vec![IoTarget::range(0, 4), IoTarget::range(4, 4)],
+        vec![key(0), key(1)],
         "submitted in request order"
     );
     assert_eq!(
         log.events(),
         vec![
             "publish root",
-            "deliver root 1 bytes",
-            "deliver root 0 bytes",
+            "deliver root 1",
+            "deliver root 0",
             "compute root",
         ]
     );
@@ -280,20 +264,13 @@ fn completions_out_of_order_within_one_batch() -> VortexResult<()> {
 fn completions_out_of_order_across_parked_items() -> VortexResult<()> {
     let log = Log::default();
     let source = lifo_source();
-    let child = |id: u32, offset: u64| {
+    let child = |segment: u32| {
         PlannerStep::Planner(
             scope(0..1),
-            vec![
-                PlannerStep::Io(vec![request(id, offset)]),
-                PlannerStep::Done,
-            ],
+            vec![PlannerStep::Io(vec![fetch(segment)]), PlannerStep::Done],
         )
     };
-    let root = ScriptedPlanner::boxed(
-        "root",
-        vec![child(5, 0), child(6, 4), PlannerStep::Done],
-        &log,
-    );
+    let root = ScriptedPlanner::boxed("root", vec![child(0), child(1), PlannerStep::Done], &log);
     driver(&source).run(root)?;
     let deliveries: Vec<_> = log
         .events()
@@ -302,28 +279,9 @@ fn completions_out_of_order_across_parked_items() -> VortexResult<()> {
         .collect();
     assert_eq!(
         deliveries,
-        vec!["deliver child 6 bytes", "deliver child 5 bytes"],
+        vec!["deliver child 1", "deliver child 0"],
         "both children were parked before either completed"
     );
-    Ok(())
-}
-
-#[test]
-fn lying_source_fails_before_delivery() -> VortexResult<()> {
-    let log = Log::default();
-    let source = source();
-    source.answer_with_size(IoTarget::range(0, 4), 4);
-    let root = ScriptedPlanner::boxed(
-        "root",
-        vec![PlannerStep::Io(vec![request(0, 0)]), PlannerStep::Done],
-        &log,
-    );
-    let err = driver(&source).run(root).err().map(|e| e.to_string());
-    assert!(
-        err.as_deref().is_some_and(|m| m.contains("answered")),
-        "{err:?}"
-    );
-    assert_eq!(log.events(), vec!["publish root"]);
     Ok(())
 }
 
@@ -337,7 +295,7 @@ fn morsel_needs_io_midway() -> VortexResult<()> {
                 scope(0..4),
                 vec![
                     MorselStep::Compute(MorselOutput::Batch(array_of(1))),
-                    MorselStep::Io(vec![request(0, 0)]),
+                    MorselStep::Io(vec![fetch(0)]),
                     MorselStep::Compute(MorselOutput::Batch(array_of(2))),
                     MorselStep::Compute(MorselOutput::Done),
                 ],
@@ -361,14 +319,14 @@ fn morsel_needs_io_midway() -> VortexResult<()> {
 #[case::empty_io(vec![PlannerStep::Io(vec![])], "empty batch")]
 #[case::republished_fetch(
     vec![
-        PlannerStep::NeedsIO(vec![request(0, 0)]),
-        PlannerStep::NeedsIO(vec![request(0, 0)]),
+        PlannerStep::NeedsIO(vec![fetch(0)]),
+        PlannerStep::NeedsIO(vec![fetch(0)]),
     ],
     "published while it is outstanding"
 )]
 #[case::waiting_for_nothing(vec![PlannerStep::Wait], "waits with no outstanding fetch")]
 #[case::still_waiting_after_the_last_delivery(
-    vec![PlannerStep::Io(vec![request(0, 0)]), PlannerStep::Wait],
+    vec![PlannerStep::Io(vec![fetch(0)]), PlannerStep::Wait],
     "waits with no outstanding fetch"
 )]
 fn protocol_errors(#[case] mut steps: Vec<PlannerStep>, #[case] message: &str) -> VortexResult<()> {
@@ -389,7 +347,7 @@ fn step_limit_is_enforced() -> VortexResult<()> {
     let mut steps: Vec<_> = (0..100).map(|_| PlannerStep::Continue).collect();
     steps.push(PlannerStep::Done);
     let root = ScriptedPlanner::boxed("root", steps, &log);
-    let driver = Driver::new(source() as Arc<dyn IoSource>).with_step_limit(10);
+    let driver = Driver::new(source() as Arc<dyn SegmentIoSession>).with_step_limit(10);
     let err = driver.run(root).err().map(|e| e.to_string());
     assert!(
         err.as_deref()
@@ -407,8 +365,7 @@ fn optional_publication_does_not_park_or_receive_bytes(
 ) -> VortexResult<()> {
     let log = Log::default();
     let source = source();
-    let mut optional = request(0, 0);
-    optional.intent = intent;
+    let optional = with_intent(0, intent);
     let root = ScriptedPlanner::boxed(
         "warm",
         vec![
@@ -435,8 +392,7 @@ fn optional_publication_does_not_park_or_receive_bytes(
 #[test]
 fn optional_requests_cannot_be_wait_dependencies() -> VortexResult<()> {
     let source = source();
-    let mut optional = request(0, 0);
-    optional.intent = IoIntent::Announce;
+    let optional = with_intent(0, IoIntent::Announce);
     let root = ScriptedPlanner::boxed(
         "root",
         vec![PlannerStep::Io(vec![optional])],
@@ -454,13 +410,12 @@ fn optional_requests_cannot_be_wait_dependencies() -> VortexResult<()> {
 #[test]
 fn optional_registration_can_be_promoted_to_fetch() -> VortexResult<()> {
     let source = source();
-    let mut optional = request(0, 0);
-    optional.intent = IoIntent::Announce;
+    let optional = with_intent(0, IoIntent::Announce);
     let root = ScriptedPlanner::boxed(
         "root",
         vec![
             PlannerStep::NeedsIO(vec![optional]),
-            PlannerStep::Io(vec![request(0, 0)]),
+            PlannerStep::Io(vec![fetch(0)]),
             PlannerStep::Done,
         ],
         &Log::default(),
@@ -488,7 +443,7 @@ fn reading_root(name: &'static str, log: &Log, rows: Range<u64>) -> Box<dyn Plan
     ScriptedPlanner::boxed(
         name,
         vec![
-            PlannerStep::Io(vec![request(0, 0)]),
+            PlannerStep::Io(vec![fetch(0)]),
             one_batch_morsel(scope(rows), 2),
             PlannerStep::Done,
         ],
@@ -517,21 +472,21 @@ fn drain(run: &mut Run) -> VortexResult<Vec<String>> {
 }
 
 /// Roots run side by side: a root with ready work finishes while another waits for its read, and
-/// each root reads through, and finally clears, its own session.
+/// each root reads through, and finally drops, its own session.
 #[test]
 fn roots_finish_independently() -> VortexResult<()> {
     let log = Log::default();
-    let (reading_io, ready_io) = (source(), source());
+    let (reading_io, ready_io) = (gated_source(), gated_source());
     let mut run = Run::new().with_step_limit(1_000);
     let reading = run.admit(
         reading_root("reading", &log, 0..2),
         scope(0..2),
-        Arc::clone(&reading_io) as Arc<dyn IoSource>,
+        Arc::clone(&reading_io) as Arc<dyn SegmentIoSession>,
     );
     let ready = run.admit(
         ready_root("ready", &log, 2..3),
         scope(2..3),
-        Arc::clone(&ready_io) as Arc<dyn IoSource>,
+        Arc::clone(&ready_io) as Arc<dyn SegmentIoSession>,
     );
     assert_eq!((reading, ready), (RootId(0), RootId(1)));
     assert_eq!(run.live_roots(), 2);
@@ -541,34 +496,68 @@ fn roots_finish_independently() -> VortexResult<()> {
         vec!["batch RootId(1) 2..3", "done RootId(1)", "waiting"]
     );
     assert_eq!(run.live_roots(), 1);
-    assert_eq!((reading_io.clears(), ready_io.clears()), (0, 1));
+    assert_eq!(
+        (Arc::strong_count(&reading_io), Arc::strong_count(&ready_io)),
+        (2, 1)
+    );
     assert!(ready_io.submissions().is_empty());
 
-    run.complete(reading_io.wait()?)?;
+    reading_io.arrive();
     assert_eq!(
         drain(&mut run)?,
         vec!["batch RootId(0) 0..2", "done RootId(0)", "idle"]
     );
     assert_eq!(run.live_roots(), 0);
-    assert_eq!(reading_io.clears(), 1);
+    assert_eq!(Arc::strong_count(&reading_io), 1);
+    Ok(())
+}
+
+/// Roots may share a session, as spawned chunks do. A poll on behalf of one root can report
+/// another root's fetch, which must not leave the first root's own fetch uncounted.
+#[test]
+fn roots_sharing_a_session_each_get_their_fetches() -> VortexResult<()> {
+    let log = Log::default();
+    // Newest first, so the first poll reports the second root's fetch.
+    let io = Arc::new(RecordingSession::new(Order::Lifo, true));
+    let mut run = Run::new().with_step_limit(1_000);
+    for rows in [0..1, 1..2] {
+        run.admit(
+            reading_root("root", &log, rows.clone()),
+            scope(rows),
+            Arc::clone(&io) as Arc<dyn SegmentIoSession>,
+        );
+    }
+    assert_eq!(drain(&mut run)?, vec!["waiting"]);
+    let mut cx = Context::from_waker(Waker::noop());
+    for _ in 0..2 {
+        io.arrive();
+        assert!(matches!(run.poll_completion(&mut cx), Poll::Ready(Ok(()))));
+        drain(&mut run)?;
+    }
+    assert_eq!(run.live_roots(), 0);
+    assert_eq!(Arc::strong_count(&io), 1);
     Ok(())
 }
 
 #[test]
 fn poll_completion_delivers_from_every_waiting_root() -> VortexResult<()> {
     let log = Log::default();
-    let sources = [source(), source()];
+    let sources = [gated_source(), gated_source()];
     let mut run = Run::new().with_step_limit(1_000);
     for (index, io) in sources.iter().enumerate() {
         let rows = index as u64..index as u64 + 1;
         run.admit(
             reading_root("root", &log, rows.clone()),
             scope(rows),
-            Arc::clone(io) as Arc<dyn IoSource>,
+            Arc::clone(io) as Arc<dyn SegmentIoSession>,
         );
     }
     assert_eq!(drain(&mut run)?, vec!["waiting"]);
     let mut cx = Context::from_waker(Waker::noop());
+    assert!(run.poll_completion(&mut cx).is_pending());
+    for io in &sources {
+        io.arrive();
+    }
     assert!(matches!(run.poll_completion(&mut cx), Poll::Ready(Ok(()))));
     let mut events = drain(&mut run)?;
     events.sort();
@@ -586,50 +575,47 @@ fn poll_completion_delivers_from_every_waiting_root() -> VortexResult<()> {
 }
 
 #[test]
-fn cancel_drops_a_roots_work_and_clears_its_session() -> VortexResult<()> {
+fn cancel_drops_a_roots_work_and_its_session() -> VortexResult<()> {
     let log = Log::default();
-    let (cancelled_io, kept_io) = (source(), source());
+    let (cancelled_io, kept_io) = (gated_source(), gated_source());
     let mut run = Run::new().with_step_limit(1_000);
     let cancelled = run.admit(
         reading_root("cancelled", &log, 0..2),
         scope(0..2),
-        Arc::clone(&cancelled_io) as Arc<dyn IoSource>,
+        Arc::clone(&cancelled_io) as Arc<dyn SegmentIoSession>,
     );
     run.admit(
         reading_root("kept", &log, 2..4),
         scope(2..4),
-        Arc::clone(&kept_io) as Arc<dyn IoSource>,
+        Arc::clone(&kept_io) as Arc<dyn SegmentIoSession>,
     );
     assert_eq!(drain(&mut run)?, vec!["waiting"]);
 
     run.cancel(cancelled);
     assert_eq!(run.live_roots(), 1);
-    assert_eq!(cancelled_io.clears(), 1);
-    run.complete(kept_io.wait()?)?;
+    assert_eq!(Arc::strong_count(&cancelled_io), 1);
+    kept_io.arrive();
     assert_eq!(
         drain(&mut run)?,
         vec!["batch RootId(1) 2..4", "done RootId(1)", "idle"]
     );
-    assert!(
-        !log.events()
-            .contains(&"deliver cancelled 0 bytes".to_string())
-    );
+    assert!(!log.events().contains(&"deliver cancelled 0".to_string()));
     Ok(())
 }
 
 #[test]
-fn dropping_a_run_clears_every_live_session() -> VortexResult<()> {
+fn dropping_a_run_drops_every_live_session() -> VortexResult<()> {
     let log = Log::default();
-    let io = source();
+    let io = gated_source();
     let mut run = Run::new();
     run.admit(
         reading_root("root", &log, 0..2),
         scope(0..2),
-        Arc::clone(&io) as Arc<dyn IoSource>,
+        Arc::clone(&io) as Arc<dyn SegmentIoSession>,
     );
     assert_eq!(drain(&mut run)?, vec!["waiting"]);
     drop(run);
-    assert_eq!(io.clears(), 1);
+    assert_eq!(Arc::strong_count(&io), 1);
     Ok(())
 }
 
@@ -638,11 +624,11 @@ fn dropping_a_run_clears_every_live_session() -> VortexResult<()> {
 fn a_waiting_item_is_not_revisited_per_delivery() -> VortexResult<()> {
     const FETCHES: u32 = 64;
     let log = Log::default();
-    let io = RecordingIoSource::default();
+    let io = RecordingSession::new(Order::Fifo, false);
     let batch: Vec<IoRequest> = (0..FETCHES)
-        .map(|id| {
-            io.canned_bytes(u64::from(id) * 4, buffer![0u8; 4].into_byte_buffer());
-            request(id, u64::from(id) * 4)
+        .map(|segment| {
+            io.canned_bytes(segment, ByteBuffer::from(vec![0u8; 4]));
+            fetch(segment)
         })
         .collect();
     let io = Arc::new(io);
@@ -652,7 +638,7 @@ fn a_waiting_item_is_not_revisited_per_delivery() -> VortexResult<()> {
         &log,
     );
     // Publish and the final compute: the deliveries in between cost no visit.
-    Driver::new(Arc::clone(&io) as Arc<dyn IoSource>)
+    Driver::new(Arc::clone(&io) as Arc<dyn SegmentIoSession>)
         .with_step_limit(2)
         .run(root)?;
     assert_eq!(io.performed().len(), FETCHES as usize);
@@ -662,14 +648,14 @@ fn a_waiting_item_is_not_revisited_per_delivery() -> VortexResult<()> {
 #[test]
 fn waking_subtree_precedes_an_already_discovered_sibling() -> VortexResult<()> {
     let log = Log::default();
-    let io = source();
+    let io = gated_source();
     let root = ScriptedPlanner::boxed(
         "root",
         vec![
             PlannerStep::Planner(
                 scope(0..1),
                 vec![
-                    PlannerStep::Io(vec![request(0, 0)]),
+                    PlannerStep::Io(vec![fetch(0)]),
                     one_batch_morsel(scope(0..1), 1),
                     PlannerStep::Done,
                 ],
@@ -687,13 +673,18 @@ fn waking_subtree_precedes_an_already_discovered_sibling() -> VortexResult<()> {
         &log,
     );
     let mut run = Run::new().with_step_limit(1_000);
-    run.admit(root, scope(0..2), Arc::clone(&io) as Arc<dyn IoSource>);
+    run.admit(
+        root,
+        scope(0..2),
+        Arc::clone(&io) as Arc<dyn SegmentIoSession>,
+    );
     let Progress::Batch(batch) = run.advance()? else {
         panic!("the later sibling should run while the first child waits");
     };
     assert_eq!(batch.scope, scope(1..2));
 
-    run.complete(io.wait()?)?;
+    io.arrive();
+    run.poll_io()?;
     // The waking child creates a grandchild after the sibling already exists. Its subtree
     // must still win, including over the sibling's continuation after its first batch.
     let Progress::Batch(batch) = run.advance()? else {
@@ -736,58 +727,10 @@ fn runnable_roots_follow_admission_order() -> VortexResult<()> {
     Ok(())
 }
 
-/// Makes the recording source's completions available to nonblocking polling.
-struct PollingSource {
-    inner: Arc<RecordingIoSource>,
-    outstanding: AtomicUsize,
-}
-
-impl IoSource for PollingSource {
-    fn submit(&self, owner: IoOwnerId, batch: IoBatch) -> VortexResult<()> {
-        self.outstanding.fetch_add(
-            batch
-                .iter()
-                .filter(|request| request.intent == IoIntent::Fetch)
-                .count(),
-            Ordering::Relaxed,
-        );
-        self.inner.submit(owner, batch)
-    }
-
-    fn poll(&self) -> VortexResult<Option<Completion>> {
-        if self.outstanding.load(Ordering::Relaxed) == 0 {
-            return Ok(None);
-        }
-        self.wait().map(Some)
-    }
-
-    fn poll_completion(&self, _cx: &mut Context<'_>) -> Poll<VortexResult<Completion>> {
-        Poll::Ready(self.wait())
-    }
-
-    fn wait(&self) -> VortexResult<Completion> {
-        let completion = self.inner.wait()?;
-        self.outstanding.fetch_sub(1, Ordering::Relaxed);
-        Ok(completion)
-    }
-
-    fn release(&self, owner: IoOwnerId) {
-        self.inner.release(owner);
-    }
-
-    fn clear(&self) {
-        self.outstanding.store(0, Ordering::Relaxed);
-        self.inner.clear();
-    }
-}
-
 #[test]
 fn polls_io_while_a_later_branch_keeps_computing() -> VortexResult<()> {
     let log = Log::default();
-    let io = Arc::new(PollingSource {
-        inner: source(),
-        outstanding: AtomicUsize::new(0),
-    });
+    let io = source();
     let mut run = Run::new().with_step_limit(1_000);
     run.admit(reading_root("earlier", &log, 0..1), scope(0..1), io);
     let mut script: Vec<_> = (0..IO_POLL_INTERVAL * 2)

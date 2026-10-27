@@ -7,12 +7,18 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
+use std::task::Context;
+use std::task::Poll;
 
 use arrow_array::cast::AsArray;
 use arrow_array::types::Int32Type;
 use arrow_schema::Field;
+use futures::FutureExt;
+use futures::TryFutureExt;
 use futures::TryStreamExt;
+use futures::future;
 use futures::stream;
+use parking_lot::Mutex;
 use rstest::rstest;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
@@ -41,6 +47,19 @@ use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_io::segments::FetchTracker;
+use vortex_io::segments::IoHandle;
+use vortex_io::segments::IoIntent;
+use vortex_io::segments::IoOwnerId;
+use vortex_io::segments::IoRequest;
+use vortex_io::segments::RegisteredSource;
+use vortex_io::segments::SegmentIoService;
+use vortex_io::segments::SegmentIoSession;
+use vortex_io::segments::SegmentSourceId;
+use vortex_io::segments::SharedResult;
+use vortex_io::segments::SourceRequest;
+use vortex_io::segments::SourceResult;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
 use vortex_scan::planning::driver::Batch;
@@ -51,6 +70,7 @@ use vortex_scan::planning::planner::PlannerOutput;
 use vortex_scan::planning::planner::WorkScope;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use super::ChunkPlanner;
 use super::MAX_ROWS_PER_CHUNK;
@@ -162,6 +182,81 @@ fn zoned_table() -> Arc<dyn LayoutStrategy> {
     Arc::new(TableStrategy::new(chunked_flat(), Arc::new(zoned)))
 }
 
+/// Serves segment requests from one [`SegmentSource`], so the source counts physical reads the way
+/// an opened file's coalescing driver performs them: a session reads each segment once, however
+/// often it is fetched or prefetched, and an announcement reads nothing.
+struct SourceIo(Arc<dyn SegmentSource>);
+
+impl SegmentIoService for SourceIo {
+    fn session(&self) -> Arc<dyn SegmentIoSession> {
+        Arc::new(SourceSession {
+            source: Arc::clone(&self.0),
+            reads: Mutex::default(),
+            fetches: Mutex::default(),
+        })
+    }
+}
+
+struct SourceSession {
+    source: Arc<dyn SegmentSource>,
+    /// Every segment the session has read, by id.
+    reads: Mutex<HashMap<u32, SharedResult>>,
+    fetches: Mutex<FetchTracker>,
+}
+
+impl SegmentIoSession for SourceSession {
+    fn submit(&self, owner: IoOwnerId, batch: &[IoRequest]) -> VortexResult<Vec<IoHandle>> {
+        let handles: Vec<_> = batch
+            .iter()
+            .map(|request| {
+                let SourceRequest::Segment(segment) = request.key.request else {
+                    return IoHandle::ready(Err(vortex_err!("test sources have no size")));
+                };
+                if request.intent == IoIntent::Announce {
+                    return IoHandle::new(future::pending().boxed().shared(), Arc::new(()));
+                }
+                let result = self
+                    .reads
+                    .lock()
+                    .entry(segment)
+                    .or_insert_with(|| {
+                        self.source
+                            .request(SegmentId::from(segment))
+                            .map_ok(SourceResult::Bytes)
+                            .map_err(Arc::new)
+                            .boxed()
+                            .shared()
+                    })
+                    .clone();
+                IoHandle::new(result, Arc::new(()))
+            })
+            .collect();
+        let mut fetches = self.fetches.lock();
+        for (request, handle) in batch.iter().zip(&handles) {
+            match request.intent {
+                IoIntent::Fetch => {
+                    drop(handle.result().now_or_never());
+                    fetches.track(owner, handle);
+                }
+                IoIntent::Prefetch => {
+                    drop(handle.result().now_or_never());
+                    fetches.track_prefetch(handle);
+                }
+                IoIntent::Announce => {}
+            }
+        }
+        Ok(handles)
+    }
+
+    fn poll_ready(
+        &self,
+        cx: &mut Context<'_>,
+        ready: &mut Vec<IoOwnerId>,
+    ) -> Poll<VortexResult<()>> {
+        self.fetches.lock().poll_ready(cx, ready)
+    }
+}
+
 /// A [`ScanFile`] over test segments. They have no byte offsets, and the scan fetches them by id,
 /// so each location is a placeholder whose offset is its id.
 fn scan_file(segments: &Arc<dyn SegmentSource>, layout: &LayoutRef) -> VortexResult<ScanFile> {
@@ -181,7 +276,11 @@ fn scan_file(segments: &Arc<dyn SegmentSource>, layout: &LayoutRef) -> VortexRes
     Ok(ScanFile {
         layout: Arc::clone(layout),
         locations,
-        segments: Arc::clone(segments),
+        segment_io: RegisteredSource::new(
+            Arc::new(SourceIo(Arc::clone(segments))),
+            SegmentSourceId(0),
+            Arc::new(()),
+        ),
         cache: None,
     })
 }
@@ -276,13 +375,14 @@ async fn collect_scan(dtype: DType, builder: ScanBuilder) -> VortexResult<ArrayR
 /// Runs `builder` on both executors and checks the planner-driven one returns the same rows.
 async fn assert_same_as_v1(
     session: &VortexSession,
+    segments: &Arc<dyn SegmentSource>,
     make: impl Fn() -> VortexResult<ScanBuilder>,
 ) -> VortexResult<()> {
     let builder = make()?;
     let dtype = builder.dtype().clone();
     let reader = builder.file.layout.new_reader(
         "".into(),
-        Arc::clone(&builder.file.segments),
+        Arc::clone(segments),
         session,
         &Default::default(),
     )?;
@@ -332,7 +432,7 @@ async fn large_filtered_chunks_match_v1(#[case] cutoff: i32) -> VortexResult<()>
         )
         .await?;
     let segments: Arc<dyn SegmentSource> = segments;
-    assert_same_as_v1(&session, || {
+    assert_same_as_v1(&session, &segments, || {
         Ok(builder(&session, &segments, &layout)?
             .with_some_filter(Some(gt(root(), lit(cutoff)).bind(&dtype)?)))
     })
@@ -356,7 +456,7 @@ async fn filter_matches_v1(
 ) -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write(&session, strategy.get().as_ref()).await?;
-    assert_same_as_v1(&session, || {
+    assert_same_as_v1(&session, &segments, || {
         let mut scan = builder(&session, &segments, &layout)?
             .with_projection(
                 pack([("strings", get_item("strings", root()))], false.into())
@@ -399,7 +499,7 @@ async fn matches_v1(
 ) -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write(&session, strategy.get().as_ref()).await?;
-    assert_same_as_v1(&session, || {
+    assert_same_as_v1(&session, &segments, || {
         let mut builder = builder(&session, &segments, &layout)?;
         if let Some(row_range) = row_range.clone() {
             builder = builder.with_row_range(row_range);
@@ -421,7 +521,7 @@ async fn projection_matches_v1(
     let session = new_session().with_tokio();
     let (segments, layout) = write(&session, strategy.get().as_ref()).await?;
     let dtype = layout.dtype().clone();
-    assert_same_as_v1(&session, || {
+    assert_same_as_v1(&session, &segments, || {
         let projection = pack(
             [
                 ("strings", get_item("strings", root())),
@@ -601,7 +701,7 @@ async fn projection_skips_unsupported_unselected_layouts() -> VortexResult<()> {
     let session = new_session().with_tokio();
     let strategy = TableStrategy::new(chunked_flat(), chunked_flat()).with_list_layout();
     let (segments, layout) = write(&session, &strategy).await?;
-    assert_same_as_v1(&session, || {
+    assert_same_as_v1(&session, &segments, || {
         Ok(builder(&session, &segments, &layout)?
             .with_projection(get_item("ints", root()).bind(layout.dtype())?))
     })
