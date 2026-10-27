@@ -59,23 +59,21 @@ impl Eq for CudaContext {}
 
 impl Drop for CudaContext {
     fn drop(&mut self) {
-        self.record_err(self.make_current());
+        // Errors here have nowhere to go: they would be recorded in the context being dropped.
+        let _ = self.make_current();
         for event in std::mem::take(self.events.get_mut()) {
             // SAFETY: Pooled events are owned by the pool and no longer in use.
-            self.record_err(unsafe { sys::cuEventDestroy_v2(event) }.result());
+            let _ = unsafe { sys::cuEventDestroy_v2(event) };
         }
         // SAFETY: Releases the retain made by `new`, or destroys the context created by
         // `new_non_primary`, once.
-        self.record_err(
-            unsafe {
-                if self.primary {
-                    sys::cuDevicePrimaryCtxRelease_v2(self.device)
-                } else {
-                    sys::cuCtxDestroy_v2(self.context)
-                }
+        let _ = unsafe {
+            if self.primary {
+                sys::cuDevicePrimaryCtxRelease_v2(self.device)
+            } else {
+                sys::cuCtxDestroy_v2(self.context)
             }
-            .result(),
-        );
+        };
     }
 }
 
