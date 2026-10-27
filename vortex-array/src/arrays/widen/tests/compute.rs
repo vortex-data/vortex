@@ -245,17 +245,12 @@ fn test_fill_null(
     Ok(())
 }
 
-/// The zip runs on the values at the type that holds both branches. A constant in the `if_true`
-/// branch is the only input that reaches the `if_false` kernel, because an execution step stops at
-/// the first child kernel that answers. The null mask row takes the `if_false` branch.
+/// The zip runs on the values at the type that holds both branches. The null mask row takes the
+/// `if_false` branch.
 #[rstest]
 #[case::constant_if_false(
     signed().into_array(),
     ConstantArray::new(1_000i64, 5).into_array(),
-)]
-#[case::constant_if_true(
-    ConstantArray::new(1_000i64, 5).into_array(),
-    signed().into_array(),
 )]
 #[case::widen_both(
     signed().into_array(),

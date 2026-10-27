@@ -30,7 +30,7 @@ pub(crate) mod numeric;
 pub(crate) mod rules;
 mod slice;
 mod take;
-pub(crate) mod zip;
+mod zip;
 
 use vortex_error::VortexResult;
 
