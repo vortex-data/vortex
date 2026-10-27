@@ -23,7 +23,7 @@ use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::arrays::widen::WidenArraySlotsExt;
-use crate::arrays::widen::compute::cast_to_ptype;
+use crate::arrays::widen::compute::cast_keeping_nullability;
 use crate::arrays::widen::compute::wrap_values;
 use crate::arrays::widen::encode::integer_value;
 use crate::arrays::widen::encode::smallest_integer_ptype;
@@ -39,11 +39,17 @@ use crate::scalar_fn::fns::operators::Operator;
 /// Runs checked add, subtract, multiply and divide of a [`Widen`] with another `Widen` or a
 /// constant at the smallest integer type that holds both operands and every result.
 ///
-/// Narrow values read and write less memory. [`arithmetic_ptype`] picks the type from the extrema
-/// of the valid rows, so the type can be too wide but never too narrow. When no narrower type is
-/// known to hold the result, the operation runs at the logical type, where the checked kernel
-/// reports an overflow or a division by zero with the same error as canonical execution. Any other
-/// operand declines, so the default path widens it once.
+/// Narrow values read and write less memory. [`smallest_arithmetic_ptype`] picks the type from the
+/// extrema of the valid rows, so the type can be too wide but never too narrow. When no narrower
+/// type is known to hold the result, the operation runs at the logical type, where the checked
+/// kernel reports an overflow or a division by zero with the same error as canonical execution. Any
+/// other operand declines, so the default path widens it once.
+///
+/// **Cost:** the extrema come from statistics. [`valid_value_interval`] reads the exact cached
+/// `Min` and `Max` of each executed operand when they exist, and otherwise scans it once before the
+/// operation runs. Executing `Primitive` values returns the same array, so its cached statistics
+/// count and the result stays cached. Encoded values execute to a new array, so neither their
+/// cached statistics nor the new result carry over.
 #[derive(Debug)]
 pub(crate) struct WidenNumericKernel;
 
@@ -77,7 +83,7 @@ impl ExecuteParentKernel<Widen> for WidenNumericKernel {
             1 => binary.get_child(0),
             _ => return Ok(None),
         };
-        let other_stored = if let Some(other) = other.as_opt::<Widen>() {
+        let other_values = if let Some(other) = other.as_opt::<Widen>() {
             other.values().clone()
         } else if other.is::<Constant>() {
             other.clone()
@@ -90,33 +96,35 @@ impl ExecuteParentKernel<Widen> for WidenNumericKernel {
             return Ok(Some(Canonical::empty(dtype).into_array()));
         }
 
-        // Execute each stored operand once. `Columnar` keeps a constant constant.
-        let stored = array
+        // Execute the values of each operand once. `Columnar` keeps a constant constant.
+        let values = array
             .values()
             .clone()
             .execute::<Columnar>(ctx)?
             .into_array();
-        let other_stored = other_stored.execute::<Columnar>(ctx)?.into_array();
+        let other_values = other_values.execute::<Columnar>(ctx)?.into_array();
         let (lhs, rhs) = if child_idx == 0 {
-            (stored, other_stored)
+            (values, other_values)
         } else {
-            (other_stored, stored)
+            (other_values, values)
         };
 
         // An operand without a valid row makes every row null.
-        let (Some(lhs_bounds), Some(rhs_bounds)) =
-            (valid_bounds(&lhs, ctx)?, valid_bounds(&rhs, ctx)?)
-        else {
+        let (Some(lhs_interval), Some(rhs_interval)) = (
+            valid_value_interval(&lhs, ctx)?,
+            valid_value_interval(&rhs, ctx)?,
+        ) else {
             let null = Scalar::null(dtype.clone());
             return Ok(Some(ConstantArray::new(null, parent.len()).into_array()));
         };
 
-        let ptype = arithmetic_ptype(&lhs_bounds, &rhs_bounds, operator, *logical_ptype);
-        let lhs = cast_to_ptype(&lhs, ptype)?;
-        let rhs = cast_to_ptype(&rhs, ptype)?;
-        let values = execute_numeric(&lhs, &rhs, operator, ctx)?;
+        let ptype =
+            smallest_arithmetic_ptype(&lhs_interval, &rhs_interval, operator, *logical_ptype);
+        let lhs = cast_keeping_nullability(&lhs, ptype)?;
+        let rhs = cast_keeping_nullability(&rhs, ptype)?;
+        let result = execute_numeric(&lhs, &rhs, operator, ctx)?;
 
-        wrap_values(values, dtype.clone()).map(Some)
+        wrap_values(result, dtype.clone()).map(Some)
     }
 }
 
@@ -126,7 +134,7 @@ impl ExecuteParentKernel<Widen> for WidenNumericKernel {
 ///
 /// Null rows do not count. A cast to the narrower type can change their payloads, and the checked
 /// kernel skips them.
-fn arithmetic_ptype(
+fn smallest_arithmetic_ptype(
     lhs: &RangeInclusive<i128>,
     rhs: &RangeInclusive<i128>,
     operator: NumericOperator,
@@ -143,7 +151,10 @@ fn arithmetic_ptype(
 }
 
 /// Returns the extrema of the valid values of an integer array, or `None` when no row is valid.
-fn valid_bounds(
+///
+/// [`min_max`] reads the exact cached `Min` and `Max` statistics of `array`. Without them it scans
+/// `array` once and caches the result on it.
+fn valid_value_interval(
     array: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<RangeInclusive<i128>>> {

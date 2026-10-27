@@ -8,8 +8,8 @@ use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::Widen;
 use crate::arrays::widen::WidenArraySlotsExt;
-use crate::arrays::widen::compute::compare::constant_fits_child;
-use crate::arrays::widen::compute::constant_values;
+use crate::arrays::widen::compute::constant_fits_values;
+use crate::arrays::widen::compute::constant_in_values_ptype;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::BetweenReduce;
@@ -25,11 +25,11 @@ impl BetweenReduce for Widen {
         let values = array.values();
 
         if let (Some(lower), Some(upper)) = (lower.as_constant(), upper.as_constant())
-            && constant_fits_child(lower, values.dtype()) == Some(true)
-            && constant_fits_child(upper, values.dtype()) == Some(true)
+            && constant_fits_values(lower, values.dtype()) == Some(true)
+            && constant_fits_values(upper, values.dtype()) == Some(true)
         {
-            let lower = constant_values(lower, values, array.len())?;
-            let upper = constant_values(upper, values, array.len())?;
+            let lower = constant_in_values_ptype(lower, values, array.len())?;
+            let upper = constant_in_values_ptype(upper, values, array.len())?;
             return values
                 .clone()
                 .between(lower, upper, options.clone())

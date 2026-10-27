@@ -9,6 +9,10 @@
 //! and extrema carry over from the values, and every value in a result widens exactly to the
 //! logical dtype.
 //!
+//! Most of these operations decide from dtypes and constants alone. The arithmetic kernel also
+//! needs the min and max of each operand, which come from cached statistics or from one scan of the
+//! operand. That scan is the one hidden cost in this module.
+//!
 //! [`AggregateFnSession::default`] registers the aggregate kernel, not
 //! [`initialize`](super::initialize), because the kernel session runs `initialize` on a temporary
 //! session and drops its aggregate registry.
@@ -42,6 +46,7 @@ use crate::arrays::widen::encode::smallest_integer_ptype;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::PType;
+use crate::scalar::PValue;
 use crate::scalar::Scalar;
 
 /// Returns `values` when it has `dtype`, and a `Widen` of `dtype` over `values` otherwise.
@@ -62,7 +67,7 @@ pub(super) fn wrap_values(values: ArrayRef, dtype: DType) -> VortexResult<ArrayR
 ///
 /// A null `scalar` keeps the type of the values. Returns `None` when `scalar` does not have the
 /// logical dtype, or when the values or the logical dtype is not an integer (a decimal `Widen`).
-pub(super) fn values_ptype_holding(
+pub(super) fn ptype_holding_values_and_scalar(
     array: ArrayView<'_, Widen>,
     scalar: &Scalar,
 ) -> VortexResult<Option<PType>> {
@@ -92,8 +97,31 @@ pub(super) fn values_ptype_holding(
 }
 
 /// Casts the integer array `array` to `ptype`, keeping its nullability.
-pub(super) fn cast_to_ptype(array: &ArrayRef, ptype: PType) -> VortexResult<ArrayRef> {
+pub(super) fn cast_keeping_nullability(array: &ArrayRef, ptype: PType) -> VortexResult<ArrayRef> {
     array.cast(DType::Primitive(ptype, array.dtype().nullability()))
+}
+
+/// Returns whether the range of the integer dtype `values` holds `constant`.
+///
+/// Returns `None` when `values` is not an integer dtype, when `constant` is null, and when
+/// `constant` is not an integer with the signedness of `values`.
+pub(super) fn constant_fits_values(constant: &Scalar, values: &DType) -> Option<bool> {
+    let DType::Primitive(ptype, _) = values else {
+        return None;
+    };
+    let value = constant.as_primitive_opt()?.pvalue()?;
+
+    // `PValue` compares an integer with another value through `i64` or `u64`, and it panics when
+    // the other value does not convert. So only integers of the same signedness compare here.
+    let value_ptype = value.ptype();
+    if !ptype.is_int() || !value_ptype.is_int() {
+        return None;
+    }
+    if ptype.is_signed_int() != value_ptype.is_signed_int() {
+        return None;
+    }
+
+    Some(PValue::min_value(*ptype) <= value && value <= PValue::max_value(*ptype))
 }
 
 /// Returns the wider of the value types of two [`Widen`] arrays, or `None` when a value type is
@@ -101,7 +129,7 @@ pub(super) fn cast_to_ptype(array: &ArrayRef, ptype: PType) -> VortexResult<Arra
 ///
 /// The logical dtypes **must** have the same signedness, which a debug build asserts. The value
 /// types then have that signedness too, so the wider one holds every value of the narrower one.
-pub(super) fn wider_values_ptype(
+pub(super) fn ptype_holding_both_values(
     lhs: ArrayView<'_, Widen>,
     rhs: ArrayView<'_, Widen>,
 ) -> Option<PType> {
@@ -120,7 +148,7 @@ pub(super) fn wider_values_ptype(
 
 /// Returns `constant`, which **must** fit the type of `values`, as a constant array of that type
 /// with the nullability of `constant`.
-pub(super) fn constant_values(
+pub(super) fn constant_in_values_ptype(
     constant: &Scalar,
     values: &ArrayRef,
     len: usize,

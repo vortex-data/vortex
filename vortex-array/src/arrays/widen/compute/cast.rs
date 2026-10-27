@@ -22,7 +22,7 @@ impl CastReduce for Widen {
             return Ok(None);
         };
 
-        let cast_ptype = match cast_values_ptype(*values_ptype, *target_ptype) {
+        let cast_ptype = match values_ptype_for_cast(*values_ptype, *target_ptype) {
             Some(cast_ptype) if target_ptype.byte_width() > cast_ptype.byte_width() => cast_ptype,
             // A float target, or an integer target no wider than `cast_ptype`, goes to the values,
             // whose cast checks every value and every null.
@@ -43,7 +43,7 @@ impl CastReduce for Widen {
 /// The result has the signedness of `target`. An unsigned type fits a signed type only one width
 /// up, so unsigned values with a signed target widen one step. Signed values with an unsigned
 /// target keep their width, and the cast of the values rejects a negative value.
-fn cast_values_ptype(values: PType, target: PType) -> Option<PType> {
+fn values_ptype_for_cast(values: PType, target: PType) -> Option<PType> {
     if target.is_float() {
         return None;
     }

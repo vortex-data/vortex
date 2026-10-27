@@ -13,9 +13,9 @@ use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::arrays::widen::WidenArraySlotsExt;
-use crate::arrays::widen::compute::cast_to_ptype;
-use crate::arrays::widen::compute::values_ptype_holding;
-use crate::arrays::widen::compute::wider_values_ptype;
+use crate::arrays::widen::compute::cast_keeping_nullability;
+use crate::arrays::widen::compute::ptype_holding_both_values;
+use crate::arrays::widen::compute::ptype_holding_values_and_scalar;
 use crate::arrays::widen::compute::wrap_values;
 use crate::builtins::ArrayBuiltins;
 use crate::kernel::ExecuteParentKernel;
@@ -79,12 +79,12 @@ fn zip_values(
 ) -> VortexResult<Option<ArrayRef>> {
     let values = array.values();
     let (other_values, ptype) = if let Some(other) = other.as_opt::<Widen>() {
-        let Some(ptype) = wider_values_ptype(array, other) else {
+        let Some(ptype) = ptype_holding_both_values(array, other) else {
             return Ok(None);
         };
         (other.values().clone(), ptype)
     } else if let Some(constant) = other.as_constant() {
-        let Some(ptype) = values_ptype_holding(array, constant)? else {
+        let Some(ptype) = ptype_holding_values_and_scalar(array, constant)? else {
             return Ok(None);
         };
         (other.clone(), ptype)
@@ -92,8 +92,8 @@ fn zip_values(
         return Ok(None);
     };
 
-    let values = cast_to_ptype(values, ptype)?;
-    let other_values = cast_to_ptype(&other_values, ptype)?;
+    let values = cast_keeping_nullability(values, ptype)?;
+    let other_values = cast_keeping_nullability(&other_values, ptype)?;
 
     let zipped = match branch {
         Branch::IfTrue => mask.zip(values, other_values)?,
