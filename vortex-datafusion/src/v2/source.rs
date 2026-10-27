@@ -137,8 +137,8 @@ use vortex::expr::stats::Precision;
 use vortex::expr::transform::replace;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::scan::DataSourceRef;
+use vortex::scan::DynamicFilter;
 use vortex::scan::PartitionStream;
-use vortex::scan::ScanNarrowing;
 use vortex::scan::ScanRequest;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
@@ -511,8 +511,8 @@ impl VortexDataSource {
             let scan_request = ScanRequest {
                 projection: self.projected_projection.clone(),
                 filter: self.filter.clone(),
-                narrowing: (!self.runtime_filters.0.is_empty())
-                    .then(|| Arc::new(self.runtime_filters.clone()) as Arc<dyn ScanNarrowing>),
+                dynamic_filter: (!self.runtime_filters.0.is_empty())
+                    .then(|| Arc::new(self.runtime_filters.clone()) as Arc<dyn DynamicFilter>),
                 limit: self.limit.map(|l| u64::try_from(l).unwrap_or(u64::MAX)),
                 ordered: self.ordered,
                 ..Default::default()

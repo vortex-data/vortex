@@ -4,7 +4,7 @@
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::bound::and_collect;
-use vortex_scan::ScanNarrowing;
+use vortex_scan::DynamicFilter;
 
 pub mod arrow;
 mod execution;
@@ -29,10 +29,10 @@ const IDEAL_SPLIT_SIZE: u64 = 100_000;
 /// Snapshot advisory predicates without allowing unavailable or unsupported hints to fail scans.
 fn current_filter(
     exact: Option<BoundExpression>,
-    narrowing: Option<&dyn ScanNarrowing>,
+    dynamic_filter: Option<&dyn DynamicFilter>,
     dtype: &DType,
 ) -> Option<BoundExpression> {
-    let current = narrowing
+    let current = dynamic_filter
         .and_then(|hint| hint.current())
         .and_then(|expr| expr.bind(dtype).ok())
         .filter(|expr| matches!(expr.dtype(), DType::Bool(_)))
