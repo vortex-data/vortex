@@ -39,7 +39,8 @@ pub(crate) fn rows_per_chunk(row_count: u64, locations: &[SegmentLocation]) -> u
         return MAX_ROWS_PER_CHUNK;
     }
     let blocks = blocks_per_target_bytes(total_bytes(locations), row_count);
-    blocks.clamp(1, (MAX_ROWS_PER_CHUNK / ROW_BLOCK_SIZE) as u64) as usize * ROW_BLOCK_SIZE
+    let blocks = blocks.clamp(1, (MAX_ROWS_PER_CHUNK / ROW_BLOCK_SIZE) as u64);
+    usize::try_from(blocks).vortex_expect("at most MAX_ROWS_PER_CHUNK blocks") * ROW_BLOCK_SIZE
 }
 
 /// Rows per chunk of a filtered scan over `rows` rows of the file.
