@@ -181,8 +181,13 @@ impl CudaStream {
         unsafe { sys::cuEventRecord(event, self.stream) }.result()
     }
 
+    /// Allocates `bytes` on this stream; empty allocations are null pointers on every device.
     pub(crate) fn alloc_raw(&self, bytes: usize) -> Result<sys::CUdeviceptr, DriverError> {
         self.bind()?;
+        // `cuMemAllocAsync` returns null for zero bytes, but `cuMemAlloc` rejects them.
+        if bytes == 0 {
+            return Ok(0);
+        }
         let mut pointer = 0;
         // SAFETY: The context is current; the driver writes the allocation.
         unsafe {
@@ -197,6 +202,10 @@ impl CudaStream {
     }
 
     pub(crate) fn free_raw(&self, pointer: sys::CUdeviceptr) -> Result<(), DriverError> {
+        // Empty allocations allocated nothing.
+        if pointer == 0 {
+            return Ok(());
+        }
         self.make_current()?;
         // SAFETY: Callers free an allocation of this context once, after its accesses were
         // ordered before this stream's queued work.
