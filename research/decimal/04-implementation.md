@@ -192,8 +192,8 @@ publishes the CD2 fixtures also gates CD5 and CD6, so CD2 is worth landing in wa
 
 ## Rules for every PR
 
-- No PR adds temporary code (D11). The serialization workaround of D26 is the one documented
-  exception. It stays until `vortex.narrow` is in `core`.
+- No PR adds temporary code (D11). The serialization workaround of D26, if CD4 adds it, is the one
+  documented exception. It stays until `vortex.narrow` is in `core`.
 - Benchmarks land before the changes that they cover (D19): NR2 before NR3 to NR5, and CD1 before
   CD4, CD5 and CD7. The dependency table lists these as hard dependencies.
 - Every call of the deprecated `encode_values` carries `#[expect(deprecated)]` with a

@@ -24,7 +24,7 @@ The section [Lockstep](#lockstep) gives the reasons.
   reader builds and checks the child dtype before it decodes the child, so invalid metadata is an
   error and never a panic. When the selected editions do not permit `vortex.narrow`, the writer
   still writes the canonical array (D26).
-- Depends on: NR1 (encoding, `validate_dtypes`, the D26 lowering), CD3
+- Depends on: NR1 (encoding, `validate_dtypes`), CD3
   (`DecimalDType::canonical_values_type()`), CD4 (decimal rules in `validate_dtypes`, decimal
   `Narrow`). Soft: FX1, NR3, NR4, NR5, CD6. Blocks: WR2, WR3.
 - Decisions: D8, D10, D14, D15 (one `Narrow` over a `Narrow`), D22, D26, D32. Invariants 1, 2 and 6
@@ -102,9 +102,9 @@ pub(super) fn child_dtype(parent: &DType, metadata: &[u8]) -> VortexResult<DType
   `Narrow` always serializes.
 - The lowering of D26 also covers a context that does not permit `vortex.narrow`. Today the tree
   builder has no context, and `try_write_node` rejects a non-permitted ID with "not permitted by
-  ctx" (`vortex-array/src/serde.rs:251-256`). So the tree builder gets the permitted IDs. NR1 lowers
-  every `Narrow` in `ArraySerializationTree::try_new` before the serializer lookup, and WR1 limits
-  that lowering to a context that does not permit `vortex.narrow` (D26). The doc keeps the
+  ctx" (`vortex-array/src/serde.rs:251-256`). So the tree builder gets the permitted IDs. CD4
+  decides whether a lowering exists (D26). If it does, WR1 limits it to a context that does not
+  permit `vortex.narrow`. If it does not, WR1 adds the lowering for that context. The doc keeps the
   workaround note and its end at LT1.
 
 `deserialize` runs these checks in this order. Every check returns an error:
@@ -139,8 +139,8 @@ Steps:
 1. Add `wire.rs` with `NarrowMetadata`, `metadata`, `child_dtype` and the module doc of the
    contract. Add unit tests for both functions.
 2. Replace the `deserialize` stub and change `serialize` in `vtable.rs`. Add `tests/wire.rs`.
-3. Pass the permitted IDs to the tree builder, and lower a non-permitted `Narrow` at the NR1
-   lowering site in `ArraySerializationTree::try_new`.
+3. Pass the permitted IDs to the tree builder, and lower a non-permitted `Narrow` in
+   `ArraySerializationTree::try_new`, at the lowering site of CD4 if CD4 adds one (D26).
 4. Add the `vortex-file` round-trip test.
 
 Tests:
@@ -445,7 +445,7 @@ Hard dependencies on the NR and CD PRs:
 
 | PR | Needs | For |
 | --- | --- | --- |
-| WR1 | NR1 | `Narrow`, `validate_dtypes`, the D26 lowering in `ArraySerializationTree::try_new`. NR1 does not register `Narrow`, so WR1 adds the registration |
+| WR1 | NR1 | `Narrow` and `validate_dtypes`. NR1 has no D26 lowering and does not register `Narrow`, so WR1 adds the registration |
 | WR1 | CD3 | `DecimalDType::canonical_values_type()` for the width check |
 | WR1 | CD4 | Decimal rules in `validate_dtypes` and decimal `Narrow` arrays |
 | WR2 | CD5 | The v2 contract with `u64` lower parts and canonical decoding (D16) |

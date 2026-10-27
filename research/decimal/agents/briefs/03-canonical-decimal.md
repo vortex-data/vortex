@@ -686,7 +686,10 @@ their values in CD3 (D30).
 - Branch: `ct/decimal-narrow`, based on `develop` after NR1, NR3, NR4, CD1 and CD3 merge.
 - Scope: Open `validate_dtypes` for decimals, and add decimal execution and a decimal encoder. Add
   decimal branches to the compare, cast and fill-null kernels, and optionally a decimal branch to
-  the sum kernel. Change the decimal cast kernel for D15. Add tests and benchmarks.
+  the sum kernel. Change the decimal cast kernel for D15. Decide D26: a widening decimal cast now
+  returns a `Narrow`, so IPC and writers without a compressor can meet one. Choose between a
+  lowering specific to `Narrow`, a generic lowering for arrays that cannot be written, and no
+  lowering, and put that choice to the maintainer before writing it. Add tests and benchmarks.
 - Out of scope: The `vortex.narrow` wire form (WR1). The compressor scheme (WR3). The read plugin
   (CD6). A strict `try_new` (CD8a). Arithmetic, zip and merges on decimal `Narrow`, which decline
   and fall back. A cast rule that wraps a DBP or other encoded decimal in a `Narrow` without
@@ -890,7 +893,7 @@ Tests, in `vortex-array/src/arrays/narrow/tests/decimal.rs`, as functions that r
 - `test_decimal_structural_pull_up`: the NR5 rules move `Dict`, `Constant` and `Chunked` above a
   decimal `Narrow`, with equal values.
 - `test_decimal_narrow_serializes_as_canonical`: a decimal `Narrow` serializes as a canonical
-  `vortex.decimal` node at the parent width (D26).
+  `vortex.decimal` node at the parent width, if CD4 adds a lowering (D26).
 - Conformance: run `test_array_consistency`, `test_cast_conformance`, `test_filter_conformance`,
   `test_take_conformance` and `test_mask_conformance` (`vortex-array/src/compute/conformance/`) on
   nullable and non-nullable decimal `Narrow` arrays.
@@ -1282,8 +1285,8 @@ Review focus:
 
 Size: medium. One new module and one registration change.
 
-Open questions: None. A read can now return an in-memory `Narrow`. Until WR1, the serializer writes
-its canonical array (D26).
+Open questions: None. A read can now return an in-memory `Narrow`. Until WR1, a writer handles it as
+CD4 decided for D26.
 
 ### CD7: One DecimalByteParts scheme on the canonical array
 

@@ -162,12 +162,12 @@ must have the scale and nullability of the parent, so metadata that stored them 
 file hold an invalid child. `vortex.narrow` stays in memory only until the maintainer decides to
 write it to files (decided, D18).
 
-Until then, a writer that meets a `Narrow` writes its executed canonical array (decided, D26). This
-also holds later for writers whose editions do not permit `vortex.narrow`. Decimal `Narrow` appears
-in ordinary pipelines, through widening casts and old files, so IPC or a writer without
-compression would fail without it. A plugin cannot return the wire form of another encoding, so
-the fallback lives in the serializer. The code documents it as a workaround, which stays until
-`vortex.narrow` is in `core`.
+Until then, a writer that meets a `Narrow` writes its executed canonical array (proposed, D26,
+deferred to CD4). This also holds later for writers whose editions do not permit `vortex.narrow`.
+Decimal `Narrow` appears in ordinary pipelines, through widening casts and old files, so IPC or a
+writer without compression would fail without it. A plugin cannot return the wire form of another
+encoding, so the fallback lives in the serializer. The code documents it as a workaround, which
+stays until `vortex.narrow` is in `core`.
 
 `Narrow` has two producer functions (decided, D28). `encode` builds a `Narrow` over the narrowest
 child of the same signedness. `encode_values` returns only that child, so it changes the dtype.
@@ -541,7 +541,7 @@ Writers produce forms that old readers understand. The leaf becomes `vortex.deci
 canonical width. DBP becomes DecimalByteParts v1, which the first core edition already contains,
 or v2 where an edition permits it. `Narrow` is written only where an edition permits
 `vortex.narrow`, and the compressor produces it only then. Elsewhere the serializer writes the
-canonical array of a `Narrow` (decided, D26). `vortex.narrow` and DBP v2 enter one
+canonical array of a `Narrow` (proposed, D26, deferred to CD4). `vortex.narrow` and DBP v2 enter one
 preview edition together, and later `core` together (decided, D18). Constant, dictionary and
 run-end arrays of decimals keep their current wire forms.
 

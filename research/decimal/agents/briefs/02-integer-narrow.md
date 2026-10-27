@@ -258,8 +258,9 @@ accepts decimals:
 
 - Goal: Add `Narrow`, an in-memory encoding that stores an integer column as a strictly narrower
   integer child with the same signedness and nullability. Selection, compare, mask, cast and fill
-  null pass to the child. `Narrow` has no wire form yet, so the serializer writes its canonical
-  array instead (D26).
+  null pass to the child. `Narrow` has no wire form yet, so an array that holds a `Narrow` cannot
+  be serialized. As landed in #10864, NR1 has no serialization workaround: D26 is deferred to CD4,
+  and the D26 items in this section describe that deferred design, not NR1.
 - Depends on: None. Soft: None. Blocks: NR2, NR3, NR4, NR5, NR6, CD4, CD7.
 - Decisions: D8 (one encoding with ID `vortex.narrow`), D15, D18, D22, D23, D25, D26, D28, D38.
 - Branch: `ct/narrow-in-memory`, based on `origin/develop` (`afa4bc87cd` or later).
@@ -268,10 +269,8 @@ accepts decimals:
     mask, cast and fill-null rules. `f7408481ce` is the reference (D38).
   - Add `NarrowArray::encode_values`, marked `#[deprecated]` (D28). `adc1e83b9d` has a reference
     version.
-  - Add the serialization workaround of D26. It is crate-private, in
-    `ArraySerializationTree::try_new`: before the serializer lookup, the tree builder lowers a
-    `Narrow` to its canonical array. No public trait method is added. `ArraySession` does not
-    register `Narrow`, and WR1 adds the registration.
+  - No serialization workaround (D26 is deferred to CD4). `ArraySession` does not register
+    `Narrow`, and WR1 adds the registration.
   - Add a self-reduce that flattens a `Narrow` child, so D15 holds after physical rewrites.
 - Out of scope: Aggregate kernels (NR3). Arithmetic, between, zip, float and cross-signedness casts
   (NR4). The rules that move structural encodings above `Narrow`, and the dictionary-codes rule
@@ -293,7 +292,6 @@ Files (checked at `afa4bc87cd`):
 | `vortex-array/src/arrays/narrow/tests/mod.rs` | New. The one module `SESSION` and the shared named fixtures |
 | `vortex-array/src/arrays/narrow/tests/encoding.rs` | New. Port the cases of the reference tests, and add the flatten, `encode_values` and serialization tests |
 | `vortex-array/src/arrays/narrow/tests/compute.rs` | New. Port the cases of the reference tests, and add the conformance tests |
-| `vortex-array/src/serde.rs:172-191` | `ArraySerializationTree::try_new` lowers a `Narrow` before the serializer lookup |
 | `vortex-array/src/arrays/mod.rs:85-91` | Add `pub mod narrow;` with `pub use narrow::Narrow;` and `pub use narrow::NarrowArray;` between `masked` and `null` |
 | `vortex-array/src/arrays/mod.rs:144-145` | Add `narrow::initialize(session);` between `map` and `null` |
 | `vortex-array/src/session/mod.rs` | No change. WR1 registers `Narrow` together with its wire form |
@@ -370,7 +368,7 @@ are part of the NR1 contract.
   logical dtype. `scalar_at` delegates through `ProbeState::once`, and `type ProbeState = ()`.
   This cast is the `Narrow` decode. NR1 writes it inline. NR3 moves it into one function that
   `probe_scalar` and the aggregate kernels call.
-- The serialization workaround (D26):
+- The serialization workaround (D26, deferred to CD4 and not in NR1):
   - Today `ArraySerializationTree::try_new` fails with "Array … does not support serialization"
     when `array_serialize` returns `None` (`vortex-array/src/serde.rs:173-178`).
   - A plugin cannot return the wire form of another encoding. `array_serialize` checks that the
@@ -434,7 +432,6 @@ Steps:
 3. Write the commits in this order. Each commit compiles and passes its tests:
    1. The encoding, validation, `encode`, the vtable with `probe_scalar`, and the registration in
       `arrays/mod.rs`.
-   2. The D26 lowering in `serde.rs` and its tests.
    3. The flatten.
    4. The selection, mask, cast and fill-null rules, and the take kernel.
    5. The compare kernel.
@@ -451,13 +448,13 @@ Tests:
   `test_reject_invalid_dtypes`, `test_validate_slots`, `test_flatten_and_scalar_dtype`,
   `test_encoded_child_execution`, `test_smallest_width_unchanged`, `test_reject_float_encoding`,
   `test_deserialization_unsupported`.
-- `test_serialization_unsupported` becomes `test_serialization_writes_canonical`. Serialize a
-  nullable and a non-nullable `Narrow`, and decode the bytes. The result is a canonical primitive
-  array with the logical dtype and equal values, and its wire ID is the primitive ID. An exact min
-  or max that is set on the `Narrow` reads back. Two more cases test the `RecursiveCanonical`
-  lowering: a nullable `Narrow` over an encoded child whose validity is not canonical, such as a
-  `Dict`, and a struct with a `Narrow` field. Each reads back as a canonical array with equal
-  values.
+- Not in NR1 (D26 is deferred to CD4): `test_serialization_unsupported` becomes
+  `test_serialization_writes_canonical`. Serialize a nullable and a non-nullable `Narrow`, and
+  decode the bytes. The result is a canonical primitive array with the logical dtype and equal
+  values, and its wire ID is the primitive ID. An exact min or max that is set on the `Narrow` reads
+  back. Two more cases test the `RecursiveCanonical` lowering: a nullable `Narrow` over an encoded
+  child whose validity is not canonical, such as a `Dict`, and a struct with a `Narrow` field. Each
+  reads back as a canonical array with equal values.
 - New, in `narrow/tests/encoding.rs`:
   - `test_encode_values_keeps_signedness`, an `rstest`. `[0i64, 127]` gives `I8`, `[0i64, 200]`
     gives `I16`, `[-1i32, 200]` gives `I16`, an empty `i32` gives `I8`, all-invalid `u32` gives
@@ -497,8 +494,6 @@ Acceptance checks:
 - `cargo clippy -p vortex-array --all-targets --all-features -- -D warnings`
 - `cargo +nightly-2026-09-10 fmt -p vortex-array`
 - `cargo nextest run -p vortex-array narrow` and `cargo nextest run -p vortex-array serde`
-- Serializing a `Narrow` writes its canonical array. The read-back array is a canonical primitive
-  array with equal values and the statistics of the `Narrow`.
 - No array node with the ID `vortex.narrow` is written, and no footer lists the ID, because
   `ArraySession` does not register `Narrow`.
 - `encode_values` carries `#[deprecated]` and has no non-test caller.
@@ -507,8 +502,7 @@ Review focus: The constant shortcut of the compare kernel for both operand order
 constants. Checked nullability in the cast rule. Nullability of `take` results, which comes from
 the gathered child and the indices, and of `mask` results, which follow the child. The take kernel
 leaves no lazy `Dict` under a `Narrow` (D25). The fill-null fallback. The flatten in
-`VTable::reduce`. The D26 lowering: it runs before the serializer lookup and only for a
-`Narrow`, it lowers once, it keeps the statistics of the `Narrow`, and it adds no public API.
+`VTable::reduce`.
 Registration of the compare and take kernels in `narrow::initialize`.
 
 Size: Large. The reference commit has about 550 lines of source and 435 lines of tests.
