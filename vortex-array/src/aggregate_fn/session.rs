@@ -45,10 +45,15 @@ use crate::array::VTable;
 use crate::arrays::Chunked;
 use crate::arrays::Dict;
 use crate::arrays::Primitive;
+use crate::arrays::RunEnd;
 use crate::arrays::chunked::compute::aggregate::ChunkedArrayAggregate;
 use crate::arrays::dict::compute::is_constant::DictIsConstantKernel;
 use crate::arrays::dict::compute::is_sorted::DictIsSortedKernel;
 use crate::arrays::dict::compute::min_max::DictMinMaxKernel;
+use crate::arrays::runend::compute::is_constant::RunEndIsConstantKernel;
+use crate::arrays::runend::compute::is_sorted::RunEndIsSortedKernel;
+use crate::arrays::runend::compute::min_max::RunEndMinMaxKernel;
+use crate::arrays::runend::compute::sum::RunEndSumKernel;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtVTable;
 use crate::extension::datetime::Date;
@@ -133,6 +138,11 @@ impl Default for AggregateFnSession {
         this.register_aggregate_kernel(Dict.id(), Some(MinMax.id()), &DictMinMaxKernel);
         this.register_aggregate_kernel(Dict.id(), Some(IsConstant.id()), &DictIsConstantKernel);
         this.register_aggregate_kernel(Dict.id(), Some(IsSorted.id()), &DictIsSortedKernel);
+        this.register_aggregate_kernel(RunEnd.id(), Some(MinMax.id()), &RunEndMinMaxKernel);
+        this.register_aggregate_kernel(RunEnd.id(), Some(IsConstant.id()), &RunEndIsConstantKernel);
+        this.register_aggregate_kernel(RunEnd.id(), Some(IsSorted.id()), &RunEndIsSortedKernel);
+        this.register_aggregate_kernel(RunEnd.id(), Some(Sum.id()), &RunEndSumKernel);
+        this.register_aggregate_kernel(RunEnd.id(), Some(SumV2.id()), &RunEndSumKernel);
 
         // Register the built-in grouped aggregate kernels.
         this.register_grouped_kernel(Count.id(), &CountGroupedKernel);

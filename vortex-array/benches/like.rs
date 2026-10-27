@@ -34,6 +34,14 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     LazyLock::force(&SESSION);
+
+    // The first regex that a process compiles reads the CPU quota from the file system and seeds
+    // a hash. Without this, those system calls land in the single measured iteration of the first
+    // regex benchmark under the CodSpeed simulation.
+    like(strings(), "%HELLO%", ILIKE)
+        .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
+        .unwrap();
+
     divan::main();
 }
 
@@ -57,18 +65,29 @@ fn strings() -> ArrayRef {
     .into_array()
 }
 
+/// Case-insensitive, non-negated matching.
+const ILIKE: LikeOptions = LikeOptions {
+    negated: false,
+    case_insensitive: true,
+};
+
+/// `array LIKE pattern`, with a constant pattern.
+fn like(array: ArrayRef, pattern: &str, options: LikeOptions) -> ArrayRef {
+    Like::try_new(
+        array,
+        ConstantArray::new(pattern, ARRAY_SIZE).into_array(),
+        options,
+    )
+    .unwrap()
+    .into_array()
+}
+
 fn bench_like(bencher: Bencher, pattern: &str, options: LikeOptions) {
     let array = strings();
     bencher
         .with_inputs(|| {
             (
-                Like::try_new(
-                    array.clone(),
-                    ConstantArray::new(pattern, ARRAY_SIZE).into_array(),
-                    options,
-                )
-                .unwrap()
-                .into_array(),
+                like(array.clone(), pattern, options),
                 SESSION.create_execution_ctx(),
             )
         })
@@ -120,12 +139,5 @@ fn like_per_row_patterns(bencher: Bencher) {
 
 #[divan::bench]
 fn ilike_contains(bencher: Bencher) {
-    bench_like(
-        bencher,
-        "%HELLO%",
-        LikeOptions {
-            negated: false,
-            case_insensitive: true,
-        },
-    );
+    bench_like(bencher, "%HELLO%", ILIKE);
 }

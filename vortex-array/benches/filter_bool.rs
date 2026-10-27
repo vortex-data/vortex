@@ -36,7 +36,12 @@ fn main() {
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
 
-const SIZES: &[usize] = &[1_000, 10_000, 100_000, 250_000];
+/// Array lengths for the filter benchmarks.
+///
+/// 1000 rows took less than 1 µs, so the allocator work left behind by the previous, larger case
+/// was a large part of the single measured iteration in simulation, and CodSpeed reported no
+/// execution time for `filter_powerlaw_by_mostly_false[1000]`.
+const SIZES: &[usize] = &[10_000, 100_000, 250_000];
 const DENSITY_SWEEP_SIZE: usize = 100_000;
 const ARRAY_SEED: u64 = 42;
 const MASK_SEED: u64 = 43;

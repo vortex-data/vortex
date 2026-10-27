@@ -18,6 +18,7 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
+use crate::expr::Lambda;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar_fn::EmptyOptions;
@@ -45,6 +46,8 @@ use crate::scalar_fn::fns::list_contains::ListContains;
 use crate::scalar_fn::fns::list_contains::ListContainsOptions;
 use crate::scalar_fn::fns::list_length::ListLength;
 use crate::scalar_fn::fns::list_sum::ListSum;
+use crate::scalar_fn::fns::list_transform::ListTransform;
+use crate::scalar_fn::fns::list_transform::ListTransformOptions;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::merge::DuplicateHandling;
@@ -153,8 +156,7 @@ pub fn bound_get_item(field: impl Into<FieldName>, child: BoundExpression) -> Bo
 
 /// Creates an expression that reads the parameter `name` of the enclosing lambda.
 ///
-/// It is only meaningful in the body of a [`Lambda`](crate::expr::Lambda). Anywhere else it fails
-/// to bind.
+/// It is only meaningful in the body of a [`Lambda`]. Anywhere else it fails to bind.
 ///
 /// ```rust
 /// # use vortex_array::dtype::{DType, Nullability, PType};
@@ -1389,6 +1391,22 @@ pub fn bound_list_sum_opts(
     ListSum
         .try_new_bound_expr(options, [input])
         .vortex_expect("list-sum expressions require a numeric list child")
+}
+
+// ---- ListTransform ----
+
+/// Creates an expression that applies a lambda to every element of each list.
+///
+/// The lambda takes one parameter, the element.
+///
+/// ```rust
+/// # use vortex_array::expr::{Lambda, checked_add, col, list_transform, lit, var};
+/// let lambda = Lambda::new(["x"], checked_add(var("x"), lit(1_i32))).unwrap();
+/// let expr = list_transform(col("l"), lambda);
+/// assert_eq!(expr.to_string(), "vortex.list.transform($.l, (x) -> (@x + 1i32))");
+/// ```
+pub fn list_transform(list: Expression, lambda: Lambda) -> Expression {
+    ListTransform.new_expr(ListTransformOptions::Lambda(lambda), [list])
 }
 
 /// Reinterpret timestamp wall times in `options.time_zone`, preserving the time unit.
