@@ -51,6 +51,8 @@ pub(super) struct Model {
     pub max_inflight: usize,
     #[serde(default)]
     pub latency_cdf_ms: Vec<f64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cdf_probabilities: Vec<f64>,
     #[serde(default)]
     pub latency_bins: Vec<LatencyBin>,
     #[serde(default)]
@@ -61,6 +63,8 @@ pub(super) struct Model {
 pub(super) struct LatencyBin {
     pub max_bytes: u64,
     pub latency_cdf_ms: Vec<f64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cdf_probabilities: Vec<f64>,
 }
 
 impl Model {
@@ -73,12 +77,12 @@ impl Model {
         ordinal: u64,
         bytes: u64,
     ) -> f64 {
-        let cdf = self
+        let (cdf, probabilities) = self
             .latency_bins
             .iter()
             .find(|bin| bytes <= bin.max_bytes && !bin.latency_cdf_ms.is_empty())
-            .map(|bin| &bin.latency_cdf_ms)
-            .unwrap_or(&self.latency_cdf_ms);
+            .map(|bin| (&bin.latency_cdf_ms, &bin.cdf_probabilities))
+            .unwrap_or((&self.latency_cdf_ms, &self.cdf_probabilities));
         if operation != "GET" || cdf.is_empty() {
             return self.ttfb_ms;
         }
@@ -100,8 +104,13 @@ impl Model {
         hash = (hash ^ (hash >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
         hash = (hash ^ (hash >> 27)).wrapping_mul(0x94d049bb133111eb);
         hash ^= hash >> 31;
-        let index = usize::try_from(hash % cdf.len() as u64)
-            .vortex_expect("quantile index is bounded by the vector length");
+        let index = if probabilities.is_empty() {
+            usize::try_from(hash % cdf.len() as u64)
+                .vortex_expect("quantile index is bounded by the vector length")
+        } else {
+            let uniform = (hash >> 11) as f64 / (1u64 << 53) as f64;
+            probabilities.partition_point(|probability| *probability <= uniform)
+        };
         cdf[index]
     }
 }
@@ -215,6 +224,56 @@ pub(super) fn manifest(objects: &Snapshot) -> Vec<ObjectIdentity> {
             version: object.meta.version.clone(),
         })
         .collect()
+}
+
+#[derive(Serialize)]
+pub(super) struct SourceWarmup {
+    requests: u64,
+    bytes: u64,
+    seconds: f64,
+    concurrency: usize,
+}
+
+pub(super) async fn warm_source(
+    source: &dyn ObjectStore,
+    objects: &Snapshot,
+    seconds: f64,
+) -> anyhow::Result<SourceWarmup> {
+    const CONCURRENCY: usize = 32;
+    let start = Instant::now();
+    let deadline = start + Duration::from_secs_f64(seconds);
+    let keys = objects
+        .iter()
+        .map(|(path, object)| (path, object.meta.size))
+        .collect::<Vec<_>>();
+    anyhow::ensure!(!keys.is_empty(), "No source objects to warm");
+    let counts = stream::iter(0..CONCURRENCY)
+        .map(|worker| {
+            let keys = &keys;
+            async move {
+                let (mut requests, mut bytes) = (0u64, 0u64);
+                let mut cursor = worker;
+                while Instant::now() < deadline {
+                    let (path, size) = keys[cursor % keys.len()];
+                    let length = size.min(65536);
+                    let offset = (cursor as u64).wrapping_mul(131071) % (size - length + 1);
+                    bytes += source.get_range(path, offset..offset + length).await?.len() as u64;
+                    requests += 1;
+                    cursor += CONCURRENCY;
+                    tokio::task::yield_now().await;
+                }
+                Ok::<_, object_store::Error>((requests, bytes))
+            }
+        })
+        .buffer_unordered(CONCURRENCY)
+        .try_collect::<Vec<_>>()
+        .await?;
+    Ok(SourceWarmup {
+        requests: counts.iter().map(|(requests, _)| requests).sum(),
+        bytes: counts.iter().map(|(_, bytes)| bytes).sum(),
+        seconds: start.elapsed().as_secs_f64(),
+        concurrency: CONCURRENCY,
+    })
 }
 
 /// Copy the source bytes and metadata once, outside every measurement window.

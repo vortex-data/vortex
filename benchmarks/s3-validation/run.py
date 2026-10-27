@@ -30,6 +30,7 @@ def append_chunk(chunk: Path, destination: Path):
         "scale_factor",
         "format",
         "model",
+        "baseline_model",
         "iterations",
         "iteration_overrides",
         "adaptive_io",
@@ -37,24 +38,32 @@ def append_chunk(chunk: Path, destination: Path):
         "objects",
         "round_robin",
         "real_repeat",
+        "source_warmup_seconds",
     )
     with chunk.open() as incoming:
         header_line = next(incoming)
         header = json.loads(header_line)
         if header.get("kind") != "environment":
             raise ValueError("Query chunk has no environment record")
+        original = None
         if destination.exists():
             with destination.open() as previous:
                 original = json.loads(next(previous))
             if any(original.get(key) != header.get(key) for key in keys):
                 raise ValueError("Query chunks differ in hardware, data, profile or configuration")
+        merged_header = dict(original or header)
+        if header.get("process_started_unix_ms") is not None:
+            process = {
+                key: header.get(key) for key in ("process_started_unix_ms", "source_warmup_seconds", "source_warmup")
+            }
+            merged_header["processes"] = [*(original or {}).get("processes", []), process]
         temporary = destination.with_suffix(".merge.tmp")
         with temporary.open("w") as output:
+            output.write(json.dumps(merged_header) + "\n")
             if destination.exists():
                 with destination.open() as previous:
+                    next(previous)
                     shutil.copyfileobj(previous, output)
-            else:
-                output.write(header_line)
             shutil.copyfileobj(incoming, output)
         temporary.replace(destination)
     chunk.unlink()
@@ -73,10 +82,14 @@ def main():
     parser.add_argument("--binary", default="target/release_debug/s3-validate")
     parser.add_argument("--phase", choices=("initial", "tuned", "all", "validate"), default="all")
     parser.add_argument("--profile", type=Path, default=os.environ.get("S3_MODEL_PROFILE"))
+    parser.add_argument("--baseline-profile", type=Path, default=os.environ.get("S3_BASELINE_PROFILE") or None)
     parser.add_argument("--suites", choices=("tpch", "tpcds"), nargs="+", default=["tpch", "tpcds"])
     parser.add_argument("--queries", type=lambda value: [int(part) for part in value.split(",")])
     parser.add_argument("--round-robin", action="store_true")
     parser.add_argument("--real-repeat", action="store_true")
+    parser.add_argument(
+        "--source-warmup-seconds", type=float, default=float(os.environ.get("S3_SOURCE_WARMUP_SECONDS", "0"))
+    )
     args = parser.parse_args()
     if args.iterations < 3:
         parser.error("CI validation needs at least three iterations")
@@ -96,6 +109,11 @@ def run(args: argparse.Namespace, env: dict[str, str]):
     args.output.mkdir(parents=True, exist_ok=True)
     model = {"ttfb_ms": 25.0, "request_mib_per_sec": 100.0, "max_inflight": 0}
     frozen = None
+    baseline = None
+    if args.baseline_profile:
+        baseline = json.loads(args.baseline_profile.read_text())
+        learn.validate_profile(baseline, env.get("GITHUB_RUN_ID"), env.get("AWS_REGION", ""), args.format)
+        shutil.copyfile(args.baseline_profile, args.output / "baseline-parameters.json")
     if args.phase == "validate":
         frozen = json.loads(args.profile.read_text())
         learn.validate_profile(frozen, env.get("GITHUB_RUN_ID"), env.get("AWS_REGION", ""), args.format)
@@ -132,9 +150,13 @@ def run(args: argparse.Namespace, env: dict[str, str]):
                 str(model["request_mib_per_sec"]),
                 "--max-inflight",
                 str(model["max_inflight"]),
+                "--source-warmup-seconds",
+                str(args.source_warmup_seconds),
             ]
             if phase == "tuned":
                 command.extend(("--model-parameters", str(args.output / "parameters.json")))
+            if baseline:
+                command.extend(("--baseline-model-parameters", str(args.output / "baseline-parameters.json")))
             if args.queries:
                 command.extend(("--queries", ",".join(str(q) for q in args.queries)))
             if args.round_robin:
@@ -163,6 +185,11 @@ def run(args: argparse.Namespace, env: dict[str, str]):
         if frozen:
             digest = hashlib.sha256(args.profile.read_bytes()).hexdigest()
             learn.attach_profile(result, frozen, digest)
+        if baseline:
+            baseline_result = {"environments": [{**e, "model": e["baseline_model"]} for e in result["environments"]]}
+            digest = hashlib.sha256(args.baseline_profile.read_bytes()).hexdigest()
+            learn.attach_profile(baseline_result, baseline, digest)
+            result["baseline_profile"] = baseline_result["learned_profile"]
         compare.write_reports(result, args.output / f"{phase}.md")
         if args.real_repeat:
             repeatability.write_reports(repeatability.analyze(records), args.output / f"{phase}-repeatability")

@@ -4,6 +4,7 @@
 """Calibrate from S3 request traces and report paired benchmark measurements."""
 
 import argparse
+import bisect
 import csv
 import json
 import math
@@ -26,6 +27,10 @@ def quantile(values: Sequence[float], probability: float) -> float:
     low = math.floor(position)
     high = math.ceil(position)
     return values[low] + (values[high] - values[low]) * (position - low)
+
+
+def cdf_quantile(values: Sequence[float], probabilities: Sequence[float], probability: float) -> float:
+    return values[bisect.bisect_left(probabilities, probability)] if probabilities else quantile(values, probability)
 
 
 def ranks(values: Sequence[float]) -> list[float]:
@@ -67,7 +72,28 @@ def latency_quantiles(residuals: Sequence[float], timer_overhead: float) -> list
     return cdf
 
 
-def calibrate(records: list[Record]) -> Record:
+def weighted_latency(residuals: Sequence[float], timer_overhead: float) -> tuple[list[float], list[float]]:
+    values = sorted(max(0.0, value - timer_overhead) for value in residuals)
+    n = len(values)
+    cutoff = max(1, math.floor(n * 0.999))
+    points = []
+    for bucket in range(1000):
+        low, high = cutoff * bucket // 1000, cutoff * (bucket + 1) // 1000
+        if high > low:
+            points.append((round(statistics.median(values[low:high]), 3), high / n))
+    # Keep each observation in the sparse upper tail at its measured probability.
+    points.extend((round(values[index], 3), (index + 1) / n) for index in range(cutoff, n))
+    delays, probabilities = [], []
+    for delay, probability in points:
+        if delays and delay == delays[-1]:
+            probabilities[-1] = probability
+        else:
+            delays.append(delay)
+            probabilities.append(probability)
+    return delays, probabilities
+
+
+def calibrate(records: list[Record], preserve_tail: bool = False) -> Record:
     model_samples = {
         sample_key(record): record
         for record in records
@@ -90,7 +116,10 @@ def calibrate(records: list[Record]) -> Record:
     real_samples = [
         record
         for record in records
-        if record.get("kind") == "sample" and record["backend"] == "real" and not record["error"]
+        if record.get("kind") == "sample"
+        and record["backend"] in ("real", "real_repeat")
+        and not record["error"]
+        and not record.get("_process_startup")
     ]
     unpaired = {
         sample_key(record)
@@ -145,6 +174,9 @@ def calibrate(records: list[Record]) -> Record:
     # matching only median TTFB can substantially underestimate their runtime.
     residuals = [max(0.0, r["duration_ms"] - r["bytes"] / 1048576 / rate * 1000) for r in requests]
     cdf = latency_quantiles(residuals, timer_overhead)
+    probabilities = []
+    if preserve_tail:
+        cdf, probabilities = weighted_latency(residuals, timer_overhead)
     bins, bin_counts = [], []
     lower = -1
     for upper in (4096, 65536, 262144, 1048576, 2**64 - 1):
@@ -153,9 +185,12 @@ def calibrate(records: list[Record]) -> Record:
         bins.append(
             {"max_bytes": upper, "latency_cdf_ms": cdf if fallback else latency_quantiles(values, timer_overhead)}
         )
+        if preserve_tail:
+            delays, weights = (cdf, probabilities) if fallback else weighted_latency(values, timer_overhead)
+            bins[-1].update(latency_cdf_ms=delays, cdf_probabilities=weights)
         bin_counts.append({"max_bytes": upper, "requests": len(values), "fallback_global": fallback})
         lower = upper
-    return {
+    result = {
         "ttfb_ms": round(ttfb, 3),
         "observed_s3_ttfb_ms": round(observed_ttfb, 3),
         "timer_overhead_ms": round(timer_overhead, 3),
@@ -173,6 +208,14 @@ def calibrate(records: list[Record]) -> Record:
         "calibration_small_requests": len(small),
         "calibration_large_requests": len(rates),
     }
+    if preserve_tail:
+        result["cdf_probabilities"] = probabilities
+        result["latency_tail"] = {
+            "bulk_buckets": 1000,
+            "preserved_upper_fraction": 0.001,
+            "max_observed_residual_ms": round(max(residuals), 3),
+        }
+    return result
 
 
 def signature(record: Record) -> Counter[tuple[str, str, str, int]]:
@@ -304,20 +347,21 @@ def markdown(result: Record) -> str:
         host = dict(environment)
         model = dict(host.get("model", {}))
         cdf = model.pop("latency_cdf_ms", [])
+        probabilities = model.pop("cdf_probabilities", [])
         if cdf:
             model["latency_distribution_ms"] = {
                 "quantiles": len(cdf),
-                "p50": quantile(cdf, 0.5),
-                "p90": quantile(cdf, 0.9),
-                "p99": quantile(cdf, 0.99),
+                "p50": cdf_quantile(cdf, probabilities, 0.5),
+                "p90": cdf_quantile(cdf, probabilities, 0.9),
+                "p99": cdf_quantile(cdf, probabilities, 0.99),
             }
         bins = model.pop("latency_bins", [])
         if bins:
             model["latency_bins_summary"] = [
                 {
                     "max_bytes": b["max_bytes"],
-                    "p50": quantile(b["latency_cdf_ms"], 0.5),
-                    "p90": quantile(b["latency_cdf_ms"], 0.9),
+                    "p50": cdf_quantile(b["latency_cdf_ms"], b.get("cdf_probabilities", []), 0.5),
+                    "p90": cdf_quantile(b["latency_cdf_ms"], b.get("cdf_probabilities", []), 0.9),
                 }
                 for b in bins
             ]

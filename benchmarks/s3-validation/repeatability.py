@@ -41,19 +41,22 @@ def analyze(records: list[compare.Record], draws: int = 1000) -> compare.Record:
     for (suite, query, cache), samples in sorted(groups.items()):
         environment = next(e for e in environments if e["suite"] == suite)
         n = environment.get("iteration_overrides", {}).get(str(query), environment["iterations"])
-        failures, a, b, m = [], [], [], []
+        failures, a, b, m, old = [], [], [], [], []
+        roles = ["real", "real_repeat", "model"]
+        if any(backend == "model_baseline" for backend, _ in samples):
+            roles.append("model_baseline")
         if any(index < 0 or index >= n for _, index in samples):
             failures.append("iteration outside the declared count")
         for iteration in range(n):
-            triple = [samples.get((backend, iteration)) for backend in ("real", "real_repeat", "model")]
+            triple = [samples.get((backend, iteration)) for backend in roles]
             if any(record is None for record in triple):
                 failures.append(f"missing control or model iteration {iteration}")
                 continue
-            reference, repeated, model = triple
+            reference, repeated, model = triple[:3]
             if any(r["error"] or r["counts"]["errors"] or r["seconds"] <= 0 for r in triple):
                 failures.append(f"failed measurement iteration {iteration}")
                 continue
-            for other in (repeated, model):
+            for other in triple[1:]:
                 if reference["rows"] != other["rows"] or compare.signature(reference) != compare.signature(other):
                     failures.append(f"request/range/row mismatch iteration {iteration}")
                 for field in ("get", "put", "list", "head", "bytes", "errors"):
@@ -63,6 +66,8 @@ def analyze(records: list[compare.Record], draws: int = 1000) -> compare.Record:
             a.append(reference["seconds"])
             b.append(repeated["seconds"])
             m.append(model["seconds"])
+            if len(triple) == 4:
+                old.append(triple[3]["seconds"])
         row = {
             "suite": suite,
             "query": query,
@@ -76,14 +81,22 @@ def analyze(records: list[compare.Record], draws: int = 1000) -> compare.Record:
             continue
         block = max(1, min(4, n // 4))
         differences = [abs(math.log(x / z)) - abs(math.log(y / z)) for x, y, z in zip(m, b, a, strict=True)]
+        improvements = (
+            [abs(math.log(x / z)) - abs(math.log(y / z)) for x, y, z in zip(old, m, a, strict=True)] if old else []
+        )
         rng = random.Random(20261028 + query * 2 + (cache == "warm"))
-        median_ratios, noise_ratios, excesses = [], [], []
+        median_ratios, noise_ratios, excesses, improvement_draws = [], [], [], []
+        tail_ratios, tail_noise_ratios = [], []
         for _ in range(draws):
             indices = bootstrap_indices(n, rng, block)
             aa, bb, mm = ([values[index] for index in indices] for values in (a, b, m))
             median_ratios.append(statistics.median(mm) / statistics.median(aa + bb))
             noise_ratios.append(statistics.median(bb) / statistics.median(aa))
+            tail_ratios.append(compare.quantile(mm, 0.9) / compare.quantile(aa + bb, 0.9))
+            tail_noise_ratios.append(compare.quantile(bb, 0.9) / compare.quantile(aa, 0.9))
             excesses.append(statistics.mean(differences[index] for index in indices))
+            if old:
+                improvement_draws.append(statistics.mean(improvements[index] for index in indices))
         row.update(
             bootstrap_block_rounds=block,
             real_median_ms=statistics.median(a) * 1000,
@@ -97,6 +110,7 @@ def analyze(records: list[compare.Record], draws: int = 1000) -> compare.Record:
             model_vs_pooled_real_ratio=statistics.median(m) / statistics.median(a + b),
             real_repeat_p90_ratio=compare.quantile(b, 0.9) / compare.quantile(a, 0.9),
             model_p90_ratio=compare.quantile(m, 0.9) / compare.quantile(a, 0.9),
+            model_vs_pooled_real_p90_ratio=compare.quantile(m, 0.9) / compare.quantile(a + b, 0.9),
             real_repeat_log_mae=statistics.mean(abs(math.log(x / y)) for x, y in zip(b, a, strict=True)),
             model_log_mae=statistics.mean(abs(math.log(x / y)) for x, y in zip(m, a, strict=True)),
             excess_log_mae=statistics.mean(differences),
@@ -105,8 +119,20 @@ def analyze(records: list[compare.Record], draws: int = 1000) -> compare.Record:
             ("model_ratio", median_ratios),
             ("real_repeat_ratio", noise_ratios),
             ("excess_log_mae", excesses),
+            ("model_p90_ratio", tail_ratios),
+            ("real_repeat_p90_ratio", tail_noise_ratios),
         ):
             row[field + "_ci_low"], row[field + "_ci_high"] = interval(values)
+        if old:
+            row.update(
+                baseline_model_median_ms=statistics.median(old) * 1000,
+                baseline_model_p90_ms=compare.quantile(old, 0.9) * 1000,
+                baseline_model_median_ratio=statistics.median(old) / statistics.median(a),
+                baseline_model_p90_ratio=compare.quantile(old, 0.9) / compare.quantile(a, 0.9),
+                baseline_model_log_mae=statistics.mean(abs(math.log(x / y)) for x, y in zip(old, a, strict=True)),
+                improvement_log_mae=statistics.mean(improvements),
+            )
+            row["improvement_ci_low"], row["improvement_ci_high"] = interval(improvement_draws)
         row["bias_ci_excludes_one"] = row["model_ratio_ci_low"] > 1 or row["model_ratio_ci_high"] < 1
         row["error_exceeds_s3_repeatability"] = row["excess_log_mae_ci_low"] > 0
         row["model_outside_band"] = not 0.7 <= row["model_median_ratio"] <= 1.3
@@ -153,5 +179,22 @@ def write_reports(result: compare.Record, destination: Path):
                 f"| {label} | {row['real_repeat_median_ratio']:.3f} | {row['model_median_ratio']:.3f} | "
                 f"{row['model_ratio_ci_low']:.3f}–{row['model_ratio_ci_high']:.3f} | "
                 f"{row['error_exceeds_s3_repeatability']} |"
+            )
+    candidates = [row for row in result["rows"] if "baseline_model_median_ratio" in row]
+    if candidates:
+        lines.extend(
+            [
+                "",
+                "Both frozen models use the same real controls. Positive paired log-error improvement "
+                "favors the candidate; an interval spanning zero is inconclusive.",
+                "",
+                "| Suite/query/cache | Baseline/real median | Candidate/real median | Log-error improvement 95% CI |",
+                "| --- | ---: | ---: | --- |",
+            ]
+        )
+        for row in candidates:
+            lines.append(
+                f"| {row['suite']}/{row['query']}/{row['cache']} | {row['baseline_model_median_ratio']:.3f} | "
+                f"{row['model_median_ratio']:.3f} | {row['improvement_ci_low']:.3f}–{row['improvement_ci_high']:.3f} |"
             )
     destination.with_suffix(".md").write_text("\n".join(lines) + "\n")

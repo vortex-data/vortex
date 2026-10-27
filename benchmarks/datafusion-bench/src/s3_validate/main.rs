@@ -66,6 +66,9 @@ struct Args {
     /// Add an independent real S3 measurement to quantify reference repeatability.
     #[arg(long)]
     real_repeat: bool,
+    /// Prime the source independently of database caches, outside query timers.
+    #[arg(long, default_value_t = 0.0)]
+    source_warmup_seconds: f64,
     #[arg(long, default_value_t = 25.0)]
     ttfb_ms: f64,
     #[arg(long, default_value_t = 100.0)]
@@ -76,6 +79,9 @@ struct Args {
     /// Request-derived parameters, including an optional empirical latency distribution.
     #[arg(long)]
     model_parameters: Option<PathBuf>,
+    /// Optional frozen model to measure alongside the candidate and real references.
+    #[arg(long)]
+    baseline_model_parameters: Option<PathBuf>,
     #[arg(long, default_value_t = 20261027)]
     seed: u64,
     #[arg(long)]
@@ -131,11 +137,60 @@ fn schedule<'a>(
 
 fn backend_order(count: usize, query: usize, iteration: usize) -> Vec<usize> {
     let mut order = (0..count).collect::<Vec<_>>();
+    if count == 4 {
+        // Five is coprime with 24: visit every permutation while spreading positions over time.
+        let mut rank = (iteration * 5 + query) % 24;
+        let mut available = order;
+        order = Vec::with_capacity(count);
+        for remaining in (1..=count).rev() {
+            let factorial = (1..remaining).product::<usize>();
+            order.push(available.remove(rank / factorial));
+            rank %= factorial;
+        }
+        return order;
+    }
     order.rotate_left((query + iteration) % count);
     if count > 2 && (iteration / count) % 2 == 1 {
         order.reverse();
     }
     order
+}
+
+fn validate_model(model: &Model) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        model.ttfb_ms.is_finite() && model.ttfb_ms >= 0.0,
+        "invalid TTFB"
+    );
+    anyhow::ensure!(
+        model.request_mib_per_sec.is_finite() && model.request_mib_per_sec > 0.0,
+        "invalid throughput"
+    );
+    anyhow::ensure!(
+        std::iter::once((&model.latency_cdf_ms, &model.cdf_probabilities))
+            .chain(
+                model
+                    .latency_bins
+                    .iter()
+                    .map(|bin| (&bin.latency_cdf_ms, &bin.cdf_probabilities))
+            )
+            .all(|(cdf, probabilities)| {
+                cdf.iter().all(|v| v.is_finite() && *v >= 0.0)
+                    && cdf.windows(2).all(|w| w[0] <= w[1])
+                    && (probabilities.is_empty()
+                        || (probabilities.len() == cdf.len()
+                            && probabilities
+                                .iter()
+                                .all(|p| p.is_finite() && *p > 0.0 && *p <= 1.0)
+                            && probabilities.windows(2).all(|w| w[0] < w[1])
+                            && probabilities.last() == Some(&1.0)))
+            })
+            && model
+                .latency_bins
+                .windows(2)
+                .all(|bins| bins[0].max_bytes < bins[1].max_bytes),
+        "latency CDF must be finite, nonnegative and sorted"
+    );
+    Ok(())
 }
 
 async fn session(
@@ -214,6 +269,11 @@ async fn main() -> anyhow::Result<()> {
         "Duplicate iteration override"
     );
     anyhow::ensure!(args.iterations > 0, "iterations must be positive");
+    anyhow::ensure!(
+        args.source_warmup_seconds.is_finite()
+            && (0.0..=120.0).contains(&args.source_warmup_seconds),
+        "Source warmup must be within 0–120 seconds"
+    );
     let model = match &args.model_parameters {
         Some(path) => serde_json::from_reader(File::open(path)?)?,
         None => Model {
@@ -221,29 +281,20 @@ async fn main() -> anyhow::Result<()> {
             request_mib_per_sec: args.request_mib_per_sec,
             max_inflight: args.max_inflight,
             latency_cdf_ms: Vec::new(),
+            cdf_probabilities: Vec::new(),
             latency_bins: Vec::new(),
             seed: args.seed,
         },
     };
-    anyhow::ensure!(
-        model.ttfb_ms.is_finite() && model.ttfb_ms >= 0.0,
-        "invalid TTFB"
-    );
-    anyhow::ensure!(
-        model.request_mib_per_sec.is_finite() && model.request_mib_per_sec > 0.0,
-        "invalid throughput"
-    );
-    anyhow::ensure!(
-        std::iter::once(&model.latency_cdf_ms)
-            .chain(model.latency_bins.iter().map(|bin| &bin.latency_cdf_ms))
-            .all(|cdf| cdf.iter().all(|v| v.is_finite() && *v >= 0.0)
-                && cdf.windows(2).all(|w| w[0] <= w[1]))
-            && model
-                .latency_bins
-                .windows(2)
-                .all(|bins| bins[0].max_bytes < bins[1].max_bytes),
-        "latency CDF must be finite, nonnegative and sorted"
-    );
+    validate_model(&model)?;
+    let baseline_model: Option<Model> = args
+        .baseline_model_parameters
+        .as_ref()
+        .map(|path| -> anyhow::Result<Model> { Ok(serde_json::from_reader(File::open(path)?)?) })
+        .transpose()?;
+    if let Some(baseline) = &baseline_model {
+        validate_model(baseline)?;
+    }
     let source_url = Url::parse(&args.source)?;
     anyhow::ensure!(
         source_url.path().ends_with('/'),
@@ -262,6 +313,8 @@ async fn main() -> anyhow::Result<()> {
     let source = datafusion_bench::make_object_store(&setup_session, &source_url)?;
     let prefix = Path::from_url_path(source_url.join(&format!("{}/", args.format.name()))?.path())?;
     let snapshot = store::snapshot(source.as_ref(), &prefix).await?;
+    let source_warmup =
+        store::warm_source(source.as_ref(), &snapshot, args.source_warmup_seconds).await?;
     let objects = store::manifest(&snapshot);
     let real = Arc::new(Store::new(
         Arc::clone(&source),
@@ -275,6 +328,14 @@ async fn main() -> anyhow::Result<()> {
         None,
         !args.adaptive_io,
     ));
+    let baseline_simulated = baseline_model.as_ref().map(|baseline| {
+        Arc::new(Store::new(
+            Arc::clone(&source),
+            Some(Arc::clone(&snapshot)),
+            Some(baseline.clone()),
+            !args.adaptive_io,
+        ))
+    });
     let simulated = Arc::new(Store::new(
         source,
         Some(snapshot),
@@ -287,10 +348,13 @@ async fn main() -> anyhow::Result<()> {
         &mut writer,
         &json!({"kind": "environment", "source": args.source,
         "suite": benchmark.dataset_name(), "scale_factor": args.scale_factor, "format": args.format.name(),
-        "model": model, "iterations": args.iterations, "cpus": system.cpus().len(),
+        "model": model, "baseline_model": baseline_model, "iterations": args.iterations, "cpus": system.cpus().len(),
         "iteration_overrides": iteration_overrides,
         "round_robin": args.round_robin, "real_repeat": args.real_repeat,
         "process_started_unix_ms": process_started_unix_ms,
+        "source_warmup_seconds": args.source_warmup_seconds, "source_warmup": source_warmup,
+        "availability_zone": std::env::var("RUNS_ON_AWS_AZ").ok(),
+        "instance_type": std::env::var("RUNS_ON_INSTANCE_TYPE").ok(),
         "objects": objects,
         "total_memory": system.total_memory(), "available_memory": system.available_memory(),
         "ci_run_id": std::env::var("GITHUB_RUN_ID").ok(), "sha": std::env::var("GITHUB_SHA").ok(),
@@ -313,6 +377,9 @@ async fn main() -> anyhow::Result<()> {
     if args.real_repeat {
         backends.push(("real_repeat", &real_repeat));
     }
+    if let Some(baseline) = &baseline_simulated {
+        backends.push(("model_baseline", baseline));
+    }
     for (index, sql, iteration) in schedule(
         &queries,
         args.iterations,
@@ -325,6 +392,10 @@ async fn main() -> anyhow::Result<()> {
             .enumerate()
         {
             let (backend, store) = backends[backend_index];
+            let measurement_model = baseline_model
+                .as_ref()
+                .filter(|_| backend == "model_baseline")
+                .unwrap_or(&model);
             store.reset()?;
             let setup_start = Instant::now();
             let session = session(
@@ -377,9 +448,10 @@ async fn main() -> anyhow::Result<()> {
                     &json!({"kind": "sample", "suite": benchmark.dataset_name(),
                         "query": index, "backend": backend, "cache": cache, "iteration": iteration,
                         "position": position, "started_ms": started_ms,
+                    "process_started_unix_ms": process_started_unix_ms,
                         "seconds": seconds, "rows": rows, "error": error, "counts": counts,
                         "avg_inflight": counts.request_seconds / seconds, "requests": requests,
-                        "setup_seconds": setup_seconds, "setup_counts": setup_counts, "model": model }),
+                    "setup_seconds": setup_seconds, "setup_counts": setup_counts, "model": measurement_model }),
                 )?;
                 writeln!(writer)?;
                 writer.flush()?;
@@ -413,6 +485,42 @@ mod tests {
         orders.sort();
         orders.dedup();
         assert_eq!(orders.len(), 6);
+    }
+
+    #[test]
+    fn four_backends_visit_all_orders_in_twenty_four_rounds() {
+        let mut orders = (0..24)
+            .map(|iteration| backend_order(4, 1, iteration))
+            .collect::<Vec<_>>();
+        for position in 0..4 {
+            for backend in 0..4 {
+                assert_eq!(
+                    orders
+                        .iter()
+                        .filter(|order| order[position] == backend)
+                        .count(),
+                    6
+                );
+            }
+        }
+        orders.sort();
+        orders.dedup();
+        assert_eq!(orders.len(), 24);
+    }
+
+    #[test]
+    fn weighted_cdfs_require_complete_strictly_increasing_probability_mass() -> anyhow::Result<()> {
+        let mut model: Model = serde_json::from_value(serde_json::json!({
+            "ttfb_ms": 10.0, "request_mib_per_sec": 100.0, "max_inflight": 0,
+            "latency_cdf_ms": [10.0, 20.0]
+        }))?;
+        for probabilities in [vec![0.5], vec![0.5, 0.5], vec![0.0, 1.0], vec![0.5, 1.1]] {
+            model.cdf_probabilities = probabilities;
+            assert!(validate_model(&model).is_err());
+        }
+        model.cdf_probabilities = vec![0.9, 1.0];
+        validate_model(&model)?;
+        Ok(())
     }
 
     #[test]

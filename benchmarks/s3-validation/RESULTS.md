@@ -75,10 +75,12 @@ had ratios 0.529–0.693. Learning empirical latency tails corrected that undere
 profile adds request-size classes to the [first learned profile](profiles/us-east-1-c8gd-vortex-v1.json).
 
 Query p90s miss the band in **17 of 242 comparisons**: 13 cold and four warm. TPC-DS q31 cold
-has real/model p90s of 20.303/8.011 s despite a median ratio of 1.093. Independent draws miss
-coherent S3 latency episodes; short queries amplify timing changes. Three to five iterations
-also limit tail estimates. Learning correlated service-latency epochs and validating them on
-additional held-out runs remains future work.
+has real/model p90s of 20.303/8.011 s despite a median ratio of 1.093. Inspection of that trace
+found one GET taking 23.149 seconds in the last real cold iteration, with 23.145 seconds until
+first bytes. The equally weighted quantile table truncates such rare events. Other runs also
+show clusters of slow requests during source startup. These end-to-end SDK timings do not
+identify whether the delay originates in S3, the network or the client. Three to five iterations
+also limit tail estimates; rare stalls and correlated latency require additional held-out runs.
 
 The controlled profile disables predicate/dynamic-filter pushdown, repartitioning and
 opportunistic coalescing while retaining parallel query operators and intra-file scans.

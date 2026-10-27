@@ -143,6 +143,23 @@ class ComparisonTests(unittest.TestCase):
         self.assertGreater(parameters["latency_cdf_ms"][900], 39)
         self.assertGreater(parameters["latency_cdf_ms"][-1], 100)
 
+    def test_weighted_cdf_preserves_a_rare_stall_at_its_observed_probability(self):
+        residuals = [10.0] * 9999 + [23000.0]
+        self.assertEqual(max(compare.latency_quantiles(residuals, 0)), 10.0)
+        delays, probabilities = compare.weighted_latency(residuals, 0)
+        self.assertEqual(delays, [10.0, 23000.0])
+        self.assertEqual(probabilities, [0.9999, 1.0])
+        self.assertEqual(compare.cdf_quantile(delays, probabilities, 0.99), 10.0)
+        self.assertEqual(compare.cdf_quantile(delays, probabilities, 0.99999), 23000.0)
+
+    def test_weighted_cdf_is_bounded_sorted_and_has_complete_probability_mass(self):
+        delays, probabilities = compare.weighted_latency(list(range(10000)), 1.0)
+        self.assertLessEqual(len(delays), 1010)
+        self.assertEqual(delays, sorted(delays))
+        self.assertEqual(probabilities, sorted(set(probabilities)))
+        self.assertEqual(probabilities[-1], 1.0)
+        self.assertEqual(delays[-1], 9998.0)
+
     def test_calibration_learns_different_request_size_distributions(self):
         requests = [
             {"operation": "GET", "bytes": size, "first_byte_ms": 10, "duration_ms": duration, "inflight_at_start": 1}

@@ -28,6 +28,23 @@ class ChunkTests(unittest.TestCase):
             self.assertFalse(first.exists())
             self.assertFalse(second.exists())
 
+    def test_each_batch_preserves_its_source_warmup_measurements(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            chunk, merged = root / "chunk.jsonl", root / "merged.jsonl"
+            for process in (100, 200):
+                header = {
+                    "kind": "environment",
+                    "process_started_unix_ms": process,
+                    "source_warmup_seconds": 20,
+                    "source_warmup": {"requests": process, "bytes": process * 65536},
+                }
+                self.write(chunk, header, process)
+                run.append_chunk(chunk, merged)
+            environment = json.loads(merged.read_text().splitlines()[0])
+            self.assertEqual([p["process_started_unix_ms"] for p in environment["processes"]], [100, 200])
+            self.assertEqual([p["source_warmup"]["requests"] for p in environment["processes"]], [100, 200])
+
     def test_rejects_changed_host_or_objects_without_altering_previous_results(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

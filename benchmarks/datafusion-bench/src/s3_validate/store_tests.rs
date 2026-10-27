@@ -16,10 +16,24 @@ async fn model(cap: usize) -> anyhow::Result<(Store, ObjectMeta)> {
         request_mib_per_sec: 100.0,
         max_inflight: cap,
         latency_cdf_ms: Vec::new(),
+        cdf_probabilities: Vec::new(),
         latency_bins: Vec::new(),
         seed: 42,
     };
     Ok((Store::new(source, Some(snapshot), Some(model), true), meta))
+}
+
+#[tokio::test]
+async fn source_warmup_is_separate_from_query_request_metrics() -> anyhow::Result<()> {
+    let (store, _) = model(0).await?;
+    let objects = store.snapshot.as_ref().vortex_expect("test snapshot");
+    let disabled = warm_source(store.source.as_ref(), objects, 0.0).await?;
+    assert_eq!(disabled.requests, 0);
+    let warmed = warm_source(store.source.as_ref(), objects, 0.01).await?;
+    assert!(warmed.requests > 0);
+    assert_eq!(warmed.bytes, warmed.requests * 8);
+    assert_eq!(store.take()?.0.get, 0);
+    Ok(())
 }
 
 #[test]
@@ -29,6 +43,7 @@ fn latency_draws_are_repeatable_and_independent_of_request_order() {
         request_mib_per_sec: 100.0,
         max_inflight: 0,
         latency_cdf_ms: (0..1000).map(f64::from).collect(),
+        cdf_probabilities: Vec::new(),
         latency_bins: Vec::new(),
         seed: 42,
     };
@@ -51,6 +66,42 @@ fn latency_draws_are_repeatable_and_independent_of_request_order() {
     assert_eq!(model.delay_ms("HEAD", "table", "", 1, 0, 0), 10.0);
 }
 
+#[test]
+fn weighted_cdf_samples_rare_events_without_promoting_them_to_a_uniform_quantile() {
+    let model = Model {
+        ttfb_ms: 10.0,
+        request_mib_per_sec: 100.0,
+        max_inflight: 0,
+        latency_cdf_ms: vec![10.0, 23000.0],
+        cdf_probabilities: vec![0.999, 1.0],
+        latency_bins: Vec::new(),
+        seed: 42,
+    };
+    let rare = (0..100000)
+        .filter(|key| model.delay_ms("GET", &format!("table/{key}"), "0..100", 1, 0, 100) > 1000.0)
+        .count();
+    assert!((60..150).contains(&rare), "rare event count: {rare}");
+}
+
+#[test]
+fn legacy_profiles_keep_their_serialized_model_shape() -> anyhow::Result<()> {
+    let original = serde_json::json!({"ttfb_ms":10.0,"request_mib_per_sec":100.0,"max_inflight":0,
+        "latency_cdf_ms":[10.0,20.0],"latency_bins":[{"max_bytes":1024,"latency_cdf_ms":[10.0]}],"seed":42});
+    let model: Model = serde_json::from_value(original.clone())?;
+    assert_eq!(serde_json::to_value(model)?, original);
+    Ok(())
+}
+
+#[test]
+fn learned_probabilities_preserve_their_exact_floating_point_values() -> anyhow::Result<()> {
+    let model: Model = serde_json::from_str(
+        r#"{"ttfb_ms":10.0,"request_mib_per_sec":100.0,"max_inflight":0,
+        "latency_cdf_ms":[10.0,20.0],"cdf_probabilities":[0.20160481444332998,1.0]}"#,
+    )?;
+    assert_eq!(model.cdf_probabilities[0], 201.0 / 997.0);
+    Ok(())
+}
+
 #[tokio::test]
 async fn range_size_selects_the_learned_latency_class() -> anyhow::Result<()> {
     let (mut store, meta) = model(0).await?;
@@ -59,10 +110,12 @@ async fn range_size_selects_the_learned_latency_class() -> anyhow::Result<()> {
         LatencyBin {
             max_bytes: 3,
             latency_cdf_ms: vec![2.0],
+            cdf_probabilities: Vec::new(),
         },
         LatencyBin {
             max_bytes: u64::MAX,
             latency_cdf_ms: vec![20.0],
+            cdf_probabilities: Vec::new(),
         },
     ];
     store.get_range(&meta.location, 0..3).await?;
@@ -99,6 +152,7 @@ async fn run_specific_prefixes_do_not_change_seeded_delays() -> anyhow::Result<(
                 request_mib_per_sec: 100.0,
                 max_inflight: 0,
                 latency_cdf_ms: vec![1.0, 3.0, 7.0],
+                cdf_probabilities: Vec::new(),
                 latency_bins: Vec::new(),
                 seed: 42,
             }),

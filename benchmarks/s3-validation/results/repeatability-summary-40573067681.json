@@ -1,0 +1,35 @@
+{
+  "ci_run_id": "40573067681",
+  "url": "https://github.com/vortex-data/vortex/actions/runs/40573067681",
+  "sha": "129e7c8902e7c3a2fbdfa17e901d7f52b96ef2a6",
+  "scope": "focused same-host diagnostics, not full-suite validation",
+  "groups": 24,
+  "samples": 1728,
+  "iterations": 24,
+  "real_backends": [
+    "real",
+    "real_repeat"
+  ],
+  "profile_sha256": "2aa62e3fe8486e3183d6b92de095a5429f22e3262242202891adb7b4400469fe",
+  "requests_match": true,
+  "get_requests_per_backend": 605832,
+  "model_median_ratio_range": [
+    0.8739741099665443,
+    1.126609108927548
+  ],
+  "real_repeat_median_ratio_range": [
+    0.9057421308924848,
+    1.0867056005752802
+  ],
+  "model_p90_ratio_range": [
+    0.7847924093509371,
+    1.1179202680447249
+  ],
+  "model_excess_error_flags": 0,
+  "bootstrap": "circular blocks of consecutive query rounds; controls resampled together",
+  "confidence": 0.95,
+  "bootstrap_draws": 1000,
+  "artifact_id": 12772979778,
+  "artifact_sha256": "fc80fd8503f5fcaae167d0b75be9f4fd6e88e6bad69f582e27a8709148448329",
+  "note": "An interval containing zero does not establish equivalence. No multiple-comparison adjustment; exploratory diagnostics."
+}

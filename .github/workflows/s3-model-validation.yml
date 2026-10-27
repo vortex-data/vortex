@@ -24,6 +24,14 @@ on:
         description: "Checked-in profile to validate in learned mode"
         type: string
         default: benchmarks/s3-validation/profiles/us-east-1-c8gd-vortex.json
+      baseline_profile:
+        description: "Optional frozen model to compare with the candidate on the same host"
+        type: string
+        default: ""
+      source_warmup_seconds:
+        description: "S3-only request warmup before query timers (0–120 seconds)"
+        type: number
+        default: 0
   push:
     branches: ["ji/ci-s3-model-validation"]
 
@@ -73,6 +81,8 @@ jobs:
       S3_VALIDATION_ROLE_ARN: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
       VALIDATION_MODE: ${{ inputs.mode || 'learned' }}
       S3_MODEL_PROFILE: ${{ inputs.profile || 'benchmarks/s3-validation/profiles/us-east-1-c8gd-vortex.json' }}
+      S3_BASELINE_PROFILE: ${{ inputs.baseline_profile || '' }}
+      S3_SOURCE_WARMUP_SECONDS: ${{ inputs.source_warmup_seconds || 0 }}
     steps:
       - uses: runs-on/action@v2
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -140,6 +150,7 @@ jobs:
           path: |
             s3-validation-results/initial*
             s3-validation-results/parameters.json
+            s3-validation-results/baseline-parameters.json
       - name: Refresh AWS credentials for validation
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
         with:
@@ -164,6 +175,7 @@ jobs:
           path: |
             s3-validation-results/tuned*
             s3-validation-results/parameters.json
+            s3-validation-results/baseline-parameters.json
       - name: Validate TPC-DS queries 1-71
         run: |
           phase=tuned
@@ -184,6 +196,7 @@ jobs:
           path: |
             s3-validation-results/tuned*
             s3-validation-results/parameters.json
+            s3-validation-results/baseline-parameters.json
       - name: Validate TPC-DS query 72
         if: env.VALIDATION_MODE != 'repeatability'
         run: |
@@ -199,6 +212,7 @@ jobs:
           path: |
             s3-validation-results/tuned*
             s3-validation-results/parameters.json
+            s3-validation-results/baseline-parameters.json
       - name: Validate TPC-DS queries 73-99
         if: env.VALIDATION_MODE != 'repeatability'
         run: |

@@ -21,6 +21,10 @@ hardware, region, coverage and calibration method. The first profile is preserve
 requests/ranges/bytes/rows across all 121 queries. The strict gate remains false; the report
 explains the one median flag and tail limitations.
 
+The [24-round repeatability investigation](REPEATABILITY.md) separates real-S3 variation from
+model error and describes the opt-in candidate. The default profile remains version 2 until
+fresh CI validation establishes whether the candidate improves the fit.
+
 Training includes partial TPC-H/TPC-DS runs; it establishes request
 latency parameters, rather than full benchmark accuracy. Validation must use a different CI run,
 and verifies that the measured model exactly matches the frozen parameters. No refitting happens
@@ -142,6 +146,32 @@ errors with real/real errors. Paired circular blocks of consecutive rounds provi
 95% confidence intervals for median bias and excess error over the S3 control. An interval
 including one is inconclusive, rather than proof of equivalence. Query runtimes are diagnostic
 outcomes and remain excluded from profile learning.
+
+A candidate can be compared directly with a frozen baseline using the dispatch input
+`baseline_profile` (or `run.py --baseline-profile`). Both models then run beside the two real
+controls on the same host; 24 rounds visit all 24 backend orders. The paired bootstrap also
+reports the change in absolute log error from the old model to the candidate. Both frozen
+profiles are verified against their measured configurations. The comparison run must be excluded
+from both profiles' training data.
+
+`learn.py --preserve-tail` produces an opt-in version 3 profile with cumulative probabilities.
+The bulk uses up to 1,000 buckets, while each observation in the upper 0.1% (rounded up) retains
+its observed probability. This avoids the old quantile table's truncation of very rare stalls.
+It uses the same request-size classes and request-derived transfer cost, without query runtime
+factors. Empty probability arrays retain the legacy sampler and serialized profile shape.
+The default checked-in version 2 profile remains unchanged until a candidate is validated in CI.
+
+The optional dispatch input `source_warmup_seconds` (or driver flag `--source-warmup-seconds`)
+primes S3 directly with 32 concurrent 64 KiB range reads before database sessions or query timers.
+It records actual warmup time, bytes and requests separately. Database cold/warm cache semantics
+are unchanged. The default remains zero for compatibility; the candidate experiment uses an
+explicit warmup to separate initial source startup from steady performance. Request metrics for
+queries exclude this common setup phase.
+
+`learn.py --exclude-startup` excludes the first real timed sample from each identifiable unprimed
+process, regardless of query label or runtime, and records the exclusions. Legacy inputs without
+process timestamps can identify only their initial process. Primed inputs retain every sample.
+This targets a steady-service profile while preserving rare stalls elsewhere in the traces.
 
 For local smoke testing, generate a small dataset and explicitly allow a filesystem reference.
 This tests the harness and never qualifies as S3 validation:

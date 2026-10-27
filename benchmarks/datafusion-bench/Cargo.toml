@@ -47,7 +47,7 @@ opentelemetry-otlp.workspace = true
 opentelemetry_sdk.workspace = true
 parking_lot = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 sysinfo = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 url = { workspace = true }

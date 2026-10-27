@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import copy
 import unittest
 
 import compare
@@ -58,6 +59,20 @@ class RepeatabilityTests(unittest.TestCase):
         for record in records[1:]:
             record["seconds"] *= 1 + record["iteration"] * 0.01
         self.assertEqual(repeatability.analyze(records, draws=100), repeatability.analyze(records, draws=100))
+
+    def test_paired_old_model_comparison_and_requests_are_checked(self):
+        records = self.records()
+        for record in records[1:].copy():
+            if record["backend"] == "model":
+                baseline = copy.deepcopy(record)
+                baseline.update(backend="model_baseline", seconds=2)
+                records.append(baseline)
+        row = repeatability.analyze(records, draws=100)["rows"][0]
+        self.assertTrue(row["requests_match"])
+        self.assertGreater(row["improvement_ci_low"], 0)
+        self.assertEqual(row["baseline_model_median_ratio"], 2)
+        records[-1]["requests"][0]["bytes"] = 2048
+        self.assertFalse(repeatability.analyze(records, draws=100)["rows"][0]["requests_match"])
 
 
 if __name__ == "__main__":
