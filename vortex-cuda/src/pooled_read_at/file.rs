@@ -245,10 +245,10 @@ impl FileMapping {
 /// Release cached file mappings that no open reader uses, unmapping them before returning.
 ///
 /// Readers keep files mapped between scans, so later scans of a file reuse its filled page
-/// tables. A mapped page cannot be dropped from the page cache, for example by
-/// `posix_fadvise(DONTNEED)`, so release the mappings before evicting files, such as before a
-/// cold-cache measurement, or to return the address space. Mappings that open readers still use
-/// stay mapped until those readers close.
+/// tables. `posix_fadvise(DONTNEED)` skips pages mapped into a process, although memory pressure
+/// can still reclaim them, so release the mappings before evicting files with it, such as before
+/// a cold-cache measurement, or to return the address space. Mappings that open readers still
+/// use stay mapped until those readers close.
 pub fn release_file_mappings() {
     // Closed readers hand their mappings to the release queue; wait until it has dropped them.
     if let Some(queue) = MAPPED_RELEASE_QUEUE.as_ref() {
