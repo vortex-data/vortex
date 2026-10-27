@@ -21,6 +21,7 @@ def learn(paths: Sequence[Path], minimum_runs: int = 2) -> compare.Record:
     hashes = set()
     hosts = set()
     memories = []
+    seen_samples = set()
     for path in paths:
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         if digest in hashes:
@@ -31,6 +32,13 @@ def learn(paths: Sequence[Path], minimum_runs: int = 2) -> compare.Record:
         if len(environments) != 1:
             raise ValueError(f"Expected one environment record in {path}")
         environment = environments[0]
+        for record in entries:
+            if record.get("kind") == "sample":
+                record["_training_run_id"] = str(environment.get("ci_run_id"))
+                key = (*compare.sample_key(record), record["backend"])
+                if key in seen_samples:
+                    raise ValueError(f"Duplicate training sample in {path}: {key}")
+                seen_samples.add(key)
         required = ("ci_run_id", "sha", "region", "instance_id", "cpus", "total_memory", "format")
         if (
             any(not environment.get(key) for key in required)
@@ -74,7 +82,7 @@ def learn(paths: Sequence[Path], minimum_runs: int = 2) -> compare.Record:
         raise ValueError(f"Need {minimum_runs} distinct CI runs; found {len(run_ids)}")
     parameters = compare.calibrate(records)
     region, cpus, format_name = next(iter(hosts))
-    parameters["profile_version"] = 1
+    parameters["profile_version"] = 2
     parameters["training"] = {
         "created_at": datetime.now(UTC).isoformat(),
         "run_ids": run_ids,
@@ -83,7 +91,10 @@ def learn(paths: Sequence[Path], minimum_runs: int = 2) -> compare.Record:
         "total_memory": statistics.median(memories),
         "format": format_name,
         "weighting": "one observation per completed real GET; query runtimes are not training targets",
-        "method": "empirical GET duration residual after transfer cost; seeded 1000-quantile sampling",
+        "method": (
+            "request-size-specific GET duration residuals; seeded 1000-quantile sampling; "
+            "exclude samples with median model timer overshoot above 5 ms"
+        ),
         "scope": "request latency training; partial query coverage does not establish benchmark accuracy",
         "sources": sources,
     }
@@ -92,7 +103,7 @@ def learn(paths: Sequence[Path], minimum_runs: int = 2) -> compare.Record:
 
 def validate_profile(profile: compare.Record, run_id: str | None, region: str, format_name: str):
     training = profile.get("training", {})
-    if profile.get("profile_version") != 1 or len(set(training.get("run_ids", []))) < 2:
+    if profile.get("profile_version") not in (1, 2) or len(set(training.get("run_ids", []))) < 2:
         raise ValueError("A frozen profile needs provenance from at least two distinct CI runs")
     if run_id is not None and str(run_id) in training["run_ids"]:
         raise ValueError("Validation must use a CI run excluded from training")
@@ -104,7 +115,10 @@ def validate_profile(profile: compare.Record, run_id: str | None, region: str, f
 def attach_profile(result: compare.Record, profile: compare.Record, digest: str):
     for environment in result["environments"]:
         validate_profile(profile, environment.get("ci_run_id"), environment["region"], environment["format"])
-        if any(environment["model"].get(key) != profile[key] for key in environment["model"]):
+        if any(
+            environment["model"].get(key) != profile.get(key, [] if key == "latency_bins" else None)
+            for key in environment["model"]
+        ):
             raise ValueError("Measured model differs from the frozen learned profile")
         if (
             environment["cpus"] != profile["training"]["cpus"]

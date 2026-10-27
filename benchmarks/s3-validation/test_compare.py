@@ -73,6 +73,27 @@ class ComparisonTests(unittest.TestCase):
         self.assertFalse(result["default_ci_recommended"])
         self.assertEqual(len(result["rows"]), 242)
 
+    def test_declared_per_query_sample_counts_preserve_coverage(self):
+        records = self.records()
+        next(r for r in records if r["kind"] == "environment" and r["suite"] == "tpch")["iteration_overrides"] = {
+            "1": 5
+        }
+        extra = []
+        for sample in records:
+            if (
+                sample.get("kind") == "sample"
+                and sample["suite"] == "tpch"
+                and sample["query"] == 1
+                and sample["iteration"] == 0
+            ):
+                for iteration in (3, 4):
+                    copy_sample = copy.deepcopy(sample)
+                    copy_sample["iteration"] = iteration
+                    extra.append(copy_sample)
+        result = compare.compare(records + extra, 3, ["tpch", "tpcds"])
+        self.assertTrue(result["adequate"])
+        self.assertEqual(result["rows"][0]["iterations"], 5)
+
     def test_missing_samples_and_request_mismatches_fail(self):
         records = self.records()
         records.pop()
@@ -121,6 +142,51 @@ class ComparisonTests(unittest.TestCase):
         self.assertLess(parameters["latency_cdf_ms"][500], 11)
         self.assertGreater(parameters["latency_cdf_ms"][900], 39)
         self.assertGreater(parameters["latency_cdf_ms"][-1], 100)
+
+    def test_calibration_learns_different_request_size_distributions(self):
+        requests = [
+            {"operation": "GET", "bytes": size, "first_byte_ms": 10, "duration_ms": duration, "inflight_at_start": 1}
+            for size, duration in [(1024, 40)] * 201 + [(524288, 20)] * 201
+        ]
+        parameters = compare.calibrate([{"kind": "sample", "backend": "real", "error": None, "requests": requests}])
+        self.assertGreater(parameters["latency_bins"][0]["latency_cdf_ms"][500], 35)
+        self.assertLess(parameters["latency_bins"][3]["latency_cdf_ms"][500], 15)
+        self.assertEqual(parameters["calibration_bins"][0]["requests"], 201)
+
+    def test_calibration_excludes_stalled_model_timers(self):
+        records = []
+        for query, loaded in [(1, True), (2, False)]:
+            for backend in ("real", "model"):
+                duration = 200 if loaded else (11 if backend == "real" else 6)
+                records.append(
+                    {
+                        "kind": "sample",
+                        "backend": backend,
+                        "query": query,
+                        "error": None,
+                        "model": {"ttfb_ms": 5, "request_mib_per_sec": 100},
+                        "requests": [
+                            {
+                                "operation": "GET",
+                                "bytes": 1024,
+                                "first_byte_ms": duration - 1,
+                                "duration_ms": duration,
+                                "inflight_at_start": 1,
+                            },
+                            {
+                                "operation": "GET",
+                                "bytes": 1048576,
+                                "first_byte_ms": duration - 1,
+                                "duration_ms": duration + 9,
+                                "inflight_at_start": 1,
+                            },
+                        ],
+                    }
+                )
+        parameters = compare.calibrate(records)
+        self.assertEqual(parameters["calibration_excluded_loaded_samples"], 1)
+        self.assertEqual(parameters["calibration_get_requests"], 2)
+        self.assertLess(parameters["latency_cdf_ms"][-1], 20)
 
 
 if __name__ == "__main__":

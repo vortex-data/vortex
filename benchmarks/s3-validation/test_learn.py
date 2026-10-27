@@ -74,6 +74,11 @@ class LearningTests(unittest.TestCase):
                 learn.learn([a])
             with self.assertRaisesRegex(ValueError, "Duplicate"):
                 learn.learn([a, a])
+            duplicate = self.records("123")
+            duplicate[1]["seconds"] = 99
+            b = self.write(root, "duplicate.jsonl", duplicate)
+            with self.assertRaisesRegex(ValueError, "Duplicate training sample"):
+                learn.learn([a, b])
             local = self.records("456")
             local[0]["local_smoke"] = True
             b = self.write(root, "b.jsonl", local)

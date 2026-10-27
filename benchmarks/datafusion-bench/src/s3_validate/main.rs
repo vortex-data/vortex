@@ -6,6 +6,7 @@
 mod reader;
 mod store;
 
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::BufWriter;
 use std::io::Write;
@@ -52,6 +53,9 @@ struct Args {
     format: Format,
     #[arg(long, default_value_t = 5)]
     iterations: usize,
+    /// Per-query repetition counts, e.g. 72=3 when the default is five.
+    #[arg(long, value_delimiter = ',', value_parser = iteration_override)]
+    iteration_overrides: Vec<(usize, usize)>,
     #[arg(long, value_delimiter = ',')]
     queries: Option<Vec<usize>>,
     #[arg(long, default_value_t = 25.0)]
@@ -74,6 +78,18 @@ struct Args {
     /// Retain normal coalescing, repartitioning and predicate pushdown for diagnostic runs.
     #[arg(long)]
     adaptive_io: bool,
+}
+
+fn iteration_override(value: &str) -> Result<(usize, usize), String> {
+    let (query, iterations) = value.split_once('=').ok_or("Use QUERY=ITERATIONS")?;
+    let query = query.parse::<usize>().map_err(|error| error.to_string())?;
+    let iterations = iterations
+        .parse::<usize>()
+        .map_err(|error| error.to_string())?;
+    if query == 0 || iterations == 0 {
+        return Err("Query and iteration count must be positive".to_string());
+    }
+    Ok((query, iterations))
 }
 
 async fn session(
@@ -140,6 +156,15 @@ async fn query(session: &SessionContext, sql: &str) -> anyhow::Result<usize> {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    let iteration_overrides = args
+        .iteration_overrides
+        .iter()
+        .copied()
+        .collect::<BTreeMap<_, _>>();
+    anyhow::ensure!(
+        iteration_overrides.len() == args.iteration_overrides.len(),
+        "Duplicate iteration override"
+    );
     anyhow::ensure!(args.iterations > 0, "iterations must be positive");
     let model = match &args.model_parameters {
         Some(path) => serde_json::from_reader(File::open(path)?)?,
@@ -148,6 +173,7 @@ async fn main() -> anyhow::Result<()> {
             request_mib_per_sec: args.request_mib_per_sec,
             max_inflight: args.max_inflight,
             latency_cdf_ms: Vec::new(),
+            latency_bins: Vec::new(),
             seed: args.seed,
         },
     };
@@ -160,11 +186,14 @@ async fn main() -> anyhow::Result<()> {
         "invalid throughput"
     );
     anyhow::ensure!(
-        model
-            .latency_cdf_ms
-            .iter()
-            .all(|v| v.is_finite() && *v >= 0.0)
-            && model.latency_cdf_ms.windows(2).all(|w| w[0] <= w[1]),
+        std::iter::once(&model.latency_cdf_ms)
+            .chain(model.latency_bins.iter().map(|bin| &bin.latency_cdf_ms))
+            .all(|cdf| cdf.iter().all(|v| v.is_finite() && *v >= 0.0)
+                && cdf.windows(2).all(|w| w[0] <= w[1]))
+            && model
+                .latency_bins
+                .windows(2)
+                .all(|bins| bins[0].max_bytes < bins[1].max_bytes),
         "latency CDF must be finite, nonnegative and sorted"
     );
     let source_url = Url::parse(&args.source)?;
@@ -185,6 +214,7 @@ async fn main() -> anyhow::Result<()> {
     let source = datafusion_bench::make_object_store(&setup_session, &source_url)?;
     let prefix = Path::from_url_path(source_url.join(&format!("{}/", args.format.name()))?.path())?;
     let snapshot = store::snapshot(source.as_ref(), &prefix).await?;
+    let objects = store::manifest(&snapshot);
     let real = Arc::new(Store::new(
         Arc::clone(&source),
         Some(Arc::clone(&snapshot)),
@@ -204,6 +234,8 @@ async fn main() -> anyhow::Result<()> {
         &json!({"kind": "environment", "source": args.source,
         "suite": benchmark.dataset_name(), "scale_factor": args.scale_factor, "format": args.format.name(),
         "model": model, "iterations": args.iterations, "cpus": system.cpus().len(),
+        "iteration_overrides": iteration_overrides,
+        "objects": objects,
         "total_memory": system.total_memory(), "available_memory": system.available_memory(),
         "ci_run_id": std::env::var("GITHUB_RUN_ID").ok(), "sha": std::env::var("GITHUB_SHA").ok(),
         "region": std::env::var("AWS_REGION").ok(), "instance_id": std::env::var("RUNS_ON_INSTANCE_ID").ok(),
@@ -221,7 +253,11 @@ async fn main() -> anyhow::Result<()> {
         if args.queries.as_ref().is_some_and(|qs| !qs.contains(&index)) {
             continue;
         }
-        for iteration in 0..args.iterations {
+        let iterations = iteration_overrides
+            .get(&index)
+            .copied()
+            .unwrap_or(args.iterations);
+        for iteration in 0..iterations {
             let pair = if (index + iteration) % 2 == 0 {
                 [("real", &real), ("model", &simulated)]
             } else {

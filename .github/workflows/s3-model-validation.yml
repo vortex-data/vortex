@@ -9,7 +9,7 @@ on:
       iterations:
         description: "Paired samples per query/cache state (at least 3)"
         type: number
-        default: 3
+        default: 5
       format:
         description: "Identical format for both backends"
         type: choice
@@ -60,12 +60,13 @@ jobs:
 
   compare:
     needs: build
-    timeout-minutes: 360
+    timeout-minutes: ${{ inputs.mode == 'recalibrate' && 1200 || 720 }}
     runs-on: runs-on=${{ github.run_id }}/runner=bench-dedicated/family=c8gd.16xlarge/image=ubuntu24-full-arm64-pre-v2/tag=s3-compare
     env:
       AWS_REGION: us-east-1
       REMOTE_ROOT: s3://vortex-ci-benchmark-datasets/s3-model-validation/${{ github.run_id }}-${{ github.run_attempt }}
-      ITERATIONS: ${{ inputs.iterations || 3 }}
+      ITERATIONS: ${{ inputs.iterations || 5 }}
+      S3_ITERATION_OVERRIDES: "{\"tpcds\":{\"72\":3}}"
       BENCH_FORMAT: ${{ inputs.format || 'vortex' }}
       RUST_BACKTRACE: "1"
       S3_VALIDATION_ROLE_ARN: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
@@ -114,14 +115,24 @@ jobs:
         with:
           name: s3-validation-initial-tpch
           path: s3-validation-results/initial*
-      - name: Measure initial TPC-DS pairs and calibrate requests
+      - name: Measure initial TPC-DS queries 1-71
+        if: env.VALIDATION_MODE == 'recalibrate'
+        run: |
+          python3 benchmarks/s3-validation/run.py --source-root "$REMOTE_ROOT" \
+            --iterations "$ITERATIONS" --format "$BENCH_FORMAT" --phase initial --suites tpcds --queries "$(seq -s, 1 71)"
+      - name: Measure initial TPC-DS query 72
+        if: env.VALIDATION_MODE == 'recalibrate'
+        run: |
+          python3 benchmarks/s3-validation/run.py --source-root "$REMOTE_ROOT" \
+            --iterations "$ITERATIONS" --format "$BENCH_FORMAT" --phase initial --suites tpcds --queries 72
+      - name: Measure initial TPC-DS queries 73-99 and calibrate
         id: initial
         if: env.VALIDATION_MODE == 'recalibrate'
         run: |
           python3 benchmarks/s3-validation/run.py --source-root "$REMOTE_ROOT" \
-            --iterations "$ITERATIONS" --format "$BENCH_FORMAT" --phase initial --suites tpcds
+            --iterations "$ITERATIONS" --format "$BENCH_FORMAT" --phase initial --suites tpcds --queries "$(seq -s, 73 99)"
       - name: Preserve initial measurements before validation
-        if: always() && steps.initial.outcome != 'skipped'
+        if: always() && env.VALIDATION_MODE == 'recalibrate'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: s3-validation-initial
@@ -148,12 +159,40 @@ jobs:
           path: |
             s3-validation-results/tuned*
             s3-validation-results/parameters.json
-      - name: Validate TPC-DS model against fresh real S3 samples
+      - name: Validate TPC-DS queries 1-71
         run: |
           phase=tuned
           if [ "$VALIDATION_MODE" = learned ]; then phase=validate; fi
           python3 benchmarks/s3-validation/run.py --source-root "$REMOTE_ROOT" \
-            --iterations "$ITERATIONS" --format "$BENCH_FORMAT" --phase "$phase" --suites tpcds
+            --iterations "$ITERATIONS" --format "$BENCH_FORMAT" --phase "$phase" --suites tpcds --queries "$(seq -s, 1 71)"
+      - name: Preserve TPC-DS queries 1-71 checkpoint
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: s3-validation-tpcds-head
+          path: |
+            s3-validation-results/tuned*
+            s3-validation-results/parameters.json
+      - name: Validate TPC-DS query 72
+        run: |
+          phase=tuned
+          if [ "$VALIDATION_MODE" = learned ]; then phase=validate; fi
+          python3 benchmarks/s3-validation/run.py --source-root "$REMOTE_ROOT" \
+            --iterations "$ITERATIONS" --format "$BENCH_FORMAT" --phase "$phase" --suites tpcds --queries 72
+      - name: Preserve TPC-DS query 72 checkpoint
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: s3-validation-tpcds-q72
+          path: |
+            s3-validation-results/tuned*
+            s3-validation-results/parameters.json
+      - name: Validate TPC-DS queries 73-99
+        run: |
+          phase=tuned
+          if [ "$VALIDATION_MODE" = learned ]; then phase=validate; fi
+          python3 benchmarks/s3-validation/run.py --source-root "$REMOTE_ROOT" \
+            --iterations "$ITERATIONS" --format "$BENCH_FORMAT" --phase "$phase" --suites tpcds --queries "$(seq -s, 73 99)"
       - name: Publish available reports
         if: always()
         run: |

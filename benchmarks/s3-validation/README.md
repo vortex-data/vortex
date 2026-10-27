@@ -9,9 +9,11 @@ with alternating backend order for each query/iteration. The bucket region and r
 are checked before measurement. The workflow supports Vortex (default) and Parquet.
 
 The default workflow validates a **frozen learned profile** against fresh real S3 measurements.
-The first profile, `profiles/us-east-1-c8gd-vortex.json`, was learned from 519,095 real GETs in
-two earlier CI runs. Its JSON records the source run IDs, input SHA-256 hashes, hardware, region,
-coverage and calibration method. Training includes partial TPC-H runs; it establishes request
+The current profile, `profiles/us-east-1-c8gd-vortex.json`, was learned from 1,205,642 eligible
+real GETs in three earlier CI runs. Its JSON records the source run IDs, input SHA-256 hashes,
+hardware, region, coverage and calibration method. The first profile is preserved as
+`profiles/us-east-1-c8gd-vortex-v1.json`; [measured results](RESULTS.md) distinguish the versions.
+Training includes partial TPC-H/TPC-DS runs; it establishes request
 latency parameters, rather than full benchmark accuracy. Validation must use a different CI run,
 and verifies that the measured model exactly matches the frozen parameters. No refitting happens
 during this validation. Use the `recalibrate` workflow mode to collect initial/tuned pairs instead.
@@ -27,7 +29,7 @@ python3 benchmarks/s3-validation/learn.py \
 Learning requires at least two distinct real-S3 CI runs with matching region, format, CPU count
 and memory within 1%. Query runtimes are excluded from fitting. Longer scans contribute more GET
 observations; per-source sample counts are recorded so that weighting remains visible. The learner
-rejects duplicate files, local data and failed/incomplete GET measurements. To validate a profile:
+rejects duplicate files/samples, local data and failed/incomplete GET measurements. To validate a profile:
 
 ```bash
 python3 benchmarks/s3-validation/run.py --source-root "$REMOTE_ROOT" --phase validate \
@@ -55,25 +57,40 @@ byte counters measure underlying operations after this cache; `get_calls` and `t
 expose total logical GET calls and the calls served by the cache, respectively. The real backend still fetches every cache miss
 from its source object store.
 
-Each of three iterations by default creates fresh DataFusion and Vortex sessions, registers tables, runs the
+The workflow uses five iterations per query, with three for the execution-heavy TPC-DS query 72.
+The binary accepts `--iteration-overrides 72=3`; the driver accepts a JSON map by suite, such as
+`--iteration-overrides '{"tpcds":{"72":3}}'`. Reports record each query's declared sample count
+and require at least three samples. Each iteration creates fresh DataFusion and Vortex sessions, registers tables, runs the
 query cold, then immediately runs it warm. Query timers include planning and execution; table
 registration has separate timings and request counters. The file catalog is prepared during registration.
 Footer metadata and file-statistics caches are cleared after registration so schema inference does not
 warm those caches for the cold sample. Prepared file listings stay in the catalog; this avoids
 timing-dependent duplicate LIST calls from concurrent scans.
 The S3 HTTP client stays alive across
-samples. Cold therefore means fresh database caches, rather than cold TLS or S3 service caches.
+samples within a batch. Cold therefore means fresh database caches, rather than cold TLS or S3 service caches.
+
+TPC-DS runs as three sequential batches (1–71, 72, 73–99) on the same machine, against the same
+uploaded objects. `run.py --queries` merges completed batches atomically and rejects different
+host IDs, object ETags/sizes, profiles or configurations. Every query still runs at SF10. Logs
+preserve each batch's command. The HTTP client and RAM snapshot are recreated between batches.
+Checkpoints are uploaded before and after query 72, which takes about 25 minutes per execution
+in the measured engine. The job budget is 12 hours for frozen-profile validation and 20 hours
+for the optional two-phase recalibration run. These budgets avoid truncating the unchanged suite.
 
 In recalibration mode, the initial deterministic model uses 25 ms per request, 100 MiB/s per request and no concurrency
 cap. Sleeps use Tokio timers and response streams retain their semaphore permit until completed
 or cancelled. Transfer waits use absolute deadlines to avoid accumulating a timer tick per chunk.
 Calibration estimates TTFB from small S3 requests and throughput from large S3 requests, preferring
 low concurrency. It also learns 1,000 equally weighted latency quantiles from real GET durations
-after subtracting the transfer cost. This preserves the long tail that parallel scans wait for.
+after subtracting the transfer cost. Separate distributions cover requests up to 4 KiB, 64 KiB,
+256 KiB and 1 MiB. Sparse classes fall back to the overall distribution. Calibration excludes
+paired samples whose model timers overshot by more than 5 ms at the median, so execution stalls
+do not become service latency. Partial paired runs also exclude unmatched samples. This preserves
+the long tail that parallel scans wait for.
 The extreme 0.05% at each end is represented by the nearest quantile. Programmed delays account
 for measured model timer overhead, which is reported separately. Draws use seed 20261027 and a
-stable hash of the operation, object, range, measurement number and per-key request ordinal,
-so concurrent task polling order does not choose the delays. HEAD/LIST use the scalar TTFB.
+stable hash of the operation, dataset-relative object path, range, measurement number and per-key request ordinal,
+so concurrent task polling order and run-specific S3 prefixes do not choose the delays. HEAD/LIST use the scalar TTFB.
 `--model-parameters parameters.json` loads the learned distribution. Traces include each
 programmed request delay. Calibration uses request measurements without adjusting query results
 or applying per-query runtime factors. A second complete paired run tests these parameters
@@ -84,7 +101,7 @@ web-identity provider renews AWS credentials from that file, so a suite can exce
 This uses the workflow's existing benchmark role; tokens are kept outside the result artifacts.
 
 Artifacts include raw JSONL with per-request traces, query samples, initial/tuned reports, and
-`parameters.json`. The workflow uploads a checkpoint after each suite so its evidence is available
+`parameters.json`. The workflow uploads a checkpoint after each suite and around query 72 so its evidence is available
 while the next suite runs. Each sample records GET/PUT/LIST/HEAD counts, consumed bytes, errors, peak and
 time-averaged in-flight requests, plus registration counts. These are object-store API metrics;
 HTTP retries inside the S3 client are not separately instrumented. The current snapshot is flat
@@ -96,7 +113,7 @@ can successfully collect evidence while recommending against making the model th
 Query failures and request mismatches are invalid comparisons, not latency calibration targets.
 
 ```bash
-gh workflow run s3-model-validation.yml --ref ji/ci-s3-model-validation -f iterations=3 -f format=vortex -f mode=learned
+gh workflow run s3-model-validation.yml --ref ji/ci-s3-model-validation -f iterations=5 -f format=vortex -f mode=learned
 ```
 
 For local smoke testing, generate a small dataset and explicitly allow a filesystem reference.

@@ -52,11 +52,55 @@ def spearman(left: Sequence[float], right: Sequence[float]) -> float | None:
     return numerator / denominator if denominator else None
 
 
+def sample_key(record: Record) -> tuple:
+    return tuple(record.get(key) for key in ("_training_run_id", "suite", "query", "iteration", "cache"))
+
+
+def latency_quantiles(residuals: Sequence[float], timer_overhead: float) -> list[float]:
+    values = sorted(residuals)
+    cdf = []
+    for index in range(1000):
+        position = (len(values) - 1) * (index + 0.5) / 1000
+        low, high = math.floor(position), math.ceil(position)
+        delay = values[low] + (values[high] - values[low]) * (position - low)
+        cdf.append(round(max(0.0, delay - timer_overhead), 3))
+    return cdf
+
+
 def calibrate(records: list[Record]) -> Record:
-    requests = [
-        request
+    model_samples = {
+        sample_key(record): record
+        for record in records
+        if record.get("kind") == "sample" and record["backend"] == "model" and not record["error"]
+    }
+    modeled_runs = {key[0] for key in model_samples}
+    loaded = set()
+    for key, record in model_samples.items():
+        overheads = [
+            r["duration_ms"]
+            - r.get("model_delay_ms", record["model"]["ttfb_ms"])
+            - r["bytes"] / 1048576 / record["model"]["request_mib_per_sec"] * 1000
+            for r in record["requests"]
+            if r["operation"] == "GET" and r["first_byte_ms"] is not None
+        ]
+        # Several milliseconds of median timer overshoot indicates executor/scheduler
+        # load. That delay is not a measurement of the storage service.
+        if overheads and statistics.median(overheads) > 5.0:
+            loaded.add(key)
+    real_samples = [
+        record
         for record in records
         if record.get("kind") == "sample" and record["backend"] == "real" and not record["error"]
+    ]
+    unpaired = {
+        sample_key(record)
+        for record in real_samples
+        if sample_key(record)[0] in modeled_runs and sample_key(record) not in model_samples
+    }
+    requests = [
+        request
+        for record in real_samples
+        if sample_key(record) not in loaded | unpaired
         for request in record["requests"]
         if request["operation"] == "GET" and request["first_byte_ms"] is not None
     ]
@@ -71,7 +115,10 @@ def calibrate(records: list[Record]) -> Record:
         - request.get("model_delay_ms", record["model"]["ttfb_ms"])
         - request["bytes"] / 1048576 / record["model"]["request_mib_per_sec"] * 1000
         for record in records
-        if record.get("kind") == "sample" and record["backend"] == "model" and not record["error"]
+        if record.get("kind") == "sample"
+        and record["backend"] == "model"
+        and not record["error"]
+        and sample_key(record) not in loaded
         for request in record["requests"]
         if request["operation"] == "GET"
         and request["bytes"] <= 65536
@@ -96,22 +143,31 @@ def calibrate(records: list[Record]) -> Record:
     rate = min(10000.0, max(1.0, quantile(rates, 0.75)))
     # Learn the whole latency distribution: parallel scans wait for slow requests, so
     # matching only median TTFB can substantially underestimate their runtime.
-    residuals = sorted(max(0.0, r["duration_ms"] - r["bytes"] / 1048576 / rate * 1000) for r in requests)
-    cdf = []
-    for index in range(1000):
-        position = (len(residuals) - 1) * (index + 0.5) / 1000
-        low, high = math.floor(position), math.ceil(position)
-        delay = residuals[low] + (residuals[high] - residuals[low]) * (position - low)
-        cdf.append(round(max(0.0, delay - timer_overhead), 3))
+    residuals = [max(0.0, r["duration_ms"] - r["bytes"] / 1048576 / rate * 1000) for r in requests]
+    cdf = latency_quantiles(residuals, timer_overhead)
+    bins, bin_counts = [], []
+    lower = -1
+    for upper in (4096, 65536, 262144, 1048576, 2**64 - 1):
+        values = [residual for r, residual in zip(requests, residuals, strict=True) if lower < r["bytes"] <= upper]
+        fallback = len(values) < 200
+        bins.append(
+            {"max_bytes": upper, "latency_cdf_ms": cdf if fallback else latency_quantiles(values, timer_overhead)}
+        )
+        bin_counts.append({"max_bytes": upper, "requests": len(values), "fallback_global": fallback})
+        lower = upper
     return {
         "ttfb_ms": round(ttfb, 3),
         "observed_s3_ttfb_ms": round(observed_ttfb, 3),
         "timer_overhead_ms": round(timer_overhead, 3),
         "request_mib_per_sec": round(rate, 3),
         "latency_cdf_ms": cdf,
+        "latency_bins": bins,
+        "calibration_bins": bin_counts,
         "seed": 20261027,
         "latency_quantiles_ms": {str(p): round(quantile(residuals, p), 3) for p in (0.5, 0.9, 0.99, 0.999)},
         "calibration_get_requests": len(requests),
+        "calibration_excluded_loaded_samples": len(loaded),
+        "calibration_excluded_unpaired_samples": len(unpaired),
         # Observed concurrency alone does not establish a service-side limit.
         "max_inflight": 0,
         "calibration_small_requests": len(small),
@@ -126,6 +182,7 @@ def signature(record: Record) -> Counter[tuple[str, str, str, int]]:
 def compare(records: list[Record], iterations: int, suites: list[str]) -> Record:
     groups = defaultdict(dict)
     environments = [r for r in records if r.get("kind") == "environment"]
+    overrides = {e["suite"]: e.get("iteration_overrides", {}) for e in environments}
     for record in records:
         if record.get("kind") != "sample":
             continue
@@ -139,9 +196,12 @@ def compare(records: list[Record], iterations: int, suites: list[str]) -> Record
         for query in range(1, {"tpch": 22, "tpcds": 99}[suite] + 1):
             for cache in ("cold", "warm"):
                 samples = groups.get((suite, query, cache), {})
+                expected_iterations = overrides.get(suite, {}).get(str(query), iterations)
                 real, model = [], []
                 failures = []
-                for iteration in range(iterations):
+                if any(index >= expected_iterations for _, index in samples):
+                    failures.append("unexpected iteration outside declared sample count")
+                for iteration in range(expected_iterations):
                     a, b = samples.get(("real", iteration)), samples.get(("model", iteration))
                     if a is None or b is None:
                         failures.append(f"missing iteration {iteration}")
@@ -167,6 +227,7 @@ def compare(records: list[Record], iterations: int, suites: list[str]) -> Record
                     "suite": suite,
                     "query": query,
                     "cache": cache,
+                    "iterations": expected_iterations,
                     "real_median_ms": statistics.median(real) * 1000 if real else None,
                     "model_median_ms": statistics.median(model) * 1000 if model else None,
                     "real_p90_ms": quantile(real, 0.9) * 1000 if real else None,
@@ -213,7 +274,8 @@ def compare(records: list[Record], iterations: int, suites: list[str]) -> Record
     adequate = all(r["requests_match"] and not r["outside_band"] for r in rows)
     adequate &= all(c is not None and c >= 0.95 for c in correlations.values())
     adequate &= all(not e.get("local_smoke") and e["scale_factor"] in ("10", "10.0") for e in environments)
-    adequate &= iterations >= 3 and set(suites) == {"tpch", "tpcds"} and len(environments) == len(suites)
+    adequate &= iterations >= 3 and all(r["iterations"] >= 3 for r in rows)
+    adequate &= set(suites) == {"tpch", "tpcds"} and len(environments) == len(suites)
     provenance = (
         "ci_run_id",
         "sha",
@@ -249,6 +311,16 @@ def markdown(result: Record) -> str:
                 "p90": quantile(cdf, 0.9),
                 "p99": quantile(cdf, 0.99),
             }
+        bins = model.pop("latency_bins", [])
+        if bins:
+            model["latency_bins_summary"] = [
+                {
+                    "max_bytes": b["max_bytes"],
+                    "p50": quantile(b["latency_cdf_ms"], 0.5),
+                    "p90": quantile(b["latency_cdf_ms"], 0.9),
+                }
+                for b in bins
+            ]
         host["model"] = model
         environments.append(host)
     lines = [
@@ -316,9 +388,9 @@ def markdown(result: Record) -> str:
         "",
         "## Per-query comparison",
         "",
-        "| Suite | Query | Cache | Real median ms | Model median ms | Real p90 ms | Model p90 ms | Ratio | "
+        "| Suite | Query | Cache | Samples | Real median ms | Model median ms | Real p90 ms | Model p90 ms | Ratio | "
         "Requests | Status |",
-        "| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+        "| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ]
     for row in result["rows"]:
         values = [
@@ -327,7 +399,7 @@ def markdown(result: Record) -> str:
         ]
         status = "INVALID" if not row["requests_match"] else "OUTSIDE" if row["outside_band"] else "OK"
         lines.append(
-            f"| {row['suite']} | {row['query']} | {row['cache']} | {' | '.join(values)} | "
+            f"| {row['suite']} | {row['query']} | {row['cache']} | {row['iterations']} | {' | '.join(values)} | "
             f"{'match' if row['requests_match'] else 'MISMATCH'} | {status} |"
         )
     problems = [r for r in result["rows"] if r["failures"]]

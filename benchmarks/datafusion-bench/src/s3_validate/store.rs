@@ -52,12 +52,34 @@ pub(super) struct Model {
     #[serde(default)]
     pub latency_cdf_ms: Vec<f64>,
     #[serde(default)]
+    pub latency_bins: Vec<LatencyBin>,
+    #[serde(default)]
     pub seed: u64,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(super) struct LatencyBin {
+    pub max_bytes: u64,
+    pub latency_cdf_ms: Vec<f64>,
+}
+
 impl Model {
-    fn delay_ms(&self, operation: &str, path: &str, range: &str, sample: u64, ordinal: u64) -> f64 {
-        if operation != "GET" || self.latency_cdf_ms.is_empty() {
+    fn delay_ms(
+        &self,
+        operation: &str,
+        path: &str,
+        range: &str,
+        sample: u64,
+        ordinal: u64,
+        bytes: u64,
+    ) -> f64 {
+        let cdf = self
+            .latency_bins
+            .iter()
+            .find(|bin| bytes <= bin.max_bytes && !bin.latency_cdf_ms.is_empty())
+            .map(|bin| &bin.latency_cdf_ms)
+            .unwrap_or(&self.latency_cdf_ms);
+        if operation != "GET" || cdf.is_empty() {
             return self.ttfb_ms;
         }
         // Stable request keys make draws independent of the order concurrent tasks are polled.
@@ -78,9 +100,9 @@ impl Model {
         hash = (hash ^ (hash >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
         hash = (hash ^ (hash >> 27)).wrapping_mul(0x94d049bb133111eb);
         hash ^= hash >> 31;
-        let index = usize::try_from(hash % self.latency_cdf_ms.len() as u64)
+        let index = usize::try_from(hash % cdf.len() as u64)
             .vortex_expect("quantile index is bounded by the vector length");
-        self.latency_cdf_ms[index]
+        cdf[index]
     }
 }
 
@@ -170,6 +192,26 @@ pub(super) struct Object {
 
 pub(super) type Snapshot = Arc<BTreeMap<Path, Object>>;
 
+#[derive(Serialize)]
+pub(super) struct ObjectIdentity {
+    path: String,
+    size: u64,
+    e_tag: Option<String>,
+    version: Option<String>,
+}
+
+pub(super) fn manifest(objects: &Snapshot) -> Vec<ObjectIdentity> {
+    objects
+        .iter()
+        .map(|(path, object)| ObjectIdentity {
+            path: path.to_string(),
+            size: object.meta.size,
+            e_tag: object.meta.e_tag.clone(),
+            version: object.meta.version.clone(),
+        })
+        .collect()
+}
+
 /// Copy the source bytes and metadata once, outside every measurement window.
 pub(super) async fn snapshot(store: &dyn ObjectStore, prefix: &Path) -> anyhow::Result<Snapshot> {
     let objects: Vec<ObjectMeta> = store.list(Some(prefix)).try_collect().await?;
@@ -223,6 +265,7 @@ pub(super) struct Store {
     metrics: Arc<Mutex<Metrics>>,
     cache_tail: bool,
     tail_reads: TailCache,
+    sampling_prefix: Arc<str>,
 }
 
 pub(super) const TAIL_CACHE_BYTES: u64 = 4 * 1024 * 1024;
@@ -270,6 +313,12 @@ impl Store {
             .as_ref()
             .filter(|m| m.max_inflight > 0)
             .map(|m| Arc::new(Semaphore::new(m.max_inflight)));
+        let sampling_prefix = snapshot
+            .as_ref()
+            .and_then(|objects| objects.keys().next())
+            .and_then(|path| path.as_ref().rsplit_once('/'))
+            .map(|(prefix, _)| format!("{prefix}/"))
+            .unwrap_or_default();
         Self {
             source,
             snapshot,
@@ -278,6 +327,7 @@ impl Store {
             metrics: Arc::default(),
             cache_tail,
             tail_reads: Arc::default(),
+            sampling_prefix: sampling_prefix.into(),
         }
     }
 
@@ -309,7 +359,13 @@ impl Store {
         ))
     }
 
-    async fn begin(&self, operation: &'static str, path: String, range: String) -> Result<Guard> {
+    async fn begin(
+        &self,
+        operation: &'static str,
+        path: String,
+        range: String,
+        bytes: u64,
+    ) -> Result<Guard> {
         let permit = match &self.admission {
             Some(semaphore) => Some(Arc::clone(semaphore).acquire_owned().await.map_err(|e| {
                 object_store::Error::Generic {
@@ -327,7 +383,11 @@ impl Store {
                     .ordinals
                     .entry((operation.to_string(), path.clone(), range.clone()))
                     .or_default();
-                let delay = model.delay_ms(operation, &path, &range, sample, *ordinal);
+                let logical_path = path
+                    .strip_prefix(self.sampling_prefix.as_ref())
+                    .unwrap_or(&path);
+                let delay =
+                    model.delay_ms(operation, logical_path, &range, sample, *ordinal, bytes);
                 *ordinal += 1;
                 delay
             });
@@ -452,11 +512,28 @@ impl Store {
 
     async fn fetch(&self, location: &Path, options: GetOptions) -> Result<GetResult> {
         let head = options.head;
+        let bytes = self
+            .snapshot
+            .as_ref()
+            .and_then(|objects| objects.get(location))
+            .and_then(|object| {
+                options
+                    .range
+                    .as_ref()
+                    .map_or(Some(object.meta.size), |range| {
+                        range
+                            .as_range(object.meta.size)
+                            .ok()
+                            .map(|range| range.end - range.start)
+                    })
+            })
+            .unwrap_or(0);
         let guard = self
             .begin(
                 if head { "HEAD" } else { "GET" },
                 location.to_string(),
                 format!("{:?}", options.range),
+                bytes,
             )
             .await?;
         let result = match self.snapshot.as_ref().filter(|_| self.model.is_some()) {
@@ -574,6 +651,7 @@ impl ObjectStore for Store {
                     "LIST",
                     prefix.as_ref().map(ToString::to_string).unwrap_or_default(),
                     String::new(),
+                    0,
                 )
                 .await
             {
