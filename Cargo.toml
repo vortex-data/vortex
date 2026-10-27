@@ -282,11 +282,11 @@ tokio-util = "0.7.17"
 toml = "1.0"
 tpcdsgen = "4.0.0"
 tpcdsgen-arrow = { version = "4.0.0", default-features = false, features = [
-    "arrow_59",
+    "arrow_60",
 ] }
 tpchgen = "4.0.0"
 tpchgen-arrow = { version = "4.0.0", default-features = false, features = [
-    "arrow_59",
+    "arrow_60",
 ] }
 tracing = { version = "0.1.41", default-features = false }
 tracing-perfetto = "0.1.5"
