@@ -43,11 +43,11 @@ def command(v2, query, iterations, label):
 current_binary = binary
 published_binary = root / 'target/structural-baseline/datafusion-bench'
 published_binary.chmod(0o755)
-variants = [('v1', current_binary, False), ('published', published_binary, True), ('shared', current_binary, True)]
+variants = [('v1', current_binary, False), ('published', published_binary, True), ('casts', current_binary, True)]
 for round in range(3):
     for name, binary, v2 in variants[round:] + variants[:round]:
         label = f'scan-timing-r{round}-{name}'
-        cmd = command(v2, '24,31', 9, label)
+        cmd = command(v2, '11,22,24,26,31,40', 9, label)
         Path(label + '.command.json').write_text(json.dumps({'command': cmd, 'env': profile_env}, indent=2))
         with open(label + '.log', 'w') as log:
             subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=600, check=True)
@@ -66,9 +66,10 @@ def frame_label(thread, index, symbols=None):
 
 summary.frame_label = frame_label
 binary_sha = hashlib.sha256(binary.read_bytes()).hexdigest()
-for query, iterations in [('24', 100), ('31', 30)]:
-    for v2 in [False, True]:
-        label = f'scan-q{query}-v2-{str(v2).lower()}'
+for query, iterations in [('22', 20), ('24', 100), ('26', 100)]:
+    for name, binary, v2 in variants:
+        binary_sha = hashlib.sha256(binary.read_bytes()).hexdigest()
+        label = f'scan-q{query}-{name}'
         output = root / (label + '.profile.json.gz')
         cmd = ['sudo', '-n', '--preserve-env=TOKIO_WORKER_THREADS,DATAFUSION_EXECUTION_TARGET_PARTITIONS,RUST_LOG',
                str(samply), 'record', '--save-only', '--rate', '1000', '--output', str(output),
