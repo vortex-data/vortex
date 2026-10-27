@@ -14,6 +14,7 @@ use datafusion_common::format::DEFAULT_FORMAT_OPTIONS;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_functions::core::getfield::GetFieldFunc;
 use datafusion_functions::string::octet_length::OctetLengthFunc;
+use datafusion_functions_nested::array_sum::ArraySum;
 use datafusion_functions_nested::length::ArrayLength;
 use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::PhysicalExpr;
@@ -23,9 +24,11 @@ use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_plan::expressions as df_expr;
 use itertools::Itertools;
 use vortex::VortexSessionDefault;
+use vortex::aggregate_fn::NumericalAggregateOpts;
 use vortex::array::VortexSessionExecute;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
+use vortex::dtype::PType;
 use vortex::expr::Expression;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
@@ -34,6 +37,7 @@ use vortex::expr::in_list_of;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_length;
+use vortex::expr::list_sum_opts;
 use vortex::expr::lit;
 use vortex::expr::nested_case_when;
 use vortex::expr::not;
@@ -198,8 +202,10 @@ type Conversion<T> = Result<T, Unconverted>;
 /// Supported arithmetic is pushed down using Vortex semantics, including its checked
 /// integer arithmetic. Matching DataFusion's overflow behavior is deferred to a future patch.
 /// Nested struct field access also uses Vortex semantics: a null parent produces a null child,
-/// whereas DataFusion extracts the child without applying parent validity. These differences
-/// are accepted for both filters and projections.
+/// whereas DataFusion extracts the child without applying parent validity. `array_sum` over
+/// integer or boolean elements sums exactly and is null when the sum overflows, whereas
+/// DataFusion adds the elements as `Float64`. These differences are accepted for both filters
+/// and projections.
 /// Searched `CASE WHEN` expressions preserve short-circuit evaluation: conditions and
 /// branch values only execute on the rows that reach them, including fallible branches.
 /// Other expressions require compatible SQL semantics or remain in DataFusion.
@@ -521,6 +527,10 @@ impl DefaultExpressionConverter {
             return Ok(result);
         }
 
+        if ScalarFunctionExpr::try_downcast_func::<ArraySum>(scalar_fn).is_some() {
+            return self.convert_array_sum(scalar_fn, schema, input_dtype);
+        }
+
         let (input, length): (_, fn(Expression) -> Expression) =
             if ScalarFunctionExpr::try_downcast_func::<OctetLengthFunc>(scalar_fn).is_some() {
                 let [input] = scalar_fn.args() else {
@@ -556,6 +566,46 @@ impl DefaultExpressionConverter {
             scalar_fn.nullable(),
         ))?;
         Ok(cast(length(input), return_dtype))
+    }
+
+    /// Converts `array_sum` to `list_sum`.
+    ///
+    /// DataFusion casts the list to `List<Float64>`, then adds each list's valid elements in
+    /// order: an empty or all-null list sums to null and a NaN poisons the sum. `list_sum` with
+    /// `include_nans` adds float elements the same way, so the cast is dropped. Integer and
+    /// boolean elements are summed exactly and the sum is cast to `Float64`.
+    fn convert_array_sum(
+        &self,
+        scalar_fn: &ScalarFunctionExpr,
+        schema: &Schema,
+        input_dtype: &DType,
+    ) -> Conversion<Expression> {
+        let [input] = scalar_fn.args() else {
+            return Err(exec_datafusion_err!("array_sum requires exactly one argument").into());
+        };
+        let (DataType::List(field) | DataType::LargeList(field)) = input.data_type(schema)? else {
+            return Err(Unconverted::Unsupported);
+        };
+        if *field.data_type() != DataType::Float64 {
+            return Err(Unconverted::Unsupported);
+        }
+        let input = input
+            .downcast_ref::<df_expr::CastExpr>()
+            .map_or(input, |cast_expr| cast_expr.expr());
+        let list = self.convert_expr(input, schema, input_dtype)?;
+        let (DType::List(element, _) | DType::FixedSizeList(element, ..)) =
+            converted_dtype(&list, input_dtype)?
+        else {
+            return Err(Unconverted::Unsupported);
+        };
+        let sum = list_sum_opts(list, NumericalAggregateOpts::include_nans());
+        match element.as_ref() {
+            DType::Primitive(ptype, _) if ptype.is_float() => Ok(sum),
+            DType::Bool(_) | DType::Primitive(..) => {
+                Ok(cast(sum, DType::Primitive(PType::F64, Nullability::Nullable)))
+            }
+            _ => Err(Unconverted::Unsupported),
+        }
     }
 
     fn convert_case_expr(
