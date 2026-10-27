@@ -128,7 +128,6 @@ pub struct ScanBuilder<A = ArrayRef> {
     row_range: Option<Range<u64>>,
     selection: Selection,
     concurrency: usize,
-    max_in_flight: Option<usize>,
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     row_offset: u64,
 }
@@ -145,7 +144,6 @@ impl ScanBuilder<ArrayRef> {
             row_range: None,
             selection: Selection::default(),
             concurrency: 4,
-            max_in_flight: None,
             map_fn: Arc::new(Ok),
             row_offset: 0,
         }
@@ -222,14 +220,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
-    /// Caps the total number of concurrent chunks for this scan, independent of worker count.
-    /// Must be greater than zero. Useful when an engine already parallelizes file partitions.
-    pub fn with_max_in_flight(mut self, max_in_flight: usize) -> Self {
-        assert!(max_in_flight > 0);
-        self.max_in_flight = Some(max_in_flight);
-        self
-    }
-
     /// Maps each output batch on its split's task.
     pub fn map<B: 'static>(
         self,
@@ -245,7 +235,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
             row_range: self.row_range,
             selection: self.selection,
             concurrency: self.concurrency,
-            max_in_flight: self.max_in_flight,
             row_offset: self.row_offset,
             map_fn: Arc::new(move |array| old_map_fn(array).and_then(&map_fn)),
         }
@@ -277,7 +266,6 @@ struct ScanRun<A: 'static + Send> {
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     ordered: bool,
     concurrency: usize,
-    max_in_flight: Option<usize>,
     /// Held until the scan ends, so scans of the file that start meanwhile share it.
     cache: ScanCache,
 }
@@ -370,7 +358,6 @@ impl<A: 'static + Send> ScanRun<A> {
             map_fn: builder.map_fn,
             ordered: builder.ordered,
             concurrency: builder.concurrency,
-            max_in_flight: builder.max_in_flight,
             cache,
         })
     }
@@ -388,7 +375,6 @@ impl<A: 'static + Send> ScanRun<A> {
     fn execute_stream(self) -> VortexResult<BoxStream<'static, VortexResult<A>>> {
         let handle = self.session.handle();
         let in_flight = self.concurrency * get_available_parallelism().unwrap_or(1);
-        let in_flight = self.max_in_flight.map_or(in_flight, |limit| in_flight.min(limit));
         let root = self.scan.planner(self.rows.clone(), self.selection);
         let scope = WorkScope {
             file_ordinal: 0,
