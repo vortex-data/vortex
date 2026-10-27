@@ -195,7 +195,6 @@ mod tests {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::PType;
     use vortex_array::expr::col;
     use vortex_array::expr::dynamic_expression;

@@ -882,7 +882,6 @@ mod tests {
     use vortex_array::scalar_fn::fns::between::StrictComparison;
     use vortex_array::scalar_fn::fns::binary::Binary;
     use vortex_array::scalar_fn::fns::dynamic::DynamicComparison;
-    use vortex_array::scalar_fn::fns::dynamic_expression::DynamicExpression;
     use vortex_array::scalar_fn::fns::operators::CompareOperator;
     use vortex_array::scalar_fn::internal::row_count::RowCount;
     use vortex_error::VortexResult;

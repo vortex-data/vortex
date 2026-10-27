@@ -34,15 +34,13 @@ pub(super) fn convert_dynamic_filter(
     columns.sort_unstable_by_key(|column| column.index());
     let inputs = columns
         .iter()
-        .map(|column| get_item(column.name().as_str(), root()))
+        .map(|column| get_item(column.name(), root()))
         .collect::<Vec<_>>();
     let scope_projection = pack(
-        columns.iter().enumerate().map(|(idx, column)| {
-            (
-                column.name().clone(),
-                get_item(input_field_name(idx), root()),
-            )
-        }),
+        columns
+            .iter()
+            .enumerate()
+            .map(|(idx, column)| (column.name(), get_item(input_field_name(idx), root()))),
         Nullability::NonNullable,
     );
     dynamic_expression(
