@@ -603,7 +603,7 @@ impl VortexDataSource {
             .transpose()?;
 
         // Defer the async DataSource::scan() call to the first poll of the stream.
-        let stream = futures::stream::once(async move {
+        let stream = stream::once(async move {
             let scan_streams = partitions.map(|split| split?.execute());
 
             // When ordering is requested we must emit partition output in partition order, so we
@@ -1252,7 +1252,7 @@ mod tests {
             let mut yield_once = self.index == 0;
             let mut values = Some(self.values);
             let polls = self.polls;
-            let stream = futures::stream::poll_fn(move |cx| {
+            let stream = stream::poll_fn(move |cx| {
                 polls.fetch_add(1, Ordering::Relaxed);
                 if yield_once {
                     yield_once = false;
@@ -1307,7 +1307,7 @@ mod tests {
                     }) as PartitionRef)
                 })
                 .collect();
-            futures::stream::iter(partitions).boxed()
+            stream::iter(partitions).boxed()
         }
     }
 
