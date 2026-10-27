@@ -253,10 +253,13 @@ impl FileOpener for VortexOpener {
                 open_opts = open_opts.with_footer(footer);
             }
 
+            let (open_opts, end_open) =
+                super::footer_segments::configure(open_opts, &file.object_meta);
             let vxf = open_opts
                 .open_read(reader)
                 .await
                 .map_err(|e| exec_datafusion_err!("Failed to open Vortex file {e}"))?;
+            end_open();
 
             // On a miss, cache the parsed footer so other partitions and later executions
             // skip the footer fetch and parse. `infer_schema`/`infer_stats` also populate

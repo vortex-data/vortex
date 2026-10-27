@@ -541,12 +541,15 @@ impl FileFormat for VortexFormat {
                         session.allocator(),
                     ));
 
-                    let vxf = session
-                        .open_options()
-                        .with_initial_read_size(opts.footer_initial_read_size_bytes)
-                        .with_file_size(object.size)
-                        .open_read(reader)
-                        .await?;
+                    let (open_opts, end_open) = super::footer_segments::configure(
+                        session
+                            .open_options()
+                            .with_initial_read_size(opts.footer_initial_read_size_bytes)
+                            .with_file_size(object.size),
+                        &object,
+                    );
+                    let vxf = open_opts.open_read(reader).await?;
+                    end_open();
 
                     // Cache the metadata
                     let cached_metadata = Arc::new(CachedVortexMetadata::new(&vxf));
@@ -620,10 +623,14 @@ impl FileFormat for VortexFormat {
                         session.allocator(),
                     ));
 
-                    let vxf = session
-                        .open_options()
-                        .with_initial_read_size(opts.footer_initial_read_size_bytes)
-                        .with_file_size(object.size)
+                    let (open_opts, end_open) = super::footer_segments::configure(
+                        session
+                            .open_options()
+                            .with_initial_read_size(opts.footer_initial_read_size_bytes)
+                            .with_file_size(object.size),
+                        &object,
+                    );
+                    let vxf = open_opts
                         .open_read(reader)
                         .await
                         .map_err(|e| {
@@ -632,6 +639,7 @@ impl FileFormat for VortexFormat {
                                 object.location
                             ))
                         })?;
+                    end_open();
 
                     // Cache the metadata
                     let file_metadata = Arc::new(CachedVortexMetadata::new(&vxf));
