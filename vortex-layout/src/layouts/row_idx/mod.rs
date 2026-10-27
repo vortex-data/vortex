@@ -354,15 +354,21 @@ mod tests {
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ListArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::expr::Lambda;
+    use vortex_array::expr::checked_add;
     use vortex_array::expr::eq;
     use vortex_array::expr::gt;
+    use vortex_array::expr::list_transform;
     use vortex_array::expr::lit;
     use vortex_array::expr::or;
     use vortex_array::expr::root;
+    use vortex_array::expr::var;
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
@@ -521,6 +527,66 @@ mod tests {
                 BoolArray::from_iter([true, false, true, false, true]),
                 &mut ctx
             );
+        })
+    }
+
+    #[test]
+    fn a_lambda_reads_row_idx() {
+        block_on(|handle| async {
+            let session = new_session().with_handle(handle);
+            let mut ctx = session.create_execution_ctx();
+            let array_ctx = ArrayContext::empty();
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            // `[[1, 2], [3]]`
+            let array = ListArray::try_new(
+                buffer![1u64, 2, 3].into_array(),
+                buffer![0u32, 2, 3].into_array(),
+                Validity::NonNullable,
+                &mut ctx,
+            )
+            .unwrap()
+            .into_array();
+            let layout = FlatLayoutStrategy::default()
+                .write_stream(
+                    array_ctx.into(),
+                    Arc::<TestSegments>::clone(&segments),
+                    array.to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await
+                .unwrap();
+
+            // `row_idx()` is in the call's environment, which the reader fills in like any child.
+            let lambda = Lambda::new(["x"], checked_add(var("x"), row_idx())).unwrap();
+            let expr = list_transform(root(), lambda);
+            let reader = RowIdxLayoutReader::new(
+                0,
+                layout
+                    .new_reader("".into(), segments, &session, &Default::default())
+                    .unwrap(),
+                session.clone(),
+            );
+            let expr = expr.bind(reader.dtype()).unwrap();
+            let result = reader
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &expr,
+                    MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                )
+                .unwrap()
+                .await
+                .unwrap();
+
+            let expected = ListArray::try_new(
+                buffer![1u64, 2, 4].into_array(),
+                buffer![0u32, 2, 3].into_array(),
+                Validity::NonNullable,
+                &mut ctx,
+            )
+            .unwrap();
+            assert_arrays_eq!(result, expected, &mut ctx);
         })
     }
 
