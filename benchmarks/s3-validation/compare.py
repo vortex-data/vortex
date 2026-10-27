@@ -237,6 +237,20 @@ def compare(records: list[Record], iterations: int, suites: list[str]) -> Record
 
 
 def markdown(result: Record) -> str:
+    environments = []
+    for environment in result["environments"]:
+        host = dict(environment)
+        model = dict(host.get("model", {}))
+        cdf = model.pop("latency_cdf_ms", [])
+        if cdf:
+            model["latency_distribution_ms"] = {
+                "quantiles": len(cdf),
+                "p50": quantile(cdf, 0.5),
+                "p90": quantile(cdf, 0.9),
+                "p99": quantile(cdf, 0.99),
+            }
+        host["model"] = model
+        environments.append(host)
     lines = [
         "# Modelled S3 validation",
         "",
@@ -273,12 +287,13 @@ def markdown(result: Record) -> str:
         "Request metrics count underlying object-store API operations. The snapshot has fewer than 1,000 objects, so "
         "flat LISTs need one S3 page; internal HTTP retries and 503 responses retried by the S3 client are "
         "not counted separately. In-flight averages are the integral of active response lifetimes divided by "
-        "query wall time. No randomness or per-query runtime multipliers are used.",
+        "query wall time. The initial model uses a constant delay. The tuned model samples a seeded "
+        "empirical latency distribution learned from S3 request traces. No per-query runtime multipliers are used.",
         "",
         "## Parameters and host",
         "",
         "```json",
-        json.dumps(result["environments"], indent=2),
+        json.dumps(environments, indent=2),
         "```",
         "",
         "## Rank correlation",
@@ -288,6 +303,15 @@ def markdown(result: Record) -> str:
     ]
     for key, value in result["correlations"].items():
         lines.append(f"| {key} | {value:.4f} |" if value is not None else f"| {key} | unavailable |")
+    if profile := result.get("learned_profile"):
+        lines += [
+            "",
+            f"Frozen learned profile SHA-256: `{profile['sha256']}`.",
+            "Training CI runs: " + ", ".join(profile["training"]["run_ids"]) + ". Validation uses a separate CI run.",
+            "",
+            "Training used real request timings; query runtimes were excluded from fitting. Full provenance "
+            "and the learned distribution are preserved in parameters.json.",
+        ]
     lines += [
         "",
         "## Per-query comparison",
@@ -314,8 +338,9 @@ def markdown(result: Record) -> str:
         "",
         "## Limits",
         "",
-        "A fixed per-request model cannot yet reproduce service throttling, retries, connection "
-        "establishment, shared network bandwidth, or latency tails. Highly parallel scans and many small "
+        "The model does not reproduce service throttling, retries, connection establishment or shared network "
+        "bandwidth. Empirical quantiles capture individual request latency tails, without modelling correlated "
+        "stalls or changes over time. Highly parallel scans and many small "
         "reads need particular attention. Matching row counts does not establish full result equality; both "
         "backends read identical source bytes and use the same query engine. A recommendation applies only to "
         "the measured engine, format, scale and hardware.",

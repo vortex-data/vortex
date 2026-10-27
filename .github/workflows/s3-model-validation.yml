@@ -15,6 +15,15 @@ on:
         type: choice
         options: [vortex, parquet]
         default: vortex
+      mode:
+        description: "Validate a frozen learned profile, or collect a new calibration"
+        type: choice
+        options: [learned, recalibrate]
+        default: learned
+      profile:
+        description: "Checked-in profile to validate in learned mode"
+        type: string
+        default: benchmarks/s3-validation/profiles/us-east-1-c8gd-vortex.json
   push:
     branches: ["ji/ci-s3-model-validation"]
 
@@ -60,6 +69,8 @@ jobs:
       BENCH_FORMAT: ${{ inputs.format || 'vortex' }}
       RUST_BACKTRACE: "1"
       S3_VALIDATION_ROLE_ARN: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+      VALIDATION_MODE: ${{ inputs.mode || 'learned' }}
+      S3_MODEL_PROFILE: ${{ inputs.profile || 'benchmarks/s3-validation/profiles/us-east-1-c8gd-vortex.json' }}
     steps:
       - uses: runs-on/action@v2
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -93,17 +104,19 @@ jobs:
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
       - name: Measure initial TPC-H pairs
+        if: env.VALIDATION_MODE == 'recalibrate'
         run: |
           python3 benchmarks/s3-validation/run.py --source-root "$REMOTE_ROOT" \
             --iterations "$ITERATIONS" --format "$BENCH_FORMAT" --phase initial --suites tpch
       - name: Preserve initial TPC-H checkpoint
-        if: always()
+        if: always() && env.VALIDATION_MODE == 'recalibrate'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: s3-validation-initial-tpch
           path: s3-validation-results/initial*
       - name: Measure initial TPC-DS pairs and calibrate requests
         id: initial
+        if: env.VALIDATION_MODE == 'recalibrate'
         run: |
           python3 benchmarks/s3-validation/run.py --source-root "$REMOTE_ROOT" \
             --iterations "$ITERATIONS" --format "$BENCH_FORMAT" --phase initial --suites tpcds
@@ -121,10 +134,12 @@ jobs:
           role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
           aws-region: us-east-1
           role-duration-seconds: 7200
-      - name: Validate tuned TPC-H model against fresh real S3 samples
+      - name: Validate TPC-H model against fresh real S3 samples
         run: |
+          phase=tuned
+          if [ "$VALIDATION_MODE" = learned ]; then phase=validate; fi
           python3 benchmarks/s3-validation/run.py --source-root "$REMOTE_ROOT" \
-            --iterations "$ITERATIONS" --format "$BENCH_FORMAT" --phase tuned --suites tpch
+            --iterations "$ITERATIONS" --format "$BENCH_FORMAT" --phase "$phase" --suites tpch
       - name: Preserve tuned TPC-H checkpoint
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
@@ -133,10 +148,12 @@ jobs:
           path: |
             s3-validation-results/tuned*
             s3-validation-results/parameters.json
-      - name: Validate tuned TPC-DS model against fresh real S3 samples
+      - name: Validate TPC-DS model against fresh real S3 samples
         run: |
+          phase=tuned
+          if [ "$VALIDATION_MODE" = learned ]; then phase=validate; fi
           python3 benchmarks/s3-validation/run.py --source-root "$REMOTE_ROOT" \
-            --iterations "$ITERATIONS" --format "$BENCH_FORMAT" --phase tuned --suites tpcds
+            --iterations "$ITERATIONS" --format "$BENCH_FORMAT" --phase "$phase" --suites tpcds
       - name: Publish available reports
         if: always()
         run: |

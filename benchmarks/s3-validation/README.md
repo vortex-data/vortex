@@ -8,6 +8,32 @@ SF10. Real S3 and the RAM-backed model run sequentially on the same AWS machine 
 with alternating backend order for each query/iteration. The bucket region and runner region
 are checked before measurement. The workflow supports Vortex (default) and Parquet.
 
+The default workflow validates a **frozen learned profile** against fresh real S3 measurements.
+The first profile, `profiles/us-east-1-c8gd-vortex.json`, was learned from 519,095 real GETs in
+two earlier CI runs. Its JSON records the source run IDs, input SHA-256 hashes, hardware, region,
+coverage and calibration method. Training includes partial TPC-H runs; it establishes request
+latency parameters, rather than full benchmark accuracy. Validation must use a different CI run,
+and verifies that the measured model exactly matches the frozen parameters. No refitting happens
+during this validation. Use the `recalibrate` workflow mode to collect initial/tuned pairs instead.
+
+To learn another reusable profile from downloaded CI traces:
+
+```bash
+python3 benchmarks/s3-validation/learn.py \
+  /tmp/ci-run-one/initial-tpch.jsonl /tmp/ci-run-two/initial-tpch.jsonl \
+  --output benchmarks/s3-validation/profiles/my-profile.json
+```
+
+Learning requires at least two distinct real-S3 CI runs with matching region, format, CPU count
+and memory within 1%. Query runtimes are excluded from fitting. Longer scans contribute more GET
+observations; per-source sample counts are recorded so that weighting remains visible. The learner
+rejects duplicate files, local data and failed/incomplete GET measurements. To validate a profile:
+
+```bash
+python3 benchmarks/s3-validation/run.py --source-root "$REMOTE_ROOT" --phase validate \
+  --profile benchmarks/s3-validation/profiles/my-profile.json --iterations 3
+```
+
 Data is generated once, uploaded to a unique run prefix, and preloaded from that prefix into
 an immutable RAM snapshot. Both backends use the same URLs, object metadata, byte ranges,
 file sizes and partitioning. The snapshot stays resident for both backends. Preloading checks
@@ -38,7 +64,7 @@ timing-dependent duplicate LIST calls from concurrent scans.
 The S3 HTTP client stays alive across
 samples. Cold therefore means fresh database caches, rather than cold TLS or S3 service caches.
 
-The initial deterministic model uses 25 ms per request, 100 MiB/s per request and no concurrency
+In recalibration mode, the initial deterministic model uses 25 ms per request, 100 MiB/s per request and no concurrency
 cap. Sleeps use Tokio timers and response streams retain their semaphore permit until completed
 or cancelled. Transfer waits use absolute deadlines to avoid accumulating a timer tick per chunk.
 Calibration estimates TTFB from small S3 requests and throughput from large S3 requests, preferring
@@ -70,7 +96,7 @@ can successfully collect evidence while recommending against making the model th
 Query failures and request mismatches are invalid comparisons, not latency calibration targets.
 
 ```bash
-gh workflow run s3-model-validation.yml --ref ji/ci-s3-model-validation -f iterations=5 -f format=vortex
+gh workflow run s3-model-validation.yml --ref ji/ci-s3-model-validation -f iterations=3 -f format=vortex -f mode=learned
 ```
 
 For local smoke testing, generate a small dataset and explicitly allow a filesystem reference.

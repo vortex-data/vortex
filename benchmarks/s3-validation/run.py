@@ -4,13 +4,16 @@
 """Run initial and request-calibrated pairs sequentially on the same CI runner."""
 
 import argparse
+import hashlib
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
 import aws_credentials
 import compare
+import learn
 
 
 def main():
@@ -21,13 +24,16 @@ def main():
     parser.add_argument("--format", default="vortex", choices=("vortex", "parquet"))
     parser.add_argument("--output", type=Path, default=Path("s3-validation-results"))
     parser.add_argument("--binary", default="target/release_debug/s3-validate")
-    parser.add_argument("--phase", choices=("initial", "tuned", "all"), default="all")
+    parser.add_argument("--phase", choices=("initial", "tuned", "all", "validate"), default="all")
+    parser.add_argument("--profile", type=Path, default=os.environ.get("S3_MODEL_PROFILE"))
     parser.add_argument("--suites", choices=("tpch", "tpcds"), nargs="+", default=["tpch", "tpcds"])
     args = parser.parse_args()
     if args.iterations < 3:
         parser.error("CI validation needs at least three iterations")
     if args.phase == "all" and set(args.suites) != {"tpch", "tpcds"}:
         parser.error("A single suite requires --phase initial or --phase tuned")
+    if args.phase == "validate" and args.profile is None:
+        parser.error("--phase validate needs a frozen --profile")
     with aws_credentials.environment(os.environ.get("S3_VALIDATION_ROLE_ARN")) as env:
         run(args, env)
 
@@ -35,7 +41,14 @@ def main():
 def run(args: argparse.Namespace, env: dict[str, str]):
     args.output.mkdir(parents=True, exist_ok=True)
     model = {"ttfb_ms": 25.0, "request_mib_per_sec": 100.0, "max_inflight": 0}
-    phases = ("initial", "tuned") if args.phase == "all" else (args.phase,)
+    frozen = None
+    if args.phase == "validate":
+        frozen = json.loads(args.profile.read_text())
+        learn.validate_profile(frozen, env.get("GITHUB_RUN_ID"), env.get("AWS_REGION", ""), args.format)
+        if args.profile.resolve() != (args.output / "parameters.json").resolve():
+            shutil.copyfile(args.profile, args.output / "parameters.json")
+        model = frozen
+    phases = ("initial", "tuned") if args.phase == "all" else ("tuned" if frozen else args.phase,)
     if args.phase == "tuned":
         model = json.loads((args.output / "parameters.json").read_text())
     for phase in phases:
@@ -77,6 +90,9 @@ def run(args: argparse.Namespace, env: dict[str, str]):
         present = [path for path in paths if path.exists()]
         records = compare.read(present)
         result = compare.compare(records, args.iterations, ["tpch", "tpcds"])
+        if frozen:
+            digest = hashlib.sha256(args.profile.read_bytes()).hexdigest()
+            learn.attach_profile(result, frozen, digest)
         compare.write_reports(result, args.output / f"{phase}.md")
         print(phase, json.dumps({"adequate": result["adequate"], "correlations": result["correlations"]}), flush=True)
         if phase == "initial":
