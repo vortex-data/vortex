@@ -34,7 +34,7 @@ use crate::scan::execution::adaptor::ScanAdaptor;
 const MAX_OUTPUT_ROWS: usize = 262_144;
 const MAX_FILTERED_OUTPUT_ROWS: usize = 65_536;
 /// Pieces smaller than this are grouped with their neighbours into one batch.
-const MIN_OUTPUT_ROWS: usize = 1;
+const MIN_OUTPUT_ROWS: usize = 4_096;
 
 /// Keeps sparse selections together and subdivides dense selections to avoid large copies when
 /// converting chunked projection results to Arrow.
