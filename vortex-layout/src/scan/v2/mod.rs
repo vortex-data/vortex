@@ -336,7 +336,7 @@ impl<A: 'static + Send> ScanRun<A> {
         } else if builder.concurrency <= 1 && row_count > MAX_ROWS_PER_CHUNK as u64 {
             // The engine already supplies parallelism. Group read discovery across several
             // output morsels without creating fewer parallel tasks.
-            4 * MAX_ROWS_PER_CHUNK
+            2 * MAX_ROWS_PER_CHUNK
         } else {
             MAX_ROWS_PER_CHUNK
         };
