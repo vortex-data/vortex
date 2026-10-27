@@ -87,6 +87,24 @@ pub(crate) fn row_chunks(rows: Range<u64>, rows_per_chunk: usize) -> Vec<Range<u
         .collect()
 }
 
+/// The chunks a scan of `rows` plans: [`row_chunks`], with a chunk at either edge of `rows` that
+/// is under half of `rows_per_chunk` joined to its neighbour. An engine cuts a file into
+/// partitions whose edges fall off the chunk grid, and a short edge chunk would cost a whole
+/// chunk's planning and conjunct setup for a few rows.
+pub(crate) fn scan_chunks(rows: Range<u64>, rows_per_chunk: usize) -> Vec<Range<u64>> {
+    let mut chunks = row_chunks(rows, rows_per_chunk);
+    let short = |chunk: &Range<u64>| chunk.end - chunk.start < rows_per_chunk as u64 / 2;
+    if chunks.len() > 1 && chunks.last().is_some_and(short) {
+        let last = chunks.pop().vortex_expect("more than one chunk");
+        chunks.last_mut().vortex_expect("more than one chunk").end = last.end;
+    }
+    if chunks.len() > 1 && short(&chunks[0]) {
+        let first = chunks.remove(0);
+        chunks[0].start = first.start;
+    }
+    chunks
+}
+
 /// Emits one planner per chunk of a scan's rows, in row order, each spawned as independent so
 /// the driver may run it beside the others. A chunk none of whose rows is selected and kept is
 /// never planned.
@@ -108,7 +126,7 @@ impl ChunkPlanner {
         selection: Selection,
         kept: Option<Mask>,
     ) -> Self {
-        let chunks = row_chunks(rows.clone(), scan.chunk_rows).into_iter();
+        let chunks = scan_chunks(rows.clone(), scan.chunk_rows).into_iter();
         Self {
             scan,
             rows,
