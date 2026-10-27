@@ -124,27 +124,6 @@ pub fn plan_row_idx_expression(
     expression: BoundExpression,
     child: PlanRef,
 ) -> VortexResult<PlanRef> {
-    match expression_domains(&expression) {
-        (true, false) => return Ok(EvalPlan::try_new(expression, child)?.into_plan()),
-        (false, true) => {
-            let expression = replace_row_idx(expression)?;
-            let values = RowIdxPlan::new(child.row_count()).into_plan();
-            return Ok(EvalPlan::try_new(expression, values)?.into_plan());
-        }
-        (false, false) => {
-            let row_domain = PackPlan::try_new(
-                StructFields::empty(),
-                Nullability::NonNullable,
-                child.row_count(),
-                Vec::new(),
-                None,
-            )?
-            .into_plan();
-            return Ok(EvalPlan::try_new(expression, row_domain)?.into_plan());
-        }
-        (true, true) => {}
-    }
-
     let partitioned = partition_bound(expression.clone(), |node| {
         if node
             .as_scalar()
@@ -157,6 +136,31 @@ pub fn plan_row_idx_expression(
             vec![]
         }
     })?;
+
+    if partitioned.partition_annotations.is_empty() {
+        let row_domain = PackPlan::try_new(
+            StructFields::empty(),
+            Nullability::NonNullable,
+            child.row_count(),
+            Vec::new(),
+            None,
+        )?
+        .into_plan();
+        return Ok(EvalPlan::try_new(expression, row_domain)?.into_plan());
+    }
+
+    if partitioned.partition_annotations.len() == 1 {
+        return match partitioned.partition_annotations[0] {
+            RowIdxExpressionPartition::RowIdx => {
+                let expression = replace_row_idx(expression)?;
+                let values = RowIdxPlan::new(child.row_count()).into_plan();
+                Ok(EvalPlan::try_new(expression, values)?.into_plan())
+            }
+            RowIdxExpressionPartition::Child => {
+                Ok(EvalPlan::try_new(expression, child)?.into_plan())
+            }
+        };
+    }
 
     vortex_ensure_eq!(
         partitioned.partition_annotations.len(),
@@ -231,29 +235,6 @@ pub fn plan_row_idx_expression(
         rewrite_partition_root(partitioned.root, partitions.dtype().clone(), &collapsed)?;
 
     Ok(EvalPlan::try_new(residual, partitions.into_plan())?.into_plan())
-}
-
-/// Finds data and row-index references without allocating per-node annotations.
-fn expression_domains(expression: &BoundExpression) -> (bool, bool) {
-    if expression.is_root() {
-        return (true, false);
-    }
-    if expression
-        .as_scalar()
-        .is_some_and(|function| function.is::<RowIdxFn>())
-    {
-        return (false, true);
-    }
-    let mut domains = (false, false);
-    for child in expression.children() {
-        let child_domains = expression_domains(child);
-        domains.0 |= child_domains.0;
-        domains.1 |= child_domains.1;
-        if domains == (true, true) {
-            break;
-        }
-    }
-    domains
 }
 
 fn replace_row_idx(expression: BoundExpression) -> VortexResult<BoundExpression> {
