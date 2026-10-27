@@ -258,15 +258,15 @@ accepts decimals:
 in this layout, even where a brief below or a reference commit names a flat file such as
 `narrow/rules.rs` or `narrow/aggregates.rs`:
 
-- `mod.rs`: the module doc, declarations, re-exports and `initialize`.
+- `mod.rs`: the module doc, declarations, re-exports, and `initialize`, which registers every
+  kernel directly.
 - `array.rs`: `NarrowSlots`, `try_new` and `validate_dtypes`. `encode.rs`: `encode`,
   `encode_values` and the width helper.
 - `compute/`: one file per operation (`cast.rs`, `compare.rs`, `fill_null.rs`, `filter.rs`,
   `mask.rs`, `slice.rs`, `take.rs`), `PARENT_RULES` in `compute/rules.rs`, and `wrap_values` in
   `compute/mod.rs`. Aggregate kernels also go here, one file per aggregate, as in `dict/compute/`.
 - `vtable/`: `Narrow`, `NarrowArray` and the `VTable` impl in `vtable/mod.rs`, `probe_scalar` in
-  `vtable/operations.rs`, `ValidityChild` in `vtable/validity.rs`, and the kernel registrations in
-  `vtable/kernel.rs`.
+  `vtable/operations.rs`, and `ValidityChild` in `vtable/validity.rs`.
 
 ## Briefs
 
@@ -883,7 +883,7 @@ Files (checked at `afa4bc87cd`):
 | `vortex-array/src/arrays/narrow/compute/cast.rs`, `fill_null.rs` | Extend the cast and fill-null rules |
 | `vortex-array/src/arrays/narrow/compute/zip.rs`, `between.rs`, `rules.rs` | New `ZipReduce`, `ZipFalseReduce` and `BetweenReduce`, listed in `PARENT_RULES` |
 | `vortex-array/src/arrays/narrow/encode.rs` | Created by NR1. The numeric kernel, `integer_storage_type` and `encode` use its `pub(super)` width helper. There is no `integer_types` list |
-| `vortex-array/src/arrays/narrow/compute/mod.rs`, `vtable/kernel.rs` | `mod numeric;`, and `vtable/kernel.rs` registers the numeric kernel |
+| `vortex-array/src/arrays/narrow/compute/mod.rs`, `mod.rs` | `mod numeric;`, and `initialize` in `mod.rs` registers the numeric kernel |
 | `vortex-array/src/scalar_fn/fns/between/mod.rs:129` | Make `as_two_compares` `pub(crate)` |
 | `vortex-array/src/arrays/narrow/tests/mod.rs` | `mod numeric;` and `mod pushdown;` |
 | `vortex-array/src/arrays/narrow/tests/numeric.rs` | New. Port the cases of the reference tests |
