@@ -55,12 +55,14 @@ use vortex_scan::DataSourceScanRef;
 use vortex_scan::Partition;
 use vortex_scan::PartitionRef;
 use vortex_scan::PartitionStream;
+use vortex_scan::ScanNarrowing;
 use vortex_scan::ScanRequest;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutReaderRef;
+use crate::scan::current_filter;
 use crate::scan::limit::RowLimit;
 use crate::scan::scan_builder::ScanBuilder;
 
@@ -335,6 +337,7 @@ impl DataSource for MultiLayoutDataSource {
 struct BoundScanRequest {
     projection: BoundExpression,
     filter: SharedVortexResult<Option<BoundExpression>>,
+    narrowing: Option<Arc<dyn ScanNarrowing>>,
     row_range: Option<Range<u64>>,
     selection: Selection,
     partition_selection: Selection,
@@ -348,6 +351,7 @@ impl BoundScanRequest {
         let ScanRequest {
             projection,
             filter,
+            narrowing,
             row_range,
             selection,
             partition_selection,
@@ -358,6 +362,7 @@ impl BoundScanRequest {
 
         Ok(Self {
             projection: projection.bind(dtype)?.optimize_recursive()?,
+            narrowing,
             filter: filter
                 .map(|expr| expr.bind(dtype)?.optimize_recursive())
                 .transpose()
@@ -520,10 +525,13 @@ fn reader_partition(
 
     // Check file-level pruning: if the filter can be proven false for the entire row range
     // using file-level statistics, skip this reader entirely.
-    if let Ok(Some(filter)) = &request.filter {
+    if let Ok(filter) = &request.filter
+        && let Some(filter) =
+            current_filter(filter.clone(), request.narrowing.as_deref(), reader.dtype())
+    {
         let mask_len = usize::try_from(row_range.end - row_range.start).unwrap_or(usize::MAX);
         let mask = Mask::new_true(mask_len);
-        if let Ok(pruning_future) = reader.pruning_evaluation(&row_range, filter, mask)
+        if let Ok(pruning_future) = reader.pruning_evaluation(&row_range, &filter, mask)
             && let Some(Ok(result_mask)) = pruning_future.now_or_never()
             && result_mask.all_false()
         {
@@ -581,7 +589,7 @@ impl Partition for MultiLayoutPartition {
             Ok(filter) => filter.is_some(),
             Err(_) => true,
         };
-        if has_filter || self.row_limit.is_some() {
+        if has_filter || self.request.narrowing.is_some() || self.row_limit.is_some() {
             Precision::inexact(row_count)
         } else {
             Precision::exact(row_count)
@@ -594,7 +602,11 @@ impl Partition for MultiLayoutPartition {
 
     fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
         let request = self.request;
-        let filter = request.filter?;
+        let filter = current_filter(
+            request.filter?,
+            request.narrowing.as_deref(),
+            self.reader.dtype(),
+        );
         let mut builder = ScanBuilder::new(self.session, self.reader)
             .with_selection(request.selection)
             .with_projection(request.projection)
