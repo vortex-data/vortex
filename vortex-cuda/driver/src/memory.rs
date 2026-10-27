@@ -471,9 +471,9 @@ impl<T> CudaSlice<T> {
     ///
     /// # Safety
     ///
-    /// The bytes must be valid values of `S`.
+    /// The bytes must be valid values of `S`, and the memory must be aligned for `S`.
     pub unsafe fn transmute<S>(&self, len: usize) -> Option<CudaView<'_, S>> {
-        (len * size_of::<S>() <= self.num_bytes()).then_some(CudaView {
+        fits::<S>(len, self.num_bytes()).then_some(CudaView {
             pointer: self.pointer,
             len,
             access: &self.access,
@@ -486,9 +486,10 @@ impl<T> CudaSlice<T> {
     ///
     /// # Safety
     ///
-    /// The bytes must be valid values of `S`, and `T` must accept any bytes written as `S`.
+    /// The bytes must be valid values of `S`, the memory must be aligned for `S`, and `T` must
+    /// accept any bytes written as `S`.
     pub unsafe fn transmute_mut<S>(&mut self, len: usize) -> Option<CudaViewMut<'_, S>> {
-        (len * size_of::<S>() <= self.num_bytes()).then_some(CudaViewMut {
+        fits::<S>(len, self.num_bytes()).then_some(CudaViewMut {
             pointer: self.pointer,
             len,
             access: &self.access,
@@ -503,6 +504,12 @@ impl<T: DeviceRepr> CudaSlice<T> {
     pub fn try_clone(&self) -> Result<Self, DriverError> {
         self.stream.clone_dtod(self)
     }
+}
+
+/// Whether `len` elements of `S` fit in `bytes`; an overflowing size does not.
+fn fits<S>(len: usize, bytes: usize) -> bool {
+    len.checked_mul(size_of::<S>())
+        .is_some_and(|needed| needed <= bytes)
 }
 
 /// Resolves `bounds` against `len`, if in range.
@@ -586,9 +593,9 @@ impl<'a, T> CudaView<'a, T> {
     ///
     /// # Safety
     ///
-    /// The bytes must be valid values of `S`.
+    /// The bytes must be valid values of `S`, and the memory must be aligned for `S`.
     pub unsafe fn transmute<S>(&self, len: usize) -> Option<CudaView<'a, S>> {
-        (len * size_of::<S>() <= self.num_bytes()).then_some(CudaView {
+        fits::<S>(len, self.num_bytes()).then_some(CudaView {
             pointer: self.pointer,
             len,
             access: self.access,
@@ -698,9 +705,10 @@ impl<'a, T> CudaViewMut<'a, T> {
     ///
     /// # Safety
     ///
-    /// The bytes must be valid values of `S`, and `T` must accept any bytes written as `S`.
+    /// The bytes must be valid values of `S`, the memory must be aligned for `S`, and `T` must
+    /// accept any bytes written as `S`.
     pub unsafe fn transmute_mut<S>(&mut self, len: usize) -> Option<CudaViewMut<'_, S>> {
-        (len * size_of::<S>() <= self.num_bytes()).then_some(CudaViewMut {
+        fits::<S>(len, self.num_bytes()).then_some(CudaViewMut {
             pointer: self.pointer,
             len,
             access: self.access,
