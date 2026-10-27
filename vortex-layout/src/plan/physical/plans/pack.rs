@@ -338,9 +338,6 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
         }
 
         let expression = parent.expression();
-        if let Some(projected) = project_fields(child, expression)? {
-            return Ok(Some(projected));
-        }
         let fields = child.fields();
         // Most predicates reference one field. Find it without allocating annotations for
         // every expression node; struct-valued expressions use the general partitioner below.
@@ -461,61 +458,6 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
 
         Ok(Some(EvalPlan::try_new(residual, rewritten)?.into_plan()))
     }
-}
-
-/// Projects direct field references without partitioning an expression tree.
-fn project_fields(
-    child: &Plan<Pack>,
-    expression: &BoundExpression,
-) -> VortexResult<Option<PlanRef>> {
-    if expression.dtype().is_nullable() {
-        return Ok(None);
-    }
-    let fields = child.fields();
-    let inputs = if let Some(selection) = expression.as_opt::<Select>()
-        && expression.children()[0].is_root()
-    {
-        selection.normalize_to_included_fields(fields.names())?
-    } else if expression.as_opt::<PackFn>().is_some()
-        && expression.children().iter().all(|value| {
-            value.as_opt::<GetItem>().is_some() && value.children()[0].is_root()
-        })
-    {
-        expression
-            .children()
-            .iter()
-            .map(|value| value.as_opt::<GetItem>().vortex_expect("Direct field reference").clone())
-            .collect::<FieldNames>()
-    } else {
-        return Ok(None);
-    };
-    let output_fields = expression
-        .dtype()
-        .as_struct_fields_opt()
-        .vortex_expect("Struct projection")
-        .clone();
-    if inputs == *fields.names() && output_fields == *fields {
-        return Ok(Some(child.to_plan()));
-    }
-    let plans = inputs
-        .iter()
-        .map(|name| {
-            let index = fields.find(name).ok_or_else(|| {
-                vortex_err!("Struct projection references unknown field '{name}'")
-            })?;
-            field_plan(child, index)
-        })
-        .collect::<VortexResult<Vec<_>>>()?;
-    Ok(Some(
-        PackPlan::try_new(
-            output_fields,
-            Nullability::NonNullable,
-            child.row_count(),
-            plans,
-            None,
-        )?
-        .into_plan(),
-    ))
 }
 
 /// Detects one top-level field without annotating the whole tree. Bare roots and selects
