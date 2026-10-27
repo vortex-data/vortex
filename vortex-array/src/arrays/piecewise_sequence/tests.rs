@@ -133,7 +133,7 @@ fn scalar_probe_handles_empty_pieces_mixed_widths_and_revisits() -> VortexResult
     )?
     .into_array();
     let expected = [10u64, 12, 20, 23, 26, 50];
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let mut probe = array.repeated_probe();
     for index in [5, 0, 4, 1, 3, 2, 0, 5] {
         assert_eq!(probe.execute_scalar(index, &mut ctx)?, expected[index].into());
@@ -158,7 +158,7 @@ fn scalar_probe_preserves_deferred_range_errors() -> VortexResult<()> {
         2,
     )?
     .into_array();
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     assert_eq!(overflow.execute_scalar(0, &mut ctx)?, u64::MAX.into());
     let mut probe = overflow.repeated_probe();
     for error in [
@@ -209,7 +209,7 @@ fn scalar_probe_reads_chunked_lengths() -> VortexResult<()> {
         5,
     )?
     .into_array();
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     for (index, value) in [0u64, 1, 10, 20, 21].into_iter().enumerate() {
         assert_eq!(array.execute_scalar(index, &mut ctx)?, value.into());
     }
