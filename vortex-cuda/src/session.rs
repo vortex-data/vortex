@@ -83,6 +83,10 @@ impl CudaSession {
     }
 
     /// Creates a new CUDA session with the provided context and stream pool capacity.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `stream_pool_capacity` is zero.
     pub fn with_stream_pool_capacity(
         context: Arc<CudaContext>,
         stream_pool_capacity: usize,
