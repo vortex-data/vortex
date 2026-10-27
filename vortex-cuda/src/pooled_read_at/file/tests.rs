@@ -19,6 +19,7 @@ use tokio::time::timeout;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::session::RuntimeSessionExt;
+use vortex_cuda_driver::result::stream::launch_host_function;
 
 use super::*;
 use crate::CudaBufferExt;
@@ -585,6 +586,43 @@ async fn deleted_files_are_unmapped_by_later_opens() -> VortexResult<()> {
     let _other = mapped_reader()?;
     wait_for_releases();
     assert!(!is_mapped(&path)?);
+    Ok(())
+}
+
+/// A closed reader's mapping is released once its own copies complete, without waiting for
+/// later work on the stream it shares with other scans.
+#[crate::test]
+async fn closed_readers_do_not_wait_for_later_stream_work() -> VortexResult<()> {
+    let (_runtime, reader, _file) = mapped_reader()?;
+    if reader.mapped.is_none() {
+        return Ok(());
+    }
+    let stream = reader.stream.clone();
+    // Hold the release thread so the reader's release runs only after the stream is blocked.
+    let (resume, held) = mpsc::channel::<()>();
+    release_in_background(Box::new(move || {
+        let _ = held.recv_timeout(WAIT);
+    }));
+    drop(reader);
+    let (unblock, blocked) = mpsc::channel::<()>();
+    stream
+        .context()
+        .bind_to_thread()
+        .map_err(|e| vortex_err!("{e}"))?;
+    unsafe extern "C" fn wait(data: *mut std::ffi::c_void) {
+        // SAFETY: Registration transfers sole ownership of the boxed receiver here.
+        let blocked = unsafe { Box::from_raw(data.cast::<mpsc::Receiver<()>>()) };
+        let _ = blocked.recv_timeout(WAIT);
+    }
+    let data = Box::into_raw(Box::new(blocked));
+    // SAFETY: The stream is live, and the host function owns `data` once registered.
+    unsafe { launch_host_function(stream.cu_stream(), wait, data.cast()) }
+        .map_err(|e| vortex_err!("{e}"))?;
+    drop(resume);
+    let start = std::time::Instant::now();
+    wait_for_releases();
+    assert!(start.elapsed() < WAIT / 2);
+    drop(unblock);
     Ok(())
 }
 
