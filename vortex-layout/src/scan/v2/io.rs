@@ -108,6 +108,7 @@ impl IoSource for SegmentIoSource {
         let reads = self.reads.lock();
         let mut ready = self.ready.lock();
         let mut prefetched = self.prefetched.lock();
+        let mut pending = Vec::with_capacity(batch.len());
         for request in batch {
             let IoTarget::Range { offset, len, .. } = request.target else {
                 vortex_bail!(
@@ -127,30 +128,7 @@ impl IoSource for SegmentIoSource {
                     .push_back(self.segments.request(segment));
                 continue;
             }
-            if request.intent == IoIntent::Prefetch {
-                prefetched.entry(segment).or_insert_with(|| {
-                    let read = self
-                        .announced
-                        .lock()
-                        .get_mut(&segment)
-                        .and_then(VecDeque::pop_front)
-                        .unwrap_or_else(|| self.segments.request(segment))
-                        .map_err(Arc::new)
-                        .boxed()
-                        .shared();
-                    // Polling registers the read as wanted, so the source starts it now.
-                    drop(
-                        read.clone()
-                            .poll_unpin(&mut Context::from_waker(Waker::noop())),
-                    );
-                    read
-                });
-                continue;
-            }
-            // A segment stays with the session once read, so a later stage or morsel of the
-            // split that reads it again shares the read instead of starting another once the
-            // first has completed.
-            let mut bytes = prefetched
+            let bytes = prefetched
                 .entry(segment)
                 .or_insert_with(|| {
                     self.announced
@@ -162,7 +140,17 @@ impl IoSource for SegmentIoSource {
                         .boxed()
                         .shared()
                 })
-                .clone()
+                .clone();
+            pending.push((request, segment, bytes));
+        }
+        // Polling can start physical I/O. Register the entire batch first so nearby segments
+        // are eligible for coalescing before any of its reads starts.
+        for (request, segment, bytes) in pending {
+            if request.intent == IoIntent::Prefetch {
+                drop(bytes.clone().poll_unpin(&mut Context::from_waker(Waker::noop())));
+                continue;
+            }
+            let mut bytes = bytes
                 .map_err(move |err| vortex_err!("read of segment {segment} failed: {err}"))
                 .boxed();
             let id = request.request;
@@ -277,6 +265,37 @@ mod tests {
             request: IoRequestId(id),
             target: IoTarget::range(0, 4),
         }
+    }
+
+    struct RegisteredBeforePoll(Arc<AtomicUsize>);
+
+    impl SegmentSource for RegisteredBeforePoll {
+        fn request(&self, _id: SegmentId) -> SegmentFuture {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            let registered = Arc::clone(&self.0);
+            async move {
+                assert_eq!(registered.load(Ordering::Relaxed), 2);
+                Ok(BufferHandle::new_host(ByteBuffer::from(vec![0; 4])))
+            }
+            .boxed()
+        }
+    }
+
+    #[test]
+    fn registers_batch_before_polling() -> VortexResult<()> {
+        for first_intent in [IoIntent::Fetch, IoIntent::Prefetch] {
+            let segments = Arc::new(RegisteredBeforePoll(Arc::new(AtomicUsize::new(0))));
+            let locations = [0, 4].map(|offset| SegmentLocation {
+                offset,
+                length: 4,
+                alignment: Alignment::none(),
+            });
+            let io = SegmentIoSource::new(segments, segment_ranges(&locations));
+            let mut second = request(IoIntent::Fetch, 1);
+            second.target = IoTarget::range(4, 4);
+            io.submit(IoOwnerId(0), vec![request(first_intent, 0), second])?;
+        }
+        Ok(())
     }
 
     struct MixedSegments(Mutex<Option<oneshot::Receiver<ByteBuffer>>>);
