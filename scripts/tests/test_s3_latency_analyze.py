@@ -144,3 +144,42 @@ def test_fresh_object_window_ends_where_latency_drops(analyze: ModuleType):
     assert fit is not None
     assert fit["warm_after_age_s"] == 100
     assert fit["first_byte_multiplier_p50"] == pytest.approx(4.0)
+
+
+def test_compare_reports_errors_against_real(analyze: ModuleType, results: Path):
+    _, real = analyze.analyze(*analyze.load(results))
+    _, sim = analyze.analyze(*analyze.load(results))
+    sim["environment"]["store"] = "simulated-model"
+    sim["fits"]["serial"]["p50"]["a_ms"] *= 1.1
+
+    section, comparison = analyze.compare(real, sim)
+    assert comparison["store"] == "simulated-model"
+    serial = comparison["groups"]["serial"]
+    assert serial["max_abs_error"] == pytest.approx(0.1)
+    assert comparison["groups"]["scan wall s"]["max_abs_error"] == 0
+    assert "## Simulated vs real" in section
+
+
+def test_simulate_finishes_with_tiny_steps(analyze: ModuleType):
+    # Transfers so fast that each step is below the clock's floating-point resolution.
+    model = {
+        "first_byte_s": {"inverse_cdf": [[0.0, 1e3], [1.0, 1e3]]},
+        "head_s": {"inverse_cdf": [[0.0, 1e3], [1.0, 1e3]]},
+        "per_connection_bytes_per_s": 1e18,
+        "nic_bytes_per_s": 1e18,
+    }
+    tasks = [[(4, [("segment", 3), ("segment", 7), ("segment", 11)])]]
+    walls, latencies = analyze.simulate(model, [tasks], [1], [0.0], random.Random(0))
+    assert len(latencies) == 3
+    assert walls[0] == pytest.approx(1e3)
+
+
+def test_model_without_body_time_falls_back_to_serial_slope(analyze: ModuleType, results: Path):
+    # Like `ThrottledStore`, deliver every body in one go: no time between first byte and end.
+    rows, scans, metas = analyze.load(results)
+    for r in rows:
+        r["first_byte_us"] = r["end_us"]
+        r["ttfb_ms"] = r["total_ms"]
+        r["body_ms"] = 0.0
+    _, model = analyze.analyze(rows, scans, metas)
+    assert model["request_model"]["per_connection_bytes_per_s"] == pytest.approx(BYTES_PER_S, rel=0.1)

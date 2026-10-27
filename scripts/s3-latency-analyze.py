@@ -190,7 +190,13 @@ def fit_request_model(ok: list[dict], fresh: list[dict], ages: dict[str, int]) -
     ttfb = [r["ttfb_ms"] / 1e3 for r in serial if r["length"] >= 4]
     heads = [r["total_ms"] / 1e3 for r in ok if r["phase"] == "suffix" and r["kind"] == "head"]
     big = [r for r in serial if r["length"] >= 4 * MIB and r["body_ms"] > 0]
-    per_connection = quantile([r["bytes"] / (r["body_ms"] / 1e3) for r in big], 0.5)
+    if big:
+        per_connection = quantile([r["bytes"] / (r["body_ms"] / 1e3) for r in big], 0.5)
+    else:
+        # Stores that deliver the whole body at once (like `ThrottledStore`) leave no body time
+        # to measure; fall back to the slope of serial latency against size.
+        (_, ms_per_mib), _ = least_squares([[1.0, r["length"] / MIB] for r in serial], [r["total_ms"] for r in serial])
+        per_connection = MIB / (ms_per_mib / 1e3)
 
     # The instance's network cap: the best aggregate throughput of 8 MiB reads in each run, then
     # the median over runs.
@@ -299,6 +305,8 @@ def simulate(
     """
     per_conn = model["per_connection_bytes_per_s"]
     nic = model["nic_bytes_per_s"]
+    if not (math.isfinite(per_conn) and math.isfinite(nic) and per_conn > 0 and nic > 0):
+        raise ValueError(f"model transfer rates must be positive, got {per_conn} and {nic}")
     t = 0.0
     timers: list[tuple[float, int]] = []
     bodies: dict[int, float] = {}
@@ -357,7 +365,8 @@ def simulate(
                 if not scans[s]:
                     done[s] = t
         rate = min(per_conn, nic / len(bodies)) if bodies else 0.0
-        next_body = t + min(bodies.values()) / rate if bodies else math.inf
+        first = min(bodies, key=bodies.__getitem__) if bodies else None
+        next_body = t + bodies[first] / rate if first is not None else math.inf
         next_timer = timers[0][0] if timers else math.inf
         next_start = min((delays[s] for s in range(len(scans)) if not started[s]), default=math.inf)
         now = min(next_body, next_timer, next_start)
@@ -366,6 +375,10 @@ def simulate(
         for i in bodies:
             bodies[i] -= rate * (now - t)
         t = now
+        if first is not None and now == next_body:
+            # Finish the body this step waited for even if rounding left a sliver of it, or a
+            # step too small to advance `t` would repeat forever.
+            bodies[first] = 0.0
         for i in [i for i, left in bodies.items() if left <= 1e-6]:
             del bodies[i]
             finish(i)
@@ -756,6 +769,7 @@ def analyze(rows: list[dict], scans: list[dict], metas: list[dict]) -> tuple[str
         key: model.pop(key) for key in ("runs", "fresh_runs_excluded", "dataset_age_s", "requests", "errors")
     }
     environment["instance_types"] = instance_types
+    environment["store"] = ",".join(sorted({m.get("store", "real") for m in metas})) or "real"
     environment["availability_zones"] = sorted({m.get("meta", {}).get("availability_zone", "?") for m in metas})
     fits = {key: model.pop(key) for key in ("serial", "multivariate_ols") if key in model}
     return "\n".join(md) + "\n", {
@@ -768,11 +782,81 @@ def analyze(rows: list[dict], scans: list[dict], metas: list[dict]) -> tuple[str
     }
 
 
+def compare(real: dict, sim: dict) -> tuple[list[str], dict]:
+    """Put a simulated run's measurements next to the real ones they should reproduce."""
+    rows: list[tuple[str, str, float, float]] = []
+
+    def add(group: str, name: str, r: float | None, s: float | None) -> None:
+        if r is not None and s is not None and not math.isnan(r) and not math.isnan(s):
+            rows.append((group, name, r, s))
+
+    for q in ("p50", "p90", "p99"):
+        r, s = real["fits"].get("serial", {}).get(q), sim["fits"].get("serial", {}).get(q)
+        if r and s:
+            add("serial", f"{q} first byte ms", r["a_ms"], s["a_ms"])
+            add("serial", f"{q} MiB/s per connection", r["mib_per_s"], s["mib_per_s"])
+    for q in ("p50", "p99"):
+        add(
+            "HEAD",
+            f"{q} ms",
+            real["measurements"].get("head_ms", {}).get(q),
+            sim["measurements"].get("head_ms", {}).get(q),
+        )
+    real_conc, sim_conc = real["measurements"].get("concurrency", {}), sim["measurements"].get("concurrency", {})
+    for length, cells in real_conc.items():
+        for c, cell in cells.items():
+            other = sim_conc.get(length, {}).get(c)
+            if other:
+                name = f"{fmt_bytes(int(length))} x{c}"
+                add("concurrency p50 ms", name, cell["p50"], other["p50"])
+                add("concurrency MiB/s", name, cell["agg_mib_s"], other["agg_mib_s"])
+    real_scans, sim_scans = real["measurements"].get("scans", {}), sim["measurements"].get("scans", {})
+    for name, cell in real_scans.items():
+        other = sim_scans.get(name)
+        if other:
+            add("scan wall s", name, cell["wall_s_p50"], other["wall_s_p50"])
+            for q in ("p50", "p99"):
+                add(f"scan segment {q} ms", name, cell["segment_latency_ms"][q], other["segment_latency_ms"][q])
+
+    def error(r: float, s: float) -> float:
+        return (s - r) / r if r else math.nan
+
+    groups: dict[str, list[float]] = defaultdict(list)
+    for group, _, r, s in rows:
+        groups[group].append(abs(error(r, s)))
+    md = ["", "## Simulated vs real", ""]
+    md.append(f"Simulated store: `{sim['environment'].get('store', '?')}`. Median absolute error by group:")
+    md.append("")
+    md.append(
+        table(
+            ["group", "n", "median abs error", "worst"],
+            [[g, str(len(v)), f"{quantile(v, 0.5):.0%}", f"{max(v):.0%}"] for g, v in groups.items()],
+        )
+    )
+    md += ["", "<details><summary>Every compared value</summary>", ""]
+    md.append(
+        table(
+            ["group", "value", "real", "simulated", "error"],
+            [[g, n, f"{r:.2f}", f"{s:.2f}", f"{error(r, s):+.0%}"] for g, n, r, s in rows],
+        )
+    )
+    md += ["", "</details>"]
+    summary = {
+        g: {"n": len(v), "median_abs_error": quantile(v, 0.5), "max_abs_error": max(v)} for g, v in groups.items()
+    }
+    return md, {"store": sim["environment"].get("store"), "groups": summary}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("results", type=Path)
     parser.add_argument("--report", type=Path)
     parser.add_argument("--model", type=Path)
+    parser.add_argument(
+        "--compare",
+        type=Path,
+        help="model.json of real S3 runs; adds a section comparing these (simulated) runs with them",
+    )
     args = parser.parse_args()
 
     rows, scans, metas = load(args.results)
@@ -780,6 +864,10 @@ def main() -> int:
         print(f"no requests.csv found under {args.results}", file=sys.stderr)
         return 1
     report, model = analyze(rows, scans, metas)
+    if args.compare:
+        section, comparison = compare(json.loads(args.compare.read_text()), model)
+        report += "\n".join(section) + "\n"
+        model["comparison"] = comparison
     print(report)
     if args.report:
         args.report.write_text(report)

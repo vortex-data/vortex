@@ -2813,6 +2813,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "parking_lot",
+ "s3-latency-bench",
  "tokio",
  "url",
  "vortex",
@@ -9693,6 +9694,7 @@ name = "s3-latency-bench"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "bytes",
  "clap",
  "futures",
@@ -9704,6 +9706,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "url",
+ "vortex",
 ]
 
 [[package]]
