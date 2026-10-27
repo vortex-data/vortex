@@ -13,11 +13,11 @@ use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::arrays::widen::WidenArraySlotsExt;
-use crate::arrays::widen::compute::integer_storage_type;
+use crate::arrays::widen::compute::cast_to_ptype;
+use crate::arrays::widen::compute::values_ptype_holding;
 use crate::arrays::widen::compute::wider_values_ptype;
 use crate::arrays::widen::compute::wrap_values;
 use crate::builtins::ArrayBuiltins;
-use crate::dtype::DType;
 use crate::kernel::ExecuteParentKernel;
 use crate::scalar_fn::fns::zip::Zip;
 use crate::scalar_fn::fns::zip::ZipKernel;
@@ -84,7 +84,7 @@ fn zip_values(
         };
         (other.values().clone(), ptype)
     } else if let Some(constant) = other.as_constant() {
-        let Some(ptype) = integer_storage_type(array, constant)? else {
+        let Some(ptype) = values_ptype_holding(array, constant)? else {
             return Ok(None);
         };
         (other.clone(), ptype)
@@ -92,9 +92,8 @@ fn zip_values(
         return Ok(None);
     };
 
-    let values = values.cast(DType::Primitive(ptype, values.dtype().nullability()))?;
-    let other_values =
-        other_values.cast(DType::Primitive(ptype, other_values.dtype().nullability()))?;
+    let values = cast_to_ptype(values, ptype)?;
+    let other_values = cast_to_ptype(&other_values, ptype)?;
 
     let zipped = match branch {
         Branch::IfTrue => mask.zip(values, other_values)?,

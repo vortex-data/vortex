@@ -22,36 +22,33 @@ impl CastReduce for Widen {
             return Ok(None);
         };
 
-        let storage_ptype = match storage_ptype(*values_ptype, *target_ptype) {
-            Some(storage_ptype) if target_ptype.byte_width() > storage_ptype.byte_width() => {
-                storage_ptype
-            }
-            // A float target, or an integer target no wider than the storage type, goes to the
-            // values, whose cast checks every value and every null.
+        let cast_ptype = match cast_values_ptype(*values_ptype, *target_ptype) {
+            Some(cast_ptype) if target_ptype.byte_width() > cast_ptype.byte_width() => cast_ptype,
+            // A float target, or an integer target no wider than `cast_ptype`, goes to the values,
+            // whose cast checks every value and every null.
             _ => return values.cast(dtype.clone()).map(Some),
         };
 
-        // A wider integer target holds every value of the storage type, so the values stay narrow.
+        // A wider integer target holds every value of `cast_ptype`, so the values stay narrow.
         // They take the target nullability, so that a cast to a non-nullable target still fails on
         // a null.
-        let values = values.cast(DType::Primitive(storage_ptype, *nullability))?;
+        let values = values.cast(DType::Primitive(cast_ptype, *nullability))?;
         wrap_values(values, dtype.clone()).map(Some)
     }
 }
 
-/// Returns the integer type with the signedness of `target` that the values are cast to before a
-/// wider integer cast, or `None` when `target` is a float.
+/// Returns the type that the values take when the `Widen` is cast to the integer type `target`, or
+/// `None` for a float target.
 ///
-/// A signed type holds an unsigned type of the same width only up to its maximum, so an unsigned
-/// `values` type and a signed target give the next wider signed type. A signed `values` type and an
-/// unsigned target give the unsigned type of the same width, because a negative value fits no
-/// unsigned type, and the cast of the values rejects it.
-fn storage_ptype(values: PType, target: PType) -> Option<PType> {
+/// The result has the signedness of `target`. An unsigned type fits a signed type only one width
+/// up, so unsigned values with a signed target widen one step. Signed values with an unsigned
+/// target keep their width, and the cast of the values rejects a negative value.
+fn cast_values_ptype(values: PType, target: PType) -> Option<PType> {
     if target.is_float() {
         return None;
     }
 
-    let storage = match (values.is_signed_int(), target.is_signed_int()) {
+    let cast_ptype = match (values.is_signed_int(), target.is_signed_int()) {
         // `validate_dtypes` keeps the values narrower than 64 bits.
         (false, true) => match values {
             PType::U8 => PType::I16,
@@ -62,5 +59,5 @@ fn storage_ptype(values: PType, target: PType) -> Option<PType> {
         _ => values,
     };
 
-    Some(storage)
+    Some(cast_ptype)
 }

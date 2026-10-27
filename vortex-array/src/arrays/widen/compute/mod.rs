@@ -39,6 +39,7 @@ use crate::arrays::WidenArray;
 use crate::arrays::widen::WidenArraySlotsExt;
 use crate::arrays::widen::encode::integer_value;
 use crate::arrays::widen::encode::smallest_integer_ptype;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::scalar::Scalar;
@@ -56,14 +57,12 @@ pub(super) fn wrap_values(values: ArrayRef, dtype: DType) -> VortexResult<ArrayR
     Ok(WidenArray::try_new(values, dtype)?.into_array())
 }
 
-/// Returns the integer type that holds both the values of `array` and `scalar`, without reading any
-/// values.
+/// Returns the type that the values of `array` widen to so that they also hold `scalar`: the type
+/// of the values, or the smallest wider type of the logical signedness that holds `scalar`.
 ///
-/// This is the type of the values, or the smallest type of the logical signedness that holds
-/// `scalar` when that type is wider. A null `scalar` gives the type of the values. The result is
-/// never wider than the logical type. Returns `None` when the values or the logical dtype is not
-/// primitive, or when `scalar` does not have the logical dtype.
-pub(super) fn integer_storage_type(
+/// A null `scalar` keeps the type of the values. Returns `None` when `scalar` does not have the
+/// logical dtype, or when the values or the logical dtype is not an integer (a decimal `Widen`).
+pub(super) fn values_ptype_holding(
     array: ArrayView<'_, Widen>,
     scalar: &Scalar,
 ) -> VortexResult<Option<PType>> {
@@ -90,6 +89,11 @@ pub(super) fn integer_storage_type(
     } else {
         Ok(Some(*values_ptype))
     }
+}
+
+/// Casts the integer array `array` to `ptype`, keeping its nullability.
+pub(super) fn cast_to_ptype(array: &ArrayRef, ptype: PType) -> VortexResult<ArrayRef> {
+    array.cast(DType::Primitive(ptype, array.dtype().nullability()))
 }
 
 /// Returns the wider of the value types of two [`Widen`] arrays, or `None` when a value type is

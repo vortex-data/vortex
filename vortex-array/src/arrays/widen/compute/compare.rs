@@ -13,6 +13,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::Widen;
 use crate::arrays::widen::WidenArraySlotsExt;
+use crate::arrays::widen::compute::cast_to_ptype;
 use crate::arrays::widen::compute::constant_values;
 use crate::arrays::widen::compute::wider_values_ptype;
 use crate::builtins::ArrayBuiltins;
@@ -89,10 +90,8 @@ fn compare_narrow_values(
         return Ok(None);
     };
 
-    let lhs_values = lhs.values();
-    let lhs_values = lhs_values.cast(DType::Primitive(ptype, lhs_values.dtype().nullability()))?;
-    let rhs_values = rhs.values();
-    let rhs_values = rhs_values.cast(DType::Primitive(ptype, rhs_values.dtype().nullability()))?;
+    let lhs_values = cast_to_ptype(lhs.values(), ptype)?;
+    let rhs_values = cast_to_ptype(rhs.values(), ptype)?;
 
     lhs_values
         .binary(rhs_values, Operator::from(operator))

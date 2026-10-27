@@ -23,11 +23,12 @@ use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::arrays::widen::WidenArraySlotsExt;
+use crate::arrays::widen::compute::cast_to_ptype;
 use crate::arrays::widen::compute::wrap_values;
 use crate::arrays::widen::encode::integer_value;
 use crate::arrays::widen::encode::smallest_integer_ptype;
-use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::dtype::PType;
 use crate::kernel::ExecuteParentKernel;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
@@ -35,20 +36,14 @@ use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::binary::execute_numeric;
 use crate::scalar_fn::fns::operators::Operator;
 
-/// Executes checked arithmetic of a [`Widen`] and another `Widen` or a constant at the smallest
-/// integer type that holds both operands and the result.
+/// Runs checked add, subtract, multiply and divide of a [`Widen`] with another `Widen` or a
+/// constant at the smallest integer type that holds both operands and every result.
 ///
-/// The kernel executes each stored operand once and reads its extrema. [`result_interval`] turns
-/// them into an interval that holds every result. The operation runs at the smallest type of the
-/// logical signedness that holds the extrema of both operands and that interval. Null rows do not
-/// count, so a cast to that type can drop their payloads, and the checked kernel skips them.
-///
-/// Independent extrema can overestimate the result, so an interval that only the logical type
-/// holds, or that no type holds, is not an error. The operation then runs at the logical type,
-/// where the checked kernel reports a real overflow or a division by zero exactly as canonical
-/// execution does.
-///
-/// Any other operand declines, so that canonical execution widens a wide or lazy operand once.
+/// Narrow values read and write less memory. [`arithmetic_ptype`] picks the type from the extrema
+/// of the valid rows, so the type can be too wide but never too narrow. When no narrower type is
+/// known to hold the result, the operation runs at the logical type, where the checked kernel
+/// reports an overflow or a division by zero with the same error as canonical execution. Any other
+/// operand declines, so the default path widens it once.
 #[derive(Debug)]
 pub(crate) struct WidenNumericKernel;
 
@@ -116,25 +111,35 @@ impl ExecuteParentKernel<Widen> for WidenNumericKernel {
             return Ok(Some(ConstantArray::new(null, parent.len()).into_array()));
         };
 
-        let ptype = result_interval(&lhs_bounds, &rhs_bounds, operator)
-            .and_then(|result| {
-                let min = (*lhs_bounds.start())
-                    .min(*rhs_bounds.start())
-                    .min(*result.start());
-                let max = (*lhs_bounds.end())
-                    .max(*rhs_bounds.end())
-                    .max(*result.end());
-                smallest_integer_ptype(min..=max, logical_ptype.is_signed_int())
-            })
-            .filter(|ptype| ptype.byte_width() < logical_ptype.byte_width())
-            .unwrap_or(*logical_ptype);
-
-        let lhs = lhs.cast(DType::Primitive(ptype, lhs.dtype().nullability()))?;
-        let rhs = rhs.cast(DType::Primitive(ptype, rhs.dtype().nullability()))?;
+        let ptype = arithmetic_ptype(&lhs_bounds, &rhs_bounds, operator, *logical_ptype);
+        let lhs = cast_to_ptype(&lhs, ptype)?;
+        let rhs = cast_to_ptype(&rhs, ptype)?;
         let values = execute_numeric(&lhs, &rhs, operator, ctx)?;
 
         wrap_values(values, dtype.clone()).map(Some)
     }
+}
+
+/// Returns the smallest type of the signedness of `logical` that holds the valid values of both
+/// operands and every result of `operator`, or `logical` when no narrower type is known to hold
+/// them.
+///
+/// Null rows do not count. A cast to the narrower type can change their payloads, and the checked
+/// kernel skips them.
+fn arithmetic_ptype(
+    lhs: &RangeInclusive<i128>,
+    rhs: &RangeInclusive<i128>,
+    operator: NumericOperator,
+    logical: PType,
+) -> PType {
+    result_interval(lhs, rhs, operator)
+        .and_then(|result| {
+            let min = (*lhs.start()).min(*rhs.start()).min(*result.start());
+            let max = (*lhs.end()).max(*rhs.end()).max(*result.end());
+            smallest_integer_ptype(min..=max, logical.is_signed_int())
+        })
+        .filter(|ptype| ptype.byte_width() < logical.byte_width())
+        .unwrap_or(logical)
 }
 
 /// Returns the extrema of the valid values of an integer array, or `None` when no row is valid.

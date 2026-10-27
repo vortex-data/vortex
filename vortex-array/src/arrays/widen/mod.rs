@@ -10,10 +10,8 @@
 //! [`PrimitiveArray`].
 //!
 //! Narrowing is a physical choice, so it **must not** change a result. Execution casts the values
-//! to the logical dtype, and the kernels for slice, filter, mask, cast, fill null, take, compare,
-//! between, zip and arithmetic run on the values only where they give the canonical answer.
-//! Arithmetic runs at the smallest type that holds its operands and its result. A `Widen` never
-//! wraps another `Widen`.
+//! to the logical dtype, and an operation runs on the values only where it gives the canonical
+//! result. A `Widen` never wraps another `Widen`.
 //!
 //! Take executes its gather instead of leaving a lazy [`Dict`] under a `Widen`, because code such
 //! as the DuckDB exporter and the dict layout writer looks for a `Dict` at the root of an array.
