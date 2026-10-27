@@ -9,6 +9,7 @@
 mod aggregates;
 mod compute;
 mod encoding;
+mod numeric;
 
 use std::sync::LazyLock;
 

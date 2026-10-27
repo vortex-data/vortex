@@ -100,7 +100,7 @@ pub(super) fn smallest_integer_ptype(bounds: RangeInclusive<i128>, signed: bool)
 }
 
 /// Returns the value of a non-null integer scalar of at most 64 bits.
-fn integer_value(scalar: &Scalar) -> VortexResult<i128> {
+pub(super) fn integer_value(scalar: &Scalar) -> VortexResult<i128> {
     if scalar.dtype().is_signed_int() {
         i64::try_from(scalar).map(i128::from)
     } else {

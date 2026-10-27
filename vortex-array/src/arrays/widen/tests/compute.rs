@@ -32,6 +32,7 @@ use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::widen::WidenArraySlotsExt;
 use crate::assert_arrays_eq;
 use crate::builtins::ArrayBuiltins;
+use crate::compute::conformance::binary_numeric::test_binary_numeric_array;
 use crate::compute::conformance::cast::test_cast_conformance;
 use crate::compute::conformance::consistency::test_array_consistency;
 use crate::compute::conformance::filter::test_filter_conformance;
@@ -339,6 +340,7 @@ fn test_conformance(#[case] array: WidenArray) {
     let mut ctx = SESSION.create_execution_ctx();
     let array = array.into_array();
 
+    test_binary_numeric_array(&array, &mut ctx);
     test_cast_conformance(&array, &mut ctx);
     test_filter_conformance(&array, &mut ctx);
     test_take_conformance(&array, &mut ctx);

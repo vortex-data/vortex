@@ -10,9 +10,10 @@
 //! [`PrimitiveArray`].
 //!
 //! Narrowing is a physical choice, so it **must not** change a result. Execution casts the values
-//! to the logical dtype, and the kernels for slice, filter, mask, cast, fill null, take and compare
-//! run on the values only where they give the canonical answer. A `Widen` never wraps another
-//! `Widen`.
+//! to the logical dtype, and the kernels for slice, filter, mask, cast, fill null, take, compare,
+//! between, zip and arithmetic run on the values only where they give the canonical answer.
+//! Arithmetic runs at the smallest type that holds its operands and its result. A `Widen` never
+//! wraps another `Widen`.
 //!
 //! Take executes its gather instead of leaving a lazy [`Dict`] under a `Widen`, because code such
 //! as the DuckDB exporter and the dict layout writer looks for a `Dict` at the root of an array.
@@ -40,6 +41,7 @@ pub use vtable::Widen;
 use crate::array::VTable;
 use crate::arrays::Dict;
 use crate::arrays::dict::TakeExecuteAdaptor;
+use crate::arrays::widen::compute::numeric::WidenNumericKernel;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::binary::Binary;
@@ -48,6 +50,7 @@ use crate::scalar_fn::fns::binary::CompareExecuteAdaptor;
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
     kernels.register_execute_parent_kernel(Binary.id(), Widen, CompareExecuteAdaptor(Widen));
+    kernels.register_execute_parent_kernel(Binary.id(), Widen, WidenNumericKernel);
     kernels.register_execute_parent_kernel(Dict.id(), Widen, TakeExecuteAdaptor(Widen));
 }
 

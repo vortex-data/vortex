@@ -21,6 +21,7 @@ mod compare;
 mod fill_null;
 mod filter;
 mod mask;
+pub(crate) mod numeric;
 pub(crate) mod rules;
 mod slice;
 mod take;
