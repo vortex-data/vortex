@@ -34,7 +34,7 @@ impl DriverError {
         describe: unsafe fn(CUresult, *mut *const c_char) -> CUresult,
     ) -> Result<&'static CStr, DriverError> {
         // Errors are formatted even when the driver library is missing.
-        if !driver_present() {
+        if !is_cuda_driver_present() {
             return Err(*self);
         }
         let mut text = std::ptr::null();
@@ -87,7 +87,7 @@ impl CUresult {
 /// Fails with `CUDA_ERROR_NOT_INITIALIZED` if the driver library cannot be loaded, where the raw
 /// [`sys`] functions would panic, so that the safe API reports a host without CUDA as an error.
 pub fn init() -> Result<(), DriverError> {
-    if !driver_present() {
+    if !is_cuda_driver_present() {
         return Err(DriverError(CUresult::CUDA_ERROR_NOT_INITIALIZED));
     }
     // SAFETY: cuInit has no preconditions.
@@ -95,7 +95,7 @@ pub fn init() -> Result<(), DriverError> {
 }
 
 /// Whether the driver library is loaded, which the raw [`sys`] functions require.
-fn driver_present() -> bool {
+fn is_cuda_driver_present() -> bool {
     // SAFETY: Loads the driver library, which any driver call would load as well.
     unsafe { sys::is_culib_present() }
 }
