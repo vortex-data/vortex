@@ -549,10 +549,7 @@ fn compile_cpp(duckdb_include_dir: &Path) {
     }
 
     if build.get_compiler().is_like_msvc() {
-        build
-            .flag("/W4")
-            .flag("/EHsc")
-            .include(duckdb_include_dir);
+        build.flag("/W4").flag("/EHsc").include(duckdb_include_dir);
     } else {
         build
             .flags(["-Wall", "-Wextra", "-Wpedantic", "-Werror"])
@@ -743,7 +740,14 @@ fn main() {
 
     println!("cargo:info=building DuckDB in {build_type} mode");
 
-    let prebuilt_library_dir = cache_root.join(format!("duckdb-lib-{version}-{target}-prebuilt"));
+    // Windows builds should be separate entries in the cache
+    let prebuilt_kind = if target.contains("windows") {
+        "static-prebuilt"
+    } else {
+        "prebuilt"
+    };
+    let prebuilt_library_dir =
+        cache_root.join(format!("duckdb-lib-{version}-{target}-{prebuilt_kind}"));
     let source_library_dir = cache_root.join(format!(
         "duckdb-lib-{version}-{target}-{build_type}{sanitizer_suffix}"
     ));
