@@ -107,23 +107,26 @@ impl TakeExecute for Pco {
             if let Some(result) = zero_page_take(array, indices.len(), ctx)? {
                 return Ok(Some(result));
             }
-            grouped = (!contiguous).then_some(defined);
-            if grouped.is_some() && descriptor_bytes(defined) >= canonical_bytes(array) {
-                return Ok(None);
-            }
-            if grouped.is_some()
-                && match_each_integer_ptype!(indices.ptype(), |I| {
-                    prefer_canonical_primitive(
-                        array,
-                        view,
-                        indices.as_slice::<I>(),
-                        &mask,
-                        defined,
-                    )?
-                })
-            {
-                return Ok(None);
-            }
+            grouped = match contiguous {
+                true => None,
+                false => {
+                    if descriptor_bytes(defined) >= canonical_bytes(array) {
+                        return Ok(None);
+                    }
+                    if match_each_integer_ptype!(indices.ptype(), |I| {
+                        prefer_canonical_primitive(
+                            array,
+                            view,
+                            indices.as_slice::<I>(),
+                            &mask,
+                            defined,
+                        )?
+                    }) {
+                        return Ok(None);
+                    }
+                    Some(defined)
+                }
+            };
             match_each_integer_ptype!(indices.ptype(), |I| {
                 primitive_runs(indices.as_slice::<I>(), &mask)?
             })
