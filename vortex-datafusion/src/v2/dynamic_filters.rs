@@ -5,9 +5,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
-use datafusion_common::ScalarValue;
 use datafusion_physical_expr::PhysicalExpr;
-use datafusion_physical_expr::expressions::Literal;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::utils::reassign_expr_columns;
 use datafusion_physical_expr_common::physical_expr::snapshot_physical_expr;
@@ -20,7 +18,7 @@ use vortex::scan::DynamicFilter;
 use crate::convert::ExpressionConverter;
 
 #[derive(Clone)]
-pub(super) struct RuntimeFilter {
+pub(super) struct DynamicFilterExpr {
     pub expression: Arc<dyn PhysicalExpr>,
     pub schema: SchemaRef,
     pub projection: Expression,
@@ -28,15 +26,9 @@ pub(super) struct RuntimeFilter {
     pub converter: Arc<dyn ExpressionConverter>,
 }
 
-impl RuntimeFilter {
+impl DynamicFilterExpr {
     fn current(&self) -> Option<Expression> {
         let snapshot = snapshot_physical_expr(Arc::clone(&self.expression)).ok()?;
-        if snapshot
-            .downcast_ref::<Literal>()
-            .is_some_and(|literal| matches!(literal.value(), ScalarValue::Boolean(Some(true))))
-        {
-            return None;
-        }
         let snapshot = match &self.leftover {
             Some(projection) => projection.unproject_expr(&snapshot).ok()?,
             None => snapshot,
@@ -48,18 +40,18 @@ impl RuntimeFilter {
 }
 
 #[derive(Clone, Default)]
-pub(super) struct RuntimeFilters(pub Vec<RuntimeFilter>);
+pub(super) struct DynamicFilters(pub Vec<DynamicFilterExpr>);
 
-impl fmt::Debug for RuntimeFilters {
+impl fmt::Debug for DynamicFilters {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("RuntimeFilters")
+        f.debug_tuple("DynamicFilters")
             .field(&self.0.len())
             .finish()
     }
 }
 
-impl DynamicFilter for RuntimeFilters {
+impl DynamicFilter for DynamicFilters {
     fn current(&self) -> Option<Expression> {
-        and_collect(self.0.iter().filter_map(RuntimeFilter::current))
+        and_collect(self.0.iter().filter_map(DynamicFilterExpr::current))
     }
 }
