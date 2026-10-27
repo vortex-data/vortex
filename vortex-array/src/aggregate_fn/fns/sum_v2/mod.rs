@@ -203,9 +203,7 @@ impl AggregateFnVTable for SumV2 {
         Ok(Scalar::struct_(
             args.partial_dtype.clone(),
             vec![
-                partial
-                    .sum
-                    .to_scalar(args.return_dtype, Nullability::NonNullable),
+                sum_state_scalar(partial, args.return_dtype, Nullability::NonNullable),
                 Scalar::bool(partial.is_overflow, Nullability::NonNullable),
                 Scalar::bool(partial.is_empty, Nullability::NonNullable),
             ],
@@ -335,9 +333,11 @@ impl AggregateFnVTable for SumV2 {
         if partial.is_overflow || partial.is_empty {
             return Ok(Scalar::null(args.return_dtype.as_nullable()));
         }
-        Ok(partial
-            .sum
-            .to_scalar(args.return_dtype, Nullability::Nullable))
+        Ok(sum_state_scalar(
+            partial,
+            args.return_dtype,
+            Nullability::Nullable,
+        ))
     }
 }
 
@@ -518,6 +518,25 @@ fn sum_v2_partial_fields(sum_dtype: DType) -> StructFields {
             DType::Bool(Nullability::NonNullable),
         ],
     )
+}
+
+fn sum_state_scalar(
+    partial: &SumV2Partial,
+    return_dtype: &DType,
+    nullability: Nullability,
+) -> Scalar {
+    match &partial.sum {
+        SumState::Unsigned(value) => Scalar::primitive(*value, nullability),
+        SumState::Signed(value) => Scalar::primitive(*value, nullability),
+        SumState::Float(value) => Scalar::primitive(*value, nullability),
+        SumState::Decimal(value) => Scalar::decimal(
+            *value,
+            *return_dtype
+                .as_decimal_opt()
+                .vortex_expect("decimal sum result dtype"),
+            nullability,
+        ),
+    }
 }
 
 fn checked_add_u64(sum: &mut u64, value: u64) -> bool {

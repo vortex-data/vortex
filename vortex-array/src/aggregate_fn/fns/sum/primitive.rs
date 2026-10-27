@@ -21,11 +21,6 @@ use crate::match_each_native_ptype;
 /// than 64 bits cannot overflow the 64-bit accumulator: `2^16 * (2^32 - 1) < 2^64`.
 const SUM_CHUNK: usize = 1 << 16;
 
-/// Adds the valid values of `p` to `inner`, and returns true when the sum overflows.
-///
-/// Each value widens exactly into the state. `p` **must** be in the class of the state: signed
-/// values for a signed state, unsigned values for an unsigned state, and floats for a float state.
-/// Any other combination panics.
 pub(crate) fn accumulate_primitive(
     inner: &mut SumState,
     p: &PrimitiveArray,
