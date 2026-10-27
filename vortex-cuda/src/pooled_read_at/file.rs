@@ -220,6 +220,8 @@ impl FileVersion {
 /// Unmapped when the last reference drops, only after every user's copies have drained.
 struct FileMapping {
     mapping: Mmap,
+    /// The mapped file, kept to notice its deletion.
+    file: File,
 }
 
 impl FileMapping {
@@ -228,6 +230,10 @@ impl FileMapping {
     fn open(file: &File) -> VortexResult<Option<Arc<Self>>> {
         let version = FileVersion::of(file)?;
         let mut mappings = FILE_MAPPINGS.lock();
+        let deleted = take_deleted(&mut mappings);
+        if !deleted.is_empty() {
+            release_in_background(Box::new(move || drop(deleted)));
+        }
         if let Some(index) = mappings.iter().position(|(cached, _)| *cached == version) {
             let entry = mappings.remove(index).vortex_expect("index is in bounds");
             let mapping = Arc::clone(&entry.1);
@@ -244,7 +250,10 @@ impl FileMapping {
                 return Ok(None);
             }
         };
-        let mapping = Arc::new(Self { mapping });
+        let mapping = Arc::new(Self {
+            mapping,
+            file: file.try_clone()?,
+        });
         mappings.push_back((version, Arc::clone(&mapping)));
         if mappings.len() > FILE_MAPPINGS_CACHED_MAX
             && let Some((_, evicted)) = mappings.pop_front()
@@ -257,6 +266,45 @@ impl FileMapping {
 
     fn mapping(&self) -> &Mmap {
         &self.mapping
+    }
+
+    /// Whether the mapped file was deleted, whose disk space the mapping keeps allocated.
+    fn is_deleted(&self) -> bool {
+        // If the file cannot be checked, keep the mapping, which stays usable.
+        self.file
+            .metadata()
+            .is_ok_and(|metadata| metadata.nlink() == 0)
+    }
+}
+
+/// Removes the cached mappings of deleted files, which would keep their disk space allocated.
+fn take_deleted(mappings: &mut FileMappingCache) -> Vec<Arc<FileMapping>> {
+    let mut deleted = Vec::new();
+    mappings.retain(|(_, mapping)| {
+        if mapping.is_deleted() {
+            deleted.push(Arc::clone(mapping));
+            false
+        } else {
+            true
+        }
+    });
+    deleted
+}
+
+/// Waits until the release thread has run every release queued so far.
+fn wait_for_releases() {
+    let Some(queue) = MAPPED_RELEASE_QUEUE.as_ref() else {
+        return;
+    };
+    let (sender, receiver) = mpsc::sync_channel::<()>(1);
+    if queue
+        .send(Box::new(move || {
+            let _ = sender.send(());
+        }))
+        .is_ok()
+    {
+        // An error means the release thread is gone, leaving nothing to wait for.
+        let _ = receiver.recv();
     }
 }
 
@@ -281,18 +329,7 @@ fn release_in_background(release: MappedRelease) {
 /// stay mapped until those readers close.
 pub fn release_file_mappings() {
     // Closed readers hand their mappings to the release queue; wait until it has dropped them.
-    if let Some(queue) = MAPPED_RELEASE_QUEUE.as_ref() {
-        let (sender, receiver) = mpsc::sync_channel::<()>(1);
-        if queue
-            .send(Box::new(move || {
-                let _ = sender.send(());
-            }))
-            .is_ok()
-        {
-            // An error means the release thread is gone, leaving nothing to wait for.
-            let _ = receiver.recv();
-        }
-    }
+    wait_for_releases();
     let released: Vec<_> = FILE_MAPPINGS
         .lock()
         .drain(..)
@@ -445,7 +482,12 @@ impl Drop for MappedFile {
             if stream.synchronize().is_err() {
                 // Without proof the copies finished, never unmap memory the device may read.
                 let _leaked = ManuallyDrop::new(file);
+                return;
             }
+            drop(file);
+            // The file may have been deleted while this reader used it.
+            let deleted = take_deleted(&mut FILE_MAPPINGS.lock());
+            drop(deleted);
         }));
     }
 }
