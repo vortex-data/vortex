@@ -43,12 +43,14 @@ impl<T: Number + NativePType> PageDecoder<T> {
         buffer: &[u8],
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<PrimitiveArray> {
-        let mut values = BufferMut::<T>::zeroed_in(n_values, ctx.allocator().clone());
+        let mut values =
+            BufferMut::<T>::with_capacity_in(n_values, ctx.allocator().clone());
+        unsafe {
+            values.set_len(n_values);
+        }
         self.read_into(chunk, chunk_meta, n_values, buffer, &mut values)?;
         Ok(PrimitiveArray::new(values.freeze(), Validity::NonNullable))
     }
-    /// Decode into initialized storage and propagate codec errors. No additional semantic
-    /// completion check is needed to keep a partial/corrupt result memory-safe.
     pub fn read_into(
         &mut self,
         chunk: usize,
