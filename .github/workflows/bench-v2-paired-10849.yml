@@ -115,7 +115,10 @@ jobs:
           SCALE: ${{ matrix.scale }}
         run: |
           # Data generation writes its temporary files under the workspace's target directory.
-          mkdir -p binaries target
+          mkdir -p binaries target source/benchmarks
+          # The binaries resolve SQL and validation files relative to their build-time source checkout.
+          ln -s "$PWD/vortex-bench" source/vortex-bench
+          ln -s "$PWD/benchmarks/duckdb-bench" source/benchmarks/duckdb-bench
           for archive in downloaded/*.tar.gz; do tar -xzf "$archive" -C binaries; done
           export LD_LIBRARY_PATH="$PWD/binaries/head"
           options=()
@@ -123,6 +126,19 @@ jobs:
           binaries/head/data-gen "$SUITE" --formats vortex "${options[@]}"
       - name: Stabilize benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
+      - name: Smoke test both revisions, engines, and cache modes
+        env:
+          SUITE: ${{ matrix.suite }}
+          SCALE: ${{ matrix.scale }}
+        run: |
+          bash scripts/bench-taskset.sh python3 -u scripts/bench-v2-paired.py run \
+            --suite "$SUITE" --scale "$SCALE" --binaries binaries --output smoke-results --smoke
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        if: always()
+        with:
+          name: v2-${{ matrix.suite }}-sf${{ matrix.scale }}-smoke
+          path: smoke-results/
+          retention-days: 14
       - name: Compare explicit V2 with cold, hot, and segment-cache reads
         env:
           SUITE: ${{ matrix.suite }}

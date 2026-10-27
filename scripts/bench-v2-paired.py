@@ -79,6 +79,7 @@ def geomean(values: Iterable[float]) -> float:
 
 
 def summarize(output: Path):
+    manifest = json.loads((output / "manifest.json").read_text())
     rows = [json.loads(line) for line in (output / "measurements.jsonl").read_text().splitlines()]
     pairs = {}
     for row in rows:
@@ -111,7 +112,7 @@ def summarize(output: Path):
         "",
         f"Base `{BASE}`; PR `{HEAD}`.",
         "",
-        "Negative latency change means faster. Median paired ratio across three rounds;",
+        f"Negative latency change means faster. Median paired ratio across {manifest['rounds']} rounds;",
         "geometric mean across queries. Cold is the first iteration after a successful",
         "OS cache drop; hot excludes the first two iterations. Segment-cache mode uses",
         "a process-wide 1 GiB LRU byte cache and excludes its first two iterations.",
@@ -125,6 +126,8 @@ def summarize(output: Path):
     failures = json.loads((output / "failures.json").read_text()) if (output / "failures.json").exists() else []
     if failures:
         report.extend(["", f"**Incomplete: {len(failures)} failed invocations. See failures.json.**"])
+    if manifest.get("smoke"):
+        report.extend(["", "**Smoke test only; these timings are not performance evidence.**"])
     (output / "summary.json").write_text(json.dumps(query_results, indent=2) + "\n")
     (output / "summary.md").write_text("\n".join(report) + "\n")
     print("\n".join(report), flush=True)
@@ -140,15 +143,20 @@ def run(args: argparse.Namespace):
             env.pop(key)
     env.update(TOKIO_WORKER_THREADS="8", DATAFUSION_EXECUTION_TARGET_PARTITIONS="8", RUST_LOG="error")
     options = ["--opt", f"scale-factor={args.scale}"] if args.suite in ("tpch", "tpcds") else []
+    options.extend(["--runner", os.environ.get("RUNS_ON_INSTANCE_TYPE", "local")])
+    rounds = 1 if args.smoke else 3
+    iterations = 3 if args.smoke else 7
     failures = []
+    failure_streak = 0
     (output / "measurements.jsonl").touch()
     manifest = {
         "base": BASE,
         "head": HEAD,
         "suite": args.suite,
         "scale": args.scale,
-        "rounds": 3,
-        "iterations": 7,
+        "rounds": rounds,
+        "iterations": iterations,
+        "smoke": args.smoke,
         "warmup": 2,
         "scan_v2": True,
         "threads": 8,
@@ -180,8 +188,12 @@ def run(args: argparse.Namespace):
         if query_sets[0] != query_sets[1]:
             raise RuntimeError(f"Different query lists for {engine}")
         queries = [int(query) for query in query_sets[0]]
+        if args.smoke:
+            queries = queries[1:2] or queries[:1]
+        if not queries:
+            raise RuntimeError(f"No queries selected for {engine}")
         for mode in ("uncached", "segment-cache"):
-            for round_idx in range(3):
+            for round_idx in range(rounds):
                 for query in queries:
                     order = ("base", "head") if (round_idx + query) % 2 == 0 else ("head", "base")
                     for revision in order:
@@ -200,7 +212,7 @@ def run(args: argparse.Namespace):
                             "--queries",
                             str(query),
                             "--iterations",
-                            "7",
+                            str(iterations),
                             "--threads",
                             "8",
                             "--display-format",
@@ -241,7 +253,7 @@ def run(args: argparse.Namespace):
                             ]
                             measurement = next(row for row in measurements if row.get("kind") == "query_measurement")
                             samples = measurement["all_runtimes_ns"]
-                            if len(samples) != 7 or any(value <= 0 for value in samples):
+                            if len(samples) != iterations or any(value <= 0 for value in samples):
                                 raise RuntimeError(f"Invalid timing samples: {samples}")
                             record = {
                                 "engine": engine,
@@ -256,6 +268,7 @@ def run(args: argparse.Namespace):
                             }
                             with (output / "measurements.jsonl").open("a") as result:
                                 result.write(json.dumps(record) + "\n")
+                            failure_streak = 0
                             print(
                                 f"{stem}: cold {samples[0] / 1e6:.3f} ms, hot {record['hot_ns'] / 1e6:.3f} ms",
                                 flush=True,
@@ -269,8 +282,17 @@ def run(args: argparse.Namespace):
                             RuntimeError,
                         ) as error:
                             failures.append({"invocation": stem, "error": str(error)})
+                            failure_streak += 1
                             print(f"FAILED {stem}: {error}", flush=True)
+                            log_path = output / f"{stem}.log"
+                            if log_path.exists():
+                                print(log_path.read_text(errors="replace")[-6000:], flush=True)
                             (output / "failures.json").write_text(json.dumps(failures, indent=2) + "\n")
+                            if args.smoke or failure_streak >= 3:
+                                summarize(output)
+                                raise SystemExit(
+                                    "Stopping after smoke failure or three consecutive failures"
+                                ) from error
                 summarize(output)
     summarize(output)
     if failures:
@@ -287,6 +309,7 @@ def main():
     run_parser.add_argument("--scale", type=int, default=1)
     run_parser.add_argument("--binaries", type=Path, required=True)
     run_parser.add_argument("--output", type=Path, required=True)
+    run_parser.add_argument("--smoke", action="store_true")
     summary_parser = commands.add_parser("summarize")
     summary_parser.add_argument("output", type=Path)
     args = parser.parse_args()
