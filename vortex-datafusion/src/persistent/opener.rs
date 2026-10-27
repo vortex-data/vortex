@@ -456,15 +456,18 @@ impl FileOpener for VortexOpener {
                 {
                     builder = builder.with_selection(selection.clone());
                 }
-                // Unless set, chunks run beside each other only as far as the engine's partitions
-                // leave cores idle: at one partition per core they run in the scan's own run.
-                let concurrency = scan_concurrency.unwrap_or_else(|| {
-                    get_available_parallelism()
-                        .unwrap_or(1)
-                        .div_ceil(partitions)
-                        .max(1)
-                });
-                builder = builder.with_concurrency(concurrency);
+                builder = if let Some(concurrency) = scan_concurrency {
+                    builder.with_concurrency(concurrency)
+                } else {
+                    // The engine already distributes file partitions across cores. Keep a second
+                    // chunk available for read overlap without multiplying by worker count again.
+                    builder.with_max_in_flight(
+                        get_available_parallelism()
+                            .unwrap_or(1)
+                            .div_ceil(partitions)
+                            .max(2),
+                    )
+                };
                 builder.map(map_batch).into_stream()
             } else {
                 // Share V1 layout readers across partitions of the file.

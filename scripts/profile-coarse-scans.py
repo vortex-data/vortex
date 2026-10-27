@@ -40,17 +40,12 @@ def command(v2, query, iterations, label):
             '--runner', 'isolated-coarse-profiles-8workers',
             '--ingest-jsonl', label + '.jsonl', '--opt', f'scale-factor={scale}']
 
-# These are frozen binaries from measured Actions, not rebuilt from this checkout.
-Path('scan-binary-provenance.json').write_text(json.dumps({
-    'combined': {'run_id': 40439539210, 'commit': 'b5d6bf0261372a8b15dd030e06762b27f5fd25f6'},
-    'coarse': {'run_id': 40432389813, 'commit': 'e09587be1c2b219bc6aabd984e47a905cbbd9bbf'},
-}, indent=2))
 current_binary = binary
-variants = [('v1', root / 'target/coarse-baseline/datafusion-bench', False), ('coarse', root / 'target/coarse-baseline/datafusion-bench', True), ('combined', current_binary, True)]
+variants = [('v1', current_binary, False), ('coarse', root / 'target/coarse-baseline/datafusion-bench', True), ('limited', current_binary, True)]
 for round in range(3):
     for label_name, binary, v2 in variants[round:] + variants[:round]:
         label = f'scan-timing-r{round}-{label_name}'
-        cmd = command(v2, '20,28,32', 9, label)
+        cmd = command(v2, '13,20,28,32,41,49,58,76', 9, label)
         Path(label + '.command.json').write_text(json.dumps({'command': cmd, 'env': profile_env}, indent=2))
         with open(label + '.log', 'w') as log:
             subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=600, check=True)
@@ -74,7 +69,7 @@ def frame_label(thread, index, symbols=None):
 
 summary.frame_label = frame_label
 binary_sha = hashlib.sha256(binary.read_bytes()).hexdigest()
-for query, iterations in [('20', 100), ('32', 200)]:
+for query, iterations in [('32', 200)]:
     for label_name, binary, v2 in variants:
         binary_sha = hashlib.sha256(binary.read_bytes()).hexdigest()
         label = f'scan-q{query}-{label_name}'
