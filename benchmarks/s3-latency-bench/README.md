@@ -73,6 +73,25 @@ remaining keys hold the raw measurements: `fits` has linear fits of the serial a
 reads, and `measurements` has the per-size, per-concurrency and per-scenario tables shown in the
 report.
 
+## Simulated S3
+
+`run --url memory:///` generates the same dataset in an in-memory `object_store`, and
+`--latency-model model.json` wraps the store so every request behaves like S3 under the model:
+GETs wait a first-byte latency sampled from the model's distribution (HEADs from theirs), then
+stream at `min(per_connection, nic / active_transfers)`. `--latency-mode throttle` instead uses
+`object_store`'s `ThrottledStore` with the model's median first byte and per-connection bandwidth,
+a fixed-delay baseline with no distribution and no shared network cap.
+
+```bash
+cargo run --release -p s3-latency-bench -- run --url memory:///s3-latency/ \
+  --latency-model model.json --output sim/run-1
+python3 scripts/s3-latency-analyze.py sim --compare model.json
+```
+
+`--compare` adds a section putting the simulated serial, HEAD, concurrency and scan measurements
+next to the real ones the model was fitted from. In CI, the `simulate` and `compare` jobs do this
+for both modes after every run and post the result to the PR (`s3-latency-sim` artifact).
+
 Known limits: the model splits bandwidth evenly between transfers, so it underestimates p99
 latency when the network is saturated or when thousands of small requests run per second. It was
 measured on a single instance type.

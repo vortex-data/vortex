@@ -6,6 +6,10 @@
 //! - `prepare` writes a dataset of synthetic Vortex-like files and a manifest.
 //! - `run` replays the workloads and writes one CSV row per request, for fitting a latency model.
 //! - `sweep` deletes objects older than a maximum age, giving the dataset a retention period.
+//!
+//! `run --url memory:///` generates the dataset in memory instead, and `--latency-model` adds the
+//! latency of a fitted model to whichever store is used, so the same workloads run against
+//! simulated S3.
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -14,6 +18,7 @@
 
 mod layout;
 mod recorder;
+mod simulated;
 mod workloads;
 
 use std::collections::BTreeMap;
@@ -39,7 +44,9 @@ use object_store::ObjectStoreExt;
 use object_store::PutPayload;
 use object_store::aws::AmazonS3Builder;
 use object_store::local::LocalFileSystem;
+use object_store::memory::InMemory;
 use object_store::path::Path;
+use object_store::throttle::ThrottledStore;
 use serde::Deserialize;
 use serde::Serialize;
 use url::Url;
@@ -48,6 +55,8 @@ use crate::layout::FileLayout;
 use crate::recorder::CSV_HEADER;
 use crate::recorder::Recorder;
 use crate::recorder::csv_row;
+use crate::simulated::LatencyModel;
+use crate::simulated::LatencyStore;
 use crate::workloads::Ctx;
 use crate::workloads::Dataset;
 
@@ -65,42 +74,13 @@ enum Command {
         /// `s3://bucket/prefix` or `file:///absolute/dir`.
         #[arg(long)]
         url: Url,
-        #[arg(long, default_value_t = 100)]
-        files: usize,
-        #[arg(long, default_value_t = 20)]
-        file_size_mib: u64,
-        #[arg(long, default_value_t = 42)]
-        seed: u64,
+        #[command(flatten)]
+        dataset: DatasetArgs,
         #[arg(long, default_value_t = 16)]
         upload_concurrency: usize,
     },
     /// Run the workloads against a prepared dataset.
-    Run {
-        #[arg(long)]
-        url: Url,
-        /// Label stored in every CSV row, e.g. the CI attempt number.
-        #[arg(long, default_value = "local")]
-        run_label: String,
-        #[arg(long)]
-        output: PathBuf,
-        #[arg(
-            long,
-            value_delimiter = ',',
-            default_value = "cold,size_sweep,suffix,concurrency,scan"
-        )]
-        phases: Vec<String>,
-        /// Multiplies repetitions and file counts.
-        #[arg(long, default_value_t = 1.0)]
-        scale: f64,
-        #[arg(long, default_value_t = 1)]
-        seed: u64,
-        /// Process-wide cap on requests in flight.
-        #[arg(long, default_value_t = 1024)]
-        max_inflight: usize,
-        /// Extra `key=value` metadata recorded in `meta.json`.
-        #[arg(long)]
-        meta: Vec<String>,
-    },
+    Run(RunArgs),
     /// Delete objects under the prefix older than `max_age_hours`.
     Sweep {
         #[arg(long)]
@@ -108,6 +88,61 @@ enum Command {
         #[arg(long, default_value_t = 3.0)]
         max_age_hours: f64,
     },
+}
+
+#[derive(clap::Args)]
+struct RunArgs {
+    /// A prepared `s3://` or `file://` dataset, or `memory:///` to generate one in memory.
+    #[arg(long)]
+    url: Url,
+    /// Dataset generated for `memory:///`; must match `prepare` for the runs to compare.
+    #[command(flatten)]
+    dataset: DatasetArgs,
+    /// A `vortex-s3-latency-model/1` file whose latency is added to every request.
+    #[arg(long)]
+    latency_model: Option<PathBuf>,
+    /// `model` samples the model's distributions and shares its network bandwidth;
+    /// `throttle` uses `object_store`'s `ThrottledStore` with the model's medians.
+    #[arg(long, value_enum, default_value_t = LatencyMode::Model)]
+    latency_mode: LatencyMode,
+    /// Label stored in every CSV row, e.g. the CI attempt number.
+    #[arg(long, default_value = "local")]
+    run_label: String,
+    #[arg(long)]
+    output: PathBuf,
+    #[arg(
+        long,
+        value_delimiter = ',',
+        default_value = "cold,size_sweep,suffix,concurrency,scan"
+    )]
+    phases: Vec<String>,
+    /// Multiplies repetitions and file counts.
+    #[arg(long, default_value_t = 1.0)]
+    scale: f64,
+    #[arg(long, default_value_t = 1)]
+    seed: u64,
+    /// Process-wide cap on requests in flight.
+    #[arg(long, default_value_t = 1024)]
+    max_inflight: usize,
+    /// Extra `key=value` metadata recorded in `meta.json`.
+    #[arg(long)]
+    meta: Vec<String>,
+}
+
+#[derive(Clone, Copy, clap::Args)]
+struct DatasetArgs {
+    #[arg(long, default_value_t = 100)]
+    files: usize,
+    #[arg(long, default_value_t = 20)]
+    file_size_mib: u64,
+    #[arg(long, default_value_t = 42)]
+    dataset_seed: u64,
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum LatencyMode {
+    Model,
+    Throttle,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -150,23 +185,34 @@ fn open_store(url: &Url) -> anyhow::Result<(Arc<dyn ObjectStore>, Path)> {
                 Path::default(),
             ))
         }
+        "memory" => Ok((Arc::new(InMemory::new()), Path::from(url.path()))),
         other => bail!("unsupported scheme {other}"),
     }
 }
 
-async fn prepare(
-    url: &Url,
-    files: usize,
-    file_size_mib: u64,
-    seed: u64,
-    concurrency: usize,
-) -> anyhow::Result<()> {
+async fn prepare(url: &Url, dataset: &DatasetArgs, concurrency: usize) -> anyhow::Result<()> {
     let (store, prefix) = open_store(url)?;
+    let created_unix = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+    upload(&store, &prefix, dataset, concurrency, created_unix).await
+}
+
+async fn upload(
+    store: &Arc<dyn ObjectStore>,
+    prefix: &Path,
+    dataset: &DatasetArgs,
+    concurrency: usize,
+    created_unix: u64,
+) -> anyhow::Result<()> {
+    let DatasetArgs {
+        files,
+        file_size_mib,
+        dataset_seed: seed,
+    } = *dataset;
     let layouts = layouts(files, file_size_mib << 20, seed)?;
     let started = std::time::Instant::now();
     stream::iter(layouts.iter().enumerate())
         .map(|(i, layout)| {
-            let store = Arc::clone(&store);
+            let store = Arc::clone(store);
             let path = prefix.clone().join(layout.name.as_str());
             let layout = layout.clone();
             async move {
@@ -185,7 +231,7 @@ async fn prepare(
     let manifest = Manifest {
         file_size: file_size_mib << 20,
         seed,
-        created_unix: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
+        created_unix,
         names: layouts.iter().map(|l| l.name.clone()).collect(),
         sizes: layouts.iter().map(|l| l.size).collect(),
     };
@@ -219,18 +265,25 @@ fn percentile(sorted: &[u64], p: f64) -> u64 {
     sorted[idx]
 }
 
-#[expect(clippy::too_many_arguments)]
-async fn run(
-    url: &Url,
-    run_label: &str,
-    output: &std::path::Path,
-    phases: &[String],
-    scale: f64,
-    seed: u64,
-    max_inflight: usize,
-    meta: &[String],
-) -> anyhow::Result<()> {
-    let (store, prefix) = open_store(url)?;
+async fn run(args: RunArgs) -> anyhow::Result<()> {
+    let RunArgs {
+        url,
+        dataset,
+        latency_model,
+        latency_mode,
+        run_label,
+        output,
+        phases,
+        scale,
+        seed,
+        max_inflight,
+        meta,
+    } = args;
+    let (store, prefix) = open_store(&url)?;
+    if url.scheme() == "memory" {
+        // The dataset counts as long since written: the model describes warm objects.
+        upload(&store, &prefix, &dataset, 16, 0).await?;
+    }
     let manifest: Manifest = serde_json::from_slice(
         &store
             .get(&prefix.clone().join("manifest.json"))
@@ -253,7 +306,27 @@ async fn run(
         .saturating_sub(manifest.created_unix);
     println!("dataset age: {dataset_age_s}s");
 
-    let rec = Arc::new(Recorder::new(Arc::clone(&store), max_inflight));
+    let (store, store_kind): (Arc<dyn ObjectStore>, &str) = match (&latency_model, latency_mode) {
+        (None, _) => (store, "real"),
+        (Some(path), LatencyMode::Model) => (
+            Arc::new(LatencyStore::new(
+                store,
+                LatencyModel::from_file(path)?,
+                seed,
+            )),
+            "simulated-model",
+        ),
+        (Some(path), LatencyMode::Throttle) => {
+            let config = LatencyModel::from_file(path)?.throttle_config();
+            (
+                Arc::new(ThrottledStore::new(store, config)),
+                "simulated-throttle",
+            )
+        }
+    };
+    println!("store: {store_kind}");
+
+    let rec = Arc::new(Recorder::new(store, max_inflight));
     let ctx = Ctx {
         rec: Arc::clone(&rec),
         ds: Arc::new(Dataset { prefix, files }),
@@ -261,7 +334,7 @@ async fn run(
         seed,
     };
 
-    fs::create_dir_all(output)?;
+    fs::create_dir_all(&output)?;
     let mut csv = BufWriter::new(fs::File::create(output.join("requests.csv"))?);
     writeln!(csv, "{CSV_HEADER}")?;
     let mut scans = Vec::new();
@@ -283,7 +356,7 @@ async fn run(
         let mut by_kind: BTreeMap<(String, &str), Vec<u64>> = BTreeMap::new();
         let mut errors = 0;
         for r in &records {
-            writeln!(csv, "{}", csv_row(run_label, r))?;
+            writeln!(csv, "{}", csv_row(&run_label, r))?;
             errors += usize::from(r.error.is_some());
             by_kind
                 .entry((r.tag.scenario.clone(), r.tag.kind))
@@ -330,6 +403,7 @@ async fn run(
     let meta: BTreeMap<&str, &str> = meta.iter().filter_map(|kv| kv.split_once('=')).collect();
     let meta_json = serde_json::json!({
         "run_label": run_label,
+        "store": store_kind,
         "url": url.as_str(),
         "scale": scale,
         "seed": seed,
@@ -382,33 +456,10 @@ async fn main() -> anyhow::Result<()> {
     match Cli::parse().command {
         Command::Prepare {
             url,
-            files,
-            file_size_mib,
-            seed,
+            dataset,
             upload_concurrency,
-        } => prepare(&url, files, file_size_mib, seed, upload_concurrency).await,
-        Command::Run {
-            url,
-            run_label,
-            output,
-            phases,
-            scale,
-            seed,
-            max_inflight,
-            meta,
-        } => {
-            run(
-                &url,
-                &run_label,
-                &output,
-                &phases,
-                scale,
-                seed,
-                max_inflight,
-                &meta,
-            )
-            .await
-        }
+        } => prepare(&url, &dataset, upload_concurrency).await,
+        Command::Run(args) => run(args).await,
         Command::Sweep { url, max_age_hours } => sweep(&url, max_age_hours).await,
     }
 }

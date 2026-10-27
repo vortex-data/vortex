@@ -7,6 +7,10 @@
 #
 # Run it from the Actions tab. Pull requests that change the benchmark run a shorter version.
 #
+# The simulate job then replays the same workloads against an in-memory store with the fitted
+# model's latency (and against `object_store`'s fixed-delay `ThrottledStore` for comparison), and
+# the compare job reports simulated against real S3, as `s3-latency-sim` and on the PR.
+#
 # Retention: objects under the s3-latency/ prefix are deleted once they are older than
 # RETENTION_HOURS, by a sweep at the start and at the end of every run. S3 lifecycle rules only
 # expire objects in whole days, so the sweep is what enforces an hours-long retention.
@@ -111,7 +115,7 @@ jobs:
           FILE_SIZE_MIB: ${{ inputs.file_size_mib || 20 }}
         run: |
           ./s3-latency-bench prepare --url "$DATA_URL" \
-            --files "$FILES" --file-size-mib "$FILE_SIZE_MIB" --seed 42
+            --files "$FILES" --file-size-mib "$FILE_SIZE_MIB" --dataset-seed 42
 
   bench:
     needs: [build, prepare]
@@ -223,6 +227,119 @@ jobs:
             report.md
             model.json
             all-requests.csv.gz
+
+  simulate:
+    needs: [build, analyze]
+    if: ${{ !cancelled() && needs.analyze.result == 'success' }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [model, throttle]
+        run: [1, 2]
+    # The same instance type as the real runs, so timers and CPU behave the same.
+    runs-on: runs-on=${{ github.run_id }}/runner=bench-dedicated/family=c8gd.8xlarge/image=ubuntu24-full-arm64-pre-v2/spot=false/tag=s3-latency-sim-${{ matrix.mode }}-${{ matrix.run }}
+    steps:
+      - uses: runs-on/action@v2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: s3-latency-bench-binary
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: s3-latency-model
+      - run: chmod +x s3-latency-bench
+      - name: Run benchmark against simulated S3
+        env:
+          MODE: ${{ matrix.mode }}
+          RUN: ${{ matrix.run }}
+          SCALE: ${{ inputs.scale || '1.0' }}
+          FILES: ${{ inputs.files || 100 }}
+          FILE_SIZE_MIB: ${{ inputs.file_size_mib || 20 }}
+        run: |
+          set -Eeu -o pipefail
+          # The same dataset as prepare, generated in memory.
+          ./s3-latency-bench run --url memory:///s3-latency/ \
+            --files "$FILES" --file-size-mib "$FILE_SIZE_MIB" --dataset-seed 42 \
+            --latency-model model.json --latency-mode "$MODE" \
+            --run-label "sim-$MODE-$RUN" --seed "$RUN" --scale "$SCALE" \
+            --output "results/$MODE/run-$RUN" \
+            --meta "instance_type=c8gd.8xlarge"
+          gzip -k "results/$MODE/run-$RUN/requests.csv"
+      - name: Upload results
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: s3-latency-sim-${{ matrix.mode }}-${{ matrix.run }}
+          path: |
+            results/${{ matrix.mode }}/run-${{ matrix.run }}/requests.csv.gz
+            results/${{ matrix.mode }}/run-${{ matrix.run }}/scans.json
+            results/${{ matrix.mode }}/run-${{ matrix.run }}/meta.json
+
+  compare:
+    needs: simulate
+    if: ${{ !cancelled() && needs.simulate.result != 'skipped' }}
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write  # for commenting on PRs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: s3-latency-model
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          pattern: s3-latency-sim-model-*
+          path: results/model
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          pattern: s3-latency-sim-throttle-*
+          path: results/throttle
+      - name: Compare simulated with real S3
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -Eeu -o pipefail
+          find results -name requests.csv.gz -exec gunzip {} +
+          for mode in model throttle; do
+            python3 scripts/s3-latency-analyze.py "results/$mode" --compare model.json \
+              --report "sim-$mode.md" --model "sim-$mode.json" > /dev/null
+          done
+          {
+            echo "# S3 latency: simulated vs real"
+            echo
+            echo "From [this run]($RUN_URL): the workloads replayed in memory with the latency model"
+            echo "fitted from this run's real S3 measurements (\`model\`), and with \`object_store\`'s"
+            echo "fixed-delay \`ThrottledStore\` set to the model's medians (\`throttle\`)."
+            for mode in model throttle; do
+              echo
+              echo "## $mode"
+              sed -n '/^Simulated store:/,/^<details>/p' "sim-$mode.md" | sed '$d'
+            done
+            for mode in model throttle; do
+              echo
+              echo "<details><summary>Every compared value: $mode</summary>"
+              echo
+              sed -n '/^| group | value |/,/^$/p' "sim-$mode.md"
+              echo
+              echo "</details>"
+            done
+          } > comment.md
+          cat comment.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Comment PR
+        if: github.event_name == 'pull_request'
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+        with:
+          file-path: comment.md
+          comment-tag: s3-latency-sim
+      - name: Upload comparison
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: s3-latency-sim
+          path: |
+            comment.md
+            sim-*.md
+            sim-*.json
 
   expire:
     needs: [prepare, bench]
