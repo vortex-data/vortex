@@ -60,6 +60,7 @@ use super::ROW_BLOCK_SIZE;
 use super::ScanBuilder;
 use super::ScanCache;
 use super::ScanFile;
+use super::filtered_rows_per_chunk;
 use super::rows_per_chunk;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -493,6 +494,22 @@ fn chunk_byte_budget(#[case] rows: u64, #[case] bytes: u32, #[case] expected: us
         alignment: Alignment::none(),
     }];
     assert_eq!(rows_per_chunk(rows, &locations), expected);
+}
+
+#[rstest]
+#[case::empty(0, 0, 1_048_576)]
+#[case::no_bytes(100_000, 0, 1_048_576)]
+#[case::narrow_rows(6_000_000, 100_000_000, 1_048_576)]
+#[case::moderate_rows(6_000_000, 200_000_000, 737_280)]
+#[case::wide_rows(1_000_000, 718_000_000, 32_768)]
+#[case::minimum(100_000, 1_000_000_000, 8192)]
+fn filtered_chunk_byte_budget(#[case] rows: u64, #[case] bytes: u32, #[case] expected: usize) {
+    let locations = [SegmentLocation {
+        offset: 0,
+        length: bytes,
+        alignment: Alignment::none(),
+    }];
+    assert_eq!(filtered_rows_per_chunk(rows, &locations), expected);
 }
 
 #[test]

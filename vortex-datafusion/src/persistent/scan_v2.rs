@@ -25,6 +25,8 @@ use futures::channel::mpsc;
 use futures::stream;
 use futures::stream::BoxStream;
 use vortex::array::ArrayRef;
+use vortex::array::arrays::Chunked;
+use vortex::array::arrays::chunked::ChunkedArrayExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::io::request::IoSource;
@@ -84,9 +86,7 @@ impl ScanDriver {
             // as the first chunk is done.
             yielded
                 .map_ok(move |yielded| match yielded {
-                    Yielded::Batch(start, batch) => {
-                        future::ready(Ok(vec![(start, batch)])).boxed()
-                    }
+                    Yielded::Batches(batches) => future::ready(Ok(batches)).boxed(),
                     Yielded::Spawn(scope, chunk) => chunk_stream(
                         &chunk_handle,
                         chunk,
@@ -109,9 +109,7 @@ impl ScanDriver {
         } else {
             yielded
                 .map_ok(move |yielded| match yielded {
-                    Yielded::Batch(start, batch) => {
-                        stream::once(future::ready(Ok((start, batch)))).boxed()
-                    }
+                    Yielded::Batches(batches) => stream::iter(batches.into_iter().map(Ok)).boxed(),
                     Yielded::Spawn(scope, chunk) => chunk_stream(
                         &chunk_handle,
                         chunk,
@@ -135,16 +133,16 @@ impl ScanDriver {
     }
 }
 
-/// What the root run's stream yields: a mapped batch with the row it starts at, or a chunk a
-/// planner of the run spawned.
+/// What the root run's stream yields: the mapped batches of an array with the row each starts at,
+/// or a chunk a planner of the run spawned.
 enum Yielded {
-    Batch(u64, RecordBatch),
+    Batches(Vec<(u64, RecordBatch)>),
     Spawn(WorkScope, Box<dyn Planner>),
 }
 
 /// One CPU step of a run, taken on a `spawn_cpu` task with the run.
 enum Step {
-    Batch(u64, RecordBatch),
+    Batches(Vec<(u64, RecordBatch)>),
     Spawn(WorkScope, Box<dyn Planner>),
     RootDone,
     Idle,
@@ -197,9 +195,11 @@ fn run_stream(
                     let mut run = run;
                     let step = run.advance().and_then(|progress| {
                         Ok(match progress {
-                            Progress::Batch(batch) => {
-                                Step::Batch(batch.scope.rows.start, map(batch.array)?)
-                            }
+                            Progress::Batch(batch) => Step::Batches(map_chunks(
+                                &map,
+                                batch.scope.rows.start,
+                                batch.array,
+                            )?),
                             Progress::Spawn(scope, child) => Step::Spawn(scope, child),
                             Progress::RootDone(_) => Step::RootDone,
                             Progress::Idle => Step::Idle,
@@ -211,8 +211,8 @@ fn run_stream(
                 .await;
             let run = state.run.insert(run);
             match step? {
-                Step::Batch(start, batch) => {
-                    return Ok(Some((Yielded::Batch(start, batch), state)));
+                Step::Batches(batches) => {
+                    return Ok(Some((Yielded::Batches(batches), state)));
                 }
                 Step::Spawn(scope, child) if state.inline => {
                     run.admit(child, scope, Arc::clone(&state.io));
@@ -249,11 +249,17 @@ fn chunk_stream(
         loop {
             match run.advance()? {
                 Progress::Batch(batch) => {
-                    let start = batch.scope.rows.start;
-                    let batch = map(batch.array);
-                    let failed = batch.is_err();
-                    if send.send(batch.map(|batch| (start, batch))).await.is_err() || failed {
-                        return Ok(());
+                    let batches = match map_chunks(&map, batch.scope.rows.start, batch.array) {
+                        Ok(batches) => batches,
+                        Err(e) => {
+                            let _ = send.send(Err(e)).await;
+                            return Ok(());
+                        }
+                    };
+                    for batch in batches {
+                        if send.send(Ok(batch)).await.is_err() {
+                            return Ok(());
+                        }
                     }
                 }
                 Progress::Spawn(scope, child) => {
@@ -268,4 +274,26 @@ fn chunk_stream(
     let errors = stream::once(task)
         .filter_map(|result: VortexResult<()>| future::ready(result.err().map(Err)));
     stream::select(recv, errors).boxed()
+}
+
+/// Maps `array`, whose first row is at `start`, to record batches with the row each starts at:
+/// one per chunk of a chunked array, so a chunk spanning many stored chunks reaches the engine in
+/// batches of the stored chunks' size instead of being exported to Arrow as one.
+fn map_chunks(
+    map: &MapBatch,
+    start: u64,
+    array: ArrayRef,
+) -> VortexResult<Vec<(u64, RecordBatch)>> {
+    let Some(chunked) = array.as_opt::<Chunked>() else {
+        return Ok(vec![(start, map(array)?)]);
+    };
+    let mut start = start;
+    chunked
+        .non_empty_chunks()
+        .map(|chunk| {
+            let batch = (start, map(chunk.clone())?);
+            start += chunk.len() as u64;
+            Ok(batch)
+        })
+        .collect()
 }

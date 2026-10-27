@@ -14,8 +14,8 @@
 //! and supports projection, filters, row ranges, and selections. Unsupported layouts return an
 //! error when the plan is prepared; limits are not part of this builder's API. Work is cut into
 //! chunks of up to 65,536 rows, or 1,048,576 rows for filtered scans, independently of the stored
-//! layout's chunk boundaries. Full-file projections use smaller 8,192-row multiples when
-//! serialized bytes per row are high.
+//! layout's chunk boundaries. Full-file projections and filtered scans use smaller 8,192-row
+//! multiples when serialized bytes per row are high.
 //!
 //! A [`ScanFile`] carrying a [`ScanCache`] shares its lowered plan, filter plans and pruned
 //! zones, segment index, and dictionary values with every other scan of that file, like a cached
@@ -44,7 +44,6 @@ use crate::plan::physical::lower;
 use crate::plan::physical::optimize;
 use crate::plan::physical::plan_row_idx_expression;
 pub use crate::scan::execution::ChunkPlanner;
-use crate::scan::execution::FILTERED_ROWS_PER_CHUNK;
 pub use crate::scan::execution::FilterPlans;
 use crate::scan::execution::MAX_ROWS_PER_CHUNK;
 pub use crate::scan::execution::PreparedScan;
@@ -52,6 +51,7 @@ pub use crate::scan::execution::PruneNext;
 pub use crate::scan::execution::PrunePlanner;
 use crate::scan::execution::ROW_BLOCK_SIZE;
 pub use crate::scan::execution::SegmentLocation;
+use crate::scan::execution::filtered_rows_per_chunk;
 use crate::scan::execution::rows_per_chunk;
 use crate::scan::v2::io::segment_ranges;
 use crate::segments::SegmentSource;
@@ -196,7 +196,7 @@ impl ScanBuilder {
             }
         };
         let chunk_rows = if filter.is_some() {
-            FILTERED_ROWS_PER_CHUNK
+            filtered_rows_per_chunk(row_count, &file.locations)
         } else if identity {
             rows_per_chunk(row_count, &file.locations)
         } else {

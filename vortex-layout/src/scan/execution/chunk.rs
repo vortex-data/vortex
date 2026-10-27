@@ -29,19 +29,48 @@ pub(crate) const MAX_ROWS_PER_CHUNK: usize = 8 * ROW_BLOCK_SIZE;
 /// The rows of a filtered chunk: large, so a conjunct's reads coalesce and its mask is cheap.
 pub(crate) const FILTERED_ROWS_PER_CHUNK: usize = 16 * MAX_ROWS_PER_CHUNK;
 const TARGET_BYTES_PER_CHUNK: u64 = 8 * 1024 * 1024;
+/// The bytes a filtered chunk covers at most. A chunk is exported to the engine and run on a
+/// task of its own, so a filtered chunk of wide rows, such as nested lists, that kept every one of
+/// its rows would leave the other cores idle while one task decodes it.
+const TARGET_BYTES_PER_FILTERED_CHUNK: u64 = 24 * 1024 * 1024;
 
 /// Limit estimated bytes per chunk without changing the writer-aligned row granularity.
 pub(crate) fn rows_per_chunk(row_count: u64, locations: &[SegmentLocation]) -> usize {
     if row_count <= MAX_ROWS_PER_CHUNK as u64 {
         return MAX_ROWS_PER_CHUNK;
     }
+    rows_within_bytes(row_count, locations, TARGET_BYTES_PER_CHUNK, MAX_ROWS_PER_CHUNK)
+}
+
+/// The rows of a filtered chunk: [`FILTERED_ROWS_PER_CHUNK`], fewer where the file's rows are so
+/// wide that they would exceed [`TARGET_BYTES_PER_FILTERED_CHUNK`].
+pub(crate) fn filtered_rows_per_chunk(row_count: u64, locations: &[SegmentLocation]) -> usize {
+    rows_within_bytes(
+        row_count,
+        locations,
+        TARGET_BYTES_PER_FILTERED_CHUNK,
+        FILTERED_ROWS_PER_CHUNK,
+    )
+}
+
+/// Whole [`ROW_BLOCK_SIZE`] blocks, at least one and at most `max_rows`, holding about
+/// `target_bytes` of the file's bytes per row.
+fn rows_within_bytes(
+    row_count: u64,
+    locations: &[SegmentLocation],
+    target_bytes: u64,
+    max_rows: usize,
+) -> usize {
+    if row_count == 0 {
+        return max_rows;
+    }
     let bytes: u64 = locations
         .iter()
         .map(|location| u64::from(location.length))
         .sum();
     let bytes_per_row = bytes.div_ceil(row_count).max(1);
-    let blocks = TARGET_BYTES_PER_CHUNK / bytes_per_row / ROW_BLOCK_SIZE as u64;
-    blocks.clamp(1, 8) as usize * ROW_BLOCK_SIZE
+    let blocks = target_bytes / bytes_per_row / ROW_BLOCK_SIZE as u64;
+    blocks.clamp(1, (max_rows / ROW_BLOCK_SIZE) as u64) as usize * ROW_BLOCK_SIZE
 }
 
 /// Fixed boundaries in the file's row domain, clipped to the requested range.
