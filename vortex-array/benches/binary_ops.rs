@@ -324,8 +324,8 @@ fn div_decimal_i128_nullable(bencher: Bencher) {
 #[vortex_bench_support::cpu_features]
 #[divan::bench]
 fn lt_i64_nullable(bencher: Bencher) {
-    let lhs = primitive_nullable(0, 7, LEN).into_array();
-    let rhs = primitive_nullable(1_000_000, 5, LEN).into_array();
+    let lhs = primitive_nullable(0, 7, I64_LEN).into_array();
+    let rhs = primitive_nullable(1_000_000, 5, I64_LEN).into_array();
 
     bench_bool(bencher, lhs, rhs, Operator::Lt);
 }

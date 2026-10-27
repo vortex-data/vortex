@@ -160,7 +160,7 @@ fn cases() -> Vec<Case> {
     }
 
     for chunks in [256, 2_048] {
-        for indices in [1, 16, 64] {
+        for indices in [16, 64] {
             cases.push(Case::new("small_m", Pattern::Shuffled, chunks, indices));
         }
     }

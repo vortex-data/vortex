@@ -143,10 +143,11 @@ fn make_rd_array<T: ALPRDFloat + NativePType>(n: usize, fraction_patch: f64) -> 
     let mut rng = StdRng::seed_from_u64(42);
     let mut values = buffer![base_val; n].into_mut();
     if fraction_patch > 0.0 {
-        let outlier = T::from(1000.0).unwrap();
         for index in 0..values.len() {
             if rng.random_bool(fraction_patch) {
-                values[index] = outlier;
+                let outlier =
+                    (1000.0 + index as f64) * 10f64.powi(i32::try_from(index % 24).unwrap());
+                values[index] = T::from(outlier).unwrap();
             }
         }
     }

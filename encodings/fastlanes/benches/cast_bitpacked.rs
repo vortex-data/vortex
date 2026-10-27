@@ -3,12 +3,6 @@
 
 //! Benchmarks the cost of widening a bit-packed narrow integer column to a wider integer type on
 //! decompression (e.g. `u16 -> u32`).
-//!
-//! Two strategies are compared:
-//!
-//! - `cast_execute`: the real public path, `array.cast(u32).execute()`.
-//! - `canonicalize_then_cast`: explicitly canonicalizes to a full-length `u16` `PrimitiveArray` and
-//!   then casts that to `u32`.
 
 #![expect(clippy::unwrap_used)]
 

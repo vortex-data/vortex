@@ -61,11 +61,6 @@ fn or_bool_nonnull_arrays(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn and_bool_nullable_arrays(bencher: Bencher) {
-    and_bool_nullable_arrays_aligned(bencher);
-}
-
-#[divan::bench]
 fn and_bool_nullable_arrays_aligned(bencher: Bencher) {
     bench_kleene(
         bencher,
@@ -73,11 +68,6 @@ fn and_bool_nullable_arrays_aligned(bencher: Bencher) {
         bool_nullable(3, 5, 0),
         Operator::And,
     );
-}
-
-#[divan::bench]
-fn or_bool_nullable_arrays(bencher: Bencher) {
-    or_bool_nullable_arrays_aligned(bencher);
 }
 
 #[divan::bench]
@@ -112,7 +102,7 @@ fn or_bool_nullable_arrays_shifted(bencher: Bencher) {
 
 #[divan::bench]
 fn and_true_constant(bencher: Bencher) {
-    bench_kleene(
+    bench_kleene_constant_fold(
         bencher,
         bool_nullable(2, 7, 0),
         ConstantArray::new(true, LEN).into_array(),
@@ -122,7 +112,7 @@ fn and_true_constant(bencher: Bencher) {
 
 #[divan::bench]
 fn or_false_constant(bencher: Bencher) {
-    bench_kleene(
+    bench_kleene_constant_fold(
         bencher,
         bool_nullable(2, 7, 0),
         ConstantArray::new(false, LEN).into_array(),
@@ -132,7 +122,7 @@ fn or_false_constant(bencher: Bencher) {
 
 #[divan::bench]
 fn and_false_constant(bencher: Bencher) {
-    bench_kleene(
+    bench_kleene_constant_fold(
         bencher,
         bool_nullable(2, 7, 0),
         ConstantArray::new(false, LEN).into_array(),
@@ -142,17 +132,12 @@ fn and_false_constant(bencher: Bencher) {
 
 #[divan::bench]
 fn or_true_constant(bencher: Bencher) {
-    bench_kleene(
+    bench_kleene_constant_fold(
         bencher,
         bool_nullable(2, 7, 0),
         ConstantArray::new(true, LEN).into_array(),
         Operator::Or,
     );
-}
-
-#[divan::bench]
-fn and_null_constant(bencher: Bencher) {
-    and_null_constant_aligned(bencher);
 }
 
 #[divan::bench]
@@ -163,11 +148,6 @@ fn and_null_constant_aligned(bencher: Bencher) {
         null_bool_constant(),
         Operator::And,
     );
-}
-
-#[divan::bench]
-fn or_null_constant(bencher: Bencher) {
-    or_null_constant_aligned(bencher);
 }
 
 #[divan::bench]
@@ -204,6 +184,18 @@ fn bench_kleene(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, operator: Operat
     let mut ctx = SESSION.create_execution_ctx();
 
     bencher.counter(ItemsCount::new(LEN)).bench_local(|| {
+        lhs.clone()
+            .binary(rhs.clone(), operator)
+            .unwrap()
+            .execute::<Columnar>(&mut ctx)
+            .unwrap()
+    });
+}
+
+fn bench_kleene_constant_fold(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, operator: Operator) {
+    let mut ctx = SESSION.create_execution_ctx();
+
+    bencher.bench_local(|| {
         lhs.clone()
             .binary(rhs.clone(), operator)
             .unwrap()

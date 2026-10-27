@@ -27,10 +27,10 @@ use vortex_cuda_driver::sys::CUevent_flags;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
-use crate::bench_config::BENCH_SIZES;
-
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
+
+const BENCH_SIZES: &[(usize, &str)] = &[(10_000_000, "10M")];
 
 /// Generate compressible string data by repeating patterns.
 fn generate_string_data(count: usize) -> Vec<&'static str> {

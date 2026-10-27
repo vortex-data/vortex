@@ -394,14 +394,14 @@ fn density_sweep_dense_runs(bencher: Bencher, density: f64) {
         });
 }
 
-#[divan::bench(args = DENSITIES)]
-fn density_sweep_single_slice(bencher: Bencher, density: f64) {
+#[divan::bench]
+fn density_sweep_single_slice(bencher: Bencher) {
     let array = make_random_bool_array(DENSITY_SWEEP_SIZE, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
         .with_inputs(|| {
             (
                 array.clone(),
-                make_single_slice(DENSITY_SWEEP_SIZE, density),
+                make_single_slice(DENSITY_SWEEP_SIZE, 0.5),
                 SESSION.create_execution_ctx(),
             )
         })
@@ -417,8 +417,10 @@ fn density_sweep_single_slice(bencher: Bencher, density: f64) {
 // --- Extreme cases ---
 
 const LARGE_SIZES: &[usize] = &[10_000, 100_000, 250_000];
+const ALL_TRUE_SIZES: &[usize] = &[100_000];
+const ULTRA_SPARSE_SIZES: &[usize] = &[100_000, 250_000];
 
-#[divan::bench(args = LARGE_SIZES)]
+#[divan::bench(args = ALL_TRUE_SIZES)]
 fn filter_all_true(bencher: Bencher, n: usize) {
     let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
@@ -460,7 +462,7 @@ fn filter_one_false(bencher: Bencher, n: usize) {
         });
 }
 
-#[divan::bench(args = LARGE_SIZES)]
+#[divan::bench(args = ULTRA_SPARSE_SIZES)]
 fn filter_ultra_sparse(bencher: Bencher, n: usize) {
     let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher

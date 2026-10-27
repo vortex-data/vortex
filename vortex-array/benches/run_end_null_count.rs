@@ -66,10 +66,13 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 
 #[divan::bench(args = BENCH_ARGS)]
 fn null_count_run_end(bencher: Bencher, (n, run_step, valid_density): (usize, usize, f64)) {
-    let array = fixture(n, run_step, valid_density).into_array();
-
     bencher
-        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+        .with_inputs(|| {
+            (
+                fixture(n, run_step, valid_density).into_array(),
+                SESSION.create_execution_ctx(),
+            )
+        })
         .bench_refs(|(array, ctx)| array.invalid_count(ctx).unwrap());
 }
 

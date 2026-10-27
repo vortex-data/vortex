@@ -18,7 +18,7 @@ use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::session::ArraySession;
 use vortex_session::VortexSession;
 
-const LEN: usize = 2_048;
+const LEN: usize = 65_536;
 const RUN_LENGTH: usize = 64;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
