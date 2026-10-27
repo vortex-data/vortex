@@ -12,7 +12,7 @@ use vortex_mask::Mask;
 
 use crate::Pco;
 use crate::PcoArrayExt;
-use crate::page_index::IndexedView;
+use crate::page_index::LogicalPageIndex;
 
 const RANK_STRIDE: usize = 512;
 pub(crate) struct RankMask {
@@ -97,7 +97,7 @@ struct PreparedPage {
 impl AccessState {
     fn page(
         &mut self,
-        view: IndexedView<'_>,
+        view: &LogicalPageIndex,
         array: ArrayView<'_, Pco>,
         row: usize,
         ctx: &mut ExecutionCtx,
@@ -126,7 +126,7 @@ impl AccessState {
     }
     pub fn resolve<const RANKED: bool>(
         &mut self,
-        view: IndexedView<'_>,
+        view: &LogicalPageIndex,
         array: ArrayView<'_, Pco>,
         row: usize,
         ctx: &mut ExecutionCtx,
@@ -139,7 +139,7 @@ impl AccessState {
     }
     pub fn span(
         &mut self,
-        view: IndexedView<'_>,
+        view: &LogicalPageIndex,
         array: ArrayView<'_, Pco>,
         row: usize,
         stop: usize,

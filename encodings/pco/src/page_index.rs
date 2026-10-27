@@ -43,25 +43,14 @@ pub(crate) struct LogicalPageIndex {
     chunk_ends: Vec<usize>,
 }
 impl LogicalPageIndex {
-    pub fn view(&self) -> IndexedView<'_> {
-        IndexedView { index: self }
+    pub fn page_count(&self) -> usize {
+        self.chunk_ends.last().copied().unwrap_or(0)
     }
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct IndexedView<'a> {
-    index: &'a LogicalPageIndex,
-}
-impl<'a> IndexedView<'a> {
-    pub fn page_count(self) -> usize {
-        self.index.chunk_ends.last().copied().unwrap_or(0)
-    }
-    pub fn find_row(self, row: usize) -> usize {
+    pub fn find_row(&self, row: usize) -> usize {
         self.ends().partition_point(|end| *end <= row as u64)
     }
-    fn ends(self) -> &'a [u64] {
+    fn ends(&self) -> &[u64] {
         &self
-            .index
             .metadata
             .logical_row_prefix
             .as_ref()
@@ -70,7 +59,7 @@ impl<'a> IndexedView<'a> {
     }
     /// Unsliced logical rows, including nulls. Inter-page nulls belong to the following page;
     /// the final page includes trailing nulls. These coordinates are never slice-relative.
-    pub fn rows(self, page: usize) -> VortexResult<Range<usize>> {
+    pub fn rows(&self, page: usize) -> VortexResult<Range<usize>> {
         let ends = self.ends();
         let start = if page == 0 {
             0
@@ -79,18 +68,17 @@ impl<'a> IndexedView<'a> {
         };
         Ok(start..usize::try_from(ends[page])?)
     }
-    pub fn physical(self, page: usize, cursor: &mut ChunkCursor) -> VortexResult<PhysicalPage> {
+    pub fn physical(&self, page: usize, cursor: &mut ChunkCursor) -> VortexResult<PhysicalPage> {
         if !cursor.pages.contains(&page) {
-            let chunk = self.index.chunk_ends.partition_point(|end| *end <= page);
+            let chunk = self.chunk_ends.partition_point(|end| *end <= page);
             let end = *self
-                .index
                 .chunk_ends
                 .get(chunk)
                 .ok_or_else(|| vortex_err!("Pco physical page is missing"))?;
             let start = if chunk == 0 {
                 0
             } else {
-                self.index.chunk_ends[chunk - 1]
+                self.chunk_ends[chunk - 1]
             };
             *cursor = ChunkCursor {
                 chunk,
@@ -98,7 +86,6 @@ impl<'a> IndexedView<'a> {
             };
         }
         let info = self
-            .index
             .metadata
             .chunks
             .get(cursor.chunk)

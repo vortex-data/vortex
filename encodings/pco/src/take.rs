@@ -40,7 +40,7 @@ use crate::access::AccessState;
 use crate::array::number_type_from_ptype;
 use crate::decoder::PageDecoder;
 use crate::page_index::ChunkCursor;
-use crate::page_index::IndexedView;
+use crate::page_index::LogicalPageIndex;
 use crate::page_index::PageIndex;
 
 /// Compact descriptor; null indices have no start. Zero-length runs consume no source rows.
@@ -73,7 +73,7 @@ impl TakeExecute for Pco {
         let PageIndex::IndexedFast(index) = array.page_index()? else {
             return Ok(None);
         };
-        let view = index.view();
+        let view = index.as_ref();
         let grouped;
         let runs = {
             let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
@@ -210,7 +210,7 @@ fn descriptor_bytes(requests: usize) -> usize {
 /// Only the chosen sparse strategy allocates Runs/sorting descriptors; no source-sized bitmap.
 fn prefer_canonical_primitive<I: Copy>(
     array: ArrayView<'_, Pco>,
-    view: IndexedView<'_>,
+    view: &LogicalPageIndex,
     indices: &[I],
     mask: &Mask,
     requests: usize,
@@ -282,7 +282,7 @@ where
 
 fn gather<T: Number + NativePType>(
     array: ArrayView<'_, Pco>,
-    view: IndexedView<'_>,
+    view: &LogicalPageIndex,
     runs: &[Run],
     output_len: usize,
     nullability: Nullability,
@@ -312,7 +312,7 @@ fn gather<T: Number + NativePType>(
 /// it does no page-index search, validity rank, decoder lookup, or cache lookup.
 fn gather_grouped<T: Number + NativePType, const NULLABLE: bool>(
     array: ArrayView<'_, Pco>,
-    view: IndexedView<'_>,
+    view: &LogicalPageIndex,
     runs: &[Run],
     output_len: usize,
     defined: usize,
@@ -410,7 +410,7 @@ fn gather_grouped<T: Number + NativePType, const NULLABLE: bool>(
 /// exact sliced source validity. No output validity copy or retained decoded-page cache.
 fn stream_range<T: Number + NativePType>(
     array: ArrayView<'_, Pco>,
-    view: IndexedView<'_>,
+    view: &LogicalPageIndex,
     range: Range<usize>,
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
