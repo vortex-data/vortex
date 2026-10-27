@@ -2205,7 +2205,6 @@ dependencies = [
  "tokio",
  "tracing",
  "vortex",
- "vortex-arrow",
  "vortex-bench",
  "vortex-cuda",
 ]
@@ -11990,6 +11989,8 @@ name = "vortex-file"
 version = "0.1.0"
 dependencies = [
  "allocator-api2",
+ "arrow-array 59.3.2",
+ "arrow-schema 59.3.2",
  "async-trait",
  "bytes",
  "codspeed-divan-compat",
@@ -12011,6 +12012,7 @@ dependencies = [
  "url",
  "vortex-alp",
  "vortex-array",
+ "vortex-arrow",
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",
