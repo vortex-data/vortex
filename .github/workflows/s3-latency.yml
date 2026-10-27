@@ -43,7 +43,8 @@ concurrency:
 env:
   AWS_REGION: "us-east-1"
   DATA_ROOT: "s3://vortex-ci-benchmark-datasets/s3-latency/"
-  DATA_URL: "s3://vortex-ci-benchmark-datasets/s3-latency/${{ github.run_id }}-${{ github.run_attempt }}/"
+  # Keyed by run only: re-running failed jobs reuses the dataset the first attempt uploaded.
+  DATA_URL: "s3://vortex-ci-benchmark-datasets/s3-latency/${{ github.run_id }}/"
   RETENTION_HOURS: "3"
 
 jobs:
@@ -109,11 +110,12 @@ jobs:
     strategy:
       fail-fast: false
       # Sequential runs on fresh instances: samples spread over time and hosts, without the runs
-      # contending with each other for the same S3 prefix.
+      # contending with each other for the same S3 prefix. On-demand, so spot interruptions cannot
+      # kill a run part-way.
       max-parallel: 1
       matrix:
         run: ${{ fromJSON(needs.build.outputs.runs) }}
-    runs-on: runs-on=${{ github.run_id }}/runner=bench-dedicated/family=c8gd.8xlarge/image=ubuntu24-full-arm64-pre-v2/tag=s3-latency-run-${{ matrix.run }}
+    runs-on: runs-on=${{ github.run_id }}/runner=bench-dedicated/family=c8gd.8xlarge/image=ubuntu24-full-arm64-pre-v2/spot=false/tag=s3-latency-run-${{ matrix.run }}
     steps:
       - uses: runs-on/action@v2
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
