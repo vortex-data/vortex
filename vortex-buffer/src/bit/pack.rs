@@ -111,6 +111,9 @@ where
 /// conversions, or unchecked slice comparisons like the `between` kernels — where the fused
 /// AVX-512 loop is worth another ~2x over the baseline kernel.
 ///
+/// A build with AVX-512F and AVX-512BW enabled at compile time uses `collect_bool_words_inline`
+/// instead, which already packs with AVX-512.
+///
 /// `words` must hold at least `len.div_ceil(64)` entries and `f` is invoked with `0..len`,
 /// exactly once per index in ascending order.
 ///
@@ -133,7 +136,16 @@ where
         return collect_bool_words_inline(words, len, f);
     }
 
-    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    // NB: A static AVX-512 build must skip the `#[target_feature]` copies, which add nothing there.
+    // Each copy is a generic function without `#[inline]`, so rustc emits it in one codegen unit,
+    // and LLVM can inline it only into callers in that unit. So an unrelated change can put a hot
+    // caller's packing loop behind a call, as happened to the deferred Boolean RowFn loop in the
+    // bench profile (16 codegen units, 15% more instructions per row).
+    #[cfg(all(
+        target_arch = "x86_64",
+        not(all(target_feature = "avx512f", target_feature = "avx512bw")),
+        not(miri)
+    ))]
     {
         if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512bw") {
             // SAFETY: runtime detection guarantees the required target features.
