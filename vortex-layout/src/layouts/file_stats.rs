@@ -64,7 +64,8 @@ pub fn accumulate_stats(
     write_legacy_stats: bool,
     ctx: &LayoutWriterContext,
 ) -> VortexResult<(FileStatsAccumulator, SendableSequentialStream)> {
-    let accumulator = FileStatsAccumulator::try_new(stream.dtype(), stats, write_legacy_stats, ctx)?;
+    let accumulator =
+        FileStatsAccumulator::try_new(stream.dtype(), stats, write_legacy_stats, ctx)?;
     let dtype = stream.dtype().clone();
 
     // Each chunk's stats are computed into their own accumulators on a CPU task, so chunks are
@@ -257,7 +258,8 @@ impl StatsAccumulator {
             // stat's absence from the result. Check the dtypes first: a failed `accumulator` call
             // builds an error, and an error captures a backtrace, which is expensive for wide
             // schemas.
-            if aggregate_fn.return_dtype(dtype).is_none() || aggregate_fn.state_dtype(dtype).is_none()
+            if aggregate_fn.return_dtype(dtype).is_none()
+                || aggregate_fn.state_dtype(dtype).is_none()
             {
                 continue;
             }
@@ -514,9 +516,8 @@ impl StatsNode {
             (Self::Skipped, Self::Skipped) | (Self::Unrecorded { .. }, Self::Unrecorded { .. }) => {
                 Ok(())
             }
-            (Self::Leaf(acc), Self::Leaf(other)) | (Self::LegacyOnly(acc), Self::LegacyOnly(other)) => {
-                acc.merge_from(other)
-            }
+            (Self::Leaf(acc), Self::Leaf(other))
+            | (Self::LegacyOnly(acc), Self::LegacyOnly(other)) => acc.merge_from(other),
             (
                 Self::Container { children, own },
                 Self::Container {
@@ -525,7 +526,8 @@ impl StatsNode {
                 },
             ) => {
                 own.merge_from(other_own)?;
-                for ((_, child), (_, other)) in children.iter_mut().zip_eq(other_children.iter_mut())
+                for ((_, child), (_, other)) in
+                    children.iter_mut().zip_eq(other_children.iter_mut())
                 {
                     child.merge_from(other)?;
                 }
@@ -696,7 +698,11 @@ mod tests {
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     /// Pushes `chunk` through `acc` the way the write stream does.
-    fn push(acc: &FileStatsAccumulator, chunk: &ArrayRef, session: &VortexSession) -> VortexResult<()> {
+    fn push(
+        acc: &FileStatsAccumulator,
+        chunk: &ArrayRef,
+        session: &VortexSession,
+    ) -> VortexResult<()> {
         acc.merge(acc.chunk_stats(chunk, &mut session.create_execution_ctx())?)
     }
 
@@ -1269,14 +1275,10 @@ mod tests {
             .with_allowed_aggregates(HashSet::from_iter([Min.id(), Max.id(), NanCount.id()]));
 
         // An explicitly requested aggregate the context forbids fails the write.
-        let error = FileStatsAccumulator::try_new(
-            &dtype,
-            Some(Arc::from([agg(Stat::Sum)])),
-            true,
-            &ctx,
-        )
-        .err()
-        .vortex_expect("Sum is not permitted");
+        let error =
+            FileStatsAccumulator::try_new(&dtype, Some(Arc::from([agg(Stat::Sum)])), true, &ctx)
+                .err()
+                .vortex_expect("Sum is not permitted");
         assert!(error.to_string().contains("not permitted by ctx"));
 
         // The defaults leave a forbidden aggregate out of the nested aggregates, but the legacy
