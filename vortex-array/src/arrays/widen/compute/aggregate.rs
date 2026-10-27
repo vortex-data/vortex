@@ -16,21 +16,17 @@ use crate::scalar::Scalar;
 
 /// The longest batch for which [`WidenArrayAggregate`] serves [`Sum`].
 ///
-/// [`Sum`] adds integers narrower than 64 bits in blocks and checks for overflow once per block,
-/// but checks `i64` and `u64` after every value. So for a 64-bit logical dtype, the sum of the
-/// values and the sum of the canonical batch check at different points. The values have at most 32
-/// bits, so every running sum of at most 2^32 of them fits in 64 bits, and neither check fires. In
-/// a longer batch, the sum can overflow and come back inside one block, which only the check after
-/// every value catches.
+/// `Sum` adds integers narrower than 64 bits in blocks and checks for overflow once per block, but
+/// checks 64-bit integers after every value. No sum of at most 2^32 values of at most 32 bits
+/// leaves the 64-bit range, so both checks agree. In a longer batch, a sum can overflow and come
+/// back inside one block, which only the check after every value sees.
 const MAX_EXACT_SUM_LEN: u64 = 1 << 32;
 
-/// Runs an aggregate of a [`Widen`] on its values, and casts the partial to the logical dtype.
+/// Runs an aggregate of a [`Widen`] on its values and widens the partial to the logical dtype.
 ///
-/// [`AggregateFnSession::default`] registers this kernel only for aggregates whose partial is the
-/// same on the values and on the `Widen`, which the [module documentation](super) explains.
-/// [`Sum`] needs more, so the kernel serves it only when [`is_exact_sum`] holds.
-///
-/// [`AggregateFnSession::default`]: crate::aggregate_fn::session::AggregateFnSession::default
+/// The values run the same accumulator code as the canonical array, so edge cases such as an empty
+/// batch or a single null match by construction, and the values keep their own cached statistics
+/// and kernels. [`Sum`] is served only when [`is_exact_sum`] holds.
 #[derive(Debug)]
 pub(crate) struct WidenArrayAggregate;
 
@@ -62,22 +58,16 @@ impl DynAggregateKernel for WidenArrayAggregate {
     }
 }
 
-/// Returns whether the [`Sum`] of `batch` on its values equals its sum on the canonical batch.
+/// Returns whether the [`Sum`] of the values of `batch` equals the sum of the canonical batch.
 ///
-/// Two conditions make this hold.
+/// - The accumulator **must** sum each batch from zero and then add the total to the running sum.
+///   It does so for an aggregate with the legacy [`Stat::Sum`] slot. Otherwise it adds each value
+///   to the running sum, which a batch total cannot match near the 64-bit bounds: from a running
+///   sum of `i64::MAX - 5`, the values `[10, -10]` overflow, but their total of zero does not.
+/// - `batch` **must** have at most [`MAX_EXACT_SUM_LEN`] rows.
 ///
-/// - `aggregate_fn` has the legacy [`Stat::Sum`] slot. The accumulator then sums each batch from
-///   zero, caches the total as that statistic, and adds the total to the running sum. Without the
-///   slot, the accumulator adds each value of the batch to the running sum, and the kernel cannot
-///   match that near the 64-bit bounds. For example, from a running sum of `i64::MAX - 5`, the
-///   batch `[10, -10]` overflows at its first value, but adding its total of zero does not.
-/// - `batch` has at most [`MAX_EXACT_SUM_LEN`] rows, which that constant explains.
-///
-/// Only `Sum` with `skip_nans` has the slot, because the statistic skips NaNs. NaNs do not occur
-/// in integers, so `skip_nans` matters here only because it selects the slot. [`SumV2`] has no
-/// slot, so the session does not register this kernel for it.
-///
-/// [`SumV2`]: crate::aggregate_fn::fns::sum_v2::SumV2
+/// Only `Sum` with `skip_nans` has the slot. Integers have no NaNs, so `skip_nans` matters here
+/// only because it selects the slot.
 fn is_exact_sum(aggregate_fn: &AggregateFnRef, batch: &ArrayRef) -> bool {
     Stat::from_aggregate_fn(aggregate_fn) == Some(Stat::Sum)
         && batch.len() as u64 <= MAX_EXACT_SUM_LEN

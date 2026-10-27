@@ -1,17 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Operations that run on the values of a [`Widen`](crate::arrays::Widen).
+//! Operations that run on the values of a [`Widen`](crate::arrays::Widen) instead of on a
+//! widened copy.
 //!
-//! An aggregate of a `Widen` runs on its values, so it reads the narrow values instead of a
-//! widened copy, and the values keep their own cached statistics and aggregate kernels.
-//!
-//! This is exact because decoding a value is a strictly increasing, one-to-one map that keeps
-//! validity. Min and max, constancy and sortedness are the same on the values and on the `Widen`,
-//! and every value that a partial holds widens exactly to the logical dtype. The values run the
-//! same accumulator code, so edge cases such as an empty batch or a single null also match. Sum
-//! needs two more conditions, which [`WidenArrayAggregate`](aggregate::WidenArrayAggregate)
-//! explains.
+//! An operation runs on the values only where it gives the canonical result. Decoding a value is a
+//! strictly increasing, one-to-one map that keeps validity, so comparisons, sortedness, constancy
+//! and extrema carry over from the values, and every value in a result widens exactly to the
+//! logical dtype.
 //!
 //! [`AggregateFnSession::default`] registers the aggregate kernel, not
 //! [`initialize`](super::initialize), because the kernel session runs `initialize` on a temporary
