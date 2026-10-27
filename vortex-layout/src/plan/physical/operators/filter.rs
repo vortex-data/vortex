@@ -50,6 +50,8 @@ impl Operator for MaskStage {
         );
         let mask = self.mask.slice(self.cursor..end);
         self.cursor = end;
+        tracing::debug!(target: "scan_split_diagnostic", rows = batch.len(), selected = mask.true_count(),
+            predicate = self.predicate, shape = ?batch.display_tree_encodings_only().to_string(), "mask batch");
         if mask.all_true() {
             return Ok(Step::Final(batch));
         }

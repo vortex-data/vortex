@@ -56,6 +56,8 @@ fn take_rows(inlet: &mut Inlet<'_>, len: usize) -> VortexResult<ArrayRef> {
             left -= front.len();
             pieces.extend(inlet.take());
         } else {
+            tracing::debug!(target: "scan_split_diagnostic", rows = front.len(), take = left,
+                shape = ?front.display_tree_encodings_only().to_string(), "pack split");
             // Misaligned fields can split one lazy filter across several output batches.
             // Materialize selected values once when a consumer first needs either slice.
             if front.is::<Filter>() {

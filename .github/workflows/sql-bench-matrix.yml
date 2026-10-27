@@ -40,11 +40,53 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps((lambda rows: [dict(x, id="tpcds-nvme-"+str(sf), name="TPC-DS SF="+str(sf)+" on NVME", scale_factor=float(sf)) for x in rows if x["id"] == "tpcds-nvme" for sf in (10,30)])(json.load(sys.stdin))))')"
+          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps((lambda rows: [x for x in rows if x["id"] == "clickbench-nvme"])(json.load(sys.stdin))))')"
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
 
+  build:
+    timeout-minutes: 60
+    env:
+      FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=bench-dedicated/family=c8gd.8xlarge/image=ubuntu24-full-arm64-pre-v2/tag=build{1}', github.run_id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
+          || 'ubuntu-latest' }}
+    steps:
+      - uses: runs-on/action@v2
+        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }}
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: ${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && 'true' || 'false' }}
+      - name: Build binaries
+        shell: bash
+        env:
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+        run: |
+          packages=(--bin data-gen --bin datafusion-bench --bin duckdb-bench)
+          if [ "${{ inputs.mode }}" != "pr" ]; then
+            packages+=(--bin lance-bench)
+          fi
+          cargo build "${packages[@]}" --profile release_debug
+      - parallel:
+          - name: Upload binaries
+            uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+            with:
+              name: bench-binaries
+              path: |
+                target/release_debug/data-gen
+                target/release_debug/datafusion-bench
+                target/release_debug/duckdb-bench
+                target/release_debug/lance-bench
+                target/release_debug/build/vortex-duckdb-cache/duckdb-lib-*-prebuilt/libduckdb.so
+
   bench:
-    needs: [resolve-matrix]
+    needs: [resolve-matrix, build]
     timeout-minutes: 120
     env:
       FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
@@ -86,7 +128,6 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
           name: bench-binaries
-          run-id: 40551558327
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: target/release_debug/
       - name: Make binaries executable
@@ -178,7 +219,7 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
           name: bench-binaries
-          run-id: 40550058821
+          run-id: 40551558327
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: target/coarse-baseline
 
@@ -193,7 +234,7 @@ jobs:
             sudo apt-get install -y llvm
           fi
 
-      - name: Profile remaining Q99 batching gap
+      - name: Inspect filter and pack array shapes
         shell: bash
         env:
           TOKIO_WORKER_THREADS: "8"
@@ -205,7 +246,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: scan-q99-current-${{ matrix.id }}
+          name: scan-filter-shapes-${{ matrix.id }}
           path: scan-*
 
       - name: Compare results
