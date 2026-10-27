@@ -562,12 +562,43 @@ impl BitBuffer {
     ///
     /// Stops and returns the first error from `f`.
     #[inline]
-    pub fn try_for_each_set_index<E, F>(&self, mut f: F) -> Result<(), E>
+    pub fn try_for_each_set_index<E, F>(&self, f: F) -> Result<(), E>
+    where
+        F: FnMut(usize) -> Result<(), E>,
+    {
+        self.try_for_each_index::<false, E, F>(f)
+    }
+
+    /// Invoke `f(index)` for every unset bit, in ascending order, processing a `u64` word at a
+    /// time.
+    ///
+    /// This is the counterpart of [`for_each_set_index`](Self::for_each_set_index) for unset bits.
+    #[inline]
+    pub fn for_each_unset_index<F: FnMut(usize)>(&self, mut f: F) {
+        let Ok(()) = self.try_for_each_index::<true, _, _>(|index| {
+            f(index);
+            Ok::<_, Infallible>(())
+        });
+    }
+
+    /// The scan behind [`try_for_each_set_index`](Self::try_for_each_set_index). With `UNSET`,
+    /// each word is inverted as it is read, so the same scan visits the unset bits instead.
+    #[inline]
+    fn try_for_each_index<const UNSET: bool, E, F>(&self, mut f: F) -> Result<(), E>
     where
         F: FnMut(usize) -> Result<(), E>,
     {
         let mut base = 0usize;
         for word in self.chunks().iter_padded() {
+            let word = if UNSET {
+                // The last word is zero padded past `len`. Setting the padding before inverting
+                // keeps it from being visited.
+                let held = self.len - base;
+                let padding = if held < 64 { u64::MAX << held } else { 0 };
+                !(word | padding)
+            } else {
+                word
+            };
             if word == u64::MAX {
                 for k in 0..64 {
                     f(base + k)?;
@@ -585,24 +616,6 @@ impl BitBuffer {
         Ok(())
     }
 
-    /// Invoke `f(index)` for every unset bit, in ascending order, processing a `u64` word at a
-    /// time.
-    ///
-    /// This is the counterpart of [`for_each_set_index`](Self::for_each_set_index) for unset bits.
-    #[inline]
-    pub fn for_each_unset_index<F: FnMut(usize)>(&self, mut f: F) {
-        let chunks = self.chunks();
-        let mut start = 0;
-        for chunk in chunks.iter() {
-            for_each_set_bit(!chunk, start, &mut f);
-            start += 64;
-        }
-        // The remainder word is zero padded, so its padding comes out set once inverted and has to
-        // be masked off.
-        let held = chunks.remainder_len();
-        for_each_set_bit(!chunks.remainder_bits() & ((1 << held) - 1), start, &mut f);
-    }
-
     /// Created a new BitBuffer with offset reset to 0
     pub fn sliced(&self) -> Self {
         if self.offset.is_multiple_of(8) {
@@ -615,15 +628,6 @@ impl BitBuffer {
 
         // Allocate directly rather than clone + identity op which would fail try_into_mut.
         bitwise_unary_op_copy(self, |a| a)
-    }
-}
-
-/// Call `f` with `start` plus the index of every set bit in `word`.
-#[inline]
-fn for_each_set_bit(mut word: u64, start: usize, f: &mut impl FnMut(usize)) {
-    while word != 0 {
-        f(start + word.trailing_zeros() as usize);
-        word &= word - 1;
     }
 }
 
