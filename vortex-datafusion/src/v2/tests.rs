@@ -247,6 +247,14 @@ async fn dynamic_filters_refresh_projected_bounds_and_keep_residuals() -> anyhow
     for (predicate, expected) in [
         (df_expr::lit(true), vec![30, 20]),
         (above(25_i32), vec![30]),
+        (
+            Arc::new(df_expr::BinaryExpr::new(
+                Arc::clone(&column),
+                Operator::Eq,
+                df_expr::lit(20_i32),
+            )) as Arc<dyn PhysicalExpr>,
+            vec![20],
+        ),
         (unsupported as Arc<dyn PhysicalExpr>, vec![30, 20]),
     ] {
         let stream = source.open(0, SessionContext::new().task_ctx())?;

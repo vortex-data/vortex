@@ -117,14 +117,12 @@ use vortex::expr::stats::Precision;
 use vortex::expr::transform::replace;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::scan::DataSourceRef;
-use vortex::scan::DynamicFilter;
 use vortex::scan::ScanRequest;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_utils::parallelism::get_available_parallelism;
 
-use super::dynamic_filters::DynamicFilterExpr;
-use super::dynamic_filters::DynamicFilters;
+use super::dynamic_filters::convert_dynamic_filter;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
@@ -295,7 +293,7 @@ impl VortexDataSourceBuilder {
             leftover_schema: arrow_schema,
             leftover_statistics: statistics,
             filter: None,
-            dynamic_filters: DynamicFilters::default(),
+            dynamic_filters: Vec::new(),
             limit: None,
             ordered: false,
             num_partitions: get_available_parallelism().unwrap_or(1),
@@ -374,7 +372,7 @@ pub struct VortexDataSource {
     /// An optional filter expression.
     /// Populated by [`DataSource::try_pushdown_filters`] when DataFusion pushes filters down.
     filter: Option<Expression>,
-    dynamic_filters: DynamicFilters,
+    dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
     /// An optional row limit populated by [`DataSource::with_fetch`].
     limit: Option<usize>,
     /// Whether to preserve the order of the output rows.
@@ -424,8 +422,6 @@ impl DataSource for VortexDataSource {
         let scan_request = ScanRequest {
             projection: self.projected_projection.clone(),
             filter: self.filter.clone(),
-            dynamic_filter: (!self.dynamic_filters.0.is_empty())
-                .then(|| Arc::new(self.dynamic_filters.clone()) as Arc<dyn DynamicFilter>),
             limit: self.limit.map(|l| u64::try_from(l).unwrap_or(u64::MAX)),
             ordered: self.ordered,
             ..Default::default()
@@ -583,7 +579,7 @@ impl DataSource for VortexDataSource {
             column_statistics,
         };
         // A filter can remove the rows that supplied an exact count or extremum.
-        let statistics = if self.filter.is_some() || !self.dynamic_filters.0.is_empty() {
+        let statistics = if self.filter.is_some() {
             statistics.to_inexact()
         } else {
             statistics
@@ -593,7 +589,7 @@ impl DataSource for VortexDataSource {
     }
 
     fn with_fetch(&self, limit: Option<usize>) -> Option<Arc<dyn DataSource>> {
-        if limit.is_some() && !self.dynamic_filters.0.is_empty() {
+        if limit.is_some() && !self.dynamic_filters.is_empty() {
             return None;
         }
         let mut this = self.clone();
@@ -675,43 +671,34 @@ impl DataSource for VortexDataSource {
         }
 
         let mut this = self.clone();
-        let converted = filters
-            .into_iter()
-            .map(|filter| {
-                if DynamicFilterTracking::classify(&filter).contains_dynamic_filter() {
-                    this.dynamic_filters.0.push(DynamicFilterExpr {
-                        expression: filter,
-                        schema: Arc::clone(&self.projected_schema),
-                        projection: self.projected_projection.clone(),
-                        leftover: self.leftover_projection.clone(),
-                        converter: Arc::clone(&self.expression_converter),
-                    });
-                    return Ok(None);
-                }
-                let filter = match &self.leftover_projection {
-                    Some(projection) => projection.unproject_expr(&filter)?,
-                    None => filter,
-                };
-                let filter = reassign_expr_columns(filter, &self.projected_schema)?;
-                self.expression_converter
-                    .try_convert(&filter, &self.projected_schema)
-            })
-            .collect::<DFResult<Vec<_>>>()?;
-        let pushdown_results: Vec<PushedDown> = converted
-            .iter()
-            .map(|expr| {
-                if expr.is_some() {
-                    PushedDown::Yes
-                } else {
-                    PushedDown::No
-                }
-            })
-            .collect();
+        let mut pushdown_results = Vec::with_capacity(filters.len());
+        let mut converted = Vec::new();
+        for filter in filters {
+            let filter = match &self.leftover_projection {
+                Some(projection) => projection.unproject_expr(&filter)?,
+                None => filter,
+            };
+            let filter = reassign_expr_columns(filter, &self.projected_schema)?;
+            if DynamicFilterTracking::classify(&filter).contains_dynamic_filter() {
+                converted.push(convert_dynamic_filter(
+                    Arc::clone(&filter),
+                    Arc::clone(&self.projected_schema),
+                    Arc::clone(&self.expression_converter),
+                ));
+                this.dynamic_filters.push(filter);
+                pushdown_results.push(PushedDown::No);
+            } else if let Some(expression) = self
+                .expression_converter
+                .try_convert(&filter, &self.projected_schema)?
+            {
+                converted.push(expression);
+                pushdown_results.push(PushedDown::Yes);
+            } else {
+                pushdown_results.push(PushedDown::No);
+            }
+        }
 
-        // If nothing can be pushed down, return early.
-        if pushdown_results.iter().all(|p| matches!(p, PushedDown::No))
-            && this.dynamic_filters.0.len() == self.dynamic_filters.0.len()
-        {
+        if converted.is_empty() {
             return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
                 pushdown_results,
             ));
@@ -721,7 +708,6 @@ impl DataSource for VortexDataSource {
         // existing filter.
         let pushed = converted
             .into_iter()
-            .flatten()
             .map(|expr| replace(expr, &root(), self.projected_projection.clone()));
         this.filter = and_collect(self.filter.iter().cloned().chain(pushed));
         Ok(
@@ -739,12 +725,7 @@ impl DataSource for VortexDataSource {
                 .iter()
                 .flat_map(|projection| projection.iter())
                 .map(|expr| &expr.expr)
-                .chain(
-                    self.dynamic_filters
-                        .0
-                        .iter()
-                        .map(|filter| &filter.expression),
-                ),
+                .chain(self.dynamic_filters.iter()),
             f,
         )
     }

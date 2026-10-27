@@ -33,6 +33,9 @@ use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::dynamic::DynamicComparison;
 use crate::scalar_fn::fns::dynamic::DynamicComparisonExpr;
 use crate::scalar_fn::fns::dynamic::Rhs;
+use crate::scalar_fn::fns::dynamic_expression::DynamicExpression;
+use crate::scalar_fn::fns::dynamic_expression::DynamicExpressionOptions;
+use crate::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
 use crate::scalar_fn::fns::ext_storage::ExtStorage;
 use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::get_item::GetItem;
@@ -1135,6 +1138,29 @@ pub fn bound_dynamic(
     )
 }
 
+/// Creates a dynamic expression that evaluates the current predicate of `source`.
+///
+/// The `inputs` are the expressions that every predicate of the source can read. A predicate
+/// reads input `i` as the field named by
+/// [`input_field_name(i)`](crate::scalar_fn::fns::dynamic_expression::input_field_name) of its
+/// scope.
+pub fn dynamic_expression(
+    source: Arc<dyn DynamicExpressionSource>,
+    inputs: impl IntoIterator<Item = Expression>,
+) -> Expression {
+    DynamicExpression.new_expr(DynamicExpressionOptions::new(source), inputs)
+}
+
+/// Creates a bound dynamic expression that evaluates the current predicate of `source`.
+pub fn bound_dynamic_expression(
+    source: Arc<dyn DynamicExpressionSource>,
+    inputs: impl IntoIterator<Item = BoundExpression>,
+) -> BoundExpression {
+    DynamicExpression
+        .try_new_bound_expr(DynamicExpressionOptions::new(source), inputs)
+        .vortex_expect("dynamic expressions accept any inputs")
+}
+
 // ---- ListContains ----
 
 /// Creates an expression that checks whether a list contains a value.
@@ -1431,6 +1457,7 @@ pub mod bound {
     pub use super::bound_checked_add as checked_add;
     pub use super::bound_col as col;
     pub use super::bound_dynamic as dynamic;
+    pub use super::bound_dynamic_expression as dynamic_expression;
     pub use super::bound_dynamic_with_options as dynamic_with_options;
     pub use super::bound_eq as eq;
     pub use super::bound_ext_storage as ext_storage;
