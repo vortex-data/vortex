@@ -684,16 +684,18 @@ impl SegmentSource for GatedSegments {
 #[rstest]
 #[timeout(Duration::from_secs(5))]
 #[tokio::test]
-async fn unordered_yields_before_the_split_finishes() -> VortexResult<()> {
+async fn unordered_yields_before_the_split_finishes(
+    #[values(8_192, MAX_ROWS_PER_CHUNK)] rows_per_chunk: usize,
+) -> VortexResult<()> {
     let session = new_session().with_tokio();
     let segments = Arc::new(TestSegments::default());
     let (mut sequence, eof) = SequenceId::root().split();
     let arrays = (0..2)
         .map(|index| {
-            let start = i32::try_from(index * MAX_ROWS_PER_CHUNK)?;
+            let start = i32::try_from(index * rows_per_chunk)?;
             Ok((
                 sequence.advance(),
-                PrimitiveArray::from_iter(start..start + i32::try_from(MAX_ROWS_PER_CHUNK)?)
+                PrimitiveArray::from_iter(start..start + i32::try_from(rows_per_chunk)?)
                     .into_array(),
             ))
         })
@@ -722,7 +724,7 @@ async fn unordered_yields_before_the_split_finishes() -> VortexResult<()> {
         release: gate.shared(),
     });
     let mut scan = ScanRun::try_new(builder(&session, &segments, &layout)?.with_ordered(false))?;
-    // Put both projection morsels in one chunk, as a dense filtered scan would.
+    // Cover output within one morsel as well as output across projection morsels.
     Arc::get_mut(&mut scan.scan)
         .ok_or_else(|| vortex_err!("the prepared scan is not shared yet"))?
         .chunk_rows = usize::try_from(layout.row_count())?;
@@ -732,13 +734,13 @@ async fn unordered_yields_before_the_split_finishes() -> VortexResult<()> {
     let first = first?.ok_or_else(|| vortex_err!("first batch is missing"))?;
     assert_arrays_eq!(
         first,
-        PrimitiveArray::from_iter(0i32..i32::try_from(MAX_ROWS_PER_CHUNK)?),
+        PrimitiveArray::from_iter(0i32..i32::try_from(rows_per_chunk)?),
         &mut session.create_execution_ctx()
     );
     let rest: Vec<_> = batches.try_collect().await?;
     assert_eq!(
         rest.iter().map(|array| array.len()).sum::<usize>(),
-        MAX_ROWS_PER_CHUNK
+        rows_per_chunk
     );
     Ok(())
 }

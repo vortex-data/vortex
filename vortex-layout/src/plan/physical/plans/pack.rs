@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod cache;
+
 use std::borrow::Cow;
 use std::ops::Range;
 
@@ -11,7 +13,6 @@ use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
 use vortex_array::expr::traversal::TraversalOrder;
@@ -25,13 +26,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_expr::descendent_bound_annotations;
-use vortex_expr::make_bound_free_field_annotator;
-use vortex_expr::transform::partition_bound_annotations;
 use vortex_mask::Mask;
+use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use self::cache::PartitionCache;
 use crate::plan::physical::Eval;
 use crate::plan::physical::EvalPlan;
 use crate::plan::physical::Plan;
@@ -331,7 +331,7 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
         child: &Plan<Pack>,
         parent: &Plan<Eval>,
         _child_idx: usize,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
         if child.dtype().is_nullable() {
             return Ok(None);
@@ -354,14 +354,10 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
                 return Ok(Some(EvalPlan::try_new(lowered, field)?.into_plan()));
             }
         }
-        let expanded = expand_struct_root(expression.clone(), fields)?;
-        let annotations =
-            descendent_bound_annotations(&expanded, make_bound_free_field_annotator(fields));
-        let referenced_fields = annotations
-            .get(&ExactBoundExpr(expanded.clone()))
-            .vortex_expect("Bound expression missing free-field annotations")
-            .clone();
-        let partitioned = partition_bound_annotations(expanded.clone(), annotations)?;
+        let cached = session.get::<PartitionCache>().partition(expression, fields)?;
+        let expanded = &cached.expanded;
+        let referenced_fields = &cached.referenced_fields;
+        let partitioned = &cached.partitions;
 
         if partitioned.partition_names.is_empty() {
             let selected_indices = fields
@@ -398,11 +394,11 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
                 vortex_err!("Struct expression references unknown field '{name}'")
             })?;
             let field = field_plan(child, index)?;
-            let lowered = step_into_struct_field(expanded, name, field.dtype().clone())?;
+            let lowered = step_into_struct_field(expanded.clone(), name, field.dtype().clone())?;
             return Ok(Some(EvalPlan::try_new(lowered, field)?.into_plan()));
         }
 
-        let residual = partitioned.root;
+        let residual = partitioned.root.clone();
         let mut collapsed = Vec::with_capacity(partitioned.partitions.len());
         let mut field_expressions = vec![None; fields.nfields()];
         for index in 0..partitioned.partitions.len() {
