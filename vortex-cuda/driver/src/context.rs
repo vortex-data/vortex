@@ -210,7 +210,13 @@ impl CudaContext {
 
     /// Blocks until all work in the context completes.
     pub fn synchronize(&self) -> Result<(), DriverError> {
-        self.bind_to_thread()?;
+        self.check_err()?;
+        self.synchronize_in_place()
+    }
+
+    /// Like [`synchronize`](Self::synchronize), leaving recorded errors in place.
+    pub(crate) fn synchronize_in_place(&self) -> Result<(), DriverError> {
+        self.make_current()?;
         // SAFETY: The context is current.
         unsafe { sys::cuCtxSynchronize() }.result()
     }
