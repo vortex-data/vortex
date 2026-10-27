@@ -5,7 +5,6 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::vec::IntoIter;
 
-use rustc_hash::FxHashSet;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
@@ -13,7 +12,6 @@ use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::request::IoConsumer;
-use vortex_io::request::IoIntent;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
 use vortex_mask::Mask;
@@ -32,8 +30,6 @@ use crate::scan::execution::SelectedRows;
 use crate::scan::execution::adaptor::AdaptorStep;
 use crate::scan::execution::adaptor::Piece;
 use crate::scan::execution::adaptor::ScanAdaptor;
-use crate::scan::execution::filter::hint;
-use crate::scan::execution::filter::segments_read;
 
 const MAX_OUTPUT_ROWS: usize = 262_144;
 const MAX_FILTERED_OUTPUT_ROWS: usize = 65_536;
@@ -45,7 +41,6 @@ const MIN_OUTPUT_ROWS: usize = 4_096;
 pub(super) struct ProjectionPlanner {
     scan: Arc<PreparedScan>,
     selected: IntoIter<SelectedRows>,
-    announced: bool,
 }
 
 impl ProjectionPlanner {
@@ -79,7 +74,6 @@ impl ProjectionPlanner {
                 .collect()
         };
         Self {
-            announced: scan.filter.is_some(),
             scan,
             selected: selected.into_iter(),
         }
@@ -100,33 +94,6 @@ impl Planner for ProjectionPlanner {
     }
 
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
-        if !self.announced {
-            self.announced = true;
-            let mut batch = Vec::new();
-            let mut seen = FxHashSet::default();
-            let mut next_hint = u32::MAX;
-            // Register this work chunk's reads together before any projection fetch is polled.
-            // Filtered scans already announce their projection while evaluating predicates.
-            for selected in self.selected.as_slice() {
-                let segments = segments_read(
-                    &self.scan.session,
-                    std::iter::once(&self.scan.projection),
-                    selected.scope.rows.clone(),
-                    &selected.mask,
-                )?;
-                hint(
-                    &self.scan.locations,
-                    &mut next_hint,
-                    IoIntent::Announce,
-                    &segments,
-                    &mut seen,
-                    &mut batch,
-                );
-            }
-            if !batch.is_empty() {
-                return Ok(PlannerOutput::NeedsIO(batch));
-            }
-        }
         let Some(selected) = self.selected.next() else {
             return Ok(PlannerOutput::Done);
         };

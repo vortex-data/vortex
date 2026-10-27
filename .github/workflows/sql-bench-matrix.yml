@@ -225,6 +225,17 @@ jobs:
       - name: Make coarse baseline executable
         run: chmod +x target/coarse-baseline/datafusion-bench
 
+      - name: Download partition cache baseline
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: bench-binaries
+          run-id: 40448514623
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: target/partition-cache-baseline
+
+      - name: Make partition cache baseline executable
+        run: chmod +x target/partition-cache-baseline/datafusion-bench
+
       - name: Install LLVM symbolizer if needed
         shell: bash
         run: |
@@ -233,7 +244,7 @@ jobs:
             sudo apt-get install -y llvm
           fi
 
-      - name: Compare and profile unfiltered read announcements
+      - name: Compare and profile cached lowered expressions
         shell: bash
         env:
           TOKIO_WORKER_THREADS: "8"
