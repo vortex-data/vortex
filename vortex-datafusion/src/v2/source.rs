@@ -152,7 +152,8 @@ use crate::convert::exprs::ProcessedProjection;
 use crate::convert::schema::calculate_physical_schema;
 use crate::convert::stats::stats_set_to_df;
 
-type ExecutionSourceFactory =
+/// Creates one execution's data source and registers its typed metrics.
+pub type ExecutionSourceFactory =
     dyn Fn(&ExecutionPlanMetricsSet) -> VortexResult<DataSourceRef> + Send + Sync;
 
 /// Builder for [`VortexDataSource`].
@@ -263,10 +264,7 @@ impl VortexDataSourceBuilder {
     /// pairing fresh source counters with their collectors. Metrics accumulate in that
     /// set across executions; each registered collector must describe its own scope and
     /// retain the counters it needs. The execution retains its source until reset or drop.
-    pub fn with_execution_source_factory(
-        mut self,
-        factory: Arc<dyn Fn(&ExecutionPlanMetricsSet) -> VortexResult<DataSourceRef> + Send + Sync>,
-    ) -> Self {
+    pub fn with_execution_source_factory(mut self, factory: Arc<ExecutionSourceFactory>) -> Self {
         self.execution_source_factory = Some(factory);
         self
     }

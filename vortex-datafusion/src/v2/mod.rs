@@ -40,5 +40,6 @@ mod table;
 #[cfg(test)]
 mod tests;
 
+pub use source::ExecutionSourceFactory;
 pub use source::VortexDataSource;
 pub use table::VortexTable;
