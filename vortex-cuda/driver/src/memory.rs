@@ -163,11 +163,16 @@ impl Access {
             AccessKind::Write => {
                 // Readers and older writes are ordered before this write by `before`, so only
                 // this write remains to be followed.
-                let event = match state.write.take() {
+                let event = match state.write {
                     Some(previous) => previous.event,
                     None => context.take_event()?,
                 };
-                stream.record_raw(event)?;
+                if let Err(error) = stream.record_raw(event) {
+                    if state.write.is_none() {
+                        context.give_event(event);
+                    }
+                    return Err(error);
+                }
                 state.write = Some(Recorded { stream: id, event });
                 state.waited.clear();
                 for read in state.reads.drain(..) {
@@ -181,18 +186,41 @@ impl Access {
                 state.allocation_stream_pending = true;
             }
             AccessKind::Read => {
-                let event = match state.reads.iter().position(|read| read.stream == id) {
+                let index = state.reads.iter().position(|read| read.stream == id);
+                let event = match index {
                     Some(index) => state.reads[index].event,
-                    None => {
-                        let event = context.take_event()?;
-                        state.reads.push(Recorded { stream: id, event });
-                        event
-                    }
+                    None => context.take_event()?,
                 };
-                stream.record_raw(event)?;
+                if let Err(error) = stream.record_raw(event) {
+                    if index.is_none() {
+                        context.give_event(event);
+                    }
+                    return Err(error);
+                }
+                if index.is_none() {
+                    state.reads.push(Recorded { stream: id, event });
+                }
             }
         }
         Ok(())
+    }
+
+    /// Like [`after`](Self::after), but if recording fails, waits for the access to complete
+    /// instead, so later accesses and the free need not follow it.
+    ///
+    /// The access is already enqueued, so its memory must not be reused before it completes.
+    pub(crate) fn after_or_wait(
+        &self,
+        owner: &CudaStream,
+        stream: &CudaStream,
+        kind: AccessKind,
+    ) -> Result<(), DriverError> {
+        let recorded = self.after(owner, stream, kind);
+        if recorded.is_err() {
+            // If this fails too, the context is broken and its work does not complete.
+            stream.context().record_err(stream.synchronize_in_place());
+        }
+        recorded
     }
 
     /// Makes the allocation stream wait for every other stream's access before a free.
@@ -273,7 +301,7 @@ impl Drop for SyncOnDrop<'_> {
             Pending::Access(access, owner, stream, kind) => {
                 stream
                     .context()
-                    .record_err(access.after(owner, stream, kind));
+                    .record_err(access.after_or_wait(owner, stream, kind));
             }
             Pending::Event(event, stream) => {
                 stream.context().record_err(
