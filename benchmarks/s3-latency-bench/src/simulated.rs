@@ -10,15 +10,20 @@
 //! than one connection, and sharing the instance's network bandwidth evenly with every other
 //! transfer in flight, the same rule the analysis simulator validates against measured scans. Writes, listings and deletes
 //! pass straight through.
+//!
+//! Query engines can serve a dataset from simulated S3 with [`from_env`]: it loads a local copy of
+//! the dataset into memory behind the model, to register in place of the real bucket.
 
 use std::fmt;
 use std::ops::Range;
 use std::path::Path as FsPath;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use anyhow::Context;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::StreamExt;
@@ -33,13 +38,16 @@ use object_store::ListResult;
 use object_store::MultipartUpload;
 use object_store::ObjectMeta;
 use object_store::ObjectStore;
+use object_store::ObjectStoreExt;
 use object_store::PutMultipartOptions;
 use object_store::PutOptions;
 use object_store::PutPayload;
 use object_store::PutResult;
 use object_store::Result;
+use object_store::memory::InMemory;
 use object_store::path::Path;
 use object_store::throttle::ThrottleConfig;
+use object_store::throttle::ThrottledStore;
 use parking_lot::Mutex;
 use rand::RngExt;
 use rand::SeedableRng;
@@ -309,6 +317,101 @@ impl ObjectStore for LatencyStore {
     async fn copy_opts(&self, from: &Path, to: &Path, options: CopyOptions) -> Result<()> {
         self.inner.copy_opts(from, to, options).await
     }
+}
+
+/// Copy every `.vortex` file under `dir` into `store` under `prefix`, keeping relative paths.
+pub fn load_dir(store: &Arc<dyn ObjectStore>, prefix: &Path, dir: &FsPath) -> anyhow::Result<u64> {
+    let mut files = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(d) = pending.pop() {
+        for entry in std::fs::read_dir(&d).with_context(|| format!("reading {}", d.display()))? {
+            let path = entry?.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().is_some_and(|e| e == "vortex") {
+                files.push(path);
+            }
+        }
+    }
+    let mut total = 0;
+    for path in files {
+        let relative = path.strip_prefix(dir)?.to_string_lossy().replace('\\', "/");
+        let bytes = std::fs::read(&path)?;
+        total += bytes.len() as u64;
+        let mut location = prefix.clone();
+        for part in relative.split('/') {
+            location = location.join(part);
+        }
+        // In-memory puts never wait on IO, so blocking on them is safe in any context.
+        futures::executor::block_on(store.put(&location, PutPayload::from(bytes)))?;
+    }
+    Ok(total)
+}
+
+/// How simulated S3 delays requests.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SimulationMode {
+    /// [`LatencyStore`]: sampled first-byte latency and shared network bandwidth.
+    Model,
+    /// `object_store`'s `ThrottledStore` with the model's medians.
+    Throttle,
+}
+
+impl std::str::FromStr for SimulationMode {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> anyhow::Result<Self> {
+        match s {
+            "model" => Ok(Self::Model),
+            "throttle" => Ok(Self::Throttle),
+            other => anyhow::bail!("unknown simulation mode {other}, expected model or throttle"),
+        }
+    }
+}
+
+/// Wrap `store` so its requests take the latency of the model in `model`.
+pub fn with_model(
+    store: Arc<dyn ObjectStore>,
+    model: &FsPath,
+    mode: SimulationMode,
+    seed: u64,
+) -> anyhow::Result<Arc<dyn ObjectStore>> {
+    let model = LatencyModel::from_file(model)?;
+    Ok(match mode {
+        SimulationMode::Model => Arc::new(LatencyStore::new(store, model, seed)),
+        SimulationMode::Throttle => Arc::new(ThrottledStore::new(store, model.throttle_config())),
+    })
+}
+
+/// Model file that turns on simulated S3 for [`from_env`].
+pub const MODEL_ENV: &str = "VORTEX_SIMULATED_S3_MODEL";
+/// Local directory holding the dataset that the simulated bucket prefix serves.
+pub const DIR_ENV: &str = "VORTEX_SIMULATED_S3_DIR";
+/// `model` (the default) or `throttle`.
+pub const MODE_ENV: &str = "VORTEX_SIMULATED_S3_MODE";
+
+/// Simulated S3 configured from the environment, or `None` when [`MODEL_ENV`] is unset.
+///
+/// The `.vortex` files under [`DIR_ENV`] are served at `prefix`, so a query engine can register
+/// the returned store for the real bucket and run unchanged against the same paths. The store is
+/// built once per process and shared.
+pub fn from_env(prefix: &Path) -> anyhow::Result<Option<Arc<dyn ObjectStore>>> {
+    static STORE: OnceLock<Arc<dyn ObjectStore>> = OnceLock::new();
+    let Some(model) = std::env::var_os(MODEL_ENV) else {
+        return Ok(None);
+    };
+    if let Some(store) = STORE.get() {
+        return Ok(Some(Arc::clone(store)));
+    }
+    let dir = std::env::var_os(DIR_ENV)
+        .ok_or_else(|| anyhow::anyhow!("{MODEL_ENV} is set but {DIR_ENV} is not"))?;
+    let mode = std::env::var(MODE_ENV)
+        .unwrap_or_else(|_| "model".to_string())
+        .parse()?;
+    let inner: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+    load_dir(&inner, prefix, FsPath::new(&dir))?;
+    let store = with_model(inner, FsPath::new(&model), mode, 0)?;
+    Ok(Some(Arc::clone(STORE.get_or_init(|| store))))
 }
 
 #[cfg(test)]

@@ -110,6 +110,24 @@ python3 scripts/s3-scan-report.py scans
 In CI the scan jobs do this for TPC-H and TPC-DS at SF=10 on real S3 and both simulated stores, and
 post the per-table runtimes to the PR (`s3-latency-scan` artifact).
 
+## TPC-H and TPC-DS queries on simulated S3
+
+The crate is also a library: `s3_latency_bench::simulated::from_env` builds simulated S3 from
+`VORTEX_SIMULATED_S3_MODEL` (a model file), `VORTEX_SIMULATED_S3_DIR` (a local copy of the dataset)
+and `VORTEX_SIMULATED_S3_MODE` (`model` or `throttle`). `datafusion-bench` registers it in place of
+the real bucket when these are set, so the same queries run unchanged against the same `s3://`
+paths:
+
+```bash
+VORTEX_SIMULATED_S3_MODEL=model.json VORTEX_SIMULATED_S3_DIR=vortex-bench/data/tpch/10.0 \
+  cargo run --release --bin datafusion-bench -- tpch --formats vortex \
+  --opt scale-factor=10 --opt remote-data-dir=s3://bucket/tpch/ -d gh-json -o queries/model/tpch.json
+python3 scripts/s3-query-report.py queries
+```
+
+In CI the query jobs run every TPC-H and TPC-DS query this way on real S3 and both simulated
+stores, and post per-query runtimes to the PR (`s3-latency-queries` artifact).
+
 Known limits: the model splits bandwidth evenly between transfers, so it underestimates p99
 latency when the network is saturated or when thousands of small requests run per second. It was
 measured on a single instance type.

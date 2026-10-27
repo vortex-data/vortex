@@ -19,7 +19,6 @@
 mod compute_scan;
 mod layout;
 mod recorder;
-mod simulated;
 mod workloads;
 
 use std::collections::BTreeMap;
@@ -47,7 +46,9 @@ use object_store::aws::AmazonS3Builder;
 use object_store::local::LocalFileSystem;
 use object_store::memory::InMemory;
 use object_store::path::Path;
-use object_store::throttle::ThrottledStore;
+use s3_latency_bench::simulated::SimulationMode;
+use s3_latency_bench::simulated::load_dir;
+use s3_latency_bench::simulated::with_model;
 use serde::Deserialize;
 use serde::Serialize;
 use url::Url;
@@ -56,8 +57,6 @@ use crate::layout::FileLayout;
 use crate::recorder::CSV_HEADER;
 use crate::recorder::Recorder;
 use crate::recorder::csv_row;
-use crate::simulated::LatencyModel;
-use crate::simulated::LatencyStore;
 use crate::workloads::Ctx;
 use crate::workloads::Dataset;
 
@@ -301,23 +300,18 @@ fn with_latency(
     latency_mode: LatencyMode,
     seed: u64,
 ) -> anyhow::Result<(Arc<dyn ObjectStore>, &'static str)> {
-    Ok(match (latency_model, latency_mode) {
-        (None, _) => (store, "real"),
-        (Some(path), LatencyMode::Model) => (
-            Arc::new(LatencyStore::new(
-                store,
-                LatencyModel::from_file(path)?,
-                seed,
-            )),
+    let Some(model) = latency_model else {
+        return Ok((store, "real"));
+    };
+    Ok(match latency_mode {
+        LatencyMode::Model => (
+            with_model(store, model, SimulationMode::Model, seed)?,
             "simulated-model",
         ),
-        (Some(path), LatencyMode::Throttle) => {
-            let config = LatencyModel::from_file(path)?.throttle_config();
-            (
-                Arc::new(ThrottledStore::new(store, config)),
-                "simulated-throttle",
-            )
-        }
+        LatencyMode::Throttle => (
+            with_model(store, model, SimulationMode::Throttle, seed)?,
+            "simulated-throttle",
+        ),
     })
 }
 
@@ -328,7 +322,7 @@ async fn scan(args: ScanArgs) -> anyhow::Result<()> {
             args.url.scheme() == "memory",
             "--load-from needs a memory:/// url"
         );
-        let bytes = compute_scan::load_dir(&store, &prefix, dir).await?;
+        let bytes = load_dir(&store, &prefix, dir)?;
         println!(
             "loaded {:.1} MiB from {}",
             bytes as f64 / f64::from(1 << 20),

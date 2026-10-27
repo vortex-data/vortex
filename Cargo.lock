@@ -2813,6 +2813,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "parking_lot",
+ "s3-latency-bench",
  "tokio",
  "url",
  "vortex",

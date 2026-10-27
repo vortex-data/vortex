@@ -65,15 +65,21 @@ pub fn make_object_store(
     match source.scheme() {
         "s3" => {
             let bucket_name = &source[url::Position::BeforeHost..url::Position::AfterHost];
+            let bucket_url = Url::parse(&format!("s3://{bucket_name}/"))?;
+            // With a latency model in the environment, serve the dataset from simulated S3: an
+            // in-memory copy behind the model, at the same paths as the real bucket.
+            let prefix = object_store::path::Path::from(source.path());
+            if let Some(simulated) = s3_latency_bench::simulated::from_env(&prefix)? {
+                session.register_object_store(&bucket_url, Arc::clone(&simulated));
+                return Ok(simulated);
+            }
             let s3 = Arc::new(
                 AmazonS3Builder::from_env()
                     .with_bucket_name(bucket_name)
                     .build()?,
             );
-            session.register_object_store(
-                &Url::parse(&format!("s3://{bucket_name}/"))?,
-                Arc::<object_store::aws::AmazonS3>::clone(&s3),
-            );
+            session
+                .register_object_store(&bucket_url, Arc::<object_store::aws::AmazonS3>::clone(&s3));
             Ok(s3)
         }
         "gs" => {

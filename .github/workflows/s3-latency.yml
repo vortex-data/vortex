@@ -13,7 +13,8 @@
 #
 # The scan jobs generate TPC-H and TPC-DS (SF=10 by default), fully scan every table with
 # `vortex-file` on real S3 and on both simulated stores, and post per-table runtimes to the PR
-# (`s3-latency-scan`).
+# (`s3-latency-scan`). The query jobs run every TPC-H and TPC-DS query with DataFusion over the
+# same files on the same three stores, and post per-query runtimes (`s3-latency-queries`).
 #
 # Retention: objects under the s3-latency/ prefix are deleted once they are older than
 # RETENTION_HOURS, by a sweep at the start and at the end of every run. S3 lifecycle rules only
@@ -28,6 +29,8 @@ on:
       - "benchmarks/s3-latency-bench/**"
       - "scripts/s3-latency-analyze.py"
       - "scripts/s3-scan-report.py"
+      - "scripts/s3-query-report.py"
+      - "benchmarks/datafusion-bench/**"
   workflow_dispatch:
     inputs:
       runs:
@@ -389,7 +392,8 @@ jobs:
           set -Eeu -o pipefail
           for bench in tpch tpcds; do
             aws s3 cp --recursive --quiet \
-              vortex-bench/data/"$bench"/*/vortex-file-compressed "${DATA_URL}scan/$bench/"
+              vortex-bench/data/"$bench"/*/vortex-file-compressed \
+              "${DATA_URL}scan/$bench/vortex-file-compressed/"
           done
           echo "uploaded_at=$(date +%s)" >> "$GITHUB_OUTPUT"
 
@@ -415,7 +419,7 @@ jobs:
           wait=$(( UPLOADED_AT + SCAN_MIN_AGE_S - $(date +%s) ))
           if (( wait > 0 )); then echo "waiting ${wait}s for the data to warm up"; sleep "$wait"; fi
           for bench in tpch tpcds; do
-            ./s3-latency-bench scan --url "${DATA_URL}scan/$bench/" \
+            ./s3-latency-bench scan --url "${DATA_URL}scan/$bench/vortex-file-compressed/" \
               --dataset "$bench-sf$SCAN_SF" --output "results/real/$bench.json"
           done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
@@ -452,7 +456,8 @@ jobs:
           set -Eeu -o pipefail
           for bench in tpch tpcds; do
             aws s3 cp --recursive --quiet "${DATA_URL}scan/$bench/" "data/$bench/"
-            ./s3-latency-bench scan --url "memory:///$bench/" --load-from "data/$bench" \
+            ./s3-latency-bench scan --url "memory:///$bench/" \
+              --load-from "data/$bench/vortex-file-compressed" \
               --latency-model model.json --latency-mode "$MODE" \
               --dataset "$bench-sf$SCAN_SF" --output "results/$MODE/$bench.json"
             rm -rf "data/$bench"
@@ -497,8 +502,147 @@ jobs:
             scan.md
             results
 
+  build-queries:
+    if: >-
+      github.repository == 'vortex-data/vortex'
+      && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
+    timeout-minutes: 60
+    runs-on: runs-on=${{ github.run_id }}/runner=bench-dedicated/family=c8gd.8xlarge/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag=s3-latency-build-queries
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "true"
+      - name: Build DataFusion benchmark
+        run: cargo build --locked --release --bin datafusion-bench
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: s3-latency-datafusion-bench
+          path: target/release/datafusion-bench
+          retention-days: 1
+
+  query-real:
+    needs: [build-queries, scan-data]
+    timeout-minutes: 90
+    runs-on: runs-on=${{ github.run_id }}/runner=bench-dedicated/family=c8gd.8xlarge/image=ubuntu24-full-arm64-pre-v2/spot=false/tag=s3-latency-query-real
+    steps:
+      - uses: runs-on/action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: s3-latency-datafusion-bench
+          path: target/release
+      - run: chmod +x target/release/datafusion-bench
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+      - name: Run queries on real S3
+        env:
+          UPLOADED_AT: ${{ needs.scan-data.outputs.uploaded_at }}
+        run: |
+          set -Eeu -o pipefail
+          wait=$(( UPLOADED_AT + SCAN_MIN_AGE_S - $(date +%s) ))
+          if (( wait > 0 )); then echo "waiting ${wait}s for the data to warm up"; sleep "$wait"; fi
+          mkdir -p results/real
+          for bench in tpch tpcds; do
+            target/release/datafusion-bench "$bench" --formats vortex -i 3 --hide-progress-bar \
+              --opt scale-factor="$SCAN_SF" --opt remote-data-dir="${DATA_URL}scan/$bench/" \
+              --runner real -d gh-json -o "results/real/$bench.json"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: s3-latency-queries-real
+          path: results/real
+
+  query-sim:
+    needs: [build-queries, scan-data, analyze]
+    if: >-
+      ${{ !cancelled() && needs.analyze.result == 'success' && needs.scan-data.result == 'success'
+          && needs.build-queries.result == 'success' }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [model, throttle]
+    runs-on: runs-on=${{ github.run_id }}/runner=bench-dedicated/family=c8gd.8xlarge/image=ubuntu24-full-arm64-pre-v2/spot=false/tag=s3-latency-query-${{ matrix.mode }}
+    steps:
+      - uses: runs-on/action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: s3-latency-datafusion-bench
+          path: target/release
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: s3-latency-model
+      - run: chmod +x target/release/datafusion-bench
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+      - name: Run queries on simulated S3
+        env:
+          MODE: ${{ matrix.mode }}
+        run: |
+          set -Eeu -o pipefail
+          mkdir -p "results/$MODE"
+          for bench in tpch tpcds; do
+            aws s3 cp --recursive --quiet "${DATA_URL}scan/$bench/" "data/$bench/"
+            # The same s3:// paths as the real run, served from memory behind the model.
+            VORTEX_SIMULATED_S3_MODEL="$PWD/model.json" VORTEX_SIMULATED_S3_MODE="$MODE" \
+            VORTEX_SIMULATED_S3_DIR="$PWD/data/$bench" \
+              target/release/datafusion-bench "$bench" --formats vortex -i 3 --hide-progress-bar \
+                --opt scale-factor="$SCAN_SF" --opt remote-data-dir="${DATA_URL}scan/$bench/" \
+                --runner "simulated-$MODE" -d gh-json -o "results/$MODE/$bench.json"
+            rm -rf "data/$bench"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: s3-latency-queries-${{ matrix.mode }}
+          path: results/${{ matrix.mode }}
+
+  query-report:
+    needs: [query-real, query-sim]
+    if: ${{ !cancelled() && needs.query-real.result == 'success' }}
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write  # for commenting on PRs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          pattern: s3-latency-queries-*
+          path: results
+      - name: Report
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -Eeu -o pipefail
+          python3 scripts/s3-query-report.py results --report queries.md > /dev/null
+          { cat queries.md; echo; echo "From [this run]($RUN_URL)."; } > comment.md
+          cat comment.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Comment PR
+        if: github.event_name == 'pull_request'
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+        with:
+          file-path: comment.md
+          comment-tag: s3-latency-queries
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: s3-latency-queries-report
+          path: |
+            queries.md
+            results
+
   expire:
-    needs: [prepare, bench, scan-real, scan-sim]
+    needs: [prepare, bench, scan-real, scan-sim, query-real, query-sim]
     if: ${{ always() && needs.prepare.result != 'skipped' }}
     timeout-minutes: 15
     runs-on: runs-on=${{ github.run_id }}/runner=arm64-medium/image=ubuntu24-full-arm64-pre-v2/tag=s3-latency-expire

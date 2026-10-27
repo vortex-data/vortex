@@ -41,6 +41,7 @@ opentelemetry.workspace = true
 opentelemetry-otlp.workspace = true
 opentelemetry_sdk.workspace = true
 parking_lot = { workspace = true }
+s3-latency-bench = { path = "../s3-latency-bench" }
 tokio = { workspace = true, features = ["full"] }
 url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "files", "tokio"] }

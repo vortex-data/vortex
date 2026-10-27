@@ -5,22 +5,18 @@
 //!
 //! Every table is opened and scanned end to end with `vortex-file`, decoding each chunk to its
 //! canonical form, so the runtime includes both the IO and the decompression of a full scan. The
-//! same command runs against real S3 or against a [`crate::simulated::LatencyStore`] over an
+//! same command runs against real S3 or against a [`s3_latency_bench::simulated::LatencyStore`] over an
 //! in-memory copy of the files, so the two can be compared table by table.
 
 use std::collections::BTreeMap;
-use std::path::Path as FsPath;
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::time::Instant;
 
-use anyhow::Context;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
 use object_store::ObjectStore;
-use object_store::ObjectStoreExt;
-use object_store::PutPayload;
 use object_store::path::Path;
 use serde::Serialize;
 use vortex::VortexSessionDefault;
@@ -66,38 +62,6 @@ fn table_name(relative: &str) -> String {
         }
         _ => stem.to_string(),
     }
-}
-
-/// Copy every `.vortex` file under `dir` into `store` under `prefix`, keeping relative paths.
-pub async fn load_dir(
-    store: &Arc<dyn ObjectStore>,
-    prefix: &Path,
-    dir: &FsPath,
-) -> anyhow::Result<u64> {
-    let mut files = Vec::new();
-    let mut pending = vec![dir.to_path_buf()];
-    while let Some(d) = pending.pop() {
-        for entry in std::fs::read_dir(&d).with_context(|| format!("reading {}", d.display()))? {
-            let path = entry?.path();
-            if path.is_dir() {
-                pending.push(path);
-            } else if path.extension().is_some_and(|e| e == "vortex") {
-                files.push(path);
-            }
-        }
-    }
-    let mut total = 0;
-    for path in files {
-        let relative = path.strip_prefix(dir)?.to_string_lossy().replace('\\', "/");
-        let bytes = tokio::fs::read(&path).await?;
-        total += bytes.len() as u64;
-        let mut location = prefix.clone();
-        for part in relative.split('/') {
-            location = location.join(part);
-        }
-        store.put(&location, PutPayload::from(bytes)).await?;
-    }
-    Ok(total)
 }
 
 /// Scan one file end to end, returning the number of rows.
