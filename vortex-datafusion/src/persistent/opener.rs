@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::sync::Weak;
 
 use arrow_array::RecordBatchOptions;
-use arrow_array::StringViewArray;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::SchemaRef;
@@ -420,7 +419,6 @@ impl FileOpener for VortexOpener {
             let native_limit = limit
                 .filter(|_| scan_v2 && residual_filter.is_none())
                 .map(|limit| (limit, Arc::clone(&output_schema)));
-            let scan_trace_path = file.path().clone();
             let map_batch = move |chunk| {
                 let mut ctx = session.create_execution_ctx();
                 let arrow_session = ctx.session().clone();
@@ -429,21 +427,7 @@ impl FileOpener for VortexOpener {
                     Some(&stream_target_field),
                     &mut ctx,
                 )?;
-                let batch = RecordBatch::from(arrow.as_struct().clone());
-                if tracing::enabled!(target: "scan_batch_diagnostics", tracing::Level::INFO) {
-                    tracing::info!(target: "scan_batch_diagnostics", path = %scan_trace_path,
-                        v2 = scan_v2, rows = batch.num_rows(), "scan_batch");
-                    for (field, column) in batch.schema().fields().iter().zip(batch.columns()) {
-                        if let Some(strings) = column.as_any().downcast_ref::<StringViewArray>() {
-                            let capacity: usize = strings.data_buffers().iter().map(|b| b.capacity()).sum();
-                            tracing::info!(target: "scan_batch_diagnostics", path = %scan_trace_path,
-                                v2 = scan_v2, column = %field.name(), rows = batch.num_rows(),
-                                capacity, used = strings.total_buffer_bytes_used(),
-                                buffers = strings.data_buffers().len(), "scan_strings");
-                        }
-                    }
-                }
-                Ok(batch)
+                Ok(RecordBatch::from(arrow.as_struct().clone()))
             };
             let stream = if scan_v2 {
                 let mut scan_file = vxf.scan_file();

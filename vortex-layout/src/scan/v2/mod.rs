@@ -83,12 +83,9 @@ use crate::scan::v2::io::SegmentScanIo;
 use crate::scan::v2::io::segment_ranges;
 use crate::segments::SegmentSource;
 
-const MIN_PARTITION_ROWS: usize = 8 * ROW_BLOCK_SIZE;
-
 /// The rows a byte range of the file stands for when an engine splits the file by bytes before
 /// opening it. Consecutive byte ranges give consecutive row ranges that tile the file, with
-/// boundaries on 65,536-row blocks. Keeping small files in fewer partitions avoids repeatedly
-/// slicing the same encoded buffers into sparse batches.
+/// boundaries on the grid's 8,192-row blocks so the executor's chunks stay block aligned.
 pub fn partition_row_range(bytes: Range<u64>, file_size: u64, row_count: u64) -> Range<u64> {
     let row = |byte: u64| -> u64 {
         if byte >= file_size {
@@ -96,7 +93,7 @@ pub fn partition_row_range(bytes: Range<u64>, file_size: u64, row_count: u64) ->
         }
         let row = u128::from(byte) * u128::from(row_count) / u128::from(file_size);
         let row = u64::try_from(row).vortex_expect("a row of the file fits u64");
-        row / MIN_PARTITION_ROWS as u64 * MIN_PARTITION_ROWS as u64
+        row / ROW_BLOCK_SIZE as u64 * ROW_BLOCK_SIZE as u64
     };
     let start = row(bytes.start);
     start..row(bytes.end).max(start)
@@ -242,25 +239,11 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     /// Runs the scan on the session's runtime, preparing it on the first poll.
     /// Preparation errors are returned as stream items.
-    pub fn into_stream(mut self) -> VortexResult<BoxStream<'static, VortexResult<A>>> {
+    pub fn into_stream(self) -> VortexResult<BoxStream<'static, VortexResult<A>>> {
         let handle = self.session.handle();
         Ok(stream::once(async move {
-            let preparation = self
-                .file
-                .cache
-                .get_or_insert_with(ScanCache::default)
-                .preparation(&self.projection, self.filter.as_ref());
-            let guard = preparation.lock_arc().await;
-            // Once the cache is populated, partitions need not queue their CPU tasks.
-            let guard = if *guard { None } else { Some(guard) };
             handle
-                .spawn_cpu(move || {
-                    let scan = ScanRun::try_new(self)?;
-                    if let Some(mut guard) = guard {
-                        *guard = true;
-                    }
-                    scan.execute_stream()
-                })
+                .spawn_cpu(move || ScanRun::try_new(self)?.execute_stream())
                 .await
         })
         .try_flatten()

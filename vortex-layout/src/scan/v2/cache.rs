@@ -41,7 +41,6 @@ pub struct ScanCache(Arc<Inner>);
 
 #[derive(Default)]
 struct Inner {
-    preparations: Mutex<FxHashMap<PreparationKey, Arc<async_lock::Mutex<bool>>>>,
     root: Mutex<Option<PlanRef>>,
     /// Optimized plans of non-identity projections. Values are cached by the plan that produced
     /// them, so a projection must reuse its plan for its values to be found again.
@@ -81,28 +80,7 @@ fn hash_expression<H: Hasher>(expression: &BoundExpression, state: &mut H) {
     }
 }
 
-type PreparationKey = (ScanExpression, Option<ScanExpression>);
-
 impl ScanCache {
-    /// Coordinates the first successful preparation of each projection and filter.
-    /// The flag is set only after all reusable plans have been cached.
-    pub(super) fn preparation(
-        &self,
-        projection: &BoundExpression,
-        filter: Option<&BoundExpression>,
-    ) -> Arc<async_lock::Mutex<bool>> {
-        let key = (
-            ScanExpression(projection.clone()),
-            filter.cloned().map(ScanExpression),
-        );
-        let mut preparations = self.0.preparations.lock();
-        Arc::clone(
-            preparations
-                .entry(key)
-                .or_insert_with(|| Arc::new(async_lock::Mutex::new(false))),
-        )
-    }
-
     /// A cache whose scans retain up to `bytes` of recently read segments, so chunks that share
     /// a stored segment read it once. The default retains 64 MiB; zero retains nothing.
     pub fn with_retained_bytes(bytes: u64) -> Self {
