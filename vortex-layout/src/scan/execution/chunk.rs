@@ -30,7 +30,7 @@ pub(crate) const MAX_ROWS_PER_CHUNK: usize = 32 * ROW_BLOCK_SIZE;
 /// The rows of a filtered chunk: large, so a conjunct's reads coalesce and its mask is cheap.
 pub(crate) const FILTERED_ROWS_PER_CHUNK: usize = 128 * ROW_BLOCK_SIZE;
 // Filtered scans retain smaller work items for selective conjuncts.
-const MIN_FILTERED_ROWS_PER_CHUNK: usize = 8 * ROW_BLOCK_SIZE;
+const MIN_FILTERED_ROWS_PER_CHUNK: usize = 32 * ROW_BLOCK_SIZE;
 const TARGET_BYTES_PER_CHUNK: u64 = 8 * 1024 * 1024;
 
 /// Limit estimated bytes per chunk without changing the writer-aligned row granularity.

@@ -505,7 +505,7 @@ fn chunk_byte_budget(#[case] rows: u64, #[case] bytes: u32, #[case] expected: us
 }
 
 #[rstest]
-#[case::minimum_work(1_000_000, 1_000_000, 0, 32, 65_536)]
+#[case::minimum_work(1_000_000, 1_000_000, 0, 32, 262_144)]
 #[case::maximum_work(64_000_000, 64_000_000, 0, 32, 1_048_576)]
 #[case::wide_projection(1_000_000, 1_000_000, 384_000_000, 32, 16_384)]
 #[case::zero_parallelism(1_048_576, 1_048_576, 0, 0, 1_048_576)]
