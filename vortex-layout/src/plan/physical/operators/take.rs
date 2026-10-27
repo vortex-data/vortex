@@ -91,6 +91,7 @@ impl Operator for TakeSource {
                 // dictionary to decode in full for a small projection.
                 let values = if (values.dtype().is_utf8() || values.dtype().is_binary())
                     && values.len() >= 1024
+                    && codes.len() <= 1024
                     && codes.len().saturating_mul(4) < values.len()
                     && let Some(shared) = values.as_opt::<Shared>()
                 {

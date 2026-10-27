@@ -43,18 +43,18 @@ def command(v2, query, iterations, label):
 
 current_binary = binary
 baseline = root / 'target/coarse-baseline/datafusion-bench'
-variants = [('v1', baseline, False), ('accepted', baseline, True), ('candidate', current_binary, True)]
-Path('scan-provenance.json').write_text(json.dumps({'baseline_run': 40475426727, 'candidate': 'Frozen ClickBench Q24/Q26 diagnostic: prior versus string-only Shared bypass', 'candidate_run': 40517832617, 'binary_sha256': {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path, _ in variants}}, indent=2))
+variants = [('v1', baseline, False), ('accepted', root / 'target/string-baseline/datafusion-bench', True), ('candidate', current_binary, True)]
+Path('scan-provenance.json').write_text(json.dumps({'baseline_run': 40475426727, 'accepted_run': 40517832617, 'candidate': 'Sparse string/binary Shared bypass requires values >=1024, codes <=1024, and codes <25 percent', 'binary_sha256': {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path, _ in variants}}, indent=2))
 for round in range(3):
     for label_name, binary, v2 in variants[round:] + variants[:round]:
         label = f'scan-timing-r{round}-{label_name}'
-        cmd = command(v2, ('13,20,21,28,32,40,41,48,49,58,62,76' if suite == 'tpcds' else '22,24,26'), 9, label)
+        cmd = command(v2, ('13,20,21,28,32,40,41,48,49,58,62,76' if suite == 'tpcds' else '11,13,22,24,26,28,31,40'), 9, label)
         Path(label + '.command.json').write_text(json.dumps({'command': cmd, 'env': profile_env}, indent=2))
         with open(label + '.log', 'w') as log:
             subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=600, check=True)
 for label_name, binary, v2 in variants:
     label = f'scan-metrics-{label_name}'
-    cmd = command(v2, ('28,48' if suite == 'tpcds' else '24,26'), 1, label) + ['--show-metrics']
+    cmd = command(v2, ('28,48' if suite == 'tpcds' else '22,24,26'), 1, label) + ['--show-metrics']
     with open(label + '.log', 'w') as log:
         subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=600, check=True)
 binary = current_binary
@@ -72,7 +72,7 @@ def frame_label(thread, index, symbols=None):
 
 summary.frame_label = frame_label
 binary_sha = hashlib.sha256(binary.read_bytes()).hexdigest()
-for query, iterations in ([('28', 20)] if suite == 'tpcds' else [('24', 100), ('26', 100)]):
+for query, iterations in ([('28', 20)] if suite == 'tpcds' else [('22', 20), ('24', 100), ('26', 100)]):
     for label_name, binary, v2 in variants:
         binary_sha = hashlib.sha256(binary.read_bytes()).hexdigest()
         label = f'scan-q{query}-{label_name}'
