@@ -350,13 +350,10 @@ impl ArrowSession {
                     ),
                     dtype.is_nullable(),
                 )
-                .with_metadata(
-                    [(
-                        EXTENSION_TYPE_NAME_KEY.to_string(),
-                        "arrow.parquet.variant".to_string(),
-                    )]
-                    .into(),
-                ))
+                .with_metadata([(
+                    EXTENSION_TYPE_NAME_KEY.to_string(),
+                    "arrow.parquet.variant".to_string(),
+                )]))
             }
             _ => Ok(Field::new(
                 name,
