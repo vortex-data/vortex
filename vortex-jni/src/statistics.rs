@@ -3,6 +3,10 @@
 
 //! Conversion of the per-column statistics stored in a Vortex file footer into
 //! `dev.vortex.api.VortexColumnStatistics` objects.
+//!
+//! A read resolves each statistic through the file's [`DataSource`]. It uses the stored
+//! aggregate partials first, and falls back to the finalized legacy statistics only for a
+//! statistic that has no partial.
 
 use jni::Env;
 use jni::objects::JObject;
@@ -12,22 +16,19 @@ use jni::sys::JNI_FALSE;
 use jni::sys::JNI_TRUE;
 use jni::sys::jlong;
 use vortex::aggregate_fn::AggregateFnRef;
-use vortex::aggregate_fn::AggregateFnVTableExt;
-use vortex::aggregate_fn::EmptyOptions;
-use vortex::aggregate_fn::NumericalAggregateOpts;
-use vortex::aggregate_fn::fns::max::Max;
-use vortex::aggregate_fn::fns::min::Min;
-use vortex::aggregate_fn::fns::nan_count::NanCount;
-use vortex::aggregate_fn::fns::null_count::NullCount;
 use vortex::array::scalar::PValue;
 use vortex::array::scalar::Scalar;
 use vortex::array::scalar::ScalarValue;
+use vortex::array::stats::StatsSet;
 use vortex::dtype::DType;
 use vortex::dtype::FieldPath;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex::expr::stats::Precision;
+use vortex::expr::stats::Stat;
 use vortex::file::Footer;
 use vortex::layout::layouts::file_stats::AggregateStats;
+use vortex::scan::DataSource;
 
 use crate::errors::JNIError;
 
@@ -35,14 +36,12 @@ pub(crate) fn checked_jlong(value: u64, name: &str) -> VortexResult<jlong> {
     jlong::try_from(value).map_err(|_| vortex_err!("{name} exceeds Java long range: {value}"))
 }
 
-fn exact_count_jlong(
-    aggregates: Option<&AggregateStats>,
-    aggregate_fn: &AggregateFnRef,
-) -> VortexResult<jlong> {
-    aggregates
-        .and_then(|aggregates| aggregates.get(aggregate_fn).as_exact())
+/// Returns an exact count as a `jlong`, or `-1` when the count is not exact.
+fn exact_count_jlong(count: Precision<Scalar>, name: &str) -> VortexResult<jlong> {
+    count
+        .as_exact()
         .and_then(|count| u64::try_from(&count).ok())
-        .map(|value| checked_jlong(value, &aggregate_fn.to_string()))
+        .map(|value| checked_jlong(value, name))
         .transpose()
         .map(|value| value.unwrap_or(-1))
 }
@@ -132,6 +131,146 @@ fn scalar_to_java<'local>(
     }
 }
 
+/// The statistics of one top-level column that are returned to Java.
+pub(crate) struct ColumnStatistics {
+    null_count: Precision<Scalar>,
+    nan_count: Precision<Scalar>,
+    min: Precision<Scalar>,
+    max: Precision<Scalar>,
+}
+
+impl ColumnStatistics {
+    /// Reads the statistics from the aggregates that a writer recorded in a footer.
+    fn from_aggregates(aggregates: Option<&AggregateStats>) -> Self {
+        let get = |stat: Stat| {
+            aggregates
+                .zip(stat.aggregate_fn())
+                .map_or(Precision::Absent, |(aggregates, aggregate_fn)| {
+                    aggregates.get(&aggregate_fn)
+                })
+        };
+
+        Self {
+            null_count: get(Stat::NullCount),
+            nan_count: get(Stat::NaNCount),
+            min: get(Stat::Min),
+            max: get(Stat::Max),
+        }
+    }
+
+    /// Reads the statistics of the field at `path` from `source`.
+    ///
+    /// Stored aggregate partials come first. The legacy statistics are read only when a
+    /// statistic has no partial, for example in a file written before partials were stored.
+    async fn from_source(
+        source: &dyn DataSource,
+        path: &FieldPath,
+        dtype: &DType,
+    ) -> VortexResult<Self> {
+        let mut legacy = None;
+
+        Ok(Self {
+            null_count: resolve_statistic(source, path, dtype, Stat::NullCount, &mut legacy)
+                .await?,
+            nan_count: resolve_statistic(source, path, dtype, Stat::NaNCount, &mut legacy).await?,
+            min: resolve_statistic(source, path, dtype, Stat::Min, &mut legacy).await?,
+            max: resolve_statistic(source, path, dtype, Stat::Max, &mut legacy).await?,
+        })
+    }
+}
+
+/// Resolves one statistic of the field at `path`, first from its stored aggregate partial and
+/// then from the legacy statistics.
+///
+/// `legacy` caches the legacy statistics of the field, so they are read at most once.
+async fn resolve_statistic(
+    source: &dyn DataSource,
+    path: &FieldPath,
+    dtype: &DType,
+    stat: Stat,
+    legacy: &mut Option<StatsSet>,
+) -> VortexResult<Precision<Scalar>> {
+    let aggregate_fn = stat
+        .aggregate_fn()
+        .ok_or_else(|| vortex_err!("statistic {stat} has no aggregate function"))?;
+
+    let partial = source.field_statistic(path, &aggregate_fn).await?;
+    if !partial.is_absent() {
+        return partial
+            .map(|partial| finalize_partial(&aggregate_fn, dtype, &partial))
+            .transpose();
+    }
+
+    if legacy.is_none() {
+        *legacy = Some(source.field_statistics(path).await?);
+    }
+
+    let Some(stat_dtype) = stat.dtype(dtype) else {
+        return Ok(Precision::Absent);
+    };
+
+    Ok(legacy.as_ref().map_or(Precision::Absent, |legacy| {
+        legacy.get(stat).into_scalar(stat_dtype)
+    }))
+}
+
+/// Computes the final value of `aggregate_fn` from a stored partial over a field of `dtype`.
+fn finalize_partial(
+    aggregate_fn: &AggregateFnRef,
+    dtype: &DType,
+    partial: &Scalar,
+) -> VortexResult<Scalar> {
+    let mut accumulator = aggregate_fn.accumulator(dtype)?;
+    accumulator.combine_partials(partial)?;
+    accumulator.final_scalar()
+}
+
+/// Returns the path and dtype of each top-level column in schema order.
+///
+/// A non-struct file has a single entry for its root column.
+fn columns(footer: &Footer) -> Vec<(FieldPath, DType)> {
+    match footer.dtype().as_struct_fields_opt() {
+        Some(fields) => fields
+            .names()
+            .iter()
+            .zip(fields.fields())
+            .map(|(name, dtype)| (FieldPath::from_name(name.clone()), dtype))
+            .collect(),
+        None => vec![(FieldPath::root(), footer.dtype().clone())],
+    }
+}
+
+/// Reads the statistics of each top-level column from the aggregates in `footer`.
+///
+/// Use this for a footer that a writer just produced, which has no legacy statistics to fall
+/// back to.
+pub(crate) fn footer_column_statistics(footer: &Footer) -> Vec<ColumnStatistics> {
+    columns(footer)
+        .iter()
+        .map(|(path, _)| {
+            let aggregates = footer
+                .statistics()
+                .and_then(|statistics| statistics.get_by_path(path))
+                .map(|(aggregates, _)| aggregates);
+            ColumnStatistics::from_aggregates(aggregates)
+        })
+        .collect()
+}
+
+/// Reads the statistics of each top-level column of the file that `footer` describes from
+/// `source`, the data source of that file.
+pub(crate) async fn source_column_statistics(
+    source: &dyn DataSource,
+    footer: &Footer,
+) -> VortexResult<Vec<ColumnStatistics>> {
+    let mut statistics = Vec::new();
+    for (path, dtype) in columns(footer) {
+        statistics.push(ColumnStatistics::from_source(source, &path, &dtype).await?);
+    }
+
+    Ok(statistics)
+}
+
 /// Returns the compressed size in bytes of each top-level column in schema order.
 ///
 /// A non-struct file has a single entry for its root column.
@@ -155,15 +294,24 @@ fn compressed_column_sizes(footer: &Footer) -> VortexResult<Vec<u64>> {
 /// Build a `dev.vortex.api.VortexColumnStatistics[]` with one entry per top-level column of
 /// the file that `footer` describes.
 ///
-/// All values come from the footer, so this performs no IO.
+/// `statistics` holds one entry per top-level column in schema order. The compressed sizes come
+/// from the footer, so this performs no IO.
 pub(crate) fn column_statistics_to_java<'local>(
     env: &mut Env<'local>,
     footer: &Footer,
+    statistics: Vec<ColumnStatistics>,
 ) -> Result<JObjectArray<'local>, JNIError> {
     let column_sizes = compressed_column_sizes(footer)?;
+    if column_sizes.len() != statistics.len() {
+        return Err(vortex_err!(
+            "expected statistics for {} columns, got {}",
+            column_sizes.len(),
+            statistics.len()
+        )
+        .into());
+    }
+
     let row_count = checked_jlong(footer.row_count(), "row count")?;
-    let file_stats = footer.statistics();
-    let struct_fields = footer.dtype().as_struct_fields_opt();
     let columns = env.new_object_array(
         i32::try_from(column_sizes.len())
             .map_err(|_| vortex_err!("column count exceeds Java array range"))?,
@@ -171,33 +319,24 @@ pub(crate) fn column_statistics_to_java<'local>(
         JObject::null(),
     )?;
 
-    for (column_index, compressed_size) in column_sizes.into_iter().enumerate() {
-        let aggregates = struct_fields
-            .and_then(|fields| fields.names().get(column_index))
-            .zip(file_stats)
-            .and_then(|(name, all_stats)| {
-                all_stats.get_by_path(&FieldPath::from_name(name.clone()))
-            })
-            .map(|(aggregates, _)| aggregates);
-        let null_count = exact_count_jlong(aggregates, &NullCount.bind(EmptyOptions))?;
-        let nan_count = exact_count_jlong(aggregates, &NanCount.bind(EmptyOptions))?;
-        let lower_bound = aggregates.and_then(|aggregates| {
-            aggregates
-                .get(&Min.bind(NumericalAggregateOpts::skip_nans()))
-                .into_inner()
-        });
-        let upper_bound = aggregates.and_then(|aggregates| {
-            aggregates
-                .get(&Max.bind(NumericalAggregateOpts::skip_nans()))
-                .into_inner()
-        });
+    for (column_index, (compressed_size, column_statistics)) in
+        column_sizes.into_iter().zip(statistics).enumerate()
+    {
+        let ColumnStatistics {
+            null_count,
+            nan_count,
+            min,
+            max,
+        } = column_statistics;
+        let null_count = exact_count_jlong(null_count, "null count")?;
+        let nan_count = exact_count_jlong(nan_count, "NaN count")?;
 
         let column = env.with_local_frame_returning_local::<_, JObject, JNIError>(16, |env| {
-            let lower_bound = match lower_bound {
+            let lower_bound = match min.into_inner() {
                 Some(value) => scalar_to_java(env, value)?,
                 None => JObject::null(),
             };
-            let upper_bound = match upper_bound {
+            let upper_bound = match max.into_inner() {
                 Some(value) => scalar_to_java(env, value)?,
                 None => JObject::null(),
             };
