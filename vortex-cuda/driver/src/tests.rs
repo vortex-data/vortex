@@ -9,6 +9,8 @@ use crate::CudaStream;
 use crate::DevicePtr;
 use crate::DevicePtrMut;
 use crate::DriverError;
+use crate::HostSlice;
+use crate::SyncOnDrop;
 use crate::sys;
 
 /// A context and two streams, or `None` without a CUDA device.
@@ -164,5 +166,46 @@ fn rejects_access_from_another_context() -> Result<(), DriverError> {
     let access = std::panic::catch_unwind(AssertUnwindSafe(|| drop(device.device_ptr(&stream))));
     assert!(access.is_err());
     drop(device);
+    context.check_err()
+}
+
+/// Reports fewer elements than the slice it copies.
+struct ShortHostSlice([u32; 4]);
+
+impl HostSlice<u32> for ShortHostSlice {
+    fn len(&self) -> usize {
+        1
+    }
+
+    unsafe fn stream_synced_slice<'a>(
+        &'a self,
+        _stream: &'a CudaStream,
+    ) -> (&'a [u32], SyncOnDrop<'a>) {
+        (&self.0, SyncOnDrop::none())
+    }
+
+    unsafe fn stream_synced_mut_slice<'a>(
+        &'a mut self,
+        _stream: &'a CudaStream,
+    ) -> (&'a mut [u32], SyncOnDrop<'a>) {
+        (&mut self.0, SyncOnDrop::none())
+    }
+}
+
+/// Host copies are bounded by the slices they copy, not by the reported lengths.
+#[test]
+fn host_copies_check_copied_slices() -> Result<(), DriverError> {
+    let Some((context, stream, _)) = streams() else {
+        return Ok(());
+    };
+    let mut host = ShortHostSlice([7; 4]);
+    let mut device = stream.alloc_zeros::<u32>(1)?;
+    let upload =
+        std::panic::catch_unwind(AssertUnwindSafe(|| stream.memcpy_htod(&host, &mut device)));
+    assert!(upload.is_err());
+    let download =
+        std::panic::catch_unwind(AssertUnwindSafe(|| stream.memcpy_dtoh(&device, &mut host)));
+    assert!(download.is_ok());
+    assert_eq!(host.0, [0, 7, 7, 7]);
     context.check_err()
 }
