@@ -222,14 +222,14 @@ pub(crate) async fn await_stream_callback(stream: &CudaStream) -> VortexResult<(
 ///
 /// Returns an error if registering the host callback function fails.
 fn register_stream_callback(stream: &CudaStream) -> VortexResult<kanal::AsyncReceiver<()>> {
-    let (tx, rx) = kanal::bounded::<()>(1);
-
-    let tx_ptr = Box::into_raw(Box::new(tx));
-
+    // Bind before handing the sender to raw ownership, which a failed bind would leak.
     stream
         .context()
         .bind_to_thread()
         .map_err(|e| vortex_err!("Failed to bind CUDA context: {}", e))?;
+
+    let (tx, rx) = kanal::bounded::<()>(1);
+    let tx_ptr = Box::into_raw(Box::new(tx));
 
     /// Called from CUDA driver thread when all preceding work on the stream completes.
     unsafe extern "C" fn callback(user_data: *mut std::ffi::c_void) {
