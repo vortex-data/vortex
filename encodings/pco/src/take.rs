@@ -50,13 +50,13 @@ impl TakeExecute for Pco {
         let Some(extrema) =
             min_max(indices.as_array(), ctx, NumericalAggregateOpts::default())?
         else {
-            assert!(mask.all_false());
+            debug_assert!(mask.all_false());
             return Ok(Some(
                 ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
                     .into_array(),
             ));
         };
-        assert!(!mask.all_false());
+        debug_assert!(!mask.all_false());
         match_each_integer_ptype!(indices.ptype(), |I| {
             validate_extrema::<I>(&extrema, array.len())?
         });
