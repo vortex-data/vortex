@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::vec::IntoIter;
 
+use rustc_hash::FxHashSet;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
@@ -11,6 +13,7 @@ use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::request::IoConsumer;
+use vortex_io::request::IoIntent;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
 use vortex_mask::Mask;
@@ -27,7 +30,10 @@ use crate::plan::physical::selection::selected;
 use crate::scan::execution::PreparedScan;
 use crate::scan::execution::SelectedRows;
 use crate::scan::execution::adaptor::AdaptorStep;
+use crate::scan::execution::adaptor::Piece;
 use crate::scan::execution::adaptor::ScanAdaptor;
+use crate::scan::execution::filter::hint;
+use crate::scan::execution::filter::segments_read;
 
 const MAX_OUTPUT_ROWS: usize = 262_144;
 const MAX_FILTERED_OUTPUT_ROWS: usize = 65_536;
@@ -39,6 +45,7 @@ const MIN_OUTPUT_ROWS: usize = 4_096;
 pub(super) struct ProjectionPlanner {
     scan: Arc<PreparedScan>,
     selected: IntoIter<SelectedRows>,
+    announced: bool,
 }
 
 impl ProjectionPlanner {
@@ -72,6 +79,7 @@ impl ProjectionPlanner {
                 .collect()
         };
         Self {
+            announced: scan.filter.is_some(),
             scan,
             selected: selected.into_iter(),
         }
@@ -92,6 +100,33 @@ impl Planner for ProjectionPlanner {
     }
 
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
+        if !self.announced {
+            self.announced = true;
+            let mut batch = Vec::new();
+            let mut seen = FxHashSet::default();
+            let mut next_hint = u32::MAX;
+            // Register this work chunk's reads together before any projection fetch is polled.
+            // Filtered scans already announce their projection while evaluating predicates.
+            for selected in self.selected.as_slice() {
+                let segments = segments_read(
+                    &self.scan.session,
+                    std::iter::once(&self.scan.projection),
+                    selected.scope.rows.clone(),
+                    &selected.mask,
+                )?;
+                hint(
+                    &self.scan.locations,
+                    &mut next_hint,
+                    IoIntent::Announce,
+                    &segments,
+                    &mut seen,
+                    &mut batch,
+                );
+            }
+            if !batch.is_empty() {
+                return Ok(PlannerOutput::NeedsIO(batch));
+            }
+        }
         let Some(selected) = self.selected.next() else {
             return Ok(PlannerOutput::Done);
         };
@@ -115,8 +150,9 @@ struct ProjectionMorsel {
     dtype: DType,
     selected: SelectedRows,
     adaptor: Option<ScanAdaptor>,
-    pieces: Vec<ArrayRef>,
-    buffered_rows: usize,
+    pieces: Vec<Piece>,
+    /// Batches ready to emit once the scan has finished, in row order.
+    batches: Option<VecDeque<ArrayRef>>,
 }
 
 impl ProjectionMorsel {
@@ -128,8 +164,32 @@ impl ProjectionMorsel {
             selected,
             adaptor: None,
             pieces: Vec::new(),
-            buffered_rows: 0,
+            batches: None,
         }
+    }
+
+    /// Groups the finished pieces into batches of at least [`MIN_OUTPUT_ROWS`] rows where
+    /// possible.
+    fn group_pieces(&mut self) -> VortexResult<VecDeque<ArrayRef>> {
+        self.pieces.sort_by_key(|piece| piece.rows.start);
+        let mut batches = VecDeque::new();
+        let mut group = Vec::new();
+        let mut group_rows = 0;
+        for piece in std::mem::take(&mut self.pieces) {
+            if piece.array.is_empty() {
+                continue;
+            }
+            group_rows += piece.array.len();
+            group.push(piece.array);
+            if group_rows >= MIN_OUTPUT_ROWS {
+                batches.push_back(self.concat(std::mem::take(&mut group))?);
+                group_rows = 0;
+            }
+        }
+        if !group.is_empty() {
+            batches.push_back(self.concat(group)?);
+        }
+        Ok(batches)
     }
 
     fn concat(&self, mut arrays: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
@@ -150,16 +210,29 @@ impl IoConsumer for ProjectionMorsel {
 
 impl Morsel for ProjectionMorsel {
     fn state(&self) -> State {
+        if let Some(batches) = &self.batches {
+            return if batches.is_empty() {
+                State::Done
+            } else {
+                State::NeedsCompute
+            };
+        }
         match &self.adaptor {
             None => State::NeedsCompute,
             Some(adaptor) => match adaptor.state() {
-                State::Done if !self.pieces.is_empty() => State::NeedsCompute,
+                State::Done => State::NeedsCompute,
                 state => state,
             },
         }
     }
 
     fn compute(&mut self) -> VortexResult<MorselOutput> {
+        if let Some(batches) = &mut self.batches {
+            return match batches.pop_front() {
+                Some(batch) => Ok(MorselOutput::Batch(batch)),
+                None => vortex_bail!("ProjectionMorsel: compute called after Done"),
+            };
+        }
         let Some(adaptor) = self.adaptor.as_mut() else {
             let scan = Scan::try_new(
                 self.scan.session.clone(),
@@ -179,29 +252,15 @@ impl Morsel for ProjectionMorsel {
             return Ok(MorselOutput::Continue);
         };
         if adaptor.state() == State::Done {
-            if self.pieces.is_empty() {
-                vortex_bail!("ProjectionMorsel: compute called after Done");
-            }
-            let pieces = std::mem::take(&mut self.pieces);
-            self.buffered_rows = 0;
-            return Ok(MorselOutput::Batch(self.concat(pieces)?));
+            self.batches = Some(self.group_pieces()?);
+            return Ok(MorselOutput::Continue);
         }
         Ok(match adaptor.compute()? {
             AdaptorStep::Yield => MorselOutput::Continue,
             AdaptorStep::NeedsIO(batch) => MorselOutput::NeedsIO(batch),
             AdaptorStep::Piece(piece) => {
-                if !piece.array.is_empty() {
-                    self.buffered_rows += piece.array.len();
-                    self.pieces.push(piece.array);
-                }
-                // This adaptor runs one split, whose pieces arrive in row order.
-                if self.buffered_rows >= MIN_OUTPUT_ROWS {
-                    let pieces = std::mem::take(&mut self.pieces);
-                    self.buffered_rows = 0;
-                    MorselOutput::Batch(self.concat(pieces)?)
-                } else {
-                    MorselOutput::Continue
-                }
+                self.pieces.push(piece);
+                MorselOutput::Continue
             }
         })
     }

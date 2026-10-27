@@ -30,11 +30,8 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::Filter;
-use vortex_array::arrays::ScalarFn;
 use vortex_array::arrays::dict::DictArraySlotsExt;
-use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::dtype::DType;
-use vortex_array::scalar_fn::fns::cast::Cast;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 pub(crate) use whole::*;
@@ -61,10 +58,7 @@ fn take_rows(inlet: &mut Inlet<'_>, len: usize) -> VortexResult<ArrayRef> {
         } else {
             // Misaligned fields can split one lazy filter across several output batches.
             // Materialize selected values once when a consumer first needs either slice.
-            let casts_filter = front.as_opt::<ScalarFn>().is_some_and(|array| {
-                array.scalar_fn().is::<Cast>() && array.child_at(0).is::<Filter>()
-            });
-            if front.is::<Filter>() || casts_filter {
+            if front.is::<Filter>() {
                 *front = Shared::new(front.clone()).into_array();
             } else if let Some(dict) = front.as_opt::<Dict>()
                 && dict.codes().is::<Filter>()
