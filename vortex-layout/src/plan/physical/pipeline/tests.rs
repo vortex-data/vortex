@@ -770,7 +770,7 @@ fn a_segment_two_readers_need_is_read_by_each() -> VortexResult<()> {
         .clone();
     let plan = PackPlan::try_new(
         fields,
-        vortex_array::dtype::Nullability::NonNullable,
+        Nullability::NonNullable,
         ROWS,
         vec![column.clone(), column],
         None,

@@ -127,10 +127,10 @@ fn partition(expression: &BoundExpression, fields: &StructFields) -> VortexResul
         None
     };
     Ok(Partitioned {
-        lowered,
         expanded,
         referenced_fields,
         partitions,
+        lowered,
     })
 }
 
@@ -227,7 +227,7 @@ mod tests {
     use super::*;
 
     fn fields(name: &str) -> StructFields {
-        StructFields::from_iter([(name.into(), DType::Bool(Nullability::NonNullable))])
+        StructFields::from_iter([(name, DType::Bool(Nullability::NonNullable))])
     }
 
     #[test]
