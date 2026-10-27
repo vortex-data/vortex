@@ -6,6 +6,7 @@
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
+use std::sync::Weak;
 
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
