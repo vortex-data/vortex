@@ -24,9 +24,10 @@ from collections import defaultdict
 from pathlib import Path
 
 QUANTILES = (0.5, 0.9, 0.99)
-# Runs that start this soon after the dataset upload see slower, freshly written objects. They are
-# reported separately rather than mixed into the model.
-FRESH_AGE_S = 300
+# Runs that start this soon after the dataset upload see slower, freshly written objects (small GETs
+# took ~90 ms instead of ~26 ms until the objects were about two minutes old). They are reported
+# separately rather than mixed into the model.
+FRESH_AGE_S = 150
 MIB = 1 << 20
 
 
@@ -150,19 +151,12 @@ def fresh_section(fresh: list[dict], warm: list[dict], fresh_runs: list[str], ag
     small = [r for r in fresh if r["kind"] != "head" and r["length"] <= 64 << 10]
     windows: dict[int, list[float]] = defaultdict(list)
     for r in small:
-        windows[r["start_us"] // 20_000_000].append(r["total_ms"])
+        age = ages[r["run"]] + r["start_us"] / 1e6
+        windows[int(age // 20)].append(r["total_ms"])
     md.append(
         table(
-            ["seconds into run", "dataset age s", "n", "p50 ms (<= 64 KiB GETs)"],
-            [
-                [
-                    f"{w * 20}-{w * 20 + 20}",
-                    f"{min(ages[r] for r in fresh_runs) + w * 20}",
-                    str(len(v)),
-                    ms(quantile(v, 0.5)),
-                ]
-                for w, v in sorted(windows.items())
-            ],
+            ["object age s", "n", "p50 ms (<= 64 KiB GETs)"],
+            [[f"{w * 20}-{w * 20 + 20}", str(len(v)), ms(quantile(v, 0.5))] for w, v in sorted(windows.items())],
         )
     )
     return md
