@@ -17,18 +17,18 @@ use crate::scalar::Scalar;
 /// The longest batch for which [`WidenArrayAggregate`] serves [`Sum`].
 ///
 /// [`Sum`] adds integers narrower than 64 bits in blocks and checks for overflow once per block,
-/// but checks 64-bit integers after every value. The values of a `Widen` have at most 32 bits, and
-/// no prefix of at most 2^32 of them leaves the 64-bit range, so neither check fires on the values
-/// or on the canonical batch. In a longer batch, the running total can overflow and come back
-/// inside one block, which only the check after every value catches.
+/// but checks `i64` and `u64` after every value. So for a 64-bit logical dtype, the sum of the
+/// values and the sum of the canonical batch check at different points. The values have at most 32
+/// bits, so every running sum of at most 2^32 of them fits in 64 bits, and neither check fires. In
+/// a longer batch, the sum can overflow and come back inside one block, which only the check after
+/// every value catches.
 const MAX_EXACT_SUM_LEN: u64 = 1 << 32;
 
 /// Runs an aggregate of a [`Widen`] on its values, and casts the partial to the logical dtype.
 ///
 /// [`AggregateFnSession::default`] registers this kernel only for aggregates whose partial is the
 /// same on the values and on the `Widen`, which the [module documentation](super) explains.
-/// [`Sum`] also needs each batch to be summed on its own, so the kernel serves it only when
-/// [`is_exact_sum`] holds.
+/// [`Sum`] needs more, so the kernel serves it only when [`is_exact_sum`] holds.
 ///
 /// [`AggregateFnSession::default`]: crate::aggregate_fn::session::AggregateFnSession::default
 #[derive(Debug)]
@@ -69,8 +69,8 @@ impl DynAggregateKernel for WidenArrayAggregate {
 /// - `aggregate_fn` has the legacy [`Stat::Sum`] slot. The accumulator then sums each batch from
 ///   zero, caches the total as that statistic, and adds the total to the running sum. Without the
 ///   slot, the accumulator adds each value of the batch to the running sum, and the kernel cannot
-///   match that near the bounds of `i64`. For example, from a running sum of `i64::MAX - 5`, the
-///   batch `[10, -10]` overflows at its first value, but its total of zero does not.
+///   match that near the 64-bit bounds. For example, from a running sum of `i64::MAX - 5`, the
+///   batch `[10, -10]` overflows at its first value, but adding its total of zero does not.
 /// - `batch` has at most [`MAX_EXACT_SUM_LEN`] rows, which that constant explains.
 ///
 /// Only `Sum` with `skip_nans` has the slot, because the statistic skips NaNs. NaNs do not occur

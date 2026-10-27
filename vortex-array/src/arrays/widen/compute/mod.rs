@@ -3,12 +3,15 @@
 
 //! Operations that run on the values of a [`Widen`](crate::arrays::Widen).
 //!
-//! An aggregate of a `Widen` runs on its values, so that it reads the narrow values instead of a
-//! widened copy, and the values keep their own cached statistics and aggregate kernels. Decoding a
-//! value is a strictly increasing, one-to-one map that keeps validity. So min and max, constancy,
-//! and sortedness (strict or not) are the same on the values and on the `Widen`, and every value
-//! that a partial holds widens exactly to the logical dtype. Sum needs two more conditions, which
-//! [`WidenArrayAggregate`](aggregate::WidenArrayAggregate) explains.
+//! An aggregate of a `Widen` runs on its values, so it reads the narrow values instead of a
+//! widened copy, and the values keep their own cached statistics and aggregate kernels.
+//!
+//! This is exact because decoding a value is a strictly increasing, one-to-one map that keeps
+//! validity. Min and max, constancy and sortedness are the same on the values and on the `Widen`,
+//! and every value that a partial holds widens exactly to the logical dtype. The values run the
+//! same accumulator code, so edge cases such as an empty batch or a single null also match. Sum
+//! needs two more conditions, which [`WidenArrayAggregate`](aggregate::WidenArrayAggregate)
+//! explains.
 //!
 //! [`AggregateFnSession::default`] registers the aggregate kernel, not
 //! [`initialize`](super::initialize), because the kernel session runs `initialize` on a temporary

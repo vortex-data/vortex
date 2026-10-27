@@ -246,9 +246,9 @@ fn test_aggregate_partials(
 
 /// The kernel serves a `Widen` over values that are not primitive, and gives the canonical result.
 ///
-/// The test compares results, not partials, because the accumulator stops at the first chunk that
-/// decides the result, so the partial of chunked values can differ from the canonical partial in
-/// fields that the result ignores, such as the last value of an unsorted batch.
+/// The test compares results, not partials. The accumulator skips the chunks after one that decides
+/// the result, so the partial of chunked values can lack fields that the result ignores, such as
+/// the last value of an unsorted batch.
 #[rstest]
 #[case::constant(ConstantArray::new(5i8, 4).into_array())]
 #[case::chunked(
