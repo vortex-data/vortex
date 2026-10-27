@@ -668,6 +668,16 @@ Open questions: None.
 
 ### NR3: Aggregate kernels read the child
 
+As landed in #10890 after review (2026-10-27), this replaces the kernel design below. One kernel,
+`NarrowArrayAggregate` in `narrow/compute/aggregate.rs`, runs the aggregate on the child with an
+accumulator of the child dtype and casts the flushed partial to the partial dtype of the parent
+(D36 as changed on 2026-10-27). It is registered for the exact ids of `MinMax`, `Min`, `Max`,
+`IsConstant`, `IsSorted` and `Sum`, and it declines a parent dtype that is not an integer. It serves
+`Sum` only for an aggregate with the `Stat::Sum` slot, and only for at most `2^(64 - b)` rows, where
+`b` is the bit width of the child, because `Sum` adds every integer into a 64-bit sum. The shared
+sum changes and the exact-id lookup below were not kept. The decode function is
+`decode_narrow_scalar` in `vtable/operations.rs`. CD4 needs its own argument for decimals.
+
 - Goal: Add aggregate kernels for `Narrow` that build the exact partial of the parent dtype from
   the child, so that `min_max`, `is_constant`, `is_sorted` and `sum` stop widening the child
   buffer. An aggregate on a `Narrow` runs in the accumulator of the parent dtype (D36). Every other

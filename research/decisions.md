@@ -83,7 +83,7 @@ decimal encoding.
 | D33 | The compressor uses a real `Narrow` scheme at first. If the compressor turns out to always want it, it can become a hard-coded step. The design pass of WR3 settles its precedence with the DecimalByteParts scheme and the cascade level that it uses | A scheme fits the existing framework. The `AlwaysUse` contract and the cascade budget are the two costs to settle |
 | D34 | Strict decoding covers the decimal width, the protobuf `PType` and the eleven `PType` fields of array and layout metadata, in one PR with three commits | It is the same bug with the same fix |
 | D35 | The integer `Narrow` lands as five stacked PRs: the encoding, benchmarks, aggregates, arithmetic and casts, and the structural rules. The PR that moves the call sites to `encode_values` comes after them. The dictionary fill-code fix lands before the fifth PR | The benchmarks exist before the kernels change, and the fill-code fix guards the dictionary-codes rule |
-| D36 | An operation on a `Narrow` fails only where the same operation on the parent dtype fails, and it gives the same result. An aggregate on a `Narrow` runs in the accumulator of the parent dtype, and every partial that reaches it is the partial that the parent builds from the decoded values. No accumulator receives a batch of another dtype, and no partial state is cast. A `Narrow` kernel asks the child for values or a verdict that the `Narrow` decode does not change and decodes the values, or it sums the stored values into the sum state of the parent. A kernel that cannot prove the parent partial declines | `Narrow` is a physical encoding, so it must not change behavior. An accumulator of the child dtype accumulates in another dtype and needs a hidden cast of its partial: a decimal sum then overflows at a lower precision than the parent |
+| D36 | An operation on a `Narrow` fails only where the same operation on the parent dtype fails, and it gives the same result. An aggregate on a `Narrow` runs in the accumulator of the parent dtype, and every partial that reaches it equals the partial that the parent builds from the decoded values. A kernel can run the same aggregate on the child and widen the child partial to the partial dtype of the parent, but only for an aggregate where decoding gives the same result. For integers these are `MinMax`, `Min`, `Max`, `IsConstant`, `IsSorted`, and `Sum` when the batch cannot overflow and the accumulator sums each batch from zero. Every other aggregate keeps the default path | `Narrow` is a physical encoding, so it must not change behavior. Integer decoding is strictly increasing, one-to-one and keeps validity, so these partials widen exactly, and the child runs the same accumulator code, so edge cases match by construction. A decimal sum checks overflow at the precision of its input, so a child sum can overflow before the parent sum, and decimals need their own argument (CD4) |
 | D37 | The `vortex.decimal` read plugin converts old narrow nodes on the host, also on CUDA read paths. A GPU scan of such a node copies its buffer to the host | Old narrow nodes are rare, and CUDA has no `Narrow` kernel |
 | D38 | The integer `Narrow` PRs are written from scratch from their briefs. The local rewrite of #10223 and #10332 is a reference for tests and edge cases, not a base. FX3 ports the rewrite's dictionary fill fix as it is | The rewrite predates D25, D26, D28 and D36, so a cherry-pick would carry its old structure into the new PRs |
 
@@ -92,11 +92,14 @@ D1 to D6 date from 2026-10-19, D7 and D8 from 2026-10-22, and D12 to D38 from 20
 largest precision whose canonical width is `W`, as the child precision of old data, and they planned
 the work as one complete change. A second review on 2026-10-23 added D21 to D24, and it changed D8,
 D9, D11, D16, D17 and D20. A planning review on the same day added D25 to D38, and it changed D8,
-D12, D14, D15, D16, D17, D18, D23 and D24. On 2026-10-26 the maintainer changed D26 and D36. D26
-now says where the workaround lives. The 2026-10-23 version of D36 fed the child to the accumulator
-of the parent dtype, which rejects a batch of another dtype. [Part 2](decimal/02-design.md) of the
-Decimal notes explains the design decisions from D7 on, and [part 4](decimal/04-implementation.md)
-splits the work into PRs.
+D12, D14, D15, D16, D17, D18, D23 and D24. On 2026-10-26 the maintainer changed D26 and D36. D26 now
+says where the workaround lives. The 2026-10-23 version of D36 fed the child to the accumulator of
+the parent dtype, which rejects a batch of another dtype. On 2026-10-27, in the review of #10890,
+the maintainer changed D36 again: a kernel can run the aggregate on the child and widen its partial,
+for the aggregates where decoding gives the same result. The 2026-10-26 version allowed no partial
+cast, so its kernels rebuilt each partial from free functions whose edge cases differ from the
+accumulator. [Part 2](decimal/02-design.md) of the Decimal notes explains the design decisions from
+D7 on, and [part 4](decimal/04-implementation.md) splits the work into PRs.
 
 ### Open
 
