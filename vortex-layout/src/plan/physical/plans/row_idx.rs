@@ -17,7 +17,6 @@ use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
 use vortex_array::expr::traversal::TraversalOrder;
 use vortex_array::scalar_fn::fns::pack::Pack as PackFn;
-use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
@@ -26,6 +25,7 @@ use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
 use crate::layouts::row_idx::RowIdx as RowIdxFn;
+use crate::layouts::row_idx::idx_array;
 use crate::plan::physical::EvalPlan;
 use crate::plan::physical::PackPlan;
 use crate::plan::physical::Plan;
@@ -104,13 +104,10 @@ impl PlanVTable for RowIdx {
         if mask.all_false() {
             return Ok(None);
         }
-        let offset = compiler.row_offset();
-        let indices = Buffer::from_iter(rows.start + offset..rows.end + offset).into_array();
-        let indices = if mask.all_true() {
-            indices
-        } else {
-            indices.filter(mask.clone())?
-        };
+        // The sequence and its filter are lazy, so only the rows the mask keeps are produced.
+        let indices = idx_array(compiler.row_offset(), &rows)
+            .into_array()
+            .filter(mask.clone())?;
         Ok(Some(Chain::new(OnceSource::new(indices))))
     }
 }

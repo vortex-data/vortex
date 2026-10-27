@@ -12,6 +12,7 @@ use vortex_array::expr::BoundExpression;
 use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
 use vortex_array::expr::traversal::TraversalOrder;
+use vortex_array::scalar_fn::fns::get_item::GetItem;
 use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -20,6 +21,7 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::plan::physical::Pack as PackVTable;
 use crate::plan::physical::PackPlan;
 use crate::plan::physical::Plan;
 use crate::plan::physical::PlanChildren;
@@ -194,7 +196,12 @@ impl PlanParentReduceRule<Eval> for EvalEvalRule {
     }
 }
 
-/// Eval(pack({0: expr})) -> PackPlan(expr) for a non-nullable pack
+/// Eval(pack({0: expr})) -> PackPlan(expr) for a non-nullable pack, and
+/// Eval(pack({0: path0, 1: path1, ..}), Pack) -> PackPlan(path0, path1, ..) when every field is a
+/// field path into a non-nullable [`Pack`] child.
+///
+/// Lifting a pack of field paths into the plan lets each field reach its column's plan, so a scan
+/// assembles each chunk's struct once instead of packing, renaming and repacking it per chunk.
 #[derive(Debug)]
 pub(crate) struct EvalPackRule;
 impl PlanReduceRule<Eval> for EvalPackRule {
@@ -205,21 +212,52 @@ impl PlanReduceRule<Eval> for EvalPackRule {
         if expr.nullability != Nullability::NonNullable {
             return Ok(None);
         }
-        let [child_expr] = plan.expression.children() else {
-            return Ok(None);
-        };
-        let fields = StructFields::new(expr.names.clone(), vec![child_expr.dtype().clone()]);
-
+        let child_exprs = plan.expression.children();
         let child_plan = plan.child(0)?.vortex_expect("no child plan");
-        let child_plan = EvalPlan::try_new(child_expr.clone(), child_plan)?.into_plan();
+        let child_plans = match child_exprs {
+            [child_expr] => vec![EvalPlan::try_new(child_expr.clone(), child_plan)?.into_plan()],
+            // A child read by several fields is shared only where each field steps into it by
+            // name, so that each field reads the plan of its own column.
+            _ => {
+                let Some(pack) = child_plan.as_opt::<PackVTable>() else {
+                    return Ok(None);
+                };
+                if child_exprs.is_empty()
+                    || pack.dtype().is_nullable()
+                    || !child_exprs.iter().all(is_field_path)
+                {
+                    return Ok(None);
+                }
+                child_exprs
+                    .iter()
+                    .map(|child| pack.field_path_plan(child))
+                    .collect::<VortexResult<Vec<_>>>()?
+            }
+        };
+        let fields = StructFields::new(
+            expr.names.clone(),
+            child_exprs
+                .iter()
+                .map(|child| child.dtype().clone())
+                .collect(),
+        );
 
         let plan = PackPlan::try_new(
             fields,
             Nullability::NonNullable,
             plan.row_count(),
-            vec![child_plan],
+            child_plans,
             None,
         )?;
         Ok(Some(plan.into_plan()))
     }
+}
+
+/// Whether `expression` is the root or a chain of field accesses from it, such as `$.a.b`.
+pub(super) fn is_field_path(expression: &BoundExpression) -> bool {
+    if expression.is_root() {
+        return true;
+    }
+    expression.as_opt::<GetItem>().is_some()
+        && matches!(expression.children(), [child] if is_field_path(child))
 }
