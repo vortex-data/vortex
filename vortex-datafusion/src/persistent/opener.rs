@@ -1215,6 +1215,33 @@ mod tests {
         Ok(())
     }
 
+    /// An ordered scan of many chunks yields its rows in row order, with or without a filter.
+    #[rstest]
+    #[tokio::test]
+    async fn test_ordered_scan_spans_chunks(
+        #[values(false, true)] scan_v2: bool,
+        #[values(false, true)] filtered: bool,
+    ) -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "ordered/file.vortex";
+        let values: Vec<Option<i32>> = (0..300_000).map(Some).collect();
+        let batch = record_batch!(("a", Int32, values)).unwrap();
+        let data_size =
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
+        let file = PartitionedFile::new(file_path.to_string(), data_size);
+        let table_schema = TableSchema::from(batch.schema());
+
+        let filter = filtered
+            .then(|| logical2physical(&col("a").gt_eq(lit(0)), table_schema.table_schema()));
+        let mut opener = make_opener(Arc::clone(&object_store), table_schema, filter);
+        opener.scan_v2 = scan_v2;
+        opener.has_output_ordering = true;
+        let data = opener.open(file)?.await?.try_collect::<Vec<_>>().await?;
+
+        assert_eq!(concat_batches(&batch.schema(), &data)?, batch);
+        Ok(())
+    }
+
     #[rstest]
     #[tokio::test]
     async fn test_residual_filter_unprojected_column(

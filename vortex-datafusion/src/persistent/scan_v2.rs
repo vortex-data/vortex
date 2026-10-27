@@ -16,8 +16,10 @@ use std::sync::Arc;
 use std::task::Poll;
 
 use arrow_array::RecordBatch;
+use futures::FutureExt;
 use futures::SinkExt;
 use futures::StreamExt;
+use futures::TryFutureExt;
 use futures::TryStreamExt;
 use futures::channel::mpsc;
 use futures::stream;
@@ -42,7 +44,7 @@ pub(crate) struct ScanDriver {
     handle: Handle,
     /// Chunks run beside each other per worker thread; at 1 they run on the scan's own run.
     concurrency: usize,
-    /// Whether batches are yielded in row order, which holds them until the scan is done.
+    /// Whether batches are yielded in row order, which holds each chunk until it is done.
     ordered: bool,
 }
 
@@ -65,7 +67,9 @@ impl ScanDriver {
     ) -> BoxStream<'static, VortexResult<RecordBatch>> {
         let map: MapBatch = Arc::new(map);
         let in_flight = self.concurrency * get_available_parallelism().unwrap_or(1);
-        let inline = in_flight <= 1;
+        // An ordered scan keeps its chunks apart so it can yield them in the order the root
+        // spawns them, which is row order.
+        let inline = in_flight <= 1 && !self.ordered;
         let scope = WorkScope {
             file_ordinal: 0,
             rows: scan.rows().clone(),
@@ -73,37 +77,61 @@ impl ScanDriver {
         let io = scan.io();
         let (chunk_handle, chunk_io, chunk_map) =
             (self.handle.clone(), Arc::clone(&io), Arc::clone(&map));
-        let batches = run_stream(self.handle, root, scope, io.session(), map, inline)
-            .map_ok(move |yielded| match yielded {
-                Yielded::Batch(start, batch) => {
-                    stream::once(future::ready(Ok((start, batch)))).boxed()
-                }
-                Yielded::Spawn(scope, chunk) => chunk_stream(
-                    &chunk_handle,
-                    chunk,
-                    scope,
-                    chunk_io.session(),
-                    Arc::clone(&chunk_map),
-                ),
-            })
-            .try_flatten_unordered(in_flight);
+        let yielded = run_stream(self.handle, root, scope, io.session(), map, inline);
+        let batches = if self.ordered {
+            // Each chunk is collected on its own and the chunks are yielded in spawn order, so
+            // at most `in_flight` chunks are held at a time and the first batch leaves as soon
+            // as the first chunk is done.
+            yielded
+                .map_ok(move |yielded| match yielded {
+                    Yielded::Batch(start, batch) => {
+                        future::ready(Ok(vec![(start, batch)])).boxed()
+                    }
+                    Yielded::Spawn(scope, chunk) => chunk_stream(
+                        &chunk_handle,
+                        chunk,
+                        scope,
+                        chunk_io.session(),
+                        Arc::clone(&chunk_map),
+                    )
+                    .try_collect::<Vec<_>>()
+                    .map_ok(|mut held| {
+                        // A chunk's morsels finish in whatever order their reads arrive.
+                        held.sort_by_key(|(start, _)| *start);
+                        held
+                    })
+                    .boxed(),
+                })
+                .try_buffered(in_flight.max(1))
+                .map_ok(|held| stream::iter(held.into_iter().map(Ok)))
+                .try_flatten()
+                .boxed()
+        } else {
+            yielded
+                .map_ok(move |yielded| match yielded {
+                    Yielded::Batch(start, batch) => {
+                        stream::once(future::ready(Ok((start, batch)))).boxed()
+                    }
+                    Yielded::Spawn(scope, chunk) => chunk_stream(
+                        &chunk_handle,
+                        chunk,
+                        scope,
+                        chunk_io.session(),
+                        Arc::clone(&chunk_map),
+                    ),
+                })
+                .try_flatten_unordered(in_flight)
+                .boxed()
+        };
         // The prepared scan holds the file's shared cache: keep it until the stream ends, so
         // scans of the file that start meanwhile find it.
-        let batches = batches.chain(stream::poll_fn(move |_| {
-            let _ = &scan;
-            Poll::Ready(None)
-        }));
-        if !self.ordered {
-            return batches.map_ok(|(_, batch)| batch).boxed();
-        }
-        stream::once(async move {
-            let mut held: Vec<(u64, RecordBatch)> = batches.try_collect().await?;
-            // Morsels finish in whatever order their reads arrive.
-            held.sort_by_key(|(start, _)| *start);
-            VortexResult::Ok(stream::iter(held.into_iter().map(|(_, batch)| Ok(batch))))
-        })
-        .try_flatten()
-        .boxed()
+        batches
+            .chain(stream::poll_fn(move |_| {
+                let _ = &scan;
+                Poll::Ready(None)
+            }))
+            .map_ok(|(_, batch)| batch)
+            .boxed()
     }
 }
 
