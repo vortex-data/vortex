@@ -248,7 +248,7 @@ mod tests {
             Some(5.0),
         ];
         let prim = PrimitiveArray::from_option_iter(values);
-        let alp_array = alp_encode(prim.as_view(), None, &mut SESSION.create_execution_ctx())?;
+        let alp_array = alp_encode(prim.as_view(), None, &mut ctx)?;
 
         let gpu_result = alp_array
             .clone()
@@ -279,7 +279,7 @@ mod tests {
             Buffer::from(vec![1.0f32, 2.0, 3.0, 4.0, 5.0]),
             Validity::AllValid,
         );
-        let alp_array = alp_encode(values.as_view(), None, &mut SESSION.create_execution_ctx())?;
+        let alp_array = alp_encode(values.as_view(), None, &mut ctx)?;
 
         let gpu_result = alp_array
             .clone()
@@ -323,7 +323,7 @@ mod tests {
             })
             .collect();
         let prim = PrimitiveArray::new(values, Validity::NonNullable);
-        let alp_array = alp_encode(prim.as_view(), None, &mut SESSION.create_execution_ctx())?;
+        let alp_array = alp_encode(prim.as_view(), None, &mut ctx)?;
         assert!(
             alp_array.patches().is_some(),
             "expected patches from ALP exceptions"
@@ -368,7 +368,7 @@ mod tests {
             })
             .collect();
         let prim = PrimitiveArray::new(values, Validity::NonNullable);
-        let alp_array = alp_encode(prim.as_view(), None, &mut SESSION.create_execution_ctx())?;
+        let alp_array = alp_encode(prim.as_view(), None, &mut ctx)?;
         assert!(
             alp_array.patches().is_some(),
             "expected patches from ALP exceptions"
@@ -460,7 +460,7 @@ mod tests {
             .map(|i| if i == 1400 { UNENCODABLE } else { i as f64 })
             .collect();
         let prim = PrimitiveArray::new(values, Validity::NonNullable);
-        let alp_array = alp_encode(prim.as_view(), None, &mut SESSION.create_execution_ctx())?;
+        let alp_array = alp_encode(prim.as_view(), None, &mut ctx)?;
         assert!(
             alp_array.patches().is_some(),
             "expected patches from ALP exceptions"
