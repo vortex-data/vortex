@@ -15,7 +15,7 @@ if [ "$RELEASE" = "true" ]; then
     suffix="${ARCHIVE#libduckdb-}"
     suffix="${suffix%.zip}"
     case "$suffix" in
-        windows-*) upstream="duckdb-static-libs-${suffix}.tar.gz" ;;
+        windows-*) upstream="duckdb-static-libs-${suffix%-static}.tar.gz" ;;
         *) upstream="duckdb-shared-libs-${suffix}.tar.gz" ;;
     esac
 

@@ -373,7 +373,11 @@ fn download_prebuilt(version: &DuckDBVersion, library_dir: &Path, target: &str) 
         }
     };
 
-    let archive_name = format!("libduckdb-{platform}-{arch}.zip");
+    let archive_name = if platform == "windows" {
+        format!("libduckdb-{platform}-{arch}-static.zip")
+    } else {
+        format!("libduckdb-{platform}-{arch}.zip")
+    };
     let url = format!("{DUCKDB_RELEASES_URL}/{version}/{archive_name}");
     let archive_path = library_dir.join(&archive_name);
     let extract_marker = library_dir.join(EXTRACT_MARKER);

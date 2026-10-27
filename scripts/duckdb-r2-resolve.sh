@@ -37,8 +37,8 @@ libduckdb-osx-universal.zip"
 # Windows archives are only mirrored from DuckDB releases as for now
 if [ "$release" = "true" ]; then
     archives="$archives
-libduckdb-windows-amd64.zip
-libduckdb-windows-arm64.zip"
+libduckdb-windows-amd64-static.zip
+libduckdb-windows-arm64-static.zip"
 fi
 
 for archive in $archives; do
