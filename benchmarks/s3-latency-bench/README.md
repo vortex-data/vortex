@@ -92,6 +92,24 @@ python3 scripts/s3-latency-analyze.py sim --compare model.json
 next to the real ones the model was fitted from. In CI, the `simulate` and `compare` jobs do this
 for both modes after every run and post the result to the PR (`s3-latency-sim` artifact).
 
+## Full scans of TPC-H and TPC-DS
+
+`scan` fully scans every table of a real Vortex dataset through any of these stores: each table's
+files are opened with `vortex-file` and every chunk is decoded to canonical arrays, so the runtime
+covers both IO and decompression. Generate data with `data-gen`, then scan it from S3 or from a
+simulated store:
+
+```bash
+cargo run --release --bin data-gen -- tpch --formats vortex --opt scale-factor=10
+cargo run --release -p s3-latency-bench -- scan --url memory:///tpch/ \
+  --load-from vortex-bench/data/tpch/10.0/vortex-file-compressed \
+  --latency-model model.json --dataset tpch-sf10 --output scans/model/tpch.json
+python3 scripts/s3-scan-report.py scans
+```
+
+In CI the scan jobs do this for TPC-H and TPC-DS at SF=10 on real S3 and both simulated stores, and
+post the per-table runtimes to the PR (`s3-latency-scan` artifact).
+
 Known limits: the model splits bandwidth evenly between transfers, so it underestimates p99
 latency when the network is saturated or when thousands of small requests run per second. It was
 measured on a single instance type.

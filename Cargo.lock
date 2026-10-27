@@ -9705,6 +9705,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "url",
+ "vortex",
 ]
 
 [[package]]

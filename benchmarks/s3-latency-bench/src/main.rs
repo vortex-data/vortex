@@ -16,6 +16,7 @@
     reason = "sizes, counts and durations here are far below the truncation limits"
 )]
 
+mod compute_scan;
 mod layout;
 mod recorder;
 mod simulated;
@@ -81,6 +82,8 @@ enum Command {
     },
     /// Run the workloads against a prepared dataset.
     Run(RunArgs),
+    /// Fully scan every table of a Vortex dataset (e.g. TPC-H) and time each table.
+    Scan(ScanArgs),
     /// Delete objects under the prefix older than `max_age_hours`.
     Sweep {
         #[arg(long)]
@@ -127,6 +130,32 @@ struct RunArgs {
     /// Extra `key=value` metadata recorded in `meta.json`.
     #[arg(long)]
     meta: Vec<String>,
+}
+
+#[derive(clap::Args)]
+struct ScanArgs {
+    /// The dataset's `s3://` prefix, or `memory:///` with `--load-from`.
+    #[arg(long)]
+    url: Url,
+    /// Local directory of `.vortex` files to load into the `memory:///` store first.
+    #[arg(long)]
+    load_from: Option<PathBuf>,
+    /// Name reported for the dataset, e.g. `tpch-sf10`.
+    #[arg(long)]
+    dataset: String,
+    #[arg(long)]
+    latency_model: Option<PathBuf>,
+    #[arg(long, value_enum, default_value_t = LatencyMode::Model)]
+    latency_mode: LatencyMode,
+    #[arg(long, default_value_t = 3)]
+    iterations: usize,
+    /// Files of one table scanned at the same time.
+    #[arg(long, default_value_t = 8)]
+    file_concurrency: usize,
+    #[arg(long, default_value_t = 1)]
+    seed: u64,
+    #[arg(long)]
+    output: PathBuf,
 }
 
 #[derive(Clone, Copy, clap::Args)]
@@ -265,6 +294,70 @@ fn percentile(sorted: &[u64], p: f64) -> u64 {
     sorted[idx]
 }
 
+/// Add the latency of a fitted model to `store`, or leave it as is without one.
+fn with_latency(
+    store: Arc<dyn ObjectStore>,
+    latency_model: Option<&std::path::Path>,
+    latency_mode: LatencyMode,
+    seed: u64,
+) -> anyhow::Result<(Arc<dyn ObjectStore>, &'static str)> {
+    Ok(match (latency_model, latency_mode) {
+        (None, _) => (store, "real"),
+        (Some(path), LatencyMode::Model) => (
+            Arc::new(LatencyStore::new(
+                store,
+                LatencyModel::from_file(path)?,
+                seed,
+            )),
+            "simulated-model",
+        ),
+        (Some(path), LatencyMode::Throttle) => {
+            let config = LatencyModel::from_file(path)?.throttle_config();
+            (
+                Arc::new(ThrottledStore::new(store, config)),
+                "simulated-throttle",
+            )
+        }
+    })
+}
+
+async fn scan(args: ScanArgs) -> anyhow::Result<()> {
+    let (store, prefix) = open_store(&args.url)?;
+    if let Some(dir) = &args.load_from {
+        anyhow::ensure!(
+            args.url.scheme() == "memory",
+            "--load-from needs a memory:/// url"
+        );
+        let bytes = compute_scan::load_dir(&store, &prefix, dir).await?;
+        println!(
+            "loaded {:.1} MiB from {}",
+            bytes as f64 / f64::from(1 << 20),
+            dir.display()
+        );
+    }
+    let (store, store_kind) = with_latency(
+        store,
+        args.latency_model.as_deref(),
+        args.latency_mode,
+        args.seed,
+    )?;
+    println!("store: {store_kind}");
+    let result = compute_scan::scan_dataset(
+        &store,
+        &prefix,
+        &args.dataset,
+        store_kind,
+        args.iterations,
+        args.file_concurrency,
+    )
+    .await?;
+    if let Some(parent) = args.output.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&args.output, serde_json::to_vec_pretty(&result)?)?;
+    Ok(())
+}
+
 async fn run(args: RunArgs) -> anyhow::Result<()> {
     let RunArgs {
         url,
@@ -306,24 +399,7 @@ async fn run(args: RunArgs) -> anyhow::Result<()> {
         .saturating_sub(manifest.created_unix);
     println!("dataset age: {dataset_age_s}s");
 
-    let (store, store_kind): (Arc<dyn ObjectStore>, &str) = match (&latency_model, latency_mode) {
-        (None, _) => (store, "real"),
-        (Some(path), LatencyMode::Model) => (
-            Arc::new(LatencyStore::new(
-                store,
-                LatencyModel::from_file(path)?,
-                seed,
-            )),
-            "simulated-model",
-        ),
-        (Some(path), LatencyMode::Throttle) => {
-            let config = LatencyModel::from_file(path)?.throttle_config();
-            (
-                Arc::new(ThrottledStore::new(store, config)),
-                "simulated-throttle",
-            )
-        }
-    };
+    let (store, store_kind) = with_latency(store, latency_model.as_deref(), latency_mode, seed)?;
     println!("store: {store_kind}");
 
     let rec = Arc::new(Recorder::new(store, max_inflight));
@@ -460,6 +536,7 @@ async fn main() -> anyhow::Result<()> {
             upload_concurrency,
         } => prepare(&url, &dataset, upload_concurrency).await,
         Command::Run(args) => run(args).await,
+        Command::Scan(args) => scan(args).await,
         Command::Sweep { url, max_age_hours } => sweep(&url, max_age_hours).await,
     }
 }

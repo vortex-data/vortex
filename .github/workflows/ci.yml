@@ -116,7 +116,7 @@ jobs:
             --with tabulate --with xxhash \
             pytest scripts/tests/test_measurement_id.py \
               scripts/tests/test_benchmark_reporting.py scripts/tests/test_post_ingest.py \
-              scripts/tests/test_s3_latency_analyze.py
+              scripts/tests/test_s3_latency_analyze.py scripts/tests/test_s3_scan_report.py
 
   python-test:
     name: "Python (test)"

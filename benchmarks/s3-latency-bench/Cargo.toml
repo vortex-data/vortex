@@ -27,6 +27,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 url = { workspace = true }
+vortex = { workspace = true, features = ["files", "object_store", "tokio", "zstd"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
