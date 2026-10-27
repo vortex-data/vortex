@@ -126,10 +126,9 @@ pub async fn zstd_kernel_prepare(
 
     // Build output_ptrs from output base pointer + offsets.
     let output_ptrs = {
-        // We only need the allocation address here to build pointer metadata.
-        // The actual device write is tracked by `record_device_output` around
-        // `decompress_async`, so this guard can be dropped immediately.
-        let (base_ptr, _) = device_output.device_ptr(ctx.stream());
+        // Only the allocation address builds the pointer metadata. The actual device write is
+        // tracked by `record_device_output` around `decompress_async`.
+        let base_ptr = device_output.device_address();
         output_sizes
             .iter()
             .scan(0u64, |offset, &size| {
