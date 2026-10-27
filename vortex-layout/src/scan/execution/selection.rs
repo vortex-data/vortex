@@ -24,6 +24,18 @@ pub(super) fn plan_selection(
     selection: &Selection,
     kept: Option<(&Mask, u64)>,
 ) -> Option<(WorkScope, Box<dyn Planner>)> {
+    let selected = selected_rows(scope, selection, kept)?;
+    let scope = selected.scope.clone();
+    Some((scope, scan.split_planner(selected)))
+}
+
+/// The rows of `scope` that `selection` selects and `kept`, the rows zone pruning left from
+/// `first_row` on, keeps, trimmed to the first and last of them, or `None` when there are none.
+pub(super) fn selected_rows(
+    scope: WorkScope,
+    selection: &Selection,
+    kept: Option<(&Mask, u64)>,
+) -> Option<SelectedRows> {
     let mut selected = select_rows(scope, selection)?;
     if let Some((kept, first_row)) = kept {
         let offset = usize::try_from(selected.scope.rows.start - first_row)
@@ -36,8 +48,7 @@ pub(super) fn plan_selection(
             selected.scope.rows.start + first as u64..selected.scope.rows.start + end as u64;
         selected.mask = mask.slice(first..end);
     }
-    let scope = selected.scope.clone();
-    Some((scope, scan.split_planner(selected)))
+    Some(selected)
 }
 
 fn select_rows(mut scope: WorkScope, selection: &Selection) -> Option<SelectedRows> {

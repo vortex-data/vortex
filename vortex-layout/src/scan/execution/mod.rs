@@ -21,7 +21,14 @@ mod selection;
 use std::ops::Range;
 use std::sync::Arc;
 
+use parking_lot::Mutex;
 use vortex_buffer::Alignment;
+use vortex_error::VortexResult;
+use vortex_io::segments::IoHandle;
+use vortex_io::segments::IoIntent;
+use vortex_io::segments::IoKey;
+use vortex_io::segments::IoOwnerId;
+use vortex_io::segments::IoRequest;
 use vortex_io::segments::RegisteredSource;
 use vortex_io::segments::SegmentIoService;
 use vortex_io::segments::SegmentSourceId;
@@ -46,6 +53,10 @@ pub use self::prune::PrunePlanner;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::pipeline::ValueCache;
 use crate::scan::v2::ScanCache;
+use crate::segments::SegmentId;
+
+/// The owner a scan's own announcements are submitted as. Nothing waits on them.
+const SCAN_OWNER: IoOwnerId = IoOwnerId(u64::MAX);
 
 /// Where a segment's bytes live in the file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -86,6 +97,8 @@ pub struct PreparedScan {
     pub(super) values: ValueCache,
     /// The rows of one chunk, the unit of work a chunk planner emits.
     pub(super) chunk_rows: usize,
+    /// Announcements of the scan's reads, held while any planner of the scan lives.
+    pub(super) announcements: Mutex<Vec<IoHandle>>,
 }
 
 impl PreparedScan {
@@ -113,6 +126,25 @@ impl PreparedScan {
     /// The file's id in [`io`](Self::io), which the scan's requests name.
     pub(super) fn source(&self) -> SegmentSourceId {
         self.segment_io.id()
+    }
+
+    /// Announces `segments` for the rest of the scan, so the IO service can widen the reads of
+    /// every chunk with them. The announcements read nothing, and are held while the scan lives:
+    /// each chunk runs on a driver of its own, and announcing per chunk would let one chunk's
+    /// read coalesce only with its own segments.
+    pub(super) fn announce(&self, segments: &[SegmentId]) -> VortexResult<()> {
+        if segments.is_empty() {
+            return Ok(());
+        }
+        let batch: Vec<_> = segments
+            .iter()
+            .map(|segment| {
+                IoRequest::new(IoKey::segment(self.source(), **segment), IoIntent::Announce)
+            })
+            .collect();
+        let handles = self.io().session().submit(SCAN_OWNER, &batch)?;
+        self.announcements.lock().extend(handles);
+        Ok(())
     }
 
     /// The planner of one chunk's selected rows: its conjuncts when the scan has a filter, else

@@ -5,6 +5,7 @@
 
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::vec::IntoIter;
 
 use vortex_error::VortexResult;
@@ -20,7 +21,9 @@ use vortex_scan::selection::Selection;
 
 use super::PreparedScan;
 use super::SegmentLocation;
+use super::filter::segments_read;
 use super::selection::plan_selection;
+use super::selection::selected_rows;
 
 /// The row grid every chunk boundary lies on.
 pub(crate) const ROW_BLOCK_SIZE: usize = 8192;
@@ -68,6 +71,7 @@ pub struct ChunkPlanner {
     selection: Selection,
     /// The rows zone pruning kept, over `rows`, or `None` when nothing was pruned.
     kept: Option<Mask>,
+    announced: bool,
 }
 
 impl ChunkPlanner {
@@ -86,8 +90,50 @@ impl ChunkPlanner {
             chunks,
             selection,
             kept,
+            announced: false,
         }
     }
+
+    /// Announces the filter's and the projection's segments over every chunk still to plan.
+    fn announce(&self) -> VortexResult<()> {
+        let kept = self.kept.as_ref().map(|kept| (kept, self.rows.start));
+        let predicates = self
+            .scan
+            .filter
+            .iter()
+            .flat_map(|filter| filter.predicates());
+        let plans: Vec<_> = predicates
+            .chain(std::iter::once(&self.scan.projection))
+            .collect();
+        let mut segments = Vec::new();
+        for chunk in self.chunks.as_slice() {
+            let scope = WorkScope {
+                file_ordinal: 0,
+                rows: chunk.clone(),
+            };
+            let Some(selected) = selected_rows(scope, &self.selection, kept) else {
+                continue;
+            };
+            segments.extend(segments_read(
+                &self.scan.session,
+                plans.iter().copied(),
+                selected.scope.rows,
+                &selected.mask,
+            )?);
+        }
+        segments.sort_unstable();
+        segments.dedup();
+        self.scan.announce(&segments)
+    }
+}
+
+/// Whether a scan announces every chunk's reads before planning the first. Setting
+/// `VORTEX_SCAN_EARLY_ANNOUNCE=0` leaves each chunk to announce its own, for comparisons.
+fn early_announce() -> bool {
+    static ENABLED: LazyLock<bool> = LazyLock::new(|| {
+        !std::env::var("VORTEX_SCAN_EARLY_ANNOUNCE").is_ok_and(|value| value == "0")
+    });
+    *ENABLED
 }
 
 impl Planner for ChunkPlanner {
@@ -104,6 +150,12 @@ impl Planner for ChunkPlanner {
     }
 
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
+        if !self.announced {
+            self.announced = true;
+            if early_announce() {
+                self.announce()?;
+            }
+        }
         let kept = self.kept.as_ref().map(|kept| (kept, self.rows.start));
         for chunk in self.chunks.by_ref() {
             let scope = WorkScope {
