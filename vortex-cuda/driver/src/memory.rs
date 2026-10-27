@@ -735,8 +735,18 @@ fn access<'a>(
     SyncOnDrop::new(access, owner, stream, kind)
 }
 
+/// Keeps the device memory traits implemented only here: copies trust their lengths and access
+/// tracking for memory safety.
+mod sealed {
+    pub trait Sealed {}
+}
+
+impl<T> sealed::Sealed for CudaSlice<T> {}
+impl<T> sealed::Sealed for CudaView<'_, T> {}
+impl<T> sealed::Sealed for CudaViewMut<'_, T> {}
+
 /// Device memory with a length and an allocation stream.
-pub trait DeviceSlice<T> {
+pub trait DeviceSlice<T>: sealed::Sealed {
     /// The number of elements.
     fn len(&self) -> usize;
 
@@ -1044,9 +1054,10 @@ impl CudaStream {
         source: &Source,
         target: &mut Target,
     ) -> Result<(), DriverError> {
-        assert!(target.len() >= source.len());
         // SAFETY: The slice is used only by the copy below, enqueued on this stream.
         let (source, _record_source) = unsafe { source.stream_synced_slice(self) };
+        // The copied slice, not `HostSlice::len`, bounds the copy.
+        assert!(target.len() >= source.len());
         let (pointer, _record) = target.device_ptr_mut(self);
         self.bind()?;
         // SAFETY: The target holds at least `size_of_val(source)` bytes, ordered for writing.
@@ -1096,9 +1107,10 @@ impl CudaStream {
         source: &Source,
         target: &mut Target,
     ) -> Result<(), DriverError> {
-        assert!(target.len() >= source.len());
         // SAFETY: The slice is used only by the copy below, enqueued on this stream.
         let (target, _record_target) = unsafe { target.stream_synced_mut_slice(self) };
+        // The copied slice, not `HostSlice::len`, bounds the copy.
+        assert!(target.len() >= source.len());
         let (pointer, _record) = source.device_ptr(self);
         self.bind()?;
         // SAFETY: The target holds at least `source.num_bytes()` bytes; the copy completes
