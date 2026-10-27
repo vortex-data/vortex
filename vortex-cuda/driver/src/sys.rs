@@ -57,6 +57,8 @@ pub type CUmodule = *mut CUmod_st;
 pub type CUfunction = *mut CUfunc_st;
 pub type CUmemoryPool = *mut CUmemPoolHandle_st;
 pub type CUhostFn = Option<unsafe extern "C" fn(user_data: *mut c_void)>;
+pub type CUstreamCallback =
+    Option<unsafe extern "C" fn(stream: CUstream, status: CUresult, user_data: *mut c_void)>;
 
 /// A CUDA driver API status code.
 #[repr(transparent)]
@@ -212,6 +214,12 @@ driver_api! {
     fn cuStreamSynchronize(stream: CUstream);
     fn cuStreamWaitEvent(stream: CUstream, event: CUevent, flags: c_uint);
     fn cuLaunchHostFunc(stream: CUstream, function: CUhostFn, user_data: *mut c_void);
+    fn cuStreamAddCallback(
+        stream: CUstream,
+        callback: CUstreamCallback,
+        user_data: *mut c_void,
+        flags: c_uint,
+    );
     fn cuEventCreate(event: *mut CUevent, flags: c_uint);
     fn cuEventDestroy_v2(event: CUevent);
     fn cuEventRecord(event: CUevent, stream: CUstream);

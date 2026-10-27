@@ -238,6 +238,22 @@ pub mod stream {
         // SAFETY: Under the caller's guarantees.
         unsafe { sys::cuLaunchHostFunc(stream, Some(function), argument) }.result()
     }
+
+    /// Enqueues `callback` on `stream`, which the driver calls exactly once with the status of
+    /// the preceding work, even after a device error, unlike a host function.
+    ///
+    /// # Safety
+    ///
+    /// `stream` must be valid, and `callback` must be safe to call once with `argument` from a
+    /// driver thread, without making CUDA calls.
+    pub unsafe fn add_callback(
+        stream: sys::CUstream,
+        callback: unsafe extern "C" fn(sys::CUstream, CUresult, *mut c_void),
+        argument: *mut c_void,
+    ) -> Result<(), DriverError> {
+        // SAFETY: Under the caller's guarantees; the flags are reserved and must be zero.
+        unsafe { sys::cuStreamAddCallback(stream, Some(callback), argument, 0) }.result()
+    }
 }
 
 /// Event operations on raw handles.
