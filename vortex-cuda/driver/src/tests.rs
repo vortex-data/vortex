@@ -244,3 +244,25 @@ fn empty_allocations() -> Result<(), DriverError> {
     drop(copy);
     context.check_err()
 }
+
+/// A copy from a borrowed page-locked slice no longer reads it once the copy returns, so the
+/// slice can be reused right away.
+#[test]
+fn page_locked_slices_are_read_before_copies_return() -> Result<(), DriverError> {
+    let Some((context, stream, _)) = streams() else {
+        return Ok(());
+    };
+    let len = 256 << 20;
+    // SAFETY: The context is current after `streams`, and the memory is freed below.
+    let pointer = unsafe { crate::result::malloc_host(len, 0) }?;
+    // SAFETY: The allocation holds `len` bytes, initialized below.
+    let host = unsafe { std::slice::from_raw_parts_mut(pointer.cast::<u8>(), len) };
+    host.fill(1);
+    let mut device = stream.alloc_zeros::<u8>(len)?;
+    stream.memcpy_htod(&*host, &mut device)?;
+    host.fill(2);
+    assert!(stream.clone_dtoh(&device)?.iter().all(|byte| *byte == 1));
+    // SAFETY: The copies reading the memory completed.
+    unsafe { crate::result::free_host(pointer) }?;
+    context.check_err()
+}

@@ -121,6 +121,19 @@ impl CUmemPool_attribute {
 /// The memory pool attribute type under the name of the driver header's enum.
 pub type CUmemPool_attribute_enum = CUmemPool_attribute;
 
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct CUpointer_attribute(pub c_int);
+
+impl CUpointer_attribute {
+    pub const CU_POINTER_ATTRIBUTE_MEMORY_TYPE: Self = Self(2);
+}
+
+/// The pointer attribute type under the name of the driver header's enum.
+pub type CUpointer_attribute_enum = CUpointer_attribute;
+
+pub const CU_MEMORYTYPE_HOST: c_uint = 0x1;
+
 pub const CU_STREAM_NON_BLOCKING: c_uint = 0x1;
 pub const CU_MEMHOSTALLOC_PORTABLE: c_uint = 0x1;
 pub const CU_MEMHOSTALLOC_DEVICEMAP: c_uint = 0x2;
@@ -253,6 +266,7 @@ driver_api! {
     fn cuMemcpyDtoH_v2(target: *mut c_void, source: CUdeviceptr, bytes: usize);
     fn cuMemHostAlloc(pointer: *mut *mut c_void, bytes: usize, flags: c_uint);
     fn cuMemFreeHost(pointer: *mut c_void);
+    fn cuPointerGetAttribute(data: *mut c_void, attribute: CUpointer_attribute, pointer: CUdeviceptr);
     fn cuMemPoolSetAttribute(
         pool: CUmemoryPool,
         attribute: CUmemPool_attribute,

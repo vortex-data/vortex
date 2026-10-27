@@ -76,13 +76,12 @@ impl VortexCudaStream {
     /// Copies host data to the device.
     ///
     /// Allocates device memory, schedules an async copy, and returns a future
-    /// that completes when the copy is finished. The source data is moved into
-    /// the future to ensure it remains valid until the copy completes.
+    /// that completes when the copy is finished.
     ///
-    /// For **pageable** host memory, `memcpy_htod_async` stages the source
-    /// synchronously before returning. For **pinned** host memory the transfer
-    /// is truly async and the source must stay alive until the copy completes
-    /// (guaranteed by the returned future capturing it).
+    /// The copy no longer reads `data` once this returns: the driver stages
+    /// **pageable** host memory, and copies of **pinned** host memory are
+    /// waited for. Dropping the future early therefore cannot free memory that
+    /// the copy still reads.
     ///
     /// The returned [`BufferHandle`] keeps the source byte length, while its
     /// CUDA allocation may include zeroed tail padding for consumers such as cuDF
@@ -114,10 +113,6 @@ impl VortexCudaStream {
 
         Ok(Box::pin(async move {
             await_stream_callback(&stream).await?;
-
-            // Keep source memory alive until copy completes.
-            let _keep_alive = data;
-
             Ok(buffer)
         }))
     }
@@ -128,9 +123,8 @@ impl VortexCudaStream {
     /// returns immediately. The device pointer is valid as soon as this call
     /// returns; the copy completes before any later work on the same stream.
     ///
-    /// For **pageable** host memory (the common case), `memcpy_htod` stages
-    /// the source into a driver-managed pinned buffer before returning, so
-    /// the source data is safe to drop after this call.
+    /// As with [`copy_to_device`](Self::copy_to_device), the copy no longer
+    /// reads `data` once this returns, so the source is safe to drop or modify.
     ///
     /// Like [`copy_to_device`](Self::copy_to_device), this preserves the source
     /// byte length on the returned handle while keeping any tail padding in the

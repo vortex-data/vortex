@@ -342,8 +342,8 @@ impl PooledPinnedBuffer {
         // path, before the allocation can return to the pool.
         let source =
             unsafe { std::slice::from_raw_parts(pinned.ptr.add(range.start), range.len()) };
-        let completion = stream
-            .memcpy_htod(source, destination)
+        // SAFETY: The pool retains the allocation until the fence recorded below completes.
+        let completion = unsafe { stream.memcpy_htod_async(source, destination) }
             .and_then(|()| pinned.event.record(stream));
         self.retain_after_transfer(stream, completion)
     }
@@ -579,8 +579,8 @@ mod tests {
         // SAFETY: Tests initialize the source. On failure retain_after_transfer synchronizes
         // the stream or leaks the allocation; on success the bucket retains the recorded fence.
         let source = unsafe { std::slice::from_raw_parts(owner.ptr, owner.logical_len) };
-        let completion = stream
-            .memcpy_htod(source, destination)
+        // SAFETY: As above.
+        let completion = unsafe { stream.memcpy_htod_async(source, destination) }
             .and_then(|()| owner.event.record(stream));
         if completion.is_err() {
             return pinned.retain_after_transfer(stream, completion);
@@ -703,7 +703,8 @@ mod tests {
         // SAFETY: The source is initialized above and retained by pinned.
         // retain_after_transfer synchronizes the stream or leaks the allocation on failure.
         let source = unsafe { std::slice::from_raw_parts(owner.ptr, owner.logical_len) };
-        let completion = stream.memcpy_htod(source, &mut destination);
+        // SAFETY: As above.
+        let completion = unsafe { stream.memcpy_htod_async(source, &mut destination) };
         if completion.is_err() {
             return pinned.retain_after_transfer(&stream, completion);
         }
