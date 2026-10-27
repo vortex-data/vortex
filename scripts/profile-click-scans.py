@@ -40,13 +40,18 @@ def command(v2, query, iterations, label):
             '--runner', 'isolated-click-profiles-8workers',
             '--ingest-jsonl', label + '.jsonl']
 
+current_binary = binary
+published_binary = root / 'target/structural-baseline/datafusion-bench'
+published_binary.chmod(0o755)
+variants = [('v1', current_binary, False), ('published', published_binary, True), ('shared', current_binary, True)]
 for round in range(3):
-    for v2 in ([False, True] if round % 2 == 0 else [True, False]):
-        label = f'scan-timing-r{round}-v2-{str(v2).lower()}'
+    for name, binary, v2 in variants[round:] + variants[:round]:
+        label = f'scan-timing-r{round}-{name}'
         cmd = command(v2, '24,31', 9, label)
         Path(label + '.command.json').write_text(json.dumps({'command': cmd, 'env': profile_env}, indent=2))
         with open(label + '.log', 'w') as log:
             subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=600, check=True)
+binary = current_binary
 
 spec = importlib.util.spec_from_file_location('summary', root / '.agents/skills/samply/scripts/profile_summary.py')
 summary = importlib.util.module_from_spec(spec)
