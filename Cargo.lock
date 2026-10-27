@@ -12479,6 +12479,8 @@ dependencies = [
  "vortex-edition",
  "vortex-error",
  "vortex-expr",
+ "vortex-file",
+ "vortex-io",
  "vortex-layout",
  "vortex-mask",
  "vortex-session",

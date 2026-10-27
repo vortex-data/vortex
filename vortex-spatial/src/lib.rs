@@ -84,8 +84,8 @@ pub fn initialize(session: &VortexSession) {
     session.scalar_fns().register(SpatialMakeLine);
     session.scalar_fns().register(SpatialLength);
 
-    // The axis-aligned bounding-box (AABB) aggregate; self-declares as a per-chunk zone stat for
-    // geometry columns.
+    // The axis-aligned bounding-box (AABB) aggregate; self-declares as a file and zone statistic
+    // for geometry columns.
     session.aggregate_fns().register(GeometryAabb);
 
     // Register the spatial pruning rules that use that AABB.

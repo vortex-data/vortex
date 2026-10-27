@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Arrow interop tests for the spatial extension types, exercising the session wiring set up
+//! Interop tests for the spatial extension types, exercising the session wiring set up
 //! by [`crate::initialize`].
 
+mod file_stats;
 mod linestring;
 mod multilinestring;
 mod multipoint;

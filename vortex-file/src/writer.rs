@@ -159,7 +159,7 @@ impl VortexWriteOptions {
     /// Configure which statistics to compute at the file level.
     ///
     /// Pass an empty vector to omit file-level statistics. If left unset, the writer chooses
-    /// pruning aggregates from the file dtype.
+    /// pruning aggregates from the file dtype, including defaults registered by aggregate plugins.
     ///
     /// Like zone maps, file statistics only record aggregates the enabled editions include: the
     /// write fails if this asks for one they don't, while the defaults leave such aggregates out.

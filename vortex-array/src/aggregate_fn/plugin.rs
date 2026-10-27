@@ -42,6 +42,12 @@ pub trait AggregateFnPlugin: 'static + Send + Sync {
     fn zone_stat_default(&self, _input_dtype: &DType) -> Option<AggregateFnRef> {
         None
     }
+
+    /// The default file statistic for a column of `input_dtype`, or `None` if this plugin does
+    /// not provide one. File writers discover these through the session's aggregate registry.
+    fn file_stat_default(&self, _input_dtype: &DType) -> Option<AggregateFnRef> {
+        None
+    }
 }
 
 impl std::fmt::Debug for dyn AggregateFnPlugin {
@@ -68,5 +74,9 @@ impl<V: AggregateFnVTable> AggregateFnPlugin for V {
 
     fn zone_stat_default(&self, input_dtype: &DType) -> Option<AggregateFnRef> {
         AggregateFnVTable::zone_stat_default(self, input_dtype)
+    }
+
+    fn file_stat_default(&self, input_dtype: &DType) -> Option<AggregateFnRef> {
+        AggregateFnVTable::file_stat_default(self, input_dtype)
     }
 }
