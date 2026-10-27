@@ -72,6 +72,7 @@ use std::fmt;
 use std::fmt::Formatter;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
@@ -124,6 +125,7 @@ use vortex::dtype::Nullability;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_ensure_eq;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::get_item;
@@ -147,6 +149,9 @@ use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::schema::calculate_physical_schema;
 use crate::convert::stats::stats_set_to_df;
+
+type ExecutionSourceFactory =
+    dyn Fn(&ExecutionPlanMetricsSet) -> VortexResult<DataSourceRef> + Send + Sync;
 
 /// Builder for [`VortexDataSource`].
 ///
@@ -195,6 +200,7 @@ pub struct VortexDataSourceBuilder {
     projection: Option<Vec<usize>>,
     expression_converter: Arc<dyn ExpressionConverter>,
     output_ordering: Option<LexOrdering>,
+    execution_source_factory: Option<Arc<ExecutionSourceFactory>>,
 }
 
 impl VortexDataSourceBuilder {
@@ -245,6 +251,21 @@ impl VortexDataSourceBuilder {
     /// The adapter preserves this sequence using one output lane; it does not sort rows.
     pub fn with_output_ordering(mut self, ordering: LexOrdering) -> Self {
         self.output_ordering = Some(ordering);
+        self
+    }
+
+    /// Creates a source lazily once per execution, shared by all output lanes.
+    ///
+    /// The returned source must have the planning source's dtype and snapshot contents.
+    /// The factory may register typed custom metrics in the supplied plan metrics set,
+    /// pairing fresh source counters with their collectors. Metrics accumulate in that
+    /// set across executions; each registered collector must describe its own scope and
+    /// retain the counters it needs. The execution retains its source until reset or drop.
+    pub fn with_execution_source_factory(
+        mut self,
+        factory: Arc<dyn Fn(&ExecutionPlanMetricsSet) -> VortexResult<DataSourceRef> + Send + Sync>,
+    ) -> Self {
+        self.execution_source_factory = Some(factory);
         self
     }
 
@@ -321,6 +342,7 @@ impl VortexDataSourceBuilder {
             data_source: self.data_source,
             session: self.session,
             expression_converter: self.expression_converter,
+            execution_source_factory: self.execution_source_factory,
             initial_ordering: self.output_ordering.clone(),
             output_ordering: self.output_ordering.clone(),
             metrics: ExecutionPlanMetricsSet::new(),
@@ -353,6 +375,7 @@ impl VortexDataSource {
             arrow_schema: None,
             projection: None,
             output_ordering: None,
+            execution_source_factory: None,
         }
     }
 }
@@ -374,6 +397,8 @@ impl VortexDataSource {
 /// multiple lanes must be opened through [`DataSourceExec`] or shared [`OpenArgs`].
 /// Dropping a lane before completion cancels its execution; other lanes report an error.
 /// Unopened lanes retain execution resources until the execution plan is reset or dropped.
+/// Scan initialization attempts are serialized; cancellation may drop a pending attempt,
+/// allowing another lane to retry it. Execution source factories remain cached.
 ///
 /// [`DataSourceExec`]: datafusion_datasource::source::DataSourceExec
 ///
@@ -386,6 +411,7 @@ pub struct VortexDataSource {
     /// Vortex session handle.
     session: VortexSession,
     expression_converter: Arc<dyn ExpressionConverter>,
+    execution_source_factory: Option<Arc<ExecutionSourceFactory>>,
     initial_ordering: Option<LexOrdering>,
     output_ordering: Option<LexOrdering>,
     metrics: ExecutionPlanMetricsSet,
@@ -489,10 +515,28 @@ impl VortexDataSource {
                 ..Default::default()
             };
             let data_source = Arc::clone(&self.data_source);
+            let factory = self.execution_source_factory.clone();
+            let plan_metrics = self.metrics.clone();
             let partitions = stream::try_unfold(Arc::clone(&execution), move |execution| {
                 let data_source = Arc::clone(&data_source);
                 let request = scan_request.clone();
+                let factory = factory.clone();
+                let plan_metrics = plan_metrics.clone();
                 async move {
+                    let data_source = execution
+                        .source
+                        .get_or_init(|| {
+                            let source = match factory {
+                                Some(factory) => factory(&plan_metrics)?,
+                                None => Arc::clone(&data_source),
+                            };
+                            vortex_ensure_eq!(source.dtype(), data_source.dtype());
+                            Ok(source)
+                        })
+                        .as_ref()
+                        .map_err(Clone::clone)?;
+                    // Cancellation can retry scan initialization, but never runs attempts
+                    // concurrently. The synchronous source factory remains cached.
                     let partitions = execution
                         .partitions
                         .get_or_init(|| async {
@@ -632,6 +676,7 @@ struct ScanExecution {
     claimed: Vec<AtomicBool>,
     remaining: AtomicUsize,
     cancelled: AtomicBool,
+    source: OnceLock<VortexResult<DataSourceRef>>,
     partitions: OnceCell<VortexResult<Mutex<Option<PartitionStream>>>>,
 }
 
@@ -641,6 +686,7 @@ impl ScanExecution {
             claimed: (0..lanes).map(|_| AtomicBool::new(false)).collect(),
             remaining: AtomicUsize::new(lanes),
             cancelled: AtomicBool::new(false),
+            source: OnceLock::new(),
             partitions: OnceCell::new(),
         }
     }
@@ -1318,7 +1364,13 @@ mod tests {
             polls: Arc::default(),
             scans: Arc::clone(&scans),
         });
-        let source = VortexDataSource::builder(data_source, VortexSession::default())
+        let factories = Arc::new(AtomicUsize::new(0));
+        let factory_calls = Arc::clone(&factories);
+        let source = VortexDataSource::builder(Arc::clone(&data_source), VortexSession::default())
+            .with_execution_source_factory(Arc::new(move |_| {
+                factory_calls.fetch_add(1, Ordering::Relaxed);
+                Ok(Arc::clone(&data_source))
+            }))
             .build()
             .await?;
         let source = source
@@ -1333,6 +1385,7 @@ mod tests {
         assert!(source.open(0, Arc::new(TaskContext::default())).is_err());
         let plan = Arc::new(DataSourceExec::new(Arc::clone(&source))) as Arc<dyn ExecutionPlan>;
         assert_eq!(scans.load(Ordering::Relaxed), 0);
+        assert_eq!(factories.load(Ordering::Relaxed), 0);
         let context = Arc::new(TaskContext::default());
         let values = |batches: Vec<RecordBatch>| {
             let mut values = batches
@@ -1354,6 +1407,7 @@ mod tests {
             [0, 1, 100, 101]
         );
         assert_eq!(scans.load(Ordering::Relaxed), 1);
+        assert_eq!(factories.load(Ordering::Relaxed), 1);
         assert_eq!(plan.metrics().expect("scan metrics").output_rows(), Some(4));
         assert!(plan.execute(0, Arc::clone(&context)).is_err());
         let reset = plan.reset_state()?;
@@ -1365,6 +1419,7 @@ mod tests {
         assert_eq!(values(reset), [0, 1, 100, 101]);
         assert_eq!(values(independent), [0, 1, 100, 101]);
         assert_eq!(scans.load(Ordering::Relaxed), 3);
+        assert_eq!(factories.load(Ordering::Relaxed), 3);
         let cancelled = plan.reset_state()?;
         let mut lane = cancelled.execute(0, Arc::new(TaskContext::default()))?;
         assert!(lane.try_next().await?.is_some());
