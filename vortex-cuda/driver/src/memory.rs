@@ -103,6 +103,13 @@ impl Access {
         kind: AccessKind,
     ) -> Result<(), DriverError> {
         let context = stream.context();
+        // Access events come from the accessing stream's context and return to the pool of
+        // whichever context later releases them, and events record only on their own context.
+        assert_eq!(
+            context.cu_ctx(),
+            owner.context().cu_ctx(),
+            "CUDA memory accessed from a stream of another context"
+        );
         stream.make_current()?;
         let mut state = self.state.lock();
         let id = stream.id();
