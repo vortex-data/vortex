@@ -108,7 +108,11 @@ impl AccessState {
             .is_some_and(|(_, cached)| cached.rows.contains(&row))
         {
             let page = view.find_row(row);
-            let rows = view.rows(page)?;
+            let rows = view.rows(page);
+            let rows = usize::try_from(rows.start)
+                .vortex_expect("page row start must fit the validity array")
+                ..usize::try_from(rows.end)
+                    .vortex_expect("page row end must fit the validity array");
             let mask = array
                 .unsliced_validity()
                 .slice(rows.clone())?

@@ -59,14 +59,10 @@ impl LogicalPageIndex {
     }
     /// Unsliced logical rows, including nulls. Inter-page nulls belong to the following page;
     /// the final page includes trailing nulls. These coordinates are never slice-relative.
-    pub fn rows(&self, page: usize) -> VortexResult<Range<usize>> {
+    pub fn rows(&self, page: usize) -> Range<u64> {
         let ends = self.ends();
-        let start = if page == 0 {
-            0
-        } else {
-            usize::try_from(ends[page - 1])?
-        };
-        Ok(start..usize::try_from(ends[page])?)
+        let start = if page == 0 { 0 } else { ends[page - 1] };
+        start..ends[page]
     }
     pub fn physical(&self, page: usize, cursor: &mut ChunkCursor) -> VortexResult<PhysicalPage> {
         if !cursor.pages.contains(&page) {
