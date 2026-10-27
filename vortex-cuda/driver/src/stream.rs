@@ -125,7 +125,13 @@ impl CudaStream {
 
     /// Blocks until all work queued so far completes.
     pub fn synchronize(&self) -> Result<(), DriverError> {
-        self.bind()?;
+        self.context.check_err()?;
+        self.synchronize_in_place()
+    }
+
+    /// Like [`synchronize`](Self::synchronize), leaving recorded errors in place.
+    pub(crate) fn synchronize_in_place(&self) -> Result<(), DriverError> {
+        self.make_current()?;
         // SAFETY: The stream is valid for this object's lifetime.
         unsafe { sys::cuStreamSynchronize(self.stream) }.result()
     }
