@@ -251,6 +251,8 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     }
 
     /// Accumulate a new canonical array into the partial state.
+    ///
+    /// `batch` has the input dtype `args.dtype`.
     fn accumulate(
         &self,
         args: AggregateArgs<'_, Self::Options>,

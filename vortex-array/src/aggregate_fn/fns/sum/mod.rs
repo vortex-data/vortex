@@ -189,16 +189,7 @@ impl AggregateFnVTable for Sum {
     ) -> VortexResult<Scalar> {
         Ok(match &partial.current {
             None => Scalar::null(args.return_dtype.as_nullable()),
-            Some(SumState::Unsigned(v)) => Scalar::primitive(*v, Nullability::Nullable),
-            Some(SumState::Signed(v)) => Scalar::primitive(*v, Nullability::Nullable),
-            Some(SumState::Float(v)) => Scalar::primitive(*v, Nullability::Nullable),
-            Some(SumState::Decimal(value)) => {
-                let decimal_dtype = *args
-                    .return_dtype
-                    .as_decimal_opt()
-                    .vortex_expect("return dtype must be decimal");
-                Scalar::decimal(*value, decimal_dtype, Nullability::Nullable)
-            }
+            Some(state) => state.to_scalar(args.return_dtype, Nullability::Nullable),
         })
     }
 
@@ -335,6 +326,26 @@ pub enum SumState {
     Signed(i64),
     Float(f64),
     Decimal(DecimalValue),
+}
+
+impl SumState {
+    /// Returns the sum as a scalar of `return_dtype` with the given `nullability`.
+    ///
+    /// `return_dtype` **must** be the return dtype of the sum that built this state, because a
+    /// decimal state takes its precision and scale from it.
+    pub(crate) fn to_scalar(&self, return_dtype: &DType, nullability: Nullability) -> Scalar {
+        match self {
+            SumState::Unsigned(value) => Scalar::primitive(*value, nullability),
+            SumState::Signed(value) => Scalar::primitive(*value, nullability),
+            SumState::Float(value) => Scalar::primitive(*value, nullability),
+            SumState::Decimal(value) => {
+                let decimal_dtype = *return_dtype
+                    .as_decimal_opt()
+                    .vortex_expect("the return dtype of a decimal sum is decimal");
+                Scalar::decimal(*value, decimal_dtype, nullability)
+            }
+        }
+    }
 }
 
 pub(crate) fn make_zero_state(return_dtype: &DType) -> SumState {
