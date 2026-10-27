@@ -222,18 +222,37 @@ def fit_request_model(ok: list[dict], fresh: list[dict], ages: dict[str, int]) -
         "nic_bytes_per_s": nic,
         "small_read_extra_first_byte_s": small_extra,
     }
-    fresh_small = [
-        r["ttfb_ms"] / 1e3
-        for r in fresh
-        if r["kind"] != "head" and r["length"] <= 64 << 10 and ages[r["run"]] + r["start_us"] / 1e6 < FRESH_AGE_S
-    ]
-    if fresh_small:
-        model["fresh_object"] = {
-            "warm_after_age_s": FRESH_AGE_S,
-            "first_byte_multiplier_p50": quantile(fresh_small, 0.5) / base,
-            "n": len(fresh_small),
-        }
+    fresh_object = fit_fresh_object(fresh, ages, base)
+    if fresh_object:
+        model["fresh_object"] = fresh_object
     return model
+
+
+def fit_fresh_object(fresh: list[dict], ages: dict[str, int], base: float) -> dict | None:
+    """Fit how much slower objects are right after upload, and for how long.
+
+    The slowdown ends abruptly, so the end is found from the data: the first 10 s window of small
+    GETs whose median is back within 1.5x of the warm first-byte median.
+    """
+    small = sorted(
+        (ages[r["run"]] + r["start_us"] / 1e6, r["ttfb_ms"] / 1e3)
+        for r in fresh
+        if r["kind"] != "head" and r["length"] <= 64 << 10
+    )
+    windows: dict[int, list[float]] = defaultdict(list)
+    for age, ttfb in small:
+        windows[int(age // 10)].append(ttfb)
+    warm_after = next((w * 10 for w, v in sorted(windows.items()) if quantile(v, 0.5) < 1.5 * base), None)
+    if warm_after is None:
+        return None
+    slow = [ttfb for age, ttfb in small if age < warm_after]
+    if not slow:
+        return None
+    return {
+        "warm_after_age_s": warm_after,
+        "first_byte_multiplier_p50": quantile(slow, 0.5) / base,
+        "n": len(slow),
+    }
 
 
 # Requests within a file are issued stage by stage, as vortex-file does: open the file, then read

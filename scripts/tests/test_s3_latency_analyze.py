@@ -131,3 +131,16 @@ def test_cli_writes_report_and_model(results: Path, tmp_path: Path):
     )
     assert report.read_text().startswith("# S3 latency report")
     assert json.loads(model.read_text())["schema"] == "vortex-s3-latency-model/1"
+
+
+def test_fresh_object_window_ends_where_latency_drops(analyze: ModuleType):
+    # Slow (100 ms) until the dataset is 100 s old, then warm (25 ms) for much longer, so a fixed
+    # cut-off past the drop would be dominated by warm requests.
+    def get(age_s: float, ttfb_s: float) -> dict[str, object]:
+        return {"run": "run-1", "kind": "get", "length": 4096, "start_us": int(age_s * 1e6), "ttfb_ms": ttfb_s * 1e3}
+
+    fresh = [get(t / 10, 0.1) for t in range(0, 1000, 5)] + [get(t / 10, 0.025) for t in range(1000, 2000)]
+    fit = analyze.fit_fresh_object(fresh, {"run-1": 0}, 0.025)
+    assert fit is not None
+    assert fit["warm_after_age_s"] == 100
+    assert fit["first_byte_multiplier_p50"] == pytest.approx(4.0)
