@@ -70,8 +70,9 @@ def frame_label(thread, index, symbols=None):
 summary.frame_label = frame_label
 binary_sha = hashlib.sha256(binary.read_bytes()).hexdigest()
 for query, iterations in [('41', 300), ('58', 30)]:
-    for v2 in [False, True]:
-        label = f'scan-q{query}-v2-{str(v2).lower()}'
+    for label_name, binary, v2 in variants:
+        binary_sha = hashlib.sha256(binary.read_bytes()).hexdigest()
+        label = f'scan-q{query}-{label_name}'
         output = root / (label + '.profile.json.gz')
         cmd = ['sudo', '-n', '--preserve-env=TOKIO_WORKER_THREADS,DATAFUSION_EXECUTION_TARGET_PARTITIONS,RUST_LOG',
                str(samply), 'record', '--save-only', '--rate', '1000', '--output', str(output),
