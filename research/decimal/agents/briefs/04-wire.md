@@ -11,9 +11,9 @@ no wire form, and one DecimalByteParts (DBP) scheme takes the canonical decimal 
 
 Paths under `vortex-array/src/arrays/narrow/` do not exist at `b70206818f`. NR1 creates them, with
 the layout that the section "Module layout as landed in #10864" of `02-integer-narrow.md` describes:
-the vtable lives in `vtable/mod.rs`, not `vtable.rs`. The
-briefs cite the local rewrite (`f7408481ce`) or the closed #10333 (`adc1e83b9d`) for them. Every
-other `file:line` is checked against the `develop` checkout at `b70206818f`.
+the vtable lives in `vtable/mod.rs`, not `vtable.rs`. The briefs cite the local rewrite
+(`f7408481ce`) or the closed #10333 (`adc1e83b9d`) for them. Every other `file:line` is checked
+against the `develop` checkout at `b70206818f`.
 
 The wire change lands as a stack of three PRs that merge in order, in one release, right after
 CD8a.
