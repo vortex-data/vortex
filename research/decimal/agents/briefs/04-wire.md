@@ -24,7 +24,7 @@ The section [Lockstep](#lockstep) gives the reasons.
   reader builds and checks the child dtype before it decodes the child, so invalid metadata is an
   error and never a panic. When the selected editions do not permit `vortex.narrow`, the writer
   still writes the canonical array (D26).
-- Depends on: NR1 (encoding, `validate_dtypes`, the D26 lowering, registration), CD3
+- Depends on: NR1 (encoding, `validate_dtypes`, the D26 lowering), CD3
   (`DecimalDType::canonical_values_type()`), CD4 (decimal rules in `validate_dtypes`, decimal
   `Narrow`). Soft: FX1, NR3, NR4, NR5, CD6. Blocks: WR2, WR3.
 - Decisions: D8, D10, D14, D15 (one `Narrow` over a `Narrow`), D22, D26, D32. Invariants 1, 2 and 6
@@ -32,9 +32,9 @@ The section [Lockstep](#lockstep) gives the reasons.
 - Branch: `ct/narrow-wire-format`, based on `develop` after CD8a.
 - Shares an API with CD8b: CD8b adds `ctx` to `DecimalArray::new` and `try_new`, which the decimal
   tests of this PR call. Start after CD8b merges, or rebase on it.
-- Scope: The serializer and deserializer of `vortex.narrow`, the documented wire contract, the
-  lowering when the context does not permit the ID, and tests for round trips and for every
-  rejected input.
+- Scope: The serializer and deserializer of `vortex.narrow`, the registration of `Narrow` in the
+  default `ArraySession`, the documented wire contract, the lowering when the context does not
+  permit the ID, and tests for round trips and for every rejected input.
 - Out of scope: Edition membership (WR2). Compressor output (WR3). Compat fixtures (LT1). Any
   change to the child rules of `validate_dtypes` (NR1 and CD4 own them). A second wire ID:
   `vortex.narrow` has one wire form, so the blanket `ArrayPlugin` impl for `VTable`
@@ -45,12 +45,13 @@ Files (checked at `b70206818f`):
 | Path | Change |
 | --- | --- |
 | `vortex-array/src/arrays/narrow/wire.rs` | New. `NarrowMetadata`, `metadata` and `child_dtype`, with the contract in the module doc |
-| `vortex-array/src/arrays/narrow/vtable.rs` | Created by NR1. Replace the `deserialize` stub (`vortex_bail!`), and make `serialize` return the `vortex.narrow` form |
+| `vortex-array/src/arrays/narrow/vtable.rs` | Created by NR1. Replace the `deserialize` stub (`vortex_bail!`) and the `serialize` panic, so that `serialize` returns the `vortex.narrow` form |
+| `vortex-array/src/session/mod.rs` | Register `Narrow` after `Masked`. NR1 leaves it out, because a reader entry without a wire form can only fail |
 | `vortex-array/src/arrays/narrow/mod.rs` | Created by NR1. Declare `mod wire;`. Remove "cannot be serialized" from the module doc |
 | `vortex-array/src/serde.rs:161-256` | The tree builder also lowers an array when the context does not permit its serialized ID |
 | `vortex-array/src/arrays/narrow/tests/encoding.rs` | Created by NR1. Remove `test_deserialization_unsupported`. Change `test_serialization_writes_canonical` to use a context that leaves out `vortex.narrow` |
 | `vortex-array/src/arrays/narrow/tests/wire.rs` | New. Round-trip and rejection tests. Add `mod wire;` to `tests/mod.rs` |
-| `vortex-file/src/tests.rs` | One file round-trip test with integer and decimal `Narrow` columns |
+| `vortex-file/src/tests.rs` | One file round-trip test with integer and decimal `Narrow` columns. `test_stock_ticker_file_size` grows, because the footer of its test edition now lists `vortex.narrow` |
 
 Design notes:
 
@@ -101,9 +102,9 @@ pub(super) fn child_dtype(parent: &DType, metadata: &[u8]) -> VortexResult<DType
   `Narrow` always serializes.
 - The lowering of D26 also covers a context that does not permit `vortex.narrow`. Today the tree
   builder has no context, and `try_write_node` rejects a non-permitted ID with "not permitted by
-  ctx" (`vortex-array/src/serde.rs:251-256`). So the tree builder gets the permitted IDs. NR1
-  lowers a `Narrow` in `ArraySerializationTree::try_new` when `array_serialize` returns `None`,
-  and WR1 adds its "ID not permitted" condition at that same site (D26). The doc keeps the
+  ctx" (`vortex-array/src/serde.rs:251-256`). So the tree builder gets the permitted IDs. NR1 lowers
+  every `Narrow` in `ArraySerializationTree::try_new` before the serializer lookup, and WR1 limits
+  that lowering to a context that does not permit `vortex.narrow` (D26). The doc keeps the
   workaround note and its end at LT1.
 
 `deserialize` runs these checks in this order. Every check returns an error:
@@ -389,12 +390,13 @@ Facts and tests to keep from the draft:
   `golden_preview` variant selects `core` and the preview edition, and writes one snapshot for each
   corpus entry.
 - Permissive sessions. `disable_editions()` and `unrestricted()` allow every registered ID
-  (`vortex-btrblocks/src/builder.rs:212-226`, `vortex-file/src/writer.rs:252-256`). NR1 registers
-  `Narrow` in the default `ArraySession`, so from WR3 on these settings can write `Narrow`. Many
-  `vortex-file` tests use a test edition with every registered array (`vortex-file/src/lib.rs:200`),
-  and two compression benchmarks use `unrestricted()`. `test_stock_ticker_file_size`
-  (`vortex-file/src/tests.rs:150-191`) is one known change. Review every changed expectation
-  against D23. Do not accept a change only because it is new output.
+  (`vortex-btrblocks/src/builder.rs:212-226`, `vortex-file/src/writer.rs:252-256`). WR1 registers
+  `Narrow` in the default `ArraySession`, so from WR1 on these settings write a `Narrow` that a
+  caller builds, and from WR3 on they also write the compressor output. Many `vortex-file` tests use
+  a test edition with every registered array (`vortex-file/src/lib.rs:200`), and two compression
+  benchmarks use `unrestricted()`. `test_stock_ticker_file_size`
+  (`vortex-file/src/tests.rs:150-191`) is one known change, and WR1 already changes it once. Review
+  every changed expectation against D23. Do not accept a change only because it is new output.
 - `test_array_stream_no_double_dict_encode` (`vortex-file/src/tests.rs:1598-1622`) stays unpinned.
   The closed #10333 pinned it to an explicit compressor (`07fafc2a5b`), which hid the probe
   problem. With the NR5 rules, the test is the regression test for placement.
@@ -443,7 +445,7 @@ Hard dependencies on the NR and CD PRs:
 
 | PR | Needs | For |
 | --- | --- | --- |
-| WR1 | NR1 | `Narrow`, `validate_dtypes`, the D26 lowering in `ArraySerializationTree::try_new`, registration in the default `ArraySession` (`f7408481ce:vortex-array/src/session/mod.rs`) |
+| WR1 | NR1 | `Narrow`, `validate_dtypes`, the D26 lowering in `ArraySerializationTree::try_new`. NR1 does not register `Narrow`, so WR1 adds the registration |
 | WR1 | CD3 | `DecimalDType::canonical_values_type()` for the width check |
 | WR1 | CD4 | Decimal rules in `validate_dtypes` and decimal `Narrow` arrays |
 | WR2 | CD5 | The v2 contract with `u64` lower parts and canonical decoding (D16) |
@@ -489,7 +491,8 @@ Hard dependencies on the NR and CD PRs:
 4. D10 says that the child rule can be relaxed later. Once an edition permits `vortex.narrow`, older
    readers reject a relaxed child. So a relaxation must happen before WR2, or it needs a new wire
    ID (invariant 1 in `docs/specs/versioning/design.md:221-222`).
-5. Before WR1, a `vortex.narrow` node fails with "Narrow deserialization is not supported", not
-   "Unknown encoding", because NR1 registers `Narrow`. This is harmless.
+5. Before WR1, `ArraySession` does not register `Narrow`, so a reader treats a `vortex.narrow` node
+   as an unknown encoding: it fails, or it decodes a foreign array under `allow_unknown`. A
+   registration in NR1 would replace that fallback with a deserializer that always fails.
 6. CUDA has no `Narrow` decoder, so WR3 leaves `vortex.narrow` out of the CUDA preset. What a CUDA
    reader does with a preview file that holds `Narrow` is Not verified.
