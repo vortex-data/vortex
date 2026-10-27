@@ -15,7 +15,6 @@ use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
 use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::PiecewiseSequence;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::dtype::NativePType;
@@ -44,7 +43,7 @@ impl TakeExecute for Pco {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        if array.metadata.logical_row_prefix.is_none() || indices.is::<PiecewiseSequence>() {
+        if array.metadata.logical_row_prefix.is_none() {
             return Ok(None);
         }
         if indices.is_empty() {
