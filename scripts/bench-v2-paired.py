@@ -78,6 +78,24 @@ def geomean(values: Iterable[float]) -> float:
     return math.exp(statistics.mean(math.log(value) for value in values))
 
 
+def read_samples(path: Path, engine: str, iterations: int) -> list[int]:
+    measurements = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    if len(measurements) != 1:
+        raise RuntimeError(f"Expected one query measurement in {path}, found {len(measurements)}")
+    measurement = measurements[0]
+    if measurement.get("unit") != "ns" or measurement.get("target") != {"engine": engine, "format": "vortex"}:
+        raise RuntimeError(f"Unexpected benchmark measurement: {measurement}")
+    # --display-format gh-json emits all_runtimes; --ingest-jsonl uses a different schema.
+    samples = measurement.get("all_runtimes")
+    if (
+        not isinstance(samples, list)
+        or len(samples) != iterations
+        or any(type(value) is not int or value <= 0 for value in samples)
+    ):
+        raise RuntimeError(f"Invalid timing samples in {path}: {samples}")
+    return samples
+
+
 def summarize(output: Path):
     manifest = json.loads((output / "manifest.json").read_text())
     rows = [json.loads(line) for line in (output / "measurements.jsonl").read_text().splitlines()]
@@ -246,15 +264,7 @@ def run(args: argparse.Namespace):
                                 subprocess.run(
                                     command, env=run_env, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=300
                                 )
-                            measurements = [
-                                json.loads(line)
-                                for line in (output / f"{stem}.jsonl").read_text().splitlines()
-                                if line.startswith("{")
-                            ]
-                            measurement = next(row for row in measurements if row.get("kind") == "query_measurement")
-                            samples = measurement["all_runtimes_ns"]
-                            if len(samples) != iterations or any(value <= 0 for value in samples):
-                                raise RuntimeError(f"Invalid timing samples: {samples}")
+                            samples = read_samples(output / f"{stem}.jsonl", engine, iterations)
                             record = {
                                 "engine": engine,
                                 "mode": mode,
@@ -277,13 +287,12 @@ def run(args: argparse.Namespace):
                             subprocess.SubprocessError,
                             ValueError,
                             KeyError,
-                            StopIteration,
                             OSError,
                             RuntimeError,
                         ) as error:
-                            failures.append({"invocation": stem, "error": str(error)})
+                            failures.append({"invocation": stem, "error": repr(error)})
                             failure_streak += 1
-                            print(f"FAILED {stem}: {error}", flush=True)
+                            print(f"FAILED {stem}: {error!r}", flush=True)
                             log_path = output / f"{stem}.log"
                             if log_path.exists():
                                 print(log_path.read_text(errors="replace")[-6000:], flush=True)
