@@ -105,10 +105,10 @@ impl AccessState {
         if !self
             .last
             .as_ref()
-            .is_some_and(|(_, cached)| cached.rows.contains(&row))
+            .is_some_and(|(_, page)| page.rows.contains(&row))
         {
-            let page = view.find_row(row);
-            let rows = view.rows(page);
+            let page_index = view.find_row(row);
+            let rows = view.rows(page_index);
             let rows = usize::try_from(rows.start)
                 .vortex_expect("page row start must fit the validity array")
                 ..usize::try_from(rows.end)
@@ -118,15 +118,15 @@ impl AccessState {
                 .slice(rows.clone())?
                 .execute_mask(rows.len(), ctx)?;
             self.last = Some((
-                page,
+                page_index,
                 PreparedPage {
                     rows,
                     mask: RankMask::new(mask),
                 },
             ));
         }
-        let (page, cached) = self.last.as_ref().vortex_expect("page prepared above");
-        Ok((*page, cached))
+        let (page_index, page) = self.last.as_ref().vortex_expect("page prepared above");
+        Ok((*page_index, page))
     }
     pub fn resolve<const RANKED: bool>(
         &mut self,
@@ -135,10 +135,10 @@ impl AccessState {
         row: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<(usize, usize)>> {
-        let (page, cached) = self.page(view, array, row, ctx)?;
-        Ok(cached
+        let (page_index, page) = self.page(view, array, row, ctx)?;
+        Ok(page
             .mask
-            .value_index::<RANKED>(row - cached.rows.start)
-            .map(|value| (page, value)))
+            .value_index::<RANKED>(row - page.rows.start)
+            .map(|value| (page_index, value)))
     }
 }
