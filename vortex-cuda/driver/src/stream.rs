@@ -60,24 +60,11 @@ impl Drop for CudaStream {
 }
 
 impl CudaStream {
-    pub(crate) fn create(
-        context: &Arc<CudaContext>,
-        priority: Option<i32>,
-    ) -> Result<Arc<Self>, DriverError> {
+    pub(crate) fn create(context: &Arc<CudaContext>) -> Result<Arc<Self>, DriverError> {
         context.bind_to_thread()?;
         let mut stream = std::ptr::null_mut();
         // SAFETY: The context is current; the driver writes the new stream.
-        unsafe {
-            match priority {
-                Some(priority) => sys::cuStreamCreateWithPriority(
-                    &raw mut stream,
-                    sys::CU_STREAM_NON_BLOCKING,
-                    priority,
-                ),
-                None => sys::cuStreamCreate(&raw mut stream, sys::CU_STREAM_NON_BLOCKING),
-            }
-        }
-        .result()?;
+        unsafe { sys::cuStreamCreate(&raw mut stream, sys::CU_STREAM_NON_BLOCKING) }.result()?;
         Ok(Arc::new(Self {
             id: NEXT_STREAM_ID.fetch_add(1, Ordering::Relaxed),
             stream,
@@ -150,18 +137,6 @@ impl CudaStream {
     pub fn wait(&self, event: &CudaEvent) -> Result<(), DriverError> {
         self.bind()?;
         self.wait_raw(event.cu_event())
-    }
-
-    /// Makes later work wait for the work queued on `other` so far.
-    pub fn join(&self, other: &CudaStream) -> Result<(), DriverError> {
-        self.wait(&other.record_event(None)?)
-    }
-
-    /// A new stream whose work follows the work queued here so far.
-    pub fn fork(&self) -> Result<Arc<Self>, DriverError> {
-        let stream = Self::create(&self.context, None)?;
-        stream.join(self)?;
-        Ok(stream)
     }
 
     pub(crate) fn wait_raw(&self, event: sys::CUevent) -> Result<(), DriverError> {

@@ -206,10 +206,8 @@ driver_api! {
     fn cuCtxGetCurrent(context: *mut CUcontext);
     fn cuCtxSetCurrent(context: CUcontext);
     fn cuCtxSynchronize();
-    fn cuCtxGetStreamPriorityRange(least: *mut c_int, greatest: *mut c_int);
     fn cuMemGetInfo_v2(free: *mut usize, total: *mut usize);
     fn cuStreamCreate(stream: *mut CUstream, flags: c_uint);
-    fn cuStreamCreateWithPriority(stream: *mut CUstream, flags: c_uint, priority: c_int);
     fn cuStreamDestroy_v2(stream: CUstream);
     fn cuStreamSynchronize(stream: CUstream);
     fn cuStreamWaitEvent(stream: CUstream, event: CUevent, flags: c_uint);
