@@ -211,9 +211,21 @@ jobs:
             -o sizes.json
           cat sizes.json >> results.json
 
-      - name: Explain Q72 for both scan implementations
+      - name: Install LLVM symbolizer if needed
         shell: bash
-        run: python3 scripts/explain-q72-scans.py "${{ matrix.scale_factor }}"
+        run: |
+          if ! command -v llvm-symbolizer >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y llvm
+          fi
+
+      - name: Capture bounded Q72 CPU profiles
+        shell: bash
+        env:
+          TOKIO_WORKER_THREADS: "8"
+          DATAFUSION_EXECUTION_TARGET_PARTITIONS: "8"
+          RUST_LOG: warn
+        run: python3 scripts/profile-q72-window.py "${{ matrix.scale_factor }}"
 
       - name: Upload scan comparison
         if: always()
