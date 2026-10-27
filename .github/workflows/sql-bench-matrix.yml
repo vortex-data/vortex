@@ -40,7 +40,7 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps([dict(x, id="tpcds-nvme-"+str(sf), name="TPC-DS SF="+str(sf)+" on NVME", scale_factor=float(sf)) for x in json.load(sys.stdin) if x["id"] == "tpcds-nvme" for sf in (10,30)]))')"
+          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps([dict(x, id="tpcds-nvme-1", name="TPC-DS SF=1 on NVME", scale_factor=1.0) if x["id"] == "tpcds-nvme" else x for x in json.load(sys.stdin) if x["id"] in ("tpcds-nvme", "clickbench-nvme")]))')"
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   build:
@@ -269,16 +269,18 @@ jobs:
               "structural": ("target/structural-baseline/datafusion-bench", "true"),
               "coordinated": ("target/release_debug/datafusion-bench", "true"),
           }
+          benchmark = "${{ matrix.subcommand }}"
           def measure(label, variant, queries, iterations):
               binary, v2 = variants[variant]
               command = [
-                  binary, "tpcds", "--formats", "vortex", "--queries", queries,
+                  binary, benchmark, "--formats", "vortex", "--queries", queries,
                   "--iterations", str(iterations), "--scan-v2", v2,
                   "--hide-progress-bar", "--display-format", "gh-json",
                   "--runner", "${{ inputs.machine_type }}-paired-scan-8workers",
-                  "--opt", "scale-factor=${{ matrix.scale_factor }}",
                   "--ingest-jsonl", label + ".jsonl",
               ]
+              if benchmark == "tpcds":
+                  command.extend(["--opt", "scale-factor=${{ matrix.scale_factor }}"])
               before = resource.getrusage(resource.RUSAGE_CHILDREN)
               started = time.monotonic()
               with open(label + ".log", "w") as log:
@@ -298,13 +300,21 @@ jobs:
               Path(label + ".resources.json").write_text(json.dumps(result, indent=2))
               print(json.dumps(result), flush=True)
 
+          query_set = ("13,28,41,42,49,52,55,76,96" if benchmark == "tpcds"
+                       else "1,7,10,11,24,25,26,31,38,40,41,42")
           order = list(variants)
           for round in range(3):
               for variant in order[round:] + order[:round]:
-                  measure(f"scan-r{round}-{variant}", variant, "13,28,41,49", 15)
+                  measure(f"scan-r{round}-{variant}", variant, query_set, 9)
           for round in range(2):
               for variant in (order if round == 0 else list(reversed(order))):
-                  measure(f"scan-cpu-r{round}-{variant}", variant, "41", 300)
+                  measure(f"scan-cpu-r{round}-{variant}", variant,
+                          "41" if benchmark == "tpcds" else "25",
+                          300 if benchmark == "tpcds" else 50)
+          if benchmark == "clickbench":
+              for variant in order:
+                  measure(f"scan-all-{variant}", variant,
+                          ",".join(map(str, range(43))), 5)
           PY
 
       - name: Upload scan comparison
