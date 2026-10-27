@@ -85,3 +85,47 @@ fn filter(bencher: Bencher, selected_per_chunk: usize) {
                 .unwrap()
         });
 }
+
+/// A patched array with a selection sparser than its patches, as a selective conjunct leaves for
+/// the next one to filter: one patch in five rows, a selected row in `rows_per_selected`.
+fn patched_fixture(rows_per_selected: usize) -> (ArrayRef, Mask) {
+    let values: BufferMut<u32> = (0..LEN)
+        .map(|index| {
+            if index % 5 == 0 {
+                (1 << BIT_WIDTH) + index as u32
+            } else {
+                (index % (1 << BIT_WIDTH)) as u32
+            }
+        })
+        .collect();
+    let packed = BitPackedData::encode(
+        &PrimitiveArray::new(values.freeze(), Validity::NonNullable).into_array(),
+        BIT_WIDTH,
+        &mut SESSION.create_execution_ctx(),
+    )
+    .unwrap()
+    .into_array();
+    let mask = Mask::from_buffer(
+        (0..LEN)
+            .map(|index| index % rows_per_selected == 0)
+            .collect(),
+    );
+    (packed, mask)
+}
+
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = [27, 400])]
+fn filter_patched(bencher: Bencher, rows_per_selected: usize) {
+    let (packed, mask) = patched_fixture(rows_per_selected);
+
+    bencher
+        .counter(ItemsCount::new(LEN))
+        .with_inputs(|| (mask.clone(), SESSION.create_execution_ctx()))
+        .bench_refs(|(mask, ctx)| {
+            packed
+                .filter(mask.clone())
+                .unwrap()
+                .execute::<PrimitiveArray>(ctx)
+                .unwrap()
+        });
+}

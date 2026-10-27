@@ -1110,9 +1110,9 @@ where
 /// We search the larger side for each element of the smaller side, without building the mask
 /// indices:
 ///
-/// * More patches than mask indices: gallop through the patches.
-/// * Cached mask indices: gallop through the mask indices.
-/// * Otherwise: rank each patch in the mask bitmap.
+/// * Far more patches than mask indices: gallop through the patches.
+/// * Fewer patches than mask indices, with the mask indices cached: gallop through them.
+/// * Otherwise: rank each patch in the mask bitmap, in one pass over its words.
 fn filter_patches_with_mask<T: IntegerPType>(
     patch_indices: &[T],
     offset: usize,
@@ -1133,11 +1133,19 @@ fn filter_patches_with_mask<T: IntegerPType>(
         patch_count,
     );
 
-    if patch_count > true_count {
+    if patch_count > true_count.saturating_mul(GALLOP_MIN_PATCHES_PER_INDEX) {
         gallop_patches_for_mask_indices(
             patch_indices,
             offset,
             mask,
+            &mut new_patch_indices,
+            &mut kept_patches,
+        )?;
+    } else if patch_count > true_count {
+        rank_patches_in_mask_bitmap(
+            patch_indices,
+            offset,
+            mask.bit_buffer(),
             &mut new_patch_indices,
             &mut kept_patches,
         )?;
@@ -1181,6 +1189,11 @@ fn filter_patches_with_mask<T: IntegerPType>(
         )
     }))
 }
+
+/// Patches per mask index above which galloping through the patches for each mask index beats
+/// one pass over the patches. A gallop costs a few unpredictable branches; a step of the pass is
+/// a shift and a mask of a word.
+const GALLOP_MIN_PATCHES_PER_INDEX: usize = 32;
 
 /// Returns the first position at or after `start` whose value is not less than `needle`.
 ///
@@ -1279,7 +1292,9 @@ fn gallop_mask_indices_for_patches<T: IntegerPType>(
 
 /// Finds the mask position of each patch from the mask bitmap, without building the mask indices.
 ///
-/// The mask position is the number of set bits before the patch, counted between adjacent patches.
+/// The mask position is the number of set bits before the patch. The patches are increasing, so
+/// one pass over the mask's words counts them: whole words as the patches pass them, and the
+/// bits below the patch within its own word.
 fn rank_patches_in_mask_bitmap<T: IntegerPType>(
     patch_indices: &[T],
     offset: usize,
@@ -1287,17 +1302,28 @@ fn rank_patches_in_mask_bitmap<T: IntegerPType>(
     new_patch_indices: &mut BufferMut<u64>,
     kept_patches: &mut BitBufferMut,
 ) -> VortexResult<()> {
-    let mut rank = 0;
-    let mut previous_index = 0;
+    let chunks = mask.chunks();
+    let mut words: Vec<u64> = chunks.iter().collect();
+    if chunks.remainder_len() > 0 {
+        words.push(chunks.remainder_bits());
+    }
+    // Set bits in `words[..word]`.
+    let mut counted = 0;
+    let mut word = 0;
 
     for (patch_position, patch_index) in patch_indices.iter().enumerate() {
         let index = patch_index_to_usize(*patch_index, offset)?;
+        let index_word = index / 64;
+        while word < index_word {
+            counted += words[word].count_ones() as usize;
+            word += 1;
+        }
+        let bits = words[index_word];
+        let bit = index % 64;
 
-        rank += mask.count_range(previous_index, index);
-        previous_index = index;
-
-        if mask.value(index) {
-            new_patch_indices.push(rank as u64);
+        if (bits >> bit) & 1 == 1 {
+            let below = (bits & ((1u64 << bit) - 1)).count_ones() as usize;
+            new_patch_indices.push((counted + below) as u64);
             kept_patches.set(patch_position);
         }
     }
@@ -1825,6 +1851,8 @@ mod test {
     /// Covers each filter algorithm.
     #[rstest]
     #[case::sparse_mask((0..1000).step_by(2).collect(), (0..1000).step_by(97).collect())]
+    #[case::patches_outnumber_mask((0..1000).step_by(2).collect(), (0..1000).step_by(13).collect())]
+    #[case::no_overlap_patches_outnumber_mask((0..500).step_by(5).collect(), (500..1000).step_by(50).collect())]
     #[case::sparse_patches((0..1000).step_by(97).collect(), (0..1000).step_by(2).collect())]
     #[case::similar_sizes((0..1000).step_by(3).collect(), (0..1000).step_by(2).collect())]
     #[case::no_overlap((0..500).collect(), (500..1000).step_by(50).collect())]
