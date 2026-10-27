@@ -215,8 +215,9 @@ struct FileMapping {
 }
 
 impl FileMapping {
-    /// The cached mapping of `path`'s current version, mapping it on first use.
-    fn open(path: &Path) -> VortexResult<Arc<Self>> {
+    /// The cached mapping of `path`'s current version, mapping it on first use, or `None` if the
+    /// file cannot be mapped, such as on a filesystem without shared mappings.
+    fn open(path: &Path) -> VortexResult<Option<Arc<Self>>> {
         let file = File::open(path)?;
         let version = FileVersion::of(&file)?;
         let mut mappings = FILE_MAPPINGS.lock();
@@ -224,11 +225,18 @@ impl FileMapping {
             let entry = mappings.remove(index).vortex_expect("index is in bounds");
             let mapping = Arc::clone(&entry.1);
             mappings.push_back(entry);
-            return Ok(mapping);
+            return Ok(Some(mapping));
         }
         // SAFETY: Vortex files are immutable while open. As with any file mapping, truncation
         // by another process would fault on access.
-        let mapping = unsafe { Mmap::map(&file)? };
+        let mapping = match unsafe { Mmap::map(&file) } {
+            Ok(mapping) => mapping,
+            Err(error) => {
+                // Mapping only speeds up reads, which staging serves as well.
+                tracing::debug!(path = %path.display(), %error, "staging reads of unmappable file");
+                return Ok(None);
+            }
+        };
         let mapping = Arc::new(Self { mapping });
         mappings.push_back((version, Arc::clone(&mapping)));
         if mappings.len() > FILE_MAPPINGS_CACHED_MAX
@@ -237,7 +245,7 @@ impl FileMapping {
             // Users still holding the evicted mapping keep it alive until their copies drain.
             release_in_background(Box::new(move || drop(evicted)));
         }
-        Ok(mapping)
+        Ok(Some(mapping))
     }
 
     fn mapping(&self) -> &Mmap {
@@ -320,8 +328,11 @@ impl MappedFile {
             return Ok(None);
         }
         let copy = session.load_function_with_suffixes("mapped_copy", &[])?;
+        let Some(file) = FileMapping::open(path)? else {
+            return Ok(None);
+        };
         Ok(Some(Self {
-            file: Some(FileMapping::open(path)?),
+            file: Some(file),
             copy,
             stream: stream.clone(),
         }))
