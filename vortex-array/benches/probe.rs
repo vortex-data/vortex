@@ -31,6 +31,7 @@ use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 
 #[global_allocator]
