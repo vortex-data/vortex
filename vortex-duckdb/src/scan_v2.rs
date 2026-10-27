@@ -14,7 +14,9 @@
 //!
 //! The root cuts the scanned rows into parts of whole 65,536-row blocks, a few per thread, and
 //! spawns a chunk planner per part. A filtered scan's chunks are up to 1,048,576 rows, so without
-//! parts a file of a few million rows would keep only a few threads busy.
+//! parts a file of a few million rows would keep only a few threads busy. A file too short to give
+//! every thread a 65,536-row block, such as a file of wide rows, is cut on 8,192-row blocks
+//! instead.
 
 use std::future;
 use std::ops::Range;
@@ -55,6 +57,9 @@ const CHUNKS_PER_THREAD: usize = 1;
 const PARTS_PER_THREAD: u64 = 4;
 /// The row blocks parts are cut on: the rows of a projection chunk, and of the writer's chunks.
 const PART_ROW_BLOCK: u64 = 65_536;
+/// The row blocks parts are cut on when too few [`PART_ROW_BLOCK`]s cover the rows to give every
+/// part one: the row grid every chunk boundary lies on.
+const MIN_PART_ROW_BLOCK: u64 = 8_192;
 
 /// One file's V2 scan, shared by the threads scanning it.
 pub(crate) struct FileScan {
@@ -199,8 +204,8 @@ fn compose(scan: &Arc<PreparedScan>) -> Box<dyn Planner> {
     }
 }
 
-/// Spawns a chunk planner per part of a scan's rows, in row order. Parts end on whole
-/// [`PART_ROW_BLOCK`]s, so no chunk of the scan spans two parts.
+/// Spawns a chunk planner per part of a scan's rows, in row order. Parts end on whole row blocks,
+/// see [`part_ranges`].
 struct PartPlanner {
     scan: Arc<PreparedScan>,
     selection: Selection,
@@ -267,19 +272,27 @@ impl Planner for PartPlanner {
     }
 }
 
-/// Cuts `rows` into up to `parts` non-empty ranges of whole [`PART_ROW_BLOCK`]s of the file's
-/// row domain that tile it, clipped to `rows`.
+/// Cuts `rows` into up to `parts` non-empty ranges of whole row blocks of the file's row domain
+/// that tile it, clipped to `rows`. The blocks are [`PART_ROW_BLOCK`]s, or [`MIN_PART_ROW_BLOCK`]s
+/// when there are fewer of those than `parts`.
 fn part_ranges(rows: Range<u64>, parts: u64) -> Vec<Range<u64>> {
     if rows.is_empty() {
         return Vec::new();
     }
-    let first_block = rows.start / PART_ROW_BLOCK;
-    let blocks = rows.end.div_ceil(PART_ROW_BLOCK) - first_block;
-    let blocks_per_part = blocks.div_ceil(parts.max(1));
+    let parts = parts.max(1);
+    let blocks_of = |block: u64| rows.end.div_ceil(block) - rows.start / block;
+    let block = if blocks_of(PART_ROW_BLOCK) >= parts {
+        PART_ROW_BLOCK
+    } else {
+        MIN_PART_ROW_BLOCK
+    };
+    let first_block = rows.start / block;
+    let blocks = blocks_of(block);
+    let blocks_per_part = blocks.div_ceil(parts);
     (0..blocks.div_ceil(blocks_per_part))
         .map(|part| {
-            let start = (first_block + part * blocks_per_part) * PART_ROW_BLOCK;
-            let end = start + blocks_per_part * PART_ROW_BLOCK;
+            let start = (first_block + part * blocks_per_part) * block;
+            let end = start + blocks_per_part * block;
             start.max(rows.start)..end.min(rows.end)
         })
         .collect()
@@ -291,15 +304,19 @@ mod tests {
 
     use rstest::rstest;
 
+    use super::MIN_PART_ROW_BLOCK;
     use super::PART_ROW_BLOCK;
     use super::part_ranges;
 
     const B: u64 = PART_ROW_BLOCK;
+    const M: u64 = MIN_PART_ROW_BLOCK;
 
     #[rstest]
     #[case::even(0..4 * B, 2, vec![0..2 * B, 2 * B..4 * B])]
     #[case::ragged_end(0..3 * B + 10, 2, vec![0..2 * B, 2 * B..3 * B + 10])]
-    #[case::more_parts_than_blocks(0..2 * B, 8, vec![0..B, B..2 * B])]
+    #[case::more_parts_than_blocks(0..2 * B, 8, (0..8).map(|p| 2 * M * p..2 * M * (p + 1)).collect())]
+    #[case::wide_rows(0..100_000, 4, vec![0..4 * M, 4 * M..8 * M, 8 * M..12 * M, 12 * M..100_000])]
+    #[case::more_parts_than_min_blocks(0..2 * M, 8, vec![0..M, M..2 * M])]
     #[case::small(0..100, 4, vec![0..100])]
     #[case::unaligned_start(B / 2..3 * B, 2, vec![B / 2..2 * B, 2 * B..3 * B])]
     #[case::empty(5..5, 4, vec![])]
