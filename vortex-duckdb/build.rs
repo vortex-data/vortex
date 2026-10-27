@@ -8,7 +8,10 @@
 use std::env;
 use std::fs;
 use std::io;
+#[cfg(unix)]
 use std::os::unix::fs::symlink;
+#[cfg(windows)]
+use std::os::windows::fs::symlink_dir as symlink;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -362,6 +365,8 @@ fn download_prebuilt(version: &DuckDBVersion, library_dir: &Path, target: &str) 
         "aarch64-apple-darwin" | "x86_64-apple-darwin" => ("osx", "universal"),
         "x86_64-unknown-linux-gnu" => ("linux", "amd64"),
         "aarch64-unknown-linux-gnu" => ("linux", "arm64"),
+        "x86_64-pc-windows-msvc" => ("windows", "amd64"),
+        "aarch64-pc-windows-msvc" => ("windows", "arm64"),
         _ => {
             println!("cargo:error=Unsupported target {target}");
             exit(1);
@@ -533,6 +538,7 @@ fn bindgen_c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
 /// Generate libvortex_duckdb.*
 fn compile_cpp(duckdb_include_dir: &Path) {
     let mut build = cc::Build::new();
+
     let has_debuginfo = env::var("DEBUG")
         .map(|v| !matches!(v.as_str(), "false" | "0" | "none" | ""))
         .unwrap_or(false);
@@ -541,19 +547,29 @@ fn compile_cpp(duckdb_include_dir: &Path) {
     } else {
         build.define("NDEBUG", None);
     }
+
+    if build.get_compiler().is_like_msvc() {
+        build
+            .flag("/W4")
+            .flag("/EHsc")
+            .include(duckdb_include_dir);
+    } else {
+        build
+            .flags(["-Wall", "-Wextra", "-Wpedantic", "-Werror"])
+            // We don't want compiler warnings inside duckdb headers, pass as flags
+            .flag("-isystem")
+            .flag(duckdb_include_dir);
+    }
+
     build
         .std("c++20")
-        .flags(["-Wall", "-Wextra", "-Wpedantic", "-Werror"])
         .cpp(true)
         // Duckdb 1.5.5 uses C++11. spatial_overrides.o uses
         // duckdb::ScalarFunctionCatalogEntry::Name which is constexpr but not
         // inline. Our code uses C++20 where constexpr implies inline. GCC
         // emits this symbol with STB_GNU_UNIQUE and this conflicts on link stage
         // in duckdb-vortex where libvortex_duckdb.a is linked statically
-        .flag_if_supported("-fno-gnu-unique")
-        // We don't want compiler warnings inside duckdb headers, pass as flags
-        .flag("-isystem")
-        .flag(duckdb_include_dir);
+        .flag_if_supported("-fno-gnu-unique");
 
     if let Some(root) = duckdb_include_dir.parent().and_then(Path::parent) {
         let third_party = root.join("third_party");
@@ -561,7 +577,11 @@ fn compile_cpp(duckdb_include_dir: &Path) {
             for entry in entries.flatten() {
                 let include = entry.path().join("include");
                 if include.is_dir() {
-                    build.flag("-isystem").flag(include);
+                    if build.get_compiler().is_like_msvc() {
+                        build.include(include);
+                    } else {
+                        build.flag("-isystem").flag(include);
+                    }
                 }
             }
         }
@@ -754,11 +774,21 @@ fn main() {
 
     let library_dir_str = library_dir.display();
     println!("cargo:rustc-link-search=native={library_dir_str}");
-    println!("cargo:rustc-link-lib=dylib=duckdb");
+    if target.contains("windows") {
+        println!("cargo:rustc-link-lib=static=duckdb_static");
+        println!("cargo:rustc-link-lib=ws2_32");
+        println!("cargo:rustc-link-lib=rstrtmgr");
+        println!("cargo:rustc-link-lib=bcrypt");
+        println!("cargo:rustc-link-lib=libcpmt");
+    } else {
+        println!("cargo:rustc-link-lib=dylib=duckdb");
+    }
 
     // Set rpath for binaries built directly from this crate. This is not
     // inherited by downstream crates.
-    println!("cargo:rustc-link-arg=-Wl,-rpath,{library_dir_str}");
+    if !target.contains("windows") {
+        println!("cargo:rustc-link-arg=-Wl,-rpath,{library_dir_str}");
+    }
 
     // Export the library path for downstream crates via the `links` manifest key.
     // Downstream crates can access this via `env::var("DEP_DUCKDB_LIB_DIR")` in their build.rs
