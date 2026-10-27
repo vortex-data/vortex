@@ -95,6 +95,6 @@ pub(crate) struct PhysicalPage {
     pub chunk: usize,
     /// Flat page positions belonging to this chunk.
     pub pages: Range<usize>,
-    /// Number of initialized primitive output slots required by this page.
+    /// Number of non-null primitive values decoded from this page.
     pub n_values: usize,
 }
