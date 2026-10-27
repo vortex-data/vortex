@@ -221,7 +221,10 @@ async fn runtime_filters_refresh_projected_bounds_and_keep_residuals() -> anyhow
         vec![Arc::clone(&column)],
         Arc::new(df_expr::Literal::new(ScalarValue::Boolean(Some(true)))),
     ));
-    let pushed = source.try_pushdown_filters(vec![bound.clone()], &ConfigOptions::new())?;
+    let pushed = source.try_pushdown_filters(
+        vec![Arc::clone(&bound) as Arc<dyn PhysicalExpr>],
+        &ConfigOptions::new(),
+    )?;
     assert!(matches!(pushed.filters.as_slice(), [PushedDown::No]));
     let source = pushed.updated_node.unwrap();
     assert!(source.with_fetch(Some(1)).is_none());
@@ -239,7 +242,7 @@ async fn runtime_filters_refresh_projected_bounds_and_keep_residuals() -> anyhow
         ),
         (
             Arc::new(df_expr::BinaryExpr::new(
-                column.clone(),
+                Arc::clone(&column),
                 Operator::Gt,
                 Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(25)))),
             )),
