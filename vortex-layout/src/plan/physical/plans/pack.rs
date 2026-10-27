@@ -354,9 +354,6 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
                 return Ok(Some(EvalPlan::try_new(lowered, field)?.into_plan()));
             }
         }
-        if already_partitioned(expression, fields) {
-            return Ok(None);
-        }
         let expanded = expand_struct_root(expression.clone(), fields)?;
         let annotations =
             descendent_bound_annotations(&expanded, make_bound_free_field_annotator(fields));
@@ -460,54 +457,6 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
         }
 
         Ok(Some(EvalPlan::try_new(residual, rewritten)?.into_plan()))
-    }
-}
-
-/// Recognizes residuals whose only single-field subexpressions are direct field reads.
-/// There is nothing to push into a field, and no unused field to prune.
-fn already_partitioned(expression: &BoundExpression, fields: &StructFields) -> bool {
-    let mut seen = vec![false; fields.nfields()];
-    residual_fields(expression, fields, &mut seen).is_some() && seen.into_iter().all(|used| used)
-}
-
-#[derive(Clone, Copy)]
-enum ResidualFields {
-    None,
-    One(usize),
-    Multiple,
-}
-
-fn residual_fields(
-    expression: &BoundExpression,
-    fields: &StructFields,
-    seen: &mut [bool],
-) -> Option<ResidualFields> {
-    if expression.is_root() {
-        return None;
-    }
-    if let Some(name) = expression
-        .as_scalar()
-        .and_then(|function| function.as_opt::<GetItem>())
-        && expression.children()[0].is_root()
-    {
-        let index = fields.find(name)?;
-        seen[index] = true;
-        return Some(ResidualFields::One(index));
-    }
-    let mut referenced = ResidualFields::None;
-    for child in expression.children() {
-        referenced = match (referenced, residual_fields(child, fields, seen)?) {
-            (ResidualFields::None, other) | (other, ResidualFields::None) => other,
-            (ResidualFields::One(left), ResidualFields::One(right)) if left == right => {
-                ResidualFields::One(left)
-            }
-            _ => ResidualFields::Multiple,
-        };
-    }
-    // Any operation over one field can still be pushed into that field's plan.
-    match referenced {
-        ResidualFields::One(_) => None,
-        other => Some(other),
     }
 }
 
