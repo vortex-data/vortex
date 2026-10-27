@@ -8,7 +8,6 @@ use pco::data_types::NumberType;
 use pco::match_number_enum;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
-use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
@@ -43,16 +42,9 @@ impl TakeExecute for Pco {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        if array.metadata.logical_row_prefix.is_none() {
+        let PageIndex::IndexedFast(index) = array.page_index()? else {
             return Ok(None);
-        }
-        if indices.is_empty() {
-            let dtype = array
-                .dtype()
-                .clone()
-                .union_nullability(indices.dtype().nullability());
-            return Ok(Some(Canonical::empty(&dtype).into_array()));
-        }
+        };
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
         let mask = indices.validity()?.execute_mask(indices.len(), ctx)?;
         let extrema = min_max(indices.as_array(), ctx, NumericalAggregateOpts::default())?;
@@ -67,9 +59,6 @@ impl TakeExecute for Pco {
                     .into_array(),
             ));
         }
-        let PageIndex::IndexedFast(index) = array.page_index()? else {
-            return Ok(None);
-        };
         let requests = match_each_integer_ptype!(indices.ptype(), |I| {
             indices
                 .as_slice::<I>()
@@ -77,8 +66,8 @@ impl TakeExecute for Pco {
                 .zip(mask.iter())
                 .enumerate()
                 .filter_map(|(output, (&row, valid))| valid.then_some((output, row)))
-                .map(|(output, row)| Ok((array.slice_start() + checked_index(row)?, output)))
-                .collect::<VortexResult<Vec<_>>>()?
+                .map(|(output, row)| (array.slice_start() + row as usize, output))
+                .collect::<Vec<_>>()
         });
         let nullable = array.dtype().nullability() | indices.dtype().nullability();
         let result = match_number_enum!(number_type_from_ptype(array.dtype().as_ptype()), NumberType<T> => {
