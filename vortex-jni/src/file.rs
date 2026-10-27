@@ -33,7 +33,9 @@ use crate::errors::try_or_throw;
 use crate::io::java_readable;
 use crate::object_store::object_store_fs;
 use crate::session::session_ref;
+use crate::statistics::ColumnStatistics;
 use crate::statistics::column_statistics_to_java;
+use crate::statistics::source_column_statistics;
 
 /// Extract a Java `Map<String, String>` into a Rust [`HashMap`].
 pub(crate) fn extract_properties(
@@ -247,6 +249,13 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readMetadataFromReadable(
     })
 }
 
+/// Read the statistics of each top-level column of an opened Vortex file through its data
+/// source, so stored aggregate partials come before the legacy statistics.
+fn read_column_statistics(file: &VortexFile) -> VortexResult<Vec<ColumnStatistics>> {
+    let source = file.data_source()?;
+    RUNTIME.block_on(source_column_statistics(source.as_ref(), file.footer()))
+}
+
 /// Read the per-column statistics of the Vortex file at `uri`.
 ///
 /// Returns a `dev.vortex.api.VortexColumnStatistics[]` in schema order. The statistics come
@@ -262,7 +271,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readStatistics(
     try_or_throw(&mut env, |env| {
         let session = unsafe { session_ref(session_ptr) };
         let file = open_uri_file(env, session, &uri, &options, false)?;
-        Ok(column_statistics_to_java(env, file.footer())?.into_raw())
+        let statistics = read_column_statistics(&file)?;
+        Ok(column_statistics_to_java(env, file.footer(), statistics)?.into_raw())
     })
 }
 
@@ -282,7 +292,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readStatisticsFromReadabl
     try_or_throw(&mut env, |env| {
         let session = unsafe { session_ref(session_ptr) };
         let file = open_readable_file(env, session, &readable, &name, length, false)?;
-        Ok(column_statistics_to_java(env, file.footer())?.into_raw())
+        let statistics = read_column_statistics(&file)?;
+        Ok(column_statistics_to_java(env, file.footer(), statistics)?.into_raw())
     })
 }
 

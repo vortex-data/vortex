@@ -64,6 +64,7 @@ use crate::object_store::make_object_store;
 use crate::session::session_ref;
 use crate::statistics::checked_jlong;
 use crate::statistics::column_statistics_to_java;
+use crate::statistics::footer_column_statistics;
 
 /// Capacity of the in-flight write queue. Small on purpose so that back-pressure from
 /// the writer is felt on the Java thread producing batches.
@@ -177,7 +178,8 @@ fn write_summary_to_java<'local>(
     env: &mut Env<'local>,
     summary: &WriteSummary,
 ) -> Result<JObject<'local>, JNIError> {
-    let columns = column_statistics_to_java(env, summary.footer())?;
+    let statistics = footer_column_statistics(summary.footer());
+    let columns = column_statistics_to_java(env, summary.footer(), statistics)?;
 
     Ok(env.new_object(
         jni::jni_str!("dev/vortex/api/VortexWriteSummary"),
