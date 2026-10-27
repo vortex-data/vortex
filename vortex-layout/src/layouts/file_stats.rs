@@ -28,6 +28,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Field;
+use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::stats::Precision;
@@ -39,6 +40,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutWriterContext;
@@ -47,19 +49,112 @@ use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt;
 
+/// Selects which aggregates file statistics record for each field.
+///
+/// Every field records the default aggregates unless a field override applies to it. An override
+/// for a path applies to the entry at that path and to every entry beneath it, except where a
+/// deeper override takes over. Without any explicit default, each field records its own
+/// dtype-dependent pruning aggregates (see `default_pruning_aggregate_fns`).
+///
+/// Entries beneath a nullable struct record nothing regardless of the selection (see
+/// [`postorder_stats_layout`]).
+#[derive(Clone, Debug, Default)]
+pub struct FileStatsSelection {
+    default: Option<Arc<[AggregateFnRef]>>,
+    fields: Vec<(FieldPath, Arc<[AggregateFnRef]>)>,
+}
+
+impl FileStatsSelection {
+    /// A selection that records each field's dtype-dependent default aggregates.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Records `stats` for every field that no field override applies to.
+    ///
+    /// Pass an empty list to record nothing outside the overridden fields.
+    pub fn with_default(mut self, stats: Vec<AggregateFnRef>) -> Self {
+        self.default = Some(stats.into());
+        self
+    }
+
+    /// Records `stats` for the field at `path` and every field beneath it, in place of the
+    /// default. A later override for the same path replaces an earlier one.
+    ///
+    /// The path must name a field reachable through struct fields only, or the write fails.
+    pub fn with_field(mut self, path: impl Into<FieldPath>, stats: Vec<AggregateFnRef>) -> Self {
+        self.fields.push((path.into(), stats.into()));
+        self
+    }
+
+    /// Returns `true` if the selection records no aggregates for any field.
+    pub fn is_empty(&self) -> bool {
+        matches!(&self.default, Some(stats) if stats.is_empty())
+            && self.fields.iter().all(|(_, stats)| stats.is_empty())
+    }
+
+    fn aggregate_fns(&self) -> impl Iterator<Item = &AggregateFnRef> {
+        self.default
+            .iter()
+            .chain(self.fields.iter().map(|(_, stats)| stats))
+            .flat_map(|stats| stats.iter())
+    }
+
+    /// Resolves the selection against `dtype` into a tree that [`StatsNode::build`] walks.
+    fn resolve(&self, dtype: &DType) -> VortexResult<SelectionNode> {
+        let mut root = SelectionNode {
+            stats: self.default.clone(),
+            children: HashMap::default(),
+        };
+        for (path, stats) in &self.fields {
+            let mut node = &mut root;
+            let mut node_dtype = dtype.clone();
+            for field in path.parts() {
+                let Field::Name(name) = field else {
+                    vortex_bail!("File statistics can only select struct fields, got {path}");
+                };
+                let Some(field_dtype) = node_dtype
+                    .as_struct_fields_opt()
+                    .and_then(|fields| fields.field(name))
+                else {
+                    vortex_bail!("File statistics requested for {path}, which is not in {dtype}");
+                };
+                node_dtype = field_dtype;
+                node = node.children.entry(name.clone()).or_default();
+            }
+            node.stats = Some(Arc::clone(stats));
+        }
+        Ok(root)
+    }
+}
+
+/// A [`FileStatsSelection`] resolved into a tree mirroring the struct fields it overrides.
+#[derive(Default)]
+struct SelectionNode {
+    /// The aggregates for this field and the fields beneath it, or `None` to inherit them from
+    /// the parent (each field's dtype default, at the root).
+    stats: Option<Arc<[AggregateFnRef]>>,
+    children: HashMap<FieldName, SelectionNode>,
+}
+
+impl SelectionNode {
+    fn child(&self, name: &FieldName) -> Option<&SelectionNode> {
+        self.children.get(name)
+    }
+}
+
 /// Accumulates file statistics over `stream` as it passes through.
 ///
-/// `stats` are the aggregates to record for every field, or `None` for each field's default (see
-/// `default_pruning_aggregate_fns`). Only aggregates `ctx` allows are recorded in the nested
-/// statistics: an explicitly requested aggregate it forbids fails, like it does for zone maps,
-/// while forbidden defaults are left out.
+/// `stats` selects the aggregates to record for each field. Only aggregates `ctx` allows are
+/// recorded in the nested statistics: an explicitly requested aggregate it forbids fails.
 ///
 /// # Errors
 ///
-/// Returns an error if `stats` contains an aggregate `ctx` forbids.
+/// Returns an error if `stats` contains an aggregate `ctx` forbids, or overrides a field that is
+/// not in the stream's dtype.
 pub fn accumulate_stats(
     stream: SendableSequentialStream,
-    stats: Option<Arc<[AggregateFnRef]>>,
+    stats: FileStatsSelection,
     session: &VortexSession,
     write_legacy_stats: bool,
     ctx: &LayoutWriterContext,
@@ -424,13 +519,9 @@ enum StatsNode {
 }
 
 impl StatsNode {
-    /// Builds the root node for a file of `dtype`.
-    fn build_root(
-        dtype: &DType,
-        stats: Option<&[AggregateFnRef]>,
-        write_legacy_stats: bool,
-    ) -> Self {
-        let mut root = Self::build(dtype, stats);
+    /// Builds the root node for a file of `dtype`, with `selection` resolved against `dtype`.
+    fn build_root(dtype: &DType, selection: &SelectionNode, write_legacy_stats: bool) -> Self {
+        let mut root = Self::build(dtype, None, Some(selection));
 
         // The legacy layout records each top-level field's stats over its own dtype. The nested
         // layout already accumulates those for every top-level field except a non-nullable struct,
@@ -439,10 +530,19 @@ impl StatsNode {
             && let (Self::Container { children, .. }, Some(struct_fields)) =
                 (&mut root, dtype.as_struct_fields_opt())
         {
-            for ((_, child), field_dtype) in children.iter_mut().zip_eq(struct_fields.fields()) {
+            for ((name, field_dtype), (_, child)) in struct_fields
+                .names()
+                .iter()
+                .zip(struct_fields.fields())
+                .zip_eq(children.iter_mut())
+            {
                 if let Self::Container { own, .. } = child
                     && matches!(**own, Self::Skipped)
                 {
+                    let stats = selection
+                        .child(name)
+                        .and_then(|field| field.stats.as_deref())
+                        .or(selection.stats.as_deref());
                     **own = Self::LegacyOnly(StatsAccumulator::new(&field_dtype, stats));
                 }
             }
@@ -451,7 +551,15 @@ impl StatsNode {
         root
     }
 
-    fn build(dtype: &DType, stats: Option<&[AggregateFnRef]>) -> Self {
+    /// Builds the node for `dtype`, recording `inherited` unless `selection` overrides it.
+    fn build(
+        dtype: &DType,
+        inherited: Option<&[AggregateFnRef]>,
+        selection: Option<&SelectionNode>,
+    ) -> Self {
+        let stats = selection
+            .and_then(|selection| selection.stats.as_deref())
+            .or(inherited);
         match dtype.as_struct_fields_opt() {
             Some(struct_fields) => {
                 let nullable = dtype.nullability() == Nullability::Nullable;
@@ -465,7 +573,11 @@ impl StatsNode {
                                 entries: postorder_stats_layout(&field_dtype).len(),
                             }
                         } else {
-                            Self::build(&field_dtype, stats)
+                            Self::build(
+                                &field_dtype,
+                                stats,
+                                selection.and_then(|selection| selection.child(name)),
+                            )
                         };
                         (Field::Name(name.clone()), child)
                     })
@@ -589,7 +701,7 @@ impl StatsNode {
 pub struct FileStatsAccumulator {
     root: Arc<Mutex<StatsNode>>,
     dtype: DType,
-    stats: Option<Arc<[AggregateFnRef]>>,
+    selection: Arc<SelectionNode>,
     write_legacy_stats: bool,
     writer_ctx: LayoutWriterContext,
 }
@@ -597,22 +709,23 @@ pub struct FileStatsAccumulator {
 impl FileStatsAccumulator {
     fn try_new(
         dtype: &DType,
-        stats: Option<Arc<[AggregateFnRef]>>,
+        stats: FileStatsSelection,
         write_legacy_stats: bool,
         writer_ctx: &LayoutWriterContext,
     ) -> VortexResult<Self> {
-        for aggregate_fn in stats.iter().flat_map(|stats| stats.iter()) {
+        for aggregate_fn in stats.aggregate_fns() {
             if !writer_ctx.allows_aggregate(&aggregate_fn.id()) {
                 vortex_bail!("Aggregate {} not permitted by ctx", aggregate_fn.id());
             }
         }
 
-        let root = StatsNode::build_root(dtype, stats.as_deref(), write_legacy_stats);
+        let selection = stats.resolve(dtype)?;
+        let root = StatsNode::build_root(dtype, &selection, write_legacy_stats);
 
         Ok(Self {
             root: Arc::new(Mutex::new(root)),
             dtype: dtype.clone(),
-            stats,
+            selection: Arc::new(selection),
             write_legacy_stats,
             writer_ctx: writer_ctx.clone(),
         })
@@ -621,8 +734,7 @@ impl FileStatsAccumulator {
     /// Computes the stats of one chunk into a new tree of accumulators, to [merge](Self::merge)
     /// later.
     fn chunk_stats(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<StatsNode> {
-        let mut node =
-            StatsNode::build_root(&self.dtype, self.stats.as_deref(), self.write_legacy_stats);
+        let mut node = StatsNode::build_root(&self.dtype, &self.selection, self.write_legacy_stats);
         node.push_chunk(chunk, ctx)?;
         Ok(node)
     }
@@ -979,7 +1091,7 @@ mod tests {
             StructArray::new(FieldNames::from(["a"]), [struct_a], 3, root_validity).into_array();
 
         let requested = [agg(Stat::NullCount), agg(Stat::Min), agg(Stat::Max)];
-        let mut node = StatsNode::build(root.dtype(), Some(&requested));
+        let mut node = StatsNode::build(root.dtype(), Some(&requested), None);
         node.push_chunk(&root, &mut ctx)?;
 
         let stats_sets = node_stats_sets(&node)?;
@@ -1007,7 +1119,7 @@ mod tests {
             StructArray::new(FieldNames::from(["s"]), [s], 3, Validity::NonNullable).into_array();
 
         let requested = [agg(Stat::NullCount), agg(Stat::Min), agg(Stat::Max)];
-        let mut node = StatsNode::build(root.dtype(), Some(&requested));
+        let mut node = StatsNode::build(root.dtype(), Some(&requested), None);
         node.push_chunk(&root, &mut ctx)?;
 
         let mut aggregates = Vec::new();
@@ -1035,7 +1147,7 @@ mod tests {
             StructArray::new(FieldNames::from(["s"]), [s], 3, Validity::NonNullable).into_array();
 
         let requested = [agg(Stat::NullCount), agg(Stat::Max)];
-        let mut node = StatsNode::build(root.dtype(), Some(&requested));
+        let mut node = StatsNode::build(root.dtype(), Some(&requested), None);
         node.push_chunk(&root, &mut ctx)?;
 
         let stats_sets = node_stats_sets(&node)?;
@@ -1063,7 +1175,7 @@ mod tests {
             .into_array();
 
         let requested = [agg(Stat::NullCount), agg(Stat::Min), agg(Stat::Max)];
-        let mut node = StatsNode::build(outer.dtype(), Some(&requested));
+        let mut node = StatsNode::build(outer.dtype(), Some(&requested), None);
         node.push_chunk(&outer, &mut ctx)?;
 
         let stats_sets = node_stats_sets(&node)?;
@@ -1087,11 +1199,11 @@ mod tests {
 
         let acc = FileStatsAccumulator::try_new(
             &dtype,
-            Some(Arc::from([
+            FileStatsSelection::new().with_default(vec![
                 agg(Stat::NullCount),
                 agg(Stat::Min),
                 agg(Stat::Max),
-            ])),
+            ]),
             true,
             &LayoutWriterContext::new(ArrayContext::empty()),
         )?;
@@ -1126,7 +1238,7 @@ mod tests {
 
         let acc = FileStatsAccumulator::try_new(
             &dtype,
-            Some(Arc::from([agg(Stat::NullCount)])),
+            FileStatsSelection::new().with_default(vec![agg(Stat::NullCount)]),
             true,
             &LayoutWriterContext::new(ArrayContext::empty()),
         )?;
@@ -1157,7 +1269,7 @@ mod tests {
 
         let acc = FileStatsAccumulator::try_new(
             &dtype,
-            Some(Arc::from([agg(Stat::NullCount), agg(Stat::Max)])),
+            FileStatsSelection::new().with_default(vec![agg(Stat::NullCount), agg(Stat::Max)]),
             true,
             &LayoutWriterContext::new(ArrayContext::empty()),
         )?;
@@ -1187,7 +1299,7 @@ mod tests {
         let mut exec_ctx = SESSION.create_execution_ctx();
         let acc = FileStatsAccumulator::try_new(
             &dtype,
-            Some(Arc::from([agg(Stat::Min), agg(Stat::Max)])),
+            FileStatsSelection::new().with_default(vec![agg(Stat::Min), agg(Stat::Max)]),
             false,
             &LayoutWriterContext::new(ArrayContext::empty()),
         )?;
@@ -1279,15 +1391,19 @@ mod tests {
             .with_allowed_aggregates(HashSet::from_iter([Min.id(), Max.id(), NanCount.id()]));
 
         // An explicitly requested aggregate the context forbids fails the write.
-        let error =
-            FileStatsAccumulator::try_new(&dtype, Some(Arc::from([agg(Stat::Sum)])), true, &ctx)
-                .err()
-                .vortex_expect("Sum is not permitted");
+        let error = FileStatsAccumulator::try_new(
+            &dtype,
+            FileStatsSelection::new().with_default(vec![agg(Stat::Sum)]),
+            true,
+            &ctx,
+        )
+        .err()
+        .vortex_expect("Sum is not permitted");
         assert!(error.to_string().contains("not permitted by ctx"));
 
         // The defaults leave a forbidden aggregate out of the nested aggregates, but the legacy
         // stats keep it.
-        let acc = FileStatsAccumulator::try_new(&dtype, None, true, &ctx)?;
+        let acc = FileStatsAccumulator::try_new(&dtype, FileStatsSelection::new(), true, &ctx)?;
         let chunk = StructArray::new(
             FieldNames::from(["a"]),
             [buffer![1i32, 2, 3].into_array()],
@@ -1323,7 +1439,7 @@ mod tests {
         let dtype = DType::struct_([("a", i32_dtype())], Nullability::NonNullable);
         let acc = FileStatsAccumulator::try_new(
             &dtype,
-            None,
+            FileStatsSelection::new(),
             true,
             &LayoutWriterContext::new(ArrayContext::empty()),
         )?;
@@ -1371,5 +1487,122 @@ mod tests {
             expected.map_or(Precision::Absent, |sum| Precision::exact(Scalar::from(sum)))
         );
         Ok(())
+    }
+
+    fn recorded(stats: &AggregateStats) -> Vec<AggregateFnRef> {
+        stats
+            .iter()
+            .map(|stat| stat.aggregate_fn().clone())
+            .collect()
+    }
+
+    #[test]
+    fn field_overrides_replace_the_default_beneath_their_path() -> VortexResult<()> {
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        let s_dtype = DType::struct_(
+            [("c", i32_dtype()), ("d", i32_dtype())],
+            Nullability::NonNullable,
+        );
+        let dtype = DType::struct_(
+            [("a", i32_dtype()), ("b", i32_dtype()), ("s", s_dtype)],
+            Nullability::NonNullable,
+        );
+        let selection = FileStatsSelection::new()
+            .with_default(vec![agg(Stat::NullCount)])
+            .with_field(
+                FieldPath::from_name("a"),
+                vec![agg(Stat::Min), agg(Stat::Max)],
+            )
+            .with_field(FieldPath::from_name("s"), vec![agg(Stat::Max)])
+            .with_field(
+                FieldPath::from_iter([Field::from("s"), Field::from("d")]),
+                vec![],
+            );
+        let acc = FileStatsAccumulator::try_new(
+            &dtype,
+            selection,
+            true,
+            &LayoutWriterContext::new(ArrayContext::empty()),
+        )?;
+
+        let column = || buffer![1i32, 2, 3].into_array();
+        let s = StructArray::new(
+            FieldNames::from(["c", "d"]),
+            [column(), column()],
+            3,
+            Validity::NonNullable,
+        )
+        .into_array();
+        let chunk = StructArray::new(
+            FieldNames::from(["a", "b", "s"]),
+            [column(), column(), s],
+            3,
+            Validity::NonNullable,
+        )
+        .into_array();
+        push(&acc, &chunk, &mut exec_ctx)?;
+
+        // Entries are `a`, `b`, `s.c`, `s.d` in post-order.
+        let aggregates = acc.aggregate_stats()?;
+        assert_eq!(aggregates.len(), 4);
+        assert_eq!(recorded(&aggregates[0]), [agg(Stat::Min), agg(Stat::Max)]);
+        assert_eq!(recorded(&aggregates[1]), [agg(Stat::NullCount)]);
+        assert_eq!(recorded(&aggregates[2]), [agg(Stat::Max)]);
+        assert!(aggregates[3].is_empty());
+
+        let legacy = acc.legacy_aggregate_stats()?;
+        assert_eq!(recorded(&legacy[0]), [agg(Stat::Min), agg(Stat::Max)]);
+        assert_eq!(recorded(&legacy[1]), [agg(Stat::NullCount)]);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::missing_field(FieldPath::from_name("missing"))]
+    #[case::through_a_leaf(FieldPath::from_iter([Field::from("a"), Field::from("b")]))]
+    #[case::element_type(FieldPath::from(Field::ElementType))]
+    fn field_overrides_must_name_a_struct_field(#[case] path: FieldPath) {
+        let dtype = DType::struct_([("a", i32_dtype())], Nullability::NonNullable);
+        let selection = FileStatsSelection::new().with_field(path, vec![agg(Stat::Min)]);
+        assert!(
+            FileStatsAccumulator::try_new(
+                &dtype,
+                selection,
+                true,
+                &LayoutWriterContext::new(ArrayContext::empty()),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn forbidden_field_override_aggregates_fail() {
+        let dtype = DType::struct_([("a", i32_dtype())], Nullability::NonNullable);
+        let ctx = LayoutWriterContext::new(ArrayContext::empty())
+            .with_allowed_aggregates(HashSet::from_iter([Min.id(), Max.id()]));
+        let selection =
+            FileStatsSelection::new().with_field(FieldPath::from_name("a"), vec![agg(Stat::Sum)]);
+        let error = FileStatsAccumulator::try_new(&dtype, selection, true, &ctx)
+            .err()
+            .vortex_expect("Sum is not permitted");
+        assert!(error.to_string().contains("not permitted by ctx"));
+    }
+
+    #[rstest]
+    #[case::default_only(FileStatsSelection::new().with_default(vec![]), true)]
+    #[case::unset_default(FileStatsSelection::new(), false)]
+    #[case::empty_override(
+        FileStatsSelection::new()
+            .with_default(vec![])
+            .with_field(FieldPath::from_name("a"), vec![]),
+        true
+    )]
+    #[case::non_empty_override(
+        FileStatsSelection::new()
+            .with_default(vec![])
+            .with_field(FieldPath::from_name("a"), vec![agg(Stat::Min)]),
+        false
+    )]
+    fn selection_is_empty(#[case] selection: FileStatsSelection, #[case] expected: bool) {
+        assert_eq!(selection.is_empty(), expected);
     }
 }

@@ -2354,6 +2354,60 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
 }
 
 #[tokio::test]
+async fn field_file_statistics_record_only_the_selected_fields() -> VortexResult<()> {
+    let array = StructArray::from_fields(&[
+        ("a", buffer![1u32, 2, 3].into_array()),
+        ("b", buffer![4u32, 5, 6].into_array()),
+    ])?
+    .into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .with_file_statistics(vec![])
+        .with_field_file_statistics(
+            FieldPath::from_name("a"),
+            vec![
+                Stat::Max
+                    .aggregate_fn()
+                    .vortex_expect("max has an aggregate fn"),
+            ],
+        )
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let file_stats = file
+        .file_stats()
+        .vortex_expect("file statistics were written");
+    let (a, _) = file_stats.get(0);
+    assert_eq!(
+        stat_value(a, Stat::Max),
+        Precision::exact(ScalarValue::from(3u32))
+    );
+    assert!(stat_value(a, Stat::Min).is_absent());
+    assert!(stat_value(a, Stat::NullCount).is_absent());
+    let (b, _) = file_stats.get(1);
+    assert!(b.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn field_file_statistics_reject_unknown_fields() -> VortexResult<()> {
+    let array = StructArray::from_fields(&[("a", buffer![1u32, 2, 3].into_array())])?.into_array();
+
+    let result = SESSION
+        .write_options()
+        .with_field_file_statistics(FieldPath::from_name("missing"), pruning_aggregate_fns())
+        .write(ByteBufferMut::empty(), array.to_array_stream())
+        .await;
+    assert!(result.is_err());
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn file_sum_is_absent_when_a_chunk_overflows() -> VortexResult<()> {
     let dtype = DType::Struct(
         StructFields::from_iter([("numbers", DType::from(PType::I64))]),

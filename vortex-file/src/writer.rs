@@ -47,6 +47,7 @@ use vortex_layout::BufferedBytesTracker;
 use vortex_layout::LayoutContext;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::LayoutWriterContext;
+use vortex_layout::layouts::file_stats::FileStatsSelection;
 use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::sequence::SequenceId;
 use vortex_layout::sequence::SequentialStreamAdapter;
@@ -82,10 +83,10 @@ pub struct VortexWriteOptions {
     disable_editions: bool,
     buffered_bytes: BufferedBytesTracker,
     exclude_dtype: bool,
-    /// The aggregates to compute for file-level statistics.
+    /// The aggregates to compute for file-level statistics, per field.
     ///
-    /// If unset, the writer chooses pruning aggregates from the file dtype.
-    file_statistics: Option<Vec<AggregateFnRef>>,
+    /// Fields without an explicit selection get pruning aggregates chosen from their dtype.
+    file_statistics: FileStatsSelection,
     write_legacy_statistics: bool,
     metadata: HashMap<String, ByteBuffer>,
 }
@@ -108,7 +109,7 @@ impl VortexWriteOptions {
             buffered_bytes: BufferedBytesTracker::new(),
             session,
             exclude_dtype: false,
-            file_statistics: None,
+            file_statistics: FileStatsSelection::new(),
             write_legacy_statistics: true,
             metadata: HashMap::default(),
         }
@@ -156,15 +157,35 @@ impl VortexWriteOptions {
         self
     }
 
-    /// Configure which statistics to compute at the file level.
+    /// Configure which statistics to compute at the file level for every field that
+    /// [`Self::with_field_file_statistics`] does not configure.
     ///
-    /// Pass an empty vector to omit file-level statistics. If left unset, the writer chooses
-    /// pruning aggregates from the file dtype.
+    /// Pass an empty vector to record no statistics outside those fields; with no field
+    /// configured either, file-level statistics are omitted. If left unset, the writer chooses
+    /// pruning aggregates from each field's dtype.
     ///
     /// Like zone maps, file statistics only record aggregates the enabled editions include: the
     /// write fails if this asks for one they don't, while the defaults leave such aggregates out.
     pub fn with_file_statistics(mut self, file_statistics: Vec<AggregateFnRef>) -> Self {
-        self.file_statistics = Some(file_statistics);
+        self.file_statistics = self.file_statistics.with_default(file_statistics);
+        self
+    }
+
+    /// Configure which statistics to compute at the file level for the field at `path` and every
+    /// field nested beneath it, in place of those from [`Self::with_file_statistics`].
+    ///
+    /// A deeper path takes precedence over a shallower one, and a repeated path replaces the
+    /// previous statistics. Pass an empty vector to record nothing for the field. Fields nested
+    /// beneath a nullable struct record no statistics regardless.
+    ///
+    /// The write fails if `path` does not name a field reachable through struct fields of the
+    /// file dtype, or if it asks for an aggregate the enabled editions don't include.
+    pub fn with_field_file_statistics(
+        mut self,
+        path: impl Into<FieldPath>,
+        file_statistics: Vec<AggregateFnRef>,
+    ) -> Self {
+        self.file_statistics = self.file_statistics.with_field(path, file_statistics);
         self
     }
 
@@ -296,7 +317,7 @@ impl VortexWriteOptions {
         // variable-length columns), rather than a single dtype-blind default applied uniformly.
         let (file_stats, stream) = accumulate_stats(
             stream,
-            self.file_statistics.clone().map(Arc::from),
+            self.file_statistics.clone(),
             &self.session,
             self.write_legacy_statistics,
             &ctx,
@@ -342,7 +363,7 @@ impl VortexWriteOptions {
         let (layout, segment_specs) = layout_fut.await?;
 
         // Assemble the Footer object now that we have all the segments.
-        let statistics = if matches!(&self.file_statistics, Some(stats) if stats.is_empty()) {
+        let statistics = if self.file_statistics.is_empty() {
             None
         } else {
             Some(FileStatistics::new_with_dtype(
