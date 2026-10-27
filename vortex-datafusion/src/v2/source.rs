@@ -667,29 +667,28 @@ impl DataSource for VortexDataSource {
         filters: Vec<Arc<dyn PhysicalExpr>>,
         _config: &datafusion_common::config::ConfigOptions,
     ) -> DFResult<FilterPushdownPropagation<Arc<dyn DataSource>>> {
-        if filters.is_empty() {
+        // Filters arriving after fetch must remain above that row limit.
+        if filters.is_empty() || self.limit.is_some() {
             return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
-                vec![],
+                vec![PushedDown::No; filters.len()],
             ));
         }
 
         let mut this = self.clone();
-        if self.limit.is_none() {
-            this.runtime_filters.0.extend(
-                filters
-                    .iter()
-                    .filter(|filter| {
-                        DynamicFilterTracking::classify(filter).contains_dynamic_filter()
-                    })
-                    .map(|filter| RuntimeFilter {
-                        expression: Arc::clone(filter),
-                        schema: Arc::clone(&self.projected_schema),
-                        projection: self.projected_projection.clone(),
-                        leftover: self.leftover_projection.clone(),
-                        converter: Arc::clone(&self.expression_converter),
-                    }),
-            );
-        }
+        this.runtime_filters.0.extend(
+            filters
+                .iter()
+                .filter(|filter| {
+                    DynamicFilterTracking::classify(filter).contains_dynamic_filter()
+                })
+                .map(|filter| RuntimeFilter {
+                    expression: Arc::clone(filter),
+                    schema: Arc::clone(&self.projected_schema),
+                    projection: self.projected_projection.clone(),
+                    leftover: self.leftover_projection.clone(),
+                    converter: Arc::clone(&self.expression_converter),
+                }),
+        );
         let converter = &self.expression_converter;
         let filters = filters
             .into_iter()

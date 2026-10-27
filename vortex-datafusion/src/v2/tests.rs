@@ -180,6 +180,18 @@ async fn statistics_follow_filter_and_fetch() -> anyhow::Result<()> {
         limited.partition_statistics(None)?.num_rows,
         Precision::Inexact(1)
     );
+    let rejected = limited.try_pushdown_filters(
+        vec![
+            df_expr::lit(false),
+            Arc::new(DynamicFilterPhysicalExpr::new(vec![], df_expr::lit(false))),
+        ],
+        &ConfigOptions::new(),
+    )?;
+    assert!(matches!(
+        rejected.filters.as_slice(),
+        [PushedDown::No, PushedDown::No]
+    ));
+    assert!(rejected.updated_node.is_none());
     Ok(())
 }
 
