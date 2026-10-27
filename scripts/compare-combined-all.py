@@ -12,12 +12,10 @@ suite, scale = sys.argv[1:3]
 current = Path('target/release_debug/datafusion-bench')
 published = Path('target/accepted-baseline/datafusion-bench')
 published.chmod(0o755)
-planning = Path('target/planning-baseline/datafusion-bench')
-planning.chmod(0o755)
-variants = [('v1', current, False), ('accepted', published, True), ('planning', planning, True), ('combined', current, True)]
+variants = [('v1', current, False), ('accepted', published, True), ('combined', current, True)]
 env = dict(os.environ, TOKIO_WORKER_THREADS='8', DATAFUSION_EXECUTION_TARGET_PARTITIONS='8', RUST_LOG='warn')
 records = []
-Path('scan-provenance.json').write_text(json.dumps({'baseline_binary_run': 40444903733, 'baseline_production_head': 'eb29280cffbea33f1a5c5fa6b22c71efb5ad0a0b', 'planning_binary_run': 40460958606, 'candidate': 'baseline plus cached expression lowering, direct projections, dense comparison masks, early empty partitions and wider bounded IO prefetch', 'scope': 'all queries; timeouts retained, not parity'}, indent=2))
+Path('scan-provenance.json').write_text(json.dumps({'baseline_binary_run': 40461998987, 'baseline_head': '65c7c2a0e5b2abde9762582e14bb843d9cc7f019', 'candidate': 'combined candidate plus whole-domain dense infallible predicates; frozen binary run40475426727', 'scope': 'all queries; timeouts retained, not parity'}, indent=2))
 metadata = {name: hashlib.sha256(binary.read_bytes()).hexdigest() for name, binary, _ in variants}
 Path('scan-binaries.json').write_text(json.dumps(metadata, indent=2))
 queries = range(43) if suite == 'clickbench' else range(1, 100)
