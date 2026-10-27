@@ -11,10 +11,9 @@ use rustc_hash::FxHashSet;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
-use vortex_io::request::IoConsumer;
-use vortex_io::request::IoIntent;
-use vortex_io::request::IoRequestId;
-use vortex_io::request::IoResult;
+use vortex_io::segments::IoIntent;
+use vortex_io::segments::IoKey;
+use vortex_io::segments::SourceResult;
 use vortex_mask::Mask;
 use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::PlannerOutput;
@@ -52,8 +51,6 @@ pub struct PrunePlanner {
     active: Option<ScanAdaptor>,
     pieces: Vec<Mask>,
     announced: bool,
-    /// Ids for hints, counting down from `u32::MAX` so they never meet an adaptor's fetch ids.
-    next_hint: u32,
     done: bool,
 }
 
@@ -76,21 +73,18 @@ impl PrunePlanner {
             active: None,
             pieces: Vec::new(),
             announced: false,
-            next_hint: u32::MAX,
             done: false,
         }
     }
 }
 
-impl IoConsumer for PrunePlanner {
-    fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
+impl Planner for PrunePlanner {
+    fn deliver(&mut self, key: IoKey, result: SourceResult) {
         if let Some(adaptor) = &mut self.active {
-            adaptor.set_io_result(request, result);
+            adaptor.set_result(key, result);
         }
     }
-}
 
-impl Planner for PrunePlanner {
     fn state(&self) -> State {
         if self.done {
             return State::Done;
@@ -118,8 +112,7 @@ impl Planner for PrunePlanner {
             let mut batch = Vec::new();
             let mut seen = FxHashSet::default();
             hint(
-                &self.scan.locations,
-                &mut self.next_hint,
+                self.scan.source(),
                 IoIntent::Prefetch,
                 &segments,
                 &mut seen,
@@ -170,7 +163,11 @@ impl Planner for PrunePlanner {
             )?
             .with_row_offset(self.scan.row_offset)
             .with_value_cache(self.scan.values.clone());
-            self.active = Some(ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)));
+            self.active = Some(ScanAdaptor::new(
+                scan,
+                Arc::clone(&self.scan.locations),
+                self.scan.source(),
+            ));
             return Ok(PlannerOutput::Continue);
         }
         // Every pruning plan has run: the planner this one continues into gets the kept rows.

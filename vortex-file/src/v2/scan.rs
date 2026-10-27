@@ -23,8 +23,8 @@ use futures::stream::BoxStream;
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_io::request::IoSource;
 use vortex_io::runtime::Handle;
+use vortex_io::segments::SegmentIoSession;
 use vortex_layout::scan::v2::ChunkPlanner;
 use vortex_layout::scan::v2::PreparedScan;
 use vortex_layout::scan::v2::PrunePlanner;
@@ -152,7 +152,7 @@ struct RunState {
     handle: Handle,
     /// Taken while a CPU step runs on its task and put back with its result.
     run: Option<Run>,
-    io: Arc<dyn IoSource>,
+    io: Arc<dyn SegmentIoSession>,
     /// Whether a spawned chunk runs on this run, as another root, instead of being yielded.
     inline: bool,
 }
@@ -163,7 +163,7 @@ fn run_stream(
     handle: Handle,
     root: Box<dyn Planner>,
     scope: WorkScope,
-    io: Arc<dyn IoSource>,
+    io: Arc<dyn SegmentIoSession>,
     inline: bool,
 ) -> BoxStream<'static, VortexResult<Yielded>> {
     let mut run = Run::new();
@@ -221,7 +221,7 @@ fn chunk_stream(
     handle: &Handle,
     root: Box<dyn Planner>,
     scope: WorkScope,
-    io: Arc<dyn IoSource>,
+    io: Arc<dyn SegmentIoSession>,
 ) -> BoxStream<'static, VortexResult<(u64, ArrayRef)>> {
     let (mut send, recv) = mpsc::channel(1);
     let task = handle.spawn(async move {
