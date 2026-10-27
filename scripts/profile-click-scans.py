@@ -47,7 +47,7 @@ variants = [('v1', current_binary, False), ('published', published_binary, True)
 for round in range(3):
     for name, binary, v2 in variants[round:] + variants[:round]:
         label = f'scan-timing-r{round}-{name}'
-        cmd = command(v2, '24,31', 9, label)
+        cmd = command(v2, '22,24,26', 9, label)
         Path(label + '.command.json').write_text(json.dumps({'command': cmd, 'env': profile_env}, indent=2))
         with open(label + '.log', 'w') as log:
             subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=600, check=True)
@@ -66,7 +66,7 @@ def frame_label(thread, index, symbols=None):
 
 summary.frame_label = frame_label
 binary_sha = hashlib.sha256(binary.read_bytes()).hexdigest()
-for query, iterations in [('24', 100), ('31', 30)]:
+for query, iterations in [('22', 20), ('24', 100), ('26', 100)]:
     for v2 in [False, True]:
         label = f'scan-q{query}-v2-{str(v2).lower()}'
         output = root / (label + '.profile.json.gz')
