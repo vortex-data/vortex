@@ -1,0 +1,153 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use vortex_buffer::BitBuffer;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+
+use crate::ArrayRef;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::Widen;
+use crate::arrays::widen::WidenArraySlotsExt;
+use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::scalar::PValue;
+use crate::scalar::Scalar;
+use crate::scalar_fn::fns::binary::CompareKernel;
+use crate::scalar_fn::fns::operators::CompareOperator;
+use crate::scalar_fn::fns::operators::Operator;
+
+impl CompareKernel for Widen {
+    fn compare(
+        lhs: ArrayView<'_, Self>,
+        rhs: &ArrayRef,
+        operator: CompareOperator,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if !lhs.dtype().eq_ignore_nullability(rhs.dtype()) {
+            return Ok(None);
+        }
+
+        if let Some(rhs) = rhs.as_opt::<Widen>() {
+            return compare_narrow_values(lhs, rhs, operator);
+        }
+
+        // `CompareExecuteAdaptor` answers a null constant before it calls this kernel.
+        let Some(constant) = rhs.as_constant() else {
+            return Ok(None);
+        };
+        let values = lhs.values();
+        let Some(fits) = constant_fits_child(constant, values.dtype()) else {
+            return Ok(None);
+        };
+        if !fits {
+            return compare_out_of_range(lhs, constant, operator, ctx).map(Some);
+        }
+
+        let constant_dtype = values
+            .dtype()
+            .with_nullability(constant.dtype().nullability());
+        let constant = ConstantArray::new(constant.cast(&constant_dtype)?, lhs.len()).into_array();
+
+        values.binary(constant, Operator::from(operator)).map(Some)
+    }
+}
+
+/// Returns whether the range of the integer dtype `child` holds `constant`.
+///
+/// Returns `None` when `child` is not an integer dtype, when `constant` is null, and when
+/// `constant` is not an integer with the signedness of `child`.
+pub(super) fn constant_fits_child(constant: &Scalar, child: &DType) -> Option<bool> {
+    let DType::Primitive(ptype, _) = child else {
+        return None;
+    };
+    let value = constant.as_primitive_opt()?.pvalue()?;
+
+    // `PValue` compares an integer with another value through `i64` or `u64`, and it panics when
+    // the other value does not convert. So only integers of the same signedness compare here.
+    let value_ptype = value.ptype();
+    if !ptype.is_int() || !value_ptype.is_int() {
+        return None;
+    }
+    if ptype.is_signed_int() != value_ptype.is_signed_int() {
+        return None;
+    }
+
+    Some(PValue::min_value(*ptype) <= value && value <= PValue::max_value(*ptype))
+}
+
+/// Compares the values of two `Widen` arrays at the wider of the two value types.
+///
+/// Both value types have the signedness of the logical dtype, so the wider one holds every value of
+/// the narrower one.
+fn compare_narrow_values(
+    lhs: ArrayView<'_, Widen>,
+    rhs: ArrayView<'_, Widen>,
+    operator: CompareOperator,
+) -> VortexResult<Option<ArrayRef>> {
+    let (
+        DType::Primitive(lhs_ptype, lhs_nullability),
+        DType::Primitive(rhs_ptype, rhs_nullability),
+    ) = (lhs.values().dtype(), rhs.values().dtype())
+    else {
+        return Ok(None);
+    };
+    let ptype = if lhs_ptype.byte_width() >= rhs_ptype.byte_width() {
+        *lhs_ptype
+    } else {
+        *rhs_ptype
+    };
+
+    let lhs_values = lhs
+        .values()
+        .cast(DType::Primitive(ptype, *lhs_nullability))?;
+    let rhs_values = rhs
+        .values()
+        .cast(DType::Primitive(ptype, *rhs_nullability))?;
+
+    lhs_values
+        .binary(rhs_values, Operator::from(operator))
+        .map(Some)
+}
+
+/// Answers a compare of `lhs` with a valid `constant` outside the range of its values.
+///
+/// Every value is on the same side of the constant, so every valid row has the same answer, and the
+/// result takes the validity of the values. Without nulls, the result is a [`ConstantArray`], so
+/// that later steps such as a filter keep their constant fast paths.
+fn compare_out_of_range(
+    lhs: ArrayView<'_, Widen>,
+    constant: &Scalar,
+    operator: CompareOperator,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    // The range of the values holds zero, so the constant is below the range exactly when it is
+    // below zero. An unsigned constant outside the range is always above it.
+    let zero = Scalar::zero_value(constant.dtype());
+    let below = constant
+        .partial_cmp(&zero)
+        .vortex_expect("a scalar compares with the zero of its own dtype")
+        .is_lt();
+    let answer = match operator {
+        CompareOperator::Eq => false,
+        CompareOperator::NotEq => true,
+        CompareOperator::Lt | CompareOperator::Lte => !below,
+        CompareOperator::Gt | CompareOperator::Gte => below,
+    };
+
+    let validity = lhs
+        .values()
+        .validity()?
+        .union_nullability(constant.dtype().nullability());
+    if validity.definitely_no_nulls() {
+        let answer = Scalar::bool(answer, validity.nullability());
+        return Ok(ConstantArray::new(answer, lhs.len()).into_array());
+    }
+
+    let bits = BitBuffer::full_in(answer, lhs.len(), ctx.allocator().clone());
+    Ok(BoolArray::try_new(bits, validity)?.into_array())
+}
