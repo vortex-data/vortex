@@ -2,28 +2,36 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-"""Aggregate s3-latency-bench runs into a Markdown report and a fitted latency model.
+"""Aggregate s3-latency-bench runs into a Markdown report and a latency model.
 
 Usage: s3-latency-analyze.py RESULTS_DIR [--report report.md] [--model model.json]
 
 RESULTS_DIR is searched recursively for `requests.csv`, `scans.json` and `meta.json`, one set per
 run. Only the standard library is used, so this runs on any CI image.
 
-The model fitted for serial requests is `latency_ms(bytes) = a + bytes / bandwidth`, per quantile
-(fitted to per-size-bucket quantiles) and as an ordinary least-squares mean. The concurrency phase
-adds how the quantiles shift with requests in flight, and a multivariate least-squares fit over
-every GET: `latency_ms ~ 1 + MiB + inflight + MiB * inflight`.
+The model (`--model`, schema `vortex-s3-latency-model/1`) describes one request as
+
+    latency = first_byte + bytes / min(per_connection_bytes_per_s, nic_bytes_per_s / active_bodies)
+
+with `first_byte` drawn from the measured inverse CDF. It is fitted only from the microbenchmark
+phases; the scan phase is then replayed through a simulator driven by the model, and the predicted
+scan wall times are reported next to the measured ones as a validation of the model.
 """
 
 import argparse
 import csv
+import heapq
 import json
 import math
+import random
 import sys
 from collections import defaultdict
 from pathlib import Path
 
+SCHEMA = "vortex-s3-latency-model/1"
 QUANTILES = (0.5, 0.9, 0.99)
+# Points of the inverse CDFs stored in the model.
+CDF_POINTS = sorted([i / 100 for i in range(101)] + [0.995, 0.999])
 # Runs that start this soon after the dataset upload see slower, freshly written objects (small GETs
 # took ~90 ms instead of ~26 ms until the objects were about two minutes old). They are reported
 # separately rather than mixed into the model.
@@ -159,6 +167,283 @@ def fresh_section(fresh: list[dict], warm: list[dict], fresh_runs: list[str], ag
             [[f"{w * 20}-{w * 20 + 20}", str(len(v)), ms(quantile(v, 0.5))] for w, v in sorted(windows.items())],
         )
     )
+    return md
+
+
+def inverse_cdf(values: list[float]) -> list[list[float]]:
+    return [[q, quantile(values, q)] for q in CDF_POINTS]
+
+
+def sample(cdf: list[list[float]], rng: random.Random) -> float:
+    """Draw from an inverse CDF stored as `[[quantile, value], ...]`, interpolating linearly."""
+    u = rng.random()
+    for (q0, v0), (q1, v1) in zip(cdf, cdf[1:]):
+        if u <= q1:
+            return v0 + (v1 - v0) * (u - q0) / ((q1 - q0) or 1.0)
+    return cdf[-1][1]
+
+
+def fit_request_model(ok: list[dict], fresh: list[dict], ages: dict[str, int]) -> dict:
+    """Fit the per-request model from the microbenchmark phases only."""
+    serial = [r for r in ok if r["phase"] == "size_sweep"]
+    # Requests of 1-3 bytes are measurably slower; keep them out of the base distribution.
+    ttfb = [r["ttfb_ms"] / 1e3 for r in serial if r["length"] >= 4]
+    heads = [r["total_ms"] / 1e3 for r in ok if r["phase"] == "suffix" and r["kind"] == "head"]
+    big = [r for r in serial if r["length"] >= 4 * MIB and r["body_ms"] > 0]
+    per_connection = quantile([r["bytes"] / (r["body_ms"] / 1e3) for r in big], 0.5)
+
+    # The instance's network cap: the best aggregate throughput of 8 MiB reads in each run, then
+    # the median over runs.
+    cells: dict[tuple[str, int], list[dict]] = defaultdict(list)
+    for r in ok:
+        if r["phase"] == "concurrency" and r["length"] >= 4 * MIB:
+            cells[(r["run"], r["concurrency"])].append(r)
+    best: dict[str, float] = defaultdict(float)
+    for (run, _), rs in cells.items():
+        span = (max(r["end_us"] for r in rs) - min(r["start_us"] for r in rs)) / 1e6
+        if span > 0:
+            best[run] = max(best[run], sum(r["bytes"] for r in rs) / span)
+    # Aggregate throughput includes first-byte waits, so a run that never saturates the network
+    # underestimates the cap; it is never below what one connection achieved.
+    nic = max(quantile(list(best.values()), 0.5), per_connection) if best else per_connection
+
+    base = quantile(ttfb, 0.5)
+    small_extra = {}
+    for n in (1, 2, 3):
+        vals = [r["ttfb_ms"] / 1e3 for r in serial if r["length"] == n]
+        if vals:
+            small_extra[str(n)] = max(0.0, quantile(vals, 0.5) - base)
+
+    model = {
+        "formula": "latency = first_byte + bytes / min(per_connection_bytes_per_s, nic_bytes_per_s / active_bodies)",
+        "first_byte_s": {"inverse_cdf": inverse_cdf(ttfb), "n": len(ttfb)},
+        "head_s": {"inverse_cdf": inverse_cdf(heads), "n": len(heads)},
+        "per_connection_bytes_per_s": per_connection,
+        "nic_bytes_per_s": nic,
+        "small_read_extra_first_byte_s": small_extra,
+    }
+    fresh_small = [
+        r["ttfb_ms"] / 1e3
+        for r in fresh
+        if r["kind"] != "head" and r["length"] <= 64 << 10 and ages[r["run"]] + r["start_us"] / 1e6 < FRESH_AGE_S
+    ]
+    if fresh_small:
+        model["fresh_object"] = {
+            "warm_after_age_s": FRESH_AGE_S,
+            "first_byte_multiplier_p50": quantile(fresh_small, 0.5) / base,
+            "n": len(fresh_small),
+        }
+    return model
+
+
+# Requests within a file are issued stage by stage, as vortex-file does: open the file, then read
+# the filter column, then the projection. Stages after the footer use the per-file concurrency.
+STAGES = ("head", "footer", "footer_rest", "zonemap", "filter", "segment", "project")
+SERIAL_STAGES = ("head", "footer", "footer_rest", "zonemap")
+
+
+def scan_tasks(reqs: list[dict]) -> list[list[tuple[int, list[tuple[str, int]]]]]:
+    """Rebuild one scan's per-file tasks (stages of `(kind, bytes)` requests) from its records."""
+    reqs = sorted(reqs, key=lambda r: r["seq"])
+    per_file_concurrency = reqs[0]["concurrency"]
+    by_file: dict[int, list[dict]] = defaultdict(list)
+    for r in reqs:
+        by_file[r["file"]].append(r)
+    tasks = []
+    for frs in by_file.values():
+        # Point lookups open the same file several times; each HEAD starts a new open.
+        opens: list[list[dict]] = [[]]
+        for r in frs:
+            if r["kind"] == "head" and opens[-1]:
+                opens.append([])
+            opens[-1].append(r)
+        for rs in opens:
+            stages = []
+            for kind in STAGES:
+                batch = [(r["kind"], 0 if kind == "head" else r["length"]) for r in rs if r["kind"] == kind]
+                if batch:
+                    stages.append((1 if kind in SERIAL_STAGES else per_file_concurrency, batch))
+            tasks.append(stages)
+    return tasks
+
+
+def simulate(
+    model: dict,
+    scans: list[list[list[tuple[int, list[tuple[str, int]]]]]],
+    file_concurrency: list[int],
+    delays: list[float],
+    rng: random.Random,
+) -> tuple[list[float], list[tuple[str, float]]]:
+    """Discrete-event simulation of concurrent scans under the request model.
+
+    Returns each scan's wall time and every request's `(kind, latency)`.
+    """
+    per_conn = model["per_connection_bytes_per_s"]
+    nic = model["nic_bytes_per_s"]
+    t = 0.0
+    timers: list[tuple[float, int]] = []
+    bodies: dict[int, float] = {}
+    reqs: dict[int, tuple[int, int, float, str, int]] = {}
+    next_id = 0
+    pending = [list(range(len(tasks))) for tasks in scans]
+    active = [0] * len(scans)
+    state: dict[tuple[int, int], list] = {}
+    started = [False] * len(scans)
+    done: list[float | None] = [None] * len(scans)
+    latencies: list[tuple[str, float]] = []
+
+    def issue(scan: int, task: int) -> None:
+        nonlocal next_id
+        stage, queue, inflight = state[(scan, task)]
+        limit = scans[scan][task][stage][0]
+        while queue and inflight < limit:
+            kind, n = queue.pop(0)
+            inflight += 1
+            cdf = model["head_s"] if kind == "head" else model["first_byte_s"]
+            next_id += 1
+            reqs[next_id] = (scan, task, t, kind, n)
+            heapq.heappush(timers, (t + sample(cdf["inverse_cdf"], rng), next_id))
+        state[(scan, task)][1:] = [queue, inflight]
+
+    def open_files(scan: int) -> None:
+        while pending[scan] and active[scan] < file_concurrency[scan]:
+            task = pending[scan].pop(0)
+            active[scan] += 1
+            state[(scan, task)] = [0, list(scans[scan][task][0][1]), 0]
+            issue(scan, task)
+
+    def finish(i: int) -> None:
+        scan, task, start, kind, _ = reqs.pop(i)
+        latencies.append((kind, t - start))
+        s = state[(scan, task)]
+        s[2] -= 1
+        if s[1]:
+            issue(scan, task)
+        elif s[2] == 0:
+            s[0] += 1
+            if s[0] < len(scans[scan][task]):
+                s[1] = list(scans[scan][task][s[0]][1])
+                issue(scan, task)
+            else:
+                active[scan] -= 1
+                open_files(scan)
+                if not pending[scan] and active[scan] == 0:
+                    done[scan] = t
+
+    while any(d is None for d in done):
+        for s in range(len(scans)):
+            if not started[s] and delays[s] <= t + 1e-12:
+                started[s] = True
+                open_files(s)
+                if not scans[s]:
+                    done[s] = t
+        rate = min(per_conn, nic / len(bodies)) if bodies else 0.0
+        next_body = t + min(bodies.values()) / rate if bodies else math.inf
+        next_timer = timers[0][0] if timers else math.inf
+        next_start = min((delays[s] for s in range(len(scans)) if not started[s]), default=math.inf)
+        now = min(next_body, next_timer, next_start)
+        if now == math.inf:
+            break
+        for i in bodies:
+            bodies[i] -= rate * (now - t)
+        t = now
+        for i in [i for i, left in bodies.items() if left <= 1e-6]:
+            del bodies[i]
+            finish(i)
+        while timers and timers[0][0] <= t + 1e-12:
+            _, i = heapq.heappop(timers)
+            if reqs[i][4] > 0:
+                bodies[i] = reqs[i][4]
+            else:
+                finish(i)
+    return [(d if d is not None else t) - delay for d, delay in zip(done, delays)], latencies
+
+
+def validate(model: dict, ok: list[dict], scans: list[dict]) -> dict:
+    """Replay every measured scan through the model and compare wall times."""
+    rng = random.Random(0)
+    by_scan: dict[tuple[str, int], list[dict]] = defaultdict(list)
+    for r in ok:
+        if r["phase"] == "scan":
+            by_scan[(r["run"], r["scan_id"])].append(r)
+    groups: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for s in scans:
+        groups[(s["run"], s["scenario"])].append(s)
+    measured: dict[str, list[float]] = defaultdict(list)
+    simulated: dict[str, list[float]] = defaultdict(list)
+    seg_sim: dict[str, list[float]] = defaultdict(list)
+    for (run, scenario), ss in sorted(groups.items()):
+        ss.sort(key=lambda s: s["scan_id"])
+        start = min(s["start_us"] for s in ss)
+        tasks = [scan_tasks(by_scan[(run, s["scan_id"])]) for s in ss if by_scan[(run, s["scan_id"])]]
+        if len(tasks) != len(ss):
+            continue
+        delays = [(s["start_us"] - start) / 1e6 for s in ss]
+        walls, lat = simulate(model, tasks, [s["file_concurrency"] for s in ss], delays, rng)
+        for s, w in zip(ss, walls):
+            measured[scenario].append((s["end_us"] - s["start_us"]) / 1e6)
+            simulated[scenario].append(w)
+        seg_sim[scenario] += [x for k, x in lat if k in ("segment", "filter", "project")]
+    seg_meas: dict[str, list[float]] = defaultdict(list)
+    for r in ok:
+        if r["phase"] == "scan" and r["kind"] in ("segment", "filter", "project"):
+            seg_meas[r["scenario"]].append(r["total_ms"] / 1e3)
+    out = {}
+    for scenario in measured:
+        m, p = quantile(measured[scenario], 0.5), quantile(simulated[scenario], 0.5)
+        out[scenario] = {
+            "measured_wall_s_p50": m,
+            "simulated_wall_s_p50": p,
+            "relative_error": (p - m) / m,
+            "measured_segment_s": {f"p{int(q * 100)}": quantile(seg_meas[scenario], q) for q in QUANTILES},
+            "simulated_segment_s": {f"p{int(q * 100)}": quantile(seg_sim[scenario], q) for q in QUANTILES},
+        }
+    return out
+
+
+def model_section(request_model: dict, validation: dict) -> list[str]:
+    fb = request_model["first_byte_s"]["inverse_cdf"]
+    at = {q: v for q, v in fb}
+    md = ["", "## Latency model", ""]
+    md.append(f"`{request_model['formula']}`, fitted from the microbenchmarks only:")
+    md.append("")
+    md.append(
+        f"- first byte: p50 {at[0.5] * 1e3:.1f} ms, p90 {at[0.9] * 1e3:.1f} ms, p99 {at[0.99] * 1e3:.1f} ms "
+        f"(inverse CDF in `model.json`)"
+    )
+    md.append(f"- per connection: {request_model['per_connection_bytes_per_s'] / MIB:.0f} MiB/s")
+    md.append(f"- instance network cap: {request_model['nic_bytes_per_s'] / MIB:.0f} MiB/s")
+    extra = request_model["small_read_extra_first_byte_s"]
+    if extra:
+        md.append(
+            "- extra first-byte latency for tiny reads: "
+            + ", ".join(f"{n} B +{v * 1e3:.1f} ms" for n, v in extra.items())
+        )
+    if "fresh_object" in request_model:
+        fresh = request_model["fresh_object"]
+        md.append(
+            f"- objects younger than {fresh['warm_after_age_s']} s: "
+            f"first byte x{fresh['first_byte_multiplier_p50']:.1f}"
+        )
+    if validation:
+        md += ["", "Scans replayed through the model against their measured wall time:", ""]
+        body = [
+            [
+                name,
+                f"{v['measured_wall_s_p50']:.2f}",
+                f"{v['simulated_wall_s_p50']:.2f}",
+                f"{v['relative_error']:+.0%}",
+                f"{v['measured_segment_s']['p50'] * 1e3:.0f} / {v['measured_segment_s']['p99'] * 1e3:.0f}",
+                f"{v['simulated_segment_s']['p50'] * 1e3:.0f} / {v['simulated_segment_s']['p99'] * 1e3:.0f}",
+            ]
+            for name, v in validation.items()
+        ]
+        md.append(
+            table(
+                ["scenario", "measured s", "simulated s", "error", "segment p50/p99 ms", "simulated p50/p99 ms"],
+                body,
+            )
+        )
     return md
 
 
@@ -443,8 +728,25 @@ def analyze(rows: list[dict], scans: list[dict], metas: list[dict]) -> tuple[str
             for b in (1, 1 << 10, 64 << 10, 1 << 20, 8 << 20)
         }
 
-    md += ["", "Raw per-request CSVs and `model.json` are in the workflow artifacts."]
-    return "\n".join(md) + "\n", model
+    request_model = fit_request_model(ok, fresh, ages)
+    validation = validate(request_model, ok, scans) if scans else {}
+    md += model_section(request_model, validation)
+    md += ["", "Raw per-request CSVs and the latency model (`model.json`) are in the workflow artifacts."]
+
+    environment = {
+        key: model.pop(key) for key in ("runs", "fresh_runs_excluded", "dataset_age_s", "requests", "errors")
+    }
+    environment["instance_types"] = instance_types
+    environment["availability_zones"] = sorted({m.get("meta", {}).get("availability_zone", "?") for m in metas})
+    fits = {key: model.pop(key) for key in ("serial", "multivariate_ols") if key in model}
+    return "\n".join(md) + "\n", {
+        "schema": SCHEMA,
+        "environment": environment,
+        "request_model": request_model,
+        "validation": validation,
+        "fits": fits,
+        "measurements": model,
+    }
 
 
 def main() -> int:
