@@ -73,6 +73,7 @@ use crate::layouts::zoned::writer::ZonedStrategy;
 use crate::scan::arrow::to_record_batch;
 use crate::scan::execution::SegmentLocation;
 use crate::scan::execution::row_chunks;
+use crate::scan::execution::scan_chunks;
 use crate::scan::scan_builder::ScanBuilder as V1ScanBuilder;
 use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
@@ -477,6 +478,24 @@ async fn arrow_stream_projects_across_chunks() -> VortexResult<()> {
 #[case::near_max(u64::MAX - 3..u64::MAX, vec![u64::MAX - 3..u64::MAX])]
 fn fixed_row_chunks(#[case] rows: Range<u64>, #[case] expected: Vec<Range<u64>>) {
     assert_eq!(row_chunks(rows, 65_536), expected);
+}
+
+/// A scan joins a chunk at either edge of its rows that is under half a chunk to its neighbour,
+/// so a partition whose edges fall off the chunk grid plans no sliver of a chunk.
+#[rstest]
+#[case::partition_tail(0..90_112, 81_920, vec![0..90_112])]
+#[case::partition_head(90_112..180_224, 81_920, vec![90_112..180_224])]
+#[case::long_head_kept(10..140_000, 65_536, vec![10..65_536, 65_536..140_000])]
+#[case::both_edges(60_000..140_000, 65_536, vec![60_000..140_000])]
+#[case::interior_kept(60_000..270_000, 65_536, vec![60_000..131_072, 131_072..196_608, 196_608..270_000])]
+#[case::single(5..100, 65_536, vec![5..100])]
+#[case::empty(5..5, 65_536, vec![])]
+fn scans_join_short_edge_chunks(
+    #[case] rows: Range<u64>,
+    #[case] rows_per_chunk: usize,
+    #[case] expected: Vec<Range<u64>>,
+) {
+    assert_eq!(scan_chunks(rows, rows_per_chunk), expected);
 }
 
 #[rstest]
