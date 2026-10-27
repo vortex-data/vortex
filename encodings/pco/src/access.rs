@@ -15,7 +15,7 @@ use crate::PcoArrayExt;
 use crate::page_index::LogicalPageIndex;
 
 const RANK_STRIDE: usize = 512;
-pub(crate) struct RankMask {
+struct RankMask {
     mask: Mask,
     ranks: OnceLock<Vec<usize>>,
 }
