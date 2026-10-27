@@ -40,7 +40,7 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps([dict(x, id="tpcds-nvme-"+str(sf), name="TPC-DS SF="+str(sf)+" on NVME", scale_factor=float(sf)) for x in json.load(sys.stdin) if x["id"] == "tpcds-nvme" for sf in (10,30)]))')"
+          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps([dict(x, id="tpcds-nvme-"+str(sf), name="TPC-DS SF="+str(sf)+" on NVME", scale_factor=float(sf)) for x in json.load(sys.stdin) if x["id"] == "tpcds-nvme" for sf in (1,10,30)]))')"
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   build:
@@ -225,13 +225,16 @@ jobs:
       - name: Make coarse baseline executable
         run: chmod +x target/coarse-baseline/datafusion-bench
 
-      - name: Download chunk prefetch baseline
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+      - name: Download planning and dense baseline
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
           name: bench-binaries
-          run-id: "40457856184"
+          run-id: 40457613012
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: target/prefetch-baseline
+          path: target/planning-baseline
+
+      - name: Make planning baseline executable
+        run: chmod +x target/planning-baseline/datafusion-bench
 
       - name: Install LLVM symbolizer if needed
         shell: bash
@@ -241,7 +244,7 @@ jobs:
             sudo apt-get install -y llvm
           fi
 
-      - name: Compare and profile bounded prefetch windows
+      - name: Compare planning, dense filtering, and early empty partitions
         shell: bash
         env:
           TOKIO_WORKER_THREADS: "8"

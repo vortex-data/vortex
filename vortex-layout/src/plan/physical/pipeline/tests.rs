@@ -20,10 +20,13 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
+use vortex_array::expr::pack;
+use vortex_array::expr::select;
 use vortex_array::expr::root;
 use vortex_array::serde::SerializeOptions;
 use vortex_buffer::Alignment;
@@ -979,4 +982,40 @@ fn pack_splits_filtered_values(
     let mask = sel.mask(ROWS as usize);
     let run = run(&store, &plan, 0..ROWS, mask.clone(), delivery(order))?;
     assert_view(&expected, &(0..ROWS), &mask, run.arrays)
+}
+
+#[rstest]
+#[case::select(false)]
+#[case::aliases(true)]
+fn direct_projection_preserves_field_order_and_aliases(#[case] aliases: bool) -> VortexResult<()> {
+    let mut store = Store::default();
+    let (plan, _) = two_columns(&mut store)?;
+    let a = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
+    let b = PrimitiveArray::from_iter((0..ROWS as i64).map(|v| v * 10)).into_array();
+    let (expression, expected) = if aliases {
+        (
+            pack(
+                [("x", get_item("b", root())), ("y", get_item("a", root())),
+                 ("z", get_item("a", root()))],
+                Nullability::NonNullable,
+            ),
+            StructArray::from_fields(&[("x", b), ("y", a.clone()), ("z", a)])?.into_array(),
+        )
+    } else {
+        (
+            select(["b", "a"], root()),
+            StructArray::from_fields(&[("b", b), ("a", a)])?.into_array(),
+        )
+    };
+    let expression = expression.bind(plan.dtype())?;
+    let plan = EvalPlan::try_new(expression, plan)?.into_plan();
+    let rows = 2..18;
+    let mask = Sel::EveryOther.mask(16);
+    for plan in [plan.clone(), optimize(plan, &SESSION)?] {
+        for order in [Delivery::Fifo, Delivery::Lifo] {
+            let result = run(&store, &plan, rows.clone(), mask.clone(), delivery(order))?;
+            assert_view(&expected, &rows, &mask, result.arrays)?;
+        }
+    }
+    Ok(())
 }
