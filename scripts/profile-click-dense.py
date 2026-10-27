@@ -47,17 +47,17 @@ combined = root / 'target/combined-baseline/datafusion-bench'
 for executable in [current_binary, planning, dense, combined]:
     executable.chmod(0o755)
 variants = [('v1', combined, False), ('accepted', current_binary, True), ('planning', planning, True), ('dense', dense, True), ('combined', combined, True)]
-Path('scan-provenance.json').write_text(json.dumps({'accepted_run': 40444903733, 'planning_run': 40456212933, 'dense_run': 40457613012, 'combined_run': 40461998987, 'scope': 'ClickBench dense-filter regression attribution; partial query set'}, indent=2))
+Path('scan-provenance.json').write_text(json.dumps({'accepted_run': 40444903733, 'planning_run': 40456212933, 'dense_run': 40457613012, 'combined_run': 40461998987, 'scope': 'ClickBench Q13 and Q37 full-suite regression repeat; partial query set'}, indent=2))
 for round_idx in range(5):
     for label_name, binary, v2 in variants[round_idx:] + variants[:round_idx]:
         label = f'scan-timing-r{round_idx}-{label_name}'
-        cmd = command(v2, '22,24,26,37,38,39,40,41,42', 9, label)
+        cmd = command(v2, '1,13,22,24,26,37', 9, label)
         Path(label + '.command.json').write_text(json.dumps({'command': cmd, 'env': profile_env}, indent=2))
         with open(label + '.log', 'w') as log:
             subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=600, check=True)
 for label_name, binary, v2 in variants:
     label = f'scan-metrics-{label_name}'
-    cmd = command(v2, '37,42', 1, label) + ['--show-metrics']
+    cmd = command(v2, '13,37', 1, label) + ['--show-metrics']
     with open(label + '.log', 'w') as log:
         subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=600, check=True)
 binary = current_binary
@@ -75,7 +75,7 @@ def frame_label(thread, index, symbols=None):
 
 summary.frame_label = frame_label
 binary_sha = hashlib.sha256(binary.read_bytes()).hexdigest()
-for query, iterations in [('37', 150), ('42', 250)]:
+for query, iterations in [('13', 30), ('37', 150)]:
     for label_name, binary, v2 in variants:
         binary_sha = hashlib.sha256(binary.read_bytes()).hexdigest()
         label = f'scan-q{query}-{label_name}'
