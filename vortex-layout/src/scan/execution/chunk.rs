@@ -39,7 +39,12 @@ pub(crate) fn rows_per_chunk(row_count: u64, locations: &[SegmentLocation]) -> u
     if row_count <= MAX_ROWS_PER_CHUNK as u64 {
         return MAX_ROWS_PER_CHUNK;
     }
-    rows_within_bytes(row_count, locations, TARGET_BYTES_PER_CHUNK, MAX_ROWS_PER_CHUNK)
+    rows_within_bytes(
+        row_count,
+        locations,
+        TARGET_BYTES_PER_CHUNK,
+        MAX_ROWS_PER_CHUNK,
+    )
 }
 
 /// The rows of a filtered chunk: [`FILTERED_ROWS_PER_CHUNK`], fewer where the file's rows are so
