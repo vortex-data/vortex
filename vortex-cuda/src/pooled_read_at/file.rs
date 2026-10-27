@@ -58,6 +58,10 @@ pub const DEFAULT_FILE_CONCURRENCY: usize = 32;
 // to limit blocking read sizes and start transfers before the whole segment is read.
 const FILE_READ_CHUNK_BYTES: usize = 8 << 20;
 
+/// Mapped copies alternate filling a chunk's page tables with copying the previous chunk, so
+/// smaller chunks start the device sooner, independently of the staged read size.
+const MAPPED_COPY_CHUNK_BYTES: usize = 4 << 20;
+
 /// Upper bound on blocks per mapped copy launch: a few per SM saturates host-memory reads.
 const MAPPED_COPY_BLOCKS_MAX: u64 = 1024;
 const MAPPED_COPY_THREADS: u32 = 256;
@@ -386,8 +390,8 @@ impl MappedFile {
         // The guard records the queued copies as the output's write when this scope ends,
         // including on error, so frees and readers on other streams wait for them.
         let (base, write) = output.device_ptr_mut(&self.stream);
-        for chunk in (0..length).step_by(FILE_READ_CHUNK_BYTES) {
-            let size = (length - chunk).min(FILE_READ_CHUNK_BYTES);
+        for chunk in (0..length).step_by(MAPPED_COPY_CHUNK_BYTES) {
+            let size = (length - chunk).min(MAPPED_COPY_CHUNK_BYTES);
             #[cfg(target_os = "linux")]
             {
                 let _fill = MAPPED_FILL.lock();

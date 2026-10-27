@@ -316,7 +316,7 @@ async fn cancelled_reads_keep_slots_and_buffers_until_blocking_io_finishes() -> 
     Ok(())
 }
 
-const MAPPED_FILE_BYTES: usize = 2 * FILE_READ_CHUNK_BYTES + 4096;
+const MAPPED_FILE_BYTES: usize = 2 * MAPPED_COPY_CHUNK_BYTES + 4096;
 
 /// Opens a real buffered file of `file_byte` content with the device-side mapped copy enabled.
 fn mapped_reader() -> VortexResult<(
@@ -346,8 +346,8 @@ fn mapped_reader() -> VortexResult<(
 #[case::empty(37, 0)]
 #[case::single_byte_unaligned(5, 1)]
 #[case::short_unaligned(15, 17)]
-#[case::chunk_aligned(0, FILE_READ_CHUNK_BYTES - 1)]
-#[case::chunks_with_tail(4091, 2 * FILE_READ_CHUNK_BYTES + 3)]
+#[case::chunk_aligned(0, MAPPED_COPY_CHUNK_BYTES - 1)]
+#[case::chunks_with_tail(4091, 2 * MAPPED_COPY_CHUNK_BYTES + 3)]
 #[case::through_file_end(0, MAPPED_FILE_BYTES)]
 #[crate::test]
 async fn mapped_reads_preserve_bytes_and_offsets(
@@ -423,9 +423,9 @@ async fn concurrent_mapped_reads_preserve_bytes_and_offsets() -> VortexResult<()
     reader.read_slots.close();
 
     let reads = [
-        (4091, 2 * FILE_READ_CHUNK_BYTES + 3),
+        (4091, 2 * MAPPED_COPY_CHUNK_BYTES + 3),
         (0, MAPPED_FILE_BYTES),
-        (FILE_READ_CHUNK_BYTES as u64 - 7, 3 * 4096),
+        (MAPPED_COPY_CHUNK_BYTES as u64 - 7, 3 * 4096),
     ];
     let buffers = wait_for(
         "concurrent mapped reads did not finish",
