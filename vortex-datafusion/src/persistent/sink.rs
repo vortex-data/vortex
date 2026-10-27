@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
@@ -135,7 +136,7 @@ impl FileSink for VortexSink {
 
         // TODO(adamg):
         // 1. We can probably be better at signaling how much memory we're consuming (potentially when reading too), see ParquetSink::spawn_writer_tasks_and_join.
-        while let Some((path, rx)) = file_stream_rx.recv().await {
+        while let Some((file, rx)) = file_stream_rx.recv().await {
             let session = self.session.clone();
             let object_store = Arc::clone(&object_store);
 
@@ -153,7 +154,7 @@ impl FileSink for VortexSink {
 
                 let stream_adapter = ArrayStreamAdapter::new(dtype, stream);
 
-                let mut object_writer = ObjectStoreWrite::new(object_store, &path)
+                let mut object_writer = ObjectStoreWrite::new(object_store, &file.path)
                     .await
                     .map_err(|e| exec_datafusion_err!("Failed to create ObjectStoreWrite: {e}"))?;
 
@@ -168,7 +169,11 @@ impl FileSink for VortexSink {
                     .await
                     .map_err(|e| exec_datafusion_err!("Failed to shutdown Vortex writer: {e}"))?;
 
-                Ok((path, summary))
+                // The Vortex writer doesn't report bytes incrementally, so DataFusion's
+                // `soft_max_bytes_per_output_file` only sees the final size.
+                file.size.store(summary.size(), Ordering::Relaxed);
+
+                Ok((file.path, summary))
             });
         }
 
