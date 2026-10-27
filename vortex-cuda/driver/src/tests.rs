@@ -136,3 +136,17 @@ fn pool_used_bytes(context: &CudaContext) -> Result<u64, DriverError> {
     }
     Ok(used)
 }
+
+/// The first recorded error is kept until checked, as later ones are likely its consequences.
+#[test]
+fn first_recorded_error_is_kept() -> Result<(), DriverError> {
+    let Some((context, ..)) = streams() else {
+        return Ok(());
+    };
+    let first = DriverError(sys::CUresult::CUDA_ERROR_INVALID_VALUE);
+    let second = DriverError(sys::CUresult::CUDA_ERROR_OUT_OF_MEMORY);
+    context.record_err::<()>(Err(first));
+    context.record_err::<()>(Err(second));
+    assert_eq!(context.check_err(), Err(first));
+    context.check_err()
+}
