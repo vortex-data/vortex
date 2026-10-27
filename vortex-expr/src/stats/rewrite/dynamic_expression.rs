@@ -171,7 +171,7 @@ impl DynamicExpressionSource for StatsProofSource {
             StructFields::new(names, self.input_dtypes.clone()),
             Nullability::NonNullable,
         );
-        let predicate = self.predicate.current(&input_scope)?;
+        let predicate = self.predicate.current(&input_scope)?.optimize_recursive()?;
         let proof = predicate.falsify(&self.session)?;
 
         // A proof that is `false` proves nothing.
@@ -201,6 +201,7 @@ mod tests {
     use vortex_array::expr::get_item as unbound_get_item;
     use vortex_array::expr::lit as unbound_lit;
     use vortex_array::expr::lt;
+    use vortex_array::expr::pack;
     use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
@@ -228,7 +229,13 @@ mod tests {
                 unbound_lit(true).bind(scope)
             } else {
                 lt(
-                    unbound_get_item(input_field_name(0), root()),
+                    unbound_get_item(
+                        "value",
+                        pack(
+                            [("value", unbound_get_item(input_field_name(0), root()))],
+                            Nullability::NonNullable,
+                        ),
+                    ),
                     unbound_lit(5u64),
                 )
                 .bind(scope)
