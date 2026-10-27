@@ -32,7 +32,6 @@ impl RuntimeFilter {
     fn current(&self) -> Option<Expression> {
         let snapshot = snapshot_physical_expr(Arc::clone(&self.expression)).ok()?;
         if snapshot
-            .as_any()
             .downcast_ref::<Literal>()
             .is_some_and(|literal| matches!(literal.value(), ScalarValue::Boolean(Some(true))))
         {
