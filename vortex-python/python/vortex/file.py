@@ -14,6 +14,7 @@ from ._lib.dtype import DType
 from ._lib.expr import Expr
 from ._lib.file import Footer, SegmentCache
 from ._lib.iter import ArrayIterator
+from .arrays import array
 from .dataset import VortexDataset
 from .io import ReadAt, ReadBytesAt
 from .scan import RepeatedScan
@@ -350,6 +351,8 @@ class VortexFile:
         from vortex.polars_ import decompose_predicate
 
         schema = self.dtype.to_arrow_schema()
+        # Type-checks translated predicates against the file's dtype before scanning.
+        scope = array(schema.empty_table())
 
         def _io_source(
             with_columns: list[str] | None,
@@ -363,7 +366,7 @@ class VortexFile:
             vx_predicate: Expr | None = None
             pl_predicate: pl.Expr | None = None
             if predicate is not None:
-                vx_predicate, pl_predicate = decompose_predicate(predicate)
+                vx_predicate, pl_predicate = decompose_predicate(predicate, scope)
 
             # A row limit only commutes with the residual filter if there is none.
             limit = n_rows if pl_predicate is None else None
