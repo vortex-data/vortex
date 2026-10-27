@@ -113,6 +113,7 @@ pub struct CUmemPool_attribute(pub c_int);
 
 impl CUmemPool_attribute {
     pub const CU_MEMPOOL_ATTR_RELEASE_THRESHOLD: Self = Self(4);
+    pub const CU_MEMPOOL_ATTR_USED_MEM_CURRENT: Self = Self(7);
 }
 
 /// The memory pool attribute type under the name of the driver header's enum.

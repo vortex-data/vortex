@@ -103,7 +103,7 @@ impl Access {
         kind: AccessKind,
     ) -> Result<(), DriverError> {
         let context = stream.context();
-        stream.bind()?;
+        stream.make_current()?;
         let mut state = self.state.lock();
         let id = stream.id();
         if let Some(write) = state.write
@@ -156,7 +156,7 @@ impl Access {
         kind: AccessKind,
     ) -> Result<(), DriverError> {
         let context = stream.context();
-        stream.bind()?;
+        stream.make_current()?;
         let mut state = self.state.lock();
         let id = stream.id();
         match kind {
@@ -197,7 +197,7 @@ impl Access {
 
     /// Makes the allocation stream wait for every other stream's access before a free.
     fn before_free(&self, owner: &CudaStream) -> Result<(), DriverError> {
-        owner.bind()?;
+        owner.make_current()?;
         let state = self.state.lock();
         let id = owner.id();
         if let Some(write) = state.write
@@ -276,7 +276,11 @@ impl Drop for SyncOnDrop<'_> {
                     .record_err(access.after(owner, stream, kind));
             }
             Pending::Event(event, stream) => {
-                stream.context().record_err(event.record(stream));
+                stream.context().record_err(
+                    stream
+                        .make_current()
+                        .and_then(|()| stream.record_raw(event.cu_event())),
+                );
             }
         }
     }
@@ -323,8 +327,11 @@ impl<T> std::fmt::Debug for CudaSlice<T> {
 impl<T> Drop for CudaSlice<T> {
     fn drop(&mut self) {
         let context = self.stream.context();
-        context.record_err(self.access.before_free(&self.stream));
-        context.record_err(self.stream.free_raw(self.pointer));
+        match self.access.before_free(&self.stream) {
+            Ok(()) => context.record_err(self.stream.free_raw(self.pointer)),
+            // Other streams may still access the memory without the waits: leak it instead.
+            Err(error) => context.record_err::<()>(Err(error)),
+        }
         self.access.release(context);
     }
 }
