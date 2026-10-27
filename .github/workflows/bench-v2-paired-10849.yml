@@ -1,0 +1,137 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+name: V2 paired comparison for PR 10849
+
+on:
+  push:
+    branches: ["ji/v2-cache-ci-rerun-10849"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - revision: base
+            sha: a59294e35e7109fac894a7a38a68f42db0c3c967
+          - revision: head
+            sha: a5e4a997da7f8bbc61c2db9a9e03918656abde37
+    runs-on: >-
+      ${{ format('runs-on={0}/runner=bench-dedicated/family=c8gd.8xlarge/image=ubuntu24-full-arm64-pre-v2/tag=v2-build-{1}/extras=s3-cache', github.run_id, matrix.revision) }}
+    env:
+      FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+      RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
+      - name: Build pinned revision with identical benchmark controls
+        env:
+          SOURCE_SHA: ${{ matrix.sha }}
+          REVISION: ${{ matrix.revision }}
+        run: |
+          git worktree add --detach source "$SOURCE_SHA"
+          mkdir -p "binaries/$REVISION"
+          python3 scripts/bench-v2-paired.py patch source > "binaries/$REVISION/patch.json"
+          cd source
+          cargo build --locked --bin data-gen --bin datafusion-bench --bin duckdb-bench --profile release_debug
+          cp target/release_debug/{data-gen,datafusion-bench,duckdb-bench} "../binaries/$REVISION/"
+          cp target/release_debug/build/vortex-duckdb-cache/duckdb-lib-*-prebuilt/libduckdb.so "../binaries/$REVISION/"
+          git diff > "../binaries/$REVISION/benchmark.patch"
+          cd ..
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          root = Path("binaries") / os.environ["REVISION"]
+          manifest = json.loads((root / "patch.json").read_text())
+          manifest["source_sha"] = os.environ["SOURCE_SHA"]
+          manifest["binaries_sha256"] = {
+              path.name: hashlib.file_digest(path.open("rb"), "sha256").hexdigest()
+              for path in root.iterdir() if path.name.endswith("-bench") or path.name == "data-gen"
+          }
+          (root / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          PY
+          tar -czf "v2-${REVISION}.tar.gz" -C binaries "$REVISION"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: v2-${{ matrix.revision }}-binaries
+          path: v2-${{ matrix.revision }}.tar.gz
+          retention-days: 7
+
+  compare:
+    needs: build
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: tpcds
+            scale: 1
+          - suite: tpcds
+            scale: 10
+          - suite: tpch
+            scale: 1
+          - suite: tpch
+            scale: 10
+          - suite: clickbench
+            scale: 1
+          - suite: fineweb
+            scale: 1
+    runs-on: >-
+      ${{ format('runs-on={0}/runner=bench-dedicated/family=c8gd.metal-24xl/image=ubuntu24-full-arm64-pre-v2/tag=v2-{1}-{2}/extras=s3-cache', github.run_id, matrix.suite, matrix.scale) }}
+    env:
+      FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+      BENCH_MAX_CPUS: "8"
+    steps:
+      - uses: runs-on/action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-duckdb
+      - uses: ./.github/actions/system-info
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          pattern: v2-*-binaries
+          path: downloaded
+          merge-multiple: true
+      - name: Unpack binaries and prepare identical input data
+        env:
+          SUITE: ${{ matrix.suite }}
+          SCALE: ${{ matrix.scale }}
+        run: |
+          mkdir binaries
+          for archive in downloaded/*.tar.gz; do tar -xzf "$archive" -C binaries; done
+          export LD_LIBRARY_PATH="$PWD/binaries/head"
+          options=()
+          if [[ "$SUITE" == tpch || "$SUITE" == tpcds ]]; then options=(--opt "scale-factor=$SCALE"); fi
+          binaries/head/data-gen "$SUITE" --formats vortex "${options[@]}"
+      - name: Stabilize benchmark environment
+        run: sudo bash scripts/setup-benchmark.sh
+      - name: Compare explicit V2 with cold, hot, and segment-cache reads
+        env:
+          SUITE: ${{ matrix.suite }}
+          SCALE: ${{ matrix.scale }}
+        run: |
+          bash scripts/bench-taskset.sh python3 -u scripts/bench-v2-paired.py run \
+            --suite "$SUITE" --scale "$SCALE" --binaries binaries --output results
+      - name: Publish run summary
+        if: always()
+        run: |
+          if [[ -f results/summary.md ]]; then cat results/summary.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        if: always()
+        with:
+          name: v2-${{ matrix.suite }}-sf${{ matrix.scale }}-results
+          path: results/
+          retention-days: 14
