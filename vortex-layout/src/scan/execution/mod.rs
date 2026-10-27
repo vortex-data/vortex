@@ -84,6 +84,8 @@ pub(crate) struct PreparedScan {
     pub(super) values: ValueCache,
     /// The rows of one chunk, the unit of work a chunk planner emits.
     pub(super) chunk_rows: usize,
+    /// Optional full-file boundaries supplied by the integration.
+    pub(super) natural_splits: Option<Arc<[u64]>>,
 }
 
 impl PreparedScan {

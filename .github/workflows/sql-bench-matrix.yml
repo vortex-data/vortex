@@ -233,7 +233,7 @@ jobs:
             sudo apt-get install -y llvm
           fi
 
-      - name: Compare and profile dense predicate masks
+      - name: Compare and profile natural V2 scan boundaries
         shell: bash
         env:
           TOKIO_WORKER_THREADS: "8"

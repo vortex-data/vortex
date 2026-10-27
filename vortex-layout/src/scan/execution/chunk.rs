@@ -108,7 +108,21 @@ impl ChunkPlanner {
         selection: Selection,
         kept: Option<Mask>,
     ) -> Self {
-        let chunks = row_chunks(rows.clone(), scan.chunk_rows).into_iter();
+        let chunks = if let Some(boundaries) = &scan.natural_splits {
+            let first = boundaries.partition_point(|row| *row <= rows.start).saturating_sub(1);
+            boundaries[first..]
+                .windows(2)
+                .take_while(|pair| pair[0] < rows.end)
+                .filter_map(|pair| {
+                    let start = pair[0].max(rows.start);
+                    let end = pair[1].min(rows.end);
+                    (start < end).then_some(start..end)
+                })
+                .collect::<Vec<_>>()
+        } else {
+            row_chunks(rows.clone(), scan.chunk_rows)
+        }
+        .into_iter();
         Self {
             scan,
             rows,

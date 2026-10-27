@@ -10,7 +10,6 @@ use rustc_hash::FxHashSet;
 use vortex_array::VortexSessionExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::BoundExpression;
-use vortex_array::scalar_fn::fns::between::Between;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexExpect;
@@ -62,8 +61,6 @@ struct PredicatePlan {
     /// An infallible predicate evaluated in the original row domain, without gathering and
     /// scattering its boolean result through the current selection.
     whole: bool,
-    /// Dense comparisons can intersect masks without gathering their boolean output.
-    dense_whole: bool,
 }
 
 impl FilterPlans {
@@ -89,14 +86,9 @@ impl FilterPlans {
                         .and_then(|function| function.as_opt::<Binary>())
                         .is_some_and(|operator| *operator == Operator::Or)
                 }) && infallible(expr);
-                let dense_whole = expr.as_scalar().is_some_and(|function| {
-                    function.is::<Between>()
-                        || function.as_opt::<Binary>().is_some_and(Operator::is_comparison)
-                }) && infallible(expr);
                 Ok(PredicatePlan {
                     plan: FilterPlan::new(plan).into_plan(),
                     whole: whole_predicate,
-                    dense_whole,
                 })
             })
             .collect::<VortexResult<_>>()?;
@@ -165,7 +157,7 @@ pub(super) struct FilterPlanner {
     selected: Option<SelectedRows>,
     filter: Arc<FilterPlans>,
     remaining: BitVec,
-    active: Option<(usize, bool, ScanAdaptor)>,
+    active: Option<(usize, ScanAdaptor)>,
     pieces: Vec<Mask>,
     announced: bool,
     /// Ids for hints, counting down from `u32::MAX` so they never meet an adaptor's fetch ids.
@@ -235,7 +227,7 @@ pub(super) fn piece_mask(session: &VortexSession, piece: Piece) -> VortexResult<
 
 impl IoConsumer for FilterPlanner {
     fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
-        if let Some((_, _, adaptor)) = &mut self.active {
+        if let Some((_, adaptor)) = &mut self.active {
             adaptor.set_io_result(request, result);
         }
     }
@@ -247,7 +239,7 @@ impl Planner for FilterPlanner {
             return State::Done;
         }
         match &self.active {
-            Some((_, _, adaptor)) if adaptor.state() != State::Done => adaptor.state(),
+            Some((_, adaptor)) if adaptor.state() != State::Done => adaptor.state(),
             _ => State::NeedsCompute,
         }
     }
@@ -295,7 +287,7 @@ impl Planner for FilterPlanner {
                 return Ok(PlannerOutput::NeedsIO(batch));
             }
         }
-        if let Some((index, whole, adaptor)) = &mut self.active {
+        if let Some((index, adaptor)) = &mut self.active {
             if adaptor.state() != State::Done {
                 return Ok(match adaptor.compute()? {
                     AdaptorStep::Yield => PlannerOutput::Continue,
@@ -308,7 +300,7 @@ impl Planner for FilterPlanner {
             }
             let input = selected.mask.true_count();
             let result = Mask::concat(self.pieces.iter())?;
-            if *whole {
+            if self.filter.predicates[*index].whole {
                 vortex_ensure_eq!(result.len(), selected.mask.len());
                 selected.mask = (&selected.mask).bitand(&result);
             } else {
@@ -335,17 +327,12 @@ impl Planner for FilterPlanner {
         }
         if let Some(index) = self.filter.expression.next_conjunct(&self.remaining) {
             self.remaining.set(index, false);
-            let predicate = &self.filter.predicates[index];
-            // Match MaskStage's dense evaluation threshold, but retain the original row
-            // domain so combining conjuncts needs no boolean gather and rank intersection.
-            let whole = predicate.whole
-                || (predicate.dense_whole && selected.mask.density() >= 0.2);
             let scan = Scan::try_new(
                 self.scan.session.clone(),
                 self.filter.predicates[index].plan.clone(),
                 vec![Split {
                     rows: selected.scope.rows.clone(),
-                    mask: if whole {
+                    mask: if self.filter.predicates[index].whole {
                         Mask::new_true(selected.mask.len())
                     } else {
                         selected.mask.clone()
@@ -356,7 +343,6 @@ impl Planner for FilterPlanner {
             .with_value_cache(self.scan.values.clone());
             self.active = Some((
                 index,
-                whole,
                 ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)),
             ));
             return Ok(PlannerOutput::Continue);

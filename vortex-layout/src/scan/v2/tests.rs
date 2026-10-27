@@ -337,7 +337,7 @@ async fn large_filtered_chunks_match_v1(#[case] cutoff: i32) -> VortexResult<()>
 async fn filter_matches_v1(
     #[values(Strategy::Flat, Strategy::Table, Strategy::ZonedTable)] strategy: Strategy,
     #[case] filter: Expression,
-    #[values(1, 2, 7)] selection_step: usize,
+    #[values(false, true)] sparse: bool,
 ) -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write(&session, strategy.get().as_ref()).await?;
@@ -350,9 +350,9 @@ async fn filter_matches_v1(
             .with_some_filter(Some(filter.bind(layout.dtype())?))
             .with_row_range(900..3100)
             .with_row_offset(100);
-        if selection_step > 1 {
+        if sparse {
             scan = scan.with_row_indices(StrictSortedBuffer::try_new(Buffer::from_iter(
-                (0..4000u64).step_by(selection_step),
+                (0..4000u64).step_by(7),
             ))?);
         }
         Ok(scan)
@@ -379,6 +379,7 @@ impl Strategy {
 #[tokio::test]
 async fn matches_v1(
     #[values(Strategy::Flat, Strategy::Table, Strategy::ZonedTable)] strategy: Strategy,
+    #[values(false, true)] natural: bool,
     #[case] row_range: Option<Range<u64>>,
     #[case] rows: Option<&'static [u64]>,
 ) -> VortexResult<()> {
@@ -386,6 +387,9 @@ async fn matches_v1(
     let (segments, layout) = write(&session, strategy.get().as_ref()).await?;
     assert_same_as_v1(&session, || {
         let mut builder = builder(&session, &segments, &layout)?;
+        if natural {
+            builder = builder.with_natural_splits(vec![0, 1001, 2003, 4000].into());
+        }
         if let Some(row_range) = row_range.clone() {
             builder = builder.with_row_range(row_range);
         }
@@ -1021,4 +1025,18 @@ fn partition_rows_preserve_coverage(#[case] row_count: u64) {
     if row_count == 102_000 {
         assert_eq!(rows.iter().filter(|range| !range.is_empty()).count(), 2);
     }
+}
+
+#[rstest]
+#[case::missing_start(vec![1, 4000])]
+#[case::missing_end(vec![0, 3999])]
+#[case::repeated(vec![0, 1000, 1000, 4000])]
+#[case::empty(vec![])]
+#[tokio::test]
+async fn invalid_natural_splits_return_error(#[case] boundaries: Vec<u64>) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write(&session, chunked_flat().as_ref()).await?;
+    let scan = builder(&session, &segments, &layout)?.with_natural_splits(boundaries.into());
+    assert!(ScanRun::try_new(scan).is_err());
+    Ok(())
 }

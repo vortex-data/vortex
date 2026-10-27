@@ -41,7 +41,7 @@ def command(v2, query, iterations, label):
             '--ingest-jsonl', label + '.jsonl', '--opt', f'scale-factor={scale}']
 
 current_binary = binary
-variants = [('v1', current_binary, False), ('published', root / 'target/coarse-baseline/datafusion-bench', True), ('dense', current_binary, True)]
+variants = [('v1', current_binary, False), ('published', root / 'target/coarse-baseline/datafusion-bench', True), ('natural', current_binary, True)]
 for round in range(3):
     for label_name, binary, v2 in variants[round:] + variants[:round]:
         label = f'scan-timing-r{round}-{label_name}'
@@ -51,7 +51,7 @@ for round in range(3):
             subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=600, check=True)
 for label_name, binary, v2 in variants:
     label = f'scan-metrics-{label_name}'
-    cmd = command(v2, '48', 1, label) + ['--show-metrics']
+    cmd = command(v2, '20,32,58', 1, label) + ['--show-metrics']
     with open(label + '.log', 'w') as log:
         subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=600, check=True)
 binary = current_binary
@@ -69,7 +69,7 @@ def frame_label(thread, index, symbols=None):
 
 summary.frame_label = frame_label
 binary_sha = hashlib.sha256(binary.read_bytes()).hexdigest()
-for query, iterations in [('48', 30), ('41', 300)]:
+for query, iterations in [('32', 200), ('58', 30)]:
     for label_name, binary, v2 in variants:
         binary_sha = hashlib.sha256(binary.read_bytes()).hexdigest()
         label = f'scan-q{query}-{label_name}'
