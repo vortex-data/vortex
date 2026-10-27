@@ -33,6 +33,7 @@ on:
           - "pr-full"
 
 permissions:
+  actions: read
   contents: read
   pull-requests: write  # for commenting on PRs
   id-token: write  # enables AWS-GitHub OIDC

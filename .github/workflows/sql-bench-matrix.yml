@@ -239,7 +239,15 @@ jobs:
             -o sizes.json
           cat sizes.json >> results.json
 
-      - name: Compare scan versions
+      - name: Download published V2 baseline
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: bench-binaries
+          run-id: "40420842425"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: target/structural-baseline/
+
+      - name: Compare scan versions on the same runner
         shell: bash
         env:
           TOKIO_WORKER_THREADS: "8"
@@ -247,18 +255,57 @@ jobs:
           RUST_LOG: warn
         run: |
           set -Eeuo pipefail
-          for round in 0 1 2; do
-            versions="false true"
-            if [ "$round" = 1 ]; then versions="true false"; fi
-            for v2 in $versions; do
-              target/release_debug/datafusion-bench tpcds --formats vortex \
-                --queries 13,28,41,49 --iterations 9 --scan-v2 "$v2" --hide-progress-bar \
-                --runner "${{ inputs.machine_type }}-scan-comparison-8workers" \
-                --display-format gh-json --opt scale-factor=${{ matrix.scale_factor }} \
-                --ingest-jsonl "scan-r${round}-v2-${v2}.jsonl" \
-                > "scan-r${round}-v2-${v2}.log" 2>&1
-            done
-          done
+          chmod +x target/structural-baseline/datafusion-bench
+          python3 - <<'PY'
+          import json
+          import os
+          import resource
+          import subprocess
+          import time
+          from pathlib import Path
+
+          variants = {
+              "v1": ("target/release_debug/datafusion-bench", "false"),
+              "structural": ("target/structural-baseline/datafusion-bench", "true"),
+              "coordinated": ("target/release_debug/datafusion-bench", "true"),
+          }
+          def measure(label, variant, queries, iterations):
+              binary, v2 = variants[variant]
+              command = [
+                  binary, "tpcds", "--formats", "vortex", "--queries", queries,
+                  "--iterations", str(iterations), "--scan-v2", v2,
+                  "--hide-progress-bar", "--display-format", "gh-json",
+                  "--runner", "${{ inputs.machine_type }}-paired-scan-8workers",
+                  "--opt", "scale-factor=${{ matrix.scale_factor }}",
+                  "--ingest-jsonl", label + ".jsonl",
+              ]
+              before = resource.getrusage(resource.RUSAGE_CHILDREN)
+              started = time.monotonic()
+              with open(label + ".log", "w") as log:
+                  subprocess.run(command, stdout=log, stderr=subprocess.STDOUT,
+                                 timeout=600, check=True)
+              after = resource.getrusage(resource.RUSAGE_CHILDREN)
+              result = {
+                  "variant": variant, "queries": queries, "iterations": iterations,
+                  "command": command, "elapsed_seconds": time.monotonic() - started,
+                  "user_seconds": after.ru_utime - before.ru_utime,
+                  "system_seconds": after.ru_stime - before.ru_stime,
+                  "input_blocks": after.ru_inblock - before.ru_inblock,
+                  "major_faults": after.ru_majflt - before.ru_majflt,
+                  "env": {k: os.environ[k] for k in (
+                      "TOKIO_WORKER_THREADS", "DATAFUSION_EXECUTION_TARGET_PARTITIONS")},
+              }
+              Path(label + ".resources.json").write_text(json.dumps(result, indent=2))
+              print(json.dumps(result), flush=True)
+
+          order = list(variants)
+          for round in range(3):
+              for variant in order[round:] + order[:round]:
+                  measure(f"scan-r{round}-{variant}", variant, "13,28,41,49", 15)
+          for round in range(2):
+              for variant in (order if round == 0 else list(reversed(order))):
+                  measure(f"scan-cpu-r{round}-{variant}", variant, "41", 300)
+          PY
 
       - name: Upload scan comparison
         if: always()
@@ -268,6 +315,7 @@ jobs:
           path: |
             scan-*.jsonl
             scan-*.log
+            scan-*.resources.json
 
       - name: Compare results
         if: inputs.mode == 'pr'
