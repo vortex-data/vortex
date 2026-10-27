@@ -49,7 +49,6 @@ use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_error::vortex_ensure;
 use vortex_io::request::IoService;
 use vortex_io::request::IoSource;
 use vortex_io::runtime::Handle;
@@ -127,7 +126,6 @@ pub struct ScanBuilder<A = ArrayRef> {
     filter: Option<BoundExpression>,
     ordered: bool,
     row_range: Option<Range<u64>>,
-    natural_splits: Option<Arc<[u64]>>,
     selection: Selection,
     concurrency: usize,
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
@@ -144,7 +142,6 @@ impl ScanBuilder<ArrayRef> {
             file,
             ordered: true,
             row_range: None,
-            natural_splits: None,
             selection: Selection::default(),
             concurrency: 4,
             map_fn: Arc::new(Ok),
@@ -199,13 +196,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
-    /// Supplies strictly increasing full-file row boundaries, including zero and the row count.
-    /// These replace fixed work chunks and are clipped to the scan's row range.
-    pub fn with_natural_splits(mut self, boundaries: Arc<[u64]>) -> Self {
-        self.natural_splits = Some(boundaries);
-        self
-    }
-
     /// Applies a row selection within the scan's row range.
     pub fn with_selection(mut self, selection: Selection) -> Self {
         self.selection = selection;
@@ -243,7 +233,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
             filter: self.filter,
             ordered: self.ordered,
             row_range: self.row_range,
-            natural_splits: self.natural_splits,
             selection: self.selection,
             concurrency: self.concurrency,
             row_offset: self.row_offset,
@@ -292,14 +281,6 @@ impl<A: 'static + Send> ScanRun<A> {
             None => cache.insert_root(lower(&file.layout)?),
         };
         let row_count = root.row_count();
-        if let Some(boundaries) = &builder.natural_splits {
-            vortex_ensure!(
-                boundaries.first() == Some(&0)
-                    && boundaries.last() == Some(&row_count)
-                    && boundaries.windows(2).all(|pair| pair[0] < pair[1]),
-                "Natural splits must strictly increase from zero to the file row count"
-            );
-        }
         let filter = builder
             .filter
             .map(|filter| -> VortexResult<_> {
@@ -327,9 +308,6 @@ impl<A: 'static + Send> ScanRun<A> {
             }
         };
         let rows = builder.row_range.unwrap_or(0..row_count);
-        if builder.natural_splits.is_some() {
-            vortex_ensure!(rows.start <= rows.end && rows.end <= row_count, "Invalid scan row range");
-        }
         let chunk_rows = if filter.is_some() {
             let projected_bytes = if identity {
                 total_bytes(&file.locations)
@@ -373,7 +351,6 @@ impl<A: 'static + Send> ScanRun<A> {
                 row_offset: builder.row_offset,
                 values: cache.values(),
                 chunk_rows,
-                natural_splits: builder.natural_splits,
             }),
             io,
             rows,

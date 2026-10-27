@@ -120,7 +120,7 @@ pub(crate) struct VortexOpener {
     /// The V2 scan cache each open file's partitions share: its lowered layout, filter and
     /// projection plans, proved zones and dictionary values, built once per file.
     pub scan_caches: Arc<DashMap<FileVersion, WeakScanCache>>,
-    /// Shared full-file natural splits keyed by file path; V2 also checks file metadata.
+    /// Shared V1 full-file natural splits keyed by file path.
     pub natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by file path.
     pub file_schemas: Arc<DashMap<Path, SchemaRef>>,
@@ -430,23 +430,6 @@ impl FileOpener for VortexOpener {
                 Ok(RecordBatch::from(arrow.as_struct().clone()))
             };
             let stream = if scan_v2 {
-                let splits = if native_filter.is_none() && vxf.row_count() > 262_144 {
-                    Some(cached_natural_splits(
-                        natural_splits.as_ref(),
-                        &file.object_meta.location,
-                        Some(file.object_meta.clone()),
-                        || {
-                            let reader = vxf.layout_reader().map_err(|e| {
-                                exec_datafusion_err!("Failed to create split metadata reader: {e}")
-                            })?;
-                            let scan = ScanBuilder::new(vxf.session().clone(), reader)
-                                .with_projection(scan_projection.clone());
-                            compute_natural_splits(&scan, file.object_meta.size)
-                        },
-                    )?)
-                } else {
-                    None
-                };
                 let mut scan_file = vxf.scan_file();
                 scan_file.segments = shared_segment_source(
                     &segment_sources,
@@ -460,21 +443,11 @@ impl FileOpener for VortexOpener {
                     .with_ordered(has_output_ordering);
                 if let Some(bytes) = byte_range {
                     // Every partition maps the same byte boundary to the same row boundary.
-                    let rows = if let Some(splits) = &splits {
-                        let Some(rows) = split_aligned_row_range(bytes, splits) else {
-                            return Ok(stream::empty().boxed());
-                        };
-                        rows
-                    } else {
-                        partition_row_range(bytes, file.object_meta.size, vxf.row_count())
-                    };
+                    let rows = partition_row_range(bytes, file.object_meta.size, vxf.row_count());
                     if rows.is_empty() {
                         return Ok(stream::empty().boxed());
                     }
                     builder = builder.with_row_range(rows);
-                }
-                if let Some(splits) = splits {
-                    builder = builder.with_natural_splits(Arc::clone(&splits.row_boundaries));
                 }
                 if let Some(selection) = file
                     .extensions
@@ -633,8 +606,6 @@ impl FileOpener for VortexOpener {
 /// tiling the file's rows exactly once.
 #[derive(Debug)]
 pub(crate) struct NaturalSplits {
-    /// V2 validates cached boundaries against the complete file metadata.
-    version: Option<ObjectMeta>,
     /// Sorted row boundaries of the natural splits; split `i` covers
     /// `row_boundaries[i]..row_boundaries[i + 1]`. Shared so partitions can hand the
     /// boundaries back to the scan via [`ScanBuilder::with_natural_splits`], skipping the
@@ -673,7 +644,6 @@ impl NaturalSplits {
         );
 
         Self {
-            version: None,
             row_boundaries,
             assignment_bytes,
         }
@@ -748,35 +718,21 @@ fn natural_splits_for_file<A: 'static + Send>(
     scan_builder: &ScanBuilder<A>,
     total_size: u64,
 ) -> DFResult<Arc<NaturalSplits>> {
-    cached_natural_splits(natural_splits, path, None, || compute_natural_splits(scan_builder, total_size))
-}
-
-fn cached_natural_splits(
-    natural_splits: &DashMap<Path, Arc<NaturalSplits>>,
-    path: &Path,
-    version: Option<ObjectMeta>,
-    compute: impl FnOnce() -> DFResult<NaturalSplits>,
-) -> DFResult<Arc<NaturalSplits>> {
-    if let Some(splits) = natural_splits.get(path)
-        && splits.version == version
-    {
+    if let Some(splits) = natural_splits.get(path) {
         return Ok(Arc::clone(splits.value()));
     }
-    // Hold the entry while walking metadata so concurrent partitions share the result.
-    let entry = natural_splits.entry(path.clone());
-    if let Entry::Occupied(ref entry) = entry
-        && entry.get().version == version
-    {
-        return Ok(Arc::clone(entry.get()));
+
+    // Compute while holding the entry so concurrent partitions opening the same file wait
+    // for the winner instead of all walking the layout tree; the redundant walks contend on
+    // the lazily-initialized layout children and dominate the cost of the computation itself.
+    match natural_splits.entry(path.clone()) {
+        Entry::Occupied(entry) => Ok(Arc::clone(entry.get())),
+        Entry::Vacant(entry) => {
+            let splits = compute_natural_splits(scan_builder, total_size)?;
+            entry.insert(Arc::clone(&splits));
+            Ok(splits)
+        }
     }
-    let mut splits = compute()?;
-    splits.version = version;
-    let splits = Arc::new(splits);
-    match entry {
-        Entry::Occupied(mut entry) => { entry.insert(Arc::clone(&splits)); }
-        Entry::Vacant(entry) => { entry.insert(Arc::clone(&splits)); }
-    }
-    Ok(splits)
 }
 
 /// Walk the layout tree to compute the file's full natural split boundaries for the fields
@@ -784,15 +740,15 @@ fn cached_natural_splits(
 fn compute_natural_splits<A: 'static + Send>(
     scan_builder: &ScanBuilder<A>,
     total_size: u64,
-) -> DFResult<NaturalSplits> {
+) -> DFResult<Arc<NaturalSplits>> {
     let row_boundaries = scan_builder
         .full_file_splits()
         .map_err(|e| exec_datafusion_err!("Failed to compute Vortex natural splits: {e}"))?;
 
-    Ok(NaturalSplits::new(
+    Ok(Arc::new(NaturalSplits::new(
         row_boundaries.into(),
         total_size,
-    ))
+    )))
 }
 
 /// Translate a DataFusion byte range to the contiguous natural split ranges it owns.
