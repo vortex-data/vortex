@@ -481,9 +481,16 @@ impl Drop for MappedFile {
         // drops when the scan has requested its last segment, typically on the thread that
         // decodes the scan's batches; waiting there for the copy stream to drain stalled every
         // decode and selection launch behind the scan's remaining copies.
+        // Wait only for the copies queued so far, not for later work of other scans sharing the
+        // pooled stream, which would delay this and every later release.
+        let copies = self.stream.record_event(None);
         let stream = self.stream.clone();
         release_in_background(Box::new(move || {
-            if stream.synchronize().is_err() {
+            let copied = match copies {
+                Ok(copies) => copies.synchronize(),
+                Err(_) => stream.synchronize(),
+            };
+            if copied.is_err() {
                 // Without proof the copies finished, never unmap memory the device may read.
                 let _leaked = ManuallyDrop::new(file);
                 return;
