@@ -25,7 +25,7 @@ for stage, rounds, iterations, selected in [('all', 1, 5, queries), ('guards', 3
             shift = (q + rnd) % len(variants)
             for name, binary, v2 in variants[shift:] + variants[:shift]:
                 label = f'scan-{stage}-r{rnd}-q{q}-{name}'
-                cmd = [str(binary), suite, '--formats', 'vortex', '--queries', str(q), '--iterations', str(iterations), '--scan-v2', str(v2).lower(), '--hide-progress-bar', '--display-format', 'gh-json', '--ingest-jsonl', label + '.jsonl']
+                cmd = [str(binary), suite, '--formats', 'vortex', '--queries', str(q), '--iterations', str(iterations), '--scan-v2', str(v2).lower(), '--hide-progress-bar', '--runner', 'scan-sharing-all-8workers', '--display-format', 'gh-json', '--ingest-jsonl', label + '.jsonl']
                 if suite == 'tpcds':
                     cmd += ['--opt', f'scale-factor={scale}']
                 Path(label + '.command.json').write_text(json.dumps({'command': cmd, 'env': {k: env[k] for k in ['TOKIO_WORKER_THREADS', 'DATAFUSION_EXECUTION_TARGET_PARTITIONS', 'RUST_LOG']}}, indent=2))
@@ -46,3 +46,6 @@ for stage, rounds, iterations, selected in [('all', 1, 5, queries), ('guards', 3
                 records.append(record)
                 Path('scan-results.json').write_text(json.dumps(records, indent=2))
                 print(json.dumps(record), flush=True)
+
+if any(record['status'] != 'ok' for record in records):
+    raise SystemExit('Some queries failed or timed out; see scan-results.json')
