@@ -92,7 +92,7 @@ impl PageLookup {
             .as_ref()
             .is_some_and(|last| last.pages.contains(&page))
         {
-            let info = index.physical(page)?;
+            let info = index.chunk_for_page(page)?;
             let result = (info.chunk, info.n_values);
             self.last = Some(info);
             return Ok(result);

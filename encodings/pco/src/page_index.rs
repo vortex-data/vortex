@@ -68,8 +68,8 @@ impl LogicalPageIndex {
     /// Returns the owning chunk, that chunk's page-number range, and this page's
     /// decoded value count (excluding null rows). There are no separate logical pages:
     /// `rows()` describes the logical rows covered by the same compressed page.
-    pub fn physical(&self, page: usize) -> VortexResult<PhysicalPage> {
-        let chunk = self.chunk_ends.partition_point(|end| *end <= page);
+    pub fn chunk_for_page(&self, page_index: usize) -> VortexResult<PhysicalPage> {
+        let chunk = self.chunk_ends.partition_point(|end| *end <= page_index);
         let start = if chunk == 0 {
             0
         } else {
@@ -79,7 +79,7 @@ impl LogicalPageIndex {
             .metadata
             .chunks
             .get(chunk)
-            .and_then(|chunk| chunk.pages.get(page - start))
+            .and_then(|chunk| chunk.pages.get(page_index - start))
             .ok_or_else(|| vortex_err!("Pco page metadata is missing"))?;
         Ok(PhysicalPage {
             chunk,
