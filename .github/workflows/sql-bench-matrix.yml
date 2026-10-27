@@ -63,13 +63,16 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           enable-sccache: ${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && 'true' || 'false' }}
-      - name: Reuse measured I/O batching binaries
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          name: bench-binaries
-          run-id: "40434379634"
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: target/release_debug
+      - name: Build binaries
+        shell: bash
+        env:
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+        run: |
+          packages=(--bin data-gen --bin datafusion-bench --bin duckdb-bench)
+          if [ "${{ inputs.mode }}" != "pr" ]; then
+            packages+=(--bin lance-bench)
+          fi
+          cargo build "${packages[@]}" --profile release_debug
       - parallel:
           - name: Upload binaries
             uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
@@ -211,11 +214,11 @@ jobs:
             -o sizes.json
           cat sizes.json >> results.json
 
-      - name: Download coarse partition baseline
+      - name: Download published scan baseline
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
           name: bench-binaries
-          run-id: 40432389813
+          run-id: 40439539210
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: target/coarse-baseline
 
@@ -230,7 +233,7 @@ jobs:
             sudo apt-get install -y llvm
           fi
 
-      - name: Compare Q20 and Q32 read batching
+      - name: Compare and profile streaming projection batches
         shell: bash
         env:
           TOKIO_WORKER_THREADS: "8"
