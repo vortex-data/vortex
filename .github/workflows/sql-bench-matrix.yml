@@ -40,7 +40,7 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps([x for x in json.load(sys.stdin) if x["id"] == "clickbench-nvme"]))')"
+          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps([y for x in json.load(sys.stdin) for y in ([x] if x["id"] == "clickbench-nvme" else [dict(x, id="tpcds-nvme-"+str(sf), name="TPC-DS SF="+str(sf)+" on NVME", scale_factor=float(sf)) for sf in (1,10,30)] if x["id"] == "tpcds-nvme" else [])]))')"
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   build:
@@ -63,13 +63,16 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           enable-sccache: ${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && 'true' || 'false' }}
-      - name: Reuse accepted scan binaries
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          name: bench-binaries
-          run-id: "40444903733"
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: target/release_debug
+      - name: Build binaries
+        shell: bash
+        env:
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+        run: |
+          packages=(--bin data-gen --bin datafusion-bench --bin duckdb-bench)
+          if [ "${{ inputs.mode }}" != "pr" ]; then
+            packages+=(--bin lance-bench)
+          fi
+          cargo build "${packages[@]}" --profile release_debug
       - parallel:
           - name: Upload binaries
             uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
@@ -95,7 +98,7 @@ jobs:
 
   bench:
     needs: [resolve-matrix, build]
-    timeout-minutes: 120
+    timeout-minutes: 180
     env:
       FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
       # Makes python output nicer
@@ -222,39 +225,31 @@ jobs:
             -o sizes.json
           cat sizes.json >> results.json
 
-      - name: Download cached scan binary
+      - name: Download accepted scan baseline
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: bench-binaries
-          run-id: 40448514623
+          run-id: "40444903733"
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: target/cached-baseline
+          path: target/accepted-baseline/
 
-      - name: Download casts scan binary
+      - name: Download planning baseline
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: bench-binaries
-          run-id: 40446795204
+          run-id: "40456212933"
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: target/casts-baseline
+          path: target/planning-baseline
 
-      - name: Download combined scan binary
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          name: bench-binaries
-          run-id: 40450616646
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: target/combined-baseline
-
-      - name: Isolate SF1 candidate regressions
+      - name: Compare all queries and repeated guards
         shell: bash
-        run: python3 scripts/compare-click-isolation.py "${{ matrix.subcommand }}" "${{ matrix.scale_factor }}"
+        run: python3 scripts/compare-combined-all.py "${{ matrix.subcommand }}" "${{ matrix.scale_factor }}"
 
       - name: Upload scan comparison
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: scan-sf1-isolation-${{ matrix.id }}
+          name: scan-sharing-all-${{ matrix.id }}
           path: scan-*
 
       - name: Compare results
