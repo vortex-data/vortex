@@ -372,6 +372,8 @@ impl VortexDataSource {
 /// fetch-limited scans use one lane to preserve partition sequence and a global
 /// fetch limit. Direct [`DataSource::open`] calls support only a single output lane;
 /// multiple lanes must be opened through [`DataSourceExec`] or shared [`OpenArgs`].
+/// Dropping a lane before completion cancels its execution; other lanes report an error.
+/// Unopened lanes retain execution resources until the execution plan is reset or dropped.
 ///
 /// [`DataSourceExec`]: datafusion_datasource::source::DataSourceExec
 ///
@@ -457,6 +459,11 @@ impl VortexDataSource {
         partition: usize,
         execution: Arc<ScanExecution>,
     ) -> DFResult<SendableRecordBatchStream> {
+        if execution.cancelled.load(Ordering::Acquire) {
+            return Err(DataFusionError::Execution(
+                "scan execution cancelled".into(),
+            ));
+        }
         let claimed = execution.claimed.get(partition).ok_or_else(|| {
             DataFusionError::Execution(format!("invalid scan output partition {partition}"))
         })?;
@@ -510,7 +517,6 @@ impl VortexDataSource {
             .boxed();
             self.batch_stream(partitions, partition, metrics.clone())?
         };
-        execution.active.fetch_add(1, Ordering::AcqRel);
         Ok(Box::pin(ScanLane {
             schema: Arc::clone(&self.leftover_schema),
             stream: Some(stream),
@@ -624,7 +630,8 @@ impl VortexDataSource {
 
 struct ScanExecution {
     claimed: Vec<AtomicBool>,
-    active: AtomicUsize,
+    remaining: AtomicUsize,
+    cancelled: AtomicBool,
     partitions: OnceCell<VortexResult<Mutex<Option<PartitionStream>>>>,
 }
 
@@ -632,7 +639,8 @@ impl ScanExecution {
     fn new(lanes: usize) -> Self {
         Self {
             claimed: (0..lanes).map(|_| AtomicBool::new(false)).collect(),
-            active: AtomicUsize::new(0),
+            remaining: AtomicUsize::new(lanes),
+            cancelled: AtomicBool::new(false),
             partitions: OnceCell::new(),
         }
     }
@@ -651,9 +659,15 @@ impl Stream for ScanLane {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let metrics = self.metrics.clone();
         let _timer = metrics.elapsed_compute().timer();
-        let result = match self.stream.as_mut() {
-            Some(stream) => stream.as_mut().poll_next(cx),
-            None => Poll::Ready(None),
+        let result = if self.stream.is_some() && self.execution.cancelled.load(Ordering::Acquire) {
+            Poll::Ready(Some(Err(DataFusionError::Execution(
+                "scan execution cancelled".into(),
+            ))))
+        } else {
+            match self.stream.as_mut() {
+                Some(stream) => stream.as_mut().poll_next(cx),
+                None => Poll::Ready(None),
+            }
         };
         if matches!(result, Poll::Ready(None | Some(Err(_)))) {
             self.stream = None;
@@ -670,8 +684,12 @@ impl RecordBatchStream for ScanLane {
 
 impl Drop for ScanLane {
     fn drop(&mut self) {
+        if self.stream.is_some() {
+            self.execution.cancelled.store(true, Ordering::Release);
+        }
         drop(self.stream.take());
-        if self.execution.active.fetch_sub(1, Ordering::AcqRel) == 1
+        let remaining = self.execution.remaining.fetch_sub(1, Ordering::AcqRel);
+        if (remaining == 1 || self.execution.cancelled.load(Ordering::Acquire))
             && let Some(Ok(partitions)) = self.execution.partitions.get()
             && let Some(mut partitions) = partitions.try_lock()
         {
@@ -778,7 +796,7 @@ impl DataSource for VortexDataSource {
         } else {
             statistics
         };
-        // The adapter exposes one output partition, so fetch applies globally.
+        // Fetch is accepted only for one output lane, so it applies globally.
         Ok(Arc::new(statistics.with_fetch(self.limit, 0, 1)?))
     }
 
@@ -1307,6 +1325,10 @@ mod tests {
             .repartitioned(4, 0, None)?
             .expect("repartitioning supported");
         assert_eq!(source.output_partitioning().partition_count(), 4);
+        assert_eq!(
+            source.partition_statistics(Some(0))?.num_rows,
+            DFPrecision::Absent
+        );
         assert!(source.with_fetch(Some(1)).is_none());
         assert!(source.open(0, Arc::new(TaskContext::default())).is_err());
         let plan = Arc::new(DataSourceExec::new(Arc::clone(&source))) as Arc<dyn ExecutionPlan>;
@@ -1343,6 +1365,15 @@ mod tests {
         assert_eq!(values(reset), [0, 1, 100, 101]);
         assert_eq!(values(independent), [0, 1, 100, 101]);
         assert_eq!(scans.load(Ordering::Relaxed), 3);
+        let cancelled = plan.reset_state()?;
+        let mut lane = cancelled.execute(0, Arc::new(TaskContext::default()))?;
+        assert!(lane.try_next().await?.is_some());
+        drop(lane);
+        assert!(
+            cancelled
+                .execute(1, Arc::new(TaskContext::default()))
+                .is_err()
+        );
         Ok(())
     }
 
