@@ -47,13 +47,20 @@ impl TakeExecute for Pco {
         };
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
         let mask = indices.validity()?.execute_mask(indices.len(), ctx)?;
-        let extrema = min_max(indices.as_array(), ctx, NumericalAggregateOpts::default())?;
-        if let Some(extrema) = extrema {
-            match_each_integer_ptype!(indices.ptype(), |I| {
-                validate_extrema::<I>(&extrema, array.len())?
-            });
-        }
-        if mask.all_false() || array.pages.is_empty() {
+        let Some(extrema) =
+            min_max(indices.as_array(), ctx, NumericalAggregateOpts::default())?
+        else {
+            assert!(mask.all_false());
+            return Ok(Some(
+                ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
+                    .into_array(),
+            ));
+        };
+        assert!(!mask.all_false());
+        match_each_integer_ptype!(indices.ptype(), |I| {
+            validate_extrema::<I>(&extrema, array.len())?
+        });
+        if array.pages.is_empty() {
             return Ok(Some(
                 ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
                     .into_array(),
