@@ -670,13 +670,12 @@ impl RecordBatchStream for ScanLane {
 
 impl Drop for ScanLane {
     fn drop(&mut self) {
-        self.stream.take();
-        if self.execution.active.fetch_sub(1, Ordering::AcqRel) == 1 {
-            if let Some(Ok(partitions)) = self.execution.partitions.get() {
-                if let Some(mut partitions) = partitions.try_lock() {
-                    partitions.take();
-                }
-            }
+        drop(self.stream.take());
+        if self.execution.active.fetch_sub(1, Ordering::AcqRel) == 1
+            && let Some(Ok(partitions)) = self.execution.partitions.get()
+            && let Some(mut partitions) = partitions.try_lock()
+        {
+            drop(partitions.take());
         }
         self.metrics.done();
     }
