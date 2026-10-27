@@ -24,6 +24,9 @@ from collections import defaultdict
 from pathlib import Path
 
 QUANTILES = (0.5, 0.9, 0.99)
+# Runs that start this soon after the dataset upload see slower, freshly written objects. They are
+# reported separately rather than mixed into the model.
+FRESH_AGE_S = 300
 MIB = 1 << 20
 
 
@@ -128,11 +131,64 @@ def ms(v: float) -> str:
     return "-" if math.isnan(v) else f"{v:.1f}"
 
 
+def fresh_section(fresh: list[dict], warm: list[dict], fresh_runs: list[str], ages: dict[str, int]) -> list[str]:
+    md = ["", "## Freshly uploaded objects", ""]
+    md.append(
+        "Excluded from every other section: "
+        + ", ".join(f"{run} (dataset {ages[run]}s old)" for run in fresh_runs)
+        + ". Serial read p50 ms:"
+    )
+    body = []
+    for b in (1, 1 << 10, 64 << 10, 1 << 20, 8 << 20):
+        cells = [fmt_bytes(b)]
+        for rows in (fresh, warm):
+            vals = [r["total_ms"] for r in rows if r["phase"] == "size_sweep" and bucket(r["length"]) == b]
+            cells.append(ms(quantile(vals, 0.5)))
+        body.append(cells)
+    md += ["", table(["size >=", "fresh runs p50", "other runs p50"], body), ""]
+    md += ["GET latency in the fresh runs as the dataset ages:", ""]
+    small = [r for r in fresh if r["kind"] != "head" and r["length"] <= 64 << 10]
+    windows: dict[int, list[float]] = defaultdict(list)
+    for r in small:
+        windows[r["start_us"] // 20_000_000].append(r["total_ms"])
+    md.append(
+        table(
+            ["seconds into run", "dataset age s", "n", "p50 ms (<= 64 KiB GETs)"],
+            [
+                [
+                    f"{w * 20}-{w * 20 + 20}",
+                    f"{min(ages[r] for r in fresh_runs) + w * 20}",
+                    str(len(v)),
+                    ms(quantile(v, 0.5)),
+                ]
+                for w, v in sorted(windows.items())
+            ],
+        )
+    )
+    return md
+
+
 def analyze(rows: list[dict], scans: list[dict], metas: list[dict]) -> tuple[str, dict]:
+    ages = {m["run_label"]: m["dataset_age_s"] for m in metas if "dataset_age_s" in m}
+    all_runs = sorted({r["run"] for r in rows})
+    fresh_runs = [run for run in all_runs if ages.get(run, FRESH_AGE_S) < FRESH_AGE_S]
+    if len(fresh_runs) == len(all_runs):
+        fresh_runs = []
+    fresh = [r for r in rows if r["run"] in fresh_runs and not r["error"]]
+    rows = [r for r in rows if r["run"] not in fresh_runs]
+    scans = [s for s in scans if s["run"] not in fresh_runs]
+    metas = [m for m in metas if m.get("run_label") not in fresh_runs]
+
     ok = [r for r in rows if not r["error"]]
     errors = [r for r in rows if r["error"]]
     runs = sorted({r["run"] for r in rows})
-    model: dict = {"runs": runs, "requests": len(rows), "errors": len(errors)}
+    model: dict = {
+        "runs": runs,
+        "fresh_runs_excluded": fresh_runs,
+        "dataset_age_s": ages,
+        "requests": len(rows),
+        "errors": len(errors),
+    }
     md = ["# S3 latency report", ""]
     md.append(
         f"{len(runs)} runs, {len(rows):,} requests, {len(errors)} errors, "
@@ -383,6 +439,15 @@ def analyze(rows: list[dict], scans: list[dict], metas: list[dict]) -> tuple[str
             )
         )
         model["scans"] = scan_model
+
+    if fresh_runs:
+        md += fresh_section(fresh, ok, fresh_runs, ages)
+        model["fresh_serial_p50_ms"] = {
+            fmt_bytes(b): quantile(
+                [r["total_ms"] for r in fresh if r["phase"] == "size_sweep" and bucket(r["length"]) == b], 0.5
+            )
+            for b in (1, 1 << 10, 64 << 10, 1 << 20, 8 << 20)
+        }
 
     md += ["", "Raw per-request CSVs and `model.json` are in the workflow artifacts."]
     return "\n".join(md) + "\n", model

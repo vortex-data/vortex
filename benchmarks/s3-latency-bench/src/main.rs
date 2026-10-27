@@ -245,6 +245,14 @@ async fn run(
         }
     }
 
+    // Objects read soon after they were written are measurably slower, so record how old the
+    // dataset is: the analysis separates runs on freshly uploaded objects.
+    let dataset_age_s = SystemTime::now()
+        .duration_since(UNIX_EPOCH)?
+        .as_secs()
+        .saturating_sub(manifest.created_unix);
+    println!("dataset age: {dataset_age_s}s");
+
     let rec = Arc::new(Recorder::new(Arc::clone(&store), max_inflight));
     let ctx = Ctx {
         rec: Arc::clone(&rec),
@@ -328,6 +336,7 @@ async fn run(
         "max_inflight": max_inflight,
         "files": ctx.ds.files.len(),
         "file_size": manifest.file_size,
+        "dataset_age_s": dataset_age_s,
         "phases": phase_times,
         "meta": meta,
     });
