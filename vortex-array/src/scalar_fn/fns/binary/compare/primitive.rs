@@ -28,8 +28,9 @@ use crate::scalar_fn::unstable::row::execute_row_inputs;
 
 /// Compare two primitive arrays of the same [`PType`].
 ///
-/// Floats compare with Vortex's total ordering: `NaN` is the largest value, `-0.0 < +0.0`, and
-/// equality is bitwise.
+/// Floats compare with Vortex's total ordering over their bit patterns: a `NaN` with the sign bit
+/// set sorts below `-inf`, any other `NaN` sorts above `+inf`, and `-0.0 < +0.0`. Equality is
+/// bitwise, so distinct `NaN` payloads are not equal.
 pub(super) fn compare_primitive(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
