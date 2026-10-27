@@ -682,15 +682,21 @@ impl<'a, T> CudaViewMut<'a, T> {
 }
 
 /// Orders `stream` after earlier conflicting accesses and returns the guard recording this one.
+///
+/// Callers enqueue work with the pointer even if ordering it fails, so a failure falls back to
+/// completing all work enqueued in the context so far, which the access then follows too.
 fn access<'a>(
     access: &'a Access,
     owner: &'a CudaStream,
     stream: &'a CudaStream,
     kind: AccessKind,
 ) -> SyncOnDrop<'a> {
-    stream
-        .context()
-        .record_err(access.before(owner, stream, kind));
+    if let Err(error) = access.before(owner, stream, kind) {
+        let context = stream.context();
+        context.record_err::<()>(Err(error));
+        // If this fails too, the context is broken and rejects the access's work as well.
+        context.record_err(context.synchronize_in_place());
+    }
     SyncOnDrop::new(access, owner, stream, kind)
 }
 
