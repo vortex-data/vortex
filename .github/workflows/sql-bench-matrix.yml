@@ -40,7 +40,7 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps([x for x in json.load(sys.stdin) if x["id"] == "clickbench-nvme"]))')"
+          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps([dict(x, id="tpcds-nvme-"+str(sf), name="TPC-DS SF="+str(sf)+" on NVME", scale_factor=float(sf)) for x in json.load(sys.stdin) if x["id"] == "tpcds-nvme" for sf in (30,)]))')"
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   build:
@@ -219,7 +219,15 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: target/planning-dense-baseline
 
-      - name: Repeat ClickBench remaining scan gaps
+      - name: Install LLVM symbolizer if needed
+        shell: bash
+        run: |
+          if ! command -v llvm-symbolizer >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y llvm
+          fi
+
+      - name: Profile SF30 remaining scan gaps
         shell: bash
         env:
           TOKIO_WORKER_THREADS: "8"
