@@ -165,25 +165,18 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::ValidityArray;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::consistency::test_scalar_probe_consistency;
 
-    use super::ValidityArray;
-
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn scalar_probe_child_nullness() -> VortexResult<()> {
-        let child = PrimitiveArray::from_option_iter([
-            Some(1i32),
-            None,
-            Some(3),
-            None,
-            Some(5),
-        ])
-        .into_array();
+        let child = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, Some(5)])
+            .into_array();
         let array = ValidityArray::new(child).into_array();
 
         test_scalar_probe_consistency(&array, &mut SESSION.create_execution_ctx());

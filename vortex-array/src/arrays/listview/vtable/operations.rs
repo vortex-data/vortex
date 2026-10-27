@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -39,7 +41,11 @@ impl OperationsVTable<ListView> for ListView {
             .map(|i| elements.execute_scalar(i, ctx))
             .collect::<VortexResult<Vec<_>>>()?;
 
-        Ok(Scalar::list(element_dtype.clone(), children, *nullability))
+        Ok(Scalar::list(
+            Arc::clone(element_dtype),
+            children,
+            *nullability,
+        ))
     }
 
     fn scalar_at(

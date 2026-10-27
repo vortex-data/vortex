@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -39,7 +41,7 @@ impl OperationsVTable<FixedSizeList> for FixedSizeList {
             .collect::<VortexResult<Vec<_>>>()?;
 
         Ok(Scalar::fixed_size_list(
-            element_dtype.clone(),
+            Arc::clone(element_dtype),
             children_elements,
             *nullability,
         ))
