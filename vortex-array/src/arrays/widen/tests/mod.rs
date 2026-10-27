@@ -4,8 +4,9 @@
 //! Tests of the `Widen` encoding.
 //!
 //! The named fixtures cover signed and unsigned values, each kind of validity and a single row.
-//! Every test module of `Widen` runs its operations over them.
+//! The `compute` tests run their operations over them.
 
+mod aggregates;
 mod compute;
 mod encoding;
 
