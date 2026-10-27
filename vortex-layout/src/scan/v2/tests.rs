@@ -337,7 +337,7 @@ async fn large_filtered_chunks_match_v1(#[case] cutoff: i32) -> VortexResult<()>
 async fn filter_matches_v1(
     #[values(Strategy::Flat, Strategy::Table, Strategy::ZonedTable)] strategy: Strategy,
     #[case] filter: Expression,
-    #[values(1, 2, 7)] selection_step: usize,
+    #[values(false, true)] sparse: bool,
 ) -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write(&session, strategy.get().as_ref()).await?;
@@ -350,9 +350,9 @@ async fn filter_matches_v1(
             .with_some_filter(Some(filter.bind(layout.dtype())?))
             .with_row_range(900..3100)
             .with_row_offset(100);
-        if selection_step > 1 {
+        if sparse {
             scan = scan.with_row_indices(StrictSortedBuffer::try_new(Buffer::from_iter(
-                (0..4000u64).step_by(selection_step),
+                (0..4000u64).step_by(7),
             ))?);
         }
         Ok(scan)
