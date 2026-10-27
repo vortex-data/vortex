@@ -66,10 +66,14 @@ const MAPPED_COPY_THREADS: u32 = 256;
 #[cfg(target_os = "linux")]
 static MAPPED_FILL: Mutex<()> = Mutex::new(());
 
-/// Releases a closed reader's mapping once its copy stream has drained.
+/// Releases a mapping: a closed reader's once its copy stream has drained, or an evicted one.
 type MappedRelease = Box<dyn FnOnce() + Send>;
 
-/// Releases of mapped files, each run once its copy stream has drained, off the scan's threads.
+/// Releases of mapped files, run in order off the scan's threads.
+///
+/// Dropping the last reference to a [`FileMapping`] unmaps it on the dropping thread, so every
+/// mapping is unmapped here or by [`release_file_mappings`], and is unmapped once the jobs
+/// queued before it have run.
 static MAPPED_RELEASE_QUEUE: LazyLock<Option<mpsc::Sender<MappedRelease>>> = LazyLock::new(|| {
     let (sender, receiver) = mpsc::channel::<MappedRelease>();
     std::thread::Builder::new()
@@ -204,9 +208,10 @@ impl FileVersion {
 }
 
 /// A read-only mapping of one file version, shared by every open of that version.
+///
+/// Unmapped when the last reference drops, only after every user's copies have drained.
 struct FileMapping {
-    /// Present until drop; unmapped only after every user's copies have drained.
-    mapping: Option<Mmap>,
+    mapping: Mmap,
 }
 
 impl FileMapping {
@@ -224,21 +229,31 @@ impl FileMapping {
         // SAFETY: Vortex files are immutable while open. As with any file mapping, truncation
         // by another process would fault on access.
         let mapping = unsafe { Mmap::map(&file)? };
-        let mapping = Arc::new(Self {
-            mapping: Some(mapping),
-        });
+        let mapping = Arc::new(Self { mapping });
         mappings.push_back((version, Arc::clone(&mapping)));
-        if mappings.len() > FILE_MAPPINGS_CACHED_MAX {
+        if mappings.len() > FILE_MAPPINGS_CACHED_MAX
+            && let Some((_, evicted)) = mappings.pop_front()
+        {
             // Users still holding the evicted mapping keep it alive until their copies drain.
-            drop(mappings.pop_front());
+            release_in_background(Box::new(move || drop(evicted)));
         }
         Ok(mapping)
     }
 
     fn mapping(&self) -> &Mmap {
-        self.mapping
-            .as_ref()
-            .vortex_expect("mapping is present until drop")
+        &self.mapping
+    }
+}
+
+/// Runs `release` on the release thread, or here if that thread is unavailable.
+fn release_in_background(release: MappedRelease) {
+    match MAPPED_RELEASE_QUEUE.as_ref() {
+        Some(queue) => {
+            if let Err(unsent) = queue.send(release) {
+                (unsent.0)();
+            }
+        }
+        None => release(),
     }
 }
 
@@ -268,27 +283,9 @@ pub fn release_file_mappings() {
         .drain(..)
         .map(|(_, mapping)| mapping)
         .collect();
-    for mapping in released {
-        if let Ok(mut mapping) = Arc::try_unwrap(mapping) {
-            // Unmap on this thread, not in the background, so the pages are unmapped on return.
-            drop(mapping.mapping.take());
-        }
-    }
-}
-
-impl Drop for FileMapping {
-    fn drop(&mut self) {
-        let Some(mapping) = self.mapping.take() else {
-            return;
-        };
-        // Unmapping filled page tables costs milliseconds per GiB; keep it off the caller. If
-        // the thread cannot start, the returned closure unmaps here.
-        drop(
-            std::thread::Builder::new()
-                .name("vortex-unmap".to_string())
-                .spawn(move || drop(mapping)),
-        );
-    }
+    // Dropping the last reference unmaps on this thread, so the pages are unmapped on return.
+    // Readers that still use a mapping keep it, and release it through the queue on close.
+    drop(released);
 }
 
 /// A buffered file whose page-cache pages the device copies directly.
@@ -426,20 +423,12 @@ impl Drop for MappedFile {
         // decodes the scan's batches; waiting there for the copy stream to drain stalled every
         // decode and selection launch behind the scan's remaining copies.
         let stream = self.stream.clone();
-        let release: MappedRelease = Box::new(move || {
+        release_in_background(Box::new(move || {
             if stream.synchronize().is_err() {
                 // Without proof the copies finished, never unmap memory the device may read.
                 let _leaked = ManuallyDrop::new(file);
             }
-        });
-        match MAPPED_RELEASE_QUEUE.as_ref() {
-            Some(queue) => {
-                if let Err(unsent) = queue.send(release) {
-                    (unsent.0)();
-                }
-            }
-            None => release(),
-        }
+        }));
     }
 }
 
