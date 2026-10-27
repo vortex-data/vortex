@@ -4,6 +4,7 @@
 //! Driver calls returning [`Result`]s, for callers that need the raw handles.
 
 use std::ffi::CStr;
+use std::ffi::c_char;
 use std::ffi::c_uint;
 use std::ffi::c_void;
 use std::fmt;
@@ -19,27 +20,28 @@ pub struct DriverError(pub CUresult);
 impl DriverError {
     /// The driver's name for the error, such as `CUDA_ERROR_INVALID_VALUE`.
     pub fn error_name(&self) -> Result<&'static CStr, DriverError> {
-        // Errors are formatted even when the driver library is missing.
-        if !driver_present() {
-            return Err(*self);
-        }
-        let mut name = std::ptr::null();
-        // SAFETY: The driver writes a pointer to a static string.
-        unsafe { sys::cuGetErrorName(self.0, &raw mut name) }.result()?;
-        // SAFETY: Successful calls return a NUL-terminated static string.
-        Ok(unsafe { CStr::from_ptr(name) })
+        self.describe(sys::cuGetErrorName)
     }
 
     /// The driver's description of the error.
     pub fn error_string(&self) -> Result<&'static CStr, DriverError> {
+        self.describe(sys::cuGetErrorString)
+    }
+
+    /// The static string that `describe`, either `cuGetErrorName` or `cuGetErrorString`, writes.
+    fn describe(
+        &self,
+        describe: unsafe fn(CUresult, *mut *const c_char) -> CUresult,
+    ) -> Result<&'static CStr, DriverError> {
+        // Errors are formatted even when the driver library is missing.
         if !driver_present() {
             return Err(*self);
         }
-        let mut description = std::ptr::null();
+        let mut text = std::ptr::null();
         // SAFETY: The driver writes a pointer to a static string.
-        unsafe { sys::cuGetErrorString(self.0, &raw mut description) }.result()?;
+        unsafe { describe(self.0, &raw mut text) }.result()?;
         // SAFETY: Successful calls return a NUL-terminated static string.
-        Ok(unsafe { CStr::from_ptr(description) })
+        Ok(unsafe { CStr::from_ptr(text) })
     }
 }
 
