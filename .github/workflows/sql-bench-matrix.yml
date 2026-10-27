@@ -40,12 +40,12 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps([y for x in json.load(sys.stdin) for y in ([x] if x["id"] == "clickbench-nvme" else [dict(x, id="tpcds-nvme-"+str(sf), name="TPC-DS SF="+str(sf)+" on NVME", scale_factor=float(sf)) for sf in (1,10,30)] if x["id"] == "tpcds-nvme" else [])]))')"
+          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps((lambda rows: [x for x in rows if x["id"] == "clickbench-nvme"])(json.load(sys.stdin))))')"
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   bench:
     needs: [resolve-matrix]
-    timeout-minutes: 180
+    timeout-minutes: 120
     env:
       FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
       # Makes python output nicer
@@ -86,7 +86,7 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
           name: bench-binaries
-          run-id: "40517832617"
+          run-id: 40517832617
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: target/release_debug/
       - name: Make binaries executable
@@ -174,24 +174,38 @@ jobs:
             -o sizes.json
           cat sizes.json >> results.json
 
-      - name: Download previous combined scan baseline
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+      - name: Download published scan baseline
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
           name: bench-binaries
-          run-id: "40475426727"
+          run-id: 40475426727
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: target/accepted-baseline/
+          path: target/coarse-baseline
 
-      - name: Compare all queries and repeated guards
-        timeout-minutes: 165
+      - name: Make coarse baseline executable
+        run: chmod +x target/coarse-baseline/datafusion-bench
+
+      - name: Install LLVM symbolizer if needed
         shell: bash
-        run: python3 scripts/compare-combined-all.py "${{ matrix.subcommand }}" "${{ matrix.scale_factor }}"
+        run: |
+          if ! command -v llvm-symbolizer >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y llvm
+          fi
+
+      - name: Profile remaining ClickBench scan gaps
+        shell: bash
+        env:
+          TOKIO_WORKER_THREADS: "8"
+          DATAFUSION_EXECUTION_TARGET_PARTITIONS: "8"
+          RUST_LOG: warn
+        run: python3 scripts/profile-coarse-scans.py "${{ matrix.scale_factor }}"
 
       - name: Upload scan comparison
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: scan-sharing-all-${{ matrix.id }}
+          name: scan-output-profiles-${{ matrix.id }}
           path: scan-*
 
       - name: Compare results
