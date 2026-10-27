@@ -11,6 +11,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use super::SESSION;
+use super::canonical;
+use super::stored_ptype;
 use super::widen;
 use crate::ArrayRef;
 use crate::Canonical;
@@ -19,8 +21,6 @@ use crate::VortexSessionExecute;
 use crate::arrays::ConstantArray;
 use crate::arrays::DictArray;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::Widen;
-use crate::arrays::widen::WidenArraySlotsExt;
 use crate::arrays::widen::compute::numeric::result_interval;
 use crate::assert_arrays_eq;
 use crate::builtins::ArrayBuiltins;
@@ -42,8 +42,8 @@ fn execute_like_canonical(
     operator: Operator,
 ) -> VortexResult<Option<ArrayRef>> {
     let mut ctx = SESSION.create_execution_ctx();
-    let canonical_lhs = lhs.clone().execute::<Canonical>(&mut ctx)?.into_array();
-    let canonical_rhs = rhs.clone().execute::<Canonical>(&mut ctx)?.into_array();
+    let canonical_lhs = canonical(lhs, &mut ctx)?;
+    let canonical_rhs = canonical(rhs, &mut ctx)?;
     let expected = canonical_lhs
         .binary(canonical_rhs, operator)?
         .execute::<Canonical>(&mut ctx);
@@ -65,16 +65,9 @@ fn execute_like_canonical(
     }
 }
 
-/// Returns the type that `array` stores its values in.
-fn stored_ptype(array: &ArrayRef) -> PType {
-    match array.as_opt::<Widen>() {
-        Some(widen) => widen.values().dtype().as_ptype(),
-        None => array.dtype().as_ptype(),
-    }
-}
-
-/// The arithmetic runs at the smallest type that holds both operands and the result interval, or
-/// at the logical type when the kernel declines.
+/// The arithmetic runs at the smallest type that holds the valid rows of both operands and the
+/// result interval, with the `Widen` at either child index. It runs at the logical type when no
+/// narrower type holds them or when the kernel declines.
 #[rstest]
 #[case::same_width(
     widen(buffer![1i8, -2], PType::I64).into_array(),
@@ -166,6 +159,71 @@ fn stored_ptype(array: &ArrayRef) -> PType {
     Operator::Add,
     PType::I64,
 )]
+#[case::constant_lhs_and_encoded_child(
+    ConstantArray::new(1_000i64, 3).into_array(),
+    widen(
+        DictArray::try_new(buffer![0u8, 1, 0].into_array(), buffer![-128i8, 127].into_array())
+            .vortex_expect("the codes index the values"),
+        PType::I64,
+    )
+    .into_array(),
+    Operator::Sub,
+    PType::I16,
+)]
+#[case::null_payload_outside_width(
+    widen(
+        PrimitiveArray::new(buffer![1i16, 30_000], Validity::from_iter([true, false])),
+        PType::I64,
+    )
+    .into_array(),
+    widen(buffer![1i8, 1], PType::I64).into_array(),
+    Operator::Add,
+    PType::I8,
+)]
+#[case::null_payload_overflow(
+    widen(
+        PrimitiveArray::new(buffer![-128i8, 127], Validity::from_iter([false, true])),
+        PType::I64,
+    )
+    .into_array(),
+    ConstantArray::new(-1i64, 2).into_array(),
+    Operator::Div,
+    PType::I8,
+)]
+#[case::zero_divisor_behind_null(
+    widen(buffer![10i8, 20], PType::I64).into_array(),
+    widen(
+        PrimitiveArray::new(buffer![2i8, 0], Validity::from_iter([true, false])),
+        PType::I64,
+    )
+    .into_array(),
+    Operator::Div,
+    PType::I8,
+)]
+#[case::overflow_behind_null(
+    widen(
+        PrimitiveArray::new(buffer![3i8, 1], Validity::from_iter([false, true])),
+        PType::I64,
+    )
+    .into_array(),
+    ConstantArray::new(i64::MAX, 2).into_array(),
+    Operator::Mul,
+    PType::I64,
+)]
+#[case::empty(
+    widen(PrimitiveArray::new(Buffer::<i8>::empty(), Validity::NonNullable), PType::I64)
+        .into_array(),
+    ConstantArray::new(-1i64, 0).into_array(),
+    Operator::Div,
+    PType::I64,
+)]
+#[case::null_constant(
+    widen(buffer![1i8, 2], PType::I64).into_array(),
+    ConstantArray::new(Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)), 2)
+        .into_array(),
+    Operator::Add,
+    PType::I64,
+)]
 fn test_arithmetic_width(
     #[case] lhs: ArrayRef,
     #[case] rhs: ArrayRef,
@@ -241,71 +299,6 @@ fn test_result_interval_matches_brute_force(
     }
 }
 
-#[rstest]
-#[case::empty(
-    widen(PrimitiveArray::new(Buffer::<i8>::empty(), Validity::NonNullable), PType::I64)
-        .into_array(),
-    ConstantArray::new(-1i64, 0).into_array(),
-    Operator::Div,
-)]
-#[case::all_null(
-    widen(PrimitiveArray::new(buffer![-128i8, 127], Validity::AllInvalid), PType::I64)
-        .into_array(),
-    ConstantArray::new(-1i64, 2).into_array(),
-    Operator::Div,
-)]
-#[case::null_constant(
-    widen(buffer![1i8, 2], PType::I64).into_array(),
-    ConstantArray::new(Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)), 2)
-        .into_array(),
-    Operator::Add,
-)]
-#[case::null_payload_overflow(
-    widen(PrimitiveArray::new(buffer![-128i8, 127], Validity::from_iter([false, true])), PType::I64)
-        .into_array(),
-    ConstantArray::new(-1i64, 2).into_array(),
-    Operator::Div,
-)]
-#[case::null_payload_outside_width(
-    widen(PrimitiveArray::new(buffer![1i16, 30_000], Validity::from_iter([true, false])), PType::I64)
-        .into_array(),
-    widen(buffer![1i8, 1], PType::I64).into_array(),
-    Operator::Add,
-)]
-#[case::overflow_behind_null(
-    widen(PrimitiveArray::new(buffer![3i8, 1], Validity::from_iter([false, true])), PType::I64)
-        .into_array(),
-    ConstantArray::new(i64::MAX, 2).into_array(),
-    Operator::Mul,
-)]
-#[case::zero_divisor_behind_null(
-    widen(buffer![10i8, 20], PType::I64).into_array(),
-    widen(PrimitiveArray::new(buffer![2i8, 0], Validity::from_iter([true, false])), PType::I64)
-        .into_array(),
-    Operator::Div,
-)]
-#[case::constant_lhs_and_encoded_child(
-    ConstantArray::new(1_000i64, 3).into_array(),
-    widen(
-        DictArray::try_new(buffer![0u8, 1, 0].into_array(), buffer![-128i8, 127].into_array())
-            .vortex_expect("the codes index the values"),
-        PType::I64,
-    )
-    .into_array(),
-    Operator::Sub,
-)]
-fn test_nulls_and_operands_match_canonical(
-    #[case] lhs: ArrayRef,
-    #[case] rhs: ArrayRef,
-    #[case] operator: Operator,
-) -> VortexResult<()> {
-    let result = execute_like_canonical(&lhs, &rhs, operator)?;
-
-    assert!(result.is_some(), "the canonical operation succeeds");
-
-    Ok(())
-}
-
 /// Overflow and division by zero fail with the messages of canonical execution, at each logical
 /// width.
 #[rstest]
@@ -347,6 +340,11 @@ fn test_nulls_and_operands_match_canonical(
 #[case::all_zero_divisor(
     widen(buffer![2i8, 3], PType::I64).into_array(),
     widen(buffer![0i8, 0], PType::I64).into_array(),
+    Operator::Div,
+)]
+#[case::zero_divisor_widen(
+    widen(buffer![2i8, 3], PType::I64).into_array(),
+    widen(buffer![0i8, 2], PType::I64).into_array(),
     Operator::Div,
 )]
 #[case::min_by_minus_one(

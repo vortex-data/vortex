@@ -5,11 +5,13 @@ use crate::arrays::Widen;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::fns::between::BetweenReduceAdaptor;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Widen> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&BetweenReduceAdaptor(Widen)),
     ParentRuleSet::lift(&CastReduceAdaptor(Widen)),
     ParentRuleSet::lift(&FillNullReduceAdaptor(Widen)),
     ParentRuleSet::lift(&FilterReduceAdaptor(Widen)),

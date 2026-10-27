@@ -4,6 +4,7 @@
 use std::ops::RangeInclusive;
 
 use itertools::Itertools;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -68,12 +69,14 @@ impl ExecuteParentKernel<Widen> for WidenNumericKernel {
             Operator::Div => NumericOperator::Div,
             _ => return Ok(None),
         };
+
         let DType::Primitive(logical_ptype, _) = array.dtype() else {
             return Ok(None);
         };
-        let Some(binary) = parent.as_opt::<ScalarFn>() else {
-            return Ok(None);
-        };
+
+        let binary = parent
+            .as_opt::<ScalarFn>()
+            .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
         let other = match child_idx {
             0 => binary.get_child(1),
             1 => binary.get_child(0),
@@ -180,7 +183,10 @@ pub(crate) fn result_interval(
         NumericOperator::Div => [rhs_min, rhs_max, -1, 1]
             .into_iter()
             .filter(|divisor| *divisor != 0 && rhs.contains(divisor))
-            .flat_map(|divisor| [lhs_min / divisor, lhs_max / divisor])
+            .map(|divisor| Some([lhs_min.checked_div(divisor)?, lhs_max.checked_div(divisor)?]))
+            .collect::<Option<Vec<_>>>()?
+            .into_iter()
+            .flatten()
             .minmax()
             .into_option()?,
     };

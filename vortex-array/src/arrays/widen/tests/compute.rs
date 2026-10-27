@@ -9,14 +9,15 @@ use vortex_mask::Mask;
 
 use super::SESSION;
 use super::all_invalid;
+use super::canonical;
 use super::non_nullable;
 use super::one_row;
 use super::partially_valid;
 use super::signed;
+use super::stored_ptype;
 use super::unsigned;
 use super::widen;
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
@@ -42,6 +43,8 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::scalar::Scalar;
+use crate::scalar_fn::fns::between::BetweenOptions;
+use crate::scalar_fn::fns::between::StrictComparison;
 use crate::scalar_fn::fns::binary::CompareKernel;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
@@ -55,8 +58,8 @@ fn assert_compare_matches_canonical(
     operator: Operator,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    let canonical_lhs = lhs.clone().execute::<Canonical>(ctx)?.into_array();
-    let canonical_rhs = rhs.clone().execute::<Canonical>(ctx)?.into_array();
+    let canonical_lhs = canonical(lhs, ctx)?;
+    let canonical_rhs = canonical(rhs, ctx)?;
 
     let expected = canonical_lhs.binary(canonical_rhs.clone(), operator)?;
     assert_arrays_eq!(lhs.binary(rhs.clone(), operator)?, expected, ctx);
@@ -162,52 +165,73 @@ fn test_cast_preserves_checked_nullability() -> VortexResult<()> {
     Ok(())
 }
 
-/// The cast rule of `Widen` declines a float target, so canonical execution casts the values. The
-/// cast conformance suite casts an integer array only to integer types, so this test covers the
-/// decline. The unsigned case checks the integer guard of the rule, because its signedness check
-/// alone accepts a float target for unsigned values.
+/// A float target, or an integer target no wider than the storage type, goes to the values. A wider
+/// integer target returns a `Widen` over the values cast to the storage type, which has the target
+/// signedness. The cast conformance suite casts an integer array only to integer types, so this
+/// test covers the float targets.
 #[rstest]
-#[case::signed_to_f64(signed(), PType::F64)]
-#[case::unsigned_to_f32(unsigned(), PType::F32)]
-fn test_cast_to_float_matches_canonical(
+#[case::unsigned_to_wider_signed(
+    widen(buffer![0u8, 255], PType::U64),
+    PType::I32,
+    PType::I16,
+)]
+#[case::unsigned_to_same_width_signed(
+    widen(buffer![0u8, 255], PType::U64),
+    PType::I16,
+    PType::I16,
+)]
+#[case::signed_to_unsigned(
+    widen(buffer![0i8, 127], PType::I64),
+    PType::U32,
+    PType::U8,
+)]
+#[case::signed_to_f64(signed(), PType::F64, PType::F64)]
+#[case::unsigned_to_f32(unsigned(), PType::F32, PType::F32)]
+fn test_cast_child(
     #[case] array: WidenArray,
     #[case] target: PType,
+    #[case] stored: PType,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
+    let array = array.into_array();
     let target = DType::Primitive(target, array.dtype().nullability());
-    let canonical = array
-        .clone()
-        .into_array()
-        .execute::<PrimitiveArray>(&mut ctx)?;
 
-    let cast = array.into_array().cast(target.clone())?;
+    let cast = array.cast(target.clone())?;
 
-    let expected = canonical.into_array().cast(target)?;
+    assert_eq!(stored_ptype(&cast), stored);
+    let expected = canonical(&array, &mut ctx)?.cast(target)?;
     assert_arrays_eq!(cast, expected, &mut ctx);
 
     Ok(())
 }
 
+/// The values widen to the smallest type that holds the fill value. A fill value that needs the
+/// logical type gives a plain array.
 #[rstest]
 #[case::non_nullable_fill(
     Scalar::primitive(2i64, Nullability::NonNullable),
     PrimitiveArray::new(buffer![1i64, 2], Validity::NonNullable),
-    true
+    PType::I8
 )]
 #[case::nullable_fill(
     Scalar::primitive(2i64, Nullability::Nullable),
     PrimitiveArray::new(buffer![1i64, 2], Validity::AllValid),
-    true
+    PType::I8
 )]
-#[case::outside_values_range(
+#[case::next_width(
     Scalar::primitive(1000i64, Nullability::NonNullable),
     PrimitiveArray::new(buffer![1i64, 1000], Validity::NonNullable),
-    false
+    PType::I16
+)]
+#[case::logical_width(
+    Scalar::primitive(i64::MAX, Nullability::NonNullable),
+    PrimitiveArray::new(buffer![1i64, i64::MAX], Validity::NonNullable),
+    PType::I64
 )]
 fn test_fill_null(
     #[case] fill_value: Scalar,
     #[case] expected: PrimitiveArray,
-    #[case] keeps_widen: bool,
+    #[case] stored: PType,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let values = PrimitiveArray::from_option_iter([Some(1i8), None]);
@@ -215,8 +239,128 @@ fn test_fill_null(
 
     let filled = array.fill_null(fill_value)?;
 
-    assert_eq!(filled.is::<Widen>(), keeps_widen);
+    assert_eq!(stored_ptype(&filled), stored);
     assert_arrays_eq!(filled, expected, &mut ctx);
+
+    Ok(())
+}
+
+/// The zip runs on the values at the type that holds both branches. A constant in the `if_true`
+/// branch is the only input that reaches the `if_false` kernel, because an execution step stops at
+/// the first child kernel that answers. The null mask row takes the `if_false` branch.
+#[rstest]
+#[case::constant_if_false(
+    signed().into_array(),
+    ConstantArray::new(1_000i64, 5).into_array(),
+)]
+#[case::constant_if_true(
+    ConstantArray::new(1_000i64, 5).into_array(),
+    signed().into_array(),
+)]
+#[case::widen_both(
+    signed().into_array(),
+    widen(buffer![1_000i16, 2, 300, -4, 5], PType::I64).into_array(),
+)]
+fn test_zip(#[case] if_true: ArrayRef, #[case] if_false: ArrayRef) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let mask = BoolArray::from_iter([Some(true), None, Some(false), Some(true), Some(false)]);
+    let mask = mask.into_array();
+
+    let zipped = mask
+        .zip(if_true.clone(), if_false.clone())?
+        .execute::<ArrayRef>(&mut ctx)?;
+
+    assert_eq!(stored_ptype(&zipped), PType::I16);
+    let expected = mask.zip(
+        canonical(&if_true, &mut ctx)?,
+        canonical(&if_false, &mut ctx)?,
+    )?;
+    assert_arrays_eq!(zipped, expected, &mut ctx);
+
+    Ok(())
+}
+
+/// Constant bounds inside the range of the values run on the values, and the other bounds run as
+/// two compares. The strict lower and non-strict upper bounds check an exclusive and an inclusive
+/// edge.
+#[rstest]
+fn test_between_constant_bounds(
+    #[values(-129i64, -128, 0, 128)] lower: i64,
+    #[values(-128i64, 0, 127, 128)] upper: i64,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = PrimitiveArray::from_option_iter([Some(-128i8), None, Some(0), Some(127)]);
+    let array = widen(values, PType::I64).into_array();
+    let lower = ConstantArray::new(lower, array.len()).into_array();
+    let upper = ConstantArray::new(upper, array.len()).into_array();
+    let options = BetweenOptions {
+        lower_strict: StrictComparison::Strict,
+        upper_strict: StrictComparison::NonStrict,
+    };
+
+    let between = array
+        .clone()
+        .between(lower.clone(), upper.clone(), options.clone())?;
+
+    let expected = canonical(&array, &mut ctx)?.between(lower, upper, options)?;
+    assert_arrays_eq!(between, expected, &mut ctx);
+
+    Ok(())
+}
+
+/// Nullable bounds, in range or null, give a nullable result over non-nullable values.
+#[rstest]
+#[case::in_range(
+    Scalar::primitive(-1i64, Nullability::Nullable),
+    Scalar::primitive(0i64, Nullability::Nullable),
+)]
+#[case::null(
+    Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)),
+    Scalar::primitive(0i64, Nullability::Nullable)
+)]
+fn test_between_nullable_bounds(#[case] lower: Scalar, #[case] upper: Scalar) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = widen(buffer![-128i8, 0, 127], PType::I64).into_array();
+    let lower = ConstantArray::new(lower, array.len()).into_array();
+    let upper = ConstantArray::new(upper, array.len()).into_array();
+    let options = BetweenOptions {
+        lower_strict: StrictComparison::NonStrict,
+        upper_strict: StrictComparison::NonStrict,
+    };
+
+    let between = array
+        .clone()
+        .between(lower.clone(), upper.clone(), options.clone())?;
+
+    let expected = canonical(&array, &mut ctx)?.between(lower, upper, options)?;
+    assert_arrays_eq!(between, expected, &mut ctx);
+
+    Ok(())
+}
+
+/// A `Widen` bound runs as two compares, and any other array bound declines.
+#[rstest]
+#[case::widen(
+    widen(PrimitiveArray::from_option_iter([Some(-129i16), None, Some(128)]), PType::I64)
+        .into_array()
+)]
+#[case::primitive(PrimitiveArray::from_option_iter([Some(-129i64), None, Some(128)]).into_array())]
+fn test_between_array_bound(#[case] lower: ArrayRef) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = widen(buffer![-128i8, 0, 127], PType::I64).into_array();
+    let upper = ConstantArray::new(0i64, array.len()).into_array();
+    let options = BetweenOptions {
+        lower_strict: StrictComparison::NonStrict,
+        upper_strict: StrictComparison::NonStrict,
+    };
+
+    let between = array
+        .clone()
+        .between(lower.clone(), upper.clone(), options.clone())?;
+
+    let expected =
+        canonical(&array, &mut ctx)?.between(canonical(&lower, &mut ctx)?, upper, options)?;
+    assert_arrays_eq!(between, expected, &mut ctx);
 
     Ok(())
 }

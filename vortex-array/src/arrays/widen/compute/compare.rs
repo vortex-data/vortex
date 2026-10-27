@@ -13,6 +13,8 @@ use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::Widen;
 use crate::arrays::widen::WidenArraySlotsExt;
+use crate::arrays::widen::compute::constant_values;
+use crate::arrays::widen::compute::wider_values_ptype;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar::PValue;
@@ -48,10 +50,7 @@ impl CompareKernel for Widen {
             return compare_out_of_range(lhs, constant, operator, ctx).map(Some);
         }
 
-        let constant_dtype = values
-            .dtype()
-            .with_nullability(constant.dtype().nullability());
-        let constant = ConstantArray::new(constant.cast(&constant_dtype)?, lhs.len()).into_array();
+        let constant = constant_values(constant, values, lhs.len())?;
 
         values.binary(constant, Operator::from(operator)).map(Some)
     }
@@ -81,33 +80,19 @@ pub(super) fn constant_fits_child(constant: &Scalar, child: &DType) -> Option<bo
 }
 
 /// Compares the values of two `Widen` arrays at the wider of the two value types.
-///
-/// Both value types have the signedness of the logical dtype, so the wider one holds every value of
-/// the narrower one.
 fn compare_narrow_values(
     lhs: ArrayView<'_, Widen>,
     rhs: ArrayView<'_, Widen>,
     operator: CompareOperator,
 ) -> VortexResult<Option<ArrayRef>> {
-    let (
-        DType::Primitive(lhs_ptype, lhs_nullability),
-        DType::Primitive(rhs_ptype, rhs_nullability),
-    ) = (lhs.values().dtype(), rhs.values().dtype())
-    else {
+    let Some(ptype) = wider_values_ptype(lhs, rhs) else {
         return Ok(None);
     };
-    let ptype = if lhs_ptype.byte_width() >= rhs_ptype.byte_width() {
-        *lhs_ptype
-    } else {
-        *rhs_ptype
-    };
 
-    let lhs_values = lhs
-        .values()
-        .cast(DType::Primitive(ptype, *lhs_nullability))?;
-    let rhs_values = rhs
-        .values()
-        .cast(DType::Primitive(ptype, *rhs_nullability))?;
+    let lhs_values = lhs.values();
+    let lhs_values = lhs_values.cast(DType::Primitive(ptype, lhs_values.dtype().nullability()))?;
+    let rhs_values = rhs.values();
+    let rhs_values = rhs_values.cast(DType::Primitive(ptype, rhs_values.dtype().nullability()))?;
 
     lhs_values
         .binary(rhs_values, Operator::from(operator))

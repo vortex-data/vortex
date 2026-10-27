@@ -8,6 +8,7 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
 use super::SESSION;
+use super::stored_ptype;
 use super::widen;
 use crate::ArrayParts;
 use crate::ArrayRef;
@@ -32,15 +33,6 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::optimizer::ArrayOptimizer;
 use crate::validity::Validity;
-
-/// Returns the ptype that stores the values of `array`: the ptype of the values of a `Widen`, and
-/// the ptype of `array` otherwise.
-fn stored_ptype(array: &ArrayRef) -> PType {
-    match array.as_opt::<Widen>() {
-        Some(widen) => widen.values().dtype().as_ptype(),
-        None => array.dtype().as_ptype(),
-    }
-}
 
 #[rstest]
 #[case::i8_bounds(   PrimitiveArray::from_iter([-128i64, 127]),                      PType::I8)]

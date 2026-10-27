@@ -15,11 +15,17 @@ use std::sync::LazyLock;
 
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
+use crate::ArrayRef;
+use crate::Canonical;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::Widen;
 use crate::arrays::WidenArray;
+use crate::arrays::widen::WidenArraySlotsExt;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::validity::Validity;
@@ -31,6 +37,20 @@ fn widen(values: impl IntoArray, logical: PType) -> WidenArray {
     let values = values.into_array();
     let dtype = DType::Primitive(logical, values.dtype().nullability());
     WidenArray::try_new(values, dtype).vortex_expect("fixture values are narrower integers")
+}
+
+/// Returns the ptype that stores the values of `array`: the ptype of the values of a `Widen`, and
+/// the ptype of `array` otherwise.
+fn stored_ptype(array: &ArrayRef) -> PType {
+    match array.as_opt::<Widen>() {
+        Some(widen) => widen.values().dtype().as_ptype(),
+        None => array.dtype().as_ptype(),
+    }
+}
+
+/// Returns `array` executed to its canonical form.
+fn canonical(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    Ok(array.clone().execute::<Canonical>(ctx)?.into_array())
 }
 
 /// Nullable `i64` values, all valid, at both ends of the `i8` range.
