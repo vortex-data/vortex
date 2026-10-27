@@ -31,7 +31,7 @@ use crate::scan::execution::adaptor::AdaptorStep;
 use crate::scan::execution::adaptor::Piece;
 use crate::scan::execution::adaptor::ScanAdaptor;
 
-const MAX_OUTPUT_ROWS: usize = 65_536;
+const MAX_OUTPUT_ROWS: usize = 262_144;
 const MAX_FILTERED_OUTPUT_ROWS: usize = 65_536;
 /// Pieces smaller than this are grouped with their neighbours into one batch.
 const MIN_OUTPUT_ROWS: usize = 4_096;
