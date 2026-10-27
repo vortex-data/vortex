@@ -194,6 +194,17 @@ async fn runtime_filters_refresh_projected_bounds_and_keep_residuals() -> anyhow
         .try_swapping_with_projection(&projection)?
         .unwrap();
     let column = Arc::new(df_expr::Column::new("value", 0)) as Arc<dyn PhysicalExpr>;
+    let source = source
+        .try_pushdown_filters(
+            vec![Arc::new(df_expr::BinaryExpr::new(
+                Arc::clone(&column),
+                Operator::Gt,
+                Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(15)))),
+            ))],
+            &ConfigOptions::new(),
+        )?
+        .updated_node
+        .unwrap();
     let bound = Arc::new(DynamicFilterPhysicalExpr::new(
         vec![Arc::clone(&column)],
         Arc::new(df_expr::Literal::new(ScalarValue::Boolean(Some(true)))),
@@ -212,17 +223,17 @@ async fn runtime_filters_refresh_projected_bounds_and_keep_residuals() -> anyhow
         (
             Arc::new(df_expr::Literal::new(ScalarValue::Boolean(Some(true))))
                 as Arc<dyn PhysicalExpr>,
-            vec![30, 10, 20],
+            vec![30, 20],
         ),
         (
             Arc::new(df_expr::BinaryExpr::new(
                 column.clone(),
                 Operator::Gt,
-                Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(15)))),
+                Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(25)))),
             )),
-            vec![30, 20],
+            vec![30],
         ),
-        // Modulo is unsupported: the source reads all rows for residual evaluation.
+        // Modulo is unsupported: only the static filter may reject rows here.
         (
             Arc::new(df_expr::BinaryExpr::new(
                 Arc::new(df_expr::BinaryExpr::new(
@@ -231,9 +242,9 @@ async fn runtime_filters_refresh_projected_bounds_and_keep_residuals() -> anyhow
                     Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(2)))),
                 )),
                 Operator::Eq,
-                Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(0)))),
+                Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(1)))),
             )),
-            vec![30, 10, 20],
+            vec![30, 20],
         ),
     ] {
         let stream = source.open(0, SessionContext::new().task_ctx())?;
