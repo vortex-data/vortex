@@ -17,6 +17,7 @@ use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::BoundExpression;
+use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_io::runtime::BlockingRuntime;
@@ -166,9 +167,16 @@ impl LayoutReader for TestLayoutReader {
     fn pruning_evaluation(
         &self,
         _row_range: &Range<u64>,
-        _expr: &BoundExpression,
+        expr: &BoundExpression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
+        if matches!(expr.dtype(), DType::Bool(_))
+            && expr
+                .as_opt::<Literal>()
+                .is_some_and(|value| value.as_bool().value() == Some(false))
+        {
+            return Ok(MaskFuture::ready(Mask::new_false(mask.len())));
+        }
         Ok(MaskFuture::ready(mask))
     }
 

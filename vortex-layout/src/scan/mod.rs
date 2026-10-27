@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::dtype::DType;
+use vortex_array::expr::BoundExpression;
+use vortex_array::expr::bound::and_collect;
+use vortex_scan::ScanNarrowing;
+
 pub mod arrow;
 mod execution;
 mod filter;
@@ -20,3 +25,17 @@ pub mod v2;
 ///
 /// We don't actually know if this is right, but it is probably a good estimate.
 const IDEAL_SPLIT_SIZE: u64 = 100_000;
+
+/// Snapshot advisory predicates without allowing unavailable or unsupported hints to fail scans.
+fn current_filter(
+    exact: Option<BoundExpression>,
+    narrowing: Option<&dyn ScanNarrowing>,
+    dtype: &DType,
+) -> Option<BoundExpression> {
+    let current = narrowing
+        .and_then(|hint| hint.current())
+        .and_then(|expr| expr.bind(dtype).ok())
+        .filter(|expr| matches!(expr.dtype(), DType::Bool(_)))
+        .and_then(|expr| expr.optimize_recursive().ok());
+    and_collect(exact.into_iter().chain(current))
+}

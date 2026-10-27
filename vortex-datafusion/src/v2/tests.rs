@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
+use arrow_array::Int32Array;
 use arrow_array::RecordBatch;
 use datafusion::assert_batches_eq;
 use datafusion::prelude::SessionContext;
@@ -11,15 +12,18 @@ use datafusion_common::ScalarValue;
 use datafusion_common::arrow::compute::concat_batches;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::stats::Precision;
+use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::source::DataSource;
 use datafusion_datasource::source::DataSourceExec;
 use datafusion_expr::Operator;
 use datafusion_physical_expr::PhysicalExpr;
+use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
 use datafusion_physical_expr::projection::ProjectionExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::expressions as df_expr;
 use datafusion_physical_plan::filter_pushdown::PushedDown;
+use futures::TryStreamExt;
 use rstest::rstest;
 use vortex::VortexSessionDefault;
 use vortex::buffer::ByteBufferMut;
@@ -176,5 +180,79 @@ async fn statistics_follow_filter_and_fetch() -> anyhow::Result<()> {
         limited.partition_statistics(None)?.num_rows,
         Precision::Inexact(1)
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn runtime_filters_refresh_projected_bounds_and_keep_residuals() -> anyhow::Result<()> {
+    let projection = ProjectionExprs::from(vec![ProjectionExpr::new(
+        Arc::new(df_expr::Column::new("b", 1)),
+        "value",
+    )]);
+    let source = vortex_source()
+        .await?
+        .try_swapping_with_projection(&projection)?
+        .unwrap();
+    let column = Arc::new(df_expr::Column::new("value", 0)) as Arc<dyn PhysicalExpr>;
+    let bound = Arc::new(DynamicFilterPhysicalExpr::new(
+        vec![Arc::clone(&column)],
+        Arc::new(df_expr::Literal::new(ScalarValue::Boolean(Some(true)))),
+    ));
+    let pushed = source.try_pushdown_filters(vec![bound.clone()], &ConfigOptions::new())?;
+    assert!(matches!(pushed.filters.as_slice(), [PushedDown::No]));
+    let source = pushed.updated_node.unwrap();
+    assert!(source.with_fetch(Some(1)).is_none());
+    let mut visited = false;
+    source.apply_expressions(&mut |expression| {
+        visited |= expression.as_any().is::<DynamicFilterPhysicalExpr>();
+        Ok(TreeNodeRecursion::Continue)
+    })?;
+    assert!(visited);
+    for (predicate, expected) in [
+        (
+            Arc::new(df_expr::Literal::new(ScalarValue::Boolean(Some(true))))
+                as Arc<dyn PhysicalExpr>,
+            vec![30, 10, 20],
+        ),
+        (
+            Arc::new(df_expr::BinaryExpr::new(
+                column.clone(),
+                Operator::Gt,
+                Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(15)))),
+            )),
+            vec![30, 20],
+        ),
+        // Modulo is unsupported: the source reads all rows for residual evaluation.
+        (
+            Arc::new(df_expr::BinaryExpr::new(
+                Arc::new(df_expr::BinaryExpr::new(
+                    column,
+                    Operator::Modulo,
+                    Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(2)))),
+                )),
+                Operator::Eq,
+                Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(0)))),
+            )),
+            vec![30, 10, 20],
+        ),
+    ] {
+        let stream = source.open(0, SessionContext::new().task_ctx())?;
+        bound.update(predicate)?;
+        let batches: Vec<RecordBatch> = stream.try_collect().await?;
+        let values = batches
+            .iter()
+            .flat_map(|batch| {
+                batch
+                    .column(0)
+                    .as_any()
+                    .downcast_ref::<Int32Array>()
+                    .unwrap()
+                    .values()
+                    .iter()
+                    .copied()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(values, expected);
+    }
     Ok(())
 }

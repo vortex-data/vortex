@@ -85,6 +85,7 @@ use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::source::DataSource;
 use datafusion_execution::SendableRecordBatchStream;
 use datafusion_execution::TaskContext;
+use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::EquivalenceProperties;
 use datafusion_physical_expr::Partitioning;
 use datafusion_physical_expr::PhysicalExpr;
@@ -116,11 +117,14 @@ use vortex::expr::stats::Precision;
 use vortex::expr::transform::replace;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::scan::DataSourceRef;
+use vortex::scan::ScanNarrowing;
 use vortex::scan::ScanRequest;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_utils::parallelism::get_available_parallelism;
 
+use super::runtime_filters::RuntimeFilter;
+use super::runtime_filters::RuntimeFilters;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
@@ -291,6 +295,7 @@ impl VortexDataSourceBuilder {
             leftover_schema: arrow_schema,
             leftover_statistics: statistics,
             filter: None,
+            runtime_filters: RuntimeFilters::default(),
             limit: None,
             ordered: false,
             num_partitions: get_available_parallelism().unwrap_or(1),
@@ -369,6 +374,7 @@ pub struct VortexDataSource {
     /// An optional filter expression.
     /// Populated by [`DataSource::try_pushdown_filters`] when DataFusion pushes filters down.
     filter: Option<Expression>,
+    runtime_filters: RuntimeFilters,
     /// An optional row limit populated by [`DataSource::with_fetch`].
     limit: Option<usize>,
     /// Whether to preserve the order of the output rows.
@@ -418,6 +424,8 @@ impl DataSource for VortexDataSource {
         let scan_request = ScanRequest {
             projection: self.projected_projection.clone(),
             filter: self.filter.clone(),
+            narrowing: (!self.runtime_filters.0.is_empty())
+                .then(|| Arc::new(self.runtime_filters.clone()) as Arc<dyn ScanNarrowing>),
             limit: self.limit.map(|l| u64::try_from(l).unwrap_or(u64::MAX)),
             ordered: self.ordered,
             ..Default::default()
@@ -575,7 +583,7 @@ impl DataSource for VortexDataSource {
             column_statistics,
         };
         // A filter can remove the rows that supplied an exact count or extremum.
-        let statistics = if self.filter.is_some() {
+        let statistics = if self.filter.is_some() || !self.runtime_filters.0.is_empty() {
             statistics.to_inexact()
         } else {
             statistics
@@ -585,6 +593,9 @@ impl DataSource for VortexDataSource {
     }
 
     fn with_fetch(&self, limit: Option<usize>) -> Option<Arc<dyn DataSource>> {
+        if limit.is_some() && !self.runtime_filters.0.is_empty() {
+            return None;
+        }
         let mut this = self.clone();
         this.limit = limit;
         Some(Arc::new(this))
@@ -662,10 +673,30 @@ impl DataSource for VortexDataSource {
             ));
         }
 
+        let mut this = self.clone();
+        if self.limit.is_none() {
+            this.runtime_filters.0.extend(
+                filters
+                    .iter()
+                    .filter(|filter| {
+                        DynamicFilterTracking::classify(filter).contains_dynamic_filter()
+                    })
+                    .map(|filter| RuntimeFilter {
+                        expression: Arc::clone(filter),
+                        schema: Arc::clone(&self.projected_schema),
+                        projection: self.projected_projection.clone(),
+                        leftover: self.leftover_projection.clone(),
+                        converter: Arc::clone(&self.expression_converter),
+                    }),
+            );
+        }
         let converter = &self.expression_converter;
         let filters = filters
             .into_iter()
             .map(|filter| {
+                if DynamicFilterTracking::classify(&filter).contains_dynamic_filter() {
+                    return Ok(filter);
+                }
                 let filter = match &self.leftover_projection {
                     Some(projection) => projection.unproject_expr(&filter)?,
                     None => filter,
@@ -678,7 +709,13 @@ impl DataSource for VortexDataSource {
         // so we can safely claim PushedDown::Yes for them.
         let converted = filters
             .iter()
-            .map(|expr| converter.try_convert(expr, &self.projected_schema))
+            .map(|expr| {
+                if DynamicFilterTracking::classify(expr).contains_dynamic_filter() {
+                    Ok(None)
+                } else {
+                    converter.try_convert(expr, &self.projected_schema)
+                }
+            })
             .collect::<DFResult<Vec<_>>>()?;
         let pushdown_results: Vec<PushedDown> = converted
             .iter()
@@ -692,7 +729,9 @@ impl DataSource for VortexDataSource {
             .collect();
 
         // If nothing can be pushed down, return early.
-        if pushdown_results.iter().all(|p| matches!(p, PushedDown::No)) {
+        if pushdown_results.iter().all(|p| matches!(p, PushedDown::No))
+            && this.runtime_filters.0.len() == self.runtime_filters.0.len()
+        {
             return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
                 pushdown_results,
             ));
@@ -704,7 +743,6 @@ impl DataSource for VortexDataSource {
             .into_iter()
             .flatten()
             .map(|expr| replace(expr, &root(), self.projected_projection.clone()));
-        let mut this = self.clone();
         this.filter = and_collect(self.filter.iter().cloned().chain(pushed));
         Ok(
             FilterPushdownPropagation::with_parent_pushdown_result(pushdown_results)
@@ -720,7 +758,13 @@ impl DataSource for VortexDataSource {
             self.leftover_projection
                 .iter()
                 .flat_map(|projection| projection.iter())
-                .map(|expr| &expr.expr),
+                .map(|expr| &expr.expr)
+                .chain(
+                    self.runtime_filters
+                        .0
+                        .iter()
+                        .map(|filter| &filter.expression),
+                ),
             f,
         )
     }
