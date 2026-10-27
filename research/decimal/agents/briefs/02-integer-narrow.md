@@ -44,7 +44,7 @@ later. These changes on `develop` matter when an agent reads the rewrite:
 | --- | --- | --- |
 | `vortex_array::array_session()` removed | `d834a11faa` (#10681) | Every test module uses a module `static SESSION`, with the pattern below. The tests of the rewrite call `array_session()`, so port their cases, not their setup |
 | Interleave uses named slots | `96ac9f2cc5` (#10688) | `InterleaveArray::try_new(values, array_indices, row_indices)` keeps its signature. The slot order is the same: selectors at 0 and 1, values from 2. `InterleaveSlots` is `pub(super)` (`vortex-array/src/arrays/interleave/array.rs:24`). The NR5 pull-up rule builds a new array with `InterleaveArray::try_new` |
-| Storage pushdown in the aggregate session | `d7562aa0e6` (#10566), `3bf14ba647` (#10616) | `AggregateFnSession::default` has `register_storage_ordered` calls (`vortex-array/src/aggregate_fn/session.rs:127-129`). Register the NR3 kernels after the `Dict` kernels (`:133-135`). The lookup tries the exact aggregate id first and then the `None` key (`:328-337`) |
+| Storage pushdown in the aggregate session | `d7562aa0e6` (#10566), `3bf14ba647` (#10616) | `AggregateFnSession::default` has `register_storage_ordered` calls (`vortex-array/src/aggregate_fn/session.rs:133-135`). Register the NR3 kernels after the `Dict` kernels (`:133-135`). The lookup tries the exact aggregate id first and then the `None` key (`:328-337`) |
 | `fill_null` on an empty input | `633c52deab` (#10627) | `FillNull` returns an empty array for a non-constant fill on an empty input (`vortex-array/src/scalar_fn/fns/fill_null/mod.rs:145`). The `Narrow` rule receives a `Scalar`, so it is not affected |
 | Kernel for constant dictionary codes | `a169338930` (#10643) | An execute-parent kernel handles `Constant` codes (`vortex-array/src/arrays/dict/take.rs:181-205`). The NR5 rule for `Narrow` codes is a reduce rule, so the two do not overlap |
 | Deprecated APIs and `legacy_session` removed | `85ae34d5f0` (#10595) | None of the removed APIs is needed |
@@ -74,7 +74,7 @@ kernel of NR4 can both register for `Binary` on `Narrow`.
 
 PR #10681 gave each test module one session. `VortexSession::empty()` creates the vortex-array
 session variables on first use, and the default `KernelSession` runs `arrays::initialize`
-(`vortex-array/src/optimizer/kernels.rs:336-349`), so the `Narrow` kernels are present.
+(`vortex-array/src/optimizer/kernels.rs:357-370`), so the `Narrow` kernels are present.
 
 ```rust
 // Module level, as in vortex-array/src/arrays/dict/compute/fill_null.rs:110 on develop.
@@ -557,7 +557,9 @@ Design notes:
   - A `main` that forces `SESSION` with `LazyLock::force` and then calls `divan::main()`.
   - `SESSION` starts from `VortexSession::empty()` and adds `KernelSession`,
     `AggregateFnSession` and `MemorySession` with `.with::<...>()`, as
-    `encodings/alp/benches/alp_compress.rs:66-68` does. `StatsSession` moved out of `vortex-array`
+    `encodings/alp/benches/alp_compress.rs:66-68` does. This departs from CD1, whose `SESSION` is
+    `VortexSession::empty()` plus `initialize`, and it needs no `ArraySession`, because no case
+    serializes. `StatsSession` moved out of `vortex-array`
     (#10734), so the old recipe of this brief does not compile. `main` creates the three
     variables, so no timed case pays for their default constructors. Then the `Wide` and `Decoded`
     cases stay flat when NR3 adds registrations.
@@ -719,9 +721,9 @@ Design notes:
   1. Options without `skip_nans`.
   2. A child with a kernel for the exact `Sum` id, such as `RunEnd` or `Sparse`. On the default
      path the cast pushes into such a child, and its own kernel runs at the parent dtype. The
-     fallback of `Chunked` for the `None` key (`session.rs:132`) does not count, because it sums
+     fallback of `Chunked` for the `None` key (`session.rs:137`) does not count, because it sums
      widened chunks. `find_aggregate_kernel` always falls back to the `None` key
-     (`session.rs:328-337`), so the check uses the exact-id lookup below.
+     (`session.rs:338-347`), so the check uses the exact-id lookup below.
   3. `values.is::<Constant>()`, which executes nothing. The default path sums a constant cheaply.
   4. A non-integer child (a decimal, after CD4).
   5. More than 2^32 values. An `NB:` comment beside the check explains the bound: a child is at
@@ -734,10 +736,10 @@ Design notes:
   `(Narrow, MinMax)`, `(Narrow, Min)` and `(Narrow, Max)` for `NarrowMinMaxKernel`, then
   `(Narrow, IsConstant)`, `(Narrow, IsSorted)` and `(Narrow, Sum)`.
   - Never register them from `narrow::initialize`. `KernelSession::default` runs
-    `arrays::initialize` on a throwaway session (`vortex-array/src/optimizer/kernels.rs:345-346`),
+    `arrays::initialize` on a throwaway session (`vortex-array/src/optimizer/kernels.rs:366-367`),
     so an aggregate registration there is lost without an error.
   - There is no `(Narrow, None)` fallback. The lookup tries the exact id and then the `None` key
-    (`session.rs:328-337`), so such a fallback runs for every aggregate on a `Narrow`. It shadows
+    (`session.rs:338-347`), so such a fallback runs for every aggregate on a `Narrow`. It shadows
     the cheap `try_accumulate` paths of `First`, `Last`, `Count`, `NullCount`, `AllNull` and
     `AllNonNull`, and it covers future aggregates without a review.
 - Default path, no kernel: `SumV2`, `Sum` with `include_nans`, `First`, `Last`, `Count`,
@@ -751,14 +753,14 @@ Design notes:
   - `SumState::to_scalar` in `aggregate_fn/fns/sum/mod.rs` replaces the private `sum_state_scalar`
     of `SumV2` (`aggregate_fn/fns/sum_v2/mod.rs:523-540`). `Sum`, `SumV2` and the kernel use it.
     No behavior changes.
-  - A `pub(crate)` method on `AggregateKernels` (`aggregate_fn/session.rs:298-326`) looks up the
+  - A `pub(crate)` method on `AggregateKernels` (`aggregate_fn/session.rs:308-336`) looks up the
     key `(array_id, Some(agg_fn_id))` only, with no `None` fallback. The kernel calls it through
-    `ctx.aggregate_kernels()` (`vortex-array/src/executor.rs:408`), and the test oracle uses it.
+    `ctx.aggregate_kernels()` (`vortex-array/src/executor.rs:416`), and the test oracle uses it.
   - A doc comment on `accumulate_primitive` (`aggregate_fn/fns/sum/primitive.rs:24`) states the
     contract that the kernel relies on. It adds the valid values to the state and widens each value
     exactly. The input is in the same class as the state (signed, unsigned or float). It returns
     true on overflow.
-  - One sentence on `AggregateFnVTable::accumulate` (`aggregate_fn/vtable.rs:253`) says that
+  - One sentence on `AggregateFnVTable::accumulate` (`aggregate_fn/vtable.rs:254`) says that
     `batch` has the dtype `args.dtype`.
 - Child value queries are allowed with the `Narrow` decode. When the child has no cached
   statistic and no kernel, `min_max`, `is_constant` and `is_sorted` build an accumulator of the
@@ -770,18 +772,20 @@ Files (checked at `afa4bc87cd`):
 | Path | Change |
 | --- | --- |
 | `vortex-array/src/arrays/narrow/compute/min_max.rs`, `is_constant.rs`, `is_sorted.rs`, `sum.rs` | New. One `pub(crate)` kernel each, with a short exactness argument in its doc. The rule of D36 is stated once, in the doc of `compute/mod.rs` |
-| `vortex-array/src/arrays/narrow/compute/mod.rs` | Declare the four modules. The module doc states the aggregate rule |
-| `vortex-array/src/arrays/narrow/vtable/operations.rs` | Move the cast of `probe_scalar` into the decode function, which the kernels also call |
-| `vortex-array/src/aggregate_fn/session.rs:45-51` | Import `Narrow` and the four kernels |
-| `vortex-array/src/aggregate_fn/session.rs:133-135` | The six registrations after the `Dict` kernels |
-| `vortex-array/src/aggregate_fn/session.rs:298-326` | The `pub(crate)` exact-id lookup on `AggregateKernels` |
+| `vortex-array/src/arrays/narrow/mod.rs` | `pub(crate) mod compute;`, so that `aggregate_fn/session.rs` can import the kernels, as it does from `dict/compute/` |
+| `vortex-array/src/arrays/narrow/compute/mod.rs` | Declare the four modules as `pub(crate) mod`. The module doc states the aggregate rule |
+| `vortex-array/src/arrays/narrow/array.rs` | The `pub(super)` decode function, next to `validate_dtypes`. `vtable/operations.rs` is private to `vtable`, so a function there cannot serve the kernels in `compute/` |
+| `vortex-array/src/arrays/narrow/vtable/operations.rs` | `probe_scalar` calls the decode function |
+| `vortex-array/src/aggregate_fn/session.rs:45-56` | Import `Narrow` and the four kernels |
+| `vortex-array/src/aggregate_fn/session.rs:138-140` | The six registrations after the `Dict` kernels |
+| `vortex-array/src/aggregate_fn/session.rs:308-336` | The `pub(crate)` exact-id lookup on `AggregateKernels` |
 | `vortex-array/src/aggregate_fn/fns/sum/mod.rs` | `SumState::to_scalar`. `Sum::to_scalar` uses it |
 | `vortex-array/src/aggregate_fn/fns/sum_v2/mod.rs:523-540` | Use `SumState::to_scalar`, and delete `sum_state_scalar` |
 | `vortex-array/src/aggregate_fn/fns/sum/primitive.rs:24` | The doc comment on `accumulate_primitive` |
-| `vortex-array/src/aggregate_fn/vtable.rs:253` | One sentence on the `accumulate` doc |
+| `vortex-array/src/aggregate_fn/vtable.rs:254` | One sentence on the `accumulate` doc |
 | `vortex-array/src/arrays/narrow/tests/mod.rs` | `mod aggregates;` |
 | `vortex-array/src/arrays/narrow/tests/aggregates.rs` | New |
-| `encodings/fastlanes/tests/narrow.rs` | New integration test with a `BitPacked` child, with the closure session pattern. It keeps `#![cfg(test)]`, or clippy fails on `tests_outside_test_module` |
+| `encodings/fastlanes/tests/narrow.rs` | New integration test with a `BitPacked` child, with the closure session pattern. `encodings/fastlanes/tests/` does not exist yet, and Cargo discovers the file unless the crate sets `autotests = false`. It keeps `#![cfg(test)]`, or clippy fails on `tests_outside_test_module`, as in `vortex-btrblocks/tests/*.rs` |
 
 Steps:
 
@@ -881,10 +885,10 @@ Files (checked at `afa4bc87cd`):
 | --- | --- |
 | `vortex-array/src/arrays/narrow/compute/numeric.rs` | New. Reference: `74aa17644e`. A kernel for `Binary` that implements `ExecuteParentKernel` directly |
 | `vortex-array/src/arrays/narrow/compute/cast.rs`, `fill_null.rs` | Extend the cast and fill-null rules |
-| `vortex-array/src/arrays/narrow/compute/zip.rs`, `between.rs`, `rules.rs` | New `ZipReduce`, `ZipFalseReduce` and `BetweenReduce`, listed in `PARENT_RULES` |
-| `vortex-array/src/arrays/narrow/encode.rs` | Created by NR1. The numeric kernel, `integer_storage_type` and `encode` use its `pub(super)` width helper. There is no `integer_types` list |
+| `vortex-array/src/arrays/narrow/compute/zip.rs`, `between.rs`, `rules.rs` | New `ZipReduce` and `BetweenReduce`, listed in `PARENT_RULES`. `ZipReduceAdaptor` fires only for child index 0 (`scalar_fn/fns/zip/kernel.rs:67`), so the false-branch rule is a hand-written `ArrayParentReduceRule` |
+| `vortex-array/src/arrays/narrow/encode.rs` | Created by NR1. The numeric kernel, `integer_storage_type` and `encode` use its `pub(super)` width helper. Make `integer_value` `pub(super)` and reuse it for the `min_max` bounds. There is no `integer_types` list |
 | `vortex-array/src/arrays/narrow/compute/mod.rs`, `mod.rs` | `mod numeric;`, and `initialize` in `mod.rs` registers the numeric kernel |
-| `vortex-array/src/scalar_fn/fns/between/mod.rs:129` | Make `as_two_compares` `pub(crate)` |
+| `vortex-array/src/scalar_fn/fns/between/mod.rs:137` | Make `as_two_compares` `pub(crate)` |
 | `vortex-array/src/arrays/narrow/tests/mod.rs` | `mod numeric;` and `mod pushdown;` |
 | `vortex-array/src/arrays/narrow/tests/numeric.rs` | New. Port the cases of the reference tests |
 | `vortex-array/src/arrays/narrow/tests/pushdown.rs` | New. Port the cases of the reference tests |
@@ -953,7 +957,8 @@ Tests:
     strictness values.
   - `test_cast_child`: unsigned to signed, signed to unsigned, and float. The float target needs
     this test, because `test_cast_conformance` runs no float target for an integer input.
-  - `test_cast_conformance` runs over the NR1 fixtures.
+  - `test_conformance` in `tests/compute.rs` already runs `test_cast_conformance` over the NR1
+    fixtures, so do not add a second run.
   - Cast failures assert `is_err`, because the error text names the child ptype.
   - `test_fill_width`, `test_zip_width`, `test_between_nullable_bounds`,
     `test_zip_false_branch_and_null_mask`, `test_signedness_cast_checks_values_and_nulls`.
@@ -1298,9 +1303,9 @@ Open questions: None.
    In `f7408481ce` the same lines are `:76-79`.
 7. `ct/narrow-encoding` (#10223), `ct/narrow-pushdown` (#10332) and `ct/narrow-compression`
    (#10333) still exist on `origin`. The new branch names avoid all three.
-8. `Narrow` is registered in `ArraySession::default`, while the in-memory `Filter`, `Slice` and
-   `Interleave` are not. `PiecewiseSequence` is registered and also has no wire form, so the
-   rewrite follows a precedent.
+8. `Narrow` is not registered in `ArraySession::default`, like the in-memory `Filter`, `Slice`
+   and `Interleave`. A registered `VTable` also gets a reader entry that can only fail (#10864).
+   WR1 registers it together with its wire form.
 9. Part 2 of #10333 wraps every integer primitive that reaches `compress_canonical` in a `Narrow`,
    including internal children. It also declares a preview edition with only `vortex.narrow`. WR2
    and WR3 must not reuse either as they are.
