@@ -6,7 +6,6 @@
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
-use std::sync::Weak;
 
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
@@ -41,7 +40,7 @@ pub struct ScanCache(Arc<Inner>);
 
 #[derive(Default)]
 struct Inner {
-    preparations: Mutex<FxHashMap<PreparationKey, Weak<async_lock::Mutex<()>>>>,
+    preparations: Mutex<FxHashMap<PreparationKey, Arc<async_lock::Mutex<bool>>>>,
     root: Mutex<Option<PlanRef>>,
     /// Optimized plans of non-identity projections. Values are cached by the plan that produced
     /// them, so a projection must reuse its plan for its values to be found again.
@@ -84,23 +83,23 @@ fn hash_expression<H: Hasher>(expression: &BoundExpression, state: &mut H) {
 type PreparationKey = (ScanExpression, Option<ScanExpression>);
 
 impl ScanCache {
-    /// Coordinates identical preparations without serializing scans with different filters.
+    /// Coordinates the first successful preparation of each projection and filter.
+    /// The flag is set only after all reusable plans have been cached.
     pub(super) fn preparation(
         &self,
         projection: &BoundExpression,
         filter: Option<&BoundExpression>,
-    ) -> Arc<async_lock::Mutex<()>> {
+    ) -> Arc<async_lock::Mutex<bool>> {
         let key = (
             ScanExpression(projection.clone()),
             filter.cloned().map(ScanExpression),
         );
         let mut preparations = self.0.preparations.lock();
-        if let Some(preparation) = preparations.get(&key).and_then(Weak::upgrade) {
-            return preparation;
-        }
-        let preparation = Arc::new(async_lock::Mutex::new(()));
-        preparations.insert(key, Arc::downgrade(&preparation));
-        preparation
+        Arc::clone(
+            preparations
+                .entry(key)
+                .or_insert_with(|| Arc::new(async_lock::Mutex::new(false))),
+        )
     }
 
     /// A cache whose scans retain up to `bytes` of recently read segments, so chunks that share

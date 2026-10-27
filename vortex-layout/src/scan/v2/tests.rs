@@ -1029,6 +1029,12 @@ async fn preparation_coordinates_equivalent_scans(
     let preparation = cache.preparation(&projection, Some(&filter));
     assert_eq!(preparation.try_lock_arc().is_some(), independent);
     drop(guard);
-    assert!(preparation.try_lock_arc().is_some());
+    let mut guard = preparation.try_lock_arc().expect("preparation was released");
+    assert!(!*guard);
+    *guard = true;
+    drop(guard);
+    drop(preparation);
+    let preparation = cache.preparation(&projection, Some(&filter));
+    assert!(*preparation.lock_arc().await);
     Ok(())
 }

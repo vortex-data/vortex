@@ -248,10 +248,15 @@ impl<A: 'static + Send> ScanBuilder<A> {
                 .get_or_insert_with(ScanCache::default)
                 .preparation(&self.projection, self.filter.as_ref());
             let guard = preparation.lock_arc().await;
+            // Once the cache is populated, partitions need not queue their CPU tasks.
+            let guard = if *guard { None } else { Some(guard) };
             handle
                 .spawn_cpu(move || {
-                    let _guard = guard;
-                    ScanRun::try_new(self)?.execute_stream()
+                    let scan = ScanRun::try_new(self)?;
+                    if let Some(mut guard) = guard {
+                        *guard = true;
+                    }
+                    scan.execute_stream()
                 })
                 .await
         })
