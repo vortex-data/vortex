@@ -16,6 +16,7 @@ import dev.vortex.api.Partition;
 import dev.vortex.api.Scan;
 import dev.vortex.api.ScanOptions;
 import dev.vortex.api.Session;
+import dev.vortex.api.VortexColumnStatistics;
 import dev.vortex.api.VortexWriteSummary;
 import dev.vortex.api.VortexWriter;
 import dev.vortex.arrow.ArrowAllocation;
@@ -412,6 +413,40 @@ public final class JNIWriterTest {
         }
 
         assertTrue(NativeFiles.readMetadata(session, writePath, new HashMap<>()).isEmpty());
+    }
+
+    @Test
+    public void testFileStatisticsMatchWriteSummary() throws IOException {
+        Path outputPath = tempDir.resolve("test_statistics.vortex");
+        String writePath = outputPath.toAbsolutePath().toUri().toString();
+
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+        VortexWriteSummary summary;
+        try (VortexWriter writer = VortexWriter.builder(session, writePath, personSchema(), allocator)
+                .build()) {
+            writePeopleBatch(writer, allocator);
+            summary = writer.finish();
+        }
+
+        List<VortexColumnStatistics> statistics = NativeFiles.readStatistics(session, writePath, new HashMap<>());
+        assertEquals(2, statistics.size());
+
+        VortexColumnStatistics name = statistics.get(0);
+        assertEquals(0, name.columnIndex());
+        assertEquals(summary.columnStatistics().get(0).compressedSize(), name.compressedSize());
+        assertEquals(3L, name.valueCount());
+        assertEquals(0L, name.nullValueCount().orElseThrow());
+        assertTrue(name.nanValueCount().isEmpty());
+        assertEquals("Alice", name.lowerBound().orElseThrow());
+        assertEquals("Carol", name.upperBound().orElseThrow());
+
+        VortexColumnStatistics age = statistics.get(1);
+        assertEquals(1, age.columnIndex());
+        assertEquals(summary.columnStatistics().get(1).compressedSize(), age.compressedSize());
+        assertEquals(3L, age.valueCount());
+        assertEquals(25, age.lowerBound().orElseThrow());
+        assertEquals(40, age.upperBound().orElseThrow());
     }
 
     @Test
