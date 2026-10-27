@@ -41,6 +41,12 @@ impl DynAggregateKernel for WidenArrayAggregate {
             return Ok(None);
         };
 
+        // NB: Exactness rests on integer decoding. A decimal `Widen` (CD4 in #10733) needs its own
+        // argument, because `Sum` checks a decimal for overflow against the precision of its input.
+        if !batch.dtype().is_int() {
+            return Ok(None);
+        }
+
         if aggregate_fn.is::<Sum>() && !is_exact_sum(aggregate_fn, batch) {
             return Ok(None);
         }
