@@ -25,13 +25,24 @@ use crate::scan::execution::FilterPlans;
 /// scans. The lowered plan keeps the children it has initialized, each distinct projection keeps
 /// its optimized plan, each distinct filter keeps its conjunct and pruning plans along with the
 /// zones those plans have already excluded, and dictionary values stay keyed by the cached plan
-/// that produced them.
+/// that produced them. Segments spanning scan chunks also share their deserialized arrays in a
+/// cache with a 16 MiB weighted capacity.
 ///
 /// A cache describes one file's layout, segment locations, and segment source. Use a new cache
 /// when any of them changes. Cached plans and values live as long as the cache, one set per
 /// distinct projection.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct ScanCache(Arc<Inner>);
+
+impl Default for ScanCache {
+    fn default() -> Self {
+        Self(Arc::new(Inner {
+            // Reuse neighboring chunks' deserialization without retaining the whole file.
+            values: ValueCache::with_decoded_segments(16 * 1024 * 1024),
+            ..Inner::default()
+        }))
+    }
+}
 
 #[derive(Default)]
 struct Inner {

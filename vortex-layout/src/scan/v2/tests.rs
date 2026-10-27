@@ -556,22 +556,24 @@ async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
         chunks.len(),
         (STORED_CHUNKS * STORED_CHUNK_ROWS).div_ceil(MAX_ROWS_PER_CHUNK)
     );
+    let mut first_unread_codes_chunk = 0;
     for (index, rows) in chunks.into_iter().enumerate() {
         let before = counted.reads.load(Ordering::Relaxed);
         let arrays = run_rows(&scan, rows.clone()).await?;
         let reads = counted.reads.load(Ordering::Relaxed) - before;
-        let code_chunks =
-            (rows.end - 1) / STORED_CHUNK_ROWS as u64 - rows.start / STORED_CHUNK_ROWS as u64 + 1;
+        let end_codes_chunk = (rows.end - 1) / STORED_CHUNK_ROWS as u64 + 1;
         // The first chunk reads every values chunk once for the whole scan; its codes are one of
-        // them, and the session shares that read. Later chunks read only their codes.
+        // them, and the session shares that read. Later work chunks reuse the codes that overlap
+        // their predecessor and only read stored codes chunks they encounter for the first time.
         assert_eq!(
             reads,
             if index == 0 {
                 STORED_CHUNKS
             } else {
-                usize::try_from(code_chunks)?
+                usize::try_from(end_codes_chunk - first_unread_codes_chunk)?
             }
         );
+        first_unread_codes_chunk = end_codes_chunk;
         let expected =
             PrimitiveArray::from_iter(i32::try_from(rows.start)?..i32::try_from(rows.end)?);
         assert_arrays_eq!(
@@ -686,7 +688,7 @@ async fn chunked_ints(
 /// A shared [`ScanCache`] keeps dictionary values between scans; without one, each scan reads
 /// them again.
 #[rstest]
-#[case::cached(true, 1)]
+#[case::cached(true, 0)]
 #[case::uncached(false, 4)]
 #[tokio::test]
 async fn scan_cache_reuses_values_between_scans(
@@ -719,7 +721,7 @@ async fn scan_cache_reuses_values_between_scans(
         );
         reads.push(counted.reads.load(Ordering::Relaxed) - before);
     }
-    // Every values chunk and the one selected codes chunk, then only the codes chunk if cached.
+    // Every values chunk and the selected codes chunk are retained by the shared cache.
     assert_eq!(reads, vec![4, second_scan_reads]);
     Ok(())
 }
@@ -779,7 +781,7 @@ async fn repeated_projections_reuse_their_values() -> VortexResult<()> {
         );
         reads.push(counted.reads.load(Ordering::Relaxed) - before);
     }
-    assert_eq!(reads, vec![4, 1, 1]);
+    assert_eq!(reads, vec![4, 0, 0]);
     Ok(())
 }
 

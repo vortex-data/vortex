@@ -716,6 +716,135 @@ fn eval_applies_expression_to_selected_rows() -> VortexResult<()> {
     Ok(())
 }
 
+#[rstest]
+#[case::cached(1024 * 1024, 0)]
+#[case::disabled(0, 1)]
+fn decoded_segments_keep_the_full_array(
+    #[case] capacity: u64,
+    #[case] second_reads: usize,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let expected = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
+    let plan = lower(&store.flat(&expected)?)?;
+    let cache = ValueCache::with_decoded_segments(capacity);
+    for (rows, mask, expected_reads) in [
+        (2..10, Sel::EveryOther.mask(8), 1),
+        (10..18, Mask::new_true(8), second_reads),
+    ] {
+        let run = run_with_values(
+            &store,
+            &plan,
+            rows.clone(),
+            mask.clone(),
+            cache.clone(),
+            delivery(Delivery::Fifo),
+        )?;
+        assert_eq!(reads(&run.events), expected_reads);
+        assert_view(&expected, &rows, &mask, run.arrays)?;
+    }
+    Ok(())
+}
+
+#[test]
+fn decoded_segments_distinguish_plans_with_the_same_segment_id() -> VortexResult<()> {
+    let cache = ValueCache::with_decoded_segments(1024 * 1024);
+    for start in [0, 100] {
+        let mut store = Store::default();
+        let expected = PrimitiveArray::from_iter(start..start + ROWS as i32).into_array();
+        let plan = lower(&store.flat(&expected)?)?;
+        let run = run_with_values(
+            &store,
+            &plan,
+            2..18,
+            Mask::new_true(16),
+            cache.clone(),
+            delivery(Delivery::Fifo),
+        )?;
+        assert_eq!(segments_read(&run.events), [0]);
+        assert_view(&expected, &(2..18), &Mask::new_true(16), run.arrays)?;
+    }
+    Ok(())
+}
+
+#[test]
+fn decoded_segments_do_not_keep_failed_reads() -> VortexResult<()> {
+    let mut store = Store::default();
+    let expected = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
+    let plan = lower(&store.flat(&expected)?)?;
+    let cache = ValueCache::with_decoded_segments(1024 * 1024);
+    let bytes = std::mem::replace(
+        &mut store.segments[0],
+        BufferHandle::new_host(ByteBufferMut::empty_aligned(Alignment::new(64)).freeze()),
+    );
+    assert!(
+        run_with_values(
+            &store,
+            &plan,
+            2..18,
+            Mask::new_true(16),
+            cache.clone(),
+            delivery(Delivery::Fifo),
+        )
+        .is_err()
+    );
+    store.segments[0] = bytes;
+    let run = run_with_values(
+        &store,
+        &plan,
+        2..18,
+        Mask::new_true(16),
+        cache,
+        delivery(Delivery::Fifo),
+    )?;
+    assert_eq!(reads(&run.events), 1);
+    assert_view(&expected, &(2..18), &Mask::new_true(16), run.arrays)
+}
+
+#[test]
+fn decoded_segments_evict_and_reread() -> VortexResult<()> {
+    let mut store = Store::default();
+    let expected = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
+    let capacity = 8 * 1024;
+    let cache = ValueCache::with_decoded_segments(capacity);
+    let decoded = cache.decoded().vortex_expect("decoded cache enabled");
+    let mut plans = Vec::new();
+    for _ in 0..16 {
+        let plan = lower(&store.flat(&expected)?)?.child_required(0)?;
+        assert!(plan.is::<SegmentScan>());
+        let run = run_with_values(
+            &store,
+            &plan,
+            2..18,
+            Mask::new_true(16),
+            cache.clone(),
+            delivery(Delivery::Fifo),
+        )?;
+        assert_eq!(reads(&run.events), 1);
+        assert_view(&expected, &(2..18), &Mask::new_true(16), run.arrays)?;
+        plans.push(plan);
+    }
+    let retained = plans
+        .iter()
+        .filter(|plan| decoded.get((*plan).clone()).is_some())
+        .count();
+    assert!(retained > 0);
+    assert!(retained as u64 * (expected.nbytes() + 1024) <= capacity);
+    let evicted = plans
+        .iter()
+        .find(|plan| decoded.get((*plan).clone()).is_none())
+        .vortex_expect("the cache cannot retain all segments");
+    let run = run_with_values(
+        &store,
+        evicted,
+        2..18,
+        Mask::new_true(16),
+        cache,
+        delivery(Delivery::Fifo),
+    )?;
+    assert_eq!(reads(&run.events), 1);
+    assert_view(&expected, &(2..18), &Mask::new_true(16), run.arrays)
+}
+
 /// A column read by two fields of one struct is read by each field, and both get it.
 #[test]
 fn a_segment_two_readers_need_is_read_by_each() -> VortexResult<()> {
