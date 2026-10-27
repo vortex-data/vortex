@@ -5,8 +5,9 @@
 //!
 //! `random_rotating` carries `#[cpu_features]`, so it is measured in walltime on every
 //! CPU-feature leg rather than in simulation. The entry point picks its kernel at runtime:
-//! the x86 legs measure the BMI2 kernel and the NEON leg the portable one. On mixed masks
-//! the portable kernel spends most of its time in branch mispredictions, which only a
+//! the x86 legs measure the BMI2 kernel, and the NEON leg measures SVE2 BDEP where the CPU has
+//! it and the portable kernel otherwise. Below a `self` density of 1/16 the portable kernel
+//! loops over the set bits, and its cost then depends on branch prediction, which only a
 //! walltime measurement on real hardware shows.
 
 use std::sync::atomic::AtomicUsize;
@@ -78,6 +79,8 @@ const RANDOM_ROTATING_ARGS: &[(f64, f64, &str)] = &[
     (0.50, 0.50, "self_50pct_mask_50pct"),
     (0.90, 0.90, "self_90pct_mask_90pct"),
     (0.02, 0.50, "self_2pct_mask_50pct"),
+    (0.05, 0.50, "self_5pct_mask_50pct"),
+    (0.10, 0.50, "self_10pct_mask_50pct"),
     (0.50, 0.02, "self_50pct_mask_2pct"),
 ];
 

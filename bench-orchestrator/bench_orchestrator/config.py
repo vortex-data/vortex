@@ -58,6 +58,7 @@ class Benchmark(Enum):
     CLICKBENCH_SORTED = "clickbench-sorted"
     FINEWEB = "fineweb"
     GHARCHIVE = "gh-archive"
+    JOB = "job"
     POLARSIGNALS = "polarsignals"
     PUBLIC_BI = "public-bi"
     STATPOPGEN = "statpopgen"

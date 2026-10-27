@@ -32,6 +32,9 @@ pub use typed::*;
 mod erased;
 pub use erased::*;
 
+mod storage_pushdown;
+pub use storage_pushdown::*;
+
 mod options;
 pub use options::*;
 

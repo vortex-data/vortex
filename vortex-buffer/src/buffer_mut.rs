@@ -409,11 +409,6 @@ impl<T> BufferMut<T> {
         self.alignment
     }
 
-    #[cfg(test)]
-    pub(crate) fn allocator(&self) -> &BufferAllocatorRef {
-        self.allocation.allocator()
-    }
-
     /// Takes the buffer, leaving an empty buffer with the same alignment and allocator.
     pub fn take(&mut self) -> Self {
         let replacement =
@@ -1121,10 +1116,10 @@ mod tests {
         let taken = buffer.take();
 
         assert_eq!(taken.as_slice(), [1, 2, 3]);
-        assert!(taken.allocator().ptr_eq(&allocator));
+        assert!(taken.allocation.allocator().ptr_eq(&allocator));
         assert!(buffer.is_empty());
         assert_eq!(buffer.alignment(), alignment);
-        assert!(buffer.allocator().ptr_eq(&allocator));
+        assert!(buffer.allocation.allocator().ptr_eq(&allocator));
     }
 
     #[test]
@@ -1185,7 +1180,7 @@ mod tests {
         // The slice retains a large backing allocation, but needs only a small capacity increase.
         buffer.extend_from_slice(&[8; 16]);
 
-        assert!(buffer.allocator().ptr_eq(&allocator));
+        assert!(buffer.allocation.allocator().ptr_eq(&allocator));
         assert_eq!(&buffer[..8], &[7; 8]);
         assert_eq!(&buffer[8..], &[8; 16]);
     }

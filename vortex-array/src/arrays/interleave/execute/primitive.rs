@@ -14,6 +14,7 @@ use vortex_error::vortex_ensure_eq;
 
 use super::super::Interleave;
 use super::super::InterleaveArrayExt;
+use super::super::InterleaveSlots;
 use crate::AnyColumnar;
 use crate::array::Array;
 use crate::arrays::Constant;
@@ -32,10 +33,11 @@ pub(super) fn execute(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ExecutionResult> {
     let num_values = array.num_values();
-    array = require_child!(array, array.array_indices(), 0 => Primitive);
-    array = require_child!(array, array.row_indices(), 1 => Primitive);
+    array =
+        require_child!(array, array.array_indices(), InterleaveSlots::ARRAY_INDICES => Primitive);
+    array = require_child!(array, array.row_indices(), InterleaveSlots::ROW_INDICES => Primitive);
     for i in 0..num_values {
-        array = require_child!(array, array.value(i), i + 2 => AnyColumnar);
+        array = require_child!(array, array.value(i), InterleaveSlots::VALUES_OFFSET + i => AnyColumnar);
     }
 
     let validity = array.as_ref().validity()?;
@@ -143,7 +145,15 @@ mod tests {
         }];
 
         let allocator = BufferAllocatorRef::statically_allocated();
-        assert!(gather(&values, &[1u8], &[0u8], &allocator).is_err());
-        assert!(gather(&values, &[0u8], &[1u8], &allocator).is_err());
+        let error = gather(&values, &[1u8], &[0u8], &allocator).unwrap_err();
+        assert!(
+            error.to_string().contains("array index out of bounds"),
+            "{error}"
+        );
+        let error = gather(&values, &[0u8], &[1u8], &allocator).unwrap_err();
+        assert!(
+            error.to_string().contains("row index out of bounds"),
+            "{error}"
+        );
     }
 }

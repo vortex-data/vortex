@@ -24,7 +24,7 @@ SELECT sum(strlen(s)) FROM t5;
 query TT
 EXPLAIN SELECT sum(strlen(s)) FROM '${WORK_DIR}/c5.vortex';
 ----
-<REGEX>:.*UNGROUPED_AGGREGATE.*
+<REGEX>:.*Ungrouped Aggregate.*
 
 query TT
 EXPLAIN (FORMAT json) SELECT sum(strlen(s)) FROM '${WORK_DIR}/c5.vortex';
@@ -45,7 +45,7 @@ SELECT min(strlen(s)) FROM t5;
 query TT
 EXPLAIN SELECT min(strlen(s)) FROM '${WORK_DIR}/c5.vortex';
 ----
-<!REGEX>:.*UNGROUPED_AGGREGATE.*
+<!REGEX>:.*Ungrouped Aggregate.*
 
 query I
 SELECT min(strlen(s)) FROM '${WORK_DIR}/c5.vortex';
@@ -70,7 +70,7 @@ SELECT max(strlen(s)), count(strlen(s)) FROM t5;
 query TT
 EXPLAIN SELECT max(strlen(s)), count(strlen(s)) FROM '${WORK_DIR}/c5.vortex';
 ----
-<!REGEX>:.*UNGROUPED_AGGREGATE.*
+<!REGEX>:.*Ungrouped Aggregate.*
 
 query II
 SELECT max(strlen(s)), count(strlen(s)) FROM '${WORK_DIR}/c5.vortex';

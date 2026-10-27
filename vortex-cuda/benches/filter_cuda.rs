@@ -16,14 +16,8 @@ use std::time::Duration;
 use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
-use cudarc::driver::CudaSlice;
-use cudarc::driver::CudaView;
-use cudarc::driver::DevicePtr;
-use cudarc::driver::DevicePtrMut;
-use cudarc::driver::DeviceRepr;
-use cudarc::driver::ValidAsZeroBits;
-use cudarc::driver::sys::CUevent_flags;
 use futures::executor::block_on;
+use mimalloc::MiMalloc;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -32,10 +26,20 @@ use vortex_cub::filter::cudaStream_t;
 use vortex_cuda::CudaDeviceBuffer;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
+use vortex_cuda_driver::CudaSlice;
+use vortex_cuda_driver::CudaView;
+use vortex_cuda_driver::DevicePtr;
+use vortex_cuda_driver::DevicePtrMut;
+use vortex_cuda_driver::DeviceRepr;
+use vortex_cuda_driver::ValidAsZeroBits;
+use vortex_cuda_driver::sys::CUevent_flags;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
 use crate::bench_config::BENCH_SIZES;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 const SELECTIVITIES: &[(f64, &str)] = &[(0.1, "10%"), (0.5, "50%"), (0.9, "90%")];
 
 /// Creates input data of the given length.

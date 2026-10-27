@@ -26,8 +26,8 @@ use vortex_runend::RunEndArray;
 use vortex_runend::RunEndArrayExt;
 use vortex_runend::RunEndArraySlotsExt;
 
-use crate::ArrowArrayExecutor;
-use crate::session::ArrowSessionExt;
+use crate::ArrowExporter;
+use crate::executor::execute_arrow_naive;
 
 /// Matches the encodings [`to_arrow_run_end`] requires for export.
 struct ArrowRunEndExportable;
@@ -44,21 +44,24 @@ pub(super) fn to_arrow_run_end(
     array: ArrayRef,
     ends_type: &DataType,
     values_type: &Field,
+    exporter: &ArrowExporter<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let array = array.execute_until::<ArrowRunEndExportable>(ctx)?;
 
     let array = match array.try_downcast::<Constant>() {
-        Ok(constant) => return constant_to_run_end(constant, ends_type, values_type, ctx),
+        Ok(constant) => {
+            return constant_to_run_end(constant, ends_type, values_type, exporter, ctx);
+        }
         Err(array) => array,
     };
     let array = match array.try_downcast::<RunEnd>() {
-        Ok(run_end) => return run_end_to_arrow(run_end, ends_type, values_type, ctx),
+        Ok(run_end) => return run_end_to_arrow(run_end, ends_type, values_type, exporter, ctx),
         Err(array) => array,
     };
 
     // Fallback: canonicalize to flat Arrow, then cast to REE.
-    let flat = export_values(array, values_type, ctx)?;
+    let flat = export_values(array, values_type, exporter, ctx)?;
     let ree_type = DataType::RunEndEncoded(
         Arc::new(Field::new("run_ends", ends_type.clone(), false)),
         Arc::new(values_type.clone()),
@@ -71,25 +74,24 @@ pub(super) fn to_arrow_run_end(
 fn export_values(
     values: ArrayRef,
     values_type: &Field,
+    exporter: &ArrowExporter<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    ctx.session()
-        .clone()
-        .arrow()
-        .execute_arrow(values, Some(values_type), ctx)
+    exporter.execute_arrow(values, Some(values_type), ctx)
 }
 
 fn run_end_to_arrow(
     array: RunEndArray,
     ends_type: &DataType,
     values_type: &Field,
+    exporter: &ArrowExporter<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let length = array.len();
     let offset = array.offset();
 
-    let arrow_ends = array.ends().clone().execute_arrow(Some(ends_type), ctx)?;
-    let arrow_values = export_values(array.values().clone(), values_type, ctx)?;
+    let arrow_ends = execute_arrow_naive(array.ends().clone(), Some(ends_type), exporter, ctx)?;
+    let arrow_values = export_values(array.values().clone(), values_type, exporter, ctx)?;
 
     match ends_type {
         DataType::Int16 => build_run_array::<Int16Type>(&arrow_ends, &arrow_values, offset, length),
@@ -144,6 +146,7 @@ fn constant_to_run_end(
     array: ConstantArray,
     ends_type: &DataType,
     values_type: &Field,
+    exporter: &ArrowExporter<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let len = array.len();
@@ -160,6 +163,7 @@ fn constant_to_run_end(
     let values = export_values(
         ConstantArray::new(scalar.clone(), 1).into_array(),
         values_type,
+        exporter,
         ctx,
     )?;
 
@@ -215,7 +219,7 @@ mod tests {
     use crate::executor::run_end::RunEnd;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         vortex_runend::initialize(&session);
         session
     });
@@ -320,6 +324,11 @@ mod tests {
             .downcast_ref::<Int64Array>()
             .ok_or_else(|| vortex_err!("expected Int64 values"))?;
         assert_eq!(arrow_values.values().as_ptr(), values_ptr);
+        let expected = RunArray::<Int32Type>::try_new(
+            &Int32Array::from(vec![2, 4]),
+            &Int64Array::from(vec![7, 8]),
+        )?;
+        assert_eq!(ree_arrow, &expected);
         Ok(())
     }
 

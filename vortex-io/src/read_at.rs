@@ -468,7 +468,9 @@ mod tests {
         ]);
 
         let results = data.read_ranges(requests).collect::<Vec<_>>().await;
+        let mut offsets = Vec::new();
         for (request, result) in results {
+            offsets.push(request.offset);
             let expected: &[u8] = match request.offset {
                 0 => &[1],
                 2 => &[3, 4, 5],
@@ -477,6 +479,8 @@ mod tests {
             };
             assert_eq!(result?.to_host().await.as_ref(), expected);
         }
+        offsets.sort_unstable();
+        assert_eq!(offsets, [0, 2, 4]);
         Ok(())
     }
 

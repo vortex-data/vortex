@@ -15,6 +15,8 @@ use vortex::dtype::NativeDType;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
+use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 
@@ -45,7 +47,9 @@ impl ValueRef {
             return ExtractedValue::Null;
         }
         match self.logical_type().as_type_id() {
-            DUCKDB_TYPE::DUCKDB_TYPE_INVALID => vortex_panic!("Invalid type for DuckDB value"),
+            DUCKDB_TYPE::DUCKDB_TYPE_INVALID => {
+                vortex_panic!("Invalid type for DuckDB value")
+            }
             DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL => ExtractedValue::Null,
             DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN => {
                 ExtractedValue::Boolean(unsafe { cpp::duckdb_get_bool(self.as_ptr()) })
@@ -151,6 +155,21 @@ impl ValueRef {
                     (0..elem_count)
                         .map(|i| unsafe {
                             Value::own(cpp::duckdb_get_list_child(self.as_ptr(), i as idx_t))
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_ARRAY => {
+                let elem_count =
+                    usize::try_from(unsafe { cpp::duckdb_vx_value_get_array_size(self.as_ptr()) })
+                        .vortex_expect("Array size must fit usize");
+                ExtractedValue::List(
+                    (0..elem_count)
+                        .map(|i| unsafe {
+                            Value::own(cpp::duckdb_vx_value_get_array_child(
+                                self.as_ptr(),
+                                i as idx_t,
+                            ))
                         })
                         .collect::<Vec<_>>(),
                 )
@@ -289,6 +308,84 @@ impl Value {
             ))
         })
     }
+
+    /// Creates a DuckDB LIST value whose elements have the logical type `element_type`.
+    pub fn new_list(element_type: &LogicalTypeRef, elements: &[Value]) -> VortexResult<Self> {
+        let mut ptrs = value_ptrs(elements);
+        let ptr = unsafe {
+            cpp::duckdb_create_list_value(
+                element_type.as_ptr(),
+                ptrs.as_mut_ptr(),
+                ptrs.len() as idx_t,
+            )
+        };
+        Self::try_own(ptr, "list")
+    }
+
+    /// Creates a DuckDB ARRAY (fixed-size list) value whose elements have the logical type
+    /// `element_type`.
+    pub fn new_array(element_type: &LogicalTypeRef, elements: &[Value]) -> VortexResult<Self> {
+        let mut ptrs = value_ptrs(elements);
+        let ptr = unsafe {
+            cpp::duckdb_create_array_value(
+                element_type.as_ptr(),
+                ptrs.as_mut_ptr(),
+                ptrs.len() as idx_t,
+            )
+        };
+        Self::try_own(ptr, "array")
+    }
+
+    /// Creates a DuckDB STRUCT value of `struct_type` with one value per struct field.
+    pub fn new_struct(struct_type: &LogicalTypeRef, fields: &[Value]) -> VortexResult<Self> {
+        vortex_ensure_eq!(
+            fields.len(),
+            struct_type.struct_type_child_count(),
+            "struct value field count must match its logical type"
+        );
+        let mut ptrs = value_ptrs(fields);
+        let ptr =
+            unsafe { cpp::duckdb_create_struct_value(struct_type.as_ptr(), ptrs.as_mut_ptr()) };
+        Self::try_own(ptr, "struct")
+    }
+
+    /// Creates a DuckDB MAP value of `map_type` from parallel key and value slices.
+    pub fn new_map(
+        map_type: &LogicalTypeRef,
+        keys: &[Value],
+        values: &[Value],
+    ) -> VortexResult<Self> {
+        vortex_ensure_eq!(
+            keys.len(),
+            values.len(),
+            "map value must have as many keys as values"
+        );
+        let mut key_ptrs = value_ptrs(keys);
+        let mut val_ptrs = value_ptrs(values);
+        let ptr = unsafe {
+            cpp::duckdb_create_map_value(
+                map_type.as_ptr(),
+                key_ptrs.as_mut_ptr(),
+                val_ptrs.as_mut_ptr(),
+                key_ptrs.len() as idx_t,
+            )
+        };
+        Self::try_own(ptr, "map")
+    }
+
+    /// Takes ownership of a value returned by a DuckDB constructor, which returns `NULL` on
+    /// invalid input.
+    fn try_own(ptr: cpp::duckdb_value, kind: &str) -> VortexResult<Self> {
+        if ptr.is_null() {
+            vortex_bail!("Failed to create DuckDB {kind} value");
+        }
+        Ok(unsafe { Self::own(ptr) })
+    }
+}
+
+/// DuckDB's nested value constructors copy their children, so borrowed pointers suffice.
+fn value_ptrs(values: &[Value]) -> Vec<cpp::duckdb_value> {
+    values.iter().map(|v| v.as_ptr()).collect()
 }
 
 impl Display for ValueRef {

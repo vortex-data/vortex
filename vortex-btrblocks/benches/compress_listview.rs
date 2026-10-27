@@ -19,19 +19,31 @@ mod benchmarks {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::session::AggregateFnSession;
     use vortex_array::arrays::ListViewArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::dtype::FieldNames;
+    use vortex_array::memory::MemorySession;
+    use vortex_array::optimizer::kernels::KernelSession;
+    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressorBuilder;
+    use vortex_btrblocks::CompressionSession;
     use vortex_buffer::buffer_mut;
     use vortex_session::VortexSession;
 
     const NUM_ROWS: usize = 8192;
     const SEED: u64 = 42;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    pub(super) static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        VortexSession::empty()
+            .with::<ArraySession>()
+            .with::<KernelSession>()
+            .with::<AggregateFnSession>()
+            .with::<MemorySession>()
+            .with::<CompressionSession>()
+    });
 
     const SHORT_STRINGS: &[&str] = &[
         "alpha_one",
@@ -62,6 +74,7 @@ mod benchmarks {
     /// Wrap `elements` into a `ListViewArray` driven by per-entry `counts`.
     /// When `zctl`, offsets are sorted/non-overlapping. Otherwise, adjacent entries overlap by 1.
     fn wrap_listview(elements: ArrayRef, counts: &[usize], zctl: bool) -> ListViewArray {
+        let mut ctx = SESSION.create_execution_ctx();
         let mut offsets = buffer_mut![0u32; counts.len()];
         let mut sizes = buffer_mut![0u32; counts.len()];
         let mut offset = 0u32;
@@ -87,6 +100,7 @@ mod benchmarks {
             offsets.freeze().into_array(),
             sizes.freeze().into_array(),
             Validity::NonNullable,
+            &mut ctx,
         );
         if zctl {
             lv = unsafe { lv.with_zero_copy_to_list(true) };
@@ -198,5 +212,7 @@ mod benchmarks {
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    #[cfg(not(codspeed))]
+    std::sync::LazyLock::force(&benchmarks::SESSION);
     divan::main()
 }

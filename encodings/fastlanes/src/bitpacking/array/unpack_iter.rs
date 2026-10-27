@@ -12,6 +12,7 @@ use lending_iterator::prelude::Item;
 use lending_iterator::prelude::LendingIterator;
 use vortex_array::dtype::PhysicalPType;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
@@ -60,13 +61,14 @@ impl<T: PhysicalPType<Physical: BitPacking>> UnpackStrategy<T> for BitPackingStr
 /// #[gat(Item)]
 /// use lending_iterator::prelude::LendingIterator;
 /// use vortex_array::IntoArray;
+/// use vortex_session::VortexSession;
 /// use vortex_array::VortexSessionExecute;
 /// use vortex_buffer::buffer;
 /// use vortex_fastlanes::BitPackedData;
 /// use vortex_fastlanes::BitPackedArrayExt;
 /// use vortex_fastlanes::unpack_iter::BitUnpackedChunks;
 ///
-/// let mut ctx = vortex_array::array_session().create_execution_ctx();
+/// let mut ctx = VortexSession::empty().create_execution_ctx();
 /// let array = BitPackedData::encode(&buffer![2, 3, 4, 5].into_array(), 2, &mut ctx).unwrap();
 /// let mut scratch = [const { MaybeUninit::<i32>::uninit() }; 1024];
 /// let mut unpacked_chunks: BitUnpackedChunks<i32> =
@@ -107,10 +109,13 @@ impl<'a, T: BitPacked> BitUnpackedChunks<'a, T> {
         len: usize,
         scratch: &'a mut [MaybeUninit<T>; CHUNK_SIZE],
     ) -> VortexResult<Self> {
+        let Some(bit_width) = array.global_bit_width else {
+            vortex_bail!("BitPacked array has per-block bit widths");
+        };
         Self::try_new_with_strategy(
             BitPackingStrategy,
             array.packed_slice::<T::Physical>(),
-            array.bit_width() as usize,
+            bit_width as usize,
             array.offset() as usize,
             len,
             scratch,

@@ -43,6 +43,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 
+use crate::ArrowExporter;
 use crate::executor::bool::to_arrow_bool;
 use crate::executor::byte::to_arrow_byte_array;
 use crate::executor::byte_view::to_arrow_byte_view;
@@ -126,6 +127,7 @@ impl ArrowArrayExecutor for ArrayRef {
 pub(crate) fn execute_arrow_naive(
     array: ArrayRef,
     data_type: Option<&DataType>,
+    exporter: &ArrowExporter<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let len = array.len();
@@ -153,21 +155,27 @@ pub(crate) fn execute_arrow_naive(
         DataType::LargeBinary => to_arrow_byte_array::<LargeBinaryType>(array, ctx),
         DataType::Utf8 => to_arrow_byte_array::<Utf8Type>(array, ctx),
         DataType::LargeUtf8 => to_arrow_byte_array::<LargeUtf8Type>(array, ctx),
-        DataType::BinaryView => to_arrow_byte_view::<BinaryViewType>(array, ctx),
-        DataType::Utf8View => to_arrow_byte_view::<StringViewType>(array, ctx),
+        DataType::BinaryView => to_arrow_byte_view::<BinaryViewType>(array, exporter, ctx),
+        DataType::Utf8View => to_arrow_byte_view::<StringViewType>(array, exporter, ctx),
         // TODO(joe): pass down preferred
-        DataType::List(elements_field) => to_arrow_list::<i32>(array, elements_field, ctx),
-        // TODO(joe): pass down preferred
-        DataType::LargeList(elements_field) => to_arrow_list::<i64>(array, elements_field, ctx),
-        // TODO(joe): pass down preferred
-        DataType::FixedSizeList(elements_field, list_size) => {
-            to_arrow_fixed_list(array, *list_size, elements_field, ctx)
+        DataType::List(elements_field) => {
+            to_arrow_list::<i32>(array, elements_field, exporter, ctx)
         }
         // TODO(joe): pass down preferred
-        DataType::ListView(elements_field) => to_arrow_list_view::<i32>(array, elements_field, ctx),
+        DataType::LargeList(elements_field) => {
+            to_arrow_list::<i64>(array, elements_field, exporter, ctx)
+        }
+        // TODO(joe): pass down preferred
+        DataType::FixedSizeList(elements_field, list_size) => {
+            to_arrow_fixed_list(array, *list_size, elements_field, exporter, ctx)
+        }
+        // TODO(joe): pass down preferred
+        DataType::ListView(elements_field) => {
+            to_arrow_list_view::<i32>(array, elements_field, exporter, ctx)
+        }
         // TODO(joe): pass down preferred
         DataType::LargeListView(elements_field) => {
-            to_arrow_list_view::<i64>(array, elements_field, ctx)
+            to_arrow_list_view::<i64>(array, elements_field, exporter, ctx)
         }
         DataType::Struct(fields) => {
             let fields = if data_type.is_none() {
@@ -175,11 +183,11 @@ pub(crate) fn execute_arrow_naive(
             } else {
                 Some(fields)
             };
-            to_arrow_struct(array, fields, ctx)
+            to_arrow_struct(array, fields, exporter, ctx)
         }
         // TODO(joe): pass down preferred
         DataType::Dictionary(codes_type, values_type) => {
-            to_arrow_dictionary(array, codes_type, values_type, ctx)
+            to_arrow_dictionary(array, codes_type, values_type, exporter, ctx)
         }
         dt @ DataType::Decimal32(..) => to_arrow_decimal(array, dt, ctx),
         dt @ DataType::Decimal64(..) => to_arrow_decimal(array, dt, ctx),
@@ -187,13 +195,13 @@ pub(crate) fn execute_arrow_naive(
         dt @ DataType::Decimal256(..) => to_arrow_decimal(array, dt, ctx),
         // TODO(joe): pass down preferred
         DataType::RunEndEncoded(ends_type, values_type) => {
-            to_arrow_run_end(array, ends_type.data_type(), values_type, ctx)
+            to_arrow_run_end(array, ends_type.data_type(), values_type, exporter, ctx)
         }
         dt @ (DataType::Date32 | DataType::Date64) => to_arrow_date(array, dt, ctx),
         dt @ (DataType::Time32(_) | DataType::Time64(_)) => to_arrow_time(array, dt, ctx),
         dt @ DataType::Timestamp(..) => to_arrow_timestamp(array, dt, ctx),
         DataType::Map(entries_field, keys_sorted) => {
-            to_arrow_map(array, entries_field, *keys_sorted, ctx)
+            to_arrow_map(array, entries_field, *keys_sorted, exporter, ctx)
         }
         DataType::FixedSizeBinary(_)
         | DataType::Duration(_)
@@ -284,7 +292,17 @@ pub(crate) fn infer_nearest_arrow_field(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
+    use arrow_array::Array;
+    use arrow_array::ArrayRef as ArrowArrayRef;
+    use arrow_array::BinaryArray;
+    use arrow_array::Date32Array;
+    use arrow_array::Float64Array;
+    use arrow_array::Int32Array;
+    use arrow_array::Int64Array;
+    use arrow_array::LargeStringArray;
+    use arrow_array::TimestampMicrosecondArray;
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::TimeUnit;
@@ -292,12 +310,14 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_session::VortexSession;
 
     use crate::ArrowSessionExt;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn utf8() -> ArrayRef {
         VarBinViewArray::from_iter_str(["a", "bb"]).into_array()
@@ -336,11 +356,10 @@ mod tests {
     #[case::byte_from_primitive(primitive(), DataType::Utf8)]
     #[case::byte_from_bool(boolean(), DataType::Binary)]
     fn incompatible_target_returns_error(#[case] array: ArrayRef, #[case] target: DataType) {
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let field = Field::new("f", target.clone(), array.dtype().is_nullable());
 
-        let result = session.arrow().execute_arrow(array, Some(&field), &mut ctx);
+        let result = SESSION.arrow().execute_arrow(array, Some(&field), &mut ctx);
 
         assert!(
             result.is_err(),
@@ -350,24 +369,23 @@ mod tests {
 
     /// Cross-class conversions that are genuinely supported must keep working.
     #[rstest]
-    #[case::bool_to_int32(boolean(), DataType::Int32)]
-    #[case::bool_to_float64(boolean(), DataType::Float64)]
-    #[case::primitive_to_int64(primitive(), DataType::Int64)]
-    #[case::primitive_to_date32(primitive(), DataType::Date32)]
-    #[case::primitive_to_timestamp(primitive(), DataType::Timestamp(TimeUnit::Microsecond, None))]
-    #[case::utf8_to_binary(utf8(), DataType::Binary)]
-    #[case::utf8_to_large_utf8(utf8(), DataType::LargeUtf8)]
-    fn supported_cross_class_target_still_works(#[case] array: ArrayRef, #[case] target: DataType) {
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
-        let field = Field::new("f", target.clone(), array.dtype().is_nullable());
+    #[case::bool_to_int32(boolean(), DataType::Int32, Arc::new(Int32Array::from(vec![1, 0])))]
+    #[case::bool_to_float64(boolean(), DataType::Float64, Arc::new(Float64Array::from(vec![1., 0.])))]
+    #[case::primitive_to_int64(primitive(), DataType::Int64, Arc::new(Int64Array::from(vec![1, 2])))]
+    #[case::primitive_to_date32(primitive(), DataType::Date32, Arc::new(Date32Array::from(vec![1, 2])))]
+    #[case::primitive_to_timestamp(primitive(), DataType::Timestamp(TimeUnit::Microsecond, None), Arc::new(TimestampMicrosecondArray::from(vec![1, 2])))]
+    #[case::utf8_to_binary(utf8(), DataType::Binary, Arc::new(BinaryArray::from(vec![b"a".as_slice(), b"bb".as_slice()])))]
+    #[case::utf8_to_large_utf8(utf8(), DataType::LargeUtf8, Arc::new(LargeStringArray::from(vec!["a", "bb"])))]
+    fn supported_cross_class_target_still_works(
+        #[case] array: ArrayRef,
+        #[case] target: DataType,
+        #[case] expected: ArrowArrayRef,
+    ) {
+        let mut ctx = SESSION.create_execution_ctx();
+        let field = Field::new("f", target, array.dtype().is_nullable());
 
-        let result = session.arrow().execute_arrow(array, Some(&field), &mut ctx);
+        let result = SESSION.arrow().execute_arrow(array, Some(&field), &mut ctx);
 
-        assert!(
-            result.is_ok(),
-            "expected {target:?} export to succeed, got {:?}",
-            result.err()
-        );
+        assert_eq!(result.unwrap().to_data(), expected.to_data());
     }
 }

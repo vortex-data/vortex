@@ -40,6 +40,11 @@ fn cast_and_execute(
 /// - Casting with nullability changes
 /// - Casting between string types (Utf8/Binary)
 /// - Edge cases like overflow behavior
+///
+/// An encoding that supports nullable dtypes **must** also pass a partially valid array, which
+/// checks the nullability contract of [`CastReduce`].
+///
+/// [`CastReduce`]: crate::scalar_fn::fns::cast::CastReduce
 pub fn test_cast_conformance(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let dtype = array.dtype();
 
@@ -88,12 +93,6 @@ fn test_cast_identity(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 }
 
 fn test_cast_from_null(array: &ArrayRef, ctx: &mut ExecutionCtx) {
-    // Null can be cast to itself
-    let result = cast_and_execute(&array.clone(), DType::Null, ctx)
-        .vortex_expect("cast should succeed in conformance test");
-    assert_eq!(result.len(), array.len());
-    assert_eq!(result.dtype(), &DType::Null);
-
     // Null can also be cast to any nullable type
     let nullable_types = vec![
         DType::Bool(Nullability::Nullable),
@@ -133,7 +132,7 @@ fn test_cast_from_null(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 
 fn test_cast_to_non_nullable(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     // DType::Null has no non-nullable form
-    if &DType::Null == array.dtype() {
+    if &DType::Null == array.dtype() || !array.dtype().is_nullable() {
         return;
     }
 
@@ -174,11 +173,6 @@ fn test_cast_to_non_nullable(array: &ArrayRef, ctx: &mut ExecutionCtx) {
             );
         }
     } else {
-        if &DType::Null == array.dtype() {
-            // DType::Null has no non-nullable form. A null array can only
-            // be cast to DType::Null
-            return;
-        }
         cast_and_execute(&array.clone(), array.dtype().as_nonnullable(), ctx)
             .err()
             .unwrap_or_else(|| {
@@ -191,6 +185,10 @@ fn test_cast_to_non_nullable(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 }
 
 fn test_cast_to_nullable(array: &ArrayRef, ctx: &mut ExecutionCtx) {
+    if array.dtype().is_nullable() {
+        return;
+    }
+
     let nullable = cast_and_execute(&array.clone(), array.dtype().as_nullable(), ctx)
         .vortex_expect("arrays without nulls can cast to nullable");
     assert_eq!(nullable.dtype(), &array.dtype().as_nullable());
@@ -285,25 +283,24 @@ fn test_cast_to_primitive(
                 min,
                 max,
                 array,
-                array.display_values(),
+                array.display_values(ctx),
             )
         });
         return;
     }
 
     // Otherwise, all values must fit.
-    let casted = cast_and_execute(
-        &array.clone(),
-        DType::Primitive(target_ptype, array.dtype().nullability()),
-        ctx,
-    )
-    .unwrap_or_else(|e| {
+    let target_dtype = DType::Primitive(target_ptype, array.dtype().nullability());
+    let casted = cast_and_execute(array, target_dtype.clone(), ctx).unwrap_or_else(|e| {
         vortex_panic!(
-            "Cast must succeed because all values are within bounds. {} {}: {e}",
+            e,
+            "Cast must succeed because all values are within bounds. {} {}",
             target_ptype,
-            array.display_values(),
+            array.display_values(ctx),
         )
     });
+    assert_eq!(casted.dtype(), &target_dtype);
+    assert_eq!(casted.len(), array.len());
     assert_eq!(
         array
             .validity()
@@ -325,7 +322,7 @@ fn test_cast_to_primitive(
             .vortex_expect("scalar_at should succeed in conformance test");
         assert_eq!(
             original
-                .cast(casted.dtype())
+                .cast(&target_dtype)
                 .vortex_expect("cast should succeed in conformance test"),
             casted,
             "{i} {original} {casted}"
@@ -352,7 +349,6 @@ mod tests {
     use super::*;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
     use crate::arrays::NullArray;
@@ -363,7 +359,7 @@ mod tests {
     use crate::dtype::FieldNames;
     use crate::dtype::Nullability;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_cast_conformance_u32() {
@@ -438,11 +434,17 @@ mod tests {
 
     #[test]
     fn test_cast_conformance_list() {
+        let mut ctx = SESSION.create_execution_ctx();
         let data = buffer![1i32, 2, 3, 4, 5, 6].into_array();
         let offsets = buffer![0i64, 2, 2, 5, 6].into_array();
 
-        let array =
-            ListArray::try_new(data, offsets, crate::validity::Validity::NonNullable).unwrap();
+        let array = ListArray::try_new(
+            data,
+            offsets,
+            crate::validity::Validity::NonNullable,
+            &mut ctx,
+        )
+        .unwrap();
         test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

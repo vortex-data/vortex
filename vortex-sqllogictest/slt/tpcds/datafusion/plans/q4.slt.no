@@ -146,8 +146,8 @@ logical_plan
 20)--------------------------------------Inner Join: customer.c_customer_sk = store_sales.ss_customer_sk
 21)----------------------------------------TableScan: customer projection=[c_customer_sk, c_customer_id, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_country, c_login, c_email_address], partial_filters=[Boolean(true)]
 22)----------------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_customer_sk, ss_ext_discount_amt, ss_ext_sales_price, ss_ext_wholesale_cost, ss_ext_list_price]
-23)------------------------------------Filter: date_dim.d_year = Int64(2001)
-24)--------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2001)]
+23)------------------------------------Filter: date_dim.d_year = Int32(2001)
+24)--------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int32(2001)]
 25)--------------------SubqueryAlias: t_s_secyear
 26)----------------------SubqueryAlias: year_total
 27)------------------------Projection: customer.c_customer_id AS customer_id, customer.c_first_name AS customer_first_name, customer.c_last_name AS customer_last_name, customer.c_preferred_cust_flag AS customer_preferred_cust_flag, sum(store_sales.ss_ext_list_price - store_sales.ss_ext_wholesale_cost - store_sales.ss_ext_discount_amt + store_sales.ss_ext_sales_price / Int64(2)) AS year_total
@@ -158,8 +158,8 @@ logical_plan
 32)----------------------------------Inner Join: customer.c_customer_sk = store_sales.ss_customer_sk
 33)------------------------------------TableScan: customer projection=[c_customer_sk, c_customer_id, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_country, c_login, c_email_address], partial_filters=[Boolean(true)]
 34)------------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_customer_sk, ss_ext_discount_amt, ss_ext_sales_price, ss_ext_wholesale_cost, ss_ext_list_price]
-35)--------------------------------Filter: date_dim.d_year = Int64(2002)
-36)----------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2002)]
+35)--------------------------------Filter: date_dim.d_year = Int32(2002)
+36)----------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int32(2002)]
 37)------------------SubqueryAlias: t_c_firstyear
 38)--------------------SubqueryAlias: year_total
 39)----------------------Projection: customer.c_customer_id AS customer_id, sum(catalog_sales.cs_ext_list_price - catalog_sales.cs_ext_wholesale_cost - catalog_sales.cs_ext_discount_amt + catalog_sales.cs_ext_sales_price / Int64(2)) AS year_total
@@ -172,8 +172,8 @@ logical_plan
 46)------------------------------------Inner Join: customer.c_customer_sk = catalog_sales.cs_bill_customer_sk
 47)--------------------------------------TableScan: customer projection=[c_customer_sk, c_customer_id, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_country, c_login, c_email_address], partial_filters=[Boolean(true)]
 48)--------------------------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_bill_customer_sk, cs_ext_discount_amt, cs_ext_sales_price, cs_ext_wholesale_cost, cs_ext_list_price]
-49)----------------------------------Filter: date_dim.d_year = Int64(2001)
-50)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2001)]
+49)----------------------------------Filter: date_dim.d_year = Int32(2001)
+50)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int32(2001)]
 51)--------------SubqueryAlias: t_c_secyear
 52)----------------SubqueryAlias: year_total
 53)------------------Projection: customer.c_customer_id AS customer_id, sum(catalog_sales.cs_ext_list_price - catalog_sales.cs_ext_wholesale_cost - catalog_sales.cs_ext_discount_amt + catalog_sales.cs_ext_sales_price / Int64(2)) AS year_total
@@ -184,8 +184,8 @@ logical_plan
 58)----------------------------Inner Join: customer.c_customer_sk = catalog_sales.cs_bill_customer_sk
 59)------------------------------TableScan: customer projection=[c_customer_sk, c_customer_id, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_country, c_login, c_email_address], partial_filters=[Boolean(true)]
 60)------------------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_bill_customer_sk, cs_ext_discount_amt, cs_ext_sales_price, cs_ext_wholesale_cost, cs_ext_list_price]
-61)--------------------------Filter: date_dim.d_year = Int64(2002)
-62)----------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2002)]
+61)--------------------------Filter: date_dim.d_year = Int32(2002)
+62)----------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int32(2002)]
 63)----------SubqueryAlias: t_w_firstyear
 64)------------SubqueryAlias: year_total
 65)--------------Projection: customer.c_customer_id AS customer_id, sum(web_sales.ws_ext_list_price - web_sales.ws_ext_wholesale_cost - web_sales.ws_ext_discount_amt + web_sales.ws_ext_sales_price / Int64(2)) AS year_total
@@ -198,8 +198,8 @@ logical_plan
 72)----------------------------Inner Join: customer.c_customer_sk = web_sales.ws_bill_customer_sk
 73)------------------------------TableScan: customer projection=[c_customer_sk, c_customer_id, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_country, c_login, c_email_address], partial_filters=[Boolean(true)]
 74)------------------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_bill_customer_sk, ws_ext_discount_amt, ws_ext_sales_price, ws_ext_wholesale_cost, ws_ext_list_price]
-75)--------------------------Filter: date_dim.d_year = Int64(2001)
-76)----------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2001)]
+75)--------------------------Filter: date_dim.d_year = Int32(2001)
+76)----------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int32(2001)]
 77)------SubqueryAlias: t_w_secyear
 78)--------SubqueryAlias: year_total
 79)----------Projection: customer.c_customer_id AS customer_id, sum(web_sales.ws_ext_list_price - web_sales.ws_ext_wholesale_cost - web_sales.ws_ext_discount_amt + web_sales.ws_ext_sales_price / Int64(2)) AS year_total
@@ -210,8 +210,8 @@ logical_plan
 84)--------------------Inner Join: customer.c_customer_sk = web_sales.ws_bill_customer_sk
 85)----------------------TableScan: customer projection=[c_customer_sk, c_customer_id, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_country, c_login, c_email_address], partial_filters=[Boolean(true)]
 86)----------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_bill_customer_sk, ws_ext_discount_amt, ws_ext_sales_price, ws_ext_wholesale_cost, ws_ext_list_price]
-87)------------------Filter: date_dim.d_year = Int64(2002)
-88)--------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2002)]
+87)------------------Filter: date_dim.d_year = Int32(2002)
+88)--------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int32(2002)]
 physical_plan
 01)SortPreservingMergeExec: [customer_id@0 ASC, customer_first_name@1 ASC, customer_last_name@2 ASC, customer_preferred_cust_flag@3 ASC], fetch=100
 02)--SortExec: TopK(fetch=100), expr=[customer_id@0 ASC, customer_first_name@1 ASC, customer_last_name@2 ASC, customer_preferred_cust_flag@3 ASC], preserve_partitioning=[true]

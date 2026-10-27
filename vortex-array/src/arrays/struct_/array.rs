@@ -64,7 +64,8 @@ pub struct StructSlots {
 /// use vortex_array::arrays::{StructArray, BoolArray};
 /// use vortex_array::validity::Validity;
 /// use vortex_array::dtype::FieldNames;
-/// use vortex_array::{IntoArray, VortexSessionExecute, array_session};
+/// use vortex_array::{IntoArray, VortexSessionExecute};
+/// use vortex_session::VortexSession;
 /// use vortex_buffer::buffer;
 ///
 /// // Create struct with all non-null fields but struct-level nulls
@@ -78,7 +79,7 @@ pub struct StructSlots {
 ///     2,
 ///     Validity::Array(BoolArray::from_iter([true, false]).into_array()), // row 1 is null
 /// ).unwrap();
-/// let mut ctx = array_session().create_execution_ctx();
+/// let mut ctx = VortexSession::empty().create_execution_ctx();
 ///
 /// // Row 0 is valid - returns a struct scalar with field values
 /// let row0 = struct_array.execute_scalar(0, &mut ctx).unwrap();
@@ -99,7 +100,8 @@ pub struct StructSlots {
 /// use vortex_array::arrays::struct_::StructArrayExt;
 /// use vortex_array::validity::Validity;
 /// use vortex_array::dtype::FieldNames;
-/// use vortex_array::{IntoArray, VortexSessionExecute, array_session};
+/// use vortex_array::{IntoArray, VortexSessionExecute};
+/// use vortex_session::VortexSession;
 /// use vortex_buffer::buffer;
 ///
 /// // Create struct with duplicate "data" field names
@@ -115,7 +117,7 @@ pub struct StructSlots {
 ///
 /// // field_by_name returns the FIRST "data" field
 /// let first_data = struct_array.unmasked_field_by_name("data").unwrap();
-/// let mut ctx = array_session().create_execution_ctx();
+/// let mut ctx = VortexSession::empty().create_execution_ctx();
 /// assert_eq!(first_data.execute_scalar(0, &mut ctx).unwrap(), 1i32.into());
 /// ```
 ///
@@ -203,14 +205,14 @@ pub(super) fn make_struct_slots(
 /// [`StructArraySlotsExt`] supertrait; this trait layers struct-specific lookups on top.
 pub trait StructArrayExt: StructArraySlotsExt {
     fn nullability(&self) -> crate::dtype::Nullability {
-        match self.as_ref().dtype() {
+        match self.dtype() {
             DType::Struct(_, nullability) => *nullability,
             _ => unreachable!("StructArrayExt requires a struct dtype"),
         }
     }
 
     fn names(&self) -> &FieldNames {
-        self.as_ref().dtype().as_struct_fields().names()
+        self.dtype().as_struct_fields().names()
     }
 
     fn struct_validity(&self) -> Validity {
@@ -258,7 +260,7 @@ pub trait StructArrayExt: StructArraySlotsExt {
     }
 
     fn struct_fields(&self) -> &StructFields {
-        self.as_ref().dtype().as_struct_fields()
+        self.dtype().as_struct_fields()
     }
 }
 impl<T: TypedArrayRef<Struct>> StructArrayExt for T {}
@@ -292,15 +294,13 @@ impl Array<Struct> {
             slots.push(Some(field));
         }
         let dtype = StructFields::new(names, field_dtypes);
-        Array::try_from_parts(
-            ArrayParts::new(
-                Struct,
-                DType::Struct(dtype, validity.nullability()),
-                length,
-                EmptyArrayData,
-            )
-            .with_slots(slots),
-        )
+        Self::try_from_struct_parts(ArrayParts::new(
+            Struct,
+            DType::Struct(dtype, validity.nullability()),
+            length,
+            EmptyArrayData,
+            slots,
+        ))
     }
 
     /// Creates a new `StructArray` without validation.
@@ -317,9 +317,13 @@ impl Array<Struct> {
         let outer_dtype = DType::Struct(dtype, validity.nullability());
         let slots = make_struct_slots(fields, &validity, length);
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Struct, outer_dtype, length, EmptyArrayData).with_slots(slots),
-            )
+            Self::from_struct_parts_unchecked(ArrayParts::new(
+                Struct,
+                outer_dtype,
+                length,
+                EmptyArrayData,
+                slots,
+            ))
         }
     }
 
@@ -332,9 +336,33 @@ impl Array<Struct> {
     ) -> VortexResult<Self> {
         let outer_dtype = DType::Struct(dtype, validity.nullability());
         let slots = make_struct_slots(fields, &validity, length);
-        Array::try_from_parts(
-            ArrayParts::new(Struct, outer_dtype, length, EmptyArrayData).with_slots(slots),
-        )
+        Self::try_from_struct_parts(ArrayParts::new(
+            Struct,
+            outer_dtype,
+            length,
+            EmptyArrayData,
+            slots,
+        ))
+    }
+
+    /// Creates the array from parts after validation.
+    ///
+    /// The generic constructors call this function. It is not generic, so crates that call those
+    /// constructors do not each compile the `Struct` array vtable.
+    fn try_from_struct_parts(parts: ArrayParts<Struct>) -> VortexResult<Self> {
+        Array::try_from_parts(parts)
+    }
+
+    /// Creates the array from parts without validation.
+    ///
+    /// The generic constructors call this function. It is not generic, so crates that call those
+    /// constructors do not each compile the `Struct` array vtable.
+    ///
+    /// # Safety
+    ///
+    /// The parts must be logically consistent.
+    unsafe fn from_struct_parts_unchecked(parts: ArrayParts<Struct>) -> Self {
+        unsafe { Array::from_parts_unchecked(parts) }
     }
 
     /// Construct a `StructArray` from named fields.
@@ -421,9 +449,7 @@ impl Array<Struct> {
         );
         let slots = make_struct_slots([], &Validity::NonNullable, len);
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Struct, dtype, len, EmptyArrayData).with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(Struct, dtype, len, EmptyArrayData, slots))
         }
     }
 
@@ -456,15 +482,13 @@ impl Array<Struct> {
 
         let new_dtype = struct_dtype.without_field(position).ok()?;
         let new_array = unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(
-                    Struct,
-                    DType::Struct(new_dtype, self.dtype().nullability()),
-                    len,
-                    EmptyArrayData,
-                )
-                .with_slots(new_slots),
-            )
+            Self::from_struct_parts_unchecked(ArrayParts::new(
+                Struct,
+                DType::Struct(new_dtype, self.dtype().nullability()),
+                len,
+                EmptyArrayData,
+                new_slots,
+            ))
         };
         Some((new_array, field))
     }

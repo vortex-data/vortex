@@ -27,7 +27,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
-use crate::ArrowArrayExecutor;
+use crate::ArrowExporter;
 use crate::executor::infer_nearest_arrow_field;
 use crate::executor::validity::to_arrow_null_buffer;
 use crate::session::ArrowSessionExt;
@@ -51,6 +51,7 @@ impl Matcher for ArrowStructExportable {
 pub(super) fn to_arrow_struct(
     array: ArrayRef,
     target_fields: Option<&Fields>,
+    exporter: &ArrowExporter<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let len = array.len();
@@ -82,6 +83,7 @@ pub(super) fn to_arrow_struct(
                 &fields,
                 validity,
                 len,
+                exporter,
                 ctx,
             );
         }
@@ -100,6 +102,7 @@ pub(super) fn to_arrow_struct(
             &array.children(),
             None, // Pack is never null,
             len,
+            exporter,
             ctx,
         );
     }
@@ -108,10 +111,8 @@ pub(super) fn to_arrow_struct(
     let array = if let Some(fields) = target_fields {
         let vx_fields = ctx.session().arrow().from_arrow_fields(fields)?;
         // We apply a cast to ensure we push down casting where possible into the struct fields.
-        array.cast(DType::Struct(
-            vx_fields,
-            vortex_array::dtype::Nullability::Nullable,
-        ))?
+        let dtype = DType::Struct(vx_fields, array.dtype().nullability());
+        array.cast(dtype)?
     } else {
         array
     };
@@ -130,6 +131,7 @@ pub(super) fn to_arrow_struct(
         &fields,
         validity,
         len,
+        exporter,
         ctx,
     )
 }
@@ -139,6 +141,7 @@ fn create_from_fields(
     vortex_fields: &[ArrayRef],
     null_buffer: Option<NullBuffer>,
     len: usize,
+    exporter: &ArrowExporter<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     match fields {
@@ -153,11 +156,8 @@ fn create_from_fields(
             for (field, vx_field) in fields.iter().zip_eq(vortex_fields.iter()) {
                 // Route through the session with the full Field (not just data_type) so any
                 // ARROW:extension:name metadata reaches the export-plugin dispatcher.
-                let arrow_field = ctx.session().clone().arrow().execute_arrow(
-                    vx_field.clone(),
-                    Some(field.as_ref()),
-                    ctx,
-                )?;
+                let arrow_field =
+                    exporter.execute_arrow(vx_field.clone(), Some(field.as_ref()), ctx)?;
                 vortex_ensure!(
                     field.is_nullable() || arrow_field.null_count() == 0,
                     "Cannot convert field '{}' to non-nullable Arrow field because it contains nulls",
@@ -183,7 +183,7 @@ fn create_from_fields(
             let mut arrow_fields = Vec::with_capacity(vortex_fields.len());
             for (name, vx_field) in names.iter().zip_eq(vortex_fields.iter()) {
                 let inferred = infer_nearest_arrow_field(vx_field, name.as_ref(), ctx)?;
-                let arrow_array = vx_field.clone().execute_arrow(None, ctx)?;
+                let arrow_array = exporter.execute_arrow(vx_field.clone(), None, ctx)?;
                 // The executed array is authoritative for the physical type; only the metadata is
                 // taken from the inferred field.
                 arrow_fields.push(Arc::new(
@@ -213,10 +213,12 @@ fn create_from_fields(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use arrays::varbinview::VarBinViewArray;
     use arrow_array::Array;
     use arrow_array::ArrayRef;
+    use arrow_array::Int64Array;
     use arrow_array::PrimitiveArray as ArrowPrimitiveArray;
     use arrow_array::StringViewArray;
     use arrow_array::StructArray as ArrowStructArray;
@@ -226,24 +228,27 @@ mod tests {
     use arrow_schema::Field;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::FieldNames;
     use vortex_array::scalar_fn::fns::mask::Mask;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::ArrowArrayExecutor;
     use crate::convert::from_arrow_dyn;
     use crate::dtype::to_data_type_naive;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn struct_nullable_non_null_to_arrow() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::AllValid);
 
         let struct_a = StructArray::try_new(
@@ -256,15 +261,21 @@ mod tests {
         let fields = vec![Field::new("xs", DataType::Int64, false)];
         let arrow_dt = DataType::Struct(fields.into());
 
-        struct_a
+        let actual = struct_a
             .into_array()
             .execute_arrow(Some(&arrow_dt), &mut ctx)?;
+        let expected = ArrowStructArray::new(
+            vec![Field::new("xs", DataType::Int64, false)].into(),
+            vec![Arc::new(Int64Array::from(vec![0, 1, 2, 3, 4]))],
+            None,
+        );
+        assert_eq!(actual.to_data(), expected.to_data());
         Ok(())
     }
 
     #[test]
     fn struct_nullable_with_nulls_to_arrow() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let xs =
             PrimitiveArray::from_option_iter(vec![Some(0_i64), Some(1), Some(2), None, Some(3)]);
 
@@ -278,18 +289,21 @@ mod tests {
         let fields = vec![Field::new("xs", DataType::Int64, false)];
         let arrow_dt = DataType::Struct(fields.into());
 
+        let error = struct_a
+            .into_array()
+            .execute_arrow(Some(&arrow_dt), &mut ctx)
+            .unwrap_err();
         assert!(
-            struct_a
-                .into_array()
-                .execute_arrow(Some(&arrow_dt), &mut ctx)
-                .is_err()
+            error
+                .to_string()
+                .contains("non-nullable Arrow field because it contains nulls")
         );
         Ok(())
     }
 
     #[test]
     fn struct_to_arrow_with_schema_mismatch() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::AllValid);
 
         let struct_a = StructArray::try_new(
@@ -319,7 +333,7 @@ mod tests {
 
     #[test]
     fn test_to_arrow() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = StructArray::from_fields(
             vec![
                 (
@@ -362,7 +376,7 @@ mod tests {
 
     #[test]
     fn mask_wrapped_struct_exports_via_struct_fast_path() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // A struct behind a lazy `mask` scalar-fn nulling out row 1 — the shape a scan
         // produces when a row mask is applied to a top-level struct batch.
         let xs = PrimitiveArray::new(buffer![1i64, 2, 3], Validity::NonNullable);
@@ -396,7 +410,7 @@ mod tests {
 
     #[test]
     fn to_arrow_with_non_nullable_fields() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = StructArray::from_fields(
             vec![
                 (
@@ -410,10 +424,12 @@ mod tests {
             ]
             .as_slice(),
         )?;
+        let original = array.clone();
         let orig_dtype = array.dtype().clone();
         let arrow_array = array.into_array().execute_arrow(None, &mut ctx)?;
         let from_arrow = from_arrow_dyn(arrow_array.as_ref(), false)?;
         assert_eq!(&orig_dtype, from_arrow.dtype());
+        assert_arrays_eq!(from_arrow, original, &mut ctx);
         Ok(())
     }
 }

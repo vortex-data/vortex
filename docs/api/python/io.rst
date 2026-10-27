@@ -8,7 +8,12 @@ HTTP, S3, Google Cloud Storage, and Azure Blob Storage.
    :nosignatures:
 
    ~vortex.open
+   ~vortex.open_readable
+   ~vortex.io.ReadAt
+   ~vortex.io.ReadBytesAt
+   ~vortex.SegmentCache
    ~vortex.VortexFile
+   ~vortex.file.Footer
    ~vortex.RepeatedScan
    ~vortex.io.read_url
    ~vortex.io.write
@@ -19,7 +24,21 @@ HTTP, S3, Google Cloud Storage, and Azure Blob Storage.
 
 .. autofunction:: vortex.open
 
+.. autofunction:: vortex.open_readable
+
+.. autoclass:: vortex.io.ReadAt
+   :members:
+
+.. autoclass:: vortex.io.ReadBytesAt
+   :members:
+
+.. autoclass:: vortex.SegmentCache
+   :members:
+
 .. autoclass:: vortex.VortexFile
+   :members:
+
+.. autoclass:: vortex.file.Footer
    :members:
 
 .. autoclass:: vortex.RepeatedScan
@@ -28,4 +47,5 @@ HTTP, S3, Google Cloud Storage, and Azure Blob Storage.
 .. automodule:: vortex.io
     :members:
     :imported-members:
+    :exclude-members: ReadAt, ReadBytesAt
 

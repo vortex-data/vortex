@@ -12,7 +12,7 @@ statement ok
 CREATE TABLE tz(t TIMESTAMPTZ);
 
 statement ok
-INSERT INTO tz VALUES ('2020-01-01 10:00:00+00'), ('2021-06-15 12:30:00+00');
+INSERT INTO tz VALUES ('2020-01-01 10:00:00+00'), ('2021-06-15 12:30:00+00'), ('2020-01-01 10:00:00.123456+00');
 
 statement ok
 COPY tz TO '${WORK_DIR}/ctz.vortex';
@@ -46,3 +46,8 @@ query PP
 SELECT min(t), max(t) FROM '${WORK_DIR}/ctz.vortex';
 ----
 2020-01-01 10:00:00+00 2021-06-15 12:30:00+00
+
+query P
+SELECT t FROM '${WORK_DIR}/ctz.vortex' WHERE t = TIMESTAMPTZ '2020-01-01 10:00:00.123456+00';
+----
+2020-01-01 10:00:00.123456+00

@@ -143,6 +143,7 @@ where
             Buffer::from(valid_exceptional_positions).into_array(),
             valid_exceptional_values,
             Some(Buffer::from(chunk_offsets).into_array()),
+            ctx,
         )?)
     };
     Ok((exponents, encoded_array, patches))
@@ -150,12 +151,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use core::f32;
-    use core::f64;
+    use std::f32::consts::E as E_F32;
+    use std::f32::consts::PI as PI_F32;
+    use std::f64::consts::E;
+    use std::f64::consts::PI;
     use std::sync::LazyLock;
 
-    use f64::consts::E;
-    use f64::consts::PI;
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::NativePType;
@@ -170,7 +171,7 @@ mod tests {
     use crate::decompress_into_array;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -276,7 +277,8 @@ mod tests {
 
         assert_arrays_eq!(encoded, array, &mut SESSION.create_execution_ctx());
 
-        let _decoded = decompress_into_array(encoded, &mut SESSION.create_execution_ctx()).unwrap();
+        let decoded = decompress_into_array(encoded, &mut SESSION.create_execution_ctx()).unwrap();
+        assert_arrays_eq!(decoded, array, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -297,18 +299,8 @@ mod tests {
         let original =
             PrimitiveArray::new(buffer![195.26274f64, PI, -48.815685], Validity::AllInvalid);
         let alp_arr = alp_encode(original.as_view(), None, &mut ctx).unwrap();
-        let decompressed = alp_arr
-            .into_array()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
 
-        assert_eq!(
-            // The second and third values become exceptions and are replaced
-            [195.26274, 195.26274, 195.26274],
-            decompressed.as_slice::<f64>()
-        );
-
-        assert_arrays_eq!(decompressed, original, &mut ctx);
+        assert_arrays_eq!(alp_arr, original, &mut ctx);
     }
 
     #[test]
@@ -347,28 +339,15 @@ mod tests {
         let encoded = alp_encode(array.as_view(), None, &mut ctx).unwrap();
         let patches = encoded.patches().unwrap();
 
-        let chunk_offsets = patches
-            .chunk_offsets()
-            .clone()
-            .unwrap()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+        let chunk_offsets = patches.chunk_offsets().clone().unwrap();
         let expected_offsets = PrimitiveArray::from_iter(vec![0u64, 1, 3]);
         assert_arrays_eq!(chunk_offsets, expected_offsets, &mut ctx);
 
-        let patch_indices = patches
-            .indices()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+        let patch_indices = patches.indices().clone();
         let expected_indices = PrimitiveArray::from_iter(vec![1023u64, 1024, 1025]);
         assert_arrays_eq!(patch_indices, expected_indices, &mut ctx);
 
-        let patch_values = patches
-            .values()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+        let patch_values = patches.values().clone();
         let expected_values = PrimitiveArray::from_iter(vec![PI, E, PI]);
         assert_arrays_eq!(patch_values, expected_values, &mut ctx);
     }
@@ -384,28 +363,15 @@ mod tests {
         let encoded = alp_encode(array.as_view(), None, &mut ctx).unwrap();
         let patches = encoded.patches().unwrap();
 
-        let chunk_offsets = patches
-            .chunk_offsets()
-            .clone()
-            .unwrap()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+        let chunk_offsets = patches.chunk_offsets().clone().unwrap();
         let expected_offsets = PrimitiveArray::from_iter(vec![0u64, 1, 1]);
         assert_arrays_eq!(chunk_offsets, expected_offsets, &mut ctx);
 
-        let patch_indices = patches
-            .indices()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+        let patch_indices = patches.indices().clone();
         let expected_indices = PrimitiveArray::from_iter(vec![0u64, 2048]);
         assert_arrays_eq!(patch_indices, expected_indices, &mut ctx);
 
-        let patch_values = patches
-            .values()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+        let patch_values = patches.values().clone();
         let expected_values = PrimitiveArray::from_iter(vec![PI, E]);
         assert_arrays_eq!(patch_values, expected_values, &mut ctx);
     }
@@ -420,28 +386,15 @@ mod tests {
         let encoded = alp_encode(array.as_view(), None, &mut ctx).unwrap();
         let patches = encoded.patches().unwrap();
 
-        let chunk_offsets = patches
-            .chunk_offsets()
-            .clone()
-            .unwrap()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+        let chunk_offsets = patches.chunk_offsets().clone().unwrap();
         let expected_offsets = PrimitiveArray::from_iter(vec![0u64, 1, 1]);
         assert_arrays_eq!(chunk_offsets, expected_offsets, &mut ctx);
 
-        let patch_indices = patches
-            .indices()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+        let patch_indices = patches.indices().clone();
         let expected_indices = PrimitiveArray::from_iter(vec![0u64]);
         assert_arrays_eq!(patch_indices, expected_indices, &mut ctx);
 
-        let patch_values = patches
-            .values()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+        let patch_values = patches.values().clone();
         let expected_values = PrimitiveArray::from_iter(vec![PI]);
         assert_arrays_eq!(patch_values, expected_values, &mut ctx);
     }
@@ -457,28 +410,15 @@ mod tests {
         let encoded = alp_encode(array.as_view(), None, &mut ctx).unwrap();
         let patches = encoded.patches().unwrap();
 
-        let chunk_offsets = patches
-            .chunk_offsets()
-            .clone()
-            .unwrap()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+        let chunk_offsets = patches.chunk_offsets().clone().unwrap();
         let expected_offsets = PrimitiveArray::from_iter(vec![0u64]);
         assert_arrays_eq!(chunk_offsets, expected_offsets, &mut ctx);
 
-        let patch_indices = patches
-            .indices()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+        let patch_indices = patches.indices().clone();
         let expected_indices = PrimitiveArray::from_iter(vec![0u64, 100]);
         assert_arrays_eq!(patch_indices, expected_indices, &mut ctx);
 
-        let patch_values = patches
-            .values()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+        let patch_values = patches.values().clone();
         let expected_values = PrimitiveArray::from_iter(vec![PI, E]);
         assert_arrays_eq!(patch_values, expected_values, &mut ctx);
     }
@@ -592,10 +532,9 @@ mod tests {
         let encoded = alp_encode(original.as_view(), None, &mut ctx).unwrap();
 
         let sliced_alp = encoded.slice(512..1024).unwrap();
-        let decoded = sliced_alp.execute::<PrimitiveArray>(&mut ctx).unwrap();
 
         let expected_slice = original.slice(512..1024).unwrap();
-        assert_arrays_eq!(decoded, expected_slice, &mut ctx);
+        assert_arrays_eq!(sliced_alp, expected_slice, &mut ctx);
     }
 
     #[test]
@@ -626,8 +565,8 @@ mod tests {
     fn test_large_f32_array_with_patches() {
         let size = 5_000;
         let mut values = vec![1.5f32; size];
-        values[100] = f32::consts::PI;
-        values[1500] = f32::consts::E;
+        values[100] = PI_F32;
+        values[1500] = E_F32;
         values[3000] = f32::NEG_INFINITY;
         values[4500] = f32::INFINITY;
 

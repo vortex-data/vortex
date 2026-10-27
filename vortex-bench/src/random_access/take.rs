@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::fs::File as StdFile;
-use std::iter::once;
+use std::ops::Range;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -15,26 +15,30 @@ use arrow_ipc::reader::FileReader;
 use arrow_select::concat::concat_batches;
 use arrow_select::take::take_record_batch;
 use async_trait::async_trait;
-use futures::stream;
+use futures::TryStreamExt;
 use itertools::Itertools;
+use object_store::local::LocalFileSystem;
+use object_store::path::Path as ObjectStorePath;
 use parking_lot::Mutex;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::arrow_reader::ArrowReaderMetadata;
 use parquet::arrow::arrow_reader::ArrowReaderOptions;
+use parquet::arrow::arrow_reader::RowSelection;
 use parquet::arrow::async_reader;
 use parquet::arrow::async_reader::AsyncFileReader;
 use parquet::file::metadata::PageIndexPolicy;
-use stream::StreamExt;
-use tokio::fs::File;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
+use vortex::array::stream::ArrayStreamAdapter;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
+use vortex::file::v2::ScanDriver;
+use vortex::io::session::RuntimeSessionExt;
+use vortex::layout::scan::v2::ScanBuilder;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
-use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::Format;
 use crate::SESSION;
@@ -128,7 +132,9 @@ impl RandomAccessor for ArrowIpcRandomAccessor {
 
 /// Random accessor for Vortex format files.
 ///
-/// The file handle is opened at construction time and reused across `take()` calls.
+/// The file handle is opened at construction time and reused across `take()` calls, sharing its
+/// V2 [`ScanCache`](vortex::layout::scan::v2::ScanCache). Rows are read with the V2 scan, which
+/// requires files without list layouts.
 pub struct VortexRandomAccessor {
     name: String,
     format: Format,
@@ -185,16 +191,16 @@ impl RandomAccessor for VortexRandomAccessor {
     }
 
     async fn take(&self, indices: &[u64]) -> anyhow::Result<RandomAccessorRet> {
-        let indices_buf: Buffer<u64> = Buffer::from(indices.to_vec());
-        let array = self
-            .file
-            .scan()?
-            .with_row_indices(StrictSortedBuffer::try_new(indices_buf)?)
-            .into_array_stream()?
+        let indices = StrictSortedBuffer::try_new(Buffer::from(indices.to_vec()))?;
+        let scan =
+            ScanBuilder::new(SESSION.clone(), self.file.scan_file()).with_row_indices(indices);
+        let stream = ScanDriver::new(SESSION.handle(), 4, true).run(scan);
+        let array = ArrayStreamAdapter::new(self.file.dtype().clone(), stream)
             .read_all()
             .await?;
 
-        // We canonicalize / decompress for equivalence to Arrow's `RecordBatch`es.
+        // Keep the historical benchmark contract: canonicalize the outer array, leaving nested
+        // values lazy.
         let mut ctx = SESSION.create_execution_ctx();
         let canonical = array.execute::<Canonical>(&mut ctx)?.into_array();
         Ok(RandomAccessorRet::ArrayRef(canonical))
@@ -203,16 +209,24 @@ impl RandomAccessor for VortexRandomAccessor {
 
 /// Random accessor for Parquet format files.
 ///
-/// Parquet footer and row group offsets are parsed at construction time and
-/// reused to map indices to row groups in each `take()` call.
+/// Parquet footer, page index and row group offsets are parsed at construction time and reused to
+/// map indices to row groups in each `take()` call.
+///
+/// Each take reads only the rows it asks for: the indices of every touched row group become a
+/// [`RowSelection`], which together with the offset index lets parquet-rs fetch and decode only
+/// the pages holding selected rows. Row groups are read concurrently, one task each, and their
+/// rows concatenated in order.
+///
+/// Local files are read through `object_store`'s [`LocalFileSystem`], as DataFusion reads them,
+/// so the pages of one fetch are read in a single blocking call rather than one call each.
 pub struct ParquetRandomAccessor {
     name: String,
     /// Cumulative row offsets per row group (length = num_row_groups + 1).
-    row_group_offsets: Vec<i64>,
+    row_group_offsets: Vec<u64>,
     /// Cached Arrow reader metadata (footer) to avoid re-parsing on each take.
     arrow_metadata: ArrowReaderMetadata,
-    /// Where to re-open the file from on each take.
-    source: ParquetSource,
+    /// Reader for the file, cloned for every row group read.
+    reader: ObjectReader,
 }
 
 /// Reader for a Parquet file held in an object store.
@@ -223,30 +237,15 @@ pub struct ParquetRandomAccessor {
 )]
 type ObjectReader = async_reader::ParquetObjectReader;
 
-/// Backing store of a [`ParquetRandomAccessor`].
-enum ParquetSource {
-    /// Path to a local Parquet file.
-    Local(PathBuf),
-    /// Reader for a Parquet file held in an object store.
-    Object(ObjectReader),
-}
-
-impl ParquetSource {
-    /// Open a fresh reader on the file, so each take pays the open cost like a cold reader.
-    async fn open(&self) -> anyhow::Result<Box<dyn AsyncFileReader>> {
-        Ok(match self {
-            ParquetSource::Local(path) => Box::new(File::open(path).await?),
-            ParquetSource::Object(reader) => Box::new(reader.clone()),
-        })
-    }
-}
-
 impl ParquetRandomAccessor {
     /// Open a Parquet file, parse the footer, and return a ready-to-use accessor.
     pub async fn open(path: PathBuf, name: impl Into<String>) -> anyhow::Result<Self> {
-        let mut file = File::open(&path).await?;
-        let arrow_metadata = load_metadata(&mut file).await?;
-        Ok(Self::new(name, arrow_metadata, ParquetSource::Local(path)))
+        let location = ObjectStorePath::from_absolute_path(path.canonicalize()?)?;
+        Self::open_reader(
+            ObjectReader::new(Arc::new(LocalFileSystem::new()), location),
+            name,
+        )
+        .await
     }
 
     /// Open a Parquet file stored in an object store and return a ready-to-use accessor.
@@ -255,40 +254,39 @@ impl ParquetRandomAccessor {
         path: &Path,
         name: impl Into<String>,
     ) -> anyhow::Result<Self> {
-        let mut reader = ObjectReader::new(Arc::clone(remote.store()), remote.key(path)?);
-        let arrow_metadata = load_metadata(&mut reader).await?;
-        Ok(Self::new(
+        Self::open_reader(
+            ObjectReader::new(Arc::clone(remote.store()), remote.key(path)?),
             name,
-            arrow_metadata,
-            ParquetSource::Object(reader),
-        ))
+        )
+        .await
+    }
+
+    async fn open_reader(
+        mut reader: ObjectReader,
+        name: impl Into<String>,
+    ) -> anyhow::Result<Self> {
+        let arrow_metadata = load_metadata(&mut reader).await?;
+        Self::new(name, arrow_metadata, reader)
     }
 
     fn new(
         name: impl Into<String>,
         arrow_metadata: ArrowReaderMetadata,
-        source: ParquetSource,
-    ) -> Self {
-        let row_group_offsets = once(0)
-            .chain(
-                arrow_metadata
-                    .metadata()
-                    .row_groups()
-                    .iter()
-                    .map(|rg| rg.num_rows()),
-            )
-            .scan(0i64, |acc, x| {
-                *acc += x;
-                Some(*acc)
-            })
-            .collect::<Vec<_>>();
+        reader: ObjectReader,
+    ) -> anyhow::Result<Self> {
+        let mut row_group_offsets = vec![0];
+        let mut total = 0u64;
+        for row_group in arrow_metadata.metadata().row_groups() {
+            total += u64::try_from(row_group.num_rows())?;
+            row_group_offsets.push(total);
+        }
 
-        Self {
+        Ok(Self {
             name: name.into(),
             row_group_offsets,
             arrow_metadata,
-            source,
-        }
+            reader,
+        })
     }
 }
 
@@ -298,6 +296,57 @@ async fn load_metadata<T: AsyncFileReader + Send>(
 ) -> anyhow::Result<ArrowReaderMetadata> {
     let options = ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Required);
     Ok(ArrowReaderMetadata::load_async(reader, options).await?)
+}
+
+/// The rows to read from one row group: runs of consecutive row-group-local indices.
+struct RowGroupRead {
+    row_group: usize,
+    num_rows: usize,
+    ranges: Vec<Range<usize>>,
+}
+
+impl RowGroupRead {
+    fn selected_rows(&self) -> usize {
+        self.ranges.iter().map(ExactSizeIterator::len).sum()
+    }
+}
+
+/// Group strictly sorted file-level `indices` into per-row-group runs of consecutive rows.
+fn plan_row_group_reads(
+    row_group_offsets: &[u64],
+    indices: &[u64],
+) -> anyhow::Result<Vec<RowGroupRead>> {
+    anyhow::ensure!(
+        indices.is_sorted_by(|a, b| a < b),
+        "Parquet take indices must be strictly sorted"
+    );
+    let mut reads: Vec<RowGroupRead> = Vec::new();
+    for &index in indices {
+        let row_group = row_group_offsets.partition_point(|offset| *offset <= index);
+        anyhow::ensure!(
+            row_group > 0 && row_group < row_group_offsets.len(),
+            "Parquet row index {index} is out of bounds"
+        );
+        let row_group = row_group - 1;
+        let local = usize::try_from(index - row_group_offsets[row_group])?;
+
+        if reads.last().is_none_or(|read| read.row_group != row_group) {
+            reads.push(RowGroupRead {
+                row_group,
+                num_rows: usize::try_from(
+                    row_group_offsets[row_group + 1] - row_group_offsets[row_group],
+                )?,
+                ranges: Vec::new(),
+            });
+        }
+        let last = reads.len() - 1;
+        let ranges = &mut reads[last].ranges;
+        match ranges.last_mut() {
+            Some(range) if range.end == local => range.end += 1,
+            _ => ranges.push(local..local + 1),
+        }
+    }
+    Ok(reads)
 }
 
 #[async_trait]
@@ -311,50 +360,38 @@ impl RandomAccessor for ParquetRandomAccessor {
     }
 
     async fn take(&self, indices: &[u64]) -> anyhow::Result<RandomAccessorRet> {
-        // Map indices to row groups.
-        let mut row_groups = HashMap::new();
-        for &idx in indices {
-            let row_group_idx = self
-                .row_group_offsets
-                .binary_search(&(idx as i64))
-                .unwrap_or_else(|e| e - 1);
-            row_groups
-                .entry(row_group_idx)
-                .or_insert_with(Vec::new)
-                .push((idx as i64) - self.row_group_offsets[row_group_idx]);
-        }
-
-        let sorted_row_group_keys = row_groups.keys().copied().sorted().collect_vec();
-        let row_group_indices = sorted_row_group_keys
-            .iter()
-            .map(|i| row_groups[i].clone())
+        let reads = plan_row_group_reads(&self.row_group_offsets, indices)?
+            .into_iter()
+            .map(|read| {
+                let reader = self.reader.clone();
+                let metadata = self.arrow_metadata.clone();
+                tokio::spawn(async move {
+                    let batch_size = read.selected_rows();
+                    let selection = RowSelection::from_consecutive_ranges(
+                        read.ranges.into_iter(),
+                        read.num_rows,
+                    );
+                    ParquetRecordBatchStreamBuilder::new_with_metadata(reader, metadata)
+                        .with_row_groups(vec![read.row_group])
+                        .with_row_selection(selection)
+                        .with_batch_size(batch_size)
+                        .build()?
+                        .try_collect::<Vec<_>>()
+                        .await
+                        .map_err(anyhow::Error::from)
+                })
+            })
             .collect_vec();
 
-        // Re-open the file but reuse cached metadata (avoids re-parsing the footer).
-        let file = self.source.open().await?;
-        let builder =
-            ParquetRecordBatchStreamBuilder::new_with_metadata(file, self.arrow_metadata.clone());
+        let mut batches = Vec::new();
+        for read in reads {
+            batches.extend(read.await??);
+        }
 
-        let reader = builder
-            .with_row_groups(sorted_row_group_keys)
-            // FIXME(ngates): our indices code assumes the batch size == the row group sizes
-            .with_batch_size(10_000_000)
-            .build()?;
-
-        let schema = Arc::clone(reader.schema());
-
-        let batches = reader
-            .enumerate()
-            .map(|(idx, batch)| {
-                let batch = batch.unwrap();
-                let indices = PrimitiveArray::<Int64Type>::from(row_group_indices[idx].clone());
-                take_record_batch(&batch, &indices).unwrap()
-            })
-            .collect::<Vec<_>>()
-            .await;
-
-        let result = concat_batches(&schema, &batches)?;
-        Ok(RandomAccessorRet::RecordBatch(result))
+        let schema = Arc::clone(self.arrow_metadata.schema());
+        Ok(RandomAccessorRet::RecordBatch(concat_batches(
+            &schema, &batches,
+        )?))
     }
 }
 
@@ -366,6 +403,8 @@ mod tests {
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::Schema;
+    use parquet::arrow::ArrowWriter;
+    use parquet::file::properties::WriterProperties;
 
     use super::*;
 
@@ -393,6 +432,65 @@ mod tests {
         };
         let expected =
             RecordBatch::try_new(schema, vec![Arc::new(Int64Array::from(vec![1, 3, 4]))])?;
+        assert_eq!(actual, expected);
+        Ok(())
+    }
+
+    #[test]
+    #[expect(
+        clippy::single_range_in_vec_init,
+        reason = "row group 2 reads one range"
+    )]
+    fn parquet_reads_are_planned_as_consecutive_runs_per_row_group() -> anyhow::Result<()> {
+        let reads = plan_row_group_reads(&[0, 10, 20, 25], &[1, 2, 3, 7, 10, 19, 24])?;
+        let plan = reads
+            .iter()
+            .map(|read| (read.row_group, read.num_rows, read.ranges.clone()))
+            .collect_vec();
+        assert_eq!(
+            plan,
+            vec![
+                (0, 10, vec![1..4, 7..8]),
+                (1, 10, vec![0..1, 9..10]),
+                (2, 5, vec![4..5]),
+            ]
+        );
+        assert!(plan_row_group_reads(&[0, 10], &[10]).is_err());
+        assert!(plan_row_group_reads(&[0, 10], &[3, 3]).is_err());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parquet_random_accessor_takes_rows_across_row_groups_and_pages() -> anyhow::Result<()>
+    {
+        let file = tempfile::NamedTempFile::new()?;
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
+        {
+            let props = WriterProperties::builder()
+                .set_max_row_group_row_count(Some(100))
+                .set_data_page_row_count_limit(10)
+                .set_write_batch_size(10)
+                .build();
+            let mut writer =
+                ArrowWriter::try_new(file.reopen()?, Arc::clone(&schema), Some(props))?;
+            writer.write(&RecordBatch::try_new(
+                Arc::clone(&schema),
+                vec![Arc::new(Int64Array::from_iter_values(0..250))],
+            )?)?;
+            writer.close()?;
+        }
+
+        let accessor = ParquetRandomAccessor::open(file.path().to_path_buf(), "parquet").await?;
+        let indices = [0, 1, 2, 55, 99, 100, 101, 180, 249];
+        let RandomAccessorRet::RecordBatch(actual) = accessor.take(&indices).await? else {
+            anyhow::bail!("Parquet accessor returned a Vortex array")
+        };
+        let expected = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(Int64Array::from(vec![
+                0, 1, 2, 55, 99, 100, 101, 180, 249,
+            ]))],
+        )?;
         assert_eq!(actual, expected);
         Ok(())
     }

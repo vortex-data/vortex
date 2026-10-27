@@ -18,6 +18,7 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldName;
@@ -25,14 +26,14 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
-use vortex_array::expr::transform::BoundPartitionedExpr;
-use vortex_array::expr::transform::partition_bound;
 use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
 use vortex_array::expr::traversal::TraversalOrder;
 use vortex_array::scalar::PValue;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_expr::transform::BoundPartitionedExpr;
+use vortex_expr::transform::partition_bound;
 use vortex_mask::Mask;
 use vortex_sequence::Sequence;
 use vortex_sequence::SequenceArray;
@@ -59,7 +60,7 @@ impl RowIdxLayoutReader {
             name: Arc::clone(child.name()),
             row_offset,
             child,
-            partition_cache: DashMap::with_hasher(Default::default()),
+            partition_cache: DashMap::with_hasher_and_shard_amount(Default::default(), 8),
             session,
         }
     }
@@ -319,8 +320,8 @@ fn row_idx_mask_future(
         let mut ctx = session.create_execution_ctx();
         let result_mask = array
             .apply_bound(&expr)?
-            .null_as_false()
-            .execute(&mut ctx)?;
+            .fill_null(false)?
+            .execute::<Mask>(&mut ctx)?;
 
         Ok(result_mask.bitand(&mask.await?))
     })
@@ -540,7 +541,11 @@ mod tests {
             .unwrap();
 
             assert!(result.is::<Sequence>());
-            assert_eq!(result.len(), 5);
+            assert_arrays_eq!(
+                result,
+                buffer![12u64, 13, 14, 15, 16].into_array(),
+                &mut new_session().create_execution_ctx()
+            );
         })
     }
 

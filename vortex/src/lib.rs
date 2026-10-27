@@ -17,7 +17,7 @@
 //!   sources/sinks.
 //! - [`compressor`] contains the default BtrBlocks-style adaptive compressor.
 //! - [`encodings`] exposes maintained encoding crates such as FastLanes, Pco, and Zstd.
-//! - [`session`] contains [`VortexSession`](session::VortexSession), the registry container used to
+//! - [`session`] contains [`VortexSession`], the registry container used to
 //!   make array, layout, scalar-function, and runtime plugins available.
 //!
 //! Most applications should create a default session with [`VortexSessionDefault`]. Lower-level
@@ -107,14 +107,24 @@ pub use vortex_array::compute;
 use vortex_array::dtype::session::DTypeSession;
 // vortex::expr is in the process of having its dependencies inverted, and will eventually be
 // pulled back out into a vortex_expr crate.
-pub use vortex_array::expr;
+pub mod expr {
+    //! Expression trees, their optimizer, and the analyses and rewrites built on them.
+    pub use vortex_array::expr::*;
+    pub use vortex_expr::*;
+
+    /// Statistics, stat expressions, and statistics-based pruning rewrites.
+    pub mod stats {
+        pub use vortex_array::expr::stats::*;
+        pub use vortex_expr::stats::*;
+    }
+}
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 pub use vortex_array::scalar_fn;
 use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
-use vortex_array::stats::session::StatsSession;
 use vortex_btrblocks::CompressionSession;
+use vortex_expr::stats::session::StatsSession;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
@@ -369,9 +379,9 @@ mod test {
 
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::FieldNames;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
@@ -442,9 +452,11 @@ mod test {
         println!(
             "BtrBlocks size: {} / {}",
             compressed.nbytes(),
-            array.into_array().nbytes()
+            array.clone().into_array().nbytes()
         );
         // [compress]
+
+        assert_arrays_eq!(compressed, array, &mut session.create_execution_ctx());
 
         Ok(())
     }
@@ -485,6 +497,12 @@ mod test {
 
         // [read]
 
+        assert_arrays_eq!(
+            array,
+            PrimitiveArray::from_iter([3u64, 4]),
+            &mut session.create_execution_ctx()
+        );
+
         std::fs::remove_file(&path)?;
 
         Ok(())
@@ -524,20 +542,7 @@ mod test {
             .read_all()
             .await?;
 
-        assert_eq!(recovered_array.len(), array.len());
-
-        let mut ctx = array_session().create_execution_ctx();
-
-        let recovered_primitive = recovered_array.execute::<PrimitiveArray>(&mut ctx)?;
-        assert!(recovered_primitive.validity()?.mask_eq(
-            &array.validity()?,
-            array.len(),
-            &mut ctx
-        )?);
-        assert_eq!(
-            recovered_primitive.to_buffer::<u64>(),
-            array.to_buffer::<u64>()
-        );
+        assert_arrays_eq!(recovered_array, array, &mut session.create_execution_ctx());
 
         std::fs::remove_file(&path)?;
 
@@ -584,7 +589,11 @@ mod test {
             .await?;
 
         // Projection keeps the same number of rows but only one column.
-        assert_eq!(projected.len(), 5);
+        let expected = StructArray::from_fields(&[(
+            "value",
+            PrimitiveArray::from_iter([10u64, 20, 30, 40, 50]).into_array(),
+        )])?;
+        assert_arrays_eq!(projected, expected, &mut session.create_execution_ctx());
 
         std::fs::remove_file(&path)?;
 

@@ -1,0 +1,171 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query IR
+WITH ss AS
+  ( SELECT i_manufact_id,
+           sum(ss_ext_sales_price) total_sales
+   FROM store_sales,
+        date_dim,
+        customer_address,
+        item
+   WHERE i_manufact_id IN
+       (SELECT i_manufact_id
+        FROM item
+        WHERE i_category IN ('Electronics'))
+     AND ss_item_sk = i_item_sk
+     AND ss_sold_date_sk = d_date_sk
+     AND d_year = 1998
+     AND d_moy = 5
+     AND ss_addr_sk = ca_address_sk
+     AND ca_gmt_offset = -5
+   GROUP BY i_manufact_id),
+     cs AS
+  ( SELECT i_manufact_id,
+           sum(cs_ext_sales_price) total_sales
+   FROM catalog_sales,
+        date_dim,
+        customer_address,
+        item
+   WHERE i_manufact_id IN
+       (SELECT i_manufact_id
+        FROM item
+        WHERE i_category IN ('Electronics'))
+     AND cs_item_sk = i_item_sk
+     AND cs_sold_date_sk = d_date_sk
+     AND d_year = 1998
+     AND d_moy = 5
+     AND cs_bill_addr_sk = ca_address_sk
+     AND ca_gmt_offset = -5
+   GROUP BY i_manufact_id),
+     ws AS
+  ( SELECT i_manufact_id,
+           sum(ws_ext_sales_price) total_sales
+   FROM web_sales,
+        date_dim,
+        customer_address,
+        item
+   WHERE i_manufact_id IN
+       (SELECT i_manufact_id
+        FROM item
+        WHERE i_category IN ('Electronics'))
+     AND ws_item_sk = i_item_sk
+     AND ws_sold_date_sk = d_date_sk
+     AND d_year = 1998
+     AND d_moy = 5
+     AND ws_bill_addr_sk = ca_address_sk
+     AND ca_gmt_offset = -5
+   GROUP BY i_manufact_id)
+SELECT i_manufact_id,
+       sum(total_sales) total_sales
+FROM
+  (SELECT *
+   FROM ss
+   UNION ALL SELECT *
+   FROM cs
+   UNION ALL SELECT *
+   FROM ws) tmp1
+GROUP BY i_manufact_id
+ORDER BY total_sales
+LIMIT 100;
+----
+74 2.08
+32 2.55
+350 85.8
+36 148.77
+154 164
+928 190.8
+578 220.15
+844 340.3
+149 436.24
+385 443.34
+251 504.66
+82 524.04
+609 572.67
+954 587.47
+21 588.81
+185 609.12
+392 682.23
+24 818.23
+316 865.01
+377 1058.85
+502 1066.26
+552 1315.94
+176 1363.76
+431 1381.69
+260 1576.24
+542 1623.99
+480 1641.3
+664 1642.32
+389 1771.96
+785 1797.62
+740 1814.4
+68 1873.04
+579 1996.92
+182 2046.94
+477 2174.96
+79 2296.8
+175 2366.28
+83 2441.33
+545 2471.58
+7 2577.39
+64 2603.69
+25 2686.08
+461 2899.92
+141 3119.97
+171 3158.35
+239 3252.18
+48 3288.93
+269 3369.61
+218 3472.63
+638 3727.27
+133 3822.16
+568 3826.82
+17 3857.4
+140 3998.95
+183 4006.16
+169 4007.88
+594 4015.27
+747 4083.42
+89 4137.81
+352 4215.86
+28 4278.76
+220 4507.76
+303 4590.56
+780 4594.82
+287 4700.13
+394 4833.5
+227 4966.72
+263 5363.41
+886 5401.26
+369 5992.41
+302 6257.61
+778 6341.56
+110 6395.4
+240 6459.84
+215 6503.23
+428 6540.79
+77 6615.77
+223 6958.8
+105 7068.2
+192 7097.4
+145 7136.11
+318 7479.76
+57 7506.14
+306 7678.55
+499 7693.11
+41 7806.61
+143 7889.04
+702 7940.96
+313 8204.94
+187 8377.46
+9 8475.89
+236 8566.6
+438 8832.58
+289 8853.37
+253 8906.11
+470 8925.63
+466 9076.76
+456 9261.36
+872 9437.9
+391 9612.12

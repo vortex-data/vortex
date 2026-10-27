@@ -168,7 +168,7 @@ logical_plan [
                     }
                 ],
                 "extra_info": {
-                    "Order By": "count(DISTINCT memory.main.hits.UserID)"
+                    "Order By": "u"
                 }
             }
         ],
@@ -188,61 +188,126 @@ logical_opt [
                         "name": "PROJECTION",
                         "children": [
                             {
-                                "name": "AGGREGATE",
+                                "name": "PROJECTION",
                                 "children": [
                                     {
                                         "name": "PROJECTION",
                                         "children": [
                                             {
-                                                "name": "PROJECTION",
+                                                "name": "AGGREGATE",
                                                 "children": [
                                                     {
-                                                        "name": "READ_VORTEX",
-                                                        "children": [],
+                                                        "name": "PROJECTION",
+                                                        "children": [
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "AGGREGATE",
+                                                                        "children": [
+                                                                            {
+                                                                                "name": "PROJECTION",
+                                                                                "children": [
+                                                                                    {
+                                                                                        "name": "PROJECTION",
+                                                                                        "children": [
+                                                                                            {
+                                                                                                "name": "READ_VORTEX",
+                                                                                                "children": [],
+                                                                                                "extra_info": {
+                                                                                                    "Filters": "($.MobilePhoneModel != \"\")",
+                                                                                                    "Function": "Vortex Scan",
+                                                                                                    "SELECT projections": "MobilePhone: cast($.MobilePhone as i8?)",
+                                                                                                    "Estimated Cardinality": "200000"
+                                                                                                }
+                                                                                            }
+                                                                                        ],
+                                                                                        "extra_info": {
+                                                                                            "Expressions": [
+                                                                                                "UserID",
+                                                                                                "MobilePhone",
+                                                                                                "MobilePhoneModel"
+                                                                                            ],
+                                                                                            "Estimated Cardinality": "200000"
+                                                                                        }
+                                                                                    }
+                                                                                ],
+                                                                                "extra_info": {
+                                                                                    "Expressions": [
+                                                                                        "#0",
+                                                                                        "#1",
+                                                                                        "#2"
+                                                                                    ],
+                                                                                    "Estimated Cardinality": "200000"
+                                                                                }
+                                                                            }
+                                                                        ],
+                                                                        "extra_info": {
+                                                                            "Groups": [
+                                                                                "MobilePhone",
+                                                                                "MobilePhoneModel",
+                                                                                "UserID"
+                                                                            ],
+                                                                            "Expressions": "",
+                                                                            "Estimated Cardinality": "100000"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Expressions": [
+                                                                        "CAST(#0 AS SMALLINT)",
+                                                                        "#1"
+                                                                    ],
+                                                                    "Estimated Cardinality": "100000"
+                                                                }
+                                                            }
+                                                        ],
                                                         "extra_info": {
-                                                            "Filters": "($.MobilePhoneModel != \"\")",
-                                                            "Function": "Vortex Scan",
-                                                            "Estimated Cardinality": "200000"
+                                                            "Expressions": [
+                                                                "CAST(#0 AS TINYINT)",
+                                                                "#1"
+                                                            ],
+                                                            "Estimated Cardinality": "100000"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
-                                                    "Expressions": [
-                                                        "UserID",
-                                                        "MobilePhone",
-                                                        "MobilePhoneModel"
+                                                    "Groups": [
+                                                        "#0",
+                                                        "#1"
                                                     ],
-                                                    "Estimated Cardinality": "200000"
+                                                    "Expressions": "count_star()",
+                                                    "Estimated Cardinality": "50000"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "Expressions": [
-                                                "#0",
-                                                "__internal_compress_integral_utinyint(#1, 0)",
+                                                "CAST(#0 AS SMALLINT)",
+                                                "#1",
                                                 "#2"
                                             ],
-                                            "Estimated Cardinality": "200000"
+                                            "Estimated Cardinality": "50000"
                                         }
                                     }
                                 ],
                                 "extra_info": {
-                                    "Groups": [
-                                        "MobilePhone",
-                                        "MobilePhoneModel"
+                                    "Expressions": [
+                                        "#0",
+                                        "#1",
+                                        "#2"
                                     ],
-                                    "Expressions": "count(DISTINCT UserID)",
-                                    "Estimated Cardinality": "199999"
+                                    "Estimated Cardinality": "50000"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Expressions": [
-                                "__internal_decompress_integral_smallint(#0, 0)",
+                                "#0",
                                 "#1",
                                 "#2"
                             ],
-                            "Estimated Cardinality": "199999"
+                            "Estimated Cardinality": "50000"
                         }
                     }
                 ],
@@ -252,7 +317,7 @@ logical_opt [
                         "MobilePhoneModel",
                         "u"
                     ],
-                    "Estimated Cardinality": "199999"
+                    "Estimated Cardinality": "50000"
                 }
             }
         ],
@@ -279,37 +344,75 @@ physical_plan [
                                         "name": "PROJECTION",
                                         "children": [
                                             {
-                                                "name": "READ_VORTEX",
-                                                "children": [],
+                                                "name": "PROJECTION",
+                                                "children": [
+                                                    {
+                                                        "name": "HASH_GROUP_BY",
+                                                        "children": [
+                                                            {
+                                                                "name": "PROJECTION",
+                                                                "children": [
+                                                                    {
+                                                                        "name": "READ_VORTEX",
+                                                                        "children": [],
+                                                                        "extra_info": {
+                                                                            "Function": "Vortex Scan",
+                                                                            "Filters": "($.MobilePhoneModel != \"\")",
+                                                                            "SELECT projections": "MobilePhone: cast($.MobilePhone as i8?)",
+                                                                            "Projections": [
+                                                                                "UserID",
+                                                                                "MobilePhone",
+                                                                                "MobilePhoneModel"
+                                                                            ],
+                                                                            "Estimated Cardinality": "200000"
+                                                                        }
+                                                                    }
+                                                                ],
+                                                                "extra_info": {
+                                                                    "Projections": [
+                                                                        "MobilePhone",
+                                                                        "MobilePhoneModel",
+                                                                        "UserID"
+                                                                    ],
+                                                                    "Estimated Cardinality": "200000"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Groups": [
+                                                                "#0",
+                                                                "#1",
+                                                                "#2"
+                                                            ],
+                                                            "Aggregates": "",
+                                                            "Estimated Cardinality": "100000"
+                                                        }
+                                                    }
+                                                ],
                                                 "extra_info": {
-                                                    "Function": "Vortex Scan",
-                                                    "Filters": "($.MobilePhoneModel != \"\")",
                                                     "Projections": [
-                                                        "UserID",
-                                                        "MobilePhone",
-                                                        "MobilePhoneModel"
+                                                        "CAST(#0 AS SMALLINT)",
+                                                        "#1"
                                                     ],
-                                                    "Estimated Cardinality": "200000"
+                                                    "Estimated Cardinality": "100000"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "Projections": [
-                                                "#0",
-                                                "__internal_compress_integral_utinyint(#1, 0)",
-                                                "#2"
+                                                "CAST(#0 AS TINYINT)",
+                                                "#1"
                                             ],
-                                            "Estimated Cardinality": "200000"
+                                            "Estimated Cardinality": "100000"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Projections": [
-                                        "MobilePhone",
-                                        "MobilePhoneModel",
-                                        "UserID"
+                                        "#0",
+                                        "#1"
                                     ],
-                                    "Estimated Cardinality": "200000"
+                                    "Estimated Cardinality": "100000"
                                 }
                             }
                         ],
@@ -318,24 +421,25 @@ physical_plan [
                                 "#0",
                                 "#1"
                             ],
-                            "Aggregates": "count(DISTINCT #2)",
-                            "Estimated Cardinality": "199999"
+                            "Aggregates": "count_star()",
+                            "Estimated Cardinality": "50000"
                         }
                     }
                 ],
                 "extra_info": {
                     "Projections": [
-                        "__internal_decompress_integral_smallint(#0, 0)",
+                        "CAST(#0 AS SMALLINT)",
                         "#1",
                         "#2"
                     ],
-                    "Estimated Cardinality": "199999"
+                    "Estimated Cardinality": "50000"
                 }
             }
         ],
         "extra_info": {
             "Top": "10",
-            "Order By": "count(DISTINCT memory.main.hits.UserID) DESC"
+            "Order By": "u DESC",
+            "Estimated Cardinality": "10"
         }
     }
 ]

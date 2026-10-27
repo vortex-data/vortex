@@ -5,9 +5,6 @@
 
 use std::sync::Arc;
 
-use cudarc::driver::CudaSlice;
-use cudarc::driver::DeviceRepr;
-use cudarc::driver::PushKernelArg;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
@@ -27,6 +24,9 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
+use vortex_cuda_driver::CudaSlice;
+use vortex_cuda_driver::DeviceRepr;
+use vortex_cuda_driver::PushKernelArg;
 
 use super::ArrowArray;
 use super::SyncEvent;
@@ -548,6 +548,8 @@ where
         2 => vortex_bail!(
             "cannot export device-resident ListViewArray as Arrow List: offsets exceed i32 range required by cuDF"
         ),
-        status => vortex_bail!("unexpected list-view offsets kernel status {status}"),
+        status => {
+            vortex_bail!("unexpected list-view offsets kernel status {status}")
+        }
     }
 }

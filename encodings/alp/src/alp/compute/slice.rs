@@ -18,14 +18,14 @@ impl SliceKernel for ALP {
     fn slice(
         array: ArrayView<'_, Self>,
         range: Range<usize>,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let sliced_alp = ALP::new(
             array.encoded().slice(range.clone())?,
             array.exponents(),
             array
                 .patches()
-                .map(|p| p.slice(range))
+                .map(|p| p.slice(range, ctx))
                 .transpose()?
                 .flatten(),
         )

@@ -265,12 +265,14 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnCodesPullUpRule {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
@@ -290,6 +292,8 @@ mod tests {
     use crate::scalar_fn::fns::not::Not;
     use crate::scalar_fn::fns::operators::Operator;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     #[allow(clippy::disallowed_methods)]
     fn chunked_dict_with_shared_values_pulls_values_up() -> VortexResult<()> {
@@ -306,7 +310,7 @@ mod tests {
 
         assert!(ArrayRef::ptr_eq(dict.values(), &values));
         assert_eq!(codes.nchunks(), 2);
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(
             optimized,
             PrimitiveArray::from_iter([10u32, 20, 30, 10, 20]),
@@ -330,7 +334,7 @@ mod tests {
         let optimized = array.optimize()?;
 
         assert!(optimized.is::<Chunked>());
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(
             optimized,
             PrimitiveArray::from_iter([10u32, 20, 30, 10, 20]),
@@ -355,6 +359,11 @@ mod tests {
         let result = result.as_::<Dict>();
 
         assert!(result.has_all_values_referenced());
+        assert_arrays_eq!(
+            result.array(),
+            BoolArray::from_iter([false, true, false, true]),
+            &mut SESSION.create_execution_ctx()
+        );
 
         Ok(())
     }
@@ -368,7 +377,7 @@ mod tests {
             ConstantArray::new(Scalar::bool(false, Nullability::NonNullable), 3).into_array();
         let expr = Binary::try_new(dict, const_false, Operator::And)?.into_array();
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Kleene AND: null AND false == false
         let expected = BoolArray::from_iter([false, false, false]).into_array();
         let optimized = expr.optimize()?;
@@ -385,7 +394,7 @@ mod tests {
             ConstantArray::new(Scalar::bool(true, Nullability::NonNullable), 3).into_array();
         let expr = Binary::try_new(dict, const_true, Operator::Or)?.into_array();
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Kleene OR: null OR true == true
         let expected = BoolArray::from_iter([true, true, true]).into_array();
         let optimized = expr.optimize()?;

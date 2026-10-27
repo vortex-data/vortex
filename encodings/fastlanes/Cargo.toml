@@ -52,6 +52,14 @@ name = "bitpacking_take"
 harness = false
 
 [[bench]]
+name = "bitpacking_filter"
+harness = false
+
+[[bench]]
+name = "bitpack_blocked_decompress"
+harness = false
+
+[[bench]]
 name = "canonicalize_bench"
 harness = false
 required-features = ["_test-harness"]
@@ -67,6 +75,10 @@ harness = false
 
 [[bench]]
 name = "bitpack_compare_sweep"
+harness = false
+
+[[bench]]
+name = "bitpack_blocked"
 harness = false
 
 [[bench]]

@@ -26,6 +26,7 @@ use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -48,17 +49,37 @@ pub type RLEArray = Array<RLE>;
 #[derive(Clone, prost::Message)]
 pub struct RLEMetadata {
     #[prost(uint64, tag = "1")]
-    pub values_len: u64,
+    pub(crate) values_len: u64,
     #[prost(uint64, tag = "2")]
-    pub indices_len: u64,
-    #[prost(enumeration = "PType", tag = "3")]
-    pub indices_ptype: i32,
+    pub(crate) indices_len: u64,
+    #[prost(int32, tag = "3")]
+    pub(crate) indices_ptype: i32,
     #[prost(uint64, tag = "4")]
-    pub values_idx_offsets_len: u64,
-    #[prost(enumeration = "PType", tag = "5")]
-    pub values_idx_offsets_ptype: i32,
+    pub(crate) values_idx_offsets_len: u64,
+    #[prost(int32, tag = "5")]
+    pub(crate) values_idx_offsets_ptype: i32,
     #[prost(uint64, tag = "6", default = "0")]
-    pub offset: u64,
+    pub(crate) offset: u64,
+}
+
+impl RLEMetadata {
+    fn get_indices_ptype(&self) -> VortexResult<PType> {
+        PType::try_from(self.indices_ptype).map_err(|_| {
+            vortex_err!(
+                "RLEMetadata indices_ptype must be a known PType, got {}",
+                self.indices_ptype
+            )
+        })
+    }
+
+    fn get_values_idx_offsets_ptype(&self) -> VortexResult<PType> {
+        PType::try_from(self.values_idx_offsets_ptype).map_err(|_| {
+            vortex_err!(
+                "RLEMetadata values_idx_offsets_ptype must be a known PType, got {}",
+                self.values_idx_offsets_ptype
+            )
+        })
+    }
 }
 
 impl ArrayHash for RLEData {
@@ -161,12 +182,14 @@ impl VTable for RLE {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
+        let metadata = RLEMetadata::decode(metadata)?;
+        let indices_ptype = metadata.get_indices_ptype()?;
+        let values_idx_offsets_ptype = metadata.get_values_idx_offsets_ptype()?;
         vortex_ensure!(
             buffers.is_empty(),
             "RLEArray expects 0 buffers, got {}",
             buffers.len()
         );
-        let metadata = RLEMetadata::decode(metadata)?;
         let values = children.get(
             0,
             &DType::Primitive(dtype.as_ptype(), Nullability::NonNullable),
@@ -175,16 +198,13 @@ impl VTable for RLE {
 
         let indices = children.get(
             1,
-            &DType::Primitive(metadata.indices_ptype(), dtype.nullability()),
+            &DType::Primitive(indices_ptype, dtype.nullability()),
             usize::try_from(metadata.indices_len)?,
         )?;
 
         let values_idx_offsets = children.get(
             2,
-            &DType::Primitive(
-                metadata.values_idx_offsets_ptype(),
-                Nullability::NonNullable,
-            ),
+            &DType::Primitive(values_idx_offsets_ptype, Nullability::NonNullable),
             usize::try_from(metadata.values_idx_offsets_len)?,
         )?;
 
@@ -195,7 +215,13 @@ impl VTable for RLE {
         }
         .into_slots();
         let data = RLEData::try_new(metadata.offset as usize)?;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -224,7 +250,7 @@ impl RLE {
         }
         .into_slots();
         let data = RLEData::try_new(offset)?;
-        Array::try_from_parts(ArrayParts::new(RLE, dtype, length, data).with_slots(slots))
+        Array::try_from_parts(ArrayParts::new(RLE, dtype, length, data, slots))
     }
 
     /// Create a new RLE array without validation.
@@ -246,9 +272,7 @@ impl RLE {
         }
         .into_slots();
         let data = unsafe { RLEData::new_unchecked(offset) };
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(RLE, dtype, length, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(RLE, dtype, length, data, slots)) }
     }
 
     /// Encode a primitive array using FastLanes RLE.
@@ -324,9 +348,18 @@ fn validate_parts(
 #[cfg(test)]
 mod tests {
     use prost::Message;
+    use rstest::rstest;
+    use vortex_array::ArrayRef;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::test_harness::check_metadata;
+    use vortex_array::vtable::VTable;
+    use vortex_error::VortexResult;
 
+    use super::RLE;
     use super::RLEMetadata;
+    use crate::test::SESSION;
 
     #[cfg_attr(miri, ignore)]
     #[test]
@@ -343,5 +376,38 @@ mod tests {
             }
             .encode_to_vec(),
         );
+    }
+
+    #[rstest]
+    #[case::indices_ptype(
+        |raw| RLEMetadata { indices_ptype: raw, ..Default::default() },
+        RLEMetadata::get_indices_ptype,
+        "RLEMetadata indices_ptype must be a known PType, got 11",
+    )]
+    #[case::values_idx_offsets_ptype(
+        |raw| RLEMetadata { values_idx_offsets_ptype: raw, ..Default::default() },
+        RLEMetadata::get_values_idx_offsets_ptype,
+        "RLEMetadata values_idx_offsets_ptype must be a known PType, got 11",
+    )]
+    fn test_deserialize_rejects_unknown_ptype(
+        #[case] with_ptype: fn(i32) -> RLEMetadata,
+        #[case] get_ptype: fn(&RLEMetadata) -> VortexResult<PType>,
+        #[case] expected: &str,
+    ) -> VortexResult<()> {
+        let metadata = with_ptype(11).encode_to_vec();
+        let children: Vec<ArrayRef> = Vec::new();
+        let result = RLE.deserialize(
+            &DType::Primitive(PType::U32, Nullability::NonNullable),
+            0,
+            &metadata,
+            &[],
+            &children,
+            &SESSION,
+        );
+        assert!(result.is_err_and(|err| err.to_string().contains(expected)));
+
+        assert_eq!(get_ptype(&with_ptype(PType::U32 as i32))?, PType::U32);
+
+        Ok(())
     }
 }

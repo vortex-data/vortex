@@ -70,11 +70,13 @@ use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 use vortex_session::registry::Id;
 
+use crate::ArrowExportOptions;
 use crate::IntoVortexArray;
 use crate::convert::from_arrow_dyn;
 use crate::convert::map_from_arrow_parts;
 use crate::convert::nulls;
 use crate::convert::remove_nulls;
+use crate::convert::trim_offsets;
 use crate::dtype::from_arrow_data_type;
 use crate::dtype::to_data_type_naive;
 use crate::executor::execute_arrow_naive;
@@ -170,11 +172,13 @@ pub trait ArrowExportVTable: 'static + Send + Sync + Debug {
     /// Convert a Vortex array into an Arrow array shaped to `target`.
     ///
     /// Returns ownership of `array` via [`ArrowExport::Unsupported`] when the plugin cannot
-    /// handle the input.
+    /// handle the input. Plugins that export child or storage arrays must pass `options` on to
+    /// those exports.
     fn execute_arrow(
         &self,
         array: ArrayRef,
         target: &Field,
+        options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport>;
 }
@@ -209,8 +213,7 @@ pub trait ArrowImportVTable: 'static + Send + Sync + Debug {
     ///
     /// `session` is provided so plugins can convert storage or nested arrays through the
     /// session (e.g. [`ArrowSession::from_arrow_array`], passing a nullability rather than a
-    /// [`Field`] so the plugin is not dispatched again) instead of the deprecated
-    /// `FromArrowArray` trait.
+    /// [`Field`] so the plugin is not dispatched again).
     #[allow(clippy::wrong_self_convention)]
     fn from_arrow_array(
         &self,
@@ -407,6 +410,10 @@ impl ArrowSession {
                 return Ok(DType::Variant(field.is_nullable().into()));
             }
         }
+        if let DataType::Dictionary(_, value_type) = field.data_type() {
+            return self
+                .from_arrow_field(&field.clone().with_data_type(value_type.as_ref().clone()));
+        }
         self.from_arrow_datatype(field.data_type(), field.is_nullable().into())
     }
 
@@ -531,63 +538,47 @@ impl ArrowSession {
     ///
     /// With `target = None` the fallback path picks the array's preferred Arrow physical type
     /// and executes directly into that, ignoring extension types.
-    #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
+    ///
+    /// Uses the default [`ArrowExportOptions`]; see [`exporter`](Self::exporter) to
+    /// change them.
     pub fn execute_arrow(
         &self,
         array: ArrayRef,
         target: Option<&Field>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowArrayRef> {
-        // NOTE(aduffy): this looks strange, but we do this to keep target_field as &Field so
-        //  we can avoid cloning target when it is provided. It contains a HashMap internally that
-        //  can be expensive to copy.
-        let arrow_field;
-        let target_field = match target {
-            Some(field) => field,
-            None => {
-                let session = ctx.session().clone();
-                arrow_field = session.arrow().to_arrow_field("", array.dtype())?;
-                &arrow_field
-            }
-        };
+        self.exporter(&ArrowExportOptions::default())
+            .execute_arrow(array, target, ctx)
+    }
 
-        if let Some(arrow_ext_name) = target_field.metadata().get(EXTENSION_TYPE_NAME_KEY) {
-            // There can be multiple plugins that report support for a particular extension type.
-            // We try them in order until one of them reports a successful conversion.
-            let len = array.len();
-            let mut current = array;
-
-            for plugin in self.exporters(&Id::new(arrow_ext_name)).iter() {
-                trace!(
-                    plugin = ?plugin,
-                    extension_name = arrow_ext_name,
-                    "probing plugin for converting Arrow array"
-                );
-
-                match plugin.execute_arrow(current, target_field, ctx)? {
-                    ArrowExport::Exported(arrow) => {
-                        vortex_ensure_eq!(
-                            arrow.len(),
-                            len,
-                            "Arrow array length does not match Vortex array length after conversion to {:?}",
-                            arrow
-                        );
-                        return Ok(arrow);
-                    }
-                    ArrowExport::Unsupported(array) => current = array,
-                }
-            }
-
-            debug!(
-                extension_id = arrow_ext_name,
-                data_type = ?target_field.data_type(),
-                "unsupported Arrow extension type encountered, falling back to naive execution"
-            );
-
-            return execute_arrow_naive(current, Some(target_field.data_type()), ctx);
+    /// Return an exporter that applies `options` to its exports.
+    ///
+    /// ```
+    /// use arrow_array::Array;
+    /// use vortex_array::IntoArray;
+    /// use vortex_array::VortexSessionExecute;
+    /// use vortex_session::VortexSession;
+    /// use vortex_array::arrays::VarBinViewArray;
+    /// use vortex_arrow::ArrowExportOptions;
+    /// use vortex_arrow::ArrowSessionExt;
+    /// use vortex_arrow::CompactBuffers;
+    ///
+    /// let session = VortexSession::empty();
+    /// let array = VarBinViewArray::from_iter_str(["a", "b"]).into_array();
+    /// let options = ArrowExportOptions::default().with(CompactBuffers(false));
+    /// let arrow = session.arrow().exporter(&options).execute_arrow(
+    ///     array,
+    ///     None,
+    ///     &mut session.create_execution_ctx(),
+    /// )?;
+    /// assert_eq!(arrow.len(), 2);
+    /// # Ok::<(), vortex_error::VortexError>(())
+    /// ```
+    pub fn exporter<'a>(&'a self, options: &'a ArrowExportOptions) -> ArrowExporter<'a> {
+        ArrowExporter {
+            session: self,
+            options,
         }
-
-        execute_arrow_naive(array, target.map(|field| field.data_type()), ctx)
     }
 
     /// Decode an Arrow array into a Vortex array.
@@ -632,11 +623,35 @@ impl ArrowSession {
             let importers = self.importers(&Id::new(extension_name));
             if !importers.is_empty() {
                 let dtype = self.from_arrow_field(field)?;
+                let len = array.len();
                 let mut current = array;
                 for plugin in importers.iter() {
                     match plugin.from_arrow_array(current, field, &dtype, self)? {
-                        ArrowImport::Imported(arr) => return Ok(arr),
-                        ArrowImport::Unsupported(arr) => current = arr,
+                        // Parents such as lists reuse the Arrow offsets into this array without
+                        // checking them again, so a plugin must preserve its length, both in what
+                        // it imports and in what it hands back when it declines.
+                        ArrowImport::Imported(arr) => {
+                            vortex_ensure_eq!(
+                                arr.len(),
+                                len,
+                                "Arrow importer {} returned {} elements for an array of {}",
+                                plugin.arrow_ext_id(),
+                                arr.len(),
+                                len
+                            );
+                            return Ok(arr);
+                        }
+                        ArrowImport::Unsupported(arr) => {
+                            vortex_ensure_eq!(
+                                arr.len(),
+                                len,
+                                "Arrow importer {} declined and returned {} elements for an array of {}",
+                                plugin.arrow_ext_id(),
+                                arr.len(),
+                                len
+                            );
+                            current = arr;
+                        }
                     }
                 }
                 return self.from_arrow_array_canonical(current.as_ref(), field);
@@ -684,19 +699,33 @@ impl ArrowSession {
             }
             DataType::List(elem_field) => {
                 let list = array.as_list::<i32>();
-                let elements = self
-                    .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
-                let offsets = list.offsets().clone().into_array();
+                let (offsets, referenced) = trim_offsets(list.offsets());
+                let elements = self.from_arrow_array(
+                    list.values().slice(referenced.start, referenced.len()),
+                    elem_field.as_ref(),
+                )?;
                 let validity = nulls(list.nulls(), field.is_nullable())?;
-                Ok(ListArray::try_new(elements, offsets, validity)?.into_array())
+                // SAFETY: Arrow offsets are non-negative and sorted, and `trim_offsets` rebases
+                // them onto the referenced values. The validity has one entry per list.
+                Ok(
+                    unsafe { ListArray::new_unchecked(elements, offsets.into_array(), validity) }
+                        .into_array(),
+                )
             }
             DataType::LargeList(elem_field) => {
                 let list = array.as_list::<i64>();
-                let elements = self
-                    .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
-                let offsets = list.offsets().clone().into_array();
+                let (offsets, referenced) = trim_offsets(list.offsets());
+                let elements = self.from_arrow_array(
+                    list.values().slice(referenced.start, referenced.len()),
+                    elem_field.as_ref(),
+                )?;
                 let validity = nulls(list.nulls(), field.is_nullable())?;
-                Ok(ListArray::try_new(elements, offsets, validity)?.into_array())
+                // SAFETY: Arrow offsets are non-negative and sorted, and `trim_offsets` rebases
+                // them onto the referenced values. The validity has one entry per list.
+                Ok(
+                    unsafe { ListArray::new_unchecked(elements, offsets.into_array(), validity) }
+                        .into_array(),
+                )
             }
             DataType::FixedSizeList(elem_field, list_size) => {
                 let fsl = array.as_fixed_size_list();
@@ -717,7 +746,12 @@ impl ArrowSession {
                 let offsets = list.offsets().clone().into_array();
                 let sizes = list.sizes().clone().into_array();
                 let validity = nulls(list.nulls(), field.is_nullable())?;
-                Ok(ListViewArray::try_new(elements, offsets, sizes, validity)?.into_array())
+                // SAFETY: Arrow list views share one integer type for offsets and sizes, and every
+                // view lies within the values. The validity has one entry per list.
+                Ok(
+                    unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, validity) }
+                        .into_array(),
+                )
             }
             DataType::LargeListView(elem_field) => {
                 let list = array.as_list_view::<i64>();
@@ -726,7 +760,12 @@ impl ArrowSession {
                 let offsets = list.offsets().clone().into_array();
                 let sizes = list.sizes().clone().into_array();
                 let validity = nulls(list.nulls(), field.is_nullable())?;
-                Ok(ListViewArray::try_new(elements, offsets, sizes, validity)?.into_array())
+                // SAFETY: Arrow list views share one integer type for offsets and sizes, and every
+                // view lies within the values. The validity has one entry per list.
+                Ok(
+                    unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, validity) }
+                        .into_array(),
+                )
             }
             DataType::Map(entries_field, keys_sorted) => {
                 let map = array.as_map();
@@ -753,13 +792,12 @@ impl ArrowSession {
             }
             DataType::Dictionary(..) => {
                 let dict = array.as_any_dictionary();
-                // Arrow models dictionary values as a bare `DataType`, so there is no field
-                // metadata to carry an extension name for the values themselves. Fields *nested
-                // inside* that data type (list elements, struct fields, map entries) do keep
-                // their metadata, so importing the values by nullability alone still routes them
-                // back through the plugin-aware conversion.
-                let values = self
-                    .from_arrow_array(ArrowArrayRef::clone(dict.values()), field.is_nullable())?;
+                // Extension metadata on the dictionary field describes its values.
+                let values_field = field
+                    .clone()
+                    .with_data_type(dict.values().data_type().clone());
+                let values =
+                    self.from_arrow_array(ArrowArrayRef::clone(dict.values()), &values_field)?;
                 let codes = dict.keys();
                 let codes = from_arrow_dyn(codes, codes.is_nullable())?;
                 // SAFETY: arrow-rs enforces the dictionary invariants on construction, so the
@@ -810,6 +848,81 @@ impl SessionVar for ArrowSession {
     }
 }
 
+/// An [`ArrowSession`] bound to [`ArrowExportOptions`], created by [`ArrowSession::exporter`].
+#[derive(Clone, Copy, Debug)]
+pub struct ArrowExporter<'a> {
+    session: &'a ArrowSession,
+    options: &'a ArrowExportOptions,
+}
+
+impl ArrowExporter<'_> {
+    pub(crate) fn options(&self) -> &ArrowExportOptions {
+        self.options
+    }
+
+    /// Execute a Vortex array into an Arrow array with the bound options.
+    ///
+    /// Behaves like [`ArrowSession::execute_arrow`]. The options are propagated to nested arrays
+    /// and to registered export plugins.
+    #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
+    pub fn execute_arrow(
+        &self,
+        array: ArrayRef,
+        target: Option<&Field>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrowArrayRef> {
+        // NOTE(aduffy): this looks strange, but we do this to keep target_field as &Field so
+        //  we can avoid cloning target when it is provided. It contains a HashMap internally that
+        //  can be expensive to copy.
+        let arrow_field;
+        let target_field = match target {
+            Some(field) => field,
+            None => {
+                arrow_field = self.session.to_arrow_field("", array.dtype())?;
+                &arrow_field
+            }
+        };
+
+        if let Some(arrow_ext_name) = target_field.metadata().get(EXTENSION_TYPE_NAME_KEY) {
+            // There can be multiple plugins that report support for a particular extension type.
+            // We try them in order until one of them reports a successful conversion.
+            let len = array.len();
+            let mut current = array;
+
+            for plugin in self.session.exporters(&Id::new(arrow_ext_name)).iter() {
+                trace!(
+                    plugin = ?plugin,
+                    extension_name = arrow_ext_name,
+                    "probing plugin for converting Arrow array"
+                );
+
+                match plugin.execute_arrow(current, target_field, self.options, ctx)? {
+                    ArrowExport::Exported(arrow) => {
+                        vortex_ensure_eq!(
+                            arrow.len(),
+                            len,
+                            "Arrow array length does not match Vortex array length after conversion to {:?}",
+                            arrow
+                        );
+                        return Ok(arrow);
+                    }
+                    ArrowExport::Unsupported(array) => current = array,
+                }
+            }
+
+            debug!(
+                extension_id = arrow_ext_name,
+                data_type = ?target_field.data_type(),
+                "unsupported Arrow extension type encountered, falling back to naive execution"
+            );
+
+            return execute_arrow_naive(current, Some(target_field.data_type()), self, ctx);
+        }
+
+        execute_arrow_naive(array, target.map(|field| field.data_type()), self, ctx)
+    }
+}
+
 /// Extension trait for accessing the [`ArrowSession`] on a Vortex session.
 pub trait ArrowSessionExt: SessionExt {
     /// Get the Arrow session.
@@ -824,20 +937,95 @@ impl<S: SessionExt> ArrowSessionExt for S {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use arrow_array::DictionaryArray;
+    use arrow_array::GenericListArray;
+    use arrow_array::GenericListViewArray;
     use arrow_array::Int32Array;
+    use arrow_array::Int64Array;
+    use arrow_array::MapArray;
     use arrow_array::StringArray;
+    use arrow_array::StructArray;
     use arrow_array::types::Int32Type;
+    use arrow_buffer::OffsetBuffer;
+    use arrow_buffer::ScalarBuffer;
     use arrow_schema::DataType;
     use arrow_schema::Field;
+    use arrow_schema::FieldRef;
+    use arrow_schema::Fields;
+    use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute as _;
     use vortex_array::arrays::Dict;
+    use vortex_array::arrays::ListArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+    use vortex_session::registry::CachedId;
 
     use super::*;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[rstest]
+    #[case::prefix(0, 2)]
+    #[case::middle(500, 2)]
+    #[case::empty(500, 0)]
+    #[case::empty_at_end(1000, 0)]
+    fn test_sliced_list_imports_only_its_rows(
+        #[values(false, true)] large: bool,
+        #[case] start: usize,
+        #[case] len: usize,
+    ) -> VortexResult<()> {
+        let lists = |rows: Range<i64>| -> ArrowArrayRef {
+            let values = Arc::new(Int64Array::from_iter_values(
+                rows.flat_map(|row| [row, row + 1]),
+            ));
+            let len = values.len() / 2;
+            let field = Arc::new(Field::new("item", DataType::Int64, false));
+            if large {
+                Arc::new(GenericListArray::<i64>::new(
+                    field,
+                    OffsetBuffer::from_repeated_length(2, len),
+                    values,
+                    None,
+                ))
+            } else {
+                Arc::new(GenericListArray::<i32>::new(
+                    field,
+                    OffsetBuffer::from_repeated_length(2, len),
+                    values,
+                    None,
+                ))
+            }
+        };
+        let session = ArrowSession::default();
+        let sliced = session.from_arrow_array(lists(0..1000).slice(start, len), false)?;
+        let fresh = session.from_arrow_array(lists(start as i64..(start + len) as i64), false)?;
+        assert_eq!(sliced.nbytes(), fresh.nbytes());
+        let mut ctx = SESSION.create_execution_ctx();
+        let expected = ListArray::new(
+            PrimitiveArray::from_iter(
+                (start as i64..(start + len) as i64).flat_map(|row| [row, row + 1]),
+            )
+            .into_array(),
+            PrimitiveArray::from_iter((0..=len as u64).map(|row| row * 2)).into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        );
+        assert_arrays_eq!(sliced, expected, &mut ctx);
+        assert_arrays_eq!(fresh, expected, &mut ctx);
+        Ok(())
+    }
 
     #[test]
     fn from_arrow_fields_matches_schema_conversion() -> VortexResult<()> {
@@ -848,6 +1036,11 @@ mod tests {
         ]);
         let struct_fields = session.from_arrow_fields(&fields)?;
         let schema_dtype = session.from_arrow_schema(&Schema::new(fields))?;
+        let expected = StructFields::from_iter([
+            ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+            ("b", DType::Utf8(Nullability::Nullable)),
+        ]);
+        assert_eq!(struct_fields, expected);
         assert_eq!(
             schema_dtype,
             DType::Struct(struct_fields, Nullability::NonNullable)
@@ -897,6 +1090,124 @@ mod tests {
         assert!(array.is::<Dict>(), "expected a Dict encoding, got {array}");
         assert_eq!(array.dtype(), &dtype);
         assert_eq!(array.len(), 4);
+        assert_arrays_eq!(
+            array,
+            VarBinViewArray::from_iter_str(["a", "b", "a", "b"]),
+            &mut SESSION.create_execution_ctx()
+        );
         Ok(())
+    }
+
+    static TRUNCATE_ID: CachedId = CachedId::new("test.truncate");
+
+    /// An importer that drops the last element of every array it is given, then either imports
+    /// it or declines and hands it back.
+    #[derive(Debug)]
+    struct TruncatingImporter {
+        decline: bool,
+    }
+
+    impl ArrowImportVTable for TruncatingImporter {
+        fn arrow_ext_id(&self) -> Id {
+            *TRUNCATE_ID
+        }
+
+        fn from_arrow_field(
+            &self,
+            field: &Field,
+            session: &ArrowSession,
+        ) -> VortexResult<Option<DType>> {
+            session
+                .from_arrow_datatype(field.data_type(), field.is_nullable().into())
+                .map(Some)
+        }
+
+        fn from_arrow_array(
+            &self,
+            array: ArrowArrayRef,
+            field: &Field,
+            _dtype: &DType,
+            session: &ArrowSession,
+        ) -> VortexResult<ArrowImport> {
+            let truncated = array.slice(0, array.len() - 1);
+            if self.decline {
+                return Ok(ArrowImport::Unsupported(truncated));
+            }
+            session
+                .from_arrow_array(truncated, field.is_nullable())
+                .map(ArrowImport::Imported)
+        }
+    }
+
+    fn truncated_field(name: &str, data_type: DataType) -> FieldRef {
+        Arc::new(
+            Field::new(name, data_type, false).with_metadata(
+                [(
+                    EXTENSION_TYPE_NAME_KEY.to_string(),
+                    "test.truncate".to_string(),
+                )]
+                .into(),
+            ),
+        )
+    }
+
+    fn list_with_truncated_child() -> ArrowArrayRef {
+        Arc::new(GenericListArray::<i32>::new(
+            truncated_field("item", DataType::Int64),
+            OffsetBuffer::new(vec![0, 5].into()),
+            Arc::new(Int64Array::from_iter_values(0..5)),
+            None,
+        ))
+    }
+
+    fn list_view_with_truncated_child() -> ArrowArrayRef {
+        Arc::new(GenericListViewArray::<i32>::new(
+            truncated_field("item", DataType::Int64),
+            ScalarBuffer::from(vec![0]),
+            ScalarBuffer::from(vec![5]),
+            Arc::new(Int64Array::from_iter_values(0..5)),
+            None,
+        ))
+    }
+
+    fn map_with_truncated_child() -> ArrowArrayRef {
+        let key_field = Arc::new(Field::new("key", DataType::Int64, false));
+        let value_field = Arc::new(Field::new("value", DataType::Int64, false));
+        let entries = StructArray::new(
+            Fields::from(vec![key_field, value_field]),
+            vec![
+                Arc::new(Int64Array::from_iter_values(0..5)),
+                Arc::new(Int64Array::from_iter_values(5..10)),
+            ],
+            None,
+        );
+        Arc::new(MapArray::new(
+            truncated_field("entries", entries.data_type().clone()),
+            OffsetBuffer::new(vec![0, 5].into()),
+            entries,
+            None,
+            false,
+        ))
+    }
+
+    #[rstest]
+    #[case::list(list_with_truncated_child())]
+    #[case::list_view(list_view_with_truncated_child())]
+    #[case::map(map_with_truncated_child())]
+    fn test_rejects_importer_that_changes_child_length(
+        #[case] array: ArrowArrayRef,
+        #[values(false, true)] decline: bool,
+    ) {
+        let session = ArrowSession::default();
+        session.register_importer(Arc::new(TruncatingImporter { decline }));
+
+        let err = session
+            .from_arrow_array(array, false)
+            .expect_err("a child importer that drops elements must be rejected");
+        assert!(
+            err.to_string()
+                .contains("returned 4 elements for an array of 5"),
+            "unexpected error: {err}"
+        );
     }
 }

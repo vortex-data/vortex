@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::task::Poll;
 
 use async_trait::async_trait;
 use futures::FutureExt;
+use futures::future::poll_fn;
 use moka::future::Cache;
 use moka::future::CacheBuilder;
 use moka::policy::EvictionPolicy;
@@ -26,9 +28,34 @@ use crate::segments::SegmentSource;
 ///
 /// Caches are optional and operate above a [`SegmentSource`]. They should only store host buffers:
 /// device buffers and other non-host handles should be passed through uncached.
+///
+/// To bring your own cache, implement this trait and give it to the file with
+/// `VortexOpenOptions::with_segment_cache`. A [`SegmentId`] is unique only within one file, so a
+/// cache that many files share must also key its entries by file. Give each file its own
+/// implementation of this trait that holds the [`SegmentSourceId`] of that file and adds it to
+/// the key, as [`MokaSegmentCache::for_file`] does with [`FileSegmentCache`].
+///
+/// The Python bindings accept only a [`MokaSegmentCache`]. A cache written in Python can use the
+/// same design as `PyReadable` in `vortex-python`:
+///
+/// - The Python object has the methods `get(key: str, segment_id: int) -> Buffer | None` and
+///   `put(key: str, segment_id: int, data: Buffer) -> None`. `vortex.open` and
+///   `vortex.open_readable` accept it with the `cache_key` that they accept now, and the stubs
+///   declare it as a `typing.Protocol`. Then users can use `cachetools`, `diskcache`, Redis, or a
+///   cache that many processes share.
+/// - A Rust adapter holds the Python object and the [`SegmentSourceId`] of one file, and
+///   implements this trait. `get` calls Python through `spawn_blocking` and `Python::attach`, as
+///   `PyReadable::read_at` does, and wraps the buffer that Python returns without a copy.
+///   `put` gives Python a read-only object that owns a clone of the [`ByteBuffer`] and exports
+///   it through `__getbuffer__`, as `ReadBuffer` does, so Python can keep it without a copy.
 #[async_trait]
 pub trait SegmentCache: Send + Sync {
     /// Return a cached segment, or `None` on cache miss.
+    ///
+    /// Lookups may be polled while a segment request is constructed, before its returned
+    /// future is polled. Ready misses preserve the source's eager read registration.
+    /// Pending lookups delay registration until they resolve and the caller polls the request,
+    /// which can reduce read coalescing. This prevents cache hits from registering source reads.
     async fn get(&self, id: SegmentId) -> VortexResult<Option<ByteBuffer>>;
     /// Store a segment in the cache.
     async fn put(&self, id: SegmentId, buffer: ByteBuffer) -> VortexResult<()>;
@@ -48,12 +75,68 @@ impl SegmentCache for NoOpSegmentCache {
     }
 }
 
-/// A [`SegmentCache`] based around an in-memory Moka cache.
-pub struct MokaSegmentCache(Cache<SegmentId, ByteBuffer, FxBuildHasher>);
+/// Which segments a [`MokaSegmentCache`] evicts when it is full.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SegmentEviction {
+    /// Admit every new segment and evict the least recently used. Suits a cache shared by readers
+    /// that move from file to file, where a newly opened file's segments must displace older ones.
+    #[default]
+    Lru,
+    /// Admit a new segment only if it is likely to be used more often than the one it would
+    /// evict. Suits repeated scans of one file larger than the cache, which LRU would evict
+    /// entirely on every pass, but rejects a new file's segments while older ones are popular.
+    TinyLfu,
+}
+
+/// Identifies the contents of one segment source, usually a file, in a cache that many sources
+/// share.
+///
+/// Sources with the same ID share cached segments, so an ID must identify the contents of the
+/// source, not only its location. A file that has changed must get a new ID.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct SegmentSourceId(Arc<str>);
+
+impl SegmentSourceId {
+    /// Construct an ID from a string that identifies the contents of a source.
+    pub fn new(id: impl Into<Arc<str>>) -> Self {
+        Self(id.into())
+    }
+}
+
+impl From<&str> for SegmentSourceId {
+    fn from(id: &str) -> Self {
+        Self::new(id)
+    }
+}
+
+impl From<String> for SegmentSourceId {
+    fn from(id: String) -> Self {
+        Self::new(id)
+    }
+}
+
+impl From<Arc<str>> for SegmentSourceId {
+    fn from(id: Arc<str>) -> Self {
+        Self(id)
+    }
+}
+
+/// An in-memory Moka cache of segments, capped by total buffer bytes, that any number of files can
+/// share.
+///
+/// A [`SegmentId`] is unique only within one file, so files use the cache through a
+/// [`FileSegmentCache`] from [`Self::for_file`], which adds a [`SegmentSourceId`]. Opening the
+/// same file again with the same ID reuses the segments an earlier open read.
+#[derive(Clone)]
+pub struct MokaSegmentCache(Cache<(SegmentSourceId, SegmentId), ByteBuffer, FxBuildHasher>);
 
 impl MokaSegmentCache {
     /// Construct a Moka-backed cache capped by total buffer bytes.
-    pub fn new(max_capacity_bytes: u64) -> Self {
+    pub fn new(max_capacity_bytes: u64, eviction: SegmentEviction) -> Self {
+        let eviction_policy = match eviction {
+            SegmentEviction::Lru => EvictionPolicy::lru(),
+            SegmentEviction::TinyLfu => EvictionPolicy::tiny_lfu(),
+        };
         Self(
             CacheBuilder::new(max_capacity_bytes)
                 .name("vortex-segment-cache")
@@ -61,23 +144,61 @@ impl MokaSegmentCache {
                 .weigher(|_, buffer: &ByteBuffer| {
                     u32::try_from(buffer.len().min(u32::MAX as usize)).vortex_expect("must fit")
                 })
-                // We configure LFU (vs LRU) since the cache is mostly used when re-reading the
-                // same file - it is _not_ used when reading the same segments during a single
-                // scan.
-                .eviction_policy(EvictionPolicy::tiny_lfu())
+                .eviction_policy(eviction_policy)
                 .build_with_hasher(FxBuildHasher),
         )
     }
+
+    /// The view of this cache for the file identified by `source_id`.
+    pub fn for_file(&self, source_id: impl Into<SegmentSourceId>) -> FileSegmentCache {
+        FileSegmentCache {
+            cache: self.clone(),
+            source_id: source_id.into(),
+        }
+    }
+
+    /// The total bytes of the cached segments.
+    ///
+    /// Recent inserts and evictions may not be counted yet; call [`Self::run_pending_tasks`] first
+    /// for an exact value.
+    pub fn weighted_size(&self) -> u64 {
+        self.0.weighted_size()
+    }
+
+    /// The number of cached segments, with the same caveat as [`Self::weighted_size`].
+    pub fn entry_count(&self) -> u64 {
+        self.0.entry_count()
+    }
+
+    /// Apply pending inserts and evictions, so that the counts are exact.
+    pub async fn run_pending_tasks(&self) {
+        self.0.run_pending_tasks().await;
+    }
+
+    /// Remove every cached segment.
+    pub fn invalidate_all(&self) {
+        self.0.invalidate_all();
+    }
+}
+
+/// One file's view of a [`MokaSegmentCache`]; see [`MokaSegmentCache::for_file`].
+#[derive(Clone)]
+pub struct FileSegmentCache {
+    cache: MokaSegmentCache,
+    source_id: SegmentSourceId,
 }
 
 #[async_trait]
-impl SegmentCache for MokaSegmentCache {
+impl SegmentCache for FileSegmentCache {
     async fn get(&self, id: SegmentId) -> VortexResult<Option<ByteBuffer>> {
-        Ok(self.0.get(&id).await)
+        Ok(self.cache.0.get(&(self.source_id.clone(), id)).await)
     }
 
     async fn put(&self, id: SegmentId, buffer: ByteBuffer) -> VortexResult<()> {
-        self.0.insert(id, buffer).await;
+        self.cache
+            .0
+            .insert((self.source_id.clone(), id), buffer)
+            .await;
         Ok(())
     }
 }
@@ -148,13 +269,25 @@ impl SegmentCacheSourceAdapter {
 impl SegmentSource for SegmentCacheSourceAdapter {
     fn request(&self, id: SegmentId) -> SegmentFuture {
         let cache = Arc::clone(&self.cache);
-        let delegate = self.source.request(id);
-
-        async move {
+        let source = Arc::clone(&self.source);
+        let mut request = async move {
             if let Ok(Some(segment)) = cache.get(id).await {
                 tracing::debug!("Resolved segment {} from cache", id);
                 return Ok(BufferHandle::new_host(segment));
             }
+            let delegate = source.request(id);
+            // The eager poll may register a miss for coalescing, but only the caller may
+            // demand the read. Pending lookups reaching this point later must wake that caller.
+            let mut defer = true;
+            poll_fn(move |cx| {
+                if std::mem::take(&mut defer) {
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                } else {
+                    Poll::Ready(())
+                }
+            })
+            .await;
             let result = delegate.await?;
             // Cache only CPU buffers; device buffers are not cached.
             if let Some(buffer) = result.as_host_opt()
@@ -164,6 +297,153 @@ impl SegmentSource for SegmentCacheSourceAdapter {
             }
             Ok(result)
         }
-        .boxed()
+        .boxed();
+
+        // Resolve ready lookups while requests are constructed, retaining eager registration
+        // of cold misses without allocating a separate future to own the cache lookup.
+        match request.as_mut().now_or_never() {
+            Some(result) => async move { result }.boxed(),
+            None => request,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use futures::channel::oneshot;
+    use parking_lot::Mutex;
+    use rstest::rstest;
+    use vortex_buffer::ByteBuffer;
+
+    use super::*;
+
+    #[rstest]
+    #[case::lru(SegmentEviction::Lru)]
+    #[case::tiny_lfu(SegmentEviction::TinyLfu)]
+    #[tokio::test]
+    async fn shared_cache_separates_files(#[case] eviction: SegmentEviction) -> VortexResult<()> {
+        let shared = MokaSegmentCache::new(1 << 20, eviction);
+        let a = shared.for_file("a");
+        let b = shared.for_file("b");
+        let id = SegmentId::from(0);
+
+        a.put(id, ByteBuffer::copy_from(b"from a")).await?;
+        assert_eq!(a.get(id).await?.as_deref(), Some(b"from a".as_slice()));
+        assert!(b.get(id).await?.is_none());
+
+        // A later view with the same source ID sees what the earlier one stored.
+        let a_again = shared.for_file("a");
+        assert_eq!(
+            a_again.get(id).await?.as_deref(),
+            Some(b"from a".as_slice())
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::lru(SegmentEviction::Lru)]
+    #[case::tiny_lfu(SegmentEviction::TinyLfu)]
+    #[tokio::test]
+    async fn shared_cache_is_capped_by_bytes(
+        #[case] eviction: SegmentEviction,
+    ) -> VortexResult<()> {
+        let shared = MokaSegmentCache::new(1000, eviction);
+        let file = shared.for_file("file");
+        for i in 0..10u32 {
+            file.put(SegmentId::from(i), ByteBuffer::copy_from(vec![0u8; 400]))
+                .await?;
+        }
+
+        shared.run_pending_tasks().await;
+        assert!(shared.weighted_size() <= 1000);
+        assert!(shared.entry_count() <= 2);
+
+        // LRU admits every segment, so the most recently stored one survives.
+        if eviction == SegmentEviction::Lru {
+            assert!(file.get(SegmentId::from(9)).await?.is_some());
+        }
+        Ok(())
+    }
+
+    #[derive(Default)]
+    struct CountingSource(AtomicUsize, Arc<AtomicUsize>);
+
+    impl SegmentSource for CountingSource {
+        fn request(&self, _id: SegmentId) -> SegmentFuture {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            let demanded = Arc::clone(&self.1);
+            async move {
+                demanded.fetch_add(1, Ordering::SeqCst);
+                Ok(BufferHandle::new_host(ByteBuffer::copy_from(b"source")))
+            }
+            .boxed()
+        }
+    }
+
+    #[tokio::test]
+    async fn cache_lookup_preserves_registration_and_demand_order() -> VortexResult<()> {
+        let cache = MokaSegmentCache::new(1024, SegmentEviction::Lru).for_file("file");
+        let hit = SegmentId::from(0);
+        cache.put(hit, ByteBuffer::copy_from(b"cached")).await?;
+        let source = Arc::new(CountingSource::default());
+        let cached =
+            SegmentCacheSourceAdapter::new(Arc::new(cache), Arc::<CountingSource>::clone(&source));
+
+        assert_eq!(
+            cached.request(hit).await?.unwrap_host(),
+            ByteBuffer::copy_from(b"cached")
+        );
+        assert_eq!(source.0.load(Ordering::SeqCst), 0);
+        let miss = cached.request(SegmentId::from(1));
+        assert_eq!(source.0.load(Ordering::SeqCst), 1);
+        assert_eq!(source.1.load(Ordering::SeqCst), 0);
+        assert_eq!(miss.await?.unwrap_host(), ByteBuffer::copy_from(b"source"));
+        assert_eq!(source.1.load(Ordering::SeqCst), 1);
+        Ok(())
+    }
+
+    struct DelayedCache(Mutex<Option<oneshot::Receiver<Option<ByteBuffer>>>>);
+
+    #[async_trait]
+    impl SegmentCache for DelayedCache {
+        async fn get(&self, _id: SegmentId) -> VortexResult<Option<ByteBuffer>> {
+            let lookup = self
+                .0
+                .lock()
+                .take()
+                .vortex_expect("lookup is not restarted");
+            Ok(lookup.await.expect("test supplies lookup result"))
+        }
+
+        async fn put(&self, _id: SegmentId, _buffer: ByteBuffer) -> VortexResult<()> {
+            Ok(())
+        }
+    }
+
+    #[rstest]
+    #[case::hit(true)]
+    #[case::miss(false)]
+    #[tokio::test]
+    async fn pending_lookup_finishes_before_registering_reads(
+        #[case] hit: bool,
+    ) -> VortexResult<()> {
+        let (sender, receiver) = oneshot::channel();
+        let cache = Arc::new(DelayedCache(Mutex::new(Some(receiver))));
+        let source = Arc::new(CountingSource::default());
+        let cached = SegmentCacheSourceAdapter::new(cache, Arc::<CountingSource>::clone(&source));
+        let mut request = cached.request(SegmentId::from(0));
+        assert_eq!(source.0.load(Ordering::SeqCst), 0);
+        assert!(futures::poll!(request.as_mut()).is_pending());
+        assert_eq!(source.0.load(Ordering::SeqCst), 0);
+        sender
+            .send(hit.then(|| ByteBuffer::copy_from(b"cached")))
+            .unwrap();
+        let expected: &[u8] = if hit { b"cached" } else { b"source" };
+        assert_eq!(request.await?.unwrap_host().as_ref(), expected);
+        assert_eq!(source.0.load(Ordering::SeqCst), usize::from(!hit));
+        Ok(())
     }
 }

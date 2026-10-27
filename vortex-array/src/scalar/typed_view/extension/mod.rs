@@ -6,7 +6,6 @@
 use std::fmt;
 use std::hash::Hash;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
@@ -75,8 +74,9 @@ impl<'a> ExtScalar<'a> {
 
     /// Returns the storage scalar of the extension scalar.
     pub fn to_storage_scalar(&self) -> Scalar {
-        Scalar::try_new(self.ext_dtype.storage_dtype().clone(), self.value.cloned())
-            .vortex_expect("ExtScalar is invalid")
+        unsafe {
+            Scalar::new_unchecked(self.ext_dtype.storage_dtype().clone(), self.value.cloned())
+        }
     }
 
     /// Returns a reference to the underlying value
@@ -86,28 +86,12 @@ impl<'a> ExtScalar<'a> {
 
     /// Casts this scalar to the given `dtype`.
     pub(crate) fn cast(&self, target_dtype: &DType) -> VortexResult<Scalar> {
-        if self.value.is_none() && !target_dtype.is_nullable() {
-            vortex_bail!(
-                "cannot cast extension dtype with id {} and storage type {} to {}",
-                self.ext_dtype.id(),
-                self.ext_dtype.storage_dtype(),
-                target_dtype
-            );
-        }
-
         if self
             .ext_dtype
             .storage_dtype()
             .eq_ignore_nullability(target_dtype)
         {
             // Casting from an extension type to the underlying storage type is OK.
-            return Scalar::try_new(target_dtype.clone(), self.value.cloned());
-        }
-
-        // We only allow casting to the same extension dtype for now.
-        if let DType::Extension(ext_dtype) = target_dtype
-            && self.ext_dtype.eq_ignore_nullability(ext_dtype)
-        {
             return Scalar::try_new(target_dtype.clone(), self.value.cloned());
         }
 

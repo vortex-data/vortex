@@ -57,8 +57,8 @@ logical_plan
 13)----------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
 14)------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_store_sk, ss_sales_price]
 15)------------------------Projection: date_dim.d_date_sk
-16)--------------------------Filter: date_dim.d_month_seq >= Int64(1176) AND date_dim.d_month_seq <= Int64(1187)
-17)----------------------------TableScan: date_dim projection=[d_date_sk, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int64(1176), date_dim.d_month_seq <= Int64(1187)]
+16)--------------------------Filter: date_dim.d_month_seq >= Int32(1176) AND date_dim.d_month_seq <= Int32(1187)
+17)----------------------------TableScan: date_dim projection=[d_date_sk, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int32(1176), date_dim.d_month_seq <= Int32(1187)]
 18)----------TableScan: item projection=[i_item_sk, i_item_desc, i_current_price, i_wholesale_cost, i_brand]
 19)------SubqueryAlias: sb
 20)--------Projection: sa.ss_store_sk, avg(sa.revenue) AS ave
@@ -70,8 +70,8 @@ logical_plan
 26)--------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
 27)----------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_store_sk, ss_sales_price]
 28)----------------------Projection: date_dim.d_date_sk
-29)------------------------Filter: date_dim.d_month_seq >= Int64(1176) AND date_dim.d_month_seq <= Int64(1187)
-30)--------------------------TableScan: date_dim projection=[d_date_sk, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int64(1176), date_dim.d_month_seq <= Int64(1187)]
+29)------------------------Filter: date_dim.d_month_seq >= Int32(1176) AND date_dim.d_month_seq <= Int32(1187)
+30)--------------------------TableScan: date_dim projection=[d_date_sk, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int32(1176), date_dim.d_month_seq <= Int32(1187)]
 physical_plan
 01)SortPreservingMergeExec: [s_store_name@0 ASC, i_item_desc@1 ASC], fetch=100
 02)--SortExec: TopK(fetch=100), expr=[s_store_name@0 ASC, i_item_desc@1 ASC], preserve_partitioning=[true]

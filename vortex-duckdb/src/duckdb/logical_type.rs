@@ -17,6 +17,7 @@ use crate::cpp::duckdb_create_array_type;
 use crate::cpp::duckdb_create_decimal_type;
 use crate::cpp::duckdb_create_list_type;
 use crate::cpp::duckdb_create_logical_type;
+use crate::cpp::duckdb_create_map_type;
 use crate::cpp::duckdb_create_struct_type;
 use crate::cpp::duckdb_decimal_scale;
 use crate::cpp::duckdb_decimal_width;
@@ -131,6 +132,16 @@ impl LogicalType {
         }
 
         // SAFETY: This pointer came directly from DuckDB, and we checked that it was not `NULL`.
+        Ok(unsafe { Self::own(ptr) })
+    }
+
+    /// Creates a DuckDB map logical type with the specified key and value types.
+    pub fn map_type(key_type: &LogicalTypeRef, value_type: &LogicalTypeRef) -> VortexResult<Self> {
+        let ptr = unsafe { duckdb_create_map_type(key_type.as_ptr(), value_type.as_ptr()) };
+
+        if ptr.is_null() {
+            vortex_bail!("Failed to create map type");
+        }
         Ok(unsafe { Self::own(ptr) })
     }
 
@@ -499,13 +510,10 @@ mod tests {
             LogicalType::decimal_type(10, 2).vortex_expect("Failed to create decimal type");
         let cloned = decimal_type.clone();
 
-        assert_eq!(decimal_type.as_type_id(), cloned.as_type_id());
-
-        let (original_width, original_scale) = decimal_type.as_decimal();
-        let (cloned_width, cloned_scale) = cloned.as_decimal();
-
-        assert_eq!(original_width, cloned_width);
-        assert_eq!(original_scale, cloned_scale);
+        for ty in [&decimal_type, &cloned] {
+            assert_eq!(ty.as_type_id(), DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL);
+            assert_eq!(ty.as_decimal(), (10, 2));
+        }
     }
 
     /// Vortex allows a decimal precision up to 76, DuckDB only up to 38, so the wider ones have to
@@ -527,7 +535,9 @@ mod tests {
     #[test]
     fn decimal_type_accepts_duckdb_maximum_precision() -> VortexResult<()> {
         for precision in [1, 18, DUCKDB_MAX_DECIMAL_PRECISION] {
-            LogicalType::decimal_type(precision, 0)?;
+            let ty = LogicalType::decimal_type(precision, 0)?;
+            assert_eq!(ty.as_type_id(), DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL);
+            assert_eq!(ty.as_decimal(), (precision, 0));
         }
         Ok(())
     }
@@ -630,7 +640,13 @@ mod tests {
         assert_eq!(original_count, cloned_count);
         assert_eq!(original_count, 2);
 
-        for idx in 0..original_count {
+        for (idx, (name, type_id)) in [
+            ("name", DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR),
+            ("age", DUCKDB_TYPE::DUCKDB_TYPE_INTEGER),
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let original_child_type = struct_type.struct_child_type(idx);
             let cloned_child_type = cloned.struct_child_type(idx);
             let original_child_name = struct_type.struct_child_name(idx);
@@ -641,7 +657,9 @@ mod tests {
                 cloned_child_type.as_type_id()
             );
 
-            assert_eq!(original_child_name, cloned_child_name);
+            assert_eq!(original_child_name.to_string(), name);
+            assert_eq!(cloned_child_name.to_string(), name);
+            assert_eq!(original_child_type.as_type_id(), type_id);
         }
     }
 
@@ -652,6 +670,8 @@ mod tests {
 
         let with_crs = LogicalType::geometry_type(Some("EPSG:4326"))?;
         assert_eq!(with_crs.as_type_id(), DUCKDB_TYPE::DUCKDB_TYPE_GEOMETRY);
+        assert!(no_crs.geometry_crs().is_none());
+        assert_eq!(with_crs.geometry_crs().unwrap().to_string(), "EPSG:4326");
         Ok(())
     }
 
@@ -683,7 +703,13 @@ mod tests {
         assert_eq!(original_count, cloned_count);
         assert_eq!(original_count, 2);
 
-        for idx in 0..original_count {
+        for (idx, (name, type_id)) in [
+            ("str", DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR),
+            ("num", DUCKDB_TYPE::DUCKDB_TYPE_INTEGER),
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let original_member_type = union_type.union_member_type(idx);
             let cloned_member_type = cloned.union_member_type(idx);
             let original_member_name = union_type.union_member_name(idx);
@@ -694,7 +720,9 @@ mod tests {
                 cloned_member_type.as_type_id(),
             );
 
-            assert_eq!(original_member_name, cloned_member_name);
+            assert_eq!(original_member_name.to_string(), name);
+            assert_eq!(cloned_member_name.to_string(), name);
+            assert_eq!(original_member_type.as_type_id(), type_id);
         }
     }
 }

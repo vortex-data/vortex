@@ -8,6 +8,7 @@ mod bench_config;
 mod timed_launch_strategy;
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use std::time::Instant;
@@ -16,6 +17,7 @@ use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
 use futures::executor::block_on;
+use mimalloc::MiMalloc;
 use vortex::array::IntoArray;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -27,6 +29,12 @@ use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::session::VortexSession;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
+use vortex_array::dtype::session::DTypeSession;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::scalar_fn::session::ScalarFnSession;
+use vortex_array::session::ArraySession;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
 use vortex_cuda::arrow::ArrowDeviceArray;
@@ -36,6 +44,20 @@ use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
 use crate::timed_launch_strategy::TimedLaunchStrategy;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<DTypeSession>()
+        .with::<ScalarFnSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>()
+        .with::<CudaSession>()
+});
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 const INPUT_OFFSET: usize = 5;
 const ARROW_OFFSET: usize = 3;
@@ -105,9 +127,8 @@ fn benchmark_arrow_validity_export(c: &mut Criterion) {
                 &len,
                 |b, &len| {
                     b.iter_custom(|iters| {
-                        let mut cuda_ctx =
-                            CudaSession::create_execution_ctx(&VortexSession::empty())
-                                .vortex_expect("failed to create execution context");
+                        let mut cuda_ctx = CudaSession::create_execution_ctx(&SESSION)
+                            .vortex_expect("failed to create execution context");
                         let array = block_on(primitive_with_device_bool_validity(
                             len,
                             validity_offset,
@@ -157,7 +178,7 @@ fn benchmark_arrow_validity_repack(c: &mut Criterion) {
                 b.iter_custom(|iters| {
                     let timed = TimedLaunchStrategy::default();
                     let timer = timed.timer();
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+                    let mut cuda_ctx = CudaSession::create_execution_ctx(&SESSION)
                         .vortex_expect("failed to create execution context")
                         .with_launch_strategy(Arc::new(timed));
                     let (input_offset, input_buffer) =
@@ -199,7 +220,7 @@ fn benchmark_arrow_validity_count_nulls(c: &mut Criterion) {
                 b.iter_custom(|iters| {
                     let timed = TimedLaunchStrategy::default();
                     let timer = timed.timer();
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+                    let mut cuda_ctx = CudaSession::create_execution_ctx(&SESSION)
                         .vortex_expect("failed to create execution context")
                         .with_launch_strategy(Arc::new(timed));
                     let (_, input_buffer) =
@@ -233,7 +254,11 @@ criterion::criterion_group! {
 }
 
 #[cuda_available]
-criterion::criterion_main!(benches);
+fn main() {
+    LazyLock::force(&SESSION);
+    benches();
+    Criterion::default().configure_from_args().final_summary();
+}
 
 #[cuda_not_available]
 fn main() {}

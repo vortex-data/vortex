@@ -161,11 +161,11 @@ logical_plan
 16)------------------------------Inner Join: store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
 17)--------------------------------TableScan: store_sales projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk]
 18)--------------------------------Projection: household_demographics.hd_demo_sk
-19)----------------------------------Filter: household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)
-20)------------------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
+19)----------------------------------Filter: household_demographics.hd_dep_count = Int32(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int32(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int32(0) AND household_demographics.hd_vehicle_count <= Int32(2)
+20)------------------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int32(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int32(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int32(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
 21)----------------------------Projection: time_dim.t_time_sk
-22)------------------------------Filter: time_dim.t_hour = Int64(8) AND time_dim.t_minute >= Int64(30)
-23)--------------------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int64(8), time_dim.t_minute >= Int64(30)]
+22)------------------------------Filter: time_dim.t_hour = Int32(8) AND time_dim.t_minute >= Int32(30)
+23)--------------------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int32(8), time_dim.t_minute >= Int32(30)]
 24)------------------------Projection: store.s_store_sk
 25)--------------------------Filter: store.s_store_name = Utf8View("ese")
 26)----------------------------TableScan: store projection=[s_store_sk, s_store_name], partial_filters=[store.s_store_name = Utf8View("ese")]
@@ -180,11 +180,11 @@ logical_plan
 35)------------------------------Inner Join: store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
 36)--------------------------------TableScan: store_sales projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk]
 37)--------------------------------Projection: household_demographics.hd_demo_sk
-38)----------------------------------Filter: household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)
-39)------------------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
+38)----------------------------------Filter: household_demographics.hd_dep_count = Int32(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int32(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int32(0) AND household_demographics.hd_vehicle_count <= Int32(2)
+39)------------------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int32(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int32(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int32(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
 40)----------------------------Projection: time_dim.t_time_sk
-41)------------------------------Filter: time_dim.t_hour = Int64(9) AND time_dim.t_minute < Int64(30)
-42)--------------------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int64(9), time_dim.t_minute < Int64(30)]
+41)------------------------------Filter: time_dim.t_hour = Int32(9) AND time_dim.t_minute < Int32(30)
+42)--------------------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int32(9), time_dim.t_minute < Int32(30)]
 43)------------------------Projection: store.s_store_sk
 44)--------------------------Filter: store.s_store_name = Utf8View("ese")
 45)----------------------------TableScan: store projection=[s_store_sk, s_store_name], partial_filters=[store.s_store_name = Utf8View("ese")]
@@ -199,11 +199,11 @@ logical_plan
 54)----------------------------Inner Join: store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
 55)------------------------------TableScan: store_sales projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk]
 56)------------------------------Projection: household_demographics.hd_demo_sk
-57)--------------------------------Filter: household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)
-58)----------------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
+57)--------------------------------Filter: household_demographics.hd_dep_count = Int32(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int32(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int32(0) AND household_demographics.hd_vehicle_count <= Int32(2)
+58)----------------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int32(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int32(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int32(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
 59)--------------------------Projection: time_dim.t_time_sk
-60)----------------------------Filter: time_dim.t_hour = Int64(9) AND time_dim.t_minute >= Int64(30)
-61)------------------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int64(9), time_dim.t_minute >= Int64(30)]
+60)----------------------------Filter: time_dim.t_hour = Int32(9) AND time_dim.t_minute >= Int32(30)
+61)------------------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int32(9), time_dim.t_minute >= Int32(30)]
 62)----------------------Projection: store.s_store_sk
 63)------------------------Filter: store.s_store_name = Utf8View("ese")
 64)--------------------------TableScan: store projection=[s_store_sk, s_store_name], partial_filters=[store.s_store_name = Utf8View("ese")]
@@ -218,11 +218,11 @@ logical_plan
 73)--------------------------Inner Join: store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
 74)----------------------------TableScan: store_sales projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk]
 75)----------------------------Projection: household_demographics.hd_demo_sk
-76)------------------------------Filter: household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)
-77)--------------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
+76)------------------------------Filter: household_demographics.hd_dep_count = Int32(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int32(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int32(0) AND household_demographics.hd_vehicle_count <= Int32(2)
+77)--------------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int32(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int32(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int32(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
 78)------------------------Projection: time_dim.t_time_sk
-79)--------------------------Filter: time_dim.t_hour = Int64(10) AND time_dim.t_minute < Int64(30)
-80)----------------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int64(10), time_dim.t_minute < Int64(30)]
+79)--------------------------Filter: time_dim.t_hour = Int32(10) AND time_dim.t_minute < Int32(30)
+80)----------------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int32(10), time_dim.t_minute < Int32(30)]
 81)--------------------Projection: store.s_store_sk
 82)----------------------Filter: store.s_store_name = Utf8View("ese")
 83)------------------------TableScan: store projection=[s_store_sk, s_store_name], partial_filters=[store.s_store_name = Utf8View("ese")]
@@ -237,11 +237,11 @@ logical_plan
 92)------------------------Inner Join: store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
 93)--------------------------TableScan: store_sales projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk]
 94)--------------------------Projection: household_demographics.hd_demo_sk
-95)----------------------------Filter: household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)
-96)------------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
+95)----------------------------Filter: household_demographics.hd_dep_count = Int32(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int32(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int32(0) AND household_demographics.hd_vehicle_count <= Int32(2)
+96)------------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int32(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int32(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int32(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
 97)----------------------Projection: time_dim.t_time_sk
-98)------------------------Filter: time_dim.t_hour = Int64(10) AND time_dim.t_minute >= Int64(30)
-99)--------------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int64(10), time_dim.t_minute >= Int64(30)]
+98)------------------------Filter: time_dim.t_hour = Int32(10) AND time_dim.t_minute >= Int32(30)
+99)--------------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int32(10), time_dim.t_minute >= Int32(30)]
 100)------------------Projection: store.s_store_sk
 101)--------------------Filter: store.s_store_name = Utf8View("ese")
 102)----------------------TableScan: store projection=[s_store_sk, s_store_name], partial_filters=[store.s_store_name = Utf8View("ese")]
@@ -256,11 +256,11 @@ logical_plan
 111)----------------------Inner Join: store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
 112)------------------------TableScan: store_sales projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk]
 113)------------------------Projection: household_demographics.hd_demo_sk
-114)--------------------------Filter: household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)
-115)----------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
+114)--------------------------Filter: household_demographics.hd_dep_count = Int32(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int32(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int32(0) AND household_demographics.hd_vehicle_count <= Int32(2)
+115)----------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int32(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int32(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int32(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
 116)--------------------Projection: time_dim.t_time_sk
-117)----------------------Filter: time_dim.t_hour = Int64(11) AND time_dim.t_minute < Int64(30)
-118)------------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int64(11), time_dim.t_minute < Int64(30)]
+117)----------------------Filter: time_dim.t_hour = Int32(11) AND time_dim.t_minute < Int32(30)
+118)------------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int32(11), time_dim.t_minute < Int32(30)]
 119)----------------Projection: store.s_store_sk
 120)------------------Filter: store.s_store_name = Utf8View("ese")
 121)--------------------TableScan: store projection=[s_store_sk, s_store_name], partial_filters=[store.s_store_name = Utf8View("ese")]
@@ -275,11 +275,11 @@ logical_plan
 130)--------------------Inner Join: store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
 131)----------------------TableScan: store_sales projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk]
 132)----------------------Projection: household_demographics.hd_demo_sk
-133)------------------------Filter: household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)
-134)--------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
+133)------------------------Filter: household_demographics.hd_dep_count = Int32(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int32(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int32(0) AND household_demographics.hd_vehicle_count <= Int32(2)
+134)--------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int32(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int32(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int32(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
 135)------------------Projection: time_dim.t_time_sk
-136)--------------------Filter: time_dim.t_hour = Int64(11) AND time_dim.t_minute >= Int64(30)
-137)----------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int64(11), time_dim.t_minute >= Int64(30)]
+136)--------------------Filter: time_dim.t_hour = Int32(11) AND time_dim.t_minute >= Int32(30)
+137)----------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int32(11), time_dim.t_minute >= Int32(30)]
 138)--------------Projection: store.s_store_sk
 139)----------------Filter: store.s_store_name = Utf8View("ese")
 140)------------------TableScan: store projection=[s_store_sk, s_store_name], partial_filters=[store.s_store_name = Utf8View("ese")]
@@ -294,11 +294,11 @@ logical_plan
 149)------------------Inner Join: store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk
 150)--------------------TableScan: store_sales projection=[ss_sold_time_sk, ss_hdemo_sk, ss_store_sk]
 151)--------------------Projection: household_demographics.hd_demo_sk
-152)----------------------Filter: household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)
-153)------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int64(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int64(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int64(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
+152)----------------------Filter: household_demographics.hd_dep_count = Int32(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int32(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int32(0) AND household_demographics.hd_vehicle_count <= Int32(2)
+153)------------------------TableScan: household_demographics projection=[hd_demo_sk, hd_dep_count, hd_vehicle_count], partial_filters=[household_demographics.hd_dep_count = Int32(4) AND household_demographics.hd_vehicle_count <= Int32(6) OR household_demographics.hd_dep_count = Int32(2) AND household_demographics.hd_vehicle_count <= Int32(4) OR household_demographics.hd_dep_count = Int32(0) AND household_demographics.hd_vehicle_count <= Int32(2)]
 154)----------------Projection: time_dim.t_time_sk
-155)------------------Filter: time_dim.t_hour = Int64(12) AND time_dim.t_minute < Int64(30)
-156)--------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int64(12), time_dim.t_minute < Int64(30)]
+155)------------------Filter: time_dim.t_hour = Int32(12) AND time_dim.t_minute < Int32(30)
+156)--------------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute], partial_filters=[time_dim.t_hour = Int32(12), time_dim.t_minute < Int32(30)]
 157)------------Projection: store.s_store_sk
 158)--------------Filter: store.s_store_name = Utf8View("ese")
 159)----------------TableScan: store projection=[s_store_sk, s_store_name], partial_filters=[store.s_store_name = Utf8View("ese")]

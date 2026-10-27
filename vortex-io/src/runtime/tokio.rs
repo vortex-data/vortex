@@ -198,20 +198,30 @@ mod tests {
         let runtime = TokioRuntime::from(tokio_rt.handle());
 
         let counter = Arc::new(AtomicUsize::new(0));
-        let c = Arc::clone(&counter);
+        let task_counter = Arc::clone(&counter);
 
-        // Create a channel to ensure the future doesn't complete immediately
-        let (send, recv) = oneshot::channel::<()>();
+        let (started_send, started_recv) = oneshot::channel::<()>();
+        let (mut release_send, release_recv) = oneshot::channel::<()>();
 
-        let fut = async move {
-            let _ = recv.await;
-            c.fetch_add(1, Ordering::SeqCst);
+        let future = async move {
+            started_send
+                .send(())
+                .expect("test retains the startup receiver");
+
+            let _ = release_recv.await;
+            task_counter.fetch_add(1, Ordering::SeqCst);
         };
-        let task = runtime.handle().spawn(fut.boxed());
+        let task = runtime.handle().spawn(future.boxed());
+
+        tokio_rt
+            .block_on(started_recv)
+            .expect("spawned task must signal startup");
+
         drop(task);
 
-        // Now we release the channel to let the future proceed if it wasn't aborted
-        let _ = send.send(());
+        // Keeping the sender open without sending prevents normal completion.
+        tokio_rt.block_on(release_send.closed());
+
         assert_eq!(counter.load(Ordering::SeqCst), 0);
     }
 }

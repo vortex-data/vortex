@@ -29,4 +29,3 @@ pub(in crate::scalar_fn::unstable::row) use tuple::decoded_source;
 
 mod utf8;
 pub use utf8::Utf8Column;
-pub use utf8::Utf8View;

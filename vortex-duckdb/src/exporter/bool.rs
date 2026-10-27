@@ -6,7 +6,6 @@ use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::bool::BoolArrayExt;
 use vortex::buffer::BitBuffer;
 use vortex::error::VortexResult;
-use vortex::mask::Mask;
 
 use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
@@ -21,19 +20,14 @@ pub(crate) fn new_exporter(
     array: BoolArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    let len = array.len();
     let bits = array.to_bit_buffer();
 
     let validity = array.validity()?;
     if validity.definitely_all_null() {
         return Ok(all_invalid::new_exporter());
     }
-    let validity = validity.to_array(len).execute::<Mask>(ctx)?;
-
-    Ok(validity::new_exporter(
-        validity,
-        Box::new(BoolExporter { bit_buffer: bits }),
-    ))
+    let bool_exporter = Box::new(BoolExporter { bit_buffer: bits });
+    validity::new_exporter(validity, array.len(), bool_exporter, ctx)
 }
 
 impl ColumnExporter for BoolExporter {
@@ -104,15 +98,15 @@ mod tests {
             .unwrap()
             .export(1, 66, chunk.get_vector_mut(0), &mut ctx)
             .unwrap();
-        chunk.set_len(65);
+        chunk.set_len(66);
 
         assert_eq!(
             String::try_from(&*chunk).unwrap(),
             format!(
                 r#"Chunk - [1 Columns]
-- FLAT BOOLEAN: 65 = [ {}]
+- FLAT BOOLEAN: 66 = [ {}]
 "#,
-                iter::repeat_n("true", 65).collect::<Vec<&str>>().join(", ")
+                iter::repeat_n("true", 66).collect::<Vec<&str>>().join(", ")
             )
         );
     }

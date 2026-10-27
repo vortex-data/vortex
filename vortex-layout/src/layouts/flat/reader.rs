@@ -9,8 +9,11 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use tracing::trace;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::BoundExpression;
@@ -156,14 +159,14 @@ impl LayoutReader for FlatReader {
                 let array = array.apply_bound(&expr)?;
                 let array = array.filter(mask.clone())?;
                 let mut ctx = session.create_execution_ctx();
-                let array_mask = array.null_as_false().execute(&mut ctx)?;
+                let array_mask = array.fill_null(false)?.execute::<Mask>(&mut ctx)?;
 
                 mask.intersect_by_rank(&array_mask)
             } else {
                 // Run over the full array, with a simpler bitand at the end.
                 let array = array.apply_bound(&expr)?;
                 let mut ctx = session.create_execution_ctx();
-                let array_mask = array.null_as_false().execute(&mut ctx)?;
+                let array_mask = array.fill_null(false)?.execute::<Mask>(&mut ctx)?;
 
                 mask.bitand(&array_mask)
             };
@@ -197,8 +200,13 @@ impl LayoutReader for FlatReader {
         Ok(async move {
             trace!("Flat array evaluation {} - {}", name, expr);
 
-            let mut array = array.clone().await?;
+            // Wait for the mask first: a chunk without selected rows needs no decode.
             let mask = mask.await?;
+            if mask.all_false() {
+                return Ok(Canonical::empty(expr.dtype()).into_array());
+            }
+
+            let mut array = array.clone().await?;
 
             // Slice the array based on the row mask.
             if row_range.start > 0 || row_range.end < array.len() {

@@ -4,7 +4,6 @@
 use vortex_error::VortexResult;
 
 use crate::expr::BoundExpression;
-use crate::expr::transform::match_between::find_between;
 use crate::scalar_fn::ExpressionReduceNode;
 
 impl BoundExpression {
@@ -92,15 +91,6 @@ impl BoundExpression {
 
     /// Try to optimize the entire expression tree recursively.
     pub fn try_optimize_recursive(&self) -> VortexResult<Option<BoundExpression>> {
-        let result = self.try_optimize_recursive_inner()?;
-
-        // Apply the between optimization once at the top level only.
-        // TODO(ngates): remove the "between" optimization, or rewrite it to not always convert
-        //  to CNF?
-        Ok(Some(find_between(result.unwrap_or_else(|| self.clone()))))
-    }
-
-    fn try_optimize_recursive_inner(&self) -> VortexResult<Option<BoundExpression>> {
         // First optimize the root
         let mut current = self.try_optimize()?;
 
@@ -110,7 +100,7 @@ impl BoundExpression {
         let children = expr.children();
         let mut new_children: Option<Vec<BoundExpression>> = None;
         for (idx, child) in children.iter().enumerate() {
-            if let Some(optimized) = child.try_optimize_recursive_inner()? {
+            if let Some(optimized) = child.try_optimize_recursive()? {
                 new_children
                     .get_or_insert_with(|| children[..idx].to_vec())
                     .push(optimized);
@@ -132,11 +122,21 @@ impl BoundExpression {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
+    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
 
+    use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
+    use crate::arrays::StructArray;
+    use crate::assert_arrays_eq;
     use crate::dtype::DType;
+    use crate::dtype::FieldName;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
@@ -147,11 +147,16 @@ mod tests {
     use crate::expr::get_item;
     use crate::expr::lit;
     use crate::expr::lt_eq;
+    use crate::expr::merge;
     use crate::expr::or;
+    use crate::expr::pack;
     use crate::expr::root;
+    use crate::expr::select;
     use crate::expr::zip_expr;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::literal::Literal;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn optimize_or_chain_correctness() -> VortexResult<()> {
@@ -168,10 +173,14 @@ mod tests {
         );
         let optimized = expr.bind(&scope)?.optimize_recursive()?;
 
-        let s = optimized.to_string();
-        assert!(s.contains("$.x"), "expected $.x in {s}");
-        assert!(s.contains("1i32") || s.contains('1'), "expected 1 in {s}");
-        assert!(s.contains("2i32") || s.contains('2'), "expected 2 in {s}");
+        let data =
+            StructArray::from_fields(&[("x", buffer![0i32, 1, 2, 3].into_array())])?.into_array();
+        let actual = data.apply_bound(&optimized)?;
+        assert_arrays_eq!(
+            actual,
+            BoolArray::from_iter([false, true, true, false]),
+            &mut SESSION.create_execution_ctx()
+        );
         Ok(())
     }
 
@@ -229,6 +238,91 @@ mod tests {
         let original = expr.bind(&scope)?;
         let optimized = expr.bind(&scope)?.optimize_recursive()?;
         assert_eq!(optimized.dtype(), original.dtype());
+
+        Ok(())
+    }
+
+    /// `Select` over a `pack` rewrites to a `pack` of the selected child fields. It must read
+    /// those fields out of the child `pack` itself, because the optimizer visits children before
+    /// their parent and so never revisits the children a rule introduces.
+    #[test]
+    fn optimize_select_of_pack_reads_pack_fields() -> VortexResult<()> {
+        let field_names = (0..4)
+            .map(|idx| FieldName::from(format!("field_{idx}")))
+            .collect::<Vec<_>>();
+        let fields = StructFields::new(
+            field_names.clone().into(),
+            vec![DType::Primitive(PType::U64, Nullability::NonNullable); field_names.len()],
+        );
+        let scope = DType::Struct(fields, Nullability::NonNullable);
+
+        let root_pack = pack(
+            field_names
+                .iter()
+                .map(|name| (name.clone(), get_item(name.clone(), root())))
+                .collect::<Vec<_>>(),
+            Nullability::NonNullable,
+        );
+        let expr = select(
+            field_names
+                .iter()
+                .cloned()
+                .chain(["input_row_idx".into(), "input_file_idx".into()])
+                .collect::<Vec<_>>(),
+            merge([
+                root_pack,
+                pack(
+                    [
+                        ("input_row_idx", lit(0_u64)),
+                        ("input_file_idx", lit(1_u64)),
+                    ],
+                    Nullability::NonNullable,
+                ),
+            ]),
+        );
+
+        let expected = pack(
+            field_names
+                .into_iter()
+                .map(|name| (name.clone(), get_item(name, root())))
+                .chain([
+                    ("input_row_idx".into(), lit(0_u64)),
+                    ("input_file_idx".into(), lit(1_u64)),
+                ])
+                .collect::<Vec<_>>(),
+            Nullability::NonNullable,
+        );
+
+        let expected = expected.bind(&scope)?;
+
+        let optimized = expr.bind(&scope)?.optimize_recursive()?;
+        assert_eq!(optimized, expected, "got {optimized}");
+        assert_eq!(optimized.optimize_recursive()?, expected);
+
+        Ok(())
+    }
+
+    /// `Merge` reduces to a `pack` that reads each field out of its children, so it must also
+    /// read straight out of a `pack` child.
+    #[test]
+    fn optimize_merge_of_packs_reads_pack_fields() -> VortexResult<()> {
+        let scope = DType::Struct(StructFields::empty(), Nullability::NonNullable);
+        let expr = merge([
+            pack([("a", lit(0_u64))], Nullability::NonNullable),
+            pack([("b", lit(1_u64))], Nullability::NonNullable),
+        ]);
+
+        let expected = pack(
+            [("a", lit(0_u64)), ("b", lit(1_u64))],
+            Nullability::NonNullable,
+        );
+
+        let expected = expected.bind(&scope)?;
+
+        let optimized = expr.bind(&scope)?.optimize_recursive()?;
+        assert_eq!(optimized, expected, "got {optimized}");
+        assert_eq!(optimized.optimize_recursive()?, expected);
+
         Ok(())
     }
 }

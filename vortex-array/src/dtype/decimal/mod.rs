@@ -149,13 +149,6 @@ mod tests {
     }
 
     #[test]
-    fn test_decimal_new_deprecated() {
-        let decimal = DecimalDType::try_new(10, 2).unwrap();
-        assert_eq!(decimal.precision(), 10);
-        assert_eq!(decimal.scale(), 2);
-    }
-
-    #[test]
     fn test_decimal_max_precision() {
         let decimal = DecimalDType::try_new(MAX_PRECISION, 0).unwrap();
         assert_eq!(decimal.precision(), MAX_PRECISION);
@@ -263,28 +256,28 @@ mod tests {
     fn test_required_bit_width() {
         // Test common decimal precisions
         let decimal_9 = DecimalDType::new(9, 2);
-        assert!(decimal_9.required_bit_width() <= 32); // fits in 32 bits
+        assert_eq!(decimal_9.required_bit_width(), 30);
 
         let decimal_18 = DecimalDType::new(18, 4);
-        assert!(decimal_18.required_bit_width() <= 64); // fits in 64 bits
+        assert_eq!(decimal_18.required_bit_width(), 60);
 
         let decimal_38 = DecimalDType::new(38, 10);
-        assert!(decimal_38.required_bit_width() <= 128); // fits in 128 bits
+        assert_eq!(decimal_38.required_bit_width(), 127);
 
         let decimal_76 = DecimalDType::new(76, 20);
-        assert!(decimal_76.required_bit_width() <= 256); // fits in 256 bits
+        assert_eq!(decimal_76.required_bit_width(), 253);
     }
 
     #[test]
     fn test_required_bit_width_edge_cases() {
         // Precision 1 should require at least 4 bits (to store 0-9)
         let decimal_1 = DecimalDType::new(1, 0);
-        assert!(decimal_1.required_bit_width() >= 4);
+        assert_eq!(decimal_1.required_bit_width(), 4);
 
         // Maximum precision
         let decimal_max = DecimalDType::new(MAX_PRECISION, 0);
         let bits = decimal_max.required_bit_width();
-        assert!(bits > 0 && bits <= 256);
+        assert_eq!(bits, 253);
     }
 
     #[test]

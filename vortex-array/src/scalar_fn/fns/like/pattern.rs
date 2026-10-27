@@ -211,25 +211,43 @@ mod tests {
         assert!(matches!(like("f%o"), LikePattern::Regex(_)));
         assert!(matches!(like("f_o"), LikePattern::Regex(_)));
         assert!(matches!(like(r"foo\%"), LikePattern::Regex(_)));
+        for (pattern, matches, misses) in [
+            ("foo", "foo", Some("foobar")),
+            ("foo%", "foobar", Some("xfoo")),
+            ("%foo", "xfoo", Some("foobar")),
+            ("%foo%", "xfooy", Some("bar")),
+            ("%", "", None),
+            ("%%", "anything", None),
+            ("f%o", "frodo", Some("frodo!")),
+            ("f_o", "foo", Some("fooo")),
+            (r"foo\%", "foo%", Some("foobar")),
+        ] {
+            let compiled = like(pattern);
+            assert!(compiled.matches(matches.as_bytes()), "{pattern}");
+            if let Some(misses) = misses {
+                assert!(!compiled.matches(misses.as_bytes()), "{pattern}");
+            }
+        }
     }
 
     #[test]
     fn regex_translation() {
-        // (pattern, expected regex) pairs from the arrow-string translation.
         let cases = [
-            (r"%foobar%", r"foobar"),
-            (r"foo%bar", r"^foo.*bar$"),
-            (r"foo_bar", r"^foo.bar$"),
-            (r"\%\_", r"^%_$"),
-            (r"\a", r"^a$"),
-            (r"\\%", r"^\\"),
-            (r"\\a", r"^\\a$"),
-            (r".", r"^\.$"),
-            (r"$", r"^\$$"),
-            (r"\\", r"^\\$"),
+            (r"%foobar%", "xfoobary", "foo"),
+            (r"foo%bar", "foo\nbar", "xfoobar"),
+            (r"foo_bar", "foo£bar", "fooxxbar"),
+            (r"\%\_", "%_", "xx"),
+            (r"\a", "a", "aa"),
+            (r"\\%", r"\abc", "abc"),
+            (r"\\a", r"\a", "a"),
+            (r".", ".", "x"),
+            (r"$", "$", "x"),
+            (r"\\", r"\", ""),
         ];
-        for (pattern, expected) in cases {
-            assert_eq!(regex_like(pattern, false).unwrap().to_string(), expected);
+        for (pattern, matches, misses) in cases {
+            let regex = regex_like(pattern, false).unwrap();
+            assert!(regex.is_match(matches.as_bytes()), "{pattern}");
+            assert!(!regex.is_match(misses.as_bytes()), "{pattern}");
         }
     }
 

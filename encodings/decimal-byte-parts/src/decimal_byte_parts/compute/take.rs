@@ -30,10 +30,11 @@ impl TakeReduce for DecimalByteParts {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -43,24 +44,28 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::DecimalByteParts;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     /// Taking pushes down into the parts during optimization, with no execution context in
     /// play: `ArrayRef::take` wraps the array in a `Dict` and optimizes, and the reduce rule
     /// must rewrite that into a `DecimalByteParts` of taken parts.
     #[test]
     fn take_pushes_down_without_executing() -> VortexResult<()> {
-        let session = array_session();
-        crate::initialize(&session);
-
         let decimal = DecimalArray::new(
             Buffer::from(vec![1i128 << 70, 2, 3]),
             DecimalDType::new(38, 2),
             Validity::NonNullable,
         );
         let indices = buffer![0u64, 2].into_array();
-        let taken = DecimalByteParts::encode(&decimal, &mut session.create_execution_ctx())?
+        let taken = DecimalByteParts::encode(&decimal, &mut SESSION.create_execution_ctx())?
             .into_array()
             .take(indices)?;
 
@@ -86,23 +91,18 @@ mod tests {
         Validity::NonNullable,
     ))]
     fn take_with_nullable_indices(#[case] decimal: DecimalArray) -> VortexResult<()> {
-        let session = array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         let mut ctx = session.create_execution_ctx();
 
         let indices = PrimitiveArray::from_option_iter([Some(0u64), None, Some(2u64)]).into_array();
-        let expected = decimal
-            .clone()
-            .into_array()
-            .take(indices.clone())?
-            .execute::<DecimalArray>(&mut ctx)?;
+        let expected = decimal.clone().into_array().take(indices.clone())?;
 
         let taken = DecimalByteParts::encode(&decimal, &mut ctx)?
             .into_array()
             .take(indices)?;
-        let actual = taken.execute::<DecimalArray>(&mut ctx)?;
 
-        assert_arrays_eq!(expected, actual, &mut ctx);
+        assert_arrays_eq!(taken, expected, &mut ctx);
         Ok(())
     }
 }

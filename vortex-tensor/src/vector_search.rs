@@ -91,7 +91,6 @@ pub fn build_similarity_search_tree<T: NativePType + Into<PValue>>(
 mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
-    use vortex_array::arrays::bool::BoolArrayExt;
     use vortex_error::VortexResult;
 
     use super::build_similarity_search_tree;
@@ -114,14 +113,12 @@ mod tests {
 
         let tree = build_similarity_search_tree(data, &query, 0.5)?;
         let mut ctx = SESSION.create_execution_ctx();
-        let result: BoolArray = tree.execute(&mut ctx)?;
 
-        let bits = result.to_bit_buffer();
-        assert_eq!(bits.len(), 4);
-        assert!(bits.value(0));
-        assert!(!bits.value(1));
-        assert!(!bits.value(2));
-        assert!(bits.value(3));
+        vortex_array::assert_arrays_eq!(
+            tree,
+            BoolArray::from_iter([true, false, false, true]),
+            &mut ctx
+        );
         Ok(())
     }
 }

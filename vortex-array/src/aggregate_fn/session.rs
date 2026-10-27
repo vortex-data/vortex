@@ -8,11 +8,13 @@ use vortex_session::ArcSwapMap;
 use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnPluginRef;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::ExtensionStoragePushdown;
 use crate::aggregate_fn::fns::all_nan::AllNan;
 use crate::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
 use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
@@ -48,6 +50,10 @@ use crate::arrays::dict::compute::is_constant::DictIsConstantKernel;
 use crate::arrays::dict::compute::is_sorted::DictIsSortedKernel;
 use crate::arrays::dict::compute::min_max::DictMinMaxKernel;
 use crate::dtype::DType;
+use crate::dtype::extension::ExtVTable;
+use crate::extension::datetime::Date;
+use crate::extension::datetime::Time;
+use crate::extension::datetime::Timestamp;
 
 /// Session state for aggregate functions and encoding-specific aggregate kernels.
 ///
@@ -116,6 +122,12 @@ impl Default for AggregateFnSession {
         this.register(SumV2);
         this.register(UncompressedSizeInBytes);
 
+        // Temporal extension types compare like their integer storage, so comparison-based
+        // aggregates are pushed down into it.
+        this.register_storage_ordered(Date);
+        this.register_storage_ordered(Time);
+        this.register_storage_ordered(Timestamp);
+
         // Register the built-in aggregate kernels.
         this.register_aggregate_kernel(Chunked.id(), None::<AggregateFnId>, &ChunkedArrayAggregate);
         this.register_aggregate_kernel(Dict.id(), Some(MinMax.id()), &DictMinMaxKernel);
@@ -153,6 +165,17 @@ impl AggregateFnSession {
         self.registry.insert(id, pluginref);
     }
 
+    /// Push the comparison-based aggregates `is_sorted` and `min_max` down into the storage of
+    /// extension type `ext`, through [`ExtensionStoragePushdown`].
+    ///
+    /// Only call this when comparing two values of `ext` is the same as comparing their storage,
+    /// as for the temporal types and for UUIDs, which are stored big-endian. See
+    /// [`ExtensionStoragePushdown`] for how to check.
+    pub fn register_storage_ordered<E: ExtVTable>(&self, ext: E) {
+        self.register(ExtensionStoragePushdown::new(IsSorted, ext.clone()));
+        self.register(ExtensionStoragePushdown::new(MinMax, ext));
+    }
+
     /// The default per-chunk zone statistics for a column of `input_dtype`, collected from every
     /// registered aggregate's `zone_stat_default`.
     ///
@@ -180,12 +203,8 @@ impl AggregateFnSession {
     ) -> Option<&'static dyn DynAggregateKernel> {
         let id = array_id.into();
         let fn_id = agg_fn_id.into();
-        self.kernels.read(|kernels| {
-            kernels
-                .get(&(id, Some(fn_id)))
-                .or_else(|| kernels.get(&(id, None)))
-                .copied()
-        })
+        self.kernels
+            .read(|kernels| lookup_aggregate_kernel(kernels, id, fn_id))
     }
 
     /// Registers an aggregate kernel for an array encoding.
@@ -252,6 +271,69 @@ impl AggregateFnSession {
         let fn_id = agg_fn_id.into();
         self.grouped_encoding_kernels.insert((id, fn_id), kernel)
     }
+
+    /// Captures the currently registered aggregate kernels, so repeated lookups skip the session
+    /// and registry loads.
+    pub(crate) fn kernels_snapshot(&self) -> AggregateKernels {
+        AggregateKernels {
+            kernels: self.kernels.snapshot(),
+            grouped_kernels: self.grouped_kernels.snapshot(),
+            grouped_encoding_kernels: self.grouped_encoding_kernels.snapshot(),
+        }
+    }
+}
+
+/// A point-in-time snapshot of the aggregate kernel registries of an [`AggregateFnSession`].
+///
+/// Lookups follow the same rules as the corresponding `find_*` methods on
+/// [`AggregateFnSession`].
+#[derive(Clone, Debug)]
+pub(crate) struct AggregateKernels {
+    kernels: Arc<HashMap<AggregateKernelKey, &'static dyn DynAggregateKernel>>,
+    grouped_kernels: Arc<HashMap<AggregateFnId, &'static dyn DynGroupedAggregateKernel>>,
+    grouped_encoding_kernels:
+        Arc<HashMap<GroupedEncodingKernelKey, &'static dyn DynGroupedAggregateKernel>>,
+}
+
+impl AggregateKernels {
+    /// See [`AggregateFnSession::find_aggregate_kernel`].
+    pub(crate) fn find_aggregate_kernel(
+        &self,
+        array_id: ArrayId,
+        agg_fn_id: AggregateFnId,
+    ) -> Option<&'static dyn DynAggregateKernel> {
+        lookup_aggregate_kernel(&self.kernels, array_id, agg_fn_id)
+    }
+
+    /// See [`AggregateFnSession::find_grouped_kernel`].
+    pub(crate) fn find_grouped_kernel(
+        &self,
+        agg_fn_id: AggregateFnId,
+    ) -> Option<&'static dyn DynGroupedAggregateKernel> {
+        self.grouped_kernels.get(&agg_fn_id).copied()
+    }
+
+    /// See [`AggregateFnSession::find_grouped_encoding_kernel`].
+    pub(crate) fn find_grouped_encoding_kernel(
+        &self,
+        array_id: ArrayId,
+        agg_fn_id: AggregateFnId,
+    ) -> Option<&'static dyn DynGroupedAggregateKernel> {
+        self.grouped_encoding_kernels
+            .get(&(array_id, agg_fn_id))
+            .copied()
+    }
+}
+
+fn lookup_aggregate_kernel(
+    kernels: &HashMap<AggregateKernelKey, &'static dyn DynAggregateKernel>,
+    array_id: ArrayId,
+    agg_fn_id: AggregateFnId,
+) -> Option<&'static dyn DynAggregateKernel> {
+    kernels
+        .get(&(array_id, Some(agg_fn_id)))
+        .or_else(|| kernels.get(&(array_id, None)))
+        .copied()
 }
 
 /// Extension trait for accessing aggregate function session data.

@@ -13,7 +13,11 @@
 //! `copy_from_slice`) against the new allocation-free direct zip-write.
 
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use vortex::buffer::BitBuffer;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();

@@ -47,6 +47,9 @@ runs:
         components: ""
         enable-sccache: "false"
 
+    - uses: ./.github/actions/setup-fuzz-linker
+      if: steps.cache.outputs.cache-hit != 'true'
+
     - name: Install cargo-fuzz
       if: steps.cache.outputs.cache-hit != 'true'
       uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use cudarc::driver::DeviceRepr;
 use vortex::array::Canonical;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
@@ -9,6 +8,7 @@ use vortex::dtype::NativePType;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 use vortex_cub::filter::CubFilterable;
+use vortex_cuda_driver::DeviceRepr;
 
 use crate::CudaExecutionCtx;
 use crate::kernel::filter::filter_sized;
@@ -38,6 +38,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex::array::IntoArray;
     use vortex::array::arrays::FilterArray;
@@ -46,12 +48,15 @@ mod tests {
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::mask::Mask;
+    use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
 
     use crate::CanonicalCudaExt;
     use crate::FilterExecutor;
     use crate::executor::CudaExecute;
     use crate::session::CudaSession;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     #[case::i32_sparse(
@@ -83,7 +88,7 @@ mod tests {
         #[case] input: PrimitiveArray,
         #[case] mask: Mask,
     ) -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create CUDA execution context");
 
@@ -93,7 +98,7 @@ mod tests {
             .execute(filter_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU filter failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 
@@ -104,7 +109,7 @@ mod tests {
 
     #[crate::test]
     async fn test_gpu_filter_large_array() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create CUDA execution context");
 
@@ -121,7 +126,7 @@ mod tests {
             .execute(filter_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU filter failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 

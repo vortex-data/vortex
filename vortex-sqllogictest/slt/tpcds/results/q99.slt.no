@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTTIIIII
+SELECT w_substr ,
+       sm_type ,
+       LOWER(cc_name) cc_name_lower ,
+       sum(CASE
+               WHEN (cs_ship_date_sk - cs_sold_date_sk <= 30) THEN 1
+               ELSE 0
+           END) AS "30 days",
+       sum(CASE
+               WHEN (cs_ship_date_sk - cs_sold_date_sk > 30)
+                    AND (cs_ship_date_sk - cs_sold_date_sk <= 60) THEN 1
+               ELSE 0
+           END) AS "31-60 days",
+       sum(CASE
+               WHEN (cs_ship_date_sk - cs_sold_date_sk > 60)
+                    AND (cs_ship_date_sk - cs_sold_date_sk <= 90) THEN 1
+               ELSE 0
+           END) AS "61-90 days",
+       sum(CASE
+               WHEN (cs_ship_date_sk - cs_sold_date_sk > 90)
+                    AND (cs_ship_date_sk - cs_sold_date_sk <= 120) THEN 1
+               ELSE 0
+           END) AS "91-120 days",
+       sum(CASE
+               WHEN (cs_ship_date_sk - cs_sold_date_sk > 120) THEN 1
+               ELSE 0
+           END) AS ">120 days"
+FROM catalog_sales ,
+  (SELECT SUBSTRING(w_warehouse_name,1,20) w_substr, *
+   FROM warehouse) AS sq1 ,
+     ship_mode ,
+     call_center ,
+     date_dim
+WHERE d_month_seq BETWEEN 1200 AND 1200 + 11
+  AND cs_ship_date_sk = d_date_sk
+  AND cs_warehouse_sk = w_warehouse_sk
+  AND cs_ship_mode_sk = sm_ship_mode_sk
+  AND cs_call_center_sk = cc_call_center_sk
+GROUP BY w_substr ,
+         sm_type ,
+         cc_name
+ORDER BY w_substr  NULLS FIRST,
+         sm_type  NULLS FIRST,
+        cc_name_lower NULLS FIRST
+LIMIT 100;
+----
+Conventional childr EXPRESS mid atlantic 1087 1153 1189 0 0
+Conventional childr EXPRESS ny metro 1126 1227 1171 0 0
+Conventional childr LIBRARY mid atlantic 857 900 837 0 0
+Conventional childr LIBRARY ny metro 841 896 878 0 0
+Conventional childr NEXT DAY mid atlantic 1078 1185 1152 0 0
+Conventional childr NEXT DAY ny metro 1155 1224 1171 0 0
+Conventional childr OVERNIGHT mid atlantic 807 880 861 0 0
+Conventional childr OVERNIGHT ny metro 850 877 907 0 0
+Conventional childr REGULAR mid atlantic 887 884 886 0 0
+Conventional childr REGULAR ny metro 884 900 879 0 0
+Conventional childr TWO DAY mid atlantic 864 846 867 0 0
+Conventional childr TWO DAY ny metro 820 854 881 0 0

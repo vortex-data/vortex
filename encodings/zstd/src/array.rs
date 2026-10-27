@@ -208,10 +208,13 @@ impl VTable for Zstd {
                 .map(|buffer| buffer.clone().try_to_host_sync())
                 .collect::<VortexResult<Vec<_>>>()?;
         }
-        Ok(
-            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
-                .with_slots(array.slots().iter().cloned().collect()),
-        )
+        Ok(ArrayParts::new(
+            self.clone(),
+            array.dtype().clone(),
+            array.len(),
+            data,
+            array.slots().iter().cloned().collect(),
+        ))
     }
 
     fn serialize(
@@ -262,7 +265,13 @@ impl VTable for Zstd {
 
         let slots = smallvec![validity_to_child(&validity, len)];
         let data = ZstdData::new(dictionary_buffer, compressed_buffers, metadata, len);
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -425,9 +434,7 @@ impl Zstd {
         let len = data.len();
         data.validate(&dtype, len, &validity)?;
         let slots = smallvec![validity_to_child(&validity, data.unsliced_n_rows())];
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Zstd, dtype, len, data).with_slots(slots))
-        })
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Zstd, dtype, len, data, slots)) })
     }
 
     /// Compress a [`VarBinViewArray`] using Zstd without a dictionary.
@@ -1602,7 +1609,10 @@ impl OperationsVTable<Zstd> for Zstd {
 #[cfg(test)]
 #[expect(clippy::cast_possible_truncation)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::varbin::VarBinArrayExt as _;
     use vortex_array::builders::VarBinBuilder;
     use vortex_array::dtype::DType;
@@ -1611,6 +1621,7 @@ mod tests {
     use vortex_buffer::ByteBuffer;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use super::DecompressedSlice;
     use super::ViewLen;
@@ -1620,6 +1631,8 @@ mod tests {
     use super::zstd_value_len;
     use super::zstd_value_offset;
     use crate::array::BinaryView;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     /// Build a Zstd-style interleaved buffer: [u32-LE length][string bytes] repeated.
     fn make_interleaved(strings: &[&[u8]]) -> ByteBuffer {
@@ -1772,8 +1785,9 @@ mod tests {
         append_slice_to_varbin(&slice, &Mask::new_true(2), &mut builder)?;
 
         let appended = builder.finish_into_varbin();
-        assert_eq!(appended.bytes_at(0).as_slice(), b"hello");
-        assert_eq!(appended.bytes_at(1).as_slice(), b"world");
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_eq!(appended.bytes_at(0, &mut ctx).as_slice(), b"hello");
+        assert_eq!(appended.bytes_at(1, &mut ctx).as_slice(), b"world");
         Ok(())
     }
 

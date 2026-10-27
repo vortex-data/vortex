@@ -6,3 +6,4 @@ mod cast;
 mod compare;
 mod filter;
 mod slice;
+mod take;

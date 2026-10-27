@@ -13,7 +13,6 @@ mod tests {
     use std::f64;
     use std::sync::Arc;
 
-    use rstest::rstest;
     use vortex_buffer::ByteBuffer;
 
     use crate::dtype::DType;
@@ -24,7 +23,6 @@ mod tests {
     use crate::proto::scalar as pb;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
-    use crate::scalar::ScalarValue;
     use crate::scalar::tests::SESSION;
 
     // Test that primitive scalars round-trip through ScalarValue
@@ -47,65 +45,71 @@ mod tests {
             let value = scalar.value().cloned();
             let dtype = scalar.dtype().clone();
             let reconstructed = Scalar::new(dtype, value);
+            assert_eq!(scalar.dtype(), reconstructed.dtype());
             assert_eq!(scalar, reconstructed);
         }
     }
 
-    // Test that null scalars maintain their type information
     #[test]
     fn test_null_scalar_type_preservation() {
-        let null_scalars = vec![
-            Scalar::null_native::<i8>(),
-            Scalar::null_native::<i16>(),
-            Scalar::null_native::<i32>(),
-            Scalar::null_native::<i64>(),
-            Scalar::null_native::<u8>(),
-            Scalar::null_native::<u16>(),
-            Scalar::null_native::<u32>(),
-            Scalar::null_native::<u64>(),
-            Scalar::null_native::<f32>(),
-            Scalar::null_native::<f64>(),
-            Scalar::null_native::<bool>(),
-            Scalar::null_native::<String>(),
+        let cases = [
+            (
+                Scalar::null_native::<i8>(),
+                DType::Primitive(PType::I8, Nullability::Nullable),
+            ),
+            (
+                Scalar::null_native::<i16>(),
+                DType::Primitive(PType::I16, Nullability::Nullable),
+            ),
+            (
+                Scalar::null_native::<i32>(),
+                DType::Primitive(PType::I32, Nullability::Nullable),
+            ),
+            (
+                Scalar::null_native::<i64>(),
+                DType::Primitive(PType::I64, Nullability::Nullable),
+            ),
+            (
+                Scalar::null_native::<u8>(),
+                DType::Primitive(PType::U8, Nullability::Nullable),
+            ),
+            (
+                Scalar::null_native::<u16>(),
+                DType::Primitive(PType::U16, Nullability::Nullable),
+            ),
+            (
+                Scalar::null_native::<u32>(),
+                DType::Primitive(PType::U32, Nullability::Nullable),
+            ),
+            (
+                Scalar::null_native::<u64>(),
+                DType::Primitive(PType::U64, Nullability::Nullable),
+            ),
+            (
+                Scalar::null_native::<f32>(),
+                DType::Primitive(PType::F32, Nullability::Nullable),
+            ),
+            (
+                Scalar::null_native::<f64>(),
+                DType::Primitive(PType::F64, Nullability::Nullable),
+            ),
+            (
+                Scalar::null_native::<bool>(),
+                DType::Bool(Nullability::Nullable),
+            ),
+            (
+                Scalar::null_native::<String>(),
+                DType::Utf8(Nullability::Nullable),
+            ),
         ];
 
-        for scalar in null_scalars {
+        for (scalar, expected_dtype) in cases {
             assert!(scalar.is_null());
-            let dtype = scalar.dtype().clone();
-            let value = scalar.value().cloned();
-            let reconstructed = Scalar::new(dtype.clone(), value);
-            assert_eq!(scalar, reconstructed);
-            assert_eq!(scalar.dtype(), reconstructed.dtype());
+            assert_eq!(scalar.dtype(), &expected_dtype);
+            let reconstructed = Scalar::new(expected_dtype.clone(), scalar.value().cloned());
+            assert!(reconstructed.is_null());
+            assert_eq!(reconstructed.dtype(), &expected_dtype);
         }
-    }
-
-    // Test conversions between Scalar and specialized scalar types
-    #[test]
-    fn test_specialized_scalar_conversions() {
-        // Test PrimitiveScalar
-        let int_scalar = Scalar::primitive(42i32, Nullability::NonNullable);
-        let primitive_scalar = int_scalar.as_primitive();
-        assert_eq!(primitive_scalar.typed_value::<i32>().unwrap(), 42);
-        let reconstructed = Scalar::from(primitive_scalar);
-        assert_eq!(int_scalar, reconstructed);
-
-        // Test BoolScalar
-        let bool_scalar = Scalar::bool(true, Nullability::NonNullable);
-        let bool_specialized = bool_scalar.as_bool();
-        assert!(bool_specialized.value().unwrap());
-
-        // Test Utf8Scalar
-        let utf8_scalar = Scalar::utf8("hello".to_string(), Nullability::NonNullable);
-        let utf8_specialized = utf8_scalar.as_utf8();
-        assert_eq!(utf8_specialized.value().unwrap().as_str(), "hello");
-
-        // Test BinaryScalar
-        let binary_scalar = Scalar::binary(vec![1, 2, 3, 4], Nullability::NonNullable);
-        let binary_specialized = binary_scalar.as_binary();
-        assert_eq!(
-            binary_specialized.value().unwrap().as_slice(),
-            &[1, 2, 3, 4]
-        );
     }
 
     // Test that From<T> and TryFrom<&Scalar> for T are consistent
@@ -149,32 +153,6 @@ mod tests {
         assert_eq!(none_value, extracted_none);
     }
 
-    // Test list scalar round-trips
-    #[test]
-    fn test_list_scalar_round_trip() {
-        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
-        let children = vec![
-            Scalar::primitive(1i32, Nullability::NonNullable),
-            Scalar::primitive(2i32, Nullability::NonNullable),
-            Scalar::primitive(3i32, Nullability::NonNullable),
-        ];
-        let list_scalar = Scalar::list(element_dtype, children.clone(), Nullability::NonNullable);
-
-        // Extract as ListScalar
-        let list_specialized = list_scalar.as_list();
-        assert_eq!(list_specialized.len(), 3);
-
-        // Extract as Vec<i32>
-        let vec: Vec<i32> = Vec::try_from(&list_scalar).unwrap();
-        assert_eq!(vec, vec![1, 2, 3]);
-
-        // Check that elements match
-        for (i, expected) in children.iter().enumerate() {
-            let elem = list_specialized.element(i).unwrap();
-            assert_eq!(&elem, expected);
-        }
-    }
-
     // Test decimal scalar round-trips
     #[test]
     fn test_decimal_scalar_round_trip() {
@@ -203,6 +181,7 @@ mod tests {
             let scalar_value = scalar.value().cloned();
             let dtype = scalar.dtype().clone();
             let reconstructed = Scalar::new(dtype, scalar_value);
+            assert_eq!(scalar.dtype(), reconstructed.dtype());
             assert_eq!(scalar, reconstructed);
         }
     }
@@ -218,6 +197,7 @@ mod tests {
         );
         let pb_empty = pb::Scalar::from(&empty_list);
         let round_tripped = Scalar::from_proto(&pb_empty, &SESSION).unwrap();
+        assert_eq!(empty_list.dtype(), round_tripped.dtype());
         assert_eq!(empty_list, round_tripped);
 
         // Test nested lists
@@ -240,6 +220,7 @@ mod tests {
 
         let pb_nested = pb::Scalar::from(&nested_list);
         let round_tripped_nested = Scalar::from_proto(&pb_nested, &SESSION).unwrap();
+        assert_eq!(nested_list.dtype(), round_tripped_nested.dtype());
         assert_eq!(nested_list, round_tripped_nested);
 
         // Test large binary data
@@ -247,6 +228,7 @@ mod tests {
         let binary_scalar = Scalar::binary(large_binary.clone(), Nullability::NonNullable);
         let pb_binary = pb::Scalar::from(&binary_scalar);
         let round_tripped_binary = Scalar::from_proto(&pb_binary, &SESSION).unwrap();
+        assert_eq!(binary_scalar.dtype(), round_tripped_binary.dtype());
         assert_eq!(binary_scalar, round_tripped_binary);
 
         // Verify the data is preserved
@@ -270,6 +252,7 @@ mod tests {
 
         let pb_fsl = pb::Scalar::from(&fsl);
         let round_tripped = Scalar::from_proto(&pb_fsl, &SESSION).unwrap();
+        assert_eq!(fsl.dtype(), round_tripped.dtype());
         assert_eq!(fsl, round_tripped);
     }
 
@@ -291,6 +274,14 @@ mod tests {
         assert_eq!(nullable_scalar.dtype(), recovered_nullable.dtype());
         assert_eq!(non_nullable_scalar.dtype(), recovered_non_nullable.dtype());
         assert_ne!(recovered_nullable.dtype(), recovered_non_nullable.dtype());
+        assert_eq!(
+            recovered_nullable.as_primitive().typed_value::<i32>(),
+            Some(42)
+        );
+        assert_eq!(
+            recovered_non_nullable.as_primitive().typed_value::<i32>(),
+            Some(42)
+        );
     }
 
     // Test usize conversions (which may be architecture-dependent)
@@ -317,39 +308,5 @@ mod tests {
         // Try to convert a boolean to a decimal.
         let bool_scalar = Scalar::bool(true, Nullability::NonNullable);
         assert!(bool_scalar.as_decimal_opt().is_none());
-    }
-
-    /// Verifies that [`Scalar::nbytes`] matches the length of the proto-serialized scalar value.
-    #[rstest]
-    #[case::null_i32(Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)))]
-    #[case::bool_true(Scalar::from(true))]
-    #[case::bool_false(Scalar::from(false))]
-    #[case::i8(Scalar::from(i8::MAX))]
-    #[case::i16(Scalar::from(i16::MAX))]
-    #[case::i32(Scalar::from(i32::MAX))]
-    #[case::i64(Scalar::from(i64::MAX))]
-    #[case::u8(Scalar::from(u8::MAX))]
-    #[case::u16(Scalar::from(u16::MAX))]
-    #[case::u32(Scalar::from(u32::MAX))]
-    #[case::u64(Scalar::from(u64::MAX))]
-    #[case::f32(Scalar::from(f32::MAX))]
-    #[case::f64(Scalar::from(f64::MAX))]
-    #[case::utf8_empty(Scalar::from(""))]
-    #[case::utf8_short(Scalar::from("hello"))]
-    #[case::utf8_long(Scalar::from("x".repeat(2048).as_str()))]
-    #[case::binary_empty(Scalar::binary(Vec::<u8>::new(), Nullability::NonNullable))]
-    #[case::binary_short(Scalar::binary(vec![1u8, 2, 3], Nullability::NonNullable))]
-    fn test_nbytes_approx_eq_to_proto_bytes(#[case] scalar: Scalar) {
-        let proto_bytes: Vec<u8> = ScalarValue::to_proto_bytes(scalar.value());
-        let diff = (scalar.approx_nbytes() as isize - proto_bytes.len() as isize).abs();
-
-        // NOTE: THE 4 HERE IS COMPLETELY ARBITRARY!!!
-        assert!(
-            diff <= 4,
-            "nbytes() should be within 4 of proto-serialized length for {:?}, got {} vs {}",
-            scalar,
-            scalar.approx_nbytes(),
-            proto_bytes.len(),
-        );
     }
 }

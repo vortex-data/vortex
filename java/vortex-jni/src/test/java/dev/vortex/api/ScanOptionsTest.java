@@ -122,19 +122,25 @@ public final class ScanOptionsTest {
 
     @Test
     public void bothPayloadsTogetherAreRejectedBeforeTheModeIsConsidered() {
-        // Checked ahead of the mode switch, so it reports the same message for a roaring mode.
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> ScanOptions.builder()
-                .selectionMode(SelectionMode.INCLUDE_ROARING)
-                .selectionIndices(new long[] {0})
-                .selectionRoaringBitmap(new byte[] {1})
-                .build());
-        assertEquals("row selection must use either indices or roaring bitmap, not both", exception.getMessage());
+        for (SelectionMode mode : new SelectionMode[] {SelectionMode.INCLUDE, SelectionMode.INCLUDE_ROARING}) {
+            IllegalArgumentException exception =
+                    assertThrows(IllegalArgumentException.class, () -> ScanOptions.builder()
+                            .selectionMode(mode)
+                            .selectionIndices(new long[] {0})
+                            .selectionRoaringBitmap(new byte[] {1})
+                            .build());
+            assertEquals("row selection must use either indices or roaring bitmap, not both", exception.getMessage());
+        }
     }
 
     @Test
     public void indexFactoriesSetTheMatchingMode() {
-        assertEquals(SelectionMode.INCLUDE, ScanOptions.includeRows(0, 3, 9).selectionMode());
-        assertEquals(SelectionMode.EXCLUDE, ScanOptions.excludeRows(0, 9).selectionMode());
+        ScanOptions include = ScanOptions.includeRows(0, 3, 9);
+        assertEquals(SelectionMode.INCLUDE, include.selectionMode());
+        assertArrayEquals(new long[] {0, 3, 9}, include.selectionIndices().orElseThrow());
+        ScanOptions exclude = ScanOptions.excludeRows(0, 9);
+        assertEquals(SelectionMode.EXCLUDE, exclude.selectionMode());
+        assertArrayEquals(new long[] {0, 9}, exclude.selectionIndices().orElseThrow());
     }
 
     @Test
@@ -163,19 +169,20 @@ public final class ScanOptionsTest {
             Roaring64NavigableMap parsed = new Roaring64NavigableMap();
             parsed.deserializePortable(new DataInputStream(
                     new ByteArrayInputStream(options.selectionRoaringBitmap().orElseThrow())));
-            assertEquals(3, parsed.getLongCardinality());
-            assertTrue(parsed.contains(9L));
-            assertFalse(parsed.contains(1L));
+            assertArrayEquals(new long[] {0, 3, 9}, parsed.toArray());
         }
     }
 
     @Test
-    public void anEmptyRoaringBitmapStillSerializesToAHeader() {
+    public void anEmptyRoaringBitmapStillSerializesToAHeader() throws Exception {
         // `serializePortable` writes a container count even for an empty map, so the non-empty check above
         // guards a malformed buffer rather than an empty selection.
         ScanOptions options = ScanOptions.includeRows(new Roaring64NavigableMap());
 
-        assertTrue(options.selectionRoaringBitmap().orElseThrow().length > 0);
+        Roaring64NavigableMap parsed = new Roaring64NavigableMap();
+        parsed.deserializePortable(new DataInputStream(
+                new ByteArrayInputStream(options.selectionRoaringBitmap().orElseThrow())));
+        assertArrayEquals(new long[0], parsed.toArray());
     }
 
     @Test

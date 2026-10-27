@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
 use std::sync::LazyLock;
 
 use parking_lot::Mutex;
@@ -10,21 +11,39 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Constant;
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::Map;
 use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::Slice;
+use vortex_array::arrays::SliceArray;
+use vortex_array::arrays::VarBinView;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builders::MapBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::dtype::extension::ExtDType;
+use vortex_array::dtype::extension::ExtId;
+use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarValue;
 use vortex_array::validity::Validity;
+use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
 use super::CascadingCompressor;
@@ -45,7 +64,7 @@ use crate::scheme::SchemeExt;
 use crate::stats::ArrayAndStats;
 use crate::stats::GenerateStatsOptions;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 fn compressor() -> CascadingCompressor {
     CascadingCompressor::new(vec![&IntDictScheme, &FloatDictScheme, &StringDictScheme])
@@ -321,7 +340,7 @@ impl Scheme for ZeroBytesSamplingScheme {
 #[test]
 fn test_self_exclusion() {
     let c = compressor();
-    let ctx = CompressorContext::default().descend_with_scheme(IntDictScheme.id(), 0);
+    let ctx = CompressorContext::new().descend_with_scheme(IntDictScheme.id(), 0);
 
     // IntDictScheme is in the history, so it should be excluded.
     assert!(c.is_excluded(&IntDictScheme, &ctx));
@@ -330,7 +349,7 @@ fn test_self_exclusion() {
 #[test]
 fn test_root_exclusion_list_offsets() {
     let c = compressor();
-    let ctx = CompressorContext::default()
+    let ctx = CompressorContext::new()
         .descend_with_scheme(ROOT_SCHEME_ID, structural::root_list_children::OFFSETS);
 
     // IntDict should be excluded for list offsets.
@@ -341,7 +360,7 @@ fn test_root_exclusion_list_offsets() {
 fn test_push_rule_float_dict_excludes_int_dict_from_codes() {
     let c = compressor();
     // FloatDict cascading through codes (child 1).
-    let ctx = CompressorContext::default().descend_with_scheme(FloatDictScheme.id(), 1);
+    let ctx = CompressorContext::new().descend_with_scheme(FloatDictScheme.id(), 1);
 
     // IntDict should be excluded from FloatDict's codes child.
     assert!(c.is_excluded(&IntDictScheme, &ctx));
@@ -351,7 +370,7 @@ fn test_push_rule_float_dict_excludes_int_dict_from_codes() {
 fn test_push_rule_float_dict_excludes_int_dict_from_values() {
     let c = compressor();
     // FloatDict cascading through values (child 0).
-    let ctx = CompressorContext::default().descend_with_scheme(FloatDictScheme.id(), 0);
+    let ctx = CompressorContext::new().descend_with_scheme(FloatDictScheme.id(), 0);
 
     // IntDict should also be excluded from FloatDict's values child (ALP propagation
     // replacement).
@@ -361,7 +380,7 @@ fn test_push_rule_float_dict_excludes_int_dict_from_values() {
 #[test]
 fn test_no_exclusion_without_history() {
     let c = compressor();
-    let ctx = CompressorContext::default();
+    let ctx = CompressorContext::new();
 
     // No history means no exclusions.
     assert!(!c.is_excluded(&IntDictScheme, &ctx));
@@ -381,24 +400,6 @@ fn immediate_always_use_wins_immediately() -> VortexResult<()> {
         winner,
         Some((scheme, WinnerEstimate::AlwaysUse))
             if scheme.id() == ImmediateAlwaysUseScheme.id()
-    ));
-    Ok(())
-}
-
-#[test]
-fn callback_always_use_wins_immediately() -> VortexResult<()> {
-    let compressor = CascadingCompressor::new(vec![&DirectRatioScheme, &CallbackAlwaysUseScheme]);
-    let schemes: [&'static dyn Scheme; 2] = [&DirectRatioScheme, &CallbackAlwaysUseScheme];
-    let data = estimate_test_data();
-    let mut exec_ctx = SESSION.create_execution_ctx();
-
-    let winner =
-        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
-
-    assert!(matches!(
-        winner,
-        Some((scheme, WinnerEstimate::AlwaysUse))
-            if scheme.id() == CallbackAlwaysUseScheme.id()
     ));
     Ok(())
 }
@@ -711,6 +712,7 @@ fn all_null_array_compresses_to_constant() -> VortexResult<()> {
     let mut exec_ctx = SESSION.create_execution_ctx();
     let compressed = compressor.compress(&array, &mut exec_ctx)?;
     assert!(compressed.is::<Constant>());
+    assert_arrays_eq!(compressed, array, &mut exec_ctx);
     Ok(())
 }
 
@@ -842,6 +844,121 @@ fn map_compression_preserves_repeated_entry_children() -> VortexResult<()> {
 
     assert!(compressed.is::<Map>());
     assert_eq!(compressed.dtype(), array.dtype());
+    assert_arrays_eq!(&compressed, &array, &mut exec_ctx);
+    Ok(())
+}
+
+/// Distinct 27-byte strings whose views reference a small prefix of one 2 MiB buffer, the way
+/// Arrow's Parquet reader shares a decompressed page between batches.
+fn views_into_shared_page(rows: u32) -> ArrayRef {
+    const VALUE_LEN: u32 = 27;
+    let mut page = vec![0u8; 2 << 20];
+    for row in 0..rows {
+        let value = format!("value-{row:021}");
+        let start = (row * VALUE_LEN) as usize;
+        page[start..start + VALUE_LEN as usize].copy_from_slice(value.as_bytes());
+    }
+    let page = ByteBuffer::from(page);
+    let views = (0..rows)
+        .map(|row| {
+            let start = (row * VALUE_LEN) as usize;
+            BinaryView::make_view(&page[start..start + VALUE_LEN as usize], 0, row * VALUE_LEN)
+        })
+        .collect::<Buffer<BinaryView>>();
+    // SAFETY: every view points at `VALUE_LEN` bytes inside the page.
+    unsafe {
+        VarBinViewArray::new_unchecked(
+            views,
+            Arc::from([page]),
+            DType::Utf8(Nullability::NonNullable),
+            Validity::NonNullable,
+        )
+    }
+    .into_array()
+}
+
+#[test]
+fn scheme_must_beat_referenced_bytes_not_held_bytes() -> VortexResult<()> {
+    let mut exec_ctx = SESSION.create_execution_ctx();
+    let array = views_into_shared_page(2000);
+    let exact = uncompressed_size_in_bytes(&array, UncompressedSizeOpts::exact(), &mut exec_ctx)?;
+
+    // Every value is distinct, so a dictionary is larger than the referenced bytes but far
+    // smaller than the 2 MiB the array holds. It must lose.
+    let compressed = compressor().compress(&array, &mut exec_ctx)?;
+
+    assert!(compressed.is::<VarBinView>());
+    assert_eq!(compressed.nbytes(), exact as u64);
+    assert_arrays_eq!(&compressed, &array, &mut exec_ctx);
+    Ok(())
+}
+
+/// An extension type over fixed-size lists, like UUIDs over 16 bytes.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+struct BytesExtension;
+
+impl ExtVTable for BytesExtension {
+    type Metadata = u8;
+    type NativeValue<'a> = &'a ScalarValue;
+
+    #[expect(clippy::disallowed_methods, reason = "test-only id")]
+    fn id(&self) -> ExtId {
+        ExtId::new("test.bytes")
+    }
+
+    fn serialize_metadata(&self, metadata: &u8) -> VortexResult<Vec<u8>> {
+        Ok(vec![*metadata])
+    }
+
+    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<u8> {
+        vortex_ensure!(metadata.len() == 1, "expected one metadata byte");
+        Ok(metadata[0])
+    }
+
+    fn validate_dtype(dtype: &ExtDType<Self>) -> VortexResult<()> {
+        vortex_ensure!(
+            matches!(dtype.storage_dtype(), DType::FixedSizeList(..)),
+            "expected fixed-size list storage"
+        );
+        Ok(())
+    }
+
+    fn unpack_native<'a>(
+        _dtype: &'a ExtDType<Self>,
+        value: &'a ScalarValue,
+    ) -> VortexResult<&'a ScalarValue> {
+        Ok(value)
+    }
+}
+
+/// Canonicalizing an extension array only canonicalizes its storage's top level, so the elements
+/// of fixed-size list storage can stay a lazy slice. When no scheme compresses such an array it
+/// must not be returned as-is, because the slice is not serializable.
+#[test]
+fn extension_with_lazy_storage_is_not_passed_through() -> VortexResult<()> {
+    // Dictionaries of wide values keep the lazy array smaller than its canonical form, and
+    // chunked arrays only slice on the execute path, so the slice stays lazy.
+    let dict = |offset: u64| -> VortexResult<ArrayRef> {
+        let codes = PrimitiveArray::from_iter((0..1024u32).map(|i| (i % 4) as u8)).into_array();
+        let values = PrimitiveArray::from_iter([offset, offset + 1, offset + 2, offset + 3]);
+        Ok(DictArray::try_new(codes, values.into_array())?.into_array())
+    };
+    let chunks = vec![dict(0)?, dict(100)?];
+    let elements_dtype = chunks[0].dtype().clone();
+    let chunked = ChunkedArray::try_new(chunks, elements_dtype)?.into_array();
+    let elements = SliceArray::new(chunked, 16..2048).into_array();
+    let storage = FixedSizeListArray::new(elements, 16, Validity::NonNullable, 127).into_array();
+    let dtype = ExtDType::<BytesExtension>::try_new(0, storage.dtype().clone())?.erased();
+    let array = ExtensionArray::new(dtype, storage).into_array();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let compressed = CascadingCompressor::new(Vec::new()).compress(&array, &mut exec_ctx)?;
+
+    assert!(
+        !compressed.depth_first_traversal().any(|a| a.is::<Slice>()),
+        "compressed array still contains a lazy slice:\n{}",
+        compressed.display_tree()
+    );
     assert_arrays_eq!(&compressed, &array, &mut exec_ctx);
     Ok(())
 }

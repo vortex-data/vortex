@@ -47,8 +47,20 @@ type OptionalArrayFuture = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 /// and above which we evaluate the expression over all rows and intersect afterward.
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 
-/// Maximum number of outer-row scan ranges contributed by one list layout.
-const MAX_LIST_SPLIT_COUNT: u64 = 64;
+/// Minimum size of the outer-row split grid, so lists in small files still fan out.
+const MIN_LIST_SPLIT_COUNT: u64 = 64;
+
+/// Outer rows per grid cell that the grid grows to stay under for large files.
+const TARGET_LIST_SPLIT_ROWS: u64 = 8192;
+
+/// Number of cells in the outer-row split grid: at least [`MIN_LIST_SPLIT_COUNT`], and enough
+/// that a cell covers at most about [`TARGET_LIST_SPLIT_ROWS`] outer rows.
+fn list_split_grid_size(outer_row_count: u64) -> u64 {
+    outer_row_count
+        .div_ceil(TARGET_LIST_SPLIT_ROWS)
+        .next_power_of_two()
+        .max(MIN_LIST_SPLIT_COUNT)
+}
 
 /// Reader for [`ListLayout`].
 #[derive(Clone)]
@@ -376,13 +388,14 @@ impl LayoutReader for ListReader {
             )?;
 
             let row_range = split_range.row_range();
+            let grid_size = list_split_grid_size(self.layout.row_count());
             let mut last_split = None;
             for element_split in element_splits.into_sorted_deduped() {
                 let Some(split) = map_element_split_to_outer_grid(
                     element_split,
                     element_row_count,
                     self.layout.row_count(),
-                    MAX_LIST_SPLIT_COUNT,
+                    grid_size,
                 ) else {
                     continue;
                 };
@@ -437,17 +450,18 @@ impl LayoutReader for ListReader {
                 return Ok(mask);
             }
 
+            let mut ctx = session.create_execution_ctx();
             if mask.density() < EXPR_EVAL_THRESHOLD {
                 let predicate = reader
                     .projection_evaluation(&row_range, &expr, MaskFuture::ready(mask.clone()))?
                     .await?;
-                let predicate_mask = predicate_array_to_mask(predicate, &session)?;
+                let predicate_mask = predicate.fill_null(false)?.execute::<Mask>(&mut ctx)?;
                 Ok(mask.intersect_by_rank(&predicate_mask))
             } else {
                 let predicate = reader
                     .projection_evaluation(&row_range, &expr, MaskFuture::new_true(len))?
                     .await?;
-                let predicate_mask = predicate_array_to_mask(predicate, &session)?;
+                let predicate_mask = predicate.fill_null(false)?.execute::<Mask>(&mut ctx)?;
                 Ok(mask & &predicate_mask)
             }
         }))
@@ -599,11 +613,6 @@ fn apply_lengths_validity(
     }
 }
 
-fn predicate_array_to_mask(array: ArrayRef, session: &VortexSession) -> VortexResult<Mask> {
-    let mut ctx = session.create_execution_ctx();
-    array.null_as_false().execute(&mut ctx)
-}
-
 #[cfg(test)]
 mod tests {
     use std::ops::Range;
@@ -612,6 +621,7 @@ mod tests {
 
     use rstest::rstest;
     use vortex_array::ArrayContext;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ListArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -626,6 +636,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::LayoutRef;
@@ -841,7 +852,7 @@ mod tests {
     }
 
     fn layout_test_session() -> VortexSession {
-        vortex_array::array_session()
+        VortexSession::empty()
             .with::<LayoutSession>()
             .with::<RuntimeSession>()
     }
@@ -877,6 +888,7 @@ mod tests {
     }
 
     fn create_basic_list_array(nullable: bool) -> ArrayRef {
+        let mut ctx = SESSION.create_execution_ctx();
         let validity = if nullable {
             Validity::Array(BoolArray::from_iter([true, false, true]).into_array())
         } else {
@@ -887,12 +899,14 @@ mod tests {
             buffer![1i32, 2, 3, 4, 5].into_array(),
             buffer![0u32, 2, 4, 5].into_array(),
             validity,
+            &mut ctx,
         )
         .expect("array is valid")
         .into_array()
     }
 
     fn create_six_list_array() -> ArrayRef {
+        let mut ctx = SESSION.create_execution_ctx();
         let validity = Validity::Array(
             BoolArray::from_iter([true, false, true, false, true, true]).into_array(),
         );
@@ -901,6 +915,7 @@ mod tests {
             buffer![1i32, 2, 3, 4, 5, 6].into_array(),
             buffer![0u32, 1, 2, 3, 4, 5, 6].into_array(),
             validity,
+            &mut ctx,
         )
         .expect("array is valid")
         .into_array()
@@ -976,6 +991,7 @@ mod tests {
 
     /// Build a list with 5 rows and lengths [2, 3, 0, 3, 2].
     fn create_wider_list_array(nullable: bool) -> ArrayRef {
+        let mut ctx = SESSION.create_execution_ctx();
         let validity = if nullable {
             Validity::Array(BoolArray::from_iter([true, true, false, true, true]).into_array())
         } else {
@@ -985,6 +1001,7 @@ mod tests {
             buffer![10i32, 11, 20, 21, 22, 30, 31, 32, 40, 41].into_array(),
             buffer![0u32, 2, 5, 5, 8, 10].into_array(),
             validity,
+            &mut ctx,
         )
         .expect("array is valid")
         .into_array()
@@ -1052,29 +1069,43 @@ mod tests {
 
         let mut splits = (1..1_000)
             .filter_map(|split| {
-                map_element_split_to_outer_grid(split, 1_000, 100_000, MAX_LIST_SPLIT_COUNT)
+                map_element_split_to_outer_grid(split, 1_000, 100_000, MIN_LIST_SPLIT_COUNT)
             })
             .collect::<Vec<_>>();
         splits.dedup();
 
-        let expected = (1..MAX_LIST_SPLIT_COUNT)
-            .map(|grid_index| grid_index * 100_000 / MAX_LIST_SPLIT_COUNT)
+        let expected = (1..MIN_LIST_SPLIT_COUNT)
+            .map(|grid_index| grid_index * 100_000 / MIN_LIST_SPLIT_COUNT)
             .collect::<Vec<_>>();
         assert_eq!(splits, expected);
     }
 
+    #[rstest]
+    #[case::empty(0, 64)]
+    #[case::small(100_000, 64)]
+    #[case::floor_boundary(64 * 8192, 64)]
+    #[case::past_floor(64 * 8192 + 1, 128)]
+    #[case::million(1_000_000, 128)]
+    #[case::ten_million(10_000_000, 2048)]
+    fn split_grid_grows_with_row_count(#[case] outer_row_count: u64, #[case] expected: u64) {
+        assert_eq!(list_split_grid_size(outer_row_count), expected);
+    }
+
     #[tokio::test]
     async fn nested_list_propagates_element_splits() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let inner = ListArray::try_new(
             PrimitiveArray::from_iter(0..128_i32).into_array(),
             PrimitiveArray::from_iter((0..=8_u32).map(|idx| idx * 16)).into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )?
         .into_array();
         let outer = ListArray::try_new(
             inner,
             buffer![0u32, 2, 4, 6, 8].into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )?
         .into_array();
 

@@ -32,7 +32,7 @@ impl<S: SegmentSource> SharedSegmentSource<S> {
     pub fn new(inner: S) -> Self {
         Self {
             inner,
-            in_flight: DashMap::default(),
+            in_flight: DashMap::with_hasher_and_shard_amount(Default::default(), 64),
         }
     }
 }

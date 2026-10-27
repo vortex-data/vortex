@@ -11,10 +11,11 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_mask::Mask;
@@ -24,10 +25,15 @@ use vortex_session::VortexSession;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<MemorySession>()
+});
 
 // Smaller than the value-path benches: listview zip cost is dominated by element concatenation and
 // per-list canonicalization. A few thousand lists already exercise the select while keeping each
@@ -73,6 +79,7 @@ fn run(bencher: Bencher, if_true: ArrayRef, if_false: ArrayRef) {
 /// `LEN` single-element lists: `list[i] = [base + i]`. When `nullable`, every 7th list is null
 /// (list-level validity backed by a `BoolArray`), exercising the `zip_validity` path.
 fn list_view(base: i64, nullable: bool) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let mut elements = BufferMut::<i64>::with_capacity(LEN);
     elements.extend((0..LEN as i64).map(|i| base + i));
     let offsets: BufferMut<u64> = (0..LEN as u64).collect();
@@ -89,6 +96,7 @@ fn list_view(base: i64, nullable: bool) -> ArrayRef {
         offsets.freeze().into_array(),
         sizes.freeze().into_array(),
         validity,
+        &mut ctx,
     )
     .unwrap()
     .into_array()

@@ -16,6 +16,7 @@ use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::EqMode;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -76,13 +77,15 @@ pub struct MapDataParts {
 /// Accessors for the canonical map representation.
 pub trait MapArrayExt: MapArraySlotsExt {
     /// Returns the entry structs for one map row.
-    fn entries_at(&self, index: usize) -> VortexResult<ArrayRef> {
-        self.entries().as_::<ListView>().list_elements_at(index)
+    fn entries_at(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        self.entries()
+            .as_::<ListView>()
+            .list_elements_at(index, ctx)
     }
 
     /// Returns the number of entries in one map row.
-    fn entry_count_at(&self, index: usize) -> usize {
-        self.entries().as_::<ListView>().size_at(index)
+    fn entry_count_at(&self, index: usize, ctx: &mut ExecutionCtx) -> usize {
+        self.entries().as_::<ListView>().size_at(index, ctx)
     }
 
     /// Returns the outer map validity delegated from the entries list-view.
@@ -92,8 +95,7 @@ pub trait MapArrayExt: MapArraySlotsExt {
 
     /// Returns this map's key/value type information.
     fn map_dtype(&self) -> &MapDType {
-        self.as_ref()
-            .dtype()
+        self.dtype()
             .as_map_opt()
             .vortex_expect("MapArray requires a map dtype")
     }
@@ -127,7 +129,7 @@ impl Array<Map> {
         let dtype = DType::Map(map_dtype, nullability);
         let len = entries.len();
         let slots = MapData::make_slots(entries.into_array());
-        let parts = ArrayParts::new(Map, dtype, len, MapData).with_slots(slots);
+        let parts = ArrayParts::new(Map, dtype, len, MapData, slots);
         Self::try_from_parts(parts)
     }
 
@@ -143,7 +145,7 @@ impl Array<Map> {
         let dtype = DType::Map(map_dtype, nullability);
         let len = entries.len();
         let slots = MapData::make_slots(entries.into_array());
-        let parts = ArrayParts::new(Map, dtype, len, MapData).with_slots(slots);
+        let parts = ArrayParts::new(Map, dtype, len, MapData, slots);
         unsafe { Self::from_parts_unchecked(parts) }
     }
 

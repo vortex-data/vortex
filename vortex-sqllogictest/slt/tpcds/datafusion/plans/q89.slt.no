@@ -40,8 +40,8 @@ logical_plan
 14)--------------------------TableScan: item projection=[i_item_sk, i_brand, i_class, i_category], partial_filters=[(item.i_category = Utf8View("Books") OR item.i_category = Utf8View("Electronics") OR item.i_category = Utf8View("Sports")) AND (item.i_class = Utf8View("computers") OR item.i_class = Utf8View("stereo") OR item.i_class = Utf8View("football")) OR (item.i_category = Utf8View("Men") OR item.i_category = Utf8View("Jewelry") OR item.i_category = Utf8View("Women")) AND (item.i_class = Utf8View("shirts") OR item.i_class = Utf8View("birdal") OR item.i_class = Utf8View("dresses"))]
 15)------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_store_sk, ss_sales_price]
 16)--------------------Projection: date_dim.d_date_sk, date_dim.d_moy
-17)----------------------Filter: date_dim.d_year = Int64(1999)
-18)------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(1999)]
+17)----------------------Filter: date_dim.d_year = Int32(1999)
+18)------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int32(1999)]
 19)----------------TableScan: store projection=[s_store_sk, s_store_name, s_company_name]
 physical_plan
 01)SortPreservingMergeExec: [sum_sales@6 - avg_monthly_sales@7 ASC NULLS LAST, s_store_name@3 ASC NULLS LAST, i_category@0 ASC NULLS LAST, i_class@1 ASC NULLS LAST, i_brand@2 ASC NULLS LAST, s_company_name@4 ASC NULLS LAST, d_moy@5 ASC NULLS LAST], fetch=100

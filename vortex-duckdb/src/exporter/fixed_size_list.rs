@@ -12,7 +12,6 @@ use vortex::array::ExecutionCtx;
 use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex::error::VortexResult;
-use vortex::mask::Mask;
 
 use super::ConversionCache;
 use super::all_invalid;
@@ -46,17 +45,13 @@ pub(crate) fn new_exporter(
         return Ok(all_invalid::new_exporter());
     }
 
-    let mask = validity.to_array(len).execute::<Mask>(ctx)?;
     let elements_exporter = new_array_exporter_with_flatten(elements, cache, ctx, true)?;
-
-    Ok(validity::new_exporter(
-        mask,
-        Box::new(FixedSizeListExporter {
-            elements_exporter,
-            list_size,
-            len,
-        }),
-    ))
+    let exporter = Box::new(FixedSizeListExporter {
+        elements_exporter,
+        list_size,
+        len,
+    });
+    validity::new_exporter(validity, len, exporter, ctx)
 }
 
 impl ColumnExporter for FixedSizeListExporter {
@@ -89,7 +84,7 @@ impl ColumnExporter for FixedSizeListExporter {
         // (namely UTF-8 string views in dictionaries) are materialized.
         // See https://github.com/vortex-data/vortex/pull/4610#issuecomment-3286676825 for a
         // detailed explanation on why we need this for now.
-        elements_vector.flatten((len * list_size) as u64);
+        elements_vector.flatten();
 
         Ok(())
     }
@@ -152,16 +147,13 @@ mod tests {
         }
     }
 
-    /// Helper function to verify array elements in a DuckDB vector.
-    fn verify_array_elements(
-        vector: &VectorRef,
-        expected_values: &[i32],
-        list_size: usize,
-        num_lists: usize,
-    ) {
-        let child = vector.array_vector_get_child();
-        let slice = child.as_slice_with_len::<i32>(list_size * num_lists);
-        assert_eq!(slice, expected_values);
+    fn assert_rows(chunk: &DataChunk, expected: &[&str]) {
+        assert_eq!(usize::try_from(chunk.len()).unwrap(), expected.len());
+        let vector = chunk.get_vector(0);
+        let actual: Vec<_> = (0..chunk.len())
+            .map(|i| vector.get_value(i, chunk.len()).unwrap().to_string())
+            .collect();
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -186,12 +178,7 @@ mod tests {
         );
         let chunk = export_to_chunk(fsl, 2, 0, 3);
 
-        // Verify the chunk contains the expected data.
-        assert_eq!(chunk.len(), 3);
-
-        // Verify the actual array values.
-        let vector = chunk.get_vector(0);
-        verify_array_elements(vector, &[1, 2, 3, 4, 5, 6], 2, 3);
+        assert_rows(&chunk, &["[1, 2]", "[3, 4]", "[5, 6]"]);
     }
 
     #[test]
@@ -206,14 +193,7 @@ mod tests {
         );
         let chunk = export_to_chunk(fsl, 3, 0, 4);
 
-        assert_eq!(chunk.len(), 4);
-
-        // Verify nullability.
-        let vector = chunk.get_vector(0);
-        assert_nulls(vector, &[true, false, true, true]);
-
-        // Verify the values (note: elements for null list still exist in storage).
-        verify_array_elements(vector, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], 3, 4);
+        assert_rows(&chunk, &["[1, 2, 3]", "NULL", "[7, 8, 9]", "[10, 11, 12]"]);
     }
 
     #[test]
@@ -231,7 +211,7 @@ mod tests {
 
         // All lists should be null.
         let vector = chunk.get_vector(0);
-        vector.flatten(chunk.len());
+        vector.flatten();
         assert_nulls(vector, &[false, false, false]);
     }
 
@@ -247,11 +227,7 @@ mod tests {
         );
         let chunk = export_to_chunk(fsl, 2, 0, 5);
 
-        assert_eq!(chunk.len(), 5);
-
-        // Verify alternating null pattern.
-        let vector = chunk.get_vector(0);
-        assert_nulls(vector, &[false, true, false, true, false]);
+        assert_rows(&chunk, &["NULL", "[2, 3]", "NULL", "[6, 7]", "NULL"]);
     }
 
     #[test]
@@ -266,11 +242,7 @@ mod tests {
         );
         let chunk = export_to_chunk(fsl, 1, 0, 4);
 
-        assert_eq!(chunk.len(), 4);
-
-        // Verify the single-element arrays.
-        let vector = chunk.get_vector(0);
-        verify_array_elements(vector, &[10, 20, 30, 40], 1, 4);
+        assert_rows(&chunk, &["[10]", "[20]", "[30]", "[40]"]);
     }
 
     #[test]
@@ -287,11 +259,7 @@ mod tests {
         // Export only the middle 2 lists (indices 1 and 2).
         let chunk = export_to_chunk(fsl, 3, 1, 2);
 
-        assert_eq!(chunk.len(), 2);
-
-        // Should contain [4, 5, 6], [7, 8, 9].
-        let vector = chunk.get_vector(0);
-        verify_array_elements(vector, &[4, 5, 6, 7, 8, 9], 3, 2);
+        assert_rows(&chunk, &["[4, 5, 6]", "[7, 8, 9]"]);
     }
 
     /// Helper to create nested array type for DuckDB.
@@ -341,16 +309,10 @@ mod tests {
             .unwrap();
         chunk.set_len(2);
 
-        assert_eq!(chunk.len(), 2);
-
-        // Verify the nested structure.
-        let outer_vector = chunk.get_vector(0);
-        let inner_vector = outer_vector.array_vector_get_child();
-        let elements_vector = inner_vector.array_vector_get_child();
-
-        // The elements should be all 12 integers in order.
-        let elements = elements_vector.as_slice_with_len::<i32>(12);
-        assert_eq!(elements, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+        assert_rows(
+            &chunk,
+            &["[[1, 2], [3, 4], [5, 6]]", "[[7, 8], [9, 10], [11, 12]]"],
+        );
     }
 
     #[test]
@@ -395,29 +357,13 @@ mod tests {
             .unwrap();
         chunk.set_len(3);
 
-        assert_eq!(chunk.len(), 3);
-
-        // Verify outer level nullability.
-        let outer_vector = chunk.get_vector(0);
-        assert_nulls(outer_vector, &[true, false, true]);
-
-        // Verify inner level structure and nullability.
-        let inner_vector = outer_vector.array_vector_get_child();
-
-        // For the third outer array, check its inner null pattern.
-        // Inner arrays are at indices 6, 7, 8 (3rd outer array's children).
-        assert!(!inner_vector.row_is_null(6)); // [13, 14] - valid
-        assert!(inner_vector.row_is_null(7)); // NULL
-        assert!(!inner_vector.row_is_null(8)); // [17, 18] - valid
-
-        // Verify all elements are present in storage.
-        let elements_vector = inner_vector.array_vector_get_child();
-        let elements = elements_vector.as_slice_with_len::<i32>(18);
-        assert_eq!(
-            elements,
+        assert_rows(
+            &chunk,
             &[
-                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18
-            ]
+                "[[1, 2], [3, 4], [5, 6]]",
+                "NULL",
+                "[[13, 14], NULL, [17, 18]]",
+            ],
         );
     }
 }

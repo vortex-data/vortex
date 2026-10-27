@@ -27,6 +27,8 @@ use crate::common::i256_values;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    #[cfg(not(codspeed))]
+    std::sync::LazyLock::force(&arrays::SESSION);
     divan::main();
 }
 
@@ -74,20 +76,26 @@ fn bench_split(bencher: Bencher, values_type: DecimalType, len: usize, validity:
 /// are more volatile and should not be run in CI due to noise.
 #[cfg(not(codspeed))]
 mod arrays {
+    use std::sync::LazyLock;
+
     use divan::Bencher;
     use divan::black_box;
     use rand::RngExt;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::dtype::DecimalType;
+    use vortex_array::optimizer::kernels::KernelSession;
     use vortex_array::validity::Validity;
     use vortex_decimal_byte_parts::split_decimal;
     use vortex_error::VortexExpect;
+    use vortex_session::VortexSession;
 
     use crate::common::arrays::cases;
     use crate::common::arrays::decimal_array;
+
+    pub(super) static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
 
     #[divan::bench(args = cases())]
     fn dbp_split_all_valid(bencher: Bencher, (values_type, len): (DecimalType, usize)) {
@@ -108,9 +116,8 @@ mod arrays {
 
     fn bench_split(bencher: Bencher, values_type: DecimalType, len: usize, validity: Validity) {
         let decimal = decimal_array(values_type, len, validity);
-        let session = array_session();
         bencher
-            .with_inputs(|| session.create_execution_ctx())
+            .with_inputs(|| SESSION.create_execution_ctx())
             .bench_refs(|ctx| {
                 split_decimal(black_box(&decimal), ctx).vortex_expect("split decimal array")
             });

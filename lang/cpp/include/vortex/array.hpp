@@ -196,17 +196,17 @@ public:
     Validity validity() const;
 
     // Number of null/invalid elements in Array
-    size_t null_count() const;
+    size_t null_count(const Session &session) const;
 
     /**
-     * Get a Struct field by index. Throws if Array is not a Struct or if index
-     * is out of bounds.
+     * Get a Struct field by index. Throws if Array is not a canonical Struct
+     * or if index is out of bounds.
      */
     Array field(size_t index) const;
 
     /**
-     * Get a Struct field by name. Throws if Array is not a Struct or doesn't
-     * have this named field.
+     * Get a Struct field by name. Throws if Array is not a canonical Struct or
+     * doesn't have this named field.
      */
     Array field(std::string_view name) const;
 
@@ -442,7 +442,7 @@ PrimitiveView<T> Array::values(const Session &session) const {
     Array canonical = canonicalize(session);
     const vx_array *raw = detail::Access::c_ptr(canonical);
     if (!vx_array_is_primitive(raw, detail::to_ptype<T>())) {
-        throw VortexException("values<T>: T does not match the array's ptype", ErrorCode::MismatchedTypes);
+        throw VortexException("values<T>: T does not match the array's ptype");
     }
     vx_error *error = nullptr;
     const void *data = vx_array_data_ptr_primitive(raw, &error);

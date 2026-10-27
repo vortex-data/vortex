@@ -36,12 +36,12 @@ use rand::distr::Alphanumeric;
 use rand::rngs::StdRng;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::listview::ListViewArray;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::validity::Validity;
 use vortex_row::RowEncoder;
 use vortex_session::VortexSession;
@@ -53,7 +53,8 @@ static GLOBAL: MiMalloc = MiMalloc;
 const N: usize = 1_000;
 const LIST_LEN: usize = 8;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
 
 fn main() {
     LazyLock::force(&SESSION);
@@ -85,13 +86,14 @@ fn gen_words(n: usize, mean_len: usize, seed: u64) -> Vec<String> {
 }
 
 fn make_vortex_list(elements: vortex_array::ArrayRef) -> vortex_array::ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let offsets = PrimitiveArray::from_iter(
         (0..N).map(|i| u32::try_from(i * LIST_LEN).expect("benchmark offset must fit u32")),
     )
     .into_array();
     let list_len = u32::try_from(LIST_LEN).expect("benchmark list length must fit u32");
     let sizes = PrimitiveArray::from_iter(std::iter::repeat_n(list_len, N)).into_array();
-    ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array()
+    ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx).into_array()
 }
 
 fn arrow_output_bytes(rows: &arrow_row::Rows) -> u64 {

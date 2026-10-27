@@ -246,7 +246,7 @@ impl<T: BinaryCombined> AggregateFnVTable for Combined<T> {
     fn partial_from_scalar(
         &self,
         args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         let (mut left, mut right) = self.new_child_accumulators(args)?;
         // A null partial represents an empty group and parses to empty child accumulators.
@@ -260,8 +260,8 @@ impl<T: BinaryCombined> AggregateFnVTable for Combined<T> {
             let r_field = s
                 .field(rname)
                 .ok_or_else(|| vortex_err!("BinaryCombined partial missing `{}` field", rname))?;
-            left.combine_partials(l_field)?;
-            right.combine_partials(r_field)?;
+            left.combine_partials(&l_field)?;
+            right.combine_partials(&r_field)?;
         }
         Ok((left, right))
     }

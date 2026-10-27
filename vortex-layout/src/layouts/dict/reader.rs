@@ -15,22 +15,22 @@ use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
-use vortex_array::arrays::SharedArray;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::bound::pack as bound_pack;
-use vortex_array::expr::direct_bound_annotations;
-use vortex_array::expr::label_bound_tree;
 use vortex_array::expr::root;
-use vortex_array::expr::transform::partition_bound_annotations;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar_fn::is_negative_cost;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_expr::direct_bound_annotations;
+use vortex_expr::label_bound_tree;
+use vortex_expr::transform::partition_bound_annotations;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
@@ -40,6 +40,7 @@ use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::RowSplits;
 use crate::SplitRange;
+use crate::arrays::shared::Shared;
 use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
 
@@ -93,7 +94,7 @@ impl DictReader {
             session,
             values_len,
             values_array: Default::default(),
-            values_evals: Default::default(),
+            values_evals: DashMap::with_hasher_and_shard_amount(Default::default(), 8),
             values,
             codes,
         })
@@ -116,7 +117,7 @@ impl DictReader {
                     )
                     .vortex_expect("must construct dict values array evaluation")
                     .map_err(Arc::new)
-                    .map(move |array| Ok(SharedArray::new(array?).into_array()))
+                    .map(move |array| Ok(Shared::new(array?).into_array()))
                     .boxed()
                     .shared()
             })
@@ -164,7 +165,7 @@ impl DictReader {
                 self.values_array_uncanonical()
                     .map(move |array| {
                         let array = array?.apply_bound(&expr)?;
-                        Ok(SharedArray::new(array).into_array())
+                        Ok(Shared::new(array).into_array())
                     })
                     .boxed()
                     .shared()
@@ -277,7 +278,10 @@ impl LayoutReader for DictReader {
             let mask = mask.await?;
 
             let mut ctx = session.create_execution_ctx();
-            let dict_mask = values.take(codes)?.null_as_false().execute(&mut ctx)?;
+            let dict_mask = values
+                .take(codes)?
+                .fill_null(false)?
+                .execute::<Mask>(&mut ctx)?;
 
             Ok(mask.bitand(&dict_mask))
         }))
@@ -317,7 +321,7 @@ impl LayoutReader for DictReader {
                 )
                 .vortex_expect("must construct dict values array evaluation")
                 .map_err(Arc::new)
-                .map(move |array| Ok(SharedArray::new(array?.apply_bound(&inner)?).into_array()))
+                .map(move |array| Ok(Shared::new(array?.apply_bound(&inner)?).into_array()))
                 .boxed()
                 .shared()
         } else {
@@ -352,15 +356,14 @@ impl LayoutReader for DictReader {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
-    use vortex_array::Canonical;
     use vortex_array::IntoArray as _;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinArray;
@@ -385,7 +388,6 @@ mod tests {
     use vortex_array::expr::root;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressorBuilder;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_io::runtime::Handle;
     use vortex_io::runtime::single::block_on;
@@ -408,10 +410,12 @@ mod tests {
     use crate::sequence::SequentialStreamExt;
     use crate::session::LayoutSession;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     // FIXME(ngates): Deprecate the global `runtime::single::block_on` helper and require tests
     // to call `block_on` on an explicit runtime instance.
     fn session_with_handle(handle: Handle) -> VortexSession {
-        array_session()
+        VortexSession::empty()
             .with::<LayoutSession>()
             .with::<RuntimeSession>()
             .with_handle(handle)
@@ -689,11 +693,7 @@ mod tests {
                 .execute_mask(array.len(), &mut ctx)
                 .unwrap()
                 .into_array();
-            let actual_canonical = actual
-                .execute::<Canonical>(&mut ctx)
-                .vortex_expect("to_canonical failed")
-                .into_array();
-            assert_arrays_eq!(actual_canonical, expected, &mut ctx);
+            assert_arrays_eq!(actual, expected, &mut ctx);
         })
     }
 
@@ -764,7 +764,7 @@ mod tests {
         outer: BoundExpression,
         inner: BoundExpression,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = VarBinArray::from_iter(
             [Some("abc"), Some("def"), None],
             DType::Utf8(Nullability::Nullable),

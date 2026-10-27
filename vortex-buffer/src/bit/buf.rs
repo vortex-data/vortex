@@ -31,6 +31,7 @@ use crate::bit::ops::bitwise_binary_op_lhs_owned;
 use crate::bit::ops::bitwise_unary_op;
 use crate::bit::ops::bitwise_unary_op_copy;
 use crate::bit::select::bit_select;
+use crate::bit::select::bit_select_unset;
 
 /// An immutable bitset stored as a packed byte buffer.
 #[derive(Debug, Clone, Eq)]
@@ -474,6 +475,17 @@ impl BitBuffer {
     #[inline]
     pub fn select(&self, nth: usize) -> Option<usize> {
         bit_select(self.buffer.as_slice(), self.offset, self.len, nth)
+    }
+
+    /// Returns the position of the `nth` unset bit (0-indexed).
+    ///
+    /// This is the "select0" operation, the counterpart of [`Self::select`] for unset bits:
+    /// given a rank `nth` among the unset bits, find which logical bit position holds it.
+    ///
+    /// Returns `None` if `nth` is greater than or equal to the number of unset bits.
+    #[inline]
+    pub fn select_unset(&self, nth: usize) -> Option<usize> {
+        bit_select_unset(self.buffer.as_slice(), self.offset, self.len, nth)
     }
 
     /// Returns the index of the last set bit, or `None` if every bit is unset.
@@ -946,11 +958,8 @@ mod tests {
             collected.push((idx, is_set));
         });
 
-        assert_eq!(collected.len(), len);
-
-        for (idx, is_set) in collected {
-            assert_eq!(is_set, idx % 2 == 0);
-        }
+        let expected: Vec<_> = (0..len).map(|idx| (idx, idx % 2 == 0)).collect();
+        assert_eq!(collected, expected);
     }
 
     #[rstest]
@@ -971,12 +980,10 @@ mod tests {
             collected.push((idx, is_set));
         });
 
-        assert_eq!(collected.len(), len);
-
-        for (idx, is_set) in collected {
-            // The bits should match the original buffer at positions offset + idx
-            assert_eq!(is_set, (offset + idx).is_multiple_of(2));
-        }
+        let expected: Vec<_> = (0..len)
+            .map(|idx| (idx, (offset + idx).is_multiple_of(2)))
+            .collect();
+        assert_eq!(collected, expected);
     }
 
     #[rstest]
@@ -996,19 +1003,10 @@ mod tests {
             collected.push((idx, is_set));
         });
 
-        assert_eq!(collected.len(), len);
-
-        for (idx, is_set) in collected {
-            let bit_position = offset + idx;
-            let byte_index = bit_position / 8;
-            let expected_is_set = byte_index.is_multiple_of(2);
-
-            assert_eq!(
-                is_set, expected_is_set,
-                "Bit mismatch at index {}: expected {} got {}",
-                bit_position, expected_is_set, is_set
-            );
-        }
+        let expected: Vec<_> = (0..len)
+            .map(|idx| (idx, ((offset + idx) / 8).is_multiple_of(2)))
+            .collect();
+        assert_eq!(collected, expected);
     }
 
     #[rstest]
@@ -1165,5 +1163,28 @@ mod tests {
             let expected = (i % 2 == 0) && (i % 4 == 0);
             assert_eq!(mapped.value(i), expected, "Mismatch at index {}", i);
         }
+    }
+
+    #[rstest]
+    #[case(0, 200)]
+    #[case(3, 197)]
+    #[case(13, 600)]
+    fn test_select_unset_sliced(#[case] start: usize, #[case] len: usize) {
+        let buf = BitBuffer::collect_bool(start + len, |i| i % 3 == 0 || i % 7 == 0);
+        let sliced = buf.slice(start..start + len);
+        let expected: Vec<usize> = sliced
+            .iter()
+            .enumerate()
+            .filter_map(|(index, set)| (!set).then_some(index))
+            .collect();
+
+        for (nth, &index) in expected.iter().enumerate() {
+            assert_eq!(
+                sliced.select_unset(nth),
+                Some(index),
+                "start={start} nth={nth}"
+            );
+        }
+        assert_eq!(sliced.select_unset(expected.len()), None);
     }
 }

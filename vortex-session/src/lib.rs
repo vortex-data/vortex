@@ -88,17 +88,3 @@ impl Hasher for IdHasher {
         self.0 = id;
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::VortexSession;
-
-    #[test]
-    fn allow_unknown_flag_is_opt_in() {
-        let session = VortexSession::empty();
-        assert!(!session.allows_unknown());
-
-        session.allow_unknown();
-        assert!(session.allows_unknown());
-    }
-}

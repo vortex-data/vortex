@@ -41,7 +41,7 @@ vx-bench run <benchmark> [options]
 
 **Arguments:**
 
-- `benchmark`: Benchmark suite to run (`appian`, `tpch`, `tpcds`, `clickbench`, `fineweb`, `gh-archive`, `polarsignals`, `public-bi`, `statpopgen`)
+- `benchmark`: Benchmark suite to run (`appian`, `tpch`, `tpcds`, `clickbench`, `fineweb`, `gh-archive`, `job`, `polarsignals`, `public-bi`, `statpopgen`)
 
 **Options:**
 
@@ -79,7 +79,7 @@ to keep benchmark coverage in Python instead of copying large JSON matrices betw
 ```bash
 vx-bench matrix            # list available presets
 vx-bench matrix develop    # emit compact JSON
-vx-bench matrix pr-all      # emit the combined focused PR coverage
+vx-bench matrix pr-all      # emit the union of pr, pr-compact and pr-full
 vx-bench matrix pr-full     # emit full pull-request coverage
 vx-bench matrix nightly --pretty
 ```
@@ -161,7 +161,8 @@ vx-bench clean --older-than "30 days" [options]
 CI benchmark coverage lives in `bench_orchestrator/ci_matrix/catalog.py`. This is the only file to
 edit when changing what runs in the `develop`, `pr`, `pr-compact`, `pr-all`, `pr-full`, or
 `nightly` presets. The remaining modules in `ci_matrix` model, validate, and render that catalog as
-the JSON expected by GitHub Actions.
+the JSON expected by GitHub Actions. `pr-all` is not declared per benchmark: it is derived as the
+union of each benchmark's `pr`, `pr-compact`, and `pr-full` coverage.
 
 When adding coverage, update the benchmark declarations and the expected preset membership in
 `tests/test_matrix.py`.

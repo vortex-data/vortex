@@ -39,7 +39,7 @@ def names(vxf: vx.VortexFile, expr: Expr) -> list[str | None]:
 
 def column_values(vxf: vx.VortexFile, projection: Expr) -> list[object]:
     table = vxf.scan(ve.pack({"value": projection})).read_all().to_arrow_table()
-    return cast(list[object], table.column("value").to_pylist())
+    return table.column("value").to_pylist()
 
 
 # --------------------------------------------------------------------------------------
@@ -84,6 +84,8 @@ BUILDERS: dict[str, Callable[[], Expr]] = {
     "merge": lambda: ve.merge([ve.select(["name"]), ve.select(["age"])]),
     "merge_rightmost": lambda: ve.merge([ve.select(["name"]), ve.select(["name"])], duplicate_handling="rightmost"),
     "list_contains": lambda: ve.list_contains(ve.column("scores"), 5),
+    "list_contains_sql": lambda: ve.list_contains(ve.column("scores"), 5, sql_null_semantics=True),
+    "in_list": lambda: ve.in_list(ve.column("age"), [25, 30]),
     "list_length": lambda: ve.list_length(ve.column("scores")),
     "list_sum": lambda: ve.list_sum(ve.column("scores")),
     "list_sum_nans": lambda: ve.list_sum(ve.column("scores"), skip_nans=False),
@@ -102,21 +104,10 @@ def test_builder_returns_expr(name: str) -> None:
     assert isinstance(BUILDERS[name](), Expr)
 
 
-# `CaseWhen::serialize` is deliberately disabled in vortex-array pending a stable wire format, so
-# `case_when` expressions cannot cross a process boundary yet.
-NOT_SERIALIZABLE = {"case_when", "case_when_no_else"}
-
-
-@pytest.mark.parametrize("name", sorted(set(BUILDERS) - NOT_SERIALIZABLE))
+@pytest.mark.parametrize("name", sorted(BUILDERS))
 def test_builder_round_trips_through_proto(name: str) -> None:
     expr = BUILDERS[name]()
     assert str(ve.deserialize(expr.serialize())) == str(expr)
-
-
-@pytest.mark.parametrize("name", sorted(NOT_SERIALIZABLE))
-def test_unserializable_builder_reports_clearly(name: str) -> None:
-    with pytest.raises(RuntimeError, match="serial"):
-        _ = BUILDERS[name]().serialize()
 
 
 def test_variant_get_paths() -> None:
@@ -133,7 +124,10 @@ def test_variant_get_rejects_bad_path() -> None:
 
 
 def test_ext_storage_returns_expr() -> None:
-    assert isinstance(ve.ext_storage(ve.column("ts")), Expr)
+    expr = ve.ext_storage(ve.column("ts"))
+    assert isinstance(expr, Expr)
+    source = vx.array(pa.table({"ts": pa.array([42, None, -1], type=pa.timestamp("us"))}))
+    assert source.apply(expr).to_arrow_array(combine_chunks=True) == pa.array([42, None, -1], type=pa.int64())
 
 
 def test_merge_rejects_unknown_duplicate_handling() -> None:
@@ -209,14 +203,62 @@ def test_arithmetic_and_list_functions(people: vx.VortexFile) -> None:
     assert column_values(people, ve.get_item("city", ve.column("nested"))) == ["Paris", "Berlin", "Paris", "Lima"]
 
 
-def test_case_when_semantics(people: vx.VortexFile) -> None:
-    expr = ve.case_when([(ve.gt(ve.column("age"), 40), "senior"), (ve.gt(ve.column("age"), 26), "mid")], "junior")
-    assert column_values(people, expr) == ["mid", "junior", "junior", "senior"]
+@pytest.mark.parametrize(
+    "values,default,sql",
+    [
+        ([30, 57], [True, False, None, True], [True, False, None, True]),
+        ([30, None], [True, False, None, False], [True, None, None, None]),
+        ([None, 30], [True, False, None, False], [True, None, None, None]),
+        ([None], [False, False, None, False], [None, None, None, None]),
+        ([], [False, False, False, False], [False, False, None, False]),
+        (None, [None, None, None, None], [None, None, None, None]),
+    ],
+)
+def test_list_membership_null_semantics(
+    people: vx.VortexFile,
+    values: list[int | None] | None,
+    default: list[bool | None],
+    sql: list[bool | None],
+):
+    members = ve.literal(vx.list_(vx.int_(64, nullable=True), nullable=True), values)
+    age = ve.column("age")
+    assert column_values(people, ve.list_contains(members, age)) == default
+    assert column_values(people, ve.list_contains(members, age, sql_null_semantics=True)) == sql
+    expr = ve.in_list(age, members)
+    assert column_values(people, expr) == sql
+    assert column_values(people, ve.deserialize(expr.serialize())) == sql
+    assert column_values(people, ~expr) == [None if value is None else not value for value in sql]
+
+
+@pytest.mark.parametrize("members", [[30, None], [None, 30]])
+def test_in_list_python_list_filter(people: vx.VortexFile, members: list[int | None]):
+    expr = ve.in_list(ve.column("age"), members)
+    assert names(people, expr) == ["Alice"]
+    assert names(people, ~expr) == []
+    assert names(people, ~ve.in_list(ve.column("age"), [30])) == ["Bob", "Charlie"]
+
+
+def test_in_list_large_set_and_strings(people: vx.VortexFile):
+    assert names(people, ve.in_list(ve.column("age"), list(range(1000)))) == ["Alice", "Bob", "Charlie"]
+    assert names(people, ve.in_list(ve.column("name"), ["Alice", "Charlie"])) == ["Alice", "Charlie"]
+
+
+@pytest.mark.parametrize("else_value", ["junior", None])
+def test_case_when_semantics(people: vx.VortexFile, else_value: str | None) -> None:
+    expr = ve.case_when([(ve.gt(ve.column("age"), 40), "senior"), (ve.gt(ve.column("age"), 26), "mid")], else_value)
+    for restored in (expr, ve.deserialize(expr.serialize()), cast(Expr, pickle.loads(pickle.dumps(expr)))):
+        assert column_values(people, restored) == ["mid", else_value, else_value, "senior"]
 
 
 def test_select_exclude(people: vx.VortexFile) -> None:
     table = people.scan(ve.select_exclude(["scores", "nested"])).read_all().to_arrow_table()
     assert table.column_names == ["name", "age"]
+    assert table.to_pylist() == [
+        {"name": "Alice", "age": 30},
+        {"name": "Bob", "age": 25},
+        {"name": "alfred", "age": None},
+        {"name": "Charlie", "age": 57},
+    ]
 
 
 # --------------------------------------------------------------------------------------
@@ -260,3 +302,39 @@ def test_deserialize_rejects_garbage() -> None:
 def test_serialize_is_stable() -> None:
     expr = ve.column("age") > 21
     assert expr.serialize() == expr.serialize()
+
+
+@pytest.mark.parametrize("value", [1_705_320_000_000_000_123, None])
+@pytest.mark.parametrize(("target", "offset_seconds"), [("America/New_York", 18_000), ("+05:30", -19_800)])
+def test_replace_time_zone_constant(value, target, offset_seconds):
+    dtype = vx.timestamp("ns", nullable=value is None)
+    expression = ve.replace_time_zone(ve.literal(dtype, value), target)
+    expected_value = None if value is None else value + offset_seconds * 1_000_000_000
+    expected = pa.array([expected_value] * 3, type=pa.timestamp("ns", tz=target))
+    actual = vx.array(pa.array([0, 1, 2])).apply(expression).to_arrow_array()
+    assert actual.equals(expected)
+
+
+@pytest.mark.parametrize(
+    ("source", "target", "offset_seconds"),
+    [
+        ("+01:00", None, 3_600),
+        ("-05:30", None, -19_800),
+        (None, "+05:30", -19_800),
+        ("+01:00", "-05:30", 23_400),
+        ("+01:00", "America/New_York", 21_600),
+        ("America/New_York", "+01:00", -21_600),
+        ("+00:00", None, 0),
+    ],
+)
+@pytest.mark.parametrize("unit", ["s", "ms", "us", "ns"])
+def test_replace_time_zone_fixed_offsets(source, target, offset_seconds, unit):
+    scale = {"s": 1, "ms": 1_000, "us": 1_000_000, "ns": 1_000_000_000}[unit]
+    values = [0, scale // 2, -scale - scale // 2, None]
+    array = vx.array(pa.array(values, type=pa.timestamp(unit, tz=source)))
+    actual = array.apply(ve.replace_time_zone(ve.root(), target)).to_arrow_array()
+    expected = pa.array(
+        [None if value is None else value + offset_seconds * scale for value in values],
+        type=pa.timestamp(unit, tz=target),
+    )
+    assert actual.equals(expected)

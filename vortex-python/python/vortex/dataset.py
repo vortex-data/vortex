@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import warnings
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from functools import reduce
 from typing import final
@@ -23,7 +23,7 @@ from .expr import Expr, and_
 
 
 @contextmanager
-def _temporary_worker_threads(use_threads: bool) -> Iterator[None]:
+def _temporary_worker_threads(use_threads: bool) -> Generator[None]:
     previous_workers = _worker_threads()
     if use_threads:
         _set_worker_threads(None)

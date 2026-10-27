@@ -185,16 +185,23 @@ impl VTable for Pco {
             .iter()
             .map(|buffer| buffer.clone().try_to_host_sync())
             .collect::<VortexResult<Vec<_>>>()?;
-        Ok(
-            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
-                .with_slots(array.slots().iter().cloned().collect()),
-        )
+        Ok(ArrayParts::new(
+            self.clone(),
+            array.dtype().clone(),
+            array.len(),
+            data,
+            array.slots().iter().cloned().collect(),
+        ))
     }
 
     fn serialize(
         array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
+        vortex_ensure!(
+            array.slice_start() == 0 && array.slice_stop() == array.unsliced_n_rows(),
+            "cannot serialize sliced PCO arrays; materialize the slice first"
+        );
         Ok(Some(array.metadata.clone().encode_to_vec()))
     }
 
@@ -242,7 +249,13 @@ impl VTable for Pco {
         // publishing the array.
         let data =
             unsafe { PcoData::new_unchecked(chunk_metas, pages, dtype.as_ptype(), metadata, len) };
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -306,7 +319,10 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
     use pco::errors::ErrorKind::*;
     match err.kind {
         Io(io_kind) => VortexError::from(std::io::Error::new(io_kind, err.message)),
-        InvalidArgument => vortex_err!(InvalidArgument: "{}", err.message),
+        InvalidArgument => vortex_err!("{}", err.message),
+        kind @ (Corruption | InsufficientData) => {
+            vortex_err!("Pco {:?} error: {}", kind, err.message)
+        }
         other => vortex_err!("Pco {:?} error: {}", other, err.message),
     }
 }
@@ -336,9 +352,7 @@ impl Pco {
             validity: validity_to_child(&validity, data.unsliced_n_rows()),
         }
         .into_slots();
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Pco, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Pco, dtype, len, data, slots)) }
     }
 
     /// Compress a primitive array using pcodec.
@@ -367,8 +381,8 @@ pub trait PcoArrayExt: PcoArraySlotsExt {
     /// Reconstruct the unsliced [`Validity`] from the validity slot.
     fn unsliced_validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[PcoSlots::VALIDITY].as_ref(),
-            self.as_ref().dtype().nullability(),
+            self.slots()[PcoSlots::VALIDITY].as_ref(),
+            self.dtype().nullability(),
         )
     }
 }
@@ -777,21 +791,25 @@ impl OperationsVTable<Pco> for Pco {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::VALUES_PER_CHUNK;
     use crate::Pco;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_slice_nullable() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Create a nullable array with some nulls
         let values = PrimitiveArray::new(
             buffer![10u32, 20, 30, 40, 50, 60],
@@ -821,7 +839,7 @@ mod tests {
 
     #[test]
     fn test_decompress_bounds_initial_allocation() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_iter([42u32]);
         let pco = Pco::from_primitive(values.as_view(), 0, 128, &mut ctx)?;
         let mut data = pco.data().clone();
@@ -838,7 +856,7 @@ mod tests {
 
     #[test]
     fn test_validate_rejects_oversized_chunk() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_iter([42u32]);
         let pco = Pco::from_primitive(values.as_view(), 0, 128, &mut ctx)?;
         let mut data = pco.data().clone();

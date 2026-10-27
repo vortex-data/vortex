@@ -21,6 +21,10 @@ use geo_types::Geometry;
 use geo_types::LineString;
 use geo_types::Point;
 use geo_types::Polygon;
+use mimalloc::MiMalloc;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();

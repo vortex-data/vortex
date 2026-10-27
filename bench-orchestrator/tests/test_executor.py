@@ -19,18 +19,18 @@ def test_build_command_adds_duckdb_cleanup_flag() -> None:
         options={"scale-factor": "1.0"},
     )
 
-    assert cmd[:5] == [
+    assert cmd[:7] == [
         "/tmp/duckdb-bench",
         "tpch",
         "--display-format",
         "gh-json",
         "--iterations",
+        "7",
+        "--hide-progress-bar",
     ]
-    assert "--formats" in cmd
-    assert "parquet,vortex" in cmd
+    assert cmd[cmd.index("--formats") + 1] == "parquet,vortex"
     assert "--delete-duckdb-database" in cmd
-    assert "--opt" in cmd
-    assert "scale-factor=1.0" in cmd
+    assert cmd[cmd.index("--opt") + 1] == "scale-factor=1.0"
 
 
 def test_build_command_serializes_vortex_spatial_native_format() -> None:
@@ -43,7 +43,7 @@ def test_build_command_serializes_vortex_spatial_native_format() -> None:
         options={"scale-factor": "1.0"},
     )
 
-    assert "parquet,vortex,vortex-spatial-native" in cmd
+    assert cmd[cmd.index("--formats") + 1] == "parquet,vortex,vortex-spatial-native"
 
 
 def test_build_command_omits_formats_for_lance_backend() -> None:
@@ -57,8 +57,7 @@ def test_build_command_omits_formats_for_lance_backend() -> None:
 
     assert cmd[0] == "/tmp/lance-bench"
     assert "--formats" not in cmd
-    assert "--queries" in cmd
-    assert "3" in cmd
+    assert cmd[cmd.index("--queries") + 1] == "3"
 
 
 def test_build_command_includes_ingest_output_when_set() -> None:

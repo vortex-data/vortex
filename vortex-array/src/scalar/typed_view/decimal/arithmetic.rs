@@ -88,10 +88,7 @@ pub(crate) fn decimal_numeric_result_dtype(
             let result_precision =
                 <i16 as From<u8>>::from(input.precision()) + <i16 as From<i8>>::from(result_scale);
             let result_precision = u8::try_from(result_precision).map_err(|_| {
-                vortex_err!(
-                    InvalidArgument:
-                    "decimal division result precision {result_precision} is invalid"
-                )
+                vortex_err!("decimal division result precision {result_precision} is invalid")
             })?;
             DecimalDType::try_new(result_precision.min(MAX_PRECISION), result_scale)
         }

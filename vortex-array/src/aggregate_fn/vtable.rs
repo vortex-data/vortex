@@ -198,7 +198,7 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     fn partial_from_scalar(
         &self,
         args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial>;
 
     /// Merge two partial states into one.

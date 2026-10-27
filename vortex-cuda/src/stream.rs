@@ -9,11 +9,6 @@ use std::mem::size_of_val;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use cudarc::driver::CudaSlice;
-use cudarc::driver::CudaStream;
-use cudarc::driver::DeviceRepr;
-use cudarc::driver::ValidAsZeroBits;
-use cudarc::driver::result::stream;
 use futures::future::BoxFuture;
 use kanal::Sender;
 use tracing::warn;
@@ -21,6 +16,11 @@ use vortex::array::buffer::BufferHandle;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
+use vortex_cuda_driver::CudaSlice;
+use vortex_cuda_driver::CudaStream;
+use vortex_cuda_driver::DeviceRepr;
+use vortex_cuda_driver::ValidAsZeroBits;
+use vortex_cuda_driver::result::stream;
 
 use crate::CudaDeviceBuffer;
 use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
@@ -269,16 +269,24 @@ fn register_stream_callback(stream: &CudaStream) -> VortexResult<kanal::AsyncRec
 #[cfg(test)]
 mod tests {
     use std::mem::size_of;
+    use std::sync::LazyLock;
 
+    use vortex::array::Canonical;
     use vortex::array::IntoArray;
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::BoolArray;
+    use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity;
     use vortex::error::VortexResult;
+    use vortex::session::VortexSession;
 
     use super::padded_device_allocation_len;
+    use crate::CanonicalCudaExt;
     use crate::CudaSession;
     use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
     use crate::device_buffer::cuda_backing_allocation;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_padded_device_allocation_len() -> VortexResult<()> {
@@ -355,6 +363,16 @@ mod tests {
 
         assert_eq!(sliced.len(), 9);
         assert!(sliced.buffer_handles()[0].is_on_device());
+        let mut cpu_ctx = SESSION.create_execution_ctx();
+        let host = sliced
+            .execute::<Canonical>(&mut cpu_ctx)?
+            .into_host(&mut cpu_ctx)
+            .await?;
+        assert_arrays_eq!(
+            host.into_array(),
+            BoolArray::from_iter([false, true, false, true, true, false, true, true, false]),
+            &mut cpu_ctx
+        );
         Ok(())
     }
 }

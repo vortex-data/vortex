@@ -15,6 +15,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::zip::ZipKernel;
@@ -46,7 +47,7 @@ impl ZipKernel for Primitive {
         }
 
         // Null mask entries select `if_false`, matching `Zip`'s SQL ELSE semantics.
-        let mask = mask.clone().null_as_false().execute(ctx)?;
+        let mask = mask.clone().fill_null(false)?.execute::<Mask>(ctx)?;
         match &mask {
             // Defer trivial masks to the generic zip, which just casts the surviving side.
             Mask::AllTrue(_) | Mask::AllFalse(_) => return Ok(None),
@@ -147,17 +148,21 @@ mod tests {
         reason = "test fixtures use small indices that fit the target widths"
     )]
 
+    use std::sync::LazyLock;
+
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     /// The branchless kernel must agree with the scalar reference across the chunk boundary (index
     /// 63/64) and the trailing remainder, for non-nullable inputs.
@@ -170,7 +175,7 @@ mod tests {
         let bits: Vec<bool> = (0..len).map(|i| i.is_multiple_of(3) || i == 64).collect();
         let mask = Mask::from_iter(bits.iter().copied());
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?
@@ -201,7 +206,7 @@ mod tests {
         let bits: Vec<bool> = (0..len).map(|i| i.is_multiple_of(2)).collect();
         let mask = Mask::from_iter(bits.iter().copied());
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?

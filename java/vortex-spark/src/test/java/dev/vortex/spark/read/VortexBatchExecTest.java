@@ -40,9 +40,10 @@ final class VortexBatchExecTest {
         InputPartition[] partitions = exec.planInputPartitions();
 
         assertEquals(3, partitions.length);
-        for (InputPartition partition : partitions) {
-            assertInstanceOf(VortexFilePartition.class, partition);
-            assertEquals(1, ((VortexFilePartition) partition).paths().size());
+        List<String> expectedPaths = List.of("/data/a.vortex", "/data/b.vortex", "/data/c.vortex");
+        for (int i = 0; i < partitions.length; i++) {
+            VortexFilePartition partition = assertInstanceOf(VortexFilePartition.class, partitions[i]);
+            assertEquals(List.of(expectedPaths.get(i)), partition.paths());
         }
     }
 
@@ -52,6 +53,7 @@ final class VortexBatchExecTest {
         VortexBatchExec exec = execFor(List.of("/data/first.vortex", "/data/second.vortex"));
 
         InputPartition[] partitions = exec.planInputPartitions();
+        assertEquals(2, partitions.length);
 
         assertEquals(List.of("/data/first.vortex"), ((VortexFilePartition) partitions[0]).paths());
         assertEquals(List.of("/data/second.vortex"), ((VortexFilePartition) partitions[1]).paths());
@@ -76,6 +78,7 @@ final class VortexBatchExecTest {
                 List.of("/tbl/year=2024/month=01/a.vortex", "/tbl/year=2025/month=02/b.vortex", "/tbl/plain.vortex"));
 
         InputPartition[] partitions = exec.planInputPartitions();
+        assertEquals(3, partitions.length);
 
         assertEquals(Map.of("year", "2024", "month", "01"), ((VortexFilePartition) partitions[0]).partitionValues());
         assertEquals(Map.of("year", "2025", "month", "02"), ((VortexFilePartition) partitions[1]).partitionValues());
@@ -90,6 +93,6 @@ final class VortexBatchExecTest {
 
         VortexFilePartition partition = (VortexFilePartition) exec.planInputPartitions()[0];
 
-        assertEquals("8", partition.formatOptions().get("vortex.workerThreads"));
+        assertEquals(options, partition.formatOptions());
     }
 }

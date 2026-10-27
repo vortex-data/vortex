@@ -5,7 +5,9 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
@@ -22,11 +24,11 @@ use crate::arrays::Filter;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::decimal::DecimalArrayExt;
 use crate::arrays::filter::FilterArraySlotsExt;
+use crate::buffer::BufferHandle;
 use crate::dtype::IntegerPType;
+use crate::dtype::i256;
 use crate::executor::ExecutionCtx;
-use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
-use crate::match_each_native_ptype;
 use crate::validity::Validity;
 
 #[inline]
@@ -36,21 +38,17 @@ pub(in crate::arrays::filter) fn take_primitive(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let child = array.child().clone().execute::<PrimitiveArray>(ctx)?;
-    let child_validity = child.validity()?;
-    match_each_native_ptype!(child.ptype(), |T| {
-        let child_buf = child.to_buffer::<T>();
-        match_each_integer_ptype!(indices.ptype(), |P| {
-            let (taken, output_validity) = take_fixed_width::<T, P>(
-                child_buf,
-                child_validity,
-                array.filter_mask(),
-                indices,
-                ctx,
-            )?;
-            // SAFETY: Take operation validated all the parts
-            Ok(unsafe { PrimitiveArray::new_unchecked(taken, output_validity) }.into_array())
-        })
-    })
+    let ptype = child.ptype();
+    let (taken, output_validity) = take_fixed_width_bytes(
+        child.buffer_handle().to_host_sync(),
+        ptype.byte_width(),
+        child.validity()?,
+        array.filter_mask(),
+        indices,
+        ctx,
+    )?;
+
+    Ok(PrimitiveArray::from_byte_buffer(taken, ptype, output_validity).into_array())
 }
 
 #[inline]
@@ -60,26 +58,74 @@ pub(in crate::arrays::filter) fn take_decimal(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let child = array.child().clone().execute::<DecimalArray>(ctx)?;
-    let decimal_dtype = child.decimal_dtype();
-    let child_validity = child.validity()?;
-    match_each_decimal_value_type!(child.values_type(), |T| {
-        let child_buf = child.buffer::<T>();
-        match_each_integer_ptype!(indices.ptype(), |P| {
-            let (taken, output_validity) = take_fixed_width::<T, P>(
-                child_buf,
-                child_validity,
-                array.filter_mask(),
-                indices,
-                ctx,
-            )?;
-            // SAFETY: Valid ranks copy existing decimal values, null ranks write default placeholders that
-            // are hidden by output validity, and the output validity was built for the take length.
-            Ok(
-                unsafe { DecimalArray::new_unchecked(taken, decimal_dtype, output_validity) }
-                    .into_array(),
-            )
-        })
+    let values_type = child.values_type();
+    let (taken, output_validity) = take_fixed_width_bytes(
+        child.buffer_handle().to_host_sync(),
+        values_type.byte_width(),
+        child.validity()?,
+        array.filter_mask(),
+        indices,
+        ctx,
+    )?;
+
+    // SAFETY: Valid ranks copy existing decimal values, null ranks write default placeholders that
+    // are hidden by output validity, and the output validity was built for the take length.
+    Ok(unsafe {
+        DecimalArray::new_unchecked_handle(
+            BufferHandle::new_host(taken),
+            values_type,
+            child.decimal_dtype(),
+            output_validity,
+        )
+    }
+    .into_array())
+}
+
+/// Takes values of `byte_width` bytes each.
+///
+/// The take copies values and does not inspect them, so all value types of one width share one
+/// kernel.
+fn take_fixed_width_bytes(
+    child: ByteBuffer,
+    byte_width: usize,
+    child_validity: Validity,
+    filter: &Mask,
+    indices: &PrimitiveArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(ByteBuffer, Validity)> {
+    match_each_integer_ptype!(indices.ptype(), |P| {
+        match byte_width {
+            1 => take_fixed_width_as::<u8, P>(child, child_validity, filter, indices, ctx),
+            2 => take_fixed_width_as::<u16, P>(child, child_validity, filter, indices, ctx),
+            4 => take_fixed_width_as::<u32, P>(child, child_validity, filter, indices, ctx),
+            8 => take_fixed_width_as::<u64, P>(child, child_validity, filter, indices, ctx),
+            16 => take_fixed_width_as::<u128, P>(child, child_validity, filter, indices, ctx),
+            32 => take_fixed_width_as::<i256, P>(child, child_validity, filter, indices, ctx),
+            _ => vortex_panic!("Unsupported fixed width of {byte_width} bytes"),
+        }
     })
+}
+
+fn take_fixed_width_as<W, P>(
+    child: ByteBuffer,
+    child_validity: Validity,
+    filter: &Mask,
+    indices: &PrimitiveArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(ByteBuffer, Validity)>
+where
+    W: Copy + Default,
+    P: IntegerPType,
+{
+    let (taken, output_validity) = take_fixed_width::<W, P>(
+        Buffer::from_byte_buffer(child),
+        child_validity,
+        filter,
+        indices,
+        ctx,
+    )?;
+
+    Ok((taken.into_byte_buffer(), output_validity))
 }
 
 fn take_fixed_width<T, P>(

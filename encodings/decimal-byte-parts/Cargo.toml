@@ -38,5 +38,9 @@ name = "dbp_assemble"
 harness = false
 
 [[bench]]
+name = "dbp_compute"
+harness = false
+
+[[bench]]
 name = "dbp_split"
 harness = false

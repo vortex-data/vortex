@@ -70,7 +70,7 @@ pub(crate) struct PairedChunks {
 pub(crate) trait PairedChunksExt: ChunkedArrayExt {
     fn paired_chunks<T: ChunkedArrayExt>(&self, other: &T) -> PairedChunks {
         assert_eq!(
-            self.as_ref().len(),
+            self.len(),
             other.as_ref().len(),
             "paired_chunks requires arrays of equal length"
         );
@@ -78,7 +78,7 @@ pub(crate) trait PairedChunksExt: ChunkedArrayExt {
             left: ChunkCursor::new(self.chunks()),
             right: ChunkCursor::new(other.chunks()),
             pos: 0,
-            total_len: self.as_ref().len(),
+            total_len: self.len(),
         }
     }
 }
@@ -117,18 +117,22 @@ impl Iterator for PairedChunks {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::chunked::paired_chunks::PairedChunksExt;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn i32_dtype() -> DType {
         DType::Primitive(PType::I32, Nullability::NonNullable)
@@ -139,7 +143,7 @@ mod tests {
         left: &ChunkedArray,
         right: &ChunkedArray,
     ) -> VortexResult<Vec<(Vec<i32>, Vec<i32>, std::ops::Range<usize>)>> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut result = Vec::new();
         for pair in left.paired_chunks(right) {
             let pair = pair?;

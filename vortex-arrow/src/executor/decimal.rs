@@ -222,6 +222,8 @@ fn to_arrow_decimal256(array: DecimalArray, ctx: &mut ExecutionCtx) -> VortexRes
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use arrow_array::Array;
     use arrow_array::Decimal128Array;
     use arrow_array::Decimal256Array;
@@ -230,7 +232,6 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::DecimalBuilder;
     use vortex_array::dtype::DecimalDType;
@@ -238,13 +239,16 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::ArrowArrayExecutor;
     use crate::executor::decimal::DecimalArray;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn decimal_to_arrow() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Make a very simple i128 and i256 array.
         let decimal_vortex = DecimalArray::new(
             buffer![1i128, 2i128, 3i128, 4i128, 5i128],
@@ -260,6 +264,10 @@ mod tests {
             decimal_array.values().as_ref(),
             &[1i128, 2i128, 3i128, 4i128, 5i128]
         );
+        assert_eq!(
+            decimal_array,
+            &Decimal128Array::from(vec![1, 2, 3, 4, 5]).with_precision_and_scale(19, 2)?
+        );
         Ok(())
     }
 
@@ -273,7 +281,7 @@ mod tests {
     fn test_to_arrow_decimal128<T: NativeDecimalType>(
         #[case] _decimal_type: T,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut decimal = DecimalBuilder::new_in::<T>(
             DecimalDType::new(2, 1),
             false.into(),
@@ -292,6 +300,10 @@ mod tests {
         assert_eq!(arrow_decimal.value(0), 10);
         assert_eq!(arrow_decimal.value(1), 11);
         assert_eq!(arrow_decimal.value(2), 12);
+        assert_eq!(
+            arrow_decimal,
+            &Decimal128Array::from(vec![10, 11, 12]).with_precision_and_scale(2, 1)?
+        );
         Ok(())
     }
 
@@ -305,7 +317,7 @@ mod tests {
     fn test_to_arrow_decimal32<T: NativeDecimalType>(#[case] _decimal_type: T) -> VortexResult<()> {
         use arrow_array::Decimal32Array;
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut decimal = DecimalBuilder::new_in::<T>(
             DecimalDType::new(2, 1),
             false.into(),
@@ -324,6 +336,10 @@ mod tests {
         assert_eq!(arrow_decimal.value(0), 10);
         assert_eq!(arrow_decimal.value(1), 11);
         assert_eq!(arrow_decimal.value(2), 12);
+        assert_eq!(
+            arrow_decimal,
+            &Decimal32Array::from(vec![10, 11, 12]).with_precision_and_scale(2, 1)?
+        );
         Ok(())
     }
 
@@ -337,7 +353,7 @@ mod tests {
     fn test_to_arrow_decimal64<T: NativeDecimalType>(#[case] _decimal_type: T) -> VortexResult<()> {
         use arrow_array::Decimal64Array;
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut decimal = DecimalBuilder::new_in::<T>(
             DecimalDType::new(2, 1),
             false.into(),
@@ -356,6 +372,10 @@ mod tests {
         assert_eq!(arrow_decimal.value(0), 10);
         assert_eq!(arrow_decimal.value(1), 11);
         assert_eq!(arrow_decimal.value(2), 12);
+        assert_eq!(
+            arrow_decimal,
+            &Decimal64Array::from(vec![10, 11, 12]).with_precision_and_scale(2, 1)?
+        );
         Ok(())
     }
 
@@ -369,7 +389,7 @@ mod tests {
     fn test_to_arrow_decimal256<T: NativeDecimalType>(
         #[case] _decimal_type: T,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut decimal = DecimalBuilder::new_in::<T>(
             DecimalDType::new(2, 1),
             false.into(),
@@ -388,6 +408,15 @@ mod tests {
         assert_eq!(arrow_decimal.value(0), i256::from_i128(10));
         assert_eq!(arrow_decimal.value(1), i256::from_i128(11));
         assert_eq!(arrow_decimal.value(2), i256::from_i128(12));
+        assert_eq!(
+            arrow_decimal,
+            &Decimal256Array::from(vec![
+                i256::from_i128(10),
+                i256::from_i128(11),
+                i256::from_i128(12)
+            ])
+            .with_precision_and_scale(2, 1)?
+        );
         Ok(())
     }
 }

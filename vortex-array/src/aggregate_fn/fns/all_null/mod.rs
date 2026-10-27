@@ -62,9 +62,9 @@ impl AggregateFnVTable for AllNull {
     fn partial_from_scalar(
         &self,
         _args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
-        bool::try_from(&scalar)
+        bool::try_from(scalar)
     }
 
     fn merge_partials(
@@ -141,7 +141,10 @@ impl AggregateFnVTable for AllNull {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
@@ -149,15 +152,16 @@ mod tests {
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::fns::all_null::AllNull;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn all_null_aggregate_fn() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
         let mut acc = Accumulator::try_new(AllNull, EmptyOptions, dtype)?;
 
@@ -170,7 +174,7 @@ mod tests {
 
     #[test]
     fn all_null_false_with_non_nulls() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
         let mut acc = Accumulator::try_new(AllNull, EmptyOptions, dtype)?;
 
@@ -183,7 +187,7 @@ mod tests {
 
     #[test]
     fn all_null_true_for_empty_input() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
         let mut acc = Accumulator::try_new(AllNull, EmptyOptions, dtype)?;
 

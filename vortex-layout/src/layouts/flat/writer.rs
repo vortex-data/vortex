@@ -179,7 +179,6 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
@@ -212,9 +211,8 @@ mod tests {
 
     // Currently, flat layouts do not force compute stats during write, they only retain
     // pre-computed stats.
-    #[should_panic]
     #[test]
-    fn flat_stats() {
+    fn flat_does_not_compute_missing_stats() {
         block_on(|handle| async {
             let session = new_session().with_handle(handle);
             let ctx = ArrayContext::empty();
@@ -248,7 +246,7 @@ mod tests {
 
             assert_eq!(
                 result.statistics().get_as::<bool>(Stat::IsSorted),
-                Precision::Exact(true)
+                Precision::Absent
             );
         })
     }
@@ -322,7 +320,7 @@ mod tests {
     #[test]
     fn struct_array_round_trip() {
         block_on(|handle| async {
-            let mut ctx_exec = array_session().create_execution_ctx();
+            let mut ctx_exec = SESSION.create_execution_ctx();
             let session = new_session().with_handle(handle);
             let mut validity_builder = BitBufferMut::with_capacity(2);
             validity_builder.append(true);

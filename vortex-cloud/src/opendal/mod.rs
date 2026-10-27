@@ -214,14 +214,10 @@ pub(crate) fn property_as_bool(properties: &HashMap<String, String>, key: &str) 
     let Some(value) = properties.get(key) else {
         return false;
     };
-    match value.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "on" | "yes" | "y" => true,
-        "0" | "false" | "off" | "no" | "n" => false,
-        _ => {
-            warn!("ignoring OpenDAL store property {key}: `{value}` is not a boolean");
-            false
-        }
-    }
+    crate::parse_object_store_bool(value).unwrap_or_else(|| {
+        warn!("ignoring OpenDAL store property {key}: `{value}` is not a boolean");
+        false
+    })
 }
 
 /// Log a warning for every property key the service does not recognize.

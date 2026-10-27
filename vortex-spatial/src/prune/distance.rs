@@ -10,8 +10,8 @@ use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_array::stats::rewrite::StatsRewriteRule;
 use vortex_error::VortexResult;
+use vortex_expr::stats::rewrite::StatsRewriteRule;
 use vortex_session::VortexSession;
 
 use super::aabb_stat;
@@ -140,8 +140,9 @@ mod tests {
     use vortex_array::scalar_fn::ScalarFnVTableExt;
     use vortex_array::scalar_fn::fns::binary::Binary;
     use vortex_array::scalar_fn::fns::operators::Operator;
-    use vortex_array::stats::rewrite::StatsRewriteRule;
     use vortex_error::VortexResult;
+    use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
+    use vortex_expr::stats::rewrite::StatsRewriteRule;
 
     use super::SpatialDistancePrune;
     use crate::prune::test_harness::aabb_zone_map;
@@ -200,17 +201,31 @@ mod tests {
     /// All four distance comparisons prune (`<=`/`<` via min-distance, `>=`/`>` via max-distance);
     /// `==`/`!=` are left to the scan.
     #[rstest]
-    #[case(Operator::Lte, true)]
-    #[case(Operator::Lt, true)]
-    #[case(Operator::Gt, true)]
-    #[case(Operator::Gte, true)]
-    #[case(Operator::Eq, false)]
-    #[case(Operator::NotEq, false)]
+    #[case(Operator::Lte, Some([false, false, true]))]
+    #[case(Operator::Lt, Some([false, true, true]))]
+    #[case(Operator::Gt, Some([true, true, false]))]
+    #[case(Operator::Gte, Some([true, false, false]))]
+    #[case(Operator::Eq, None)]
+    #[case(Operator::NotEq, None)]
     fn prunes_distance_comparisons(
         #[case] operator: Operator,
-        #[case] prunes: bool,
+        #[case] expected: Option<[bool; 3]>,
     ) -> VortexResult<()> {
-        assert_eq!(falsify_distance(operator, true, 0.5)?.is_some(), prunes);
+        let proof = falsify_distance(operator, true, 0.5)?;
+        assert_eq!(proof.is_some(), expected.is_some());
+        if let Some(expected) = expected {
+            let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
+            let zones = aabb_zone_map(
+                &dtype,
+                &[
+                    [0.0, 0.0, 0.0, 0.0],
+                    [0.5, 0.0, 0.5, 0.0],
+                    [1.0, 0.0, 1.0, 0.0],
+                ],
+            )?;
+            let mask = zones.prune(&proof.unwrap(), &spatial_session())?;
+            assert_eq!(mask.iter().collect::<Vec<_>>(), expected);
+        }
         Ok(())
     }
 
@@ -219,7 +234,16 @@ mod tests {
     #[case(true)]
     #[case(false)]
     fn falsifies_either_operand_order(#[case] geom_first: bool) -> VortexResult<()> {
-        assert!(falsify_distance(Operator::Lte, geom_first, 0.5)?.is_some());
+        let proof = falsify_distance(Operator::Lte, geom_first, 0.5)?.expect("distance proof");
+        let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
+        let zones = aabb_zone_map(&dtype, &[[0.0, 0.0, 0.0, 0.0], [1.0, 0.0, 1.0, 0.0]])?;
+        assert_eq!(
+            zones
+                .prune(&proof, &spatial_session())?
+                .iter()
+                .collect::<Vec<_>>(),
+            [false, true]
+        );
         Ok(())
     }
 
@@ -233,7 +257,16 @@ mod tests {
     /// A negative radius prunes every zone - vacuously sound: `distance <= r < 0` matches no row.
     #[test]
     fn negative_radius_prunes_vacuously() -> VortexResult<()> {
-        assert!(falsify_distance(Operator::Lte, true, -0.5)?.is_some());
+        let proof = falsify_distance(Operator::Lte, true, -0.5)?.expect("negative-radius proof");
+        let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
+        let zones = aabb_zone_map(&dtype, &[[0.0, 0.0, 0.0, 0.0], [1.0, 0.0, 1.0, 0.0]])?;
+        assert_eq!(
+            zones
+                .prune(&proof, &spatial_session())?
+                .iter()
+                .collect::<Vec<_>>(),
+            [true, true]
+        );
         Ok(())
     }
 
@@ -378,8 +411,6 @@ mod tests {
         Ok(())
     }
 
-    /// Backward compat: a zone map written without the `GeometryAabb` stat (an older file) keeps
-    /// every zone, the missing stat binds to null and `null_as_false` retains the zone.
     #[test]
     fn missing_aabb_stat_keeps_all_zones() -> VortexResult<()> {
         let session = spatial_session();

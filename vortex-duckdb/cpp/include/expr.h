@@ -231,6 +231,11 @@ typedef struct {
 } duckdb_vx_expr_bound_comparison;
 
 void duckdb_vx_expr_get_bound_comparison(duckdb_vx_expr expr, duckdb_vx_expr_bound_comparison *out);
+duckdb_vx_expr duckdb_vx_expr_get_bound_optional(duckdb_vx_expr ffi);
+
+bool duckdb_vx_expr_is_comparison(duckdb_vx_expr expr);
+bool duckdb_vx_expr_is_between(duckdb_vx_expr expr);
+bool duckdb_vx_expr_is_cast(duckdb_vx_expr expr);
 
 typedef struct {
     duckdb_vx_expr *children;

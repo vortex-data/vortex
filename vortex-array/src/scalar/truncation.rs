@@ -211,14 +211,4 @@ mod tests {
         let utf8 = BufferString::from("🂑🂒🂓");
         assert!(utf8.upper_bound(2).is_none());
     }
-
-    #[test]
-    fn utf8_upper_bound_null() {
-        assert!(upper_bound(Option::<BufferString>::None, 10, Nullability::Nullable).is_none());
-    }
-
-    #[test]
-    fn utf8_lower_bound_null() {
-        assert!(lower_bound(Option::<BufferString>::None, 10, Nullability::Nullable).is_none());
-    }
 }

@@ -205,7 +205,7 @@ fn mask_validity_variant(
     let masked_core_storage = match core_validity {
         Validity::NonNullable | Validity::AllValid => {
             // Core storage has no nulls, so wrap it in MaskedArray to apply the mask.
-            MaskedArray::try_new(core_storage, validity)?.into_array()
+            MaskedArray::try_new(core_storage, validity, ctx)?.into_array()
         }
         Validity::AllInvalid => {
             // Already all-null, ANDing with any mask is still all-null.

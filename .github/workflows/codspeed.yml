@@ -56,7 +56,7 @@ jobs:
           - { shard: 3, name: "Array dictionaries", packages: "vortex-array", array-group: "dictionary", features: "--features _test-harness" }
           - { shard: 4, name: "Array builders & views", packages: "vortex-array", array-group: "builders", features: "--features _test-harness" }
           - { shard: 5, name: "Core & encodings", packages: "vortex-buffer vortex-error vortex-mask vortex-compute vortex-file vortex-alp vortex-bytebool vortex-datetime-parts" }
-          - { shard: 6, name: "Main library & storage", packages: "vortex vortex-btrblocks vortex-row" }
+          - { shard: 6, name: "Main library & storage", packages: "vortex vortex-btrblocks vortex-compressor vortex-row" }
           - { shard: 7, name: "FastLanes & decimals", packages: "vortex-decimal-byte-parts vortex-fastlanes", features: "--features _test-harness" }
           - { shard: 8, name: "Encodings & layout", packages: "vortex-pco vortex-runend vortex-sequence vortex-sparse vortex-zigzag vortex-zstd vortex-layout" }
           - { shard: 9, name: "Strings, tensor & spatial", packages: "vortex-fsst vortex-tensor vortex-spatial", features: "--features _test-harness" }
@@ -115,7 +115,13 @@ jobs:
           VORTEX_BENCH_VARIANT: simulation
         run: cargo codspeed build --locked ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) ${{ steps.select.outputs.benches }} --profile bench
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@373d6868929f444bc08d901fd0eb0ad52a8875ea  # v5
+        uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062  # v5
+        env:
+          # codspeed-divan-compat 6 runs each benchmark in a new process by default. Simulation
+          # measures one iteration without warmup, so each benchmark then also pays for a cold
+          # allocator and cold caches. This adds about 15 µs to each benchmark and hides small
+          # changes in short benchmarks. Run all benchmarks of a target in one process, as before.
+          CODSPEED_PROCESS_ISOLATION: "false"
         with:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
@@ -123,6 +129,47 @@ jobs:
           # Exclude deferred allocator cleanup from the affected array shards.
           # Allocation-focused benchmarks in the core shard still measure allocator time.
           exclude-allocations: ${{ matrix.array-group == 'dictionary' || matrix.array-group == 'selection' }}
+          # Cached package restoration fails on dangling libc6-dbg documentation symlinks.
+          cache-instruments: "false"
+
+  bench-codspeed-python:
+    name: "Benchmark with Codspeed (Python)"
+    timeout-minutes: 45
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=bench-codspeed-python', github.run_id)
+          || 'ubuntu-latest' }}
+    env:
+      # Same settings as the bench profile, which keeps the debug info that CodSpeed uses to
+      # attribute native frames. See `profile.bench_python` in Cargo.toml.
+      MATURIN_PEP517_ARGS: "--profile bench_python"
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
+      - uses: ./.github/actions/system-info
+      # Build the extension before measurement, so the benchmark step does not compile it.
+      - name: Build Python extension
+        run: uv sync --all-packages
+      # Simulation runs all of the benchmark process on Valgrind, so write the input files first.
+      - name: Write benchmark data
+        working-directory: vortex-python
+        env:
+          VORTEX_BENCH_DATA_DIR: ${{ runner.temp }}/vortex-bench-data
+        run: uv run --all-packages --no-sync python -m benchmark.data "$VORTEX_BENCH_DATA_DIR"
+      - name: Run benchmarks
+        uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062  # v5
+        env:
+          VORTEX_BENCH_DATA_DIR: ${{ runner.temp }}/vortex-bench-data
+        with:
+          run: cd vortex-python && uv run --all-packages --no-sync pytest benchmark/ --codspeed
+          token: ${{ secrets.CODSPEED_TOKEN }}
+          mode: "simulation"
           # Cached package restoration fails on dangling libc6-dbg documentation symlinks.
           cache-instruments: "false"
 
@@ -206,15 +253,18 @@ jobs:
           VORTEX_BENCH_PREFIX: "${{ matrix.features }}::"
           VORTEX_BENCH_SUFFIX: "_${{ matrix.features }}"
         run: |
+          # Preserve the bench profile debug level instead of cargo-codspeed's full debug info.
+          export CARGO_ENCODED_RUSTFLAGS="${RUSTFLAGS// /$'\x1f'}"
           cargo codspeed build --locked -m walltime --profile bench \
             ${{ steps.select.outputs.packages }} ${{ steps.select.outputs.benches }}
       - name: Package benchmark executables
-        run: tar -C target -cf codspeed-cpu-benchmarks.tar codspeed
+        run: tar -C target -I 'zstd -T0 -3' -cf codspeed-cpu-benchmarks.tar.zst codspeed
       - name: Upload benchmark executables
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: codspeed-cpu-benchmarks-${{ matrix.features }}
-          path: codspeed-cpu-benchmarks.tar
+          path: codspeed-cpu-benchmarks.tar.zst
+          compression-level: 0
           retention-days: 1
           if-no-files-found: error
 
@@ -241,14 +291,14 @@ jobs:
         with:
           tool: cargo-codspeed
       - name: Download benchmark executables
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
           name: codspeed-cpu-benchmarks-${{ matrix.features }}
       # The tar archive preserves executable permissions lost by upload-artifact.
       - name: Unpack benchmark executables
         run: |
           mkdir -p target
-          tar -C target -xf codspeed-cpu-benchmarks.tar
+          tar -C target --zstd -xf codspeed-cpu-benchmarks.tar.zst
       # Pinning clocks and reserving CPUs only pays off for walltime measurements, so this
       # runs here but not in the simulation job. It must come after setup, which itself
       # spawns processes that would otherwise be pinned to the housekeeping CPUs.
@@ -263,7 +313,7 @@ jobs:
       # component only exists because `#[cpu_features]` puts it there: an untagged benchmark has one
       # component fewer and cannot match, whatever it is called.
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@373d6868929f444bc08d901fd0eb0ad52a8875ea  # v5
+        uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062  # v5
         env:
           # Use more samples to reduce noise between walltime runs.
           DIVAN_SAMPLE_COUNT: "1000"
@@ -319,11 +369,14 @@ jobs:
           find target/release/build -path '*/out/libvortex_cub.so' \
             -exec cp {} target/codspeed/walltime/vortex-cuda/libvortex_cub.so \;
           test -f target/codspeed/walltime/vortex-cuda/libvortex_cub.so
+      - name: Package CUDA benchmark executables
+        run: tar -C target -I 'zstd -T0 -3' -cf codspeed-cuda-benchmarks.tar.zst codspeed
       - name: Upload benchmark executables
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: codspeed-cuda-benchmarks
-          path: target/codspeed/
+          path: codspeed-cuda-benchmarks.tar.zst
+          compression-level: 0
           retention-days: 1
           if-no-files-found: error
 
@@ -359,14 +412,17 @@ jobs:
         with:
           tool: cargo-codspeed
       - name: Download benchmark executables
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
           name: codspeed-cuda-benchmarks
-          path: target/codspeed
+      - name: Unpack CUDA benchmark executables
+        run: |
+          mkdir -p target
+          tar -C target --zstd -xf codspeed-cuda-benchmarks.tar.zst
       - name: Restore executable permissions
         run: find target/codspeed -type f -exec chmod +x {} +
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@373d6868929f444bc08d901fd0eb0ad52a8875ea  # v5
+        uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062  # v5
         env:
           CARGO_MANIFEST_DIR: ${{ github.workspace }}/vortex-cuda
         with:

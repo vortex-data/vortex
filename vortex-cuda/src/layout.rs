@@ -20,6 +20,7 @@ use vortex::array::MaskFuture;
 use vortex::array::ProstMetadata;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::Constant;
+use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::expr::BoundExpression;
 use vortex::array::expr::stats::Precision;
 use vortex::array::expr::stats::Stat;
@@ -81,18 +82,18 @@ use vortex::utils::aliases::hash_map::HashMap;
 #[derive(Clone, prost::Message)]
 pub struct InlinedBuffer {
     #[prost(uint32, tag = "1")]
-    pub buffer_index: u32,
+    pub(crate) buffer_index: u32,
     #[prost(bytes, tag = "2")]
-    pub data: Vec<u8>,
+    pub(crate) data: Vec<u8>,
 }
 
 /// Protobuf metadata for [`CudaFlatLayout`].
 #[derive(prost::Message)]
 pub struct CudaFlatLayoutMetadata {
     #[prost(bytes, tag = "1")]
-    pub array_encoding_tree: Vec<u8>,
+    pub(crate) array_encoding_tree: Vec<u8>,
     #[prost(message, repeated, tag = "2")]
-    pub host_buffers: Vec<InlinedBuffer>,
+    pub(crate) host_buffers: Vec<InlinedBuffer>,
 }
 
 /// CUDA flat layout vtable.
@@ -314,12 +315,12 @@ impl LayoutReader for CudaFlatReader {
                 let array = array.apply_bound(&expr)?;
                 let array = array.filter(mask.clone())?;
                 let mut ctx = session.create_execution_ctx();
-                let array_mask = array.null_as_false().execute(&mut ctx)?;
+                let array_mask = array.fill_null(false)?.execute::<Mask>(&mut ctx)?;
                 mask.intersect_by_rank(&array_mask)
             } else {
                 let array = array.apply_bound(&expr)?;
                 let mut ctx = session.create_execution_ctx();
-                let array_mask = array.null_as_false().execute(&mut ctx)?;
+                let array_mask = array.fill_null(false)?.execute::<Mask>(&mut ctx)?;
                 mask.bitand(&array_mask)
             };
 
@@ -596,6 +597,7 @@ const CUDA_EDITION: EditionId = EditionId::new("cuda", 2026, 9, 0);
 static CUDA_EDITION_DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: CUDA_EDITION,
+        immutable: true,
         min_library_version: None,
     },
     added: &[EditionMember::layout(&"vortex.cuda_flat")],
@@ -805,6 +807,7 @@ mod tests {
         session.register_edition(&EditionDeclaration {
             edition: Edition {
                 id: OTHER_CUDA_EDITION,
+                immutable: true,
                 min_library_version: None,
             },
             added: &[],

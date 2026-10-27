@@ -23,12 +23,16 @@ fn build_with_codes_validity(
     new_codes_validity: Validity,
 ) -> VortexResult<ArrayRef> {
     let codes = array.codes();
-    let new_codes = VarBinArray::try_new(
-        codes.offsets().clone(),
-        codes.bytes().clone(),
-        codes.dtype().with_nullability(dtype.nullability()),
-        new_codes_validity,
-    )?;
+    // SAFETY: the offsets and bytes are unchanged from valid codes, and the validity was cast
+    // from the codes' own validity, so it has the same length.
+    let new_codes = unsafe {
+        VarBinArray::new_unchecked_from_handle(
+            codes.offsets().clone(),
+            codes.bytes_handle().clone(),
+            codes.dtype().with_nullability(dtype.nullability()),
+            new_codes_validity,
+        )
+    };
 
     Ok(unsafe {
         FSST::new_unchecked_with_symbol_table(
@@ -95,7 +99,6 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::VarBinArray;
-    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -107,28 +110,10 @@ mod tests {
     use crate::initialize;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         initialize(&session);
         session
     });
-
-    #[test]
-    fn test_cast_fsst_nullability() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        let strings = VarBinArray::from_iter(
-            vec![Some("hello"), Some("world"), Some("hello world")],
-            DType::Utf8(Nullability::NonNullable),
-        )
-        .into_array();
-
-        let compressor = fsst_train_compressor(&strings, &mut ctx)?;
-        let fsst = fsst_compress(&strings, &compressor, &mut ctx)?;
-
-        // Cast to nullable
-        let casted = fsst.into_array().cast(DType::Utf8(Nullability::Nullable))?;
-        assert_eq!(casted.dtype(), &DType::Utf8(Nullability::Nullable));
-        Ok(())
-    }
 
     #[rstest]
     #[case(VarBinArray::from_iter(

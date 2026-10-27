@@ -1,0 +1,216 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! Bind abstract `vortex.stat` expressions to a concrete stats representation.
+//!
+//! Stats rewrite rules describe pruning in terms of `vortex.stat(input, aggregate_fn)` placeholders
+//! so the rewrite is independent of where statistics are stored. These stat placeholders are
+//! abstract because they name the statistic needed for a proof, but not how that statistic is
+//! represented by a specific layout or reader.
+//!
+//! Binding is the later pass that replaces each abstract placeholder with the representation used
+//! by a caller: zone-map field references, file-level stat literals, or typed nulls for missing
+//! stats. This lets all callers share the same falsification rules while keeping layout-specific
+//! stat storage behind [`StatBinder`].
+
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::dtype::DType;
+use vortex_array::expr::BoundExpression;
+use vortex_array::expr::bound::lit;
+use vortex_array::expr::traversal::NodeExt;
+use vortex_array::expr::traversal::Transformed;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::fns::stat::StatFn;
+use vortex_error::VortexResult;
+
+/// A target that can bind abstract statistics to concrete expressions.
+///
+/// Implementations define how a pruning proof should read stats from a specific backing
+/// representation. For example, a zone-map binder can translate a `max(col)` placeholder into a
+/// field reference in the per-zone stats table, while a file-stats binder can translate the same
+/// placeholder into a literal value from the file footer.
+pub trait StatBinder {
+    /// Bind `aggregate_fn(input)` to a concrete expression.
+    ///
+    /// Implementations should return `Ok(None)` when the requested aggregate
+    /// statistic is unavailable in their backing representation.
+    fn bind_aggregate(
+        &self,
+        input: &BoundExpression,
+        aggregate_fn: &AggregateFnRef,
+        stat_dtype: &DType,
+    ) -> VortexResult<Option<BoundExpression>>;
+
+    /// Expression to use when a stat is unavailable.
+    ///
+    /// The default is a nullable null literal, which preserves three-valued
+    /// pruning semantics for stats-table execution.
+    fn missing_stat(&self, dtype: DType) -> VortexResult<BoundExpression> {
+        null_expr(dtype)
+    }
+}
+
+/// Bind all `vortex.stat` expressions in `predicate`.
+///
+/// The predicate is usually the output of a stats rewrite rule. Rewrite rules
+/// are responsible for expressing stat semantics; binding maps aggregate-backed
+/// stat requests to the concrete stats representation supported by the binder.
+pub fn bind_stats<B: StatBinder + ?Sized>(
+    predicate: BoundExpression,
+    binder: &B,
+) -> VortexResult<BoundExpression> {
+    Ok(predicate
+        .transform_down(|expr| {
+            if !expr.is::<StatFn>() {
+                return Ok(Transformed::no(expr));
+            }
+
+            match bind_stat_fn(&expr, binder)? {
+                Some(bound) => Ok(Transformed::yes(bound)),
+                None => Ok(Transformed::yes(binder.missing_stat(expr.dtype().clone())?)),
+            }
+        })?
+        .into_inner())
+}
+
+fn bind_stat_fn(
+    expr: &BoundExpression,
+    binder: &(impl StatBinder + ?Sized),
+) -> VortexResult<Option<BoundExpression>> {
+    let options = expr.as_::<StatFn>();
+    let aggregate_fn = options.aggregate_fn();
+    // `StatFn` has exactly one child: the expression the aggregate statistic is computed over.
+    let input = expr.child(0);
+
+    binder.bind_aggregate(input, aggregate_fn, expr.dtype())
+}
+
+fn null_expr(dtype: DType) -> VortexResult<BoundExpression> {
+    Ok(lit(Scalar::null(dtype.as_nullable())))
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
+    use vortex_array::expr::and;
+    use vortex_array::expr::col;
+    use vortex_array::expr::get_item;
+    use vortex_array::expr::is_null;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::or;
+    use vortex_array::expr::root;
+    use vortex_array::expr::stats::Stat;
+    use vortex_error::VortexResult;
+
+    use super::*;
+    use crate::stats::all_non_nan;
+    use crate::stats::nan_count;
+
+    struct TestBinder {
+        input_scope: DType,
+        stats_scope: DType,
+        bind_nan_count: bool,
+    }
+
+    impl TestBinder {
+        fn new(bind_nan_count: bool) -> Self {
+            Self {
+                input_scope: DType::Struct(
+                    StructFields::from_iter([(
+                        "f",
+                        DType::Primitive(PType::F32, Nullability::NonNullable),
+                    )]),
+                    Nullability::NonNullable,
+                ),
+                stats_scope: DType::Struct(
+                    StructFields::from_iter([(
+                        "f_nan_count",
+                        DType::Primitive(PType::U64, Nullability::NonNullable),
+                    )]),
+                    Nullability::NonNullable,
+                ),
+                bind_nan_count,
+            }
+        }
+    }
+
+    impl StatBinder for TestBinder {
+        fn bind_aggregate(
+            &self,
+            _input: &BoundExpression,
+            aggregate_fn: &AggregateFnRef,
+            _stat_dtype: &DType,
+        ) -> VortexResult<Option<BoundExpression>> {
+            let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) else {
+                return Ok(None);
+            };
+
+            if stat == Stat::NaNCount && self.bind_nan_count {
+                Ok(Some(
+                    get_item("f_nan_count", root()).bind(&self.stats_scope)?,
+                ))
+            } else {
+                Ok(None)
+            }
+        }
+    }
+
+    #[test]
+    fn nan_count_binds_to_direct_stat_slot() -> VortexResult<()> {
+        let binder = TestBinder::new(true);
+
+        let bound = bind_stats(nan_count(col("f")).bind(&binder.input_scope)?, &binder)?;
+
+        assert_eq!(bound, col("f_nan_count").bind(&binder.stats_scope)?);
+        Ok(())
+    }
+
+    #[test]
+    fn all_non_nan_does_not_derive_from_nan_count() -> VortexResult<()> {
+        let binder = TestBinder::new(true);
+
+        let bound = bind_stats(all_non_nan(col("f")).bind(&binder.input_scope)?, &binder)?;
+
+        assert_eq!(
+            bound,
+            lit(Scalar::null(DType::Bool(Nullability::Nullable))).bind(&binder.stats_scope)?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn missing_stats_bind_to_null_without_reducing() -> VortexResult<()> {
+        let binder = TestBinder::new(false);
+        let null_bool = lit(Scalar::null(DType::Bool(Nullability::Nullable)));
+
+        let bound = bind_stats(
+            and(lit(false), all_non_nan(col("f"))).bind(&binder.input_scope)?,
+            &binder,
+        )?;
+
+        assert_eq!(
+            bound,
+            and(lit(false), null_bool.clone()).bind(&binder.stats_scope)?
+        );
+
+        let bound = bind_stats(
+            or(lit(true), all_non_nan(col("f"))).bind(&binder.input_scope)?,
+            &binder,
+        )?;
+
+        assert_eq!(bound, or(lit(true), null_bool).bind(&binder.stats_scope)?);
+        Ok(())
+    }
+
+    #[test]
+    fn unrelated_expressions_are_preserved() -> VortexResult<()> {
+        let binder = TestBinder::new(false);
+
+        let bound = bind_stats(is_null(col("f")).bind(&binder.input_scope)?, &binder)?;
+
+        assert_eq!(bound, is_null(col("f")).bind(&binder.input_scope)?);
+        Ok(())
+    }
+}

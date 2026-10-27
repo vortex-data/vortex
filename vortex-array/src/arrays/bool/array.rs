@@ -55,7 +55,8 @@ pub struct BoolSlots {
 /// ```
 /// # fn main() -> vortex_error::VortexResult<()> {
 /// use vortex_array::arrays::BoolArray;
-/// use vortex_array::{IntoArray, array_session, VortexSessionExecute};
+/// use vortex_array::{IntoArray, VortexSessionExecute};
+/// use vortex_session::VortexSession;
 ///
 /// // Create from iterator using FromIterator impl
 /// let array: BoolArray = [true, false, true, false].into_iter().collect();
@@ -65,7 +66,7 @@ pub struct BoolSlots {
 /// assert_eq!(sliced.len(), 2);
 ///
 /// // Access individual values
-/// let mut ctx = array_session().create_execution_ctx();
+/// let mut ctx = VortexSession::empty().create_execution_ctx();
 /// let value = array.execute_scalar(0, &mut ctx).unwrap();
 /// assert_eq!(value, true.into());
 /// # Ok(())
@@ -90,7 +91,7 @@ pub struct BoolDataParts {
 
 pub trait BoolArrayExt: TypedArrayRef<Bool> {
     fn nullability(&self) -> crate::dtype::Nullability {
-        match self.as_ref().dtype() {
+        match self.dtype() {
             DType::Bool(nullability) => *nullability,
             _ => unreachable!("BoolArrayExt requires a bool dtype"),
         }
@@ -98,7 +99,7 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
 
     fn validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[BoolSlots::VALIDITY].as_ref(),
+            self.slots()[BoolSlots::VALIDITY].as_ref(),
             self.nullability(),
         )
     }
@@ -130,11 +131,11 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
 
     fn to_mask_fill_null_false(&self, ctx: &mut ExecutionCtx) -> Mask {
         let validity_mask = BoolArrayExt::validity(self)
-            .execute_mask(self.as_ref().len(), ctx)
+            .execute_mask(self.len(), ctx)
             .vortex_expect("Failed to compute validity mask");
         let buffer = match validity_mask {
             Mask::AllTrue(_) => self.to_bit_buffer(),
-            Mask::AllFalse(_) => return Mask::new_false(self.as_ref().len()),
+            Mask::AllFalse(_) => return Mask::new_false(self.len()),
             Mask::Values(validity) => validity.bit_buffer() & self.to_bit_buffer(),
         };
         Mask::from_buffer(buffer)
@@ -189,9 +190,7 @@ impl Array<Bool> {
         let len = bits.len();
         let slots = BoolData::make_slots(&validity, len);
         let data = BoolData::try_new(bits, validity)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data).with_slots(slots))
-        })
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data, slots)) })
     }
 
     /// Build a new bool array from a `BufferHandle`, returning an error if the offset is
@@ -205,9 +204,7 @@ impl Array<Bool> {
         let dtype = DType::Bool(validity.nullability());
         let slots = BoolData::make_slots(&validity, len);
         let data = BoolData::try_new_from_handle(bits, offset, len, validity)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data).with_slots(slots))
-        })
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data, slots)) })
     }
 
     /// Creates a new [`BoolArray`] without validation.
@@ -221,9 +218,7 @@ impl Array<Bool> {
         let slots = BoolData::make_slots(&validity, len);
         // SAFETY: caller guarantees validity length equals bit buffer length.
         let data = unsafe { BoolData::new_unchecked(bits, validity) };
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data, slots)) }
     }
 
     /// Validates the components that would be used to create a [`BoolArray`].
@@ -369,6 +364,7 @@ impl IntoArray for BitBufferMut {
 mod tests {
     use std::iter::once;
     use std::iter::repeat_n;
+    use std::sync::LazyLock;
 
     use vortex_buffer::Alignment;
     use vortex_buffer::BitBuffer;
@@ -376,10 +372,10 @@ mod tests {
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::bool::BoolArrayExt;
@@ -388,9 +384,11 @@ mod tests {
     use crate::patches::Patches;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn bool_array() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let arr = BoolArray::from_iter([true, false, true]);
         let scalar = bool::try_from(&arr.execute_scalar(0, &mut ctx).unwrap()).unwrap();
@@ -399,7 +397,7 @@ mod tests {
 
     #[test]
     fn test_all_some_iter() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let arr = BoolArray::from_iter([Some(true), Some(false)]);
 
@@ -413,7 +411,7 @@ mod tests {
 
     #[test]
     fn test_bool_from_iter() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = BoolArray::from_iter([Some(true), Some(true), None, Some(false), None]);
 
         let scalar = bool::try_from(&arr.execute_scalar(0, &mut ctx).unwrap()).unwrap();
@@ -434,7 +432,7 @@ mod tests {
 
     #[test]
     fn patch_sliced_bools() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = BoolArray::from(BitBuffer::new_set(12));
         let sliced = arr.slice(4..12).unwrap();
         assert_arrays_eq!(sliced, BoolArray::from_iter([true; 8]), &mut ctx);
@@ -459,6 +457,7 @@ mod tests {
             buffer![4u32].into_array(),
             BoolArray::from(BitBuffer::new_unset(1)).into_array(),
             None,
+            &mut ctx,
         )
         .unwrap();
         let arr = arr.patch(&patches, &mut ctx).unwrap();
@@ -472,7 +471,7 @@ mod tests {
 
     #[test]
     fn slice_array_in_middle() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = BoolArray::from(BitBuffer::new_set(16));
         let sliced = arr.slice(4..12).unwrap();
         assert_arrays_eq!(sliced, BoolArray::from_iter([true; 8]), &mut ctx);
@@ -488,7 +487,7 @@ mod tests {
 
         let sliced = array.slice(9..15)?;
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(
             sliced,
             BoolArray::from_iter([false, false, true, false, true, true]),
@@ -499,7 +498,7 @@ mod tests {
 
     #[test]
     fn patch_bools_owned() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = BoolArray::from(BitBuffer::new_set(16));
         let buf_ptr = arr.to_bit_buffer().inner().as_ptr();
 
@@ -509,6 +508,7 @@ mod tests {
             PrimitiveArray::new(buffer![0u32], Validity::NonNullable).into_array(),
             BoolArray::from(BitBuffer::new_unset(1)).into_array(),
             None,
+            &mut ctx,
         )
         .unwrap();
         let arr = arr.patch(&patches, &mut ctx).unwrap();
@@ -522,7 +522,7 @@ mod tests {
 
     #[test]
     fn patch_sliced_bools_offset() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = BoolArray::from(BitBuffer::new_set(15));
         let sliced = arr.slice(4..15).unwrap();
         assert_arrays_eq!(sliced, BoolArray::from_iter([true; 11]), &mut ctx);

@@ -8,6 +8,7 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
+use crate::BitWidthsView;
 use crate::bitpack_decompress;
 use crate::bitpacking::array::BitPackedArrayExt;
 impl OperationsVTable<BitPacked> for BitPacked {
@@ -16,15 +17,20 @@ impl OperationsVTable<BitPacked> for BitPacked {
     fn scalar_at(
         array: ArrayView<'_, BitPacked>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         Ok(
             if let Some(patches) = array.patches()
-                && let Some(patch) = patches.get_patched(index)?
+                && let Some(patch) = patches.get_patched(index, ctx)?
             {
                 patch
             } else {
-                bitpack_decompress::unpack_single(array, index)
+                match array.bit_widths() {
+                    BitWidthsView::Global(_) => bitpack_decompress::unpack_single(array, index)?,
+                    BitWidthsView::Blocked(offsets) => {
+                        bitpack_decompress::unpack_single_blocked(array, offsets, index, ctx)?
+                    }
+                }
             },
         )
     }
@@ -89,24 +95,6 @@ mod test {
         );
         assert_eq!(sliced.offset(), 0);
         assert_eq!(sliced.len(), 1024);
-    }
-
-    #[test]
-    pub fn slice_within_block() {
-        let arr = bp(
-            &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).into_array(),
-            6,
-        );
-        let sliced = slice_via_reduce(&arr, 512..1434);
-        assert_nth_scalar!(sliced, 0, 512u32 % 64, &mut SESSION.create_execution_ctx());
-        assert_nth_scalar!(
-            sliced,
-            921,
-            1433u32 % 64,
-            &mut SESSION.create_execution_ctx()
-        );
-        assert_eq!(sliced.offset(), 512);
-        assert_eq!(sliced.len(), 922);
     }
 
     #[test]
@@ -233,11 +221,16 @@ mod test {
         let taken = sliced
             .take(buffer![101i64, 1125, 1138].into_array())
             .unwrap();
-        assert_eq!(taken.len(), 3);
+        assert_arrays_eq!(
+            taken,
+            PrimitiveArray::from_iter([1086u32, 2110, 2123]),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
     fn scalar_at_invalid_patches() {
+        let mut ctx = SESSION.create_execution_ctx();
         let packed_array = BitPacked::try_new(
             BufferHandle::new_host(ByteBuffer::copy_from_aligned(
                 [0u8; 128],
@@ -252,6 +245,7 @@ mod test {
                     buffer![1u32].into_array(),
                     PrimitiveArray::new(buffer![999u32], Validity::AllValid).into_array(),
                     None,
+                    &mut ctx,
                 )
                 .unwrap(),
             ),
@@ -287,6 +281,13 @@ mod test {
             .unwrap(),
             256
         );
+
+        for (index, value) in values.iter().copied().enumerate() {
+            let scalar = packed.execute_scalar(index, &mut ctx).unwrap();
+            let expected = Scalar::from(value);
+            assert_eq!(scalar.dtype(), expected.dtype());
+            assert_eq!(scalar, expected);
+        }
 
         let expected = PrimitiveArray::from_iter(values.iter().copied());
         assert_arrays_eq!(packed, expected, &mut ctx);

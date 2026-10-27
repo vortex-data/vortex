@@ -13,6 +13,7 @@ use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
+use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::zip::ZipKernel;
 use crate::scalar_fn::fns::zip::zip_validity;
 
@@ -34,7 +35,7 @@ impl ZipKernel for Bool {
         };
 
         // Null mask entries select `if_false`, matching `Zip`'s SQL ELSE semantics.
-        let mask = mask.clone().null_as_false().execute(ctx)?;
+        let mask = mask.clone().fill_null(false)?.execute::<Mask>(ctx)?;
         let mask_values = match &mask {
             // Defer trivial masks to the generic zip, which just casts the surviving side.
             Mask::AllTrue(_) | Mask::AllFalse(_) => return Ok(None),
@@ -83,18 +84,22 @@ fn zip_value_bits(if_true: &BitBuffer, if_false: &BitBuffer, mask: &BitBuffer) -
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use super::zip_value_bits;
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Bool;
     use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn blend_value_bits_boundaries() {
@@ -132,7 +137,7 @@ mod tests {
         let bits: Vec<bool> = (0..len).map(|i| i.is_multiple_of(5) || i == 64).collect();
         let mask = Mask::from_iter(bits.iter().copied());
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?
@@ -167,7 +172,7 @@ mod tests {
         let bits: Vec<bool> = (0..len).map(|i| i.is_multiple_of(2)).collect();
         let mask = Mask::from_iter(bits.iter().copied());
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?

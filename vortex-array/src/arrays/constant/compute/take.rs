@@ -2,32 +2,23 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_mask::AllOr;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::VortexSessionExecute;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::MaskedArray;
 use crate::arrays::dict::TakeReduce;
 use crate::arrays::dict::TakeReduceAdaptor;
-use crate::legacy_session;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 impl TakeReduce for Constant {
-    #[allow(clippy::disallowed_methods)]
     fn take(array: ArrayView<'_, Constant>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        let mut ctx = legacy_session().create_execution_ctx();
-        let result = match indices
-            .validity()?
-            .execute_mask(indices.len(), &mut ctx)?
-            .bit_buffer()
-        {
-            AllOr::All => {
+        let result = match indices.validity()? {
+            Validity::NonNullable | Validity::AllValid => {
                 let scalar = Scalar::try_new(
                     array
                         .scalar()
@@ -37,7 +28,7 @@ impl TakeReduce for Constant {
                 )?;
                 ConstantArray::new(scalar, indices.len()).into_array()
             }
-            AllOr::None => ConstantArray::new(
+            Validity::AllInvalid => ConstantArray::new(
                 Scalar::null(
                     array
                         .dtype()
@@ -46,14 +37,16 @@ impl TakeReduce for Constant {
                 indices.len(),
             )
             .into_array(),
-            AllOr::Some(v) => {
+            validity @ Validity::Array(_) => {
                 let arr = ConstantArray::new(array.scalar().clone(), indices.len()).into_array();
 
                 if array.scalar().is_null() {
                     return Ok(Some(arr));
                 }
 
-                MaskedArray::try_new(arr, Validity::from(v.clone()))?.into_array()
+                // SAFETY: `arr` repeats a non-null scalar, and the validity comes from the indices,
+                // which have the same length as `arr`.
+                unsafe { MaskedArray::new_unchecked(arr, validity) }.into_array()
             }
         };
         Ok(Some(result))
@@ -68,14 +61,15 @@ impl Constant {
 #[cfg(test)]
 mod tests {
     use std::f64;
+    use std::sync::LazyLock;
 
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_mask::AllOr;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -84,9 +78,11 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn take_nullable_indices() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = ConstantArray::new(42, 10).into_array();
         let taken = array
             .take(
@@ -103,7 +99,7 @@ mod tests {
             taken.dtype()
         );
         assert_arrays_eq!(
-            taken.clone().execute::<PrimitiveArray>(&mut ctx).unwrap(),
+            taken,
             PrimitiveArray::new(
                 buffer![42i32, 42, 42],
                 Validity::from_iter([false, true, false])
@@ -123,7 +119,7 @@ mod tests {
 
     #[test]
     fn take_all_valid_indices() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = ConstantArray::new(42, 10).into_array();
         let taken = array
             .take(PrimitiveArray::new(buffer![0, 5, 7], Validity::AllValid).into_array())
@@ -133,7 +129,7 @@ mod tests {
             taken.dtype()
         );
         assert_arrays_eq!(
-            taken.clone().execute::<PrimitiveArray>(&mut ctx).unwrap(),
+            taken,
             PrimitiveArray::new(buffer![42i32, 42, 42], Validity::AllValid),
             &mut ctx
         );
@@ -155,9 +151,6 @@ mod tests {
     #[case(ConstantArray::new(Scalar::null_native::<i64>(), 5))]
     #[case(ConstantArray::new(true, 1))]
     fn test_take_constant_conformance(#[case] array: ConstantArray) {
-        test_take_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_take_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

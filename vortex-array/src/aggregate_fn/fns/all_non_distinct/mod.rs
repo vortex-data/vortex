@@ -160,7 +160,7 @@ impl AggregateFnVTable for AllNonDistinct {
     fn partial_from_scalar(
         &self,
         _args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         Ok(AllNonDistinctPartial {
             all_non_distinct: scalar.as_bool().value().unwrap_or(false),

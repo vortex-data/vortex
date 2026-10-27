@@ -43,3 +43,14 @@ mod registry;
 
 #[cfg(feature = "registry")]
 pub use registry::Registry;
+
+/// Parse a boolean the way `object_store` does: `1`/`true`/`on`/`yes`/`y` and their negatives,
+/// case-insensitively. `None` for anything else.
+#[cfg(any(feature = "cos", feature = "oss", feature = "hf"))]
+pub(crate) fn parse_object_store_bool(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "on" | "yes" | "y" => Some(true),
+        "0" | "false" | "off" | "no" | "n" => Some(false),
+        _ => None,
+    }
+}

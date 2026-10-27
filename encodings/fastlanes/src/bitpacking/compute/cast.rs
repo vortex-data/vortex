@@ -6,17 +6,20 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
-use vortex_array::match_each_integer_ptype;
+use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar_fn::fns::cast::CastKernel;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
+use crate::BitPackedArray;
 use crate::bitpacking::BitPacked;
+use crate::bitpacking::BitWidthsView;
 use crate::bitpacking::array::BitPackedArrayExt;
 use crate::bitpacking::array::bitpack_decompress::unpack_map_into_builder;
 
@@ -31,12 +34,21 @@ fn is_widening_int_cast(src: PType, tgt: PType) -> bool {
         && (src.is_unsigned_int() || tgt.is_signed_int())
 }
 
+/// Returns `true` if every value a patch-free array packed at `bit_width` can hold fits `tgt`.
+/// Packed values are non-negative and below `2^bit_width`.
+fn packed_values_fit(bit_width: u8, src: PType, tgt: PType) -> bool {
+    src.is_int()
+        && tgt.is_int()
+        && usize::from(bit_width) + usize::from(tgt.is_signed_int()) <= tgt.bit_width()
+}
+
 fn build_with_validity(
     array: ArrayView<'_, BitPacked>,
+    bit_width: u8,
     dtype: &DType,
     new_validity: Validity,
-) -> VortexResult<ArrayRef> {
-    Ok(BitPacked::try_new(
+) -> VortexResult<BitPackedArray> {
+    BitPacked::try_new(
         array.packed().clone(),
         dtype.as_ptype(),
         new_validity,
@@ -44,15 +56,17 @@ fn build_with_validity(
             .patches()
             .map(|patches| patches.map_values(|values| values.cast(dtype.clone())))
             .transpose()?,
-        array.bit_width(),
+        bit_width,
         array.len(),
         array.offset(),
-    )?
-    .into_array())
+    )
 }
 
 impl CastReduce for BitPacked {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+        let BitWidthsView::Global(bit_width) = array.bit_widths() else {
+            return Ok(None);
+        };
         if !array.dtype().eq_ignore_nullability(dtype) {
             return Ok(None);
         }
@@ -62,7 +76,9 @@ impl CastReduce for BitPacked {
         else {
             return Ok(None);
         };
-        build_with_validity(array, dtype, new_validity).map(Some)
+        Ok(Some(
+            build_with_validity(array, bit_width, dtype, new_validity)?.into_array(),
+        ))
     }
 }
 
@@ -72,24 +88,31 @@ impl CastKernel for BitPacked {
         dtype: &DType,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        let BitWidthsView::Global(bit_width) = array.bit_widths() else {
+            return Ok(None);
+        };
         // Nullability-only change: keep the values bit-packed, just adjust validity.
         if array.dtype().eq_ignore_nullability(dtype) {
             let new_validity =
                 array
                     .validity()?
                     .cast_nullability(dtype.nullability(), array.len(), ctx)?;
-            return build_with_validity(array, dtype, new_validity).map(Some);
+            return Ok(Some(
+                build_with_validity(array, bit_width, dtype, new_validity)?.into_array(),
+            ));
         }
 
-        // Widening integer cast: unpack each FastLanes chunk into a cache-resident scratch buffer
-        // and cast-copy straight into the wide output, avoiding a full-length intermediate buffer
-        // and the generic cast kernel's bounds-check scan (unnecessary when widening).
+        // Widening integer cast, or a narrowing one whose target holds every packed value: unpack
+        // each FastLanes chunk into a cache-resident scratch buffer and cast-copy straight into the
+        // output, avoiding a full-length intermediate buffer and the generic cast kernel's
+        // bounds-check scan (unnecessary when every value fits).
         let DType::Primitive(tgt, tgt_nullability) = dtype else {
             return Ok(None);
         };
         let (tgt, tgt_nullability) = (*tgt, *tgt_nullability);
         let src = array.dtype().as_ptype();
-        if !is_widening_int_cast(src, tgt) {
+        let fits = || array.patches().is_none() && packed_values_fit(bit_width, src, tgt);
+        if !is_widening_int_cast(src, tgt) && !fits() {
             return Ok(None);
         }
 
@@ -99,16 +122,32 @@ impl CastKernel for BitPacked {
             .validity()?
             .cast_nullability(tgt_nullability, array.len(), ctx)?;
 
-        let result = match_each_integer_ptype!(tgt, |T| {
+        // Bit-packing rejects negative values, so sign extension of a packed value is the same as
+        // zero extension. A signed cast then gives the same bits as the unsigned cast of the same
+        // widths, and signed and unsigned casts share one set of kernels. The patch values are
+        // never negative either, so their cast to the unsigned ptype cannot fail.
+        let unsigned;
+        let source = if src.is_signed_int() {
+            let unsigned_dtype = DType::Primitive(src.to_unsigned(), array.dtype().nullability());
+            unsigned = build_with_validity(array, bit_width, &unsigned_dtype, array.validity()?)?;
+            unsigned.as_view()
+        } else {
+            array
+        };
+
+        let result = match_each_unsigned_integer_ptype!(tgt.to_unsigned(), |T| {
             let mut builder = PrimitiveBuilder::<T>::with_capacity_in(
                 tgt_nullability,
                 array.len(),
                 ctx.allocator(),
             );
-            match_each_integer_ptype!(src, |F| {
-                unpack_map_into_builder::<F, T, _>(array, &mut builder, ctx, |v: F| v.as_())?;
+            match_each_unsigned_integer_ptype!(src.to_unsigned(), |F| {
+                unpack_map_into_builder::<F, T, _>(source, &mut builder, ctx, |v: F| v.as_())?;
             });
-            builder.finish_into_primitive().into_array()
+            builder
+                .finish_into_primitive()
+                .reinterpret_cast(tgt)
+                .into_array()
         });
         Ok(Some(result))
     }
@@ -136,10 +175,11 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::BitPackedArray;
+    use crate::BitPackedArrayExt;
     use crate::BitPackedData;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -168,6 +208,24 @@ mod tests {
         );
     }
 
+    /// Signed sources are cast through an unsigned view, which reinterprets the patch values.
+    #[rstest]
+    #[case::i8_to_i16(PType::I16)]
+    #[case::i8_to_i64(PType::I64)]
+    fn test_cast_bitpacked_signed_with_patches(#[case] tgt: PType) -> VortexResult<()> {
+        let values = PrimitiveArray::from_iter(
+            (0..2000).map(|i| if i % 97 == 0 { 120i8 } else { (i % 7) as i8 }),
+        );
+        let packed = bp(&values.clone().into_array(), 3);
+        assert!(packed.patches().is_some(), "test setup expects patches");
+
+        let target = DType::Primitive(tgt, Nullability::NonNullable);
+        let casted = packed.into_array().cast(target.clone())?;
+        let expected = values.into_array().cast(target)?;
+        assert_arrays_eq!(casted, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
     #[test]
     fn test_cast_bitpacked_nullable() {
         let values = PrimitiveArray::from_option_iter([Some(5u16), None, Some(10), Some(15), None]);
@@ -180,6 +238,11 @@ mod tests {
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::Nullable)
+        );
+        assert_arrays_eq!(
+            casted,
+            PrimitiveArray::from_option_iter([Some(5u32), None, Some(10), Some(15), None]),
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -229,17 +292,12 @@ mod tests {
                     let mut ctx = SESSION.create_execution_ctx();
 
                     // Reference: plain primitive cast of the same values.
-                    let reference = source_ref
-                        .clone()
-                        .cast(target.clone())?
-                        .execute::<PrimitiveArray>(&mut ctx)?;
+                    let reference = source_ref.clone().cast(target.clone())?;
 
                     // Candidate: bit-pack, then cast through the real engine. This dispatches to
                     // `BitPacked`'s `CastKernel` widening pushdown.
                     let packed = bp(&source_ref, 3).into_array();
-                    let casted = packed
-                        .cast(target.clone())?
-                        .execute::<PrimitiveArray>(&mut ctx)?;
+                    let casted = packed.cast(target.clone())?;
                     assert_arrays_eq!(casted, reference, &mut ctx);
 
                     // Also exercise the sliced/offset path (offset > 0, trailer present).
@@ -247,20 +305,47 @@ mod tests {
                         let lo = len / 4;
                         let hi = len - len / 4;
                         let sliced = bp(&source_ref, 3).into_array().slice(lo..hi)?;
-                        let casted = sliced
-                            .cast(target.clone())?
-                            .execute::<PrimitiveArray>(&mut ctx)?;
-                        let reference = source_ref
-                            .clone()
-                            .slice(lo..hi)?
-                            .cast(target.clone())?
-                            .execute::<PrimitiveArray>(&mut ctx)?;
+                        let casted = sliced.cast(target.clone())?;
+                        let reference = source_ref.clone().slice(lo..hi)?.cast(target.clone())?;
                         assert_arrays_eq!(casted, reference, &mut ctx);
                     }
                 }
             }
         }
 
+        Ok(())
+    }
+
+    /// Narrowing casts of patch-free arrays whose bit width fits the target unpack directly and
+    /// match a plain primitive cast, including sliced and nullable inputs.
+    #[rstest]
+    #[case(PType::I64, PType::U8)]
+    #[case(PType::I64, PType::I8)]
+    #[case(PType::U64, PType::U16)]
+    #[case(PType::I32, PType::I16)]
+    fn test_cast_bitpacked_narrowing_fits(
+        #[case] src: PType,
+        #[case] tgt: PType,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let source = match_each_integer_ptype!(src, |S| {
+            PrimitiveArray::from_option_iter((0..2051usize).map(|i| {
+                (i % 11 != 5).then(|| {
+                    <S as num_traits::FromPrimitive>::from_usize(i % 128)
+                        .expect("test values fit every integer ptype")
+                })
+            }))
+        })
+        .into_array();
+        let packed = bp(&source, 7);
+        assert!(packed.patches().is_none());
+        let target = DType::Primitive(tgt, Nullability::Nullable);
+
+        let casted = packed.clone().into_array().cast(target.clone())?;
+        assert_arrays_eq!(casted, source.cast(target.clone())?, &mut ctx);
+
+        let sliced = packed.into_array().slice(500..1700)?.cast(target.clone())?;
+        assert_arrays_eq!(sliced, source.slice(500..1700)?.cast(target)?, &mut ctx);
         Ok(())
     }
 

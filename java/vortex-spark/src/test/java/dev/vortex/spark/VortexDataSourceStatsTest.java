@@ -4,7 +4,6 @@
 package dev.vortex.spark;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.vortex.spark.read.VortexScan;
@@ -162,11 +161,15 @@ public final class VortexDataSourceStatsTest {
 
         VortexScan scan = buildScan(outputPath);
         Statistics first = scan.estimateStatistics();
+        assertEquals(50L, first.numRows().orElseThrow());
+        try (Stream<Path> paths = Files.walk(outputPath)) {
+            for (Path path : paths.filter(Files::isRegularFile).toList()) {
+                Files.delete(path);
+            }
+        }
         Statistics second = scan.estimateStatistics();
-
-        // Same instance returned -- the second call hits the cached value.
-        assertEquals(first, second, "estimateStatistics() should return the same Statistics object on repeat calls");
-        assertInstanceOf(Statistics.class, first);
+        assertEquals(50L, second.numRows().orElseThrow());
+        assertEquals(first.sizeInBytes(), second.sizeInBytes());
     }
 
     private VortexScan buildScan(Path outputPath) {

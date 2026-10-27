@@ -24,12 +24,13 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
+use crate::ArrowExporter;
 use crate::executor::validity::to_arrow_null_buffer;
-use crate::session::ArrowSessionExt;
 
 pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
     array: ArrayRef,
     elements_field: &FieldRef,
+    exporter: &ArrowExporter<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
     vortex_ensure!(
@@ -67,12 +68,13 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
         array
     };
 
-    list_view_to_list_view::<O>(array, elements_field, ctx)
+    list_view_to_list_view::<O>(array, elements_field, exporter, ctx)
 }
 
 fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
     array: ListViewArray,
     elements_field: &FieldRef,
+    exporter: &ArrowExporter<'_>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
     let ListViewDataParts {
@@ -84,11 +86,7 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
     } = array.into_data_parts();
 
     let n_elements = elements.len();
-    let elements = ctx.session().clone().arrow().execute_arrow(
-        elements,
-        Some(elements_field.as_ref()),
-        ctx,
-    )?;
+    let elements = exporter.execute_arrow(elements, Some(elements_field.as_ref()), ctx)?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Elements field is non-nullable but elements array contains nulls"
@@ -133,6 +131,8 @@ mod tests {
 
     use arrow_array::Array;
     use arrow_array::GenericListViewArray;
+    use arrow_array::Int32Array;
+    use arrow_array::Int64Array;
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use vortex_array::IntoArray;
@@ -147,7 +147,7 @@ mod tests {
     use crate::executor::list_view::PrimitiveArray;
 
     /// A shared session for these list-view-executor tests, used to create execution contexts.
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn trims_zero_copy_with_significant_trailing_waste() -> VortexResult<()> {
@@ -181,6 +181,17 @@ mod tests {
             .downcast_ref::<GenericListViewArray<i32>>()
             .unwrap();
         assert_eq!(listview.values().len(), 4);
+        let expected = [Some(vec![0, 1]), Some(vec![2, 3])];
+        assert_eq!(listview.len(), expected.len());
+        for (index, expected) in expected.into_iter().enumerate() {
+            assert_eq!(listview.is_null(index), expected.is_none());
+            if let Some(expected) = expected {
+                assert_eq!(
+                    listview.value(index).to_data(),
+                    Int32Array::from(expected).to_data()
+                );
+            }
+        }
         Ok(())
     }
 
@@ -197,6 +208,7 @@ mod tests {
             offsets.into_array(),
             sizes.into_array(),
             Validity::AllValid,
+            &mut ctx,
         );
 
         // Convert to Arrow ListView with i32 offsets.
@@ -220,22 +232,27 @@ mod tests {
         // Verify first list view [1, 2].
         let first_list = listview.value(0);
         assert_eq!(first_list.len(), 2);
-        let first_values = first_list
-            .as_any()
-            .downcast_ref::<arrow_array::Int32Array>()
-            .unwrap();
+        let first_values = first_list.as_any().downcast_ref::<Int32Array>().unwrap();
         assert_eq!(first_values.value(0), 1);
         assert_eq!(first_values.value(1), 2);
 
         // Verify second list view [2, 3].
         let second_list = listview.value(1);
         assert_eq!(second_list.len(), 2);
-        let second_values = second_list
-            .as_any()
-            .downcast_ref::<arrow_array::Int32Array>()
-            .unwrap();
+        let second_values = second_list.as_any().downcast_ref::<Int32Array>().unwrap();
         assert_eq!(second_values.value(0), 2);
         assert_eq!(second_values.value(1), 3);
+        let expected = [Some(vec![1, 2]), Some(vec![2, 3]), Some(vec![3, 4])];
+        assert_eq!(listview.len(), expected.len());
+        for (index, expected) in expected.into_iter().enumerate() {
+            assert_eq!(listview.is_null(index), expected.is_none());
+            if let Some(expected) = expected {
+                assert_eq!(
+                    listview.value(index).to_data(),
+                    Int32Array::from(expected).to_data()
+                );
+            }
+        }
         Ok(())
     }
 
@@ -282,12 +299,20 @@ mod tests {
         // Verify the third list [200, 300].
         let third_list = listview.value(2);
         assert_eq!(third_list.len(), 2);
-        let third_values = third_list
-            .as_any()
-            .downcast_ref::<arrow_array::Int64Array>()
-            .unwrap();
+        let third_values = third_list.as_any().downcast_ref::<Int64Array>().unwrap();
         assert_eq!(third_values.value(0), 200);
         assert_eq!(third_values.value(1), 300);
+        let expected = [Some(vec![100]), None, Some(vec![200, 300])];
+        assert_eq!(listview.len(), expected.len());
+        for (index, expected) in expected.into_iter().enumerate() {
+            assert_eq!(listview.is_null(index), expected.is_none());
+            if let Some(expected) = expected {
+                assert_eq!(
+                    listview.value(index).to_data(),
+                    Int64Array::from(expected).to_data()
+                );
+            }
+        }
         Ok(())
     }
 }

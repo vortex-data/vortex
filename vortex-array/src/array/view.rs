@@ -52,21 +52,25 @@ impl<'a, V: VTable> ArrayView<'a, V> {
     }
 
     /// Returns this array's child slots.
+    #[allow(clippy::same_name_method)]
     pub fn slots(&self) -> &'a [Option<ArrayRef>] {
         self.array.slots()
     }
 
     /// Returns the logical dtype.
+    #[allow(clippy::same_name_method)]
     pub fn dtype(&self) -> &DType {
         self.array.dtype()
     }
 
     /// Returns the number of rows.
+    #[allow(clippy::same_name_method)]
     pub fn len(&self) -> usize {
         self.array.len()
     }
 
     /// Returns `true` when the array has no rows.
+    #[allow(clippy::same_name_method)]
     pub fn is_empty(&self) -> bool {
         self.array.len() == 0
     }

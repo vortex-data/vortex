@@ -9,7 +9,6 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
@@ -18,6 +17,7 @@ use vortex_array::dtype::i256;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
+use vortex_session::VortexSession;
 
 use super::DecimalByteParts;
 use super::DecimalBytePartsArray;
@@ -34,7 +34,7 @@ const MAX_I256_HIGH: i128 = 10i128.pow(37);
 const MAX_LEN: usize = 48;
 
 fn ctx() -> ExecutionCtx {
-    let session = array_session();
+    let session = VortexSession::empty();
     crate::initialize(&session);
     session.create_execution_ctx()
 }
@@ -142,7 +142,7 @@ fn decoded_survives_encode_then_decode(tc: TestCase) {
     let round_tripped = canonicalize(encoded.into_array(), &mut ctx);
 
     assert_eq!(round_tripped.values_type(), decimal.values_type());
-    assert_arrays_eq!(decimal, round_tripped, &mut ctx);
+    assert_arrays_eq!(round_tripped, decimal, &mut ctx);
 }
 
 /// Decoding an encoded array and encoding it again must not change the values it decodes to.
@@ -158,9 +158,8 @@ fn encoded_survives_decode_then_encode(tc: TestCase) {
 
     let decoded = canonicalize(array.into_array(), &mut ctx);
     let re_encoded = DecimalByteParts::encode(&decoded, &mut ctx).vortex_expect("encode");
-    let re_decoded = canonicalize(re_encoded.into_array(), &mut ctx);
 
-    assert_arrays_eq!(decoded, re_decoded, &mut ctx);
+    assert_arrays_eq!(re_encoded, decoded, &mut ctx);
 }
 
 // TODO(joe): restore the coverage removed alongside these two round trips. Each of the

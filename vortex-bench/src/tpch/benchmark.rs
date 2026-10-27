@@ -26,6 +26,7 @@ use crate::tpch::schema::SUPPLIER;
 use crate::tpch::tpch_queries;
 use crate::tpch::tpchgen;
 use crate::tpch::tpchgen::TpchGenOptions;
+use crate::utils::split;
 
 /// TPCH benchmark implementation
 pub struct TpcHBenchmark {
@@ -139,12 +140,7 @@ impl Benchmark for TpcHBenchmark {
         ]
     }
 
-    #[expect(clippy::expect_used)]
     fn pattern(&self, table_name: &str, format: Format) -> Option<Pattern> {
-        Some(
-            format!("{}.{}", table_name, format.ext())
-                .parse()
-                .expect("valid glob pattern"),
-        )
+        Some(split::part_pattern(table_name, format.ext()))
     }
 }

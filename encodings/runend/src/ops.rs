@@ -92,7 +92,7 @@ mod tests {
     use crate::RunEnd;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -188,7 +188,12 @@ mod tests {
 
         let sliced_array = re_array.slice(2..5).unwrap();
 
-        assert!(is_constant(&sliced_array, &mut ctx).unwrap())
+        assert!(is_constant(&sliced_array, &mut ctx).unwrap());
+        assert_arrays_eq!(
+            sliced_array,
+            PrimitiveArray::from_iter([2u64, 2, 2]),
+            &mut ctx
+        );
     }
 
     #[test]

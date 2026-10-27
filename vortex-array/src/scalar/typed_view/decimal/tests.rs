@@ -12,6 +12,7 @@ use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
 use crate::dtype::MAX_PRECISION;
+use crate::dtype::MAX_SCALE;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -63,7 +64,11 @@ fn test_decimal_cast_to_primitive() {
         .cast(&DType::Primitive(PType::F64, Nullability::NonNullable))
         .unwrap();
     let float_value: f64 = float_result.try_into().unwrap();
-    assert!((float_value - 123.45).abs() < 0.001);
+    assert_eq!(float_value, 123.45);
+    assert_eq!(
+        float_result.as_primitive().typed_value::<f64>(),
+        Some(123.45)
+    );
 
     // Cast to i32 should give us 123 (truncated)
     let int_result = &decimal_scalar
@@ -86,6 +91,10 @@ fn test_decimal_cast_null_handling() {
         .cast(&DType::Primitive(PType::I32, Nullability::Nullable))
         .unwrap();
     assert!(result.is_null());
+    assert_eq!(
+        result.dtype(),
+        &DType::Primitive(PType::I32, Nullability::Nullable)
+    );
 
     // Cast null decimal to another decimal type should preserve null
     let result = null_decimal
@@ -155,18 +164,27 @@ fn test_decimal_cast_negative_values() {
 }
 
 #[rstest]
-#[case(DecimalValue::I8(i8::MAX), DecimalDType::new(3, 0))]
-#[case(DecimalValue::I8(i8::MIN), DecimalDType::new(3, 0))]
-#[case(DecimalValue::I16(i16::MAX), DecimalDType::new(5, 0))]
-#[case(DecimalValue::I16(i16::MIN), DecimalDType::new(5, 0))]
-#[case(DecimalValue::I32(i32::MAX), DecimalDType::new(10, 0))]
-#[case(DecimalValue::I32(i32::MIN), DecimalDType::new(10, 0))]
-fn test_decimal_cast_edge_values(#[case] value: DecimalValue, #[case] dtype: DecimalDType) {
+#[case(DecimalValue::I8(i8::MAX), DecimalDType::new(3, 0), 127.0)]
+#[case(DecimalValue::I8(i8::MIN), DecimalDType::new(3, 0), -128.0)]
+#[case(DecimalValue::I16(i16::MAX), DecimalDType::new(5, 0), 32767.0)]
+#[case(DecimalValue::I16(i16::MIN), DecimalDType::new(5, 0), -32768.0)]
+#[case(DecimalValue::I32(i32::MAX), DecimalDType::new(10, 0), 2147483647.0)]
+#[case(DecimalValue::I32(i32::MIN), DecimalDType::new(10, 0), -2147483648.0)]
+fn test_decimal_cast_edge_values(
+    #[case] value: DecimalValue,
+    #[case] dtype: DecimalDType,
+    #[case] expected: f64,
+) {
     let decimal_scalar = Scalar::decimal(value, dtype, Nullability::NonNullable);
 
     // Cast to f64 should always work for these ranges
     let result = decimal_scalar.cast(&DType::Primitive(PType::F64, Nullability::NonNullable));
-    assert!(result.is_ok());
+    let result = result.unwrap();
+    assert_eq!(
+        result.dtype(),
+        &DType::Primitive(PType::F64, Nullability::NonNullable)
+    );
+    assert_eq!(result.as_primitive().typed_value::<f64>(), Some(expected));
 }
 
 #[rstest]
@@ -225,25 +243,6 @@ fn test_decimal_to_primitive_i32() {
     assert!(result.is_ok());
     let i32_scalar = result.unwrap();
     assert_eq!(i32_scalar.as_primitive().typed_value::<i32>().unwrap(), 42);
-}
-
-#[test]
-fn test_decimal_to_primitive_f64() {
-    // Create a decimal with value 123.45 (scale=2, so internal value is 12345)
-    let decimal = Scalar::decimal(
-        DecimalValue::I32(12345),
-        DecimalDType::new(10, 2),
-        Nullability::NonNullable,
-    );
-
-    // Cast to f64 - should preserve decimal value
-    let result = decimal.cast(&DType::Primitive(PType::F64, Nullability::NonNullable));
-    assert!(result.is_ok());
-    let f64_scalar = result.unwrap();
-    assert_eq!(
-        f64_scalar.as_primitive().typed_value::<f64>().unwrap(),
-        123.45
-    );
 }
 
 #[test]
@@ -404,25 +403,6 @@ fn test_primitive_to_decimal_precision_checked() {
 }
 
 #[test]
-fn test_null_decimal_cast() {
-    // Create a null decimal
-    let null_decimal = Scalar::null(DType::Decimal(
-        DecimalDType::new(10, 2),
-        Nullability::Nullable,
-    ));
-
-    // Cast to i32 - should produce null i32
-    let result = null_decimal.cast(&DType::Primitive(PType::I32, Nullability::Nullable));
-    assert!(result.is_ok());
-    let i32_scalar = result.unwrap();
-    assert!(i32_scalar.is_null());
-    assert_eq!(
-        i32_scalar.dtype(),
-        &DType::Primitive(PType::I32, Nullability::Nullable)
-    );
-}
-
-#[test]
 fn test_decimal_i256_to_primitive() {
     // Create a decimal with i256 value
     use crate::dtype::i256;
@@ -482,7 +462,7 @@ fn test_decimal_cast_preserves_nullability() {
     assert!(result.is_ok());
     let nullable_scalar = result.unwrap();
     assert_eq!(nullable_scalar.dtype().nullability(), Nullability::Nullable);
-    assert!(!nullable_scalar.is_null());
+    assert_eq!(nullable_scalar.as_primitive().typed_value::<i32>(), Some(1));
 }
 
 #[test]
@@ -719,6 +699,10 @@ fn test_decimal_value_from_unsigned() {
 
     let v4: DecimalValue = 18446744073709551615u64.into();
     assert_eq!(v4, DecimalValue::I128(18446744073709551615));
+    assert_eq!(v1.decimal_type(), DecimalType::I16);
+    assert_eq!(v2.decimal_type(), DecimalType::I32);
+    assert_eq!(v3.decimal_type(), DecimalType::I64);
+    assert_eq!(v4.decimal_type(), DecimalType::I128);
 }
 
 #[test]
@@ -1235,6 +1219,11 @@ fn test_checked_ops_preserve_type() {
         .checked_add(&DecimalValue::I256(i256::from_i128(2)))
         .unwrap();
     assert_eq!(add_i256.decimal_type(), DecimalType::I256);
+    assert_eq!(add.as_i256(), i256::from_i128(8));
+    assert_eq!(sub.as_i256(), i256::from_i128(7));
+    assert_eq!(mul.as_i256(), i256::from_i128(6));
+    assert_eq!(div.as_i256(), i256::from_i128(5));
+    assert_eq!(add_i256.as_i256(), i256::from_i128(3));
 }
 
 #[test]
@@ -1248,6 +1237,8 @@ fn test_checked_ops_mixed_types_use_wider() {
         .checked_sub(&DecimalValue::I128(3))
         .unwrap();
     assert_eq!(sub.decimal_type(), DecimalType::I128);
+    assert_eq!(add.as_i256(), i256::from_i128(3));
+    assert_eq!(sub.as_i256(), i256::from_i128(7));
 }
 
 #[test]
@@ -1420,4 +1411,76 @@ fn test_fits_in_precision_mixed_decimal_value_types() {
     assert!(!DecimalValue::I64(100000).fits_in_precision(dtype));
     assert!(DecimalValue::I128(99999).fits_in_precision(dtype));
     assert!(!DecimalValue::I256(i256::from_i128(100000)).fits_in_precision(dtype));
+}
+
+fn cast_decimal_to_f64(precision: u8, scale: i8, stored: i64) -> VortexResult<f64> {
+    let scalar = Scalar::decimal(
+        DecimalValue::I64(stored),
+        DecimalDType::new(precision, scale),
+        Nullability::NonNullable,
+    );
+    let casted = scalar.cast(&DType::Primitive(PType::F64, Nullability::NonNullable))?;
+    (&casted).try_into()
+}
+
+#[rstest]
+#[case::negative_scale(5, -5, 1, 100_000.0)]
+#[case::extreme_negative_scale(1, -30, 1, 1e30)]
+#[case::scale_past_i128(MAX_PRECISION, 39, 1, 1e-39)]
+#[case::max_scale(MAX_PRECISION, MAX_SCALE, 1, 1e-76)]
+#[case::negative_value_negative_scale(5, -5, -1, -100_000.0)]
+fn cast_decimal_to_f64_spans_the_scale_domain(
+    #[case] precision: u8,
+    #[case] scale: i8,
+    #[case] stored: i64,
+    #[case] expected: f64,
+) -> VortexResult<()> {
+    let value = cast_decimal_to_f64(precision, scale, stored)?;
+    // `10^scale` is not exact in `f64` above `10^22`.
+    assert!(
+        (value - expected).abs() <= expected.abs() * 1e-15,
+        "decimal({precision},{scale}) storing {stored} cast to {value}, expected {expected}"
+    );
+    Ok(())
+}
+
+#[rstest]
+#[case(10, 2, 12345, 123.45)]
+#[case(10, 0, -7, -7.0)]
+#[case(20, 6, 1_500_000, 1.5)]
+fn cast_decimal_to_f64_is_exact_for_common_scales(
+    #[case] precision: u8,
+    #[case] scale: i8,
+    #[case] stored: i64,
+    #[case] expected: f64,
+) -> VortexResult<()> {
+    assert_eq!(cast_decimal_to_f64(precision, scale, stored)?, expected);
+    Ok(())
+}
+
+#[test]
+fn cast_decimal_to_narrow_float_uses_the_same_scale_factor() -> VortexResult<()> {
+    let scalar = Scalar::decimal(
+        DecimalValue::I64(1),
+        DecimalDType::new(5, -5),
+        Nullability::NonNullable,
+    );
+    let f32_value: f32 =
+        (&scalar.cast(&DType::Primitive(PType::F32, Nullability::NonNullable))?).try_into()?;
+    assert_eq!(f32_value, 100_000.0);
+    Ok(())
+}
+
+#[test]
+fn cast_wide_i256_decimal_to_f64() -> VortexResult<()> {
+    let beyond_i128 = i256::from_i128(i128::MAX) + i256::ONE;
+    let scalar = Scalar::decimal(
+        DecimalValue::I256(beyond_i128),
+        DecimalDType::new(MAX_PRECISION, 2),
+        Nullability::NonNullable,
+    );
+    let value: f64 =
+        (&scalar.cast(&DType::Primitive(PType::F64, Nullability::NonNullable))?).try_into()?;
+    assert_eq!(value, 2f64.powi(127) / 100.0);
+    Ok(())
 }

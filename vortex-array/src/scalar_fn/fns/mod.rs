@@ -23,6 +23,7 @@ pub mod merge;
 pub mod not;
 pub mod operators;
 pub mod pack;
+pub mod replace_time_zone;
 pub mod select;
 pub mod stat;
 pub mod variant_get;

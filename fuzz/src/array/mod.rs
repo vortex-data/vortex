@@ -63,6 +63,7 @@ use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
+use vortex_array::search_sorted::SearchSortedArray;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_btrblocks::BtrBlocksCompressor;
 #[cfg(feature = "zstd")]
@@ -323,16 +324,13 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                 }
                 ActionType::Cast => {
                     let to: DType = u.arbitrary()?;
-                    if Some(CastOutcome::Infallible) == allowed_casting(current_array.dtype(), &to)
-                    {
-                        return Err(EmptyChoose);
-                    }
                     let Some(result) = cast_canonical_array(&current_array, &to, &mut ctx)
-                        .vortex_expect("should fail to create array")
+                        .vortex_expect("cast oracle should succeed")
                     else {
                         return Err(EmptyChoose);
                     };
 
+                    current_array = result.clone();
                     (Action::Cast(to), ExpectedValue::Array(result))
                 }
                 ActionType::Sum => {
@@ -341,13 +339,12 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         return Err(EmptyChoose);
                     }
 
-                    // Sum - returns a scalar, does NOT update current_array (terminal operation)
-                    let current_array_canonical = current_array
-                        .clone()
-                        .execute::<Canonical>(&mut ctx)
-                        .vortex_expect("execute canonical should succeed in fuzz test");
-                    let sum_result = sum_canonical_array(current_array_canonical, &mut ctx)
-                        .vortex_expect("sum_canonical_array should succeed in fuzz test");
+                    let Some(sum_result) = sum_canonical_array(&current_array, &mut ctx)
+                        .vortex_expect("sum_canonical_array should succeed in fuzz test")
+                    else {
+                        // Reject sums whose overflow can depend on grouping or addition order.
+                        return Err(EmptyChoose);
+                    };
                     (Action::Sum, ExpectedValue::Scalar(sum_result))
                 }
                 ActionType::MinMax => {
@@ -600,7 +597,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
     debug!(
         "Initial array:\nTree:\n{}Values:\n{:#}",
         current_array.display_tree(),
-        current_array.display_values()
+        current_array.display_values(&ctx)
     );
 
     for (i, (action, expected)) in actions.into_iter().enumerate() {
@@ -636,7 +633,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
                 if !current_array.is_canonical() {
                     sorted = compress_array(&sorted, CompressorStrategy::Default, &mut ctx);
                 }
-                assert_search_sorted(sorted, s, side, expected.search(), i)?;
+                assert_search_sorted(sorted, s, side, expected.search(), i, &mut ctx)?;
             }
             Action::Filter(mask_val) => {
                 current_array = current_array
@@ -715,8 +712,9 @@ fn assert_search_sorted(
     side: SearchSortedSide,
     expected: SearchResult,
     step: usize,
+    ctx: &mut ExecutionCtx,
 ) -> VortexFuzzResult<()> {
-    let search_result = array
+    let search_result = SearchSortedArray::new(&array, ctx)
         .search_sorted(&s, side)
         .map_err(|e| VortexFuzzError::VortexError(e, Backtrace::capture()))?;
     if search_result != expected {

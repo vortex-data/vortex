@@ -5,6 +5,7 @@ mod array;
 pub use array::FoRArrayExt;
 pub use array::FoRArraySlotsExt;
 pub use array::FoRData;
+pub use array::FoRReferences;
 pub use array::FoRSlots;
 
 pub(crate) mod compute;

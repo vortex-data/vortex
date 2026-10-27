@@ -22,6 +22,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::TypedArrayRef;
+use vortex_array::VortexSessionExecute;
 use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
@@ -65,10 +66,21 @@ pub struct ALPRDMetadata {
     dict_len: u32,
     #[prost(uint32, repeated, tag = "3")]
     dict: Vec<u32>,
-    #[prost(enumeration = "PType", tag = "4")]
+    #[prost(int32, tag = "4")]
     left_parts_ptype: i32,
     #[prost(message, tag = "5")]
     patches: Option<PatchesMetadata>,
+}
+
+impl ALPRDMetadata {
+    fn get_left_parts_ptype(&self) -> VortexResult<PType> {
+        PType::try_from(self.left_parts_ptype).map_err(|_| {
+            vortex_err!(
+                "ALPRDMetadata left_parts_ptype must be a known PType, got {}",
+                self.left_parts_ptype
+            )
+        })
+    }
 }
 
 impl ArrayHash for ALPRDData {
@@ -161,7 +173,6 @@ impl VTable for ALPRD {
         ))
     }
 
-    #[allow(clippy::disallowed_methods)]
     fn deserialize(
         &self,
         dtype: &DType,
@@ -169,9 +180,10 @@ impl VTable for ALPRD {
         metadata: &[u8],
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         let metadata = ALPRDMetadata::decode(metadata)?;
+        let left_parts_ptype = metadata.get_left_parts_ptype()?;
         if children.len() < 2 {
             vortex_bail!(
                 "Expected at least 2 children for ALPRD encoding, found {}",
@@ -179,7 +191,7 @@ impl VTable for ALPRD {
             );
         }
 
-        let left_parts_dtype = DType::Primitive(metadata.left_parts_ptype(), dtype.nullability());
+        let left_parts_dtype = DType::Primitive(left_parts_ptype, dtype.nullability());
         let left_parts = children.get(0, &left_parts_dtype, len)?;
         let left_parts_dictionary: Buffer<u16> = metadata.dict.as_slice()
             [0..metadata.dict_len as usize]
@@ -214,6 +226,7 @@ impl VTable for ALPRD {
                     values,
                     // TODO(0ax1): handle chunk offsets
                     None,
+                    &mut session.create_execution_ctx(),
                 )
             })
             .transpose()?;
@@ -228,7 +241,13 @@ impl VTable for ALPRD {
             })?,
             left_parts_patches,
         );
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -375,7 +394,7 @@ impl ALPRD {
         let len = left_parts.len();
         let slots = ALPRDData::make_slots(&left_parts, &right_parts, left_parts_patches.as_ref());
         let data = ALPRDData::new(left_parts_dictionary, right_bit_width, left_parts_patches);
-        Array::try_from_parts(ArrayParts::new(ALPRD, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(ArrayParts::new(ALPRD, dtype, len, data, slots))
     }
 
     /// # Safety
@@ -393,9 +412,7 @@ impl ALPRD {
         let data = unsafe {
             ALPRDData::new_unchecked(left_parts_dictionary, right_bit_width, left_parts_patches)
         };
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(ALPRD, dtype, len, data).with_slots(slots))
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ALPRD, dtype, len, data, slots)) }
     }
 }
 
@@ -519,11 +536,7 @@ pub trait ALPRDArrayExt: ALPRDArraySlotsExt {
     }
 
     fn left_parts_patches(&self) -> Option<Patches> {
-        patches_from_slots(
-            self.as_ref().slots(),
-            self.patches_data.as_ref(),
-            self.as_ref().len(),
-        )
+        patches_from_slots(self.slots(), self.patches_data.as_ref(), self.len())
     }
 
     fn left_parts_dictionary(&self) -> &Buffer<u16> {
@@ -564,22 +577,28 @@ mod test {
 
     use prost::Message;
     use rstest::rstest;
+    use vortex_array::ArrayRef;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
     use vortex_array::dtype::NativePType;
+    use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
+    use vortex_array::vtable::VTable;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::ALPRD;
     use super::ALPRDMetadata;
     use crate::ALPRDFloat;
     use crate::RDEncoderExt;
     use crate::alp_rd;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -607,13 +626,7 @@ mod test {
 
         let rd_array = encoder.encode(real_array.as_view());
 
-        let decoded = rd_array
-            .as_array()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
-
-        assert_arrays_eq!(decoded, PrimitiveArray::from_option_iter(reals), &mut ctx);
+        assert_arrays_eq!(rd_array, PrimitiveArray::from_option_iter(reals), &mut ctx);
     }
 
     #[cfg_attr(miri, ignore)]
@@ -637,5 +650,35 @@ mod test {
             }
             .encode_to_vec(),
         );
+    }
+
+    #[test]
+    fn test_deserialize_rejects_unknown_left_parts_ptype() -> VortexResult<()> {
+        let metadata = ALPRDMetadata {
+            left_parts_ptype: 11,
+            ..Default::default()
+        }
+        .encode_to_vec();
+        let children: Vec<ArrayRef> = Vec::new();
+        let result = ALPRD.deserialize(
+            &DType::Primitive(PType::F64, Nullability::NonNullable),
+            0,
+            &metadata,
+            &[],
+            &children,
+            &SESSION,
+        );
+        assert!(result.is_err_and(|err| {
+            err.to_string()
+                .contains("ALPRDMetadata left_parts_ptype must be a known PType, got 11")
+        }));
+
+        let known = ALPRDMetadata {
+            left_parts_ptype: PType::U32 as i32,
+            ..Default::default()
+        };
+        assert_eq!(known.get_left_parts_ptype()?, PType::U32);
+
+        Ok(())
     }
 }

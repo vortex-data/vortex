@@ -29,12 +29,12 @@ logical_plan
 06)----------Projection: store_sales.ss_item_sk, store_sales.ss_ext_sales_price
 07)------------Inner Join: date_dim.d_date_sk = store_sales.ss_sold_date_sk
 08)--------------Projection: date_dim.d_date_sk
-09)----------------Filter: date_dim.d_moy = Int64(11) AND date_dim.d_year = Int64(1999)
-10)------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy = Int64(11), date_dim.d_year = Int64(1999)]
+09)----------------Filter: date_dim.d_moy = Int32(11) AND date_dim.d_year = Int32(1999)
+10)------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy = Int32(11), date_dim.d_year = Int32(1999)]
 11)--------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_ext_sales_price]
 12)----------Projection: item.i_item_sk, item.i_brand_id, item.i_brand
-13)------------Filter: item.i_manager_id = Int64(28)
-14)--------------TableScan: item projection=[i_item_sk, i_brand_id, i_brand, i_manager_id], partial_filters=[item.i_manager_id = Int64(28)]
+13)------------Filter: item.i_manager_id = Int32(28)
+14)--------------TableScan: item projection=[i_item_sk, i_brand_id, i_brand, i_manager_id], partial_filters=[item.i_manager_id = Int32(28)]
 physical_plan
 01)SortPreservingMergeExec: [ext_price@2 DESC, brand_id@0 ASC NULLS LAST], fetch=100
 02)--ProjectionExec: expr=[i_brand_id@1 as brand_id, i_brand@0 as brand, sum(store_sales.ss_ext_sales_price)@2 as ext_price]

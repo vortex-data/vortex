@@ -4,6 +4,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use crate::ArraySlots;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::arrays::Constant;
@@ -44,9 +45,24 @@ impl Array<Constant> {
     where
         S: Into<Scalar>,
     {
-        let scalar = scalar.into();
+        Self::from_scalar(scalar.into(), len)
+    }
+
+    /// Creates the array from a [`Scalar`].
+    ///
+    /// The generic constructors call this function. It is not generic, so crates that call those
+    /// constructors do not each compile the `Constant` array vtable.
+    fn from_scalar(scalar: Scalar, len: usize) -> Self {
         let dtype = scalar.dtype().clone();
         let data = ConstantData::new(scalar);
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Constant, dtype, len, data)) }
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(
+                Constant,
+                dtype,
+                len,
+                data,
+                ArraySlots::new(),
+            ))
+        }
     }
 }

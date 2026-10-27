@@ -5,8 +5,6 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use cudarc::driver::DeviceRepr;
-use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
@@ -26,6 +24,8 @@ use vortex::dtype::NativePType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
+use vortex_cuda_driver::DeviceRepr;
+use vortex_cuda_driver::PushKernelArg;
 
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecute;
@@ -189,6 +189,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex::array::IntoArray;
     use vortex::array::arrays::ConstantArray;
@@ -197,32 +199,54 @@ mod tests {
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::scalar::Scalar;
+    use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::CanonicalCudaExt;
     use crate::session::CudaSession;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     fn make_constant_array<T: NativePType + Into<Scalar>>(value: T, len: usize) -> ConstantArray {
         ConstantArray::new(value, len)
     }
 
     #[rstest]
-    #[case::u8(make_constant_array(42u8, 2050))]
-    #[case::u16(make_constant_array(1234u16, 2050))]
-    #[case::u32(make_constant_array(100000u32, 2050))]
-    #[case::u64(make_constant_array(1000000u64, 2050))]
-    #[case::i8(make_constant_array(-42i8, 2050))]
-    #[case::i16(make_constant_array(-1234i16, 2050))]
-    #[case::i32(make_constant_array(-100000i32, 2050))]
-    #[case::i64(make_constant_array(-1000000i64, 2050))]
-    #[case::f32(make_constant_array(1.23f32, 2050))]
-    #[case::f64(make_constant_array(4.56789f64, 2050))]
+    #[case::u8(
+        make_constant_array(42u8, 2050),
+        PrimitiveArray::from_iter(std::iter::repeat_n(42u8, 2050))
+    )]
+    #[case::u16(
+        make_constant_array(1234u16, 2050),
+        PrimitiveArray::from_iter(std::iter::repeat_n(1234u16, 2050))
+    )]
+    #[case::u32(
+        make_constant_array(100000u32, 2050),
+        PrimitiveArray::from_iter(std::iter::repeat_n(100000u32, 2050))
+    )]
+    #[case::u64(
+        make_constant_array(1000000u64, 2050),
+        PrimitiveArray::from_iter(std::iter::repeat_n(1000000u64, 2050))
+    )]
+    #[case::i8(make_constant_array(-42i8, 2050), PrimitiveArray::from_iter(std::iter::repeat_n(-42i8, 2050)))]
+    #[case::i16(make_constant_array(-1234i16, 2050), PrimitiveArray::from_iter(std::iter::repeat_n(-1234i16, 2050)))]
+    #[case::i32(make_constant_array(-100000i32, 2050), PrimitiveArray::from_iter(std::iter::repeat_n(-100000i32, 2050)))]
+    #[case::i64(make_constant_array(-1000000i64, 2050), PrimitiveArray::from_iter(std::iter::repeat_n(-1000000i64, 2050)))]
+    #[case::f32(
+        make_constant_array(1.23f32, 2050),
+        PrimitiveArray::from_iter(std::iter::repeat_n(1.23f32, 2050))
+    )]
+    #[case::f64(
+        make_constant_array(4.56789f64, 2050),
+        PrimitiveArray::from_iter(std::iter::repeat_n(4.56789f64, 2050))
+    )]
     #[crate::test]
     async fn test_cuda_constant_materialization(
         #[case] constant_array: ConstantArray,
+        #[case] expected: PrimitiveArray,
     ) -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -230,18 +254,18 @@ mod tests {
             .execute(constant_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU materialization failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 
-        assert_arrays_eq!(constant_array, gpu_result, &mut ctx);
+        assert_arrays_eq!(gpu_result, expected, &mut ctx);
 
         Ok(())
     }
 
     #[crate::test]
     async fn test_cuda_constant_empty_array() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -250,7 +274,7 @@ mod tests {
             .execute(constant_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU materialization failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 
@@ -261,7 +285,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_constant_small_array() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -271,7 +295,7 @@ mod tests {
             .execute(constant_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU materialization failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 

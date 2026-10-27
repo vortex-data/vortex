@@ -133,26 +133,26 @@ pub struct DecimalDataParts {
 
 pub trait DecimalArrayExt: TypedArrayRef<Decimal> {
     fn decimal_dtype(&self) -> DecimalDType {
-        match self.as_ref().dtype() {
+        match self.dtype() {
             DType::Decimal(decimal_dtype, _) => *decimal_dtype,
             _ => unreachable!("DecimalArrayExt requires a decimal dtype"),
         }
     }
 
     fn nullability(&self) -> Nullability {
-        match self.as_ref().dtype() {
+        match self.dtype() {
             DType::Decimal(_, nullability) => *nullability,
             _ => unreachable!("DecimalArrayExt requires a decimal dtype"),
         }
     }
 
     fn validity_child(&self) -> Option<&ArrayRef> {
-        self.as_ref().slots()[DecimalSlots::VALIDITY].as_ref()
+        self.slots()[DecimalSlots::VALIDITY].as_ref()
     }
 
     fn validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[DecimalSlots::VALIDITY].as_ref(),
+            self.slots()[DecimalSlots::VALIDITY].as_ref(),
             self.nullability(),
         )
     }
@@ -302,14 +302,14 @@ impl DecimalData {
         let byte_width = values_type.byte_width();
         vortex_ensure!(
             buffer.len().is_multiple_of(byte_width),
-            InvalidArgument: "decimal buffer size {} is not divisible by element width {}",
+            "decimal buffer size {} is not divisible by element width {}",
             buffer.len(),
             byte_width,
         );
         match_each_decimal_value_type!(values_type, |D| {
             vortex_ensure!(
                 buffer.is_aligned_to(Alignment::of::<D>()),
-                InvalidArgument: "decimal buffer alignment {:?} is invalid for values type {:?}",
+                "decimal buffer alignment {:?} is invalid for values type {:?}",
                 buffer.alignment(),
                 D::DECIMAL_TYPE,
             );
@@ -427,9 +427,7 @@ impl Array<Decimal> {
         let slots = DecimalData::make_slots(&validity, len);
         let data = unsafe { DecimalData::new_unchecked(buffer, decimal_dtype) };
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Decimal, dtype, len, data).with_slots(slots),
-            )
+            Self::from_decimal_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data, slots))
         }
     }
 
@@ -443,7 +441,27 @@ impl Array<Decimal> {
         let len = buffer.len();
         let slots = DecimalData::make_slots(&validity, len);
         let data = DecimalData::try_new(buffer, decimal_dtype)?;
-        Array::try_from_parts(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
+        Self::try_from_decimal_parts(ArrayParts::new(Decimal, dtype, len, data, slots))
+    }
+
+    /// Creates the array from parts without validation.
+    ///
+    /// The generic constructors call this function. It is not generic, so crates that call those
+    /// constructors do not each compile the `Decimal` array vtable.
+    ///
+    /// # Safety
+    ///
+    /// The parts must be logically consistent.
+    unsafe fn from_decimal_parts_unchecked(parts: ArrayParts<Decimal>) -> Self {
+        unsafe { Array::from_parts_unchecked(parts) }
+    }
+
+    /// Creates the array from parts after validation.
+    ///
+    /// The generic constructors call this function. It is not generic, so crates that call those
+    /// constructors do not each compile the `Decimal` array vtable.
+    fn try_from_decimal_parts(parts: ArrayParts<Decimal>) -> VortexResult<Self> {
+        Array::try_from_parts(parts)
     }
 
     /// Creates a new [`DecimalArray`] from an iterator of values.
@@ -513,7 +531,7 @@ impl Array<Decimal> {
         let len = values.len() / values_type.byte_width();
         let slots = DecimalData::make_slots(&validity, len);
         let data = DecimalData::try_new_handle(values, values_type, decimal_dtype)?;
-        Array::try_from_parts(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(ArrayParts::new(Decimal, dtype, len, data, slots))
     }
 
     /// Creates a new [`DecimalArray`] without validation from a [`BufferHandle`].
@@ -531,11 +549,7 @@ impl Array<Decimal> {
         let len = values.len() / values_type.byte_width();
         let slots = DecimalData::make_slots(&validity, len);
         let data = unsafe { DecimalData::new_unchecked_handle(values, values_type, decimal_dtype) };
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Decimal, dtype, len, data).with_slots(slots),
-            )
-        }
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data, slots)) }
     }
 
     #[expect(
@@ -582,9 +596,7 @@ impl Array<Decimal> {
         });
         let slots = DecimalData::make_slots(&patched_validity, len);
         Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Decimal, dtype, len, data).with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data, slots))
         })
     }
 }

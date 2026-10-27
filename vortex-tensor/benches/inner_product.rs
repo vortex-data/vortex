@@ -11,6 +11,8 @@
 
 #![expect(clippy::unwrap_used)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use divan::counter::ItemsCount;
 use mimalloc::MiMalloc;
@@ -20,10 +22,19 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::MaskedArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_session::VortexSession;
 use vortex_tensor::scalar_fns::inner_product::InnerProduct;
 use vortex_tensor::vector::Vector;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<MemorySession>()
+});
 
 // Scalar function execution allocates its output inside the timed region, so use the vendored
 // allocator instead of measuring glibc differences between CodSpeed runner images.
@@ -31,6 +42,7 @@ use vortex_tensor::vector::Vector;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
@@ -57,7 +69,6 @@ fn vectors(width: usize, seed: usize) -> ArrayRef {
 }
 
 fn bench_inner_product(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef) {
-    let session = vortex_array::array_session();
     bencher
         .counter(ItemsCount::new(lhs.len()))
         .with_inputs(|| {
@@ -65,7 +76,7 @@ fn bench_inner_product(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef) {
                 InnerProduct::try_new(lhs.clone(), rhs.clone())
                     .unwrap()
                     .into_array(),
-                session.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
@@ -78,8 +89,9 @@ fn non_nullable(bencher: Bencher, width: usize) {
 
 #[divan::bench(args = WIDTHS)]
 fn nullable(bencher: Bencher, width: usize) {
+    let mut ctx = SESSION.create_execution_ctx();
     let validity = Validity::from_iter((0..ELEMENTS / width).map(|i| i % 8 != 0));
-    let lhs = MaskedArray::try_new(vectors(width, 0), validity)
+    let lhs = MaskedArray::try_new(vectors(width, 0), validity, &mut ctx)
         .unwrap()
         .into_array();
     bench_inner_product(bencher, lhs, vectors(width, 31));

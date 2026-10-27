@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use rstest::rstest;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use super::records::take_byte_records;
 use super::slices::take_slices;
@@ -14,7 +17,6 @@ use super::take_values;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
@@ -25,6 +27,8 @@ use crate::compute::conformance::take::test_take_conformance;
 use crate::dtype::DecimalDType;
 use crate::dtype::i256;
 use crate::validity::Validity;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 fn allocator() -> BufferAllocatorRef {
     BufferAllocatorRef::statically_allocated()
@@ -41,6 +45,34 @@ fn take_four_byte_records() {
 fn take_eight_byte_values() {
     let taken = take_values(&[10i64, 20, 30], &[1u16, 2, 0], &allocator());
     assert_eq!(taken.as_slice(), &[20, 30, 10]);
+}
+
+#[rstest]
+#[case(64)]
+#[case(65)]
+#[case(79)]
+#[case(128)]
+fn take_small_byte_table(#[case] len: usize) {
+    let values = [10u8, 20, 30, 40];
+    let indices = (0u8..4).cycle().take(len).collect::<Vec<_>>();
+    let expected = indices
+        .iter()
+        .map(|index| values[usize::from(*index)])
+        .collect::<Vec<_>>();
+    assert_eq!(
+        take_values(&values, &indices, &allocator()).as_slice(),
+        expected.as_slice()
+    );
+}
+
+#[rstest]
+#[case::vector(64)]
+#[case::tail(128)]
+#[should_panic]
+fn take_small_byte_table_rejects_out_of_bounds_index(#[case] offset: usize) {
+    let mut indices = vec![0u8; 129];
+    indices[offset] = 4;
+    drop(take_values(&[10u8, 20, 30, 40], &indices, &allocator()));
 }
 
 #[rstest]
@@ -88,7 +120,14 @@ fn take_variable_length_slices() -> VortexResult<()> {
 #[test]
 fn variable_length_slices_validate_output_length() {
     let values = buffer![10u8, 11, 12, 13].into_byte_buffer();
-    assert!(take_slices(&values, 1, 4, &[0u32, 2], &[1u32, 1], 3, &allocator(),).is_err());
+    let error = take_slices(&values, 1, 4, &[0u32, 2], &[1u32, 1], 3, &allocator())
+        .expect_err("expanded length differs from declared output length");
+    assert!(
+        error
+            .to_string()
+            .contains("expanded byte length does not match declared byte length"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -101,7 +140,7 @@ fn take_constant_length_slices() -> VortexResult<()> {
 
 #[test]
 fn null_index_skips_out_of_bounds_primitive_value() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let values = PrimitiveArray::from_iter([10i32, 20, 30]);
     let indices = PrimitiveArray::new(
         buffer![1u64, 3],
@@ -120,7 +159,7 @@ fn null_index_skips_out_of_bounds_primitive_value() -> VortexResult<()> {
 
 #[test]
 fn null_index_skips_out_of_bounds_decimal_value() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let decimal_dtype = DecimalDType::new(19, 1);
     let values = DecimalArray::new(
         buffer![10i128, 20, 30],
@@ -144,7 +183,7 @@ fn null_index_skips_out_of_bounds_decimal_value() -> VortexResult<()> {
 
 #[test]
 fn decimal_i256_take_consumes_piecewise_indices() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let decimal_dtype = DecimalDType::new(76, 2);
     let values = DecimalArray::new(
         buffer![
@@ -212,5 +251,5 @@ fn decimal_i256_take_consumes_piecewise_indices() -> VortexResult<()> {
     Validity::NonNullable,
 ).into_array())]
 fn fixed_width_take_conformance(#[case] array: ArrayRef) {
-    test_take_conformance(&array, &mut array_session().create_execution_ctx());
+    test_take_conformance(&array, &mut SESSION.create_execution_ctx());
 }

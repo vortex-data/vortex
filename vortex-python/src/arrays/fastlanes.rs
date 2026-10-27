@@ -3,10 +3,11 @@
 
 use pyo3::prelude::*;
 use vortex::encodings::fastlanes::BitPacked;
+use vortex::encodings::fastlanes::BitPackedArrayExt;
+use vortex::encodings::fastlanes::BitWidthsView;
 use vortex::encodings::fastlanes::Delta;
 use vortex::encodings::fastlanes::FoR;
 
-use crate::arrays::native::AsArrayRef;
 use crate::arrays::native::EncodingSubclass;
 use crate::arrays::native::PyNativeArray;
 
@@ -20,10 +21,14 @@ impl EncodingSubclass for PyFastLanesBitPackedArray {
 
 #[pymethods]
 impl PyFastLanesBitPackedArray {
-    /// Returns the bit width of the packed values.
+    /// Returns the global bit width of the packed values, or `None` if the array has per-block
+    /// bit widths.
     #[getter]
-    fn bit_width(self_: PyRef<'_, Self>) -> u8 {
-        self_.as_array_ref().bit_width()
+    fn bit_width(self_: PyRef<'_, Self>) -> Option<u8> {
+        match self_.as_super().inner().as_::<BitPacked>().bit_widths() {
+            BitWidthsView::Global(bit_width) => Some(bit_width),
+            BitWidthsView::Blocked(_) => None,
+        }
     }
 }
 

@@ -39,9 +39,6 @@ use vortex_error::VortexExpect;
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct i256(arrow_buffer::i256);
 
-#[cfg(feature = "cudarc")]
-unsafe impl cudarc::driver::DeviceRepr for i256 {}
-
 #[expect(
     clippy::same_name_method,
     reason = "inherent methods intentionally shadow arrow_buffer::i256 methods"
@@ -313,6 +310,11 @@ impl num_traits::ToPrimitive for i256 {
     fn to_u128(&self) -> Option<u128> {
         self.maybe_i128().and_then(|v| v.to_u128())
     }
+
+    // The default goes through `to_i64` and `to_u64`, which fail for any value outside `i64`.
+    fn to_f64(&self) -> Option<f64> {
+        self.0.to_f64()
+    }
 }
 
 macro_rules! define_as_primitive {
@@ -376,6 +378,15 @@ mod tests {
     }
 
     #[test]
+    fn test_i256_to_f64_beyond_i128() {
+        let beyond_i128 = i256::from_i128(i128::MAX) + i256::ONE;
+        assert_eq!(beyond_i128.to_f64(), Some(2f64.powi(127)));
+        assert_eq!((-beyond_i128).to_f64(), Some(-2f64.powi(127)));
+        assert_eq!(i256::MAX.to_f64(), Some(2f64.powi(255)));
+        assert_eq!(i256::MIN.to_f64(), Some(-2f64.powi(255)));
+    }
+
+    #[test]
     fn test_i256_from_parts() {
         let value = i256::from_parts(1000, 2000);
         let (lower, upper) = value.into_parts();
@@ -394,12 +405,27 @@ mod tests {
 
         // Test little-endian
         let le_bytes = original.to_le_bytes();
+        assert_eq!(
+            le_bytes,
+            [
+                0x79, 0xdf, 0x0d, 0x86, 0x48, 0x70, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00
+            ]
+        );
         let recovered_le = i256::from_le_bytes(le_bytes);
         assert_eq!(original, recovered_le);
 
         // Test big-endian
         let be_bytes = original.to_be_bytes();
-        assert_ne!(le_bytes, be_bytes); // Should be different unless value is symmetric
+        assert_eq!(
+            be_bytes,
+            [
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x70, 0x48,
+                0x86, 0x0d, 0xdf, 0x79
+            ]
+        );
 
         // Test zero
         let zero_le = i256::ZERO.to_le_bytes();
@@ -500,10 +526,6 @@ mod tests {
         let b = i256::from_i128(200);
         let result = a.wrapping_add(b);
         assert_eq!(result.maybe_i128(), Some(300));
-
-        // Test the method version
-        let result2 = a.wrapping_add(b);
-        assert_eq!(result2.maybe_i128(), Some(300));
     }
 
     #[test]
@@ -655,7 +677,6 @@ mod tests {
         assert!(b > a);
         assert!(c < a);
         assert!(c < b);
-        assert_eq!(a, a);
         assert_ne!(a, b);
     }
 
@@ -667,7 +688,6 @@ mod tests {
 
         let value1 = i256::from_i128(42);
         let value2 = i256::from_i128(42);
-        let value3 = i256::from_i128(43);
 
         let mut hasher1 = DefaultHasher::new();
         value1.hash(&mut hasher1);
@@ -677,12 +697,7 @@ mod tests {
         value2.hash(&mut hasher2);
         let hash2 = hasher2.finish();
 
-        let mut hasher3 = DefaultHasher::new();
-        value3.hash(&mut hasher3);
-        let hash3 = hasher3.finish();
-
         assert_eq!(hash1, hash2); // Same values should have same hash
-        assert_ne!(hash1, hash3); // Different values should (likely) have different hash
     }
 
     #[test]

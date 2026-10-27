@@ -377,6 +377,8 @@ impl<S: SessionExt> ArrayKernelsExt for S {}
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_session::VortexSession;
 
     use super::ArrayKernelsExt;
@@ -386,11 +388,12 @@ mod tests {
     use crate::scalar_fn::ScalarFnVTable;
     use crate::scalar_fn::fns::binary::Binary;
 
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
+
     #[test]
     fn kernel_session_default_registers_builtin_kernels() {
-        let session = VortexSession::empty().with::<KernelSession>();
-
-        assert!(session.kernels().has_execute_parent(Binary.id(), Bool.id()));
+        assert!(SESSION.kernels().has_execute_parent(Binary.id(), Bool.id()));
     }
 
     #[test]

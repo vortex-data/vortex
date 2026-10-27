@@ -6,11 +6,6 @@ set -euo pipefail
 
 mkdir -p fuzz-binaries
 
-if [[ "$(uname -s)" == Linux ]]; then
-  # Use mold to handle long-range calls in the instrumented ARM64 binaries.
-  export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-fuse-ld=mold"
-fi
-
 FEATURES_FLAG=()
 if [ -n "${EXTRA_FEATURES:-}" ]; then
   FEATURES_FLAG=(--features "$EXTRA_FEATURES")

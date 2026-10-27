@@ -3,6 +3,8 @@
 
 #![expect(clippy::unwrap_used)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use rand::RngExt;
@@ -15,13 +17,23 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
+use vortex_session::VortexSession;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<MemorySession>()
+});
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
@@ -46,7 +58,6 @@ fn strings() -> ArrayRef {
 }
 
 fn bench_like(bencher: Bencher, pattern: &str, options: LikeOptions) {
-    let session = vortex_array::array_session();
     let array = strings();
     bencher
         .with_inputs(|| {
@@ -58,7 +69,7 @@ fn bench_like(bencher: Bencher, pattern: &str, options: LikeOptions) {
                 )
                 .unwrap()
                 .into_array(),
-                session.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_values(|(array, mut ctx)| array.execute::<BoolArray>(&mut ctx).unwrap());
@@ -91,7 +102,6 @@ fn like_regex(bencher: Bencher) {
 
 #[divan::bench]
 fn like_per_row_patterns(bencher: Bencher) {
-    let session = vortex_array::array_session();
     let array = strings();
     // A non-constant pattern child takes the per-row path; repeated patterns hit the
     // compile cache.
@@ -102,7 +112,7 @@ fn like_per_row_patterns(bencher: Bencher) {
                 Like::try_new(array.clone(), patterns.clone(), LikeOptions::default())
                     .unwrap()
                     .into_array(),
-                session.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_values(|(array, mut ctx)| array.execute::<BoolArray>(&mut ctx).unwrap());

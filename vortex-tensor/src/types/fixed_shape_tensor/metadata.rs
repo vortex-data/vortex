@@ -284,18 +284,6 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn strides_identity_permutation_matches_row_major() -> VortexResult<()> {
-        let row_major = FixedShapeTensorMetadata::new(vec![2, 3, 4]);
-        let identity =
-            FixedShapeTensorMetadata::new(vec![2, 3, 4]).with_permutation(vec![0, 1, 2])?;
-        assert_eq!(
-            row_major.strides().collect::<Vec<_>>(),
-            identity.strides().collect::<Vec<_>>(),
-        );
-        Ok(())
-    }
-
     /// Cross-validates the fast `permuted_stride` against the reference `slow_strides` across a
     /// broader set of shapes and permutations.
     #[rstest]

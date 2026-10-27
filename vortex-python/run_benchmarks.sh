@@ -25,4 +25,4 @@ source "$ROOT/.venv/bin/activate"
 maturin develop --release --manifest-path "$PYTHON_DIR/Cargo.toml"
 
 # Run benchmarks. Extra args are forwarded to pytest.
-pytest "$PYTHON_DIR/benchmark" "$@"
+pytest --benchmark-disable-gc "$PYTHON_DIR/benchmark" "$@"

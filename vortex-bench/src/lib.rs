@@ -17,6 +17,7 @@ use clickbench::ClickBenchSortedBenchmark;
 use clickbench::Flavor;
 use fineweb::FinewebBenchmark;
 use itertools::Itertools;
+use job::JobBenchmark;
 use polarsignals::PolarSignalsBenchmark;
 use public_bi::PBIDataset;
 use public_bi::PublicBiBenchmark;
@@ -47,6 +48,7 @@ pub mod datasets;
 pub mod display;
 pub mod downloadable_dataset;
 pub mod fineweb;
+pub mod job;
 pub mod measurements;
 pub mod memory;
 pub mod output;
@@ -74,9 +76,18 @@ pub use vortex::error::vortex_panic;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 
-// All benchmarks run with mimalloc for consistency.
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+/// Tunes mimalloc for benchmarking. Call this first thing in each benchmark binary's `main`.
+///
+/// mimalloc returns freed memory to the OS after `purge_delay` milliseconds. That purging runs
+/// in the middle of measured queries, so it is disabled and freed memory stays with the process
+/// for the whole run.
+pub fn configure_allocator() {
+    // `mi_option_purge_delay`, which `libmimalloc-sys` does not export as a constant.
+    const MI_OPTION_PURGE_DELAY: libmimalloc_sys::mi_option_t = 15;
+    // SAFETY: setting a mimalloc option has no memory-safety preconditions and is valid at any
+    // time; `-1` is the documented value for "never purge".
+    unsafe { libmimalloc_sys::mi_option_set(MI_OPTION_PURGE_DELAY, -1) };
+}
 
 pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_tokio();
@@ -160,6 +171,9 @@ pub enum Format {
     #[clap(name = "lance")]
     #[serde(rename = "lance")]
     Lance,
+    #[clap(name = "litdata")]
+    #[serde(rename = "litdata")]
+    LitData,
 }
 
 impl Display for Format {
@@ -174,6 +188,7 @@ pub const ALLOWED_FORMATS: &[Format] = &[
     Format::Parquet,
     Format::OnDiskVortex,
     Format::Lance,
+    Format::LitData,
 ];
 
 impl Format {
@@ -201,6 +216,7 @@ impl Format {
             Format::VortexSpatialNative => "vortex-spatial-native",
             Format::OnDiskDuckDB => "duckdb",
             Format::Lance => "lance",
+            Format::LitData => "litdata",
         }
     }
 
@@ -214,6 +230,7 @@ impl Format {
             Format::VortexSpatialNative => "vortex",
             Format::OnDiskDuckDB => "duckdb",
             Format::Lance => "lance",
+            Format::LitData => "litdata",
         }
     }
 }
@@ -342,6 +359,8 @@ pub enum BenchmarkArg {
     Fineweb,
     #[clap(name = "gharchive")]
     GhArchive,
+    #[clap(name = "job")]
+    Job,
     #[clap(name = "polarsignals")]
     PolarSignals,
     #[clap(name = "public-bi")]
@@ -402,6 +421,11 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
         BenchmarkArg::GhArchive => {
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
             let benchmark = GithubArchiveBenchmark::with_remote_data_dir(remote_data_dir)?;
+            Ok(Box::new(benchmark) as _)
+        }
+        BenchmarkArg::Job => {
+            let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
+            let benchmark = JobBenchmark::with_remote_data_dir(remote_data_dir)?;
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::PolarSignals => {

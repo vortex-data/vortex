@@ -45,10 +45,11 @@ use vortex_session::registry::ReadContext;
 
 static DECIMAL_V2: DecimalScheme = DecimalScheme::v2();
 static FOR_V1: FoRScheme = FoRScheme::v1();
+static BITPACKING_V1: BitPackingScheme = BitPackingScheme::v1();
 
 /// Registers the decimal and fastlanes encodings, and enables no editions.
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty();
     vortex_decimal_byte_parts::initialize(&session);
     vortex_fastlanes::initialize(&session);
     session
@@ -56,7 +57,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 
 /// Like [`SESSION`], with the latest core edition enabled: it allows decimal v1 but not v2.
 static CORE_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session().with::<EditionSession>();
+    let session = VortexSession::empty().with::<EditionSession>();
     for family in EDITION_FAMILIES {
         session
             .editions()
@@ -199,7 +200,7 @@ fn wide_decimal_parts_roundtrip(
     if compress_children {
         builder = builder
             .with_new_scheme(&FOR_V1)
-            .with_new_scheme(&BitPackingScheme);
+            .with_new_scheme(&BITPACKING_V1);
     }
     let mut ctx = SESSION.create_execution_ctx();
     let compressed = builder.build().compress(&array, &mut ctx)?;

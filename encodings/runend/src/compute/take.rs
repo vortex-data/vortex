@@ -293,7 +293,7 @@ fn prefer_linear_scan(
 
 fn check_index(index: usize, array_len: usize) -> VortexResult<()> {
     if index >= array_len {
-        vortex_bail!(OutOfBounds: index, 0, array_len);
+        vortex_bail!("index {} out of bounds from {} to {}", index, 0, array_len);
     }
     Ok(())
 }
@@ -509,7 +509,7 @@ mod tests {
     use crate::RunEndArray;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -668,15 +668,16 @@ mod tests {
     }
 
     #[rstest]
-    #[case(vec![3u32, 6, 8, 12], 0, 12, vec![0u64, 11, 3, 3, 7, 2, 9], Mask::new_true(7))]
-    #[case(vec![3u32, 6, 8, 12], 0, 12, vec![5u64, 100, 2, 11, 0], Mask::from_indices(5, [0, 2, 3, 4]))]
-    #[case(vec![6u32, 8, 12], 4, 5, vec![4u64, 0, 2, 1, 3], Mask::new_true(5))]
+    #[case(vec![3u32, 6, 8, 12], 0, 12, vec![0u64, 11, 3, 3, 7, 2, 9], Mask::new_true(7), vec![0u64, 3, 1, 1, 2, 0, 3])]
+    #[case(vec![3u32, 6, 8, 12], 0, 12, vec![5u64, 100, 2, 11, 0], Mask::from_indices(5, [0, 2, 3, 4]), vec![1u64, 0, 0, 3, 0])]
+    #[case(vec![6u32, 8, 12], 4, 5, vec![4u64, 0, 2, 1, 3], Mask::new_true(5), vec![2u64, 0, 1, 0, 1])]
     fn unsorted_strategies_agree(
         #[case] ends: Vec<u32>,
         #[case] offset: usize,
         #[case] len: usize,
         #[case] indices: Vec<u64>,
         #[case] mask: Mask,
+        #[case] expected: Vec<u64>,
     ) {
         let binary = physical_indices_binary::<u32, u64, u64>(&ends, offset, &indices, &mask);
         let table = physical_indices_table::<u32, u64, u64>(&ends, offset, len, &indices, &mask);
@@ -688,26 +689,29 @@ mod tests {
             mask.true_count(),
         );
 
+        assert_eq!(binary.as_slice(), expected.as_slice());
         assert_eq!(binary.as_slice(), table.as_slice());
         assert_eq!(binary.as_slice(), sort_merge.as_slice());
     }
 
     #[rstest]
-    #[case(vec![3u32, 6, 8, 12], 0, 12, vec![0u64, 2, 3, 6, 8, 11], Mask::new_true(6))]
-    #[case(vec![3u32, 6, 8, 12], 0, 12, vec![1u64, 100, 5, 9], Mask::from_indices(4, [0, 2, 3]))]
-    #[case(vec![6u32, 8, 12], 4, 5, vec![0u64, 1, 3, 4], Mask::new_true(4))]
+    #[case(vec![3u32, 6, 8, 12], 0, 12, vec![0u64, 2, 3, 6, 8, 11], Mask::new_true(6), vec![0u64, 0, 1, 2, 3, 3])]
+    #[case(vec![3u32, 6, 8, 12], 0, 12, vec![1u64, 100, 5, 9], Mask::from_indices(4, [0, 2, 3]), vec![0u64, 0, 1, 3])]
+    #[case(vec![6u32, 8, 12], 4, 5, vec![0u64, 1, 3, 4], Mask::new_true(4), vec![0u64, 0, 1, 2])]
     fn sorted_strategies_agree(
         #[case] ends: Vec<u32>,
         #[case] offset: usize,
         #[case] len: usize,
         #[case] indices: Vec<u64>,
         #[case] mask: Mask,
+        #[case] expected: Vec<u64>,
     ) {
         let binary = physical_indices_binary::<u32, u64, u64>(&ends, offset, &indices, &mask);
         let table = physical_indices_table::<u32, u64, u64>(&ends, offset, len, &indices, &mask);
         let sorted =
             physical_indices_linear_sorted::<u32, u64, u64>(&ends, offset, &indices, &mask);
 
+        assert_eq!(binary.as_slice(), expected.as_slice());
         assert_eq!(binary.as_slice(), table.as_slice());
         assert_eq!(binary.as_slice(), sorted.as_slice());
     }

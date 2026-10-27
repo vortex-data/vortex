@@ -49,7 +49,7 @@ use crate::scalar_fn::fns::binary::compare::compare_validity;
 use crate::scalar_fn::fns::operators::CompareOperator;
 
 /// A row comparator: compares row `i` of the left operand against row `j` of the right operand.
-type RowComparator = Box<dyn Fn(usize, usize) -> Ordering>;
+pub(crate) type RowComparator = Box<dyn Fn(usize, usize) -> Ordering>;
 
 /// Compare two nested arrays row by row.
 pub(super) fn compare_nested(
@@ -116,7 +116,7 @@ fn validity_mask(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Mask>
 
 /// Build a row comparator over two recursively canonical arrays of the same logical dtype
 /// (ignoring nullability). Null values order before all non-null values at every level.
-fn build_comparator(
+pub(crate) fn build_comparator(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
     ctx: &mut ExecutionCtx,

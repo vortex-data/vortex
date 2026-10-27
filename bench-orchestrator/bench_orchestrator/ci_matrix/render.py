@@ -5,6 +5,7 @@
 
 from ..config import Format
 from .model import BenchmarkCase, Catalog, Coverage
+from .targets import TargetSet
 from .validate import validate_catalog
 
 _NOT_GENERATED = frozenset({Format.LANCE})
@@ -24,6 +25,16 @@ def _data_formats(coverage: Coverage) -> list[Format]:
 
     present = {target.format for target in coverage.targets}
     return [fmt for fmt in _FORMAT_ORDER if fmt in present and fmt not in _NOT_GENERATED]
+
+
+def merge_coverage(coverages: list[Coverage]) -> Coverage:
+    """Union several coverages: every target and every generated data format."""
+    targets = TargetSet()
+    formats: set[Format] = set()
+    for coverage in coverages:
+        targets = targets | coverage.targets
+        formats.update(_data_formats(coverage))
+    return Coverage(targets, data_formats=tuple(fmt for fmt in _FORMAT_ORDER if fmt in formats))
 
 
 def _matrix_entry(benchmark: BenchmarkCase, coverage: Coverage) -> dict[str, object]:

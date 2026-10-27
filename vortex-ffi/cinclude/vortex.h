@@ -211,41 +211,9 @@ typedef enum {
  */
 typedef enum {
     /**
-     * All other errors
+     * An error returned by Vortex
      */
     VX_ERROR_CODE_OTHER = 0,
-    /**
-     * Index out of bounds
-     */
-    VX_ERROR_CODE_OUT_OF_BOUNDS = 1,
-    /**
-     * Compute kernel execute error
-     */
-    VX_ERROR_CODE_COMPUTE = 2,
-    /**
-     * An invalid argument was provided.
-     */
-    VX_ERROR_CODE_INVALID_ARGUMENT = 3,
-    /**
-     * Serialization/deserialization error
-     */
-    VX_ERROR_CODE_SERIALIZATION = 4,
-    /**
-     * Unimplemented function
-     */
-    VX_ERROR_CODE_NOT_IMPLEMENTED = 5,
-    /**
-     * Type mismatch
-     */
-    VX_ERROR_CODE_MISMATCHED_TYPES = 6,
-    /**
-     * Assertion failed
-     */
-    VX_ERROR_CODE_ASSERTION_FAILED = 7,
-    /**
-     * IO error
-     */
-    VX_ERROR_CODE_IO = 8,
     /**
      * Panic inside FFI
      */
@@ -694,7 +662,7 @@ bool vx_array_element_is_invalid(const vx_session *session,
 /**
  * Check how many items in the array are invalid (null).
  */
-size_t vx_array_invalid_count(const vx_array *array, vx_error **error_out);
+size_t vx_array_invalid_count(const vx_session *session, const vx_array *array, vx_error **error_out);
 
 /**
  * Increase reference count on vx_array

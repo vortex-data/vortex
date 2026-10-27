@@ -12,7 +12,6 @@ use vortex::array::arrays::varbinview::VarBinViewDataParts;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
-use vortex::mask::Mask;
 
 use crate::duckdb::VectorBuffer;
 use crate::duckdb::VectorRef;
@@ -41,19 +40,17 @@ pub(crate) fn new_exporter(
     if validity.definitely_all_null() {
         return Ok(all_invalid::new_exporter());
     }
-    let validity = validity.to_array(len).execute::<Mask>(ctx)?;
-
     let buffers: Vec<_> = buffers.iter().cloned().map(|b| b.unwrap_host()).collect();
     let buffers: Arc<[ByteBuffer]> = Arc::from(buffers);
 
-    Ok(validity::new_exporter(
-        validity,
-        Box::new(VarBinViewExporter {
-            views: Buffer::<BinaryView>::from_byte_buffer(views.unwrap_host()),
-            vector_buffers: buffers.iter().cloned().map(VectorBuffer::new).collect(),
-            buffers,
-        }),
-    ))
+    let views = Buffer::<BinaryView>::from_byte_buffer(views.unwrap_host());
+    let vector_buffers = buffers.iter().cloned().map(VectorBuffer::new).collect();
+    let exporter = Box::new(VarBinViewExporter {
+        views,
+        buffers,
+        vector_buffers,
+    });
+    validity::new_exporter(validity, len, exporter, ctx)
 }
 
 impl ColumnExporter for VarBinViewExporter {

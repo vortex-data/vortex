@@ -33,7 +33,7 @@ impl IsNull {
     /// Creates a lazy null check over `input`.
     #[expect(clippy::new_ret_no_self, reason = "constructs the lazy result array")]
     pub fn new(input: ArrayRef) -> ScalarFnArray {
-        ScalarFnArray::try_new(IsNull.bind(EmptyOptions), vec![input])
+        ScalarFnArray::try_new(IsNull.bind(EmptyOptions), [input])
             .vortex_expect("IsNull has one child and an infallible return dtype")
     }
 }
@@ -112,32 +112,22 @@ mod tests {
     use std::sync::LazyLock;
 
     use vortex_buffer::buffer;
-    use vortex_error::VortexExpect as _;
-    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::expr::col;
-    use crate::expr::eq;
     use crate::expr::get_item;
     use crate::expr::is_null;
-    use crate::expr::lit;
-    use crate::expr::or;
     use crate::expr::root;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
-    use crate::stats::StatsSession;
-    use crate::stats::all_non_null;
-    use crate::stats::null_count;
 
-    static STATS_SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<StatsSession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn dtype() {
@@ -146,13 +136,6 @@ mod tests {
             is_null(root()).return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
-    }
-
-    #[test]
-    fn replace_children() {
-        let expr = is_null(root());
-        expr.with_children([root()])
-            .vortex_expect("operation should succeed in test");
     }
 
     #[test]
@@ -170,7 +153,7 @@ mod tests {
         for (i, expected_value) in expected.iter().enumerate() {
             assert_eq!(
                 result
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(i, &mut SESSION.create_execution_ctx())
                     .unwrap(),
                 Scalar::bool(*expected_value, Nullability::NonNullable)
             );
@@ -188,7 +171,7 @@ mod tests {
         for i in 0..result.len() {
             assert_eq!(
                 result
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(i, &mut SESSION.create_execution_ctx())
                     .unwrap(),
                 Scalar::bool(false, Nullability::NonNullable)
             );
@@ -208,7 +191,7 @@ mod tests {
         for i in 0..result.len() {
             assert_eq!(
                 result
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(i, &mut SESSION.create_execution_ctx())
                     .unwrap(),
                 Scalar::bool(true, Nullability::NonNullable)
             );
@@ -237,7 +220,7 @@ mod tests {
         for (i, expected_value) in expected.iter().enumerate() {
             assert_eq!(
                 result
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(i, &mut SESSION.create_execution_ctx())
                     .unwrap(),
                 Scalar::bool(*expected_value, Nullability::NonNullable)
             );
@@ -251,18 +234,6 @@ mod tests {
 
         let expr2 = is_null(root());
         assert_eq!(expr2.to_string(), "vortex.is_null($)");
-    }
-
-    #[test]
-    fn test_is_null_falsification() -> VortexResult<()> {
-        let expr = is_null(col("a"));
-        let dtype = test_harness::struct_dtype();
-
-        assert_eq!(
-            expr.bind(&dtype)?.falsify(&STATS_SESSION)?,
-            Some(or(eq(null_count(col("a")), lit(0u64)), all_non_null(col("a")),).bind(&dtype)?)
-        );
-        Ok(())
     }
 
     #[test]

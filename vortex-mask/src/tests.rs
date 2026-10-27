@@ -120,15 +120,6 @@ fn test_mask_last() {
     assert_eq!(values_slices.last(), Some(3));
 }
 
-#[test]
-fn test_mask_false_count() {
-    assert_eq!(Mask::new_true(5).false_count(), 0);
-    assert_eq!(Mask::new_false(5).false_count(), 5);
-
-    let values = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false, true]));
-    assert_eq!(values.false_count(), 2);
-}
-
 // Slice operations
 #[test]
 fn test_mask_slice() {
@@ -304,17 +295,47 @@ fn test_mask_values_cached_representations() {
     assert_eq!(values.cached_slices(), Some([(1, 3), (5, 6)].as_slice()));
 }
 
+#[rstest]
+#[case::adjacent_runs(vec![(1, 3), (3, 4), (6, 8)])]
+#[case::all_false(vec![])]
+#[case::all_true(vec![(0, 8)])]
+fn mask_from_buffer_with_slices(#[case] slices: Vec<(usize, usize)>) {
+    let buffer =
+        BitBuffer::from_iter((0..8).map(|i| slices.iter().any(|&(s, e)| (s..e).contains(&i))));
+    let mask = Mask::from_buffer_with_slices(buffer.clone(), slices.clone());
+    assert_eq!(mask, Mask::from_buffer(buffer));
+    if let Some(values) = mask.values() {
+        assert_eq!(values.cached_slices(), Some(slices.as_slice()));
+    }
+}
+
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic]
+fn mask_from_buffer_with_slices_missing_set_bit() {
+    Mask::from_buffer_with_slices(
+        BitBuffer::from_iter([true, true, false, true]),
+        vec![(0, 2)],
+    );
+}
+
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic]
+fn mask_from_buffer_with_slices_unset_bit() {
+    Mask::from_buffer_with_slices(
+        BitBuffer::from_iter([true, false, false, true]),
+        vec![(0, 2)],
+    );
+}
+
 #[test]
 fn test_mask_values_is_empty() {
     let empty_mask = Mask::from_buffer(BitBuffer::new_unset(0));
-    if let Some(values) = empty_mask.values() {
-        assert!(values.is_empty());
-    }
+    assert!(empty_mask.values().is_none());
 
     let non_empty_mask = Mask::from_buffer(BitBuffer::from_iter([true, false]));
-    if let Some(values) = non_empty_mask.values() {
-        assert!(!values.is_empty());
-    }
+    assert!(!non_empty_mask.values().unwrap().is_empty());
 }
 
 // Creation from excluded indices

@@ -150,7 +150,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::f32;
+    use std::f32::consts::E;
     use std::sync::LazyLock;
 
     use rstest::rstest;
@@ -173,7 +173,7 @@ mod tests {
     use crate::alp_encode;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -330,7 +330,7 @@ mod tests {
 
     #[test]
     fn compare_with_patches() {
-        let array = PrimitiveArray::from_iter([1.234f32, 1.5, 19.0, f32::consts::E, 1_000_000.9]);
+        let array = PrimitiveArray::from_iter([1.234f32, 1.5, 19.0, E, 1_000_000.9]);
         let encoded =
             alp_encode(array.as_view(), None, &mut SESSION.create_execution_ctx()).unwrap();
         assert!(encoded.patches().is_some());

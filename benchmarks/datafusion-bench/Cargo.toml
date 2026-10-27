@@ -35,6 +35,7 @@ datafusion-common = { workspace = true }
 datafusion-physical-plan = { workspace = true }
 futures.workspace = true
 itertools.workspace = true
+mimalloc = { workspace = true }
 object_store = { workspace = true, features = ["aws", "gcp"] }
 opentelemetry.workspace = true
 opentelemetry-otlp.workspace = true

@@ -59,6 +59,8 @@ impl AggregateFnRef {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use prost::Message;
     use rstest::rstest;
     use vortex_error::VortexResult;
@@ -81,6 +83,12 @@ mod tests {
     use crate::dtype::DType;
     use crate::proto::expr as pb;
     use crate::scalar::Scalar;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        session.aggregate_fns().register(TestAgg);
+        session
+    });
 
     /// A minimal serializable aggregate function used solely to exercise the serde round-trip.
     #[derive(Clone, Debug)]
@@ -125,7 +133,7 @@ mod tests {
         fn partial_from_scalar(
             &self,
             _args: AggregateArgs<'_, Self::Options>,
-            _scalar: Scalar,
+            _scalar: &Scalar,
         ) -> VortexResult<Self::Partial> {
             Ok(())
         }
@@ -184,15 +192,12 @@ mod tests {
 
     #[test]
     fn aggregate_fn_serde() {
-        let session = crate::array_session();
-        session.aggregate_fns().register(TestAgg);
-
         let agg_fn = TestAgg.bind(EmptyOptions);
 
         let serialized = agg_fn.serialize_proto().unwrap();
         let buf = serialized.encode_to_vec();
         let deserialized_proto = pb::AggregateFn::decode(buf.as_slice()).unwrap();
-        let deserialized = AggregateFnRef::from_proto(&deserialized_proto, &session).unwrap();
+        let deserialized = AggregateFnRef::from_proto(&deserialized_proto, &SESSION).unwrap();
 
         assert_eq!(deserialized, agg_fn);
     }
@@ -205,7 +210,7 @@ mod tests {
     fn numeric_aggregate_options_round_trip(
         #[case] options: NumericalAggregateOpts,
     ) -> VortexResult<()> {
-        let session = crate::array_session();
+        let session = VortexSession::empty();
         let agg_fn = Sum.bind(options);
 
         let proto = agg_fn.serialize_proto()?;

@@ -197,7 +197,15 @@ These CI checks are the ones most often missed when adding files rather than edi
 - Strongly consider `rstest` cases when parameterizing repetitive test logic.
 - Prefer test functions that return `VortexResult<()>` and use `?` instead of `unwrap`.
 - Prefer test module names `tests`, not `test`.
-- Use `assert_arrays_eq!` for array comparisons instead of element-by-element assertions.
+- Use `assert_arrays_eq!` for array comparisons instead of element-by-element assertions. Put the
+  result under test on the left: the macro already executes it recursively. Do not explicitly
+  canonicalize solely for this assertion; retain execution needed for physical representation,
+  resource, or error assertions.
+- Preserve conformance suite entry points and input cases when auditing tests. For batch kernel
+  coverage, execute lazy results before comparing logical values, nulls, lengths, and expected
+  dtypes. Scalar probing alone may bypass the batch kernel.
+- Derive expected errors from the input contract or a reference result; do not silently skip
+  failed operations. Invalid-input fixtures should reach the specific guard they claim to test.
 - Keep tests concise and focused on behavior, edge cases, and regressions.
 - If a bug fix is requested, add or identify a regression test when practical. Leave execution
   to the user; when tests are run, a test that passes before and after the fix does not prove it.
@@ -215,7 +223,7 @@ These CI checks are the ones most often missed when adding files rather than edi
   default to Snappy.
   - parquet-rs: `Compression::ZSTD(ZstdLevel::try_new(3)?)`
   - DuckDB: `(FORMAT parquet, COMPRESSION zstd, COMPRESSION_LEVEL 3)`
-  - tpchgen-cli: `--parquet-compression='ZSTD(3)'`
+  - tpchgen-cli: `parquet --compression='ZSTD(3)'`
 - Benchmarks that deliberately compare Parquet codecs, such as the GPU compress benchmark's
   `--codec`, are exempt.
 

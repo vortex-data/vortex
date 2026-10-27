@@ -76,15 +76,21 @@ impl CudaOpenOptions {
         let cuda_session = session.cuda_session();
         let stream = cuda_session.stream()?;
         let pool = Arc::clone(cuda_session.pinned_buffer_pool());
-        drop(cuda_session);
-
-        let reader = Arc::new(PooledFileReadAt::open_with_options(
+        let reader = PooledFileReadAt::open_with_options(
             &path,
             session.handle(),
             pool,
             stream,
             self.read_at_options,
-        )?);
+        )?;
+        // Direct I/O bypasses the page cache, so there are no cached pages to copy from.
+        let reader = if self.read_at_options.is_direct_io() {
+            reader
+        } else {
+            reader.with_mapped_copy(&path, &cuda_session)?
+        };
+        drop(cuda_session);
+        let reader = Arc::new(reader);
         let data_file = data_options
             .with_footer(footer.clone())
             .open(reader)

@@ -64,6 +64,10 @@ macro_rules! test_cases {
                         return;
                     };
                     assert_eq!(&values, result.as_slice());
+                    let indices: Vec<$IDX> = (0..127).map(|i| ((i * 37 + 11) % 113) as $IDX).collect();
+                    let expected: Vec<$VAL> = indices.iter().map(|&i| values[i as usize]).collect();
+                    let result = take_avx2_if_supported(&values, &indices).expect("AVX2 already detected");
+                    assert_eq!(result.as_slice(), expected);
                 }
 
                 #[test]
@@ -163,6 +167,12 @@ fn simd_array_u8x4() {
         return;
     };
     assert_eq!(values.as_slice(), result.as_slice());
+    let indices: Vec<u32> = (0..values.len())
+        .map(|i| u32::try_from((i * 37 + 11) % (values.len() - 1)).unwrap())
+        .collect();
+    let expected: Vec<_> = indices.iter().map(|&i| values[i as usize]).collect();
+    let result = take_avx2_if_supported(&values, &indices).expect("AVX2 already detected");
+    assert_eq!(result.as_slice(), expected);
 }
 
 #[test]
@@ -174,6 +184,12 @@ fn scalar_fallback_u16() {
         return;
     };
     assert_eq!(values.as_slice(), result.as_slice());
+    let indices: Vec<u32> = (0..values.len())
+        .map(|i| u32::try_from((i * 37 + 11) % (values.len() - 1)).unwrap())
+        .collect();
+    let expected: Vec<_> = indices.iter().map(|&i| values[i as usize]).collect();
+    let result = take_avx2_if_supported(&values, &indices).expect("AVX2 already detected");
+    assert_eq!(result.as_slice(), expected);
 }
 
 #[test]
@@ -185,6 +201,12 @@ fn scalar_fallback_array_u8x16() {
         return;
     };
     assert_eq!(values.as_slice(), result.as_slice());
+    let indices: Vec<u32> = (0..values.len())
+        .map(|i| u32::try_from((i * 37 + 11) % (values.len() - 1)).unwrap())
+        .collect();
+    let expected: Vec<_> = indices.iter().map(|&i| values[i as usize]).collect();
+    let result = take_avx2_if_supported(&values, &indices).expect("AVX2 already detected");
+    assert_eq!(result.as_slice(), expected);
 }
 
 #[test]

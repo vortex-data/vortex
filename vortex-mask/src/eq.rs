@@ -99,13 +99,6 @@ mod test {
     }
 
     #[test]
-    fn test_mask_eq_reflexive() {
-        // Test that a mask equals itself
-        let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false, true]));
-        assert_eq!(mask, mask);
-    }
-
-    #[test]
     fn test_mask_eq_symmetric() {
         // Test that if a == b then b == a
         let mask1 = Mask::from_indices(5, vec![0, 2, 4]);

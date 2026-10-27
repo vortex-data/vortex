@@ -17,11 +17,13 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use vortex_error::VortexResult;
 
 use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AccumulatorRef;
+use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnSatisfaction;
@@ -60,6 +62,36 @@ pub(super) trait DynAggregateFn: 'static + Send + Sync + super::sealed::Sealed {
 pub(super) struct AggregateFnInner<V: AggregateFnVTable> {
     pub(super) vtable: V,
     pub(super) options: V::Options,
+    /// The dtypes resolved for the first accumulator, reused for every later accumulator over the
+    /// same input dtype.
+    ///
+    /// Accumulators made from one bound aggregate function then share their dtypes, so comparing
+    /// the partial dtypes of two of them is a pointer comparison instead of a field-by-field one.
+    /// A bound aggregate function is almost always used for one input dtype, so one entry is
+    /// enough, and reading it takes no lock.
+    resolved: OnceLock<AggregateDTypes>,
+}
+
+impl<V: AggregateFnVTable> AggregateFnInner<V> {
+    /// The dtypes of this aggregate over `input_dtype`, reusing the cached dtypes if they match.
+    fn resolve_dtypes(&self, input_dtype: &DType) -> VortexResult<AggregateDTypes> {
+        if let Some(dtypes) = self.resolved.get() {
+            if dtypes.dtype == *input_dtype {
+                return Ok(dtypes.clone());
+            }
+            return AggregateDTypes::try_new(&self.vtable, &self.options, input_dtype.clone());
+        }
+
+        let dtypes = AggregateDTypes::try_new(&self.vtable, &self.options, input_dtype.clone())?;
+
+        // Another thread may have filled the cache first, possibly for another input dtype.
+        let cached = self.resolved.get_or_init(|| dtypes.clone());
+        if cached.dtype == *input_dtype {
+            return Ok(cached.clone());
+        }
+
+        Ok(dtypes)
+    }
 }
 
 impl<V: AggregateFnVTable> DynAggregateFn for AggregateFnInner<V> {
@@ -92,19 +124,19 @@ impl<V: AggregateFnVTable> DynAggregateFn for AggregateFnInner<V> {
     }
 
     fn accumulator(&self, input_dtype: &DType) -> VortexResult<AccumulatorRef> {
-        Ok(Box::new(Accumulator::try_new(
+        Ok(Box::new(Accumulator::from_dtypes(
             self.vtable.clone(),
             self.options.clone(),
-            input_dtype.clone(),
-        )?))
+            self.resolve_dtypes(input_dtype)?,
+        )))
     }
 
     fn accumulator_grouped(&self, input_dtype: &DType) -> VortexResult<GroupedAccumulatorRef> {
-        Ok(Box::new(GroupedAccumulator::try_new(
+        Ok(Box::new(GroupedAccumulator::from_dtypes(
             self.vtable.clone(),
             self.options.clone(),
-            input_dtype.clone(),
-        )?))
+            self.resolve_dtypes(input_dtype)?,
+        )))
     }
 
     fn options_serialize(&self) -> VortexResult<Option<Vec<u8>>> {
@@ -142,7 +174,11 @@ pub struct AggregateFn<V: AggregateFnVTable>(pub(super) Arc<AggregateFnInner<V>>
 impl<V: AggregateFnVTable> AggregateFn<V> {
     /// Create a new typed aggregate function instance.
     pub fn new(vtable: V, options: V::Options) -> Self {
-        Self(Arc::new(AggregateFnInner { vtable, options }))
+        Self(Arc::new(AggregateFnInner {
+            vtable,
+            options,
+            resolved: OnceLock::new(),
+        }))
     }
 
     /// Returns a reference to the vtable.

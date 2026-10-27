@@ -3,6 +3,7 @@
 
 //! Encodings that enable zero-copy sharing of data with Arrow.
 
+use std::any::TypeId;
 use std::sync::Arc;
 
 use vortex_buffer::BitBuffer;
@@ -18,6 +19,7 @@ use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::array::child_to_validity;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
@@ -126,7 +128,7 @@ use crate::validity::Validity;
 ///
 /// # For Developers
 ///
-/// If you add another variant to this enum, make sure to update `dyn Array::is_canonical`,
+/// If you add another variant to this enum, make sure to update `canonical_kinds!`,
 /// and the fuzzer in `fuzz/fuzz_targets/array_ops.rs`.
 #[derive(Debug, Clone)]
 pub enum Canonical {
@@ -254,7 +256,7 @@ impl Canonical {
                 Canonical::Union(UnionArray::empty(variants.clone(), *nullability))
             }
             DType::Variant(_) => {
-                vortex_panic!(InvalidArgument: "Canonical empty is not supported for Variant")
+                vortex_panic!("Canonical empty is not supported for Variant")
             }
             DType::Extension(ext_dtype) => Canonical::Extension(ExtensionArray::new(
                 ext_dtype.clone(),
@@ -488,123 +490,6 @@ impl Canonical {
 impl IntoArray for Canonical {
     fn into_array(self) -> ArrayRef {
         match_each_canonical!(self, |arr| arr.into_array())
-    }
-}
-
-/// Trait for types that can be converted from an owned type into an owned array variant.
-///
-/// # Canonicalization
-///
-/// This trait has a blanket implementation for all types implementing [ToCanonical].
-#[deprecated(note = "use `array.execute::<T>(ctx)` instead")]
-pub trait ToCanonical {
-    /// Canonicalize into a [`NullArray`] if the target is [`Null`](DType::Null) typed.
-    #[deprecated(note = "use `array.execute::<NullArray>(ctx)` instead")]
-    fn to_null(&self) -> NullArray;
-
-    /// Canonicalize into a [`BoolArray`] if the target is [`Bool`](DType::Bool) typed.
-    #[deprecated(note = "use `array.execute::<BoolArray>(ctx)` instead")]
-    fn to_bool(&self) -> BoolArray;
-
-    /// Canonicalize into a [`PrimitiveArray`] if the target is [`Primitive`](DType::Primitive)
-    /// typed.
-    #[deprecated(note = "use `array.execute::<PrimitiveArray>(ctx)` instead")]
-    fn to_primitive(&self) -> PrimitiveArray;
-
-    /// Canonicalize into a [`DecimalArray`] if the target is [`Decimal`](DType::Decimal)
-    /// typed.
-    #[deprecated(note = "use `array.execute::<DecimalArray>(ctx)` instead")]
-    fn to_decimal(&self) -> DecimalArray;
-
-    /// Canonicalize into a [`StructArray`] if the target is [`Struct`](DType::Struct) typed.
-    #[deprecated(note = "use `array.execute::<StructArray>(ctx)` instead")]
-    fn to_struct(&self) -> StructArray;
-
-    /// Canonicalize into a [`ListViewArray`] if the target is [`List`](DType::List) typed.
-    #[deprecated(note = "use `array.execute::<ListViewArray>(ctx)` instead")]
-    fn to_listview(&self) -> ListViewArray;
-
-    /// Canonicalize into a [`MapArray`] if the target is [`Map`](DType::Map) typed.
-    #[deprecated(note = "use `array.execute::<MapArray>(ctx)` instead")]
-    fn to_map(&self) -> MapArray;
-
-    /// Canonicalize into a [`FixedSizeListArray`] if the target is [`List`](DType::FixedSizeList)
-    /// typed.
-    #[deprecated(note = "use `array.execute::<FixedSizeListArray>(ctx)` instead")]
-    fn to_fixed_size_list(&self) -> FixedSizeListArray;
-
-    /// Canonicalize into a [`VarBinViewArray`] if the target is [`Utf8`](DType::Utf8)
-    /// or [`Binary`](DType::Binary) typed.
-    #[deprecated(note = "use `array.execute::<VarBinViewArray>(ctx)` instead")]
-    fn to_varbinview(&self) -> VarBinViewArray;
-
-    /// Canonicalize into an [`ExtensionArray`] if the array is [`Extension`](DType::Extension)
-    /// typed.
-    #[deprecated(note = "use `array.execute::<ExtensionArray>(ctx)` instead")]
-    fn to_extension(&self) -> ExtensionArray;
-}
-
-// Blanket impl for all Array encodings.
-#[expect(deprecated)]
-impl ToCanonical for ArrayRef {
-    fn to_null(&self) -> NullArray {
-        #[expect(deprecated)]
-        let result = self.to_canonical().vortex_expect("to_canonical failed");
-        result.into_null()
-    }
-
-    fn to_bool(&self) -> BoolArray {
-        #[expect(deprecated)]
-        let result = self.to_canonical().vortex_expect("to_canonical failed");
-        result.into_bool()
-    }
-
-    fn to_primitive(&self) -> PrimitiveArray {
-        #[expect(deprecated)]
-        let result = self.to_canonical().vortex_expect("to_canonical failed");
-        result.into_primitive()
-    }
-
-    fn to_decimal(&self) -> DecimalArray {
-        #[expect(deprecated)]
-        let result = self.to_canonical().vortex_expect("to_canonical failed");
-        result.into_decimal()
-    }
-
-    fn to_struct(&self) -> StructArray {
-        #[expect(deprecated)]
-        let result = self.to_canonical().vortex_expect("to_canonical failed");
-        result.into_struct()
-    }
-
-    fn to_listview(&self) -> ListViewArray {
-        #[expect(deprecated)]
-        let result = self.to_canonical().vortex_expect("to_canonical failed");
-        result.into_listview()
-    }
-
-    fn to_map(&self) -> MapArray {
-        #[expect(deprecated)]
-        let result = self.to_canonical().vortex_expect("to_canonical failed");
-        result.into_map()
-    }
-
-    fn to_fixed_size_list(&self) -> FixedSizeListArray {
-        #[expect(deprecated)]
-        let result = self.to_canonical().vortex_expect("to_canonical failed");
-        result.into_fixed_size_list()
-    }
-
-    fn to_varbinview(&self) -> VarBinViewArray {
-        #[expect(deprecated)]
-        let result = self.to_canonical().vortex_expect("to_canonical failed");
-        result.into_varbinview()
-    }
-
-    fn to_extension(&self) -> ExtensionArray {
-        #[expect(deprecated)]
-        let result = self.to_canonical().vortex_expect("to_canonical failed");
-        result.into_extension()
     }
 }
 
@@ -1165,7 +1050,9 @@ impl Executable for VariantArray {
             Ok(variant_array) => Ok(variant_array),
             Err(array) => match Canonical::execute(array, ctx)? {
                 Canonical::Variant(variant_array) => Ok(variant_array),
-                canonical => vortex_panic!("Cannot unwrap VariantArray from {:?}", canonical),
+                canonical => {
+                    vortex_panic!("Cannot unwrap VariantArray from {:?}", canonical)
+                }
             },
         }
     }
@@ -1230,6 +1117,55 @@ impl CanonicalView<'_> {
     }
 }
 
+// Keep classification and checked conversion together so they use the same concrete types.
+macro_rules! canonical_kinds {
+    ($($kind:ident => $vtable:ty),+ $(,)?) => {
+        /// Canonical encoding classification derived from the concrete array vtable.
+        #[derive(Clone, Copy)]
+        pub(crate) enum CanonicalKind {
+            $($kind),+
+        }
+
+        impl CanonicalKind {
+            /// Classify a concrete vtable; monomorphization folds these type comparisons.
+            #[inline]
+            pub(crate) fn of<V: VTable>() -> Option<Self> {
+                $(if TypeId::of::<V>() == TypeId::of::<$vtable>() {
+                    return Some(Self::$kind);
+                })+
+                None
+            }
+
+            /// # Safety
+            /// `self` must be the kind returned by `of::<V>()` for the concrete vtable of `array`.
+            #[inline]
+            unsafe fn view(self, array: &ArrayRef) -> CanonicalView<'_> {
+                match self {
+                    // SAFETY: the caller guarantees `of::<V>()` matched `$vtable` by `TypeId`.
+                    $(Self::$kind => CanonicalView::$kind(unsafe {
+                        array.as_typed_unchecked::<$vtable>()
+                    })),+
+                }
+            }
+        }
+    };
+}
+
+canonical_kinds! {
+    Null => Null,
+    Bool => Bool,
+    Primitive => Primitive,
+    Decimal => Decimal,
+    Struct => Struct,
+    Union => Union,
+    List => ListView,
+    Map => Map,
+    FixedSizeList => FixedSizeList,
+    VarBinView => VarBinView,
+    Variant => Variant,
+    Extension => Extension,
+}
+
 /// A matcher for any canonical array type.
 pub struct AnyCanonical;
 impl Matcher for AnyCanonical {
@@ -1237,54 +1173,23 @@ impl Matcher for AnyCanonical {
 
     #[inline]
     fn matches(array: &ArrayRef) -> bool {
-        array.is::<Null>()
-            || array.is::<Bool>()
-            || array.is::<Primitive>()
-            || array.is::<Decimal>()
-            || array.is::<Struct>()
-            || array.is::<Union>()
-            || array.is::<ListView>()
-            || array.is::<Map>()
-            || array.is::<FixedSizeList>()
-            || array.is::<VarBinView>()
-            || array.is::<Variant>()
-            || array.is::<Extension>()
+        array.dyn_array().canonical_kind().is_some()
     }
 
     #[inline]
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        if let Some(a) = array.as_opt::<Null>() {
-            Some(CanonicalView::Null(a))
-        } else if let Some(a) = array.as_opt::<Bool>() {
-            Some(CanonicalView::Bool(a))
-        } else if let Some(a) = array.as_opt::<Primitive>() {
-            Some(CanonicalView::Primitive(a))
-        } else if let Some(a) = array.as_opt::<Decimal>() {
-            Some(CanonicalView::Decimal(a))
-        } else if let Some(a) = array.as_opt::<Struct>() {
-            Some(CanonicalView::Struct(a))
-        } else if let Some(a) = array.as_opt::<Union>() {
-            Some(CanonicalView::Union(a))
-        } else if let Some(a) = array.as_opt::<ListView>() {
-            Some(CanonicalView::List(a))
-        } else if let Some(a) = array.as_opt::<Map>() {
-            Some(CanonicalView::Map(a))
-        } else if let Some(a) = array.as_opt::<FixedSizeList>() {
-            Some(CanonicalView::FixedSizeList(a))
-        } else if let Some(a) = array.as_opt::<VarBinView>() {
-            Some(CanonicalView::VarBinView(a))
-        } else if let Some(a) = array.as_opt::<Variant>() {
-            Some(CanonicalView::Variant(a))
-        } else {
-            array.as_opt::<Extension>().map(CanonicalView::Extension)
-        }
+        let kind = array.dyn_array().canonical_kind()?;
+        // SAFETY: `kind` was computed from the concrete vtable of `array`.
+        Some(unsafe { kind.view(array) })
     }
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
+    use std::sync::Arc;
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
@@ -1294,20 +1199,33 @@ mod test {
     use crate::CanonicalValidity;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::array::new_foreign_array;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::Primitive;
+    use crate::arrays::PrimitiveArray;
     use crate::arrays::Struct;
+    use crate::arrays::VarBinArray;
     use crate::arrays::Variant;
     use crate::arrays::VariantArray;
     use crate::arrays::struct_::StructArrayExt;
     use crate::arrays::variant::VariantArraySlotsExt;
+    use crate::assert_arrays_eq;
+    use crate::canonical::AnyCanonical;
     use crate::canonical::StructArray;
+    use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::MapDType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::StructFields;
+    use crate::dtype::UnionVariants;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
     use crate::scalar::Scalar;
 
     /// A shared session for these canonical tests, used to create execution contexts.
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn variant_core_storage(len: usize) -> ArrayRef {
         ConstantArray::new(
@@ -1315,6 +1233,95 @@ mod test {
             len,
         )
         .into_array()
+    }
+
+    fn canonical_arrays(nullability: Nullability) -> VortexResult<Vec<ArrayRef>> {
+        let i32_dtype = DType::Primitive(PType::I32, nullability);
+        let dtypes = [
+            DType::Null,
+            DType::Bool(nullability),
+            i32_dtype.clone(),
+            DType::Decimal(DecimalDType::try_new(10, 2)?, nullability),
+            DType::Utf8(nullability),
+            DType::Binary(nullability),
+            DType::List(Arc::new(i32_dtype.clone()), nullability),
+            DType::FixedSizeList(Arc::new(i32_dtype.clone()), 2, nullability),
+            DType::Map(
+                MapDType::try_new(
+                    DType::Utf8(Nullability::NonNullable),
+                    i32_dtype.clone(),
+                    false,
+                )?,
+                nullability,
+            ),
+            DType::Struct(
+                StructFields::from_iter([("a", i32_dtype.clone())]),
+                nullability,
+            ),
+            DType::Union(
+                UnionVariants::new(["a"].into(), vec![i32_dtype])?,
+                nullability,
+            ),
+            DType::Extension(Timestamp::new(TimeUnit::Microseconds, nullability).erased()),
+        ];
+        let mut arrays: Vec<_> = dtypes
+            .iter()
+            .map(|dtype| Canonical::empty(dtype).into_array())
+            .collect();
+        let value = Scalar::variant(Scalar::primitive(1i32, nullability))
+            .cast(&DType::Variant(nullability))?;
+        arrays.push(
+            VariantArray::try_new(ConstantArray::new(value, 2).into_array(), None)?.into_array(),
+        );
+        Ok(arrays)
+    }
+
+    #[rstest]
+    fn any_canonical_matches_all_encodings(
+        #[values(Nullability::NonNullable, Nullability::Nullable)] nullability: Nullability,
+    ) -> VortexResult<()> {
+        for array in canonical_arrays(nullability)? {
+            assert!(array.is::<AnyCanonical>(), "{array}");
+            let canonical = Canonical::from(array.as_::<AnyCanonical>()).into_array();
+            assert!(ArrayRef::ptr_eq(&array, &canonical));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn any_canonical_rejects_noncanonical_encodings() {
+        let arrays = [
+            ConstantArray::new(1i32, 4).into_array(),
+            ConstantArray::new(true, 4).into_array(),
+            ConstantArray::new("value", 4).into_array(),
+            VarBinArray::from_iter([Some("value")], DType::Utf8(Nullability::Nullable))
+                .into_array(),
+        ];
+        for array in arrays {
+            assert!(!array.is::<AnyCanonical>(), "{array}");
+            assert!(array.as_opt::<AnyCanonical>().is_none(), "{array}");
+        }
+    }
+
+    #[rstest]
+    fn any_canonical_rejects_foreign_arrays_with_canonical_ids(
+        #[values(Nullability::NonNullable, Nullability::Nullable)] nullability: Nullability,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        for canonical in canonical_arrays(nullability)? {
+            let foreign = new_foreign_array(
+                canonical.encoding_id(),
+                canonical.dtype().clone(),
+                canonical.len(),
+                vec![],
+                vec![],
+                Default::default(),
+            )?;
+            assert!(!foreign.is::<AnyCanonical>(), "{foreign}");
+            assert!(foreign.as_opt::<AnyCanonical>().is_none(), "{foreign}");
+            assert!(foreign.execute::<Canonical>(&mut ctx).is_err());
+        }
+        Ok(())
     }
 
     #[test]
@@ -1350,6 +1357,7 @@ mod test {
 
         assert!(value.is::<Primitive>());
         assert!(!value.is::<Constant>());
+        assert_arrays_eq!(value, PrimitiveArray::from_iter([10i32, 10]), &mut ctx);
 
         Ok(())
     }

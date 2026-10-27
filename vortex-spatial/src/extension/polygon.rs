@@ -37,6 +37,7 @@ use vortex_array::memory::BufferAllocatorRef;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowExport;
+use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowExportVTable;
 use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowImportVTable;
@@ -157,17 +158,24 @@ pub(crate) fn build_polygon_storage(
         ),
     ])?
     .into_array();
-    let rings = ListArray::try_new(
-        coordinates,
-        PrimitiveArray::new(ring_offsets.freeze(), Validity::NonNullable).into_array(),
-        Validity::NonNullable,
-    )?
+    // SAFETY: the offsets start at zero and are pushed as the running coordinate and ring counts,
+    // so they are sorted and end at the length of their elements.
+    let rings = unsafe {
+        ListArray::new_unchecked(
+            coordinates,
+            PrimitiveArray::new(ring_offsets.freeze(), Validity::NonNullable).into_array(),
+            Validity::NonNullable,
+        )
+    }
     .into_array();
-    let storage = ListArray::try_new(
-        rings,
-        PrimitiveArray::new(polygon_offsets.freeze(), Validity::NonNullable).into_array(),
-        Validity::NonNullable,
-    )?
+    // SAFETY: as above, for the polygon offsets into the rings.
+    let storage = unsafe {
+        ListArray::new_unchecked(
+            rings,
+            PrimitiveArray::new(polygon_offsets.freeze(), Validity::NonNullable).into_array(),
+            Validity::NonNullable,
+        )
+    }
     .into_array();
     Ok(storage)
 }
@@ -255,6 +263,7 @@ impl ArrowExportVTable for Polygon {
         &self,
         array: ArrayRef,
         target: &Field,
+        options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
         let is_polygon = array
@@ -282,9 +291,11 @@ impl ArrowExportVTable for Polygon {
             target.is_nullable(),
         );
         let session = ctx.session().clone();
-        let arrow_storage = session
-            .arrow()
-            .execute_arrow(storage, Some(&storage_field), ctx)?;
+        let arrow_storage =
+            session
+                .arrow()
+                .exporter(options)
+                .execute_arrow(storage, Some(&storage_field), ctx)?;
 
         // Round-trip through GeoArrow's polygon array; `into_arrow` is concrete, so wrap in `Arc`.
         let polygons = PolygonArray::try_from((arrow_storage.as_ref(), polygon_meta))
@@ -313,7 +324,7 @@ impl ArrowImportVTable for Polygon {
                 vortex_ensure!(
                     polygon_meta.coord_type() == CoordType::Separated,
                     "geoarrow.polygon with interleaved coordinates is not supported; \
-                 re-encode with separated (struct) coordinates"
+             re-encode with separated (struct) coordinates"
                 );
                 (
                     polygon_meta.dimension().into(),

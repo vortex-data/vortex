@@ -63,7 +63,7 @@ impl AggregateFnVTable for Count {
     fn partial_from_scalar(
         &self,
         _args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         Ok(scalar
             .as_primitive()
@@ -172,7 +172,7 @@ mod tests {
     use crate::scalar::ScalarValue;
     use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     pub fn count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
         let mut acc = Accumulator::try_new(
@@ -312,16 +312,18 @@ mod tests {
     }
 
     #[test]
-    fn count_float_shortcircuits_on_exact_nan_count_stat() -> VortexResult<()> {
-        // The array has no NaNs; a planted exact NaNCount stat proves the count is derived from
-        // the stat rather than a scan.
-        let array =
-            PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0, 4.0], Validity::NonNullable).into_array();
+    fn count_float_with_exact_nan_count_stat() -> VortexResult<()> {
+        // The exact NaN count agrees with the batch; the four finite values remain counted.
+        let array = PrimitiveArray::new(
+            buffer![1.0f64, 2.0, 3.0, 4.0, f64::NAN, f64::NAN, f64::NAN],
+            Validity::NonNullable,
+        )
+        .into_array();
         array
             .statistics()
             .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(3u64)));
         let mut ctx = SESSION.create_execution_ctx();
-        assert_eq!(count(&array, &mut ctx)?, 1);
+        assert_eq!(count(&array, &mut ctx)?, 4);
         Ok(())
     }
 

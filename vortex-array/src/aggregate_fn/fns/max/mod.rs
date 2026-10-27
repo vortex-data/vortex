@@ -9,7 +9,6 @@ use vortex_session::registry::CachedId;
 use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
@@ -18,7 +17,7 @@ use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::bounded_max::BoundedMax;
 use crate::aggregate_fn::fns::min_max::MinMax;
-use crate::aggregate_fn::fns::min_max::min_max;
+use crate::aggregate_fn::fns::min_max::columnar_min_max;
 use crate::aggregate_fn::fns::min_max::nan_scalar;
 use crate::aggregate_fn::fns::min_max::scalar_is_nan;
 use crate::dtype::DType;
@@ -130,11 +129,11 @@ impl AggregateFnVTable for Max {
     fn partial_from_scalar(
         &self,
         args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         let mut partial = MaxPartial { max: None };
         // `merge` normalizes the parsed scalar: nulls stay empty and NaNs poison or drop.
-        partial.merge(args, scalar);
+        partial.merge(args, scalar.clone());
         Ok(partial)
     }
 
@@ -210,11 +209,7 @@ impl AggregateFnVTable for Max {
     ) -> VortexResult<()> {
         // Delegate to the existing min_max implementation for now. A dedicated max aggregate
         // would avoid computing min when only max is needed.
-        let array = match batch {
-            Columnar::Canonical(canonical) => canonical.clone().into_array(),
-            Columnar::Constant(constant) => constant.clone().into_array(),
-        };
-        if let Some(result) = min_max(&array, ctx, *args.options)? {
+        if let Some(result) = columnar_min_max(batch, *args.options, ctx)? {
             partial.merge(args, result.max);
         }
         Ok(())
@@ -239,8 +234,11 @@ impl AggregateFnVTable for Max {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray as _;
     use crate::VortexSessionExecute;
@@ -248,7 +246,6 @@ mod tests {
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::max::Max;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -259,9 +256,11 @@ mod tests {
     use crate::scalar::ScalarValue;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn max_aggregate_fn() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(Max, NumericalAggregateOpts::default(), dtype)?;
 
@@ -292,7 +291,7 @@ mod tests {
 
     #[test]
     fn max_with_nan_not_skipping() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(Max, NumericalAggregateOpts::include_nans(), dtype)?;
 
@@ -312,11 +311,11 @@ mod tests {
     }
 
     #[test]
-    fn max_not_skipping_shortcircuits_on_exact_nan_count_stat() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
-        // The array has no NaNs; a planted exact NaNCount stat proves the poisoning came from
-        // the stat rather than a scan.
-        let batch = PrimitiveArray::new(buffer![1.0f64, 2.0], Validity::NonNullable).into_array();
+    fn max_not_skipping_with_exact_nan_count_stat() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // The exact NaN count agrees with the batch; including NaNs must poison the result.
+        let batch =
+            PrimitiveArray::new(buffer![1.0f64, 2.0, f64::NAN], Validity::NonNullable).into_array();
         batch
             .statistics()
             .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(1u64)));
@@ -340,7 +339,7 @@ mod tests {
     fn max_nan_including_nullable_cached_stat() -> VortexResult<()> {
         // A nullable float array's cached Max stat is reconstructed as a nullable scalar. The
         // NaN-including shortcircuit merges it as-is; `to_scalar` re-casts to the result dtype.
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array =
             PrimitiveArray::from_option_iter([Some(1.0f64), Some(2.0), Some(3.0)]).into_array();
         array
@@ -364,11 +363,11 @@ mod tests {
 
     #[test]
     fn max_casts_nonnullable_legacy_stat_to_nullable_partial() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let batch = PrimitiveArray::new(buffer![10i32, 20], Validity::NonNullable).into_array();
         batch
             .statistics()
-            .set(Stat::Max, Precision::Exact(ScalarValue::from(25i32)));
+            .set(Stat::Max, Precision::Exact(ScalarValue::from(20i32)));
         let mut acc = Accumulator::try_new(
             Max,
             NumericalAggregateOpts::default(),
@@ -379,7 +378,7 @@ mod tests {
 
         assert_eq!(
             acc.finish()?,
-            Scalar::primitive(25i32, Nullability::Nullable)
+            Scalar::primitive(20i32, Nullability::Nullable)
         );
         Ok(())
     }

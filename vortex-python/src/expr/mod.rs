@@ -10,7 +10,6 @@ use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::*;
 use vortex::aggregate_fn::NumericalAggregateOpts;
-use vortex::dtype::DType;
 use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
 use vortex::dtype::Nullability;
@@ -23,8 +22,10 @@ use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::between::BetweenOptions;
 use vortex::scalar_fn::fns::between::StrictComparison;
 use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::list_contains::ListContainsOptions;
 use vortex::scalar_fn::fns::merge::DuplicateHandling;
 use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scalar_fn::fns::replace_time_zone::ReplaceTimeZoneOptions;
 use vortex::scalar_fn::fns::variant_get::VariantPath;
 use vortex::scalar_fn::fns::variant_get::VariantPathElement;
 
@@ -85,8 +86,12 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
     // Lists
     m.add_function(wrap_pyfunction!(list_contains, &m)?)?;
+    m.add_function(wrap_pyfunction!(in_list, &m)?)?;
     m.add_function(wrap_pyfunction!(list_length, &m)?)?;
     m.add_function(wrap_pyfunction!(list_sum, &m)?)?;
+
+    // Temporal
+    m.add_function(wrap_pyfunction!(replace_time_zone, &m)?)?;
 
     // Conditionals and misc
     m.add_function(wrap_pyfunction!(case_when, &m)?)?;
@@ -141,8 +146,9 @@ impl PyExpr {
 /// A Python value that can be coerced into an [`Expression`].
 ///
 /// Accepts an existing [`PyExpr`], or any Python value convertible to a Vortex scalar (including
-/// `None`, `bool`, `int`, `float`, `str`, `bytes`, `list`, `dict`, and `vortex.Scalar`), which is
-/// wrapped in a literal expression.
+/// `None`, `bool`, `int`, `float`, `str`, `bytes`, `list`, `dict`, `decimal.Decimal`,
+/// `datetime.date`, `datetime.datetime`, `datetime.time`, `uuid.UUID`, and `vortex.Scalar`),
+/// which is wrapped in a literal expression.
 pub struct PyIntoExpr(Expression);
 
 impl PyIntoExpr {
@@ -502,7 +508,8 @@ pub fn literal<'py>(
     dtype: &Bound<'py, PyDType>,
     value: &Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyExpr>> {
-    scalar(dtype.borrow().inner().clone(), value)
+    let scalar = scalar_helper(value, Some(dtype.borrow().inner())).map_err(PyErr::from)?;
+    Bound::new(value.py(), PyExpr { inner: lit(scalar) })
 }
 
 /// Create an expression that refers to the identity scope.
@@ -591,16 +598,6 @@ pub fn get_item(field: String, child: Option<PyIntoExpr>) -> PyExpr {
     PyExpr {
         inner: expr::get_item(field, child),
     }
-}
-
-pub fn scalar<'py>(dtype: DType, value: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyExpr>> {
-    let py = value.py();
-    Bound::new(
-        py,
-        PyExpr {
-            inner: lit(scalar_helper(value, Some(&dtype))?),
-        },
-    )
 }
 
 /// Negate a Boolean expression.
@@ -1097,20 +1094,64 @@ pub fn merge(exprs: &Bound<'_, PyAny>, duplicate_handling: &str) -> PyResult<PyE
 
 /// True where the list contains the given value.
 ///
+/// By default, null elements never match. A null value produces null, except against an empty
+/// list, where it produces false. A null list always produces null.
+///
 /// Parameters
 /// ----------
 /// child : :class:`Any`
 ///     A list expression.
 /// value : :class:`Any`
 ///     The value to search for.
+/// sql_null_semantics : :class:`bool`
+///     If ``True``, a non-match against a list containing null produces null, and a null value
+///     produces null even against an empty list. Defaults to ``False``.
 ///
 /// Returns
 /// -------
 /// :class:`vortex.Expr`
 #[pyfunction]
-pub fn list_contains(child: PyIntoExpr, value: PyIntoExpr) -> PyExpr {
+#[pyo3(signature = (child, value, *, sql_null_semantics = false))]
+pub fn list_contains(child: PyIntoExpr, value: PyIntoExpr, sql_null_semantics: bool) -> PyExpr {
     PyExpr {
-        inner: expr::list_contains(child.into_inner(), value.into_inner()),
+        inner: expr::list_contains_opts(
+            child.into_inner(),
+            value.into_inner(),
+            ListContainsOptions { sql_null_semantics },
+        ),
+    }
+}
+
+/// SQL ``value IN (list)`` with SQL null semantics.
+///
+/// A null value produces null. A non-match also produces null if the list contains null.
+/// Use ``~in_list(value, list)`` for SQL ``NOT IN``.
+///
+/// Parameters
+/// ----------
+/// value : :class:`Any`
+///     The value to search for.
+/// list : :class:`Any`
+///     A list expression or a Python list. Use :func:`.literal` with an explicit list dtype for
+///     empty or null lists and for element types other than the inferred Python scalar types.
+///
+/// Returns
+/// -------
+/// :class:`vortex.Expr`
+///
+/// Examples
+/// --------
+///
+/// ```python
+/// >>> import vortex.expr as ve
+/// >>> ve.in_list(ve.column("age"), [25, 30])
+/// <vortex.Expr object at ...>
+/// ```
+#[pyfunction]
+#[pyo3(signature = (value, list))]
+pub fn in_list(value: PyIntoExpr, list: PyIntoExpr) -> PyExpr {
+    PyExpr {
+        inner: expr::in_list(value.into_inner(), list.into_inner()),
     }
 }
 
@@ -1360,4 +1401,44 @@ fn variant_path(path: &Bound<'_, PyAny>) -> PyResult<VariantPath> {
         })
         .collect::<PyResult<Vec<_>>>()?;
     Ok(VariantPath::new(elements))
+}
+
+/// Replace a timestamp's timezone while preserving its local wall time and time unit.
+///
+/// Pass ``None`` to remove the timezone. ``ambiguous`` accepts an expression or one of
+/// ``"raise"``, ``"earliest"``, ``"latest"``, and ``"null"``. ``non_existent`` accepts
+/// ``"raise"`` or ``"null"``. Null inputs produce null outputs.
+#[pyfunction]
+#[pyo3(signature = (
+    child,
+    time_zone,
+    *,
+    ambiguous = PyIntoExpr(lit("raise")),
+    non_existent = "raise"
+))]
+pub fn replace_time_zone(
+    child: PyIntoExpr,
+    time_zone: Option<String>,
+    ambiguous: PyIntoExpr,
+    non_existent: &str,
+) -> PyResult<PyExpr> {
+    let null_on_non_existent = match non_existent {
+        "raise" => false,
+        "null" => true,
+        _ => {
+            return Err(PyValueError::new_err(
+                "non_existent must be 'raise' or 'null'",
+            ));
+        }
+    };
+    Ok(PyExpr {
+        inner: expr::replace_time_zone(
+            child.into_inner(),
+            ambiguous.into_inner(),
+            ReplaceTimeZoneOptions {
+                time_zone: time_zone.map(Into::into),
+                null_on_non_existent,
+            },
+        ),
+    })
 }

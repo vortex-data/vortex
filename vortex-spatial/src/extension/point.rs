@@ -30,6 +30,7 @@ use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_arrow::ArrowExport;
+use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowExportVTable;
 use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowImportVTable;
@@ -179,6 +180,7 @@ impl ArrowExportVTable for Point {
         &self,
         array: ArrayRef,
         target: &Field,
+        options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
         let is_point = array
@@ -206,9 +208,11 @@ impl ArrowExportVTable for Point {
             target.is_nullable(),
         );
         let session = ctx.session().clone();
-        let arrow_storage = session
-            .arrow()
-            .execute_arrow(storage, Some(&storage_field), ctx)?;
+        let arrow_storage =
+            session
+                .arrow()
+                .exporter(options)
+                .execute_arrow(storage, Some(&storage_field), ctx)?;
 
         // Round-trip through the GeoArrow point array type: this validates that the storage is
         // the separated-coordinate struct layout expected for a `PointType` extension field.
@@ -293,6 +297,8 @@ impl ArrowImportVTable for Point {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
@@ -303,6 +309,7 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::dtype::extension::ExtDType;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::Point;
     use crate::extension::SpatialMetadata;
@@ -311,6 +318,8 @@ mod tests {
     use crate::extension::coordinate::coordinate_storage_dtype;
     use crate::test_harness::coordinate_from_scalar;
     use crate::test_harness::point_column;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn spatial_meta() -> SpatialMetadata {
         SpatialMetadata {
@@ -349,8 +358,7 @@ mod tests {
     /// A `Point` column round-trips through scalar execution back to the original coordinates.
     #[test]
     fn point_unpacks_coordinates() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let points = point_column(vec![1.0, -111.7610], vec![2.0, 34.8697])?;
 

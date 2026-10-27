@@ -84,14 +84,14 @@ mod tests {
 
     /// Session with Sparse + its pushdown kernels.
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         initialize(&session);
         session
     });
 
     /// Baseline session: Sparse registered but no pushdown kernels.
     static CANONICAL_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         session.arrays().register(Sparse);
         session
     });
@@ -114,6 +114,7 @@ mod tests {
             buffer![7i32, 7, 7].into_array(),
             10,
             Scalar::from(7i32),
+            &mut SESSION.create_execution_ctx(),
         ).unwrap(),
         true,
     )]
@@ -123,6 +124,7 @@ mod tests {
             buffer![9i32, 9].into_array(),
             5,
             Scalar::from(7i32),
+            &mut SESSION.create_execution_ctx(),
         ).unwrap(),
         false,
     )]
@@ -132,6 +134,7 @@ mod tests {
             buffer![3i32].into_array(),
             5,
             Scalar::from(7i32),
+            &mut SESSION.create_execution_ctx(),
         ).unwrap(),
         false,
     )]
@@ -141,6 +144,7 @@ mod tests {
             buffer![5i32, 5, 5, 5].into_array(),
             4,
             Scalar::from(99i32), // fill is unreachable
+            &mut SESSION.create_execution_ctx(),
         ).unwrap(),
         true,
     )]
@@ -150,6 +154,7 @@ mod tests {
             buffer![1i32, 2, 3].into_array(),
             3,
             Scalar::from(99i32),
+            &mut SESSION.create_execution_ctx(),
         ).unwrap(),
         false,
     )]

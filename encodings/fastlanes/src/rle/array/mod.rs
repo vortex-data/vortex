@@ -303,8 +303,6 @@ mod tests {
             .unwrap();
         assert_eq!(validity_mask.len(), expected_mask.len());
         assert_eq!(validity_mask, expected_mask);
-        assert_eq!(validity_mask.len(), expected_mask.len());
-        assert_eq!(validity_mask, expected_mask);
     }
 
     #[test]
@@ -348,11 +346,6 @@ mod tests {
         let rle_array = RLEData::encode(primitive.as_view(), &mut exec_ctx)?;
         assert_eq!(rle_array.len(), 2048);
 
-        let original_data = rle_array
-            .as_array()
-            .clone()
-            .execute::<PrimitiveArray>(&mut exec_ctx)?;
-
         let ctx = ArrayContext::empty();
         let serialized =
             rle_array
@@ -373,13 +366,7 @@ mod tests {
             &SESSION,
         )?;
 
-        let decoded_data = decoded.execute::<PrimitiveArray>(&mut exec_ctx)?;
-
-        assert_arrays_eq!(
-            original_data,
-            decoded_data,
-            &mut SESSION.create_execution_ctx()
-        );
+        assert_arrays_eq!(decoded, primitive, &mut exec_ctx);
         Ok(())
     }
 
@@ -420,17 +407,8 @@ mod tests {
             &SESSION,
         )?;
 
-        let original_data = sliced
-            .as_array()
-            .clone()
-            .execute::<PrimitiveArray>(&mut exec_ctx)?;
-        let decoded_data = decoded.execute::<PrimitiveArray>(&mut exec_ctx)?;
-
-        assert_arrays_eq!(
-            original_data,
-            decoded_data,
-            &mut SESSION.create_execution_ctx()
-        );
+        let expected = PrimitiveArray::from_iter((100..200).map(|i| (i / 100) as u32));
+        assert_arrays_eq!(decoded, expected, &mut exec_ctx);
         Ok(())
     }
 
@@ -477,11 +455,7 @@ mod tests {
         };
 
         // Decompress — panicked before the fill_forward_nulls chunk-boundary fix.
-        let decoded = reconstructed
-            .as_array()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?;
-        assert_arrays_eq!(decoded, original, &mut ctx);
+        assert_arrays_eq!(reconstructed, original, &mut ctx);
         Ok(())
     }
 }

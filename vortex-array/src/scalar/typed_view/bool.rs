@@ -7,7 +7,6 @@ use std::cmp::Ordering;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -81,19 +80,6 @@ impl<'a> BoolScalar<'a> {
         self.value
     }
 
-    /// Casts this scalar to the given `dtype`.
-    pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
-        if !matches!(dtype, DType::Bool(..)) {
-            vortex_bail!(
-                "Cannot cast bool to {dtype}: boolean scalars can only be cast to boolean types with different nullability"
-            )
-        }
-        Ok(Scalar::bool(
-            self.value.vortex_expect("nullness handled in Scalar::cast"),
-            dtype.nullability(),
-        ))
-    }
-
     /// Returns a new boolean scalar with the inverted value.
     ///
     /// Null values remain null.
@@ -115,32 +101,15 @@ impl<'a> BoolScalar<'a> {
 mod test {
     use super::*;
     use crate::dtype::Nullability::*;
+    use crate::dtype::PType;
 
     #[test]
     fn into_from() {
-        let scalar: Scalar = Some(false).into();
-        assert!(!bool::try_from(&scalar).unwrap());
-    }
-
-    #[test]
-    fn test_bool_scalar_ordering() {
-        let false_scalar = Scalar::bool(false, NonNullable);
-        let true_scalar = Scalar::bool(true, NonNullable);
-        let null_scalar = Scalar::null(DType::Bool(Nullable));
-
-        let false_bool = false_scalar.as_bool();
-        let true_bool = true_scalar.as_bool();
-        let null_bool = null_scalar.as_bool();
-
-        // false < true
-        assert!(false_bool < true_bool);
-        assert!(true_bool > false_bool);
-
-        // None < Some(false) < Some(true)
-        assert!(null_bool < false_bool);
-        assert!(null_bool < true_bool);
-        assert!(false_bool > null_bool);
-        assert!(true_bool > null_bool);
+        for value in [false, true] {
+            assert_eq!(ScalarValue::from(value).as_bool(), value);
+            let scalar: Scalar = Some(value).into();
+            assert_eq!(bool::try_from(&scalar).unwrap(), value);
+        }
     }
 
     #[test]
@@ -188,30 +157,28 @@ mod test {
     }
 
     #[test]
-    fn test_bool_cast_to_bool() {
-        let bool_scalar = Scalar::bool(true, NonNullable);
-        let bool = bool_scalar.as_bool();
+    fn test_bool_cast() {
+        let scalar = Scalar::bool(true, NonNullable);
+        for target in [DType::Bool(NonNullable), DType::Bool(Nullable)] {
+            let result = scalar.cast(&target).unwrap();
+            assert_eq!(result.dtype(), &target);
+            assert!(bool::try_from(&result).unwrap());
+        }
 
-        // Cast to nullable bool
-        let result = bool.cast(&DType::Bool(Nullable)).unwrap();
-        assert_eq!(result.dtype(), &DType::Bool(Nullable));
-        assert!(bool::try_from(&result).unwrap());
-
-        // Cast to non-nullable bool
-        let result = bool.cast(&DType::Bool(NonNullable)).unwrap();
+        let nullable = Scalar::bool(true, Nullable);
+        let result = nullable.cast(&DType::Bool(NonNullable)).unwrap();
         assert_eq!(result.dtype(), &DType::Bool(NonNullable));
         assert!(bool::try_from(&result).unwrap());
-    }
-
-    #[test]
-    fn test_bool_cast_to_non_bool_fails() {
-        use crate::dtype::PType;
-
-        let bool_scalar = Scalar::bool(true, NonNullable);
-        let bool = bool_scalar.as_bool();
-
-        let result = bool.cast(&DType::Primitive(PType::I32, NonNullable));
-        assert!(result.is_err());
+        assert!(
+            Scalar::null(DType::Bool(Nullable))
+                .cast(&DType::Bool(NonNullable))
+                .is_err()
+        );
+        assert!(
+            scalar
+                .cast(&DType::Primitive(PType::I32, NonNullable))
+                .is_err()
+        );
     }
 
     #[test]
@@ -253,17 +220,6 @@ mod test {
         let result: Result<Option<bool>, _> = null_scalar.try_into();
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), None);
-    }
-
-    #[test]
-    fn test_scalar_value_from_bool() {
-        let value: ScalarValue = true.into();
-        let scalar = Scalar::new(DType::Bool(NonNullable), Some(value));
-        assert!(bool::try_from(&scalar).unwrap());
-
-        let value: ScalarValue = false.into();
-        let scalar = Scalar::new(DType::Bool(NonNullable), Some(value));
-        assert!(!bool::try_from(&scalar).unwrap());
     }
 
     #[test]
@@ -325,12 +281,18 @@ mod test {
     fn test_bool_partial_cmp() {
         let false_scalar = Scalar::bool(false, NonNullable);
         let true_scalar = Scalar::bool(true, NonNullable);
+        let null_scalar = Scalar::null(DType::Bool(Nullable));
 
         let false_bool = false_scalar.as_bool();
         let true_bool = true_scalar.as_bool();
+        let null_bool = null_scalar.as_bool();
 
         assert_eq!(false_bool.partial_cmp(&false_bool), Some(Ordering::Equal));
         assert_eq!(false_bool.partial_cmp(&true_bool), Some(Ordering::Less));
         assert_eq!(true_bool.partial_cmp(&false_bool), Some(Ordering::Greater));
+        for present in [false_bool, true_bool] {
+            assert_eq!(null_bool.partial_cmp(&present), Some(Ordering::Less));
+            assert_eq!(present.partial_cmp(&null_bool), Some(Ordering::Greater));
+        }
     }
 }

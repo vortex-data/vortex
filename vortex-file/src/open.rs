@@ -118,10 +118,12 @@ impl VortexOpenOptions {
         self
     }
 
-    /// Cache the file's [`LayoutReader`](vortex_layout::LayoutReader) between scans.
+    /// Cache the file's [`LayoutReader`](vortex_layout::LayoutReader) and V2
+    /// [`ScanCache`](vortex_layout::scan::v2::ScanCache) between scans.
     ///
-    /// This avoids rebuilding the reader tree for repeated scans of the same [`VortexFile`], at the
-    /// cost of keeping reader state alive for the lifetime of the file handle.
+    /// This avoids rebuilding the reader tree or lowered scan plan, and re-reading dictionary
+    /// values, for repeated scans of the same [`VortexFile`], at the cost of keeping that state
+    /// alive for the lifetime of the file handle.
     pub fn with_layout_reader_cache(mut self) -> Self {
         self.cache_layout_reader = true;
         self
@@ -305,6 +307,16 @@ impl VortexOpenOptions {
         } else {
             self.read_footer(&reader).await?
         };
+
+        // With a segment cache, also store the segments that the footer read covered, so that a
+        // later open given this footer finds them there, instead of reading them again. Keep them
+        // in the initial map too: the cache can evict them, or not admit them at all, and the
+        // buffers are shared, not copied.
+        if self.segment_cache.is_some() {
+            for (id, buffer) in &initial_segments {
+                segment_cache.put(*id, buffer.clone()).await?;
+            }
+        }
 
         let segment_cache = Arc::new(InstrumentedSegmentCache::new(
             InitialReadSegmentCache {
@@ -529,7 +541,7 @@ mod tests {
     use crate::footer::SegmentSpec;
 
     fn test_session() -> VortexSession {
-        let session = vortex_array::array_session()
+        let session = VortexSession::empty()
             .with::<LayoutSession>()
             .with::<RuntimeSession>();
         crate::register_default_encodings(&session);
@@ -593,7 +605,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_initial_read_size() {
-        let session = vortex_array::array_session()
+        let session = VortexSession::empty()
             .with::<LayoutSession>()
             .with::<RuntimeSession>();
 
@@ -655,7 +667,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_metadata_outside_initial_read_uses_targeted_read() -> VortexResult<()> {
-        let session = vortex_array::array_session()
+        let session = VortexSession::empty()
             .with::<LayoutSession>()
             .with::<RuntimeSession>();
         crate::register_default_encodings(&session);
@@ -729,7 +741,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_with_footer_include_metadata_open_buffer_resolves() -> VortexResult<()> {
-        let session = vortex_array::array_session()
+        let session = VortexSession::empty()
             .with::<LayoutSession>()
             .with::<RuntimeSession>();
         crate::register_default_encodings(&session);
@@ -770,7 +782,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_open_path_uses_memory_session_allocator() {
-        let session = vortex_array::array_session()
+        let session = VortexSession::empty()
             .with::<LayoutSession>()
             .with::<RuntimeSession>();
 

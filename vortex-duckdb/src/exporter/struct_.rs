@@ -5,10 +5,11 @@ use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::StructArray;
-use vortex::array::arrays::bool::BoolArrayExt;
 use vortex::array::arrays::struct_::StructDataParts;
 use vortex::array::builtins::ArrayBuiltins;
+use vortex::array::validity::Validity;
 use vortex::error::VortexResult;
+use vortex::mask::Mask;
 
 use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
@@ -37,27 +38,26 @@ pub(crate) fn new_exporter(
     if validity.definitely_all_null() {
         return Ok(all_invalid::new_exporter());
     };
-    let validity = validity.to_array(len).execute::<BoolArray>(ctx)?;
 
-    let children = fields
-        .iter()
-        .map(|child| {
-            if validity.bit_buffer_view().true_count() != validity.len() {
-                // TODO(joe): use new mask.
-                new_array_exporter(
-                    child.clone().mask(validity.clone().into_array())?,
-                    cache,
-                    ctx,
-                )
-            } else {
-                new_array_exporter(child.clone().into_array(), cache, ctx)
-            }
-        })
-        .collect::<VortexResult<Vec<_>>>()?;
-    Ok(validity::new_exporter(
-        validity.execute_mask(ctx),
-        Box::new(StructExporter { children }),
-    ))
+    let mask = validity.execute_mask(len, ctx)?;
+    let validity = if let Mask::Values(values) = &mask {
+        let array = BoolArray::new(values.bit_buffer().clone(), Validity::NonNullable);
+        Some(array.into_array())
+    } else {
+        None
+    };
+
+    let iter = fields.into_iter();
+    let children = if let Some(validity) = validity.as_ref() {
+        iter.map(|child| new_array_exporter(child.mask(validity.clone())?, cache, ctx))
+            .collect::<VortexResult<Vec<_>>>()
+    } else {
+        iter.map(|child| new_array_exporter(child.into_array(), cache, ctx))
+            .collect::<VortexResult<Vec<_>>>()
+    }?;
+
+    let exporter = Box::new(StructExporter { children });
+    Ok(validity::new_exporter_with_mask(mask, exporter))
 }
 
 impl ColumnExporter for StructExporter {

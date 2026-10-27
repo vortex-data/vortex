@@ -23,34 +23,17 @@ pub fn filter_bool(array: &BoolArray, mask: &MaskValuesRef) -> BoolArray {
 
 #[cfg(test)]
 mod tests {
-    use itertools::Itertools;
+    use std::sync::LazyLock;
+
     use rstest::rstest;
-    use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::filter::execute::bool::BoolArray;
     use crate::compute::conformance::filter::test_filter_conformance;
 
-    #[test]
-    fn filter_bool_test() {
-        let mut ctx = array_session().create_execution_ctx();
-        let arr = BoolArray::from_iter([true, true, false]);
-        let mask = Mask::from_iter([true, false, true]);
-
-        let filtered = arr
-            .filter(mask)
-            .unwrap()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap();
-        assert_eq!(2, filtered.len());
-
-        assert_eq!(
-            vec![true, false],
-            filtered.into_bit_buffer().iter().collect_vec()
-        )
-    }
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     #[case(BoolArray::from_iter([true, false, true, true, false]))]
@@ -60,9 +43,6 @@ mod tests {
     #[case(BoolArray::from_iter((0..100).map(|i| i % 2 == 0)))]
     #[case(BoolArray::from_iter((0..1024).map(|i| i % 3 != 0)))]
     fn test_filter_bool_conformance(#[case] array: BoolArray) {
-        test_filter_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_filter_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

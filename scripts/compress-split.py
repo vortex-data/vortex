@@ -8,6 +8,7 @@ merte outputs.
 
 import argparse
 import glob
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -39,7 +40,7 @@ def list_datasets(gpu_decompress: bool) -> list[str]:
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
-def run_datasets(formats: str, emit_ingest_records: bool, gpu_decompress: bool) -> list[str]:
+def run_datasets(formats: str, emit_ingest_records: bool, gpu_decompress: bool, cpus: int | None) -> list[str]:
     PARTS_DIR.mkdir(parents=True, exist_ok=True)
     failures: list[str] = []
     for i, dataset in enumerate(list_datasets(gpu_decompress)):
@@ -57,12 +58,19 @@ def run_datasets(formats: str, emit_ingest_records: bool, gpu_decompress: bool) 
             args.append("--gpu-decompress")
         else:
             args += ["--formats", formats]
+        if cpus is not None:
+            args += ["--threads", str(cpus)]
         args += ["-d", "gh-json", "-o", str(PARTS_DIR / f"{i}.gh.json")]
         if emit_ingest_records:
             args += ["--ingest-jsonl", str(PARTS_DIR / f"{i}.ingest.jsonl")]
         print("+", " ".join(args), flush=True)
 
-        result = subprocess.run(args, check=not gpu_decompress)
+        env = os.environ.copy()
+        if cpus is not None:
+            # Pin the process to `cpus` CPUs (bench-taskset.sh) and size the runtime to match,
+            # so every format runs on the same fixed core budget.
+            env["BENCH_MAX_CPUS"] = str(cpus)
+        result = subprocess.run(args, check=not gpu_decompress, env=env)
         if result.returncode != 0:
             failures.append(dataset)
     return failures
@@ -96,9 +104,16 @@ def main() -> None:
         action="store_true",
         help="run the GPU decompression suite (forwards --gpu-decompress, ignores --formats)",
     )
+    parser.add_argument(
+        "--cpus",
+        type=int,
+        default=16,
+        help="CPU cores (and worker threads) the timed CPU benchmark runs on; 0 means all",
+    )
     args = parser.parse_args()
 
-    failures = run_datasets(args.formats, args.emit_ingest_records, args.gpu_decompress)
+    cpus = None if args.gpu_decompress or args.cpus <= 0 else args.cpus
+    failures = run_datasets(args.formats, args.emit_ingest_records, args.gpu_decompress, cpus)
     merge(f"{PARTS_DIR}/*.gh.json", "results.json")
     if args.emit_ingest_records:
         merge(f"{PARTS_DIR}/*.ingest.jsonl", "results.ingest.jsonl")

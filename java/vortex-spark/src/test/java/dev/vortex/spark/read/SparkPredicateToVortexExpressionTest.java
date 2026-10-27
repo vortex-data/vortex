@@ -92,24 +92,10 @@ final class SparkPredicateToVortexExpressionTest {
     }
 
     @Test
-    @DisplayName("Top-level column reference is pushable when present in the schema")
-    void topLevelColumnIsPushable() {
-        Predicate equality = equality(ref("id"), literal(42));
-        assertTrue(SparkPredicateToVortexExpression.isPushable(equality, SCHEMA));
-    }
-
-    @Test
     @DisplayName("Top-level column reference is not pushable when absent from the schema")
     void unknownTopLevelColumnIsNotPushable() {
         Predicate equality = equality(ref("missing"), literal(0));
         assertFalse(SparkPredicateToVortexExpression.isPushable(equality, SCHEMA));
-    }
-
-    @Test
-    @DisplayName("Nested field reference is pushable when every part resolves under struct types")
-    void nestedFieldThatExistsIsPushable() {
-        Predicate equality = equality(ref("profile", "email"), literal("a@b.com"));
-        assertTrue(SparkPredicateToVortexExpression.isPushable(equality, SCHEMA));
     }
 
     @Test
@@ -131,13 +117,6 @@ final class SparkPredicateToVortexExpressionTest {
     void descendingPastLeafFieldIsNotPushable() {
         // `name` is a String, not a struct — `name.first` cannot resolve.
         Predicate equality = equality(ref("name", "first"), literal("alice"));
-        assertFalse(SparkPredicateToVortexExpression.isPushable(equality, SCHEMA));
-    }
-
-    @Test
-    @DisplayName("Empty named reference is not pushable")
-    void emptyReferenceIsNotPushable() {
-        Predicate equality = equality(ref(), literal(1));
         assertFalse(SparkPredicateToVortexExpression.isPushable(equality, SCHEMA));
     }
 

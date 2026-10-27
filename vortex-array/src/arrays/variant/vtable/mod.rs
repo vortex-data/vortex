@@ -51,7 +51,7 @@ pub struct Variant;
 #[derive(Clone, prost::Message)]
 struct VariantMetadataProto {
     #[prost(message, optional, tag = "1")]
-    pub shredded_dtype: Option<pb::DType>,
+    pub(crate) shredded_dtype: Option<pb::DType>,
 }
 
 impl VTable for Variant {
@@ -165,15 +165,17 @@ impl VTable for Variant {
         let shredded = shredded_dtype
             .map(|dtype| children.get(1, &dtype, len))
             .transpose()?;
-        Ok(
-            ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData).with_slots(
-                VariantSlots {
-                    core_storage,
-                    shredded,
-                }
-                .into_slots(),
-            ),
-        )
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            EmptyArrayData,
+            VariantSlots {
+                core_storage,
+                shredded,
+            }
+            .into_slots(),
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

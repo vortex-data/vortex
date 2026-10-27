@@ -23,6 +23,7 @@ mod tests {
     use crate::dtype::extension::ExtVTable;
     use crate::dtype::half::f16;
     use crate::scalar::PValue;
+    use crate::scalar::PrimitiveScalar;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
 
@@ -84,31 +85,55 @@ mod tests {
         let expected_dtype = &ext_dtype;
         let actual = ext_scalar.cast(expected_dtype).unwrap();
         assert_eq!(actual.dtype(), expected_dtype);
+        assert_eq!(
+            actual.value(),
+            Some(&ScalarValue::Primitive(PValue::U16(1000)))
+        );
 
         // to nullable self
         let expected_dtype = &ext_dtype.as_nullable();
         let actual = ext_scalar.cast(expected_dtype).unwrap();
         assert_eq!(actual.dtype(), expected_dtype);
+        assert_eq!(
+            actual.value(),
+            Some(&ScalarValue::Primitive(PValue::U16(1000)))
+        );
 
         // cast to the storage type
         let expected_dtype = apples.storage_dtype();
         let actual = ext_scalar.cast(expected_dtype).unwrap();
         assert_eq!(actual.dtype(), expected_dtype);
+        assert_eq!(
+            actual.value(),
+            Some(&ScalarValue::Primitive(PValue::U16(1000)))
+        );
 
         // cast to the storage type, nullable
         let expected_dtype = &apples.storage_dtype().as_nullable();
         let actual = ext_scalar.cast(expected_dtype).unwrap();
         assert_eq!(actual.dtype(), expected_dtype);
+        assert_eq!(
+            actual.value(),
+            Some(&ScalarValue::Primitive(PValue::U16(1000)))
+        );
 
         // cast from storage type to extension
         let expected_dtype = &ext_dtype;
         let actual = storage_scalar.cast(expected_dtype).unwrap();
         assert_eq!(actual.dtype(), expected_dtype);
+        assert_eq!(
+            actual.value(),
+            Some(&ScalarValue::Primitive(PValue::U16(1000)))
+        );
 
         // cast from storage type to extension, nullable
         let expected_dtype = &ext_dtype.as_nullable();
         let actual = storage_scalar.cast(expected_dtype).unwrap();
         assert_eq!(actual.dtype(), expected_dtype);
+        assert_eq!(
+            actual.value(),
+            Some(&ScalarValue::Primitive(PValue::U16(1000)))
+        );
 
         // cast from *incompatible* storage type to extension
         let apples_u8 =
@@ -226,18 +251,19 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn test_coercion_with_overflow_protection() {
-        // Test that values too large for target type are not coerced.
-        let large_u64 = u64::MAX;
-
-        // This should NOT be coerced to F16 because it's too large.
+        // Legacy f16 storage accepts U64 values, but reading the bits must reject overflow.
         let scalar = Scalar::new(
             DType::Primitive(PType::F16, Nullability::NonNullable),
-            Some(ScalarValue::Primitive(PValue::U64(large_u64))),
+            Some(ScalarValue::Primitive(PValue::U64(u64::MAX))),
         );
 
-        let _ = scalar.as_primitive(); // Should panic
+        let error = PrimitiveScalar::try_new(scalar.dtype(), scalar.value()).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("Cannot coerce U64 value to f16: value out of range")
+        );
     }
 
     #[test]
@@ -433,6 +459,14 @@ mod tests {
             Some(DType::Utf8(Nullability::Nullable))
         );
 
+        assert_eq!(
+            unchanged_child.as_union().child(),
+            Some(Scalar::primitive(42i32, Nullability::NonNullable))
+        );
+        assert_eq!(
+            changed_child.as_union().child(),
+            Some(Scalar::utf8("hello", Nullability::Nullable))
+        );
         Ok(())
     }
 
@@ -610,6 +644,10 @@ mod tests {
             Some(DType::Primitive(PType::I32, Nullability::NonNullable))
         );
 
+        assert_eq!(
+            nullable.as_union().child(),
+            Some(Scalar::primitive(42i32, Nullability::NonNullable))
+        );
         Ok(())
     }
 }

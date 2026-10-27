@@ -171,15 +171,7 @@ mod tests {
         let filtered = arr.filter(Mask::from_iter([true, false, false, true, true]))?;
 
         let mut ctx = SESSION.create_execution_ctx();
-        assert_arrays_eq!(
-            filtered,
-            RunEnd::new(
-                PrimitiveArray::from_iter([1u8, 2, 3]).into_array(),
-                PrimitiveArray::from_iter([1i32, 4, 2]).into_array(),
-                &mut ctx,
-            ),
-            &mut ctx
-        );
+        assert_arrays_eq!(filtered, PrimitiveArray::from_iter([1i32, 4, 2]), &mut ctx);
         Ok(())
     }
 

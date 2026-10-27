@@ -2,19 +2,22 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use rstest::rstest;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
 use crate::dtype::DType;
 use crate::dtype::Nullability::NonNullable;
 use crate::validity::Validity;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 const LONG: &str = "a value far too long to live inside its own view";
 
@@ -37,7 +40,7 @@ fn ref_view(value: &[u8], buffer_index: u32, offset: u32) -> VortexResult<Binary
 
 /// Values over two data buffers, one at a non-zero offset, interleaved with an inlined value.
 fn two_buffer_array() -> VortexResult<VarBinViewArray> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let views = Buffer::from_iter([
         ref_view(ALPHA, 0, 0)?,
         BinaryView::new_inlined(SHORT),
@@ -70,12 +73,14 @@ fn resolves_values_across_data_buffers() -> VortexResult<()> {
 }
 
 #[rstest]
-#[case::inlined(VarBinViewArray::from_iter_str(["a", "", "twelve bytes"]))]
-#[case::referenced(VarBinViewArray::from_iter_str([LONG, "another long value here"]))]
-#[case::mixed(VarBinViewArray::from_iter_str(["short", LONG, "", "twelve bytes"]))]
-fn bytes_matches_bytes_at(#[case] array: VarBinViewArray) {
+#[case::inlined(VarBinViewArray::from_iter_str(["a", "", "twelve bytes"]), vec!["a", "", "twelve bytes"])]
+#[case::referenced(VarBinViewArray::from_iter_str([LONG, "another long value here"]), vec![LONG, "another long value here"])]
+#[case::mixed(VarBinViewArray::from_iter_str(["short", LONG, "", "twelve bytes"]), vec!["short", LONG, "", "twelve bytes"])]
+fn bytes_matches_bytes_at(#[case] array: VarBinViewArray, #[case] expected: Vec<&str>) {
     let resolved = array.resolved_views();
-    for index in 0..array.len() {
+    assert_eq!(resolved.len(), expected.len());
+    for (index, expected) in expected.into_iter().enumerate() {
+        assert_eq!(resolved.bytes(index), expected.as_bytes());
         assert_eq!(resolved.bytes(index), array.bytes_at(index).as_slice());
     }
 }
@@ -85,7 +90,9 @@ fn view_bytes_matches_bytes() -> VortexResult<()> {
     let array = two_buffer_array()?;
     let resolved = array.resolved_views();
 
+    assert_eq!(resolved.len(), TWO_BUFFER_VALUES.len());
     for (index, view) in resolved.views().iter().enumerate() {
+        assert_eq!(resolved.view_bytes(view), TWO_BUFFER_VALUES[index]);
         assert_eq!(resolved.view_bytes(view), resolved.bytes(index));
         // SAFETY: index < resolved.len().
         assert_eq!(unsafe { resolved.view_unchecked(index) }, view);
@@ -96,7 +103,7 @@ fn view_bytes_matches_bytes() -> VortexResult<()> {
 /// Slicing narrows the views, not the buffers.
 #[test]
 fn resolves_through_a_slice() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let array = two_buffer_array()?
         .slice(2..4)?
         .execute::<VarBinViewArray>(&mut ctx)?;

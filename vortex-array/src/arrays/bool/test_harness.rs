@@ -12,7 +12,7 @@ impl BoolArray {
     pub fn opt_bool_vec(&self, ctx: &mut ExecutionCtx) -> Vec<Option<bool>> {
         self.validity()
             .vortex_expect("failed to get validity")
-            .execute_mask(self.as_ref().len(), ctx)
+            .execute_mask(self.len(), ctx)
             .vortex_expect("Failed to compute validity mask")
             .to_bit_buffer()
             .iter()
@@ -24,7 +24,7 @@ impl BoolArray {
     pub fn bool_vec(&self, ctx: &mut ExecutionCtx) -> Vec<bool> {
         self.validity()
             .vortex_expect("failed to get validity")
-            .execute_mask(self.as_ref().len(), ctx)
+            .execute_mask(self.len(), ctx)
             .vortex_expect("Failed to compute validity mask")
             .to_bit_buffer()
             .iter()

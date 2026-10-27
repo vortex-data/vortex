@@ -40,7 +40,7 @@ of parallelism.
 ## Filter and Projection Pushdown
 
 The integration converts DataFusion physical expressions into Vortex expressions using an
-`ExpressionConvertor` trait. Supported predicates (comparisons, LIKE, IS NULL, IN lists, casts)
+`ExpressionConverter` trait. Supported predicates (comparisons, LIKE, NOT, IS NULL, IN lists, casts)
 are pushed into the Vortex scan where they participate in pruning and filter evaluation at the
 layout level. Unsupported predicates remain in the DataFusion plan and are evaluated after the
 scan.
@@ -49,10 +49,15 @@ Filter pushdown operates at two levels. The full predicate is used to prune enti
 they are opened, using file-level statistics. The subset of predicates that Vortex can evaluate
 efficiently is pushed into the per-file scan for row-level filtering.
 
-Projection pushdown maps DataFusion's requested column indices to Vortex field names and passes
-them as a projection expression to the scan. Only the requested columns are read from storage.
+Fully supported projections are evaluated in the scan. If any expression is unsupported, the
+complete projection runs in DataFusion over the required raw columns.
 
-The integration supports pluggable expression conversion via a custom `ExpressionConvertor`,
+Searched `CASE WHEN` expressions can be pushed down when all their children can be converted,
+including branches that may fail. Conditions and values execute only on the rows that reach
+them, so guards such as `CASE WHEN divisor <> 0 THEN value / divisor ELSE 0 END` remain safe.
+Simple `CASE value WHEN ...` expressions currently remain in DataFusion.
+
+The integration supports pluggable expression conversion via a custom `ExpressionConverter`,
 allowing engine-specific rewrites or schema adaptation when file schemas diverge from the table
 schema.
 
@@ -68,8 +73,5 @@ will migrate it to use the [Scan API](/concepts/scanning) `Source` trait, which 
 the integration by providing a standard interface for file discovery, partitioning, and pushdown
 that is shared across all engine integrations.
 
-Other planned improvements include projection expression pushdown, which would allow DataFusion
-to push complex projection expressions (such as extracting nested struct fields) into the Vortex
-scan rather than materializing entire columns and projecting afterwards. Additionally, better
-support for dynamic expressions would enable use-cases like top-k queries, where the scan's
+Better support for dynamic expressions would enable use-cases like top-k queries, where the scan's
 filter expression is updated during execution as the query engine discovers tighter bounds.

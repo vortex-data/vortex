@@ -19,7 +19,6 @@ use vortex_session::registry::CachedId;
 use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
@@ -28,7 +27,7 @@ use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::max::Max;
 use crate::aggregate_fn::fns::min_max::MinMax;
-use crate::aggregate_fn::fns::min_max::min_max;
+use crate::aggregate_fn::fns::min_max::columnar_min_max;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
@@ -200,7 +199,7 @@ impl AggregateFnVTable for BoundedMax {
     fn partial_from_scalar(
         &self,
         _args: AggregateArgs<'_, Self::Options>,
-        scalar: Scalar,
+        scalar: &Scalar,
     ) -> VortexResult<Self::Partial> {
         // A null partial means the producing accumulator saw nothing valid.
         let state = if scalar.is_null() {
@@ -290,11 +289,7 @@ impl AggregateFnVTable for BoundedMax {
     ) -> VortexResult<()> {
         // Delegate to the existing min_max implementation for now. A dedicated bounded-max
         // aggregate would avoid computing min when only max is needed.
-        let array = match batch {
-            Columnar::Canonical(canonical) => canonical.clone().into_array(),
-            Columnar::Constant(constant) => constant.clone().into_array(),
-        };
-        let Some(result) = min_max(&array, ctx, NumericalAggregateOpts::default())? else {
+        let Some(result) = columnar_min_max(batch, NumericalAggregateOpts::default(), ctx)? else {
             return Ok(());
         };
         match truncate_max(result.max, args.options.max_bytes.get())? {
@@ -349,6 +344,7 @@ fn truncate_max(value: Scalar, max_bytes: usize) -> VortexResult<Option<Scalar>>
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroUsize;
+    use std::sync::LazyLock;
 
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -369,24 +365,25 @@ mod tests {
     use crate::aggregate_fn::fns::bounded_max::BoundedMaxState;
     use crate::aggregate_fn::fns::max::Max;
     use crate::aggregate_fn::fns::min::Min;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     fn max_bytes(value: usize) -> NonZeroUsize {
         NonZeroUsize::new(value).vortex_expect("non-zero max_bytes")
     }
 
     fn fresh_session() -> VortexSession {
-        array_session()
+        VortexSession::empty()
     }
 
     #[test]
     fn bounded_max_truncates_utf8_to_upper_bound() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = VarBinViewArray::from_iter_str(["aardvark", "char🪩"]).into_array();
         let mut acc = Accumulator::try_new(
             BoundedMax,
@@ -404,7 +401,7 @@ mod tests {
 
     #[test]
     fn bounded_max_unknown_upper_bound_returns_null() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = VarBinViewArray::from_iter_bin([&[255u8, 255, 255][..]]).into_array();
         let mut acc = Accumulator::try_new(
             BoundedMax,
@@ -422,7 +419,7 @@ mod tests {
 
     #[test]
     fn bounded_max_empty_does_not_poison_later_values() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let empty = VarBinViewArray::from_iter_bin(Vec::<&[u8]>::new()).into_array();
         let values = VarBinViewArray::from_iter_bin([&[1u8][..]]).into_array();
         let mut acc = Accumulator::try_new(
@@ -445,7 +442,7 @@ mod tests {
 
     #[test]
     fn bounded_max_unknown_poisons_later_values() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let unknown = VarBinViewArray::from_iter_bin([&[255u8, 255, 255][..]]).into_array();
         let values = VarBinViewArray::from_iter_bin([&[1u8][..]]).into_array();
         let mut acc = Accumulator::try_new(
@@ -509,7 +506,7 @@ mod tests {
 
     #[test]
     fn bounded_max_keeps_fixed_width_values_exact() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::new(buffer![10i32, 20, 5], Validity::NonNullable).into_array();
         let mut acc = Accumulator::try_new(
             BoundedMax,
@@ -584,7 +581,7 @@ mod tests {
         let metadata = BoundedMax
             .serialize(&options)?
             .expect("serializable options");
-        let roundtrip = BoundedMax.deserialize(&metadata, &VortexSession::empty())?;
+        let roundtrip = BoundedMax.deserialize(&metadata, &SESSION)?;
 
         assert_eq!(roundtrip, options);
         Ok(())

@@ -108,8 +108,12 @@ where
         .cast(DType::Primitive(T::Offset::PTYPE, Nullability::NonNullable))?
         .execute::<Canonical>(ctx)?
         .into_primitive()
-        .to_buffer::<T::Offset>()
-        .into_arrow_offset_buffer();
+        .to_buffer::<T::Offset>();
+
+    // SAFETY: `VarBinArray` guarantees its offsets are non-empty, non-negative and
+    // monotonically non-decreasing. The checked cast keeps every value, so the order stays the
+    // same.
+    let offsets = unsafe { offsets.into_arrow_offset_buffer_unchecked() };
 
     let data = array.bytes().clone().into_arrow_buffer();
 
@@ -188,6 +192,8 @@ fn utf8_from_bytes(bytes: &[u8]) -> Result<&str, simdutf8::compat::Utf8Error> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use arrow_array::Array;
     use arrow_array::cast::AsArray;
     use arrow_schema::DataType;
@@ -195,7 +201,6 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinArray;
@@ -208,13 +213,15 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use crate::ArrowSessionExt;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn mask_wrapped_varbin_exports() -> VortexResult<()> {
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let varbin = VarBinArray::from_vec(
             vec!["hello", "world", "vortex"],
@@ -224,7 +231,7 @@ mod tests {
         let masked = MaskFn::try_new(varbin.into_array(), mask.into_array())?.into_array();
 
         let field = Field::new("s", DataType::Utf8, true);
-        let arrow = session
+        let arrow = SESSION
             .arrow()
             .execute_arrow(masked, Some(&field), &mut ctx)?;
 
@@ -234,6 +241,10 @@ mod tests {
         assert!(strings.is_null(1));
         assert_eq!(strings.value(0), "hello");
         assert_eq!(strings.value(2), "vortex");
+        assert_eq!(
+            strings.iter().collect::<Vec<_>>(),
+            [Some("hello"), None, Some("vortex")]
+        );
         Ok(())
     }
 
@@ -267,10 +278,9 @@ mod tests {
         #[case] vortex_array: VarBinViewArray,
         #[case] target_dtype: DataType,
     ) {
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let field = Field::new("test_field", target_dtype.clone(), true);
-        let arrow = session
+        let arrow = SESSION
             .arrow()
             .execute_arrow(vortex_array.into_array(), Some(&field), &mut ctx)
             .unwrap();
@@ -316,10 +326,9 @@ mod tests {
             vortex_dtype,
         );
 
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let field = Field::new("test_field", target_dtype.clone(), true);
-        let arrow = session
+        let arrow = SESSION
             .arrow()
             .execute_arrow(vortex_array.into_array(), Some(&field), &mut ctx)
             .unwrap();
@@ -330,6 +339,18 @@ mod tests {
         assert!(!arrow.is_null(0));
         assert!(arrow.is_null(1));
         assert!(!arrow.is_null(2));
+        for (index, expected) in [(0, b"hello".as_slice()), (2, b"world".as_slice())] {
+            let actual = match target_dtype {
+                DataType::Binary => arrow.as_binary::<i32>().value(index),
+                DataType::LargeBinary => arrow.as_binary::<i64>().value(index),
+                DataType::Utf8 => arrow.as_string::<i32>().value(index).as_bytes(),
+                DataType::LargeUtf8 => arrow.as_string::<i64>().value(index).as_bytes(),
+                DataType::BinaryView => arrow.as_binary_view().value(index),
+                DataType::Utf8View => arrow.as_string_view().value(index).as_bytes(),
+                _ => unreachable!(),
+            };
+            assert_eq!(actual, expected);
+        }
     }
 
     #[rstest]
@@ -341,11 +362,10 @@ mod tests {
             b"\xff\xfe invalid utf8".as_slice(),
         ]);
 
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let field = Field::new("test_field", target_dtype, true);
         let result =
-            session
+            SESSION
                 .arrow()
                 .execute_arrow(vortex_array.into_array(), Some(&field), &mut ctx);
 
@@ -359,17 +379,16 @@ mod tests {
     #[case(DataType::Utf8)]
     #[case(DataType::LargeUtf8)]
     fn binary_to_string_rejects_offsets_splitting_a_character(#[case] target_dtype: DataType) {
+        let mut ctx = SESSION.create_execution_ctx();
         let array = VarBinArray::new(
             buffer![0i32, 1, 2].into_array(),
             ByteBuffer::copy_from("é".as_bytes()),
             DType::Binary(Nullability::NonNullable),
             Validity::NonNullable,
+            &mut ctx,
         );
-
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
         let field = Field::new("test_field", target_dtype, false);
-        let result = session
+        let result = SESSION
             .arrow()
             .execute_arrow(array.into_array(), Some(&field), &mut ctx);
 
@@ -383,20 +402,21 @@ mod tests {
     fn binary_to_string_accepts_multibyte_characters(
         #[case] target_dtype: DataType,
     ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let array = VarBinArray::new(
             buffer![0i32, 2, 5].into_array(),
             ByteBuffer::copy_from("é☃".as_bytes()),
             DType::Binary(Nullability::NonNullable),
             Validity::NonNullable,
+            &mut ctx,
         );
-
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
         let field = Field::new("test_field", target_dtype.clone(), false);
-        let arrow = session
+        let arrow = SESSION
             .arrow()
             .execute_arrow(array.into_array(), Some(&field), &mut ctx)?;
 
+        assert_eq!(arrow.len(), 2);
+        assert_eq!(arrow.null_count(), 0);
         let values: Vec<&str> = match target_dtype {
             DataType::Utf8 => (0..2).map(|i| arrow.as_string::<i32>().value(i)).collect(),
             _ => (0..2).map(|i| arrow.as_string::<i64>().value(i)).collect(),
@@ -414,22 +434,26 @@ mod tests {
         #[case] target_dtype: DataType,
     ) -> VortexResult<()> {
         // Slot 1 is null and its offsets still span two bytes that are not valid UTF-8.
+        let mut ctx = SESSION.create_execution_ctx();
         let array = VarBinArray::new(
             buffer![0i32, 5, 7, 12].into_array(),
             ByteBuffer::copy_from(b"hello\xff\xfeworld".as_slice()),
             DType::Binary(Nullability::Nullable),
             Validity::from_mask(Mask::from_iter([true, false, true]), Nullability::Nullable),
+            &mut ctx,
         );
-
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
         let field = Field::new("test_field", target_dtype, true);
-        let arrow = session
+        let arrow = SESSION
             .arrow()
             .execute_arrow(array.into_array(), Some(&field), &mut ctx)?;
 
         assert_eq!(arrow.len(), 3);
-        assert!(arrow.is_null(1));
+        let values = match arrow.data_type() {
+            DataType::Utf8 => arrow.as_string::<i32>().iter().collect::<Vec<_>>(),
+            DataType::LargeUtf8 => arrow.as_string::<i64>().iter().collect::<Vec<_>>(),
+            _ => unreachable!(),
+        };
+        assert_eq!(values, [Some("hello"), None, Some("world")]);
         Ok(())
     }
 
@@ -439,10 +463,9 @@ mod tests {
     #[case(DataType::Binary)]
     #[case(DataType::LargeBinary)]
     fn incompatible_vortex_dtype_returns_error(#[case] target_dtype: DataType) {
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let field = Field::new("test_field", target_dtype, true);
-        let result = session.arrow().execute_arrow(
+        let result = SESSION.arrow().execute_arrow(
             PrimitiveArray::from_iter([1i32, 2, 3]).into_array(),
             Some(&field),
             &mut ctx,
@@ -460,9 +483,8 @@ mod tests {
             .into_array()
             .filter(Mask::from_iter([true, false, false]))?;
 
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
-        let arrow = session
+        let mut ctx = SESSION.create_execution_ctx();
+        let arrow = SESSION
             .arrow()
             .execute_arrow(filtered.into_array(), None, &mut ctx)?;
 
@@ -472,6 +494,8 @@ mod tests {
             "filtered export retained unselected payload: {} bytes",
             arrow.get_array_memory_size()
         );
+        assert_eq!(arrow.len(), 1);
+        assert_eq!(arrow.null_count(), 0);
         Ok(())
     }
 }

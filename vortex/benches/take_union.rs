@@ -30,19 +30,23 @@ use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::RecursiveCanonical;
 use vortex::array::VortexSessionExecute;
+use vortex::array::aggregate_fn::session::AggregateFnSession;
 use vortex::array::arrays::ListViewArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::UnionArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::dtype::UnionVariants;
+use vortex::array::memory::MemorySession;
+use vortex::array::optimizer::kernels::KernelSession;
 use vortex::array::scalar::Scalar;
+use vortex::array::session::ArraySession;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
+use vortex::encodings::sparse;
 use vortex::encodings::sparse::Sparse;
 use vortex_session::VortexSession;
 
@@ -54,7 +58,15 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>();
+    sparse::initialize(&session);
+    session
+});
 
 const ARRAY_SIZE: usize = 100_000;
 
@@ -99,6 +111,7 @@ fn string_child(len: usize) -> ArrayRef {
 /// The lengths vary on purpose. Equal-length lists are what `FixedSizeList` is for, and they would
 /// not exercise the offsets and sizes that a `ListView` gather has to rebuild.
 fn list_child(len: usize, rng: &mut StdRng) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let sizes: Buffer<i32> = (0..len).map(|_| rng.random_range(0..16)).collect();
     let offsets: Buffer<i32> = sizes
         .iter()
@@ -120,6 +133,7 @@ fn list_child(len: usize, rng: &mut StdRng) -> ArrayRef {
         offsets.into_array(),
         sizes.into_array(),
         Validity::NonNullable,
+        &mut ctx,
     )
     .into_array()
 }
@@ -167,6 +181,7 @@ fn dense_children_union(rng: &mut StdRng) -> ArrayRef {
 /// The dominant integer child stays canonical. At 98% density a sparse child would store a patch
 /// index for nearly every row and buy nothing.
 fn compressed_children_union(rng: &mut StdRng) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     union_array(
         (0..VARIANT_NAMES.len())
             .map(|variant| {
@@ -178,7 +193,7 @@ fn compressed_children_union(rng: &mut StdRng) -> ArrayRef {
                 let values = variant_child(variant, indices.len(), rng);
                 let fill = Scalar::default_value(values.dtype());
 
-                Sparse::try_new(indices.into_array(), values, ARRAY_SIZE, fill)
+                Sparse::try_new(indices.into_array(), values, ARRAY_SIZE, fill, &mut ctx)
                     .unwrap()
                     .into_array()
             })

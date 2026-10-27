@@ -22,8 +22,30 @@ fn batches_compare_structurally() {
         request: IoRequestId(3),
         target: IoTarget::range(0, 4),
     }];
-    assert_eq!(batch, batch.clone());
-    assert_ne!(batch[0].target, IoTarget::range(0, 5));
+    assert_eq!(
+        batch,
+        vec![IoRequest {
+            intent: IoIntent::Fetch,
+            request: IoRequestId(3),
+            target: IoTarget::range(0, 4),
+        }]
+    );
+    for request in [
+        IoRequest {
+            intent: IoIntent::Prefetch,
+            ..batch[0]
+        },
+        IoRequest {
+            request: IoRequestId(4),
+            ..batch[0]
+        },
+        IoRequest {
+            target: IoTarget::range(0, 5),
+            ..batch[0]
+        },
+    ] {
+        assert_ne!(batch, vec![request]);
+    }
     assert_eq!(format!("{:?}", IoRequestId(3)), "IoRequestId(3)");
 }
 

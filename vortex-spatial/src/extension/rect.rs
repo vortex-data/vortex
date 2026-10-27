@@ -39,6 +39,7 @@ use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowExport;
+use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowExportVTable;
 use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowImportVTable;
@@ -234,6 +235,7 @@ impl ArrowExportVTable for Rect {
         &self,
         array: ArrayRef,
         target: &Field,
+        options: &ArrowExportOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
         let is_box = array
@@ -258,9 +260,11 @@ impl ArrowExportVTable for Rect {
             target.is_nullable(),
         );
         let session = ctx.session().clone();
-        let arrow_storage = session
-            .arrow()
-            .execute_arrow(storage, Some(&storage_field), ctx)?;
+        let arrow_storage =
+            session
+                .arrow()
+                .exporter(options)
+                .execute_arrow(storage, Some(&storage_field), ctx)?;
 
         // Round-trip through GeoArrow's rect array; `into_arrow` is concrete, so wrap in `Arc`.
         let rects = RectArray::try_from((arrow_storage.as_ref(), box_meta))
@@ -337,6 +341,8 @@ impl ArrowImportVTable for Rect {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use geo_types::Geometry;
     use rstest::rstest;
     use vortex_array::VortexSessionExecute;
@@ -347,6 +353,7 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::dtype::extension::ExtDType;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::Rect;
     use super::box_dimension;
@@ -354,6 +361,8 @@ mod tests {
     use super::rect_geometries;
     use crate::extension::SpatialMetadata;
     use crate::extension::coordinate::Dimension;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn spatial_meta() -> SpatialMetadata {
         SpatialMetadata {
@@ -401,8 +410,7 @@ mod tests {
     /// A `Rect` column decodes to 2D `geo_types` rectangles.
     #[test]
     fn box_decodes_to_geo_types_rect() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let rects = crate::test_harness::rect_column(vec![(0.0, 0.0, 2.0, 3.0)])?;
         let storage = rects
@@ -411,7 +419,10 @@ mod tests {
             .clone();
 
         let geometries = rect_geometries(&storage, &mut ctx)?;
-        assert!(matches!(geometries.as_slice(), [Geometry::Rect(_)]));
+        assert_eq!(
+            geometries,
+            vec![Geometry::Rect(geo_types::Rect::new((0.0, 0.0), (2.0, 3.0)))]
+        );
         Ok(())
     }
 }

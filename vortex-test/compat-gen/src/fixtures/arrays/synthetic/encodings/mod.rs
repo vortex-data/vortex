@@ -12,6 +12,7 @@ mod bytebool;
 mod constant;
 mod datetimeparts;
 mod decimal_byte_parts;
+mod decimal_byte_parts_narrow_msp;
 #[expect(
     dead_code,
     reason = "Unused until `vortex.decimal_byte_parts.v2` joins an edition"
@@ -43,6 +44,7 @@ pub fn fixtures() -> Vec<Box<dyn FlatLayoutFixture>> {
         Box::new(bytebool::ByteBoolFixture),
         Box::new(datetimeparts::DateTimePartsFixture),
         Box::new(decimal_byte_parts::DecimalBytePartsFixture),
+        Box::new(decimal_byte_parts_narrow_msp::DecimalBytePartsNarrowMspFixture),
         // Re-enable once `vortex.decimal_byte_parts.v2` joins an edition
         // Box::new(decimal_byte_parts_v2::DecimalBytePartsV2Fixture),
         // Re-enable this once delta is stable

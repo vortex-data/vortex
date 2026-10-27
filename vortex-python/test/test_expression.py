@@ -88,19 +88,30 @@ class TestArrowToVortexWithViews:
         schema = pa.schema([("name", pa.string_view())])
         expr = pc.field("name") == "alice"
         vortex_expr = arrow_to_vortex(expr, schema)
-        assert vortex_expr is not None
+        source = vx.array(pa.Table.from_pylist([{"name": "alice"}, {"name": "bob"}, {"name": None}], schema=schema))
+        assert source.apply(vortex_expr).to_arrow_array(combine_chunks=True) == pa.array(
+            [True, False, None], type=pa.bool_()
+        )
 
     def test_binary_view_equality_expression(self) -> None:
         schema = pa.schema([("data", pa.binary_view())])
         expr = pc.field("data") == b"hello"
         vortex_expr = arrow_to_vortex(expr, schema)
-        assert vortex_expr is not None
+        source = vx.array(pa.Table.from_pylist([{"data": b"hello"}, {"data": b"other"}, {"data": None}], schema=schema))
+        assert source.apply(vortex_expr).to_arrow_array(combine_chunks=True) == pa.array(
+            [True, False, None], type=pa.bool_()
+        )
 
     def test_string_view_comparison_expression(self) -> None:
         schema = pa.schema([("name", pa.string_view())])
         expr = pc.field("name") > "bob"
         vortex_expr = arrow_to_vortex(expr, schema)
-        assert vortex_expr is not None
+        source = vx.array(
+            pa.Table.from_pylist([{"name": "alice"}, {"name": "bob"}, {"name": "carol"}, {"name": None}], schema=schema)
+        )
+        assert source.apply(vortex_expr).to_arrow_array(combine_chunks=True) == pa.array(
+            [False, False, True, None], type=pa.bool_()
+        )
 
     def test_mixed_view_and_regular_types(self) -> None:
         schema = pa.schema(
@@ -112,7 +123,20 @@ class TestArrowToVortexWithViews:
         )
         expr = (pc.field("id") > 10) & (pc.field("name") == "test")
         vortex_expr = arrow_to_vortex(expr, schema)
-        assert vortex_expr is not None
+        source = vx.array(
+            pa.Table.from_pylist(
+                [
+                    {"id": 11, "name": "test", "data": b"a"},
+                    {"id": 10, "name": "test", "data": b"b"},
+                    {"id": 11, "name": "other", "data": b"c"},
+                    {"id": 11, "name": None, "data": None},
+                ],
+                schema=schema,
+            )
+        )
+        assert source.apply(vortex_expr).to_arrow_array(combine_chunks=True) == pa.array(
+            [True, False, False, None], type=pa.bool_()
+        )
 
     @pytest.mark.parametrize(
         "view_type,value",
@@ -125,13 +149,17 @@ class TestArrowToVortexWithViews:
         schema = pa.schema([("col", view_type)])
         expr = pc.field("col") == value
         vortex_expr = arrow_to_vortex(expr, schema)
-        assert vortex_expr is not None
+        source = vx.array(pa.Table.from_pylist([{"col": value}, {"col": value + value}, {"col": None}], schema=schema))
+        assert source.apply(vortex_expr).to_arrow_array(combine_chunks=True) == pa.array(
+            [True, False, None], type=pa.bool_()
+        )
 
     def test_null_literal_expression(self) -> None:
         schema = pa.schema([("id", pa.int64())])
         expr = pc.field("id") == pa.scalar(None, type=pa.int64())
         vortex_expr = arrow_to_vortex(expr, schema)
-        assert vortex_expr is not None
+        source = vx.array(pa.Table.from_pylist([{"id": 1}, {"id": None}], schema=schema))
+        assert source.apply(vortex_expr).to_arrow_array(combine_chunks=True) == pa.array([None, None], type=pa.bool_())
 
     @pytest.mark.parametrize(("arrow_type", "width"), UNSIGNED_NULL_CASES)
     def test_unsigned_null_literal_expression(self, arrow_type: pa.DataType, width: UIntWidth) -> None:

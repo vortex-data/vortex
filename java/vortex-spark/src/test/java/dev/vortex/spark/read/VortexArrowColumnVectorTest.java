@@ -130,14 +130,17 @@ final class VortexArrowColumnVectorTest {
             VortexArrowColumnVector shortColumn = new VortexArrowColumnVector(i16);
             assertEquals(DataTypes.ShortType, shortColumn.dataType());
             assertEquals(Short.MIN_VALUE, shortColumn.getShort(0));
+            assertTrue(shortColumn.isNullAt(1));
 
             VortexArrowColumnVector intColumn = new VortexArrowColumnVector(i32);
             assertEquals(DataTypes.IntegerType, intColumn.dataType());
             assertEquals(Integer.MIN_VALUE, intColumn.getInt(0));
+            assertTrue(intColumn.isNullAt(1));
 
             VortexArrowColumnVector longColumn = new VortexArrowColumnVector(i64);
             assertEquals(DataTypes.LongType, longColumn.dataType());
             assertEquals(Long.MIN_VALUE, longColumn.getLong(0));
+            assertTrue(longColumn.isNullAt(1));
         }
     }
 
@@ -161,6 +164,7 @@ final class VortexArrowColumnVectorTest {
             VortexArrowColumnVector doubleColumn = new VortexArrowColumnVector(f64);
             assertEquals(DataTypes.DoubleType, doubleColumn.dataType());
             assertEquals(3.5d, doubleColumn.getDouble(0));
+            assertTrue(doubleColumn.isNullAt(1));
         }
     }
 
@@ -204,6 +208,7 @@ final class VortexArrowColumnVectorTest {
             VortexArrowColumnVector largeUtf8Column = new VortexArrowColumnVector(largeUtf8);
             assertEquals(DataTypes.StringType, largeUtf8Column.dataType());
             assertEquals(UTF8String.fromString("world"), largeUtf8Column.getUTF8String(0));
+            assertTrue(largeUtf8Column.isNullAt(1));
 
             VortexArrowColumnVector utf8ViewColumn = new VortexArrowColumnVector(utf8View);
             assertEquals(DataTypes.StringType, utf8ViewColumn.dataType());
@@ -285,6 +290,9 @@ final class VortexArrowColumnVectorTest {
             VortexArrowColumnVector nanoColumn =
                     assertTimestamp(nano, DataTypes.TimestampNTZType, 1_700_000_000_123_456L);
             assertEquals(-2L, nanoColumn.getLong(2));
+            for (TimeStampVector vector : new TimeStampVector[] {sec, milli, micro, nano}) {
+                assertTrue(new VortexArrowColumnVector(vector).isNullAt(1));
+            }
         }
     }
 
@@ -403,9 +411,7 @@ final class VortexArrowColumnVectorTest {
             VortexArrowColumnVector column = new VortexArrowColumnVector(vector);
             assertEquals(DataTypes.IntegerType, ((ArrayType) column.dataType()).elementType());
             ColumnarArray array = column.getArray(0);
-            assertEquals(3, array.numElements());
-            assertEquals(1, array.getInt(0));
-            assertEquals(3, array.getInt(2));
+            assertArrayEquals(new int[] {1, 2, 3}, array.toIntArray());
             assertTrue(column.isNullAt(1));
             assertEquals(0, column.getArray(2).numElements());
         }

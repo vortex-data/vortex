@@ -171,7 +171,9 @@ mod test {
     use bytes::BytesMut;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_buffer::buffer;
     use vortex_error::vortex_panic;
 
@@ -203,6 +205,7 @@ mod test {
 
         assert_eq!(expected.len(), actual.len());
         assert_eq!(expected.encoding_id(), actual.encoding_id());
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -211,7 +214,7 @@ mod test {
     }
 
     #[test]
-    fn array_no_buffers() {
+    fn array_constant_single_buffer() {
         // Constant arrays have a single buffer
         let array = ConstantArray::new(10i32, 20);
         assert_eq!(array.nbuffers(), 1, "Array should have a single buffer");

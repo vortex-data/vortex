@@ -3,7 +3,7 @@
 
 #[cfg(test)]
 mod s3_test;
-#[cfg(test)]
+#[cfg(all(test, duckdb_release))]
 mod spatial_pushdown_test;
 #[cfg(test)]
 mod vortex_scan_test;

@@ -13,7 +13,6 @@ use std::sync::Arc;
 use vortex_array::MaskFuture;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
-use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
 use vortex_error::VortexResult;
@@ -25,6 +24,7 @@ use vortex_layout::SplitRange;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
+use vortex_utils::aliases::dash_map::Entry;
 
 use crate::FileStatistics;
 use crate::pruning::can_prune_file_stats;
@@ -40,31 +40,18 @@ use crate::pruning::can_prune_file_stats;
 pub struct FileStatsLayoutReader {
     child: LayoutReaderRef,
     file_stats: FileStatistics,
-    struct_fields: StructFields,
     session: VortexSession,
     prune_cache: DashMap<ExactBoundExpr, bool>,
 }
 
 impl FileStatsLayoutReader {
     /// Creates a new `FileStatsLayoutReader` wrapping the given child reader.
-    ///
-    /// The `struct_fields` are derived from the child reader's dtype. If the dtype is not a
-    /// struct, the available stats will be empty and no pruning will occur.
-    ///
-    /// Pre-computes the set of available stat field paths from the struct fields and file stats.
     pub fn new(child: LayoutReaderRef, file_stats: FileStatistics, session: VortexSession) -> Self {
-        let struct_fields = child
-            .dtype()
-            .as_struct_fields_opt()
-            .cloned()
-            .unwrap_or_default();
-
         Self {
             child,
             file_stats,
-            struct_fields,
             session,
-            prune_cache: Default::default(),
+            prune_cache: DashMap::with_hasher_and_shard_amount(Default::default(), 8),
         }
     }
 
@@ -77,7 +64,6 @@ impl FileStatsLayoutReader {
             expr,
             self.child.row_count(),
             &self.file_stats,
-            &self.struct_fields,
             &self.session,
         )
     }
@@ -119,16 +105,16 @@ impl LayoutReader for FileStatsLayoutReader {
         let key = ExactBoundExpr(expr.clone());
 
         // Check cache first with read-only lock.
-        if let Some(pruned) = self.prune_cache.get(&key) {
-            if *pruned {
-                return Ok(MaskFuture::ready(Mask::new_false(mask.len())));
-            }
-            return self.child.pruning_evaluation(row_range, expr, mask);
-        }
-
-        // Evaluate and cache.
-        let pruned = self.evaluate_file_stats(expr)?;
-        self.prune_cache.insert(key, pruned);
+        let cached = self.prune_cache.get(&key).map(|pruned| *pruned);
+        let pruned = match cached {
+            Some(pruned) => pruned,
+            // Evaluate under the entry lock, so that splits which start together evaluate the
+            // expression once rather than each falsifying it again.
+            None => match self.prune_cache.entry(key) {
+                Entry::Occupied(entry) => *entry.get(),
+                Entry::Vacant(entry) => *entry.insert(self.evaluate_file_stats(expr)?),
+            },
+        };
 
         if pruned {
             Ok(MaskFuture::ready(Mask::new_false(mask.len())))
@@ -167,10 +153,17 @@ mod tests {
 
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray as _;
+    use vortex_array::aggregate_fn::AggregateFnVTableExt;
+    use vortex_array::aggregate_fn::EmptyOptions;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
+    use vortex_array::aggregate_fn::fns::max::Max;
+    use vortex_array::aggregate_fn::fns::min::Min;
+    use vortex_array::aggregate_fn::fns::null_count::NullCount;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::datetime::TemporalData;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldPath;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::expr::checked_add;
@@ -181,10 +174,8 @@ mod tests {
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
     use vortex_array::expr::stats::Precision;
-    use vortex_array::expr::stats::Stat;
     use vortex_array::extension::datetime::TimeUnit;
-    use vortex_array::scalar::ScalarValue;
-    use vortex_array::stats::StatsSet;
+    use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
@@ -192,6 +183,8 @@ mod tests {
     use vortex_io::session::RuntimeSessionExt;
     use vortex_layout::LayoutReader;
     use vortex_layout::LayoutStrategy;
+    use vortex_layout::layouts::file_stats::AggregateStat;
+    use vortex_layout::layouts::file_stats::AggregateStats;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_layout::layouts::table::TableStrategy;
     use vortex_layout::segments::SegmentSink;
@@ -205,30 +198,38 @@ mod tests {
     use super::*;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        vortex_array::array_session()
+        VortexSession::empty()
             .with::<LayoutSession>()
             .with::<RuntimeSession>()
     });
 
     fn test_file_stats(min: i32, max: i32) -> FileStatistics {
-        let mut stats = StatsSet::default();
-        stats.set(Stat::Min, Precision::exact(ScalarValue::from(min)));
-        stats.set(Stat::Max, Precision::exact(ScalarValue::from(max)));
+        let stats = AggregateStats::new(vec![
+            AggregateStat::from_value(
+                Min.bind(NumericalAggregateOpts::skip_nans()),
+                Precision::exact(Scalar::from(min)),
+            ),
+            AggregateStat::from_value(
+                Max.bind(NumericalAggregateOpts::skip_nans()),
+                Precision::exact(Scalar::from(max)),
+            ),
+        ]);
         FileStatistics::new(
             Arc::from([stats]),
             Arc::from([DType::Primitive(PType::I32, Nullability::NonNullable)]),
+            Arc::from([FieldPath::from_name("col")]),
         )
     }
 
     fn test_file_null_count_stats(null_count: u64) -> FileStatistics {
-        let mut stats = StatsSet::default();
-        stats.set(
-            Stat::NullCount,
-            Precision::exact(ScalarValue::from(null_count)),
-        );
+        let stats = AggregateStats::new(vec![AggregateStat::from_value(
+            NullCount.bind(EmptyOptions),
+            Precision::exact(Scalar::from(null_count)),
+        )]);
         FileStatistics::new(
             Arc::from([stats]),
             Arc::from([DType::Primitive(PType::I32, Nullability::Nullable)]),
+            Arc::from([FieldPath::from_name("col")]),
         )
     }
 
@@ -387,9 +388,15 @@ mod tests {
             let child = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
 
             // File-level stats: 1 null in deleted_at.
-            let mut stats = StatsSet::default();
-            stats.set(Stat::NullCount, Precision::exact(ScalarValue::from(1u64)));
-            let file_stats = FileStatistics::new(Arc::from([stats]), Arc::from([ts_dtype]));
+            let stats = AggregateStats::new(vec![AggregateStat::from_value(
+                NullCount.bind(EmptyOptions),
+                Precision::exact(Scalar::from(1u64)),
+            )]);
+            let file_stats = FileStatistics::new(
+                Arc::from([stats]),
+                Arc::from([ts_dtype]),
+                Arc::from([FieldPath::from_name("deleted_at")]),
+            );
 
             let reader = FileStatsLayoutReader::new(child, file_stats, SESSION.clone());
 

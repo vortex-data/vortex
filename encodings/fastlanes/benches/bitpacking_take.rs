@@ -7,19 +7,33 @@
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use divan::counter::ItemsCount;
 use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::distr::Uniform;
 use rand::prelude::StdRng;
+use vortex_array::ArrayRef;
 use vortex_array::IntoArray as _;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::PiecewiseSequenceArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::assert_arrays_eq;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::PType;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_buffer::buffer;
 use vortex_fastlanes::BitPackedArrayExt;
+use vortex_fastlanes::BitPackedData;
 use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
 use vortex_session::VortexSession;
 
@@ -27,14 +41,65 @@ use vortex_session::VortexSession;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>();
     vortex_fastlanes::initialize(&session);
     session
 });
+
+const NUM_ARRAY_CHUNKS: usize = 64;
+// Keep the selected count below the outer full-decode policy.
+const NUM_SELECTED_CHUNKS: usize = 8;
+const CHUNK_SIZE: usize = 1_024;
+const THRESHOLD_FIXTURE_LEN: usize = NUM_ARRAY_CHUNKS * CHUNK_SIZE;
+
+// Selection counts around the sparse extraction threshold for 16-bit values.
+const THRESHOLD_BIT_WIDTH: u8 = 16;
+
+fn threshold_fixture(selected_per_chunk: usize) -> (ArrayRef, ArrayRef) {
+    let values: BufferMut<u32> = (0..THRESHOLD_FIXTURE_LEN)
+        .map(|index| (index % (1 << THRESHOLD_BIT_WIDTH)) as u32)
+        .collect();
+    let packed = BitPackedData::encode(
+        &PrimitiveArray::new(values.freeze(), Validity::NonNullable).into_array(),
+        THRESHOLD_BIT_WIDTH,
+        &mut SESSION.create_execution_ctx(),
+    )
+    .unwrap()
+    .into_array();
+
+    let indices = PrimitiveArray::from_iter((0..NUM_SELECTED_CHUNKS).flat_map(|chunk| {
+        (0..selected_per_chunk)
+            .map(move |index| (chunk * CHUNK_SIZE + index * CHUNK_SIZE / selected_per_chunk) as u32)
+    }))
+    .into_array();
+    (packed, indices)
+}
+
+#[vortex_bench_support::cpu_features]
+#[divan::bench(args = [8, 64, 80])]
+fn threshold(bencher: Bencher, selected_per_chunk: usize) {
+    let (packed, indices) = threshold_fixture(selected_per_chunk);
+
+    bencher
+        .counter(ItemsCount::new(indices.len()))
+        .with_inputs(|| (indices.clone(), SESSION.create_execution_ctx()))
+        .bench_refs(|(indices, ctx)| {
+            packed
+                .take(indices.clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+                .unwrap()
+        });
+}
 
 #[divan::bench]
 fn take_10_stratified(bencher: Bencher) {
@@ -355,4 +420,178 @@ fn patched_take_10k_adversarial(bencher: Bencher) {
                 .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()
         })
+}
+
+// These are the element runs emitted by a sparse FSL gather. The baseline materializes those
+// runs inside the measured operation, reproducing the previous BitPacked take path.
+fn embedding_runs_fixture(dimension: usize, ptype: PType, bit_width: u8) -> (ArrayRef, ArrayRef) {
+    const ROWS: usize = 4096;
+    const SELECTED: usize = 16;
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = fixture(ROWS * dimension, usize::from(bit_width))
+        .into_array()
+        .cast(ptype.into())
+        .unwrap()
+        .execute::<PrimitiveArray>(&mut ctx)
+        .unwrap()
+        .into_array();
+    let packed = BitPackedData::encode(&values, bit_width, &mut ctx)
+        .unwrap()
+        .into_array();
+    let mut rng = StdRng::seed_from_u64(0);
+    let starts = PrimitiveArray::from_iter(
+        (0..SELECTED).map(|_| (rng.random_range(0..ROWS) * dimension) as u64),
+    )
+    .into_array();
+    let indices = PiecewiseSequenceArray::try_new(
+        starts,
+        ConstantArray::new(dimension as u64, SELECTED).into_array(),
+        ConstantArray::new(1u64, SELECTED).into_array(),
+        SELECTED * dimension,
+    )
+    .unwrap()
+    .into_array();
+    (packed, indices)
+}
+
+#[divan::bench(args = [768, 1024, 1536])]
+fn embedding_runs(bencher: Bencher, dimension: usize) {
+    let (packed, indices) = embedding_runs_fixture(dimension, PType::U32, 16);
+    bench_piecewise_take(bencher, packed, indices, false);
+}
+
+#[divan::bench(args = [768, 1024, 1536])]
+fn embedding_runs_expanded_baseline(bencher: Bencher, dimension: usize) {
+    let (packed, indices) = embedding_runs_fixture(dimension, PType::U32, 16);
+    bench_piecewise_take(bencher, packed, indices, true);
+}
+
+#[divan::bench(args = [512, 1024, 2048, 4096])]
+fn embedding_code_runs(bencher: Bencher, dimension: usize) {
+    let (packed, indices) = embedding_runs_fixture(dimension, PType::U8, 4);
+    bench_piecewise_take(bencher, packed, indices, false);
+}
+
+#[divan::bench(args = [512, 1024, 2048, 4096])]
+fn embedding_code_runs_expanded_baseline(bencher: Bencher, dimension: usize) {
+    let (packed, indices) = embedding_runs_fixture(dimension, PType::U8, 4);
+    bench_piecewise_take(bencher, packed, indices, true);
+}
+
+// Short runs share chunks; long runs visit distant chunks. Neither crosses the full-decode
+// threshold, including the largest case (16 * 1024 selected out of 128 * 1024 values).
+fn fragmented_runs_fixture(run_length: usize) -> (ArrayRef, ArrayRef) {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = fixture(128 * CHUNK_SIZE, 16).into_array();
+    let packed = BitPackedData::encode(&values, 16, &mut ctx)
+        .unwrap()
+        .into_array();
+    let (num_runs, stride) = if run_length < 64 {
+        (128, run_length + 1)
+    } else {
+        (16, 4 * CHUNK_SIZE)
+    };
+    let starts =
+        PrimitiveArray::from_iter((0..num_runs).map(|run| (run * stride) as u64)).into_array();
+    let indices = PiecewiseSequenceArray::try_new(
+        starts,
+        ConstantArray::new(run_length as u64, num_runs).into_array(),
+        ConstantArray::new(1u64, num_runs).into_array(),
+        num_runs * run_length,
+    )
+    .unwrap()
+    .into_array();
+    (packed, indices)
+}
+
+#[divan::bench(args = [1, 2, 7, 8, 64, 512, 1024])]
+fn fragmented_runs(bencher: Bencher, run_length: usize) {
+    let (packed, indices) = fragmented_runs_fixture(run_length);
+    bench_piecewise_take(bencher, packed, indices, false);
+}
+
+#[divan::bench(args = [1, 2, 7, 8, 64, 512, 1024])]
+fn fragmented_runs_expanded_baseline(bencher: Bencher, run_length: usize) {
+    let (packed, indices) = fragmented_runs_fixture(run_length);
+    bench_piecewise_take(bencher, packed, indices, true);
+}
+
+// Isolated runs cannot amortize a whole-chunk decode across neighboring runs. Offsets near
+// a chunk boundary also exercise sparse fragments of runs above the full-decode threshold.
+#[divan::bench(
+    types = [u8, u16, u32, u64],
+    args = [
+        (8, 0), (16, 0), (32, 0), (64, 0), (128, 0), (160, 0), (161, 0),
+        (256, 0), (512, 0), (161, 944), (256, 1020), (256, 896),
+    ],
+)]
+fn isolated_runs<T: NativePType>(bencher: Bencher, (run_length, offset): (usize, usize)) {
+    let bit_width = match T::PTYPE {
+        PType::U8 => 4,
+        PType::U16 => 9,
+        PType::U32 => 16,
+        PType::U64 => 33,
+        _ => unreachable!(),
+    };
+    let mut ctx = SESSION.create_execution_ctx();
+    let mut rng = StdRng::seed_from_u64(42);
+    let values = PrimitiveArray::from_iter(
+        (0..128 * CHUNK_SIZE).map(|_| rng.random_range(0..(1u64 << bit_width))),
+    )
+    .into_array()
+    .cast(T::PTYPE.into())
+    .unwrap()
+    .execute::<PrimitiveArray>(&mut ctx)
+    .unwrap()
+    .into_array();
+    let packed = BitPackedData::encode(&values, bit_width, &mut ctx)
+        .unwrap()
+        .into_array();
+    let num_runs = 16;
+    let starts =
+        PrimitiveArray::from_iter((0..num_runs).map(|run| (run * 4 * CHUNK_SIZE + offset) as u64))
+            .into_array();
+    let indices = PiecewiseSequenceArray::try_new(
+        starts,
+        ConstantArray::new(run_length as u64, num_runs).into_array(),
+        ConstantArray::new(1u64, num_runs).into_array(),
+        num_runs * run_length,
+    )
+    .unwrap()
+    .into_array();
+    bench_piecewise_take(bencher, packed, indices, false);
+}
+
+fn bench_piecewise_take(
+    bencher: Bencher,
+    packed: ArrayRef,
+    indices: ArrayRef,
+    expanded_baseline: bool,
+) {
+    let mut ctx = SESSION.create_execution_ctx();
+    let canonical = packed.clone().execute::<PrimitiveArray>(&mut ctx).unwrap();
+    assert_arrays_eq!(
+        packed.take(indices.clone()).unwrap(),
+        canonical.take(indices.clone()).unwrap(),
+        &mut ctx
+    );
+    bencher
+        .counter(ItemsCount::new(indices.len()))
+        .with_inputs(|| (indices.clone(), SESSION.create_execution_ctx()))
+        .bench_refs(|(indices, ctx)| {
+            let indices = if expanded_baseline {
+                indices
+                    .clone()
+                    .execute::<PrimitiveArray>(ctx)
+                    .unwrap()
+                    .into_array()
+            } else {
+                indices.clone()
+            };
+            packed
+                .take(indices)
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+                .unwrap()
+        });
 }

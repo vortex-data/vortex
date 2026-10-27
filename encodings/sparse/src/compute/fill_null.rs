@@ -62,7 +62,7 @@ mod tests {
     use crate::initialize;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         initialize(&session);
         session
     });
@@ -78,6 +78,7 @@ mod tests {
         PrimitiveArray::from_option_iter([Some(10i32), None, Some(30)]).into_array().cast(nullable_i32()).unwrap(),
         8,
         Scalar::null(nullable_i32()),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap().into_array())]
     // non-null fill, nullable patches with a null
     #[case(Sparse::try_new(
@@ -85,25 +86,18 @@ mod tests {
         PrimitiveArray::from_option_iter([Some(7i32), None]).into_array().cast(nullable_i32()).unwrap(),
         4,
         Scalar::from(1i32).cast(&nullable_i32()).unwrap(),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap().into_array())]
     fn fill_null_matches_canonical(#[case] array: vortex_array::ArrayRef) {
         let mut ctx = SESSION.create_execution_ctx();
         let fill = Scalar::from(0i32);
 
         // Kernel path: fill_null pushes through the Sparse encoding.
-        let kernel = array
-            .fill_null(fill.clone())
-            .unwrap()
-            .execute::<Canonical>(&mut ctx)
-            .unwrap();
+        let kernel = array.fill_null(fill.clone()).unwrap();
 
         // Baseline: canonicalize first, then fill_null on the PrimitiveArray.
         let canonical_input = array.execute::<Canonical>(&mut ctx).unwrap().into_array();
-        let baseline = canonical_input
-            .fill_null(fill)
-            .unwrap()
-            .execute::<Canonical>(&mut ctx)
-            .unwrap();
+        let baseline = canonical_input.fill_null(fill).unwrap();
 
         assert_arrays_eq!(kernel, baseline, &mut ctx);
     }

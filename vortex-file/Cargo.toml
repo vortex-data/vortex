@@ -25,6 +25,7 @@ moka = { workspace = true, features = ["sync"] }
 object_store = { workspace = true, optional = true }
 parking_lot = { workspace = true }
 pin-project-lite = { workspace = true }
+prost = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 tracing = { workspace = true }
 url = { workspace = true }
@@ -38,6 +39,7 @@ vortex-datetime-parts = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
 vortex-edition = { workspace = true }
 vortex-error = { workspace = true }
+vortex-expr = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }
@@ -60,7 +62,9 @@ vortex-zstd = { workspace = true, optional = true }
 allocator-api2 = { workspace = true }
 divan = { workspace = true }
 mimalloc = { workspace = true }
+rand = { workspace = true }
 rstest = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-io = { workspace = true, features = ["tokio"] }

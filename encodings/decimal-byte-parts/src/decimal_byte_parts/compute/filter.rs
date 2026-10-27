@@ -21,19 +21,23 @@ impl FilterReduce for DecimalByteParts {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::i256;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::DecimalByteParts;
     use crate::decimal_byte_parts::testing::i128_parts;
     use crate::decimal_byte_parts::testing::i256_parts;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_filter_decimal_byte_parts() {
@@ -42,10 +46,7 @@ mod test {
 
         let decimal_dtype = DecimalDType::new(8, 2);
         let array = DecimalByteParts::try_new(msp, decimal_dtype).unwrap();
-        test_filter_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_filter_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
 
         // Test with nullable values
         let msp = PrimitiveArray::from_option_iter([Some(10i64), None, Some(30), Some(40), None])
@@ -53,10 +54,7 @@ mod test {
 
         let decimal_dtype = DecimalDType::new(18, 4);
         let array = DecimalByteParts::try_new(msp, decimal_dtype).unwrap();
-        test_filter_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_filter_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -65,10 +63,7 @@ mod test {
             vec![1i128 << 70, -(1i128 << 70), 5, (1i128 << 64) - 1, 0],
             Validity::NonNullable,
         );
-        test_filter_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_filter_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
 
         let array = i256_parts(
             vec![
@@ -80,9 +75,6 @@ mod test {
             ],
             Validity::from_iter([true, false, true, true, false]),
         );
-        test_filter_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_filter_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

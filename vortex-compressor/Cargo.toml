@@ -41,6 +41,16 @@ harness = false
 test = false
 
 [[bench]]
+name = "float_stats"
+harness = false
+test = false
+
+[[bench]]
+name = "integer_stats"
+harness = false
+test = false
+
+[[bench]]
 name = "stats_calc"
 harness = false
 test = false

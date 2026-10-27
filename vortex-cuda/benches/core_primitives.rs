@@ -15,16 +15,20 @@ use criterion::BatchSize;
 use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
-use cudarc::driver::CudaContext;
-use cudarc::driver::CudaStream;
-use cudarc::driver::HostSlice;
-use cudarc::driver::SyncOnDrop;
-use cudarc::driver::result;
-use cudarc::driver::sys;
-use cudarc::driver::sys::CU_MEMHOSTALLOC_WRITECOMBINED;
-use cudarc::driver::sys::CUmemPool_attribute_enum;
+use mimalloc::MiMalloc;
+use vortex_cuda_driver::CudaContext;
+use vortex_cuda_driver::CudaStream;
+use vortex_cuda_driver::HostSlice;
+use vortex_cuda_driver::SyncOnDrop;
+use vortex_cuda_driver::result;
+use vortex_cuda_driver::sys;
+use vortex_cuda_driver::sys::CU_MEMHOSTALLOC_WRITECOMBINED;
+use vortex_cuda_driver::sys::CUmemPool_attribute_enum;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 const BUFFER_SIZE: usize = 1024 * 1024 * 1024;
 const BUFFER_SIZE_NAME: &str = "1GiB";
@@ -88,7 +92,7 @@ impl HostSlice<u8> for CudaHostBuffer {
     ) -> (&'a [u8], SyncOnDrop<'a>) {
         (
             unsafe { std::slice::from_raw_parts(self.ptr, self.len) },
-            SyncOnDrop::Sync(None),
+            SyncOnDrop::none(),
         )
     }
 
@@ -98,7 +102,7 @@ impl HostSlice<u8> for CudaHostBuffer {
     ) -> (&'a mut [u8], SyncOnDrop<'a>) {
         (
             unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) },
-            SyncOnDrop::Sync(None),
+            SyncOnDrop::none(),
         )
     }
 }

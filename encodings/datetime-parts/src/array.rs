@@ -64,11 +64,11 @@ pub struct DateTimePartsMetadata {
     // Validity lives in the days array
     // TODO(ngates): we should actually model this with a Tuple array when we have one.
     #[prost(enumeration = "PType", tag = "1")]
-    pub days_ptype: i32,
+    pub(crate) days_ptype: i32,
     #[prost(enumeration = "PType", tag = "2")]
-    pub seconds_ptype: i32,
+    pub(crate) seconds_ptype: i32,
     #[prost(enumeration = "PType", tag = "3")]
-    pub subseconds_ptype: i32,
+    pub(crate) subseconds_ptype: i32,
 }
 
 impl DateTimePartsMetadata {
@@ -179,7 +179,13 @@ impl VTable for DateTimeParts {
 
         let slots = smallvec![Some(days), Some(seconds), Some(subseconds)];
         let data = DateTimePartsData {};
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            slots,
+        ))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -280,9 +286,7 @@ impl DateTimeParts {
         let slots = smallvec![Some(days), Some(seconds), Some(subseconds)];
         let data = DateTimePartsData {};
         Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(DateTimeParts, dtype, len, data).with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(DateTimeParts, dtype, len, data, slots))
         })
     }
 
@@ -319,10 +323,16 @@ impl DateTimePartsData {
             );
         }
         if !seconds.dtype().is_int() || seconds.dtype().is_nullable() {
-            vortex_bail!(MismatchedTypes: "non-nullable integer", seconds.dtype());
+            vortex_bail!(
+                "expected type: non-nullable integer but instead got {}",
+                seconds.dtype()
+            );
         }
         if !subseconds.dtype().is_int() || subseconds.dtype().is_nullable() {
-            vortex_bail!(MismatchedTypes: "non-nullable integer", subseconds.dtype());
+            vortex_bail!(
+                "expected type: non-nullable integer but instead got {}",
+                subseconds.dtype()
+            );
         }
 
         if len != seconds.len() || len != subseconds.len() {

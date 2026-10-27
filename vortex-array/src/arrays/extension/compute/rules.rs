@@ -99,6 +99,7 @@ mod tests {
     use crate::arrays::ScalarFn;
     use crate::arrays::extension::ExtensionArrayExt;
     use crate::arrays::scalar_fn::ScalarFnArrayExt;
+    use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -112,7 +113,7 @@ mod tests {
     use crate::scalar_fn::fns::binary::Binary;
     use crate::scalar_fn::fns::operators::Operator;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
     struct TestExt;
@@ -210,12 +211,11 @@ mod tests {
         assert_eq!(ext_result.len(), 3);
 
         // Check values: should be [Some(1), None, None]
-        let canonical = ext_result
-            .storage_array()
-            .clone()
-            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
-            .unwrap();
-        assert_eq!(canonical.len(), 3);
+        assert_arrays_eq!(
+            ext_result.storage_array(),
+            PrimitiveArray::from_option_iter([Some(1i64), None, None]),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -239,7 +239,10 @@ mod tests {
             .as_opt::<Constant>()
             .expect("constant extension child should be normalized");
 
-        assert!(constant.scalar().as_extension_opt().is_some());
+        assert_eq!(
+            constant.scalar(),
+            &Scalar::extension_ref(test_ext_dtype(), Scalar::from(10i64))
+        );
         assert_eq!(constant.len(), 3);
     }
 

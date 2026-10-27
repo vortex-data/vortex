@@ -88,7 +88,7 @@ from .arrays import (
     _unpickle_array,
     array,
 )
-from .file import VortexFile, open
+from .file import SegmentCache, VortexFile, open, open_readable
 from .scan import RepeatedScan
 
 _ = _lib  # Ensure we eagerly import the Vortex native library.
@@ -219,6 +219,8 @@ __all__ = [
     # File
     "VortexFile",
     "open",
+    "SegmentCache",
+    "open_readable",
     # Iterator
     "ArrayIterator",
     # Scan

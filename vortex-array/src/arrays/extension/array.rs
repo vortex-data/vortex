@@ -26,8 +26,7 @@ pub struct ExtensionSlots {
 
 pub trait ExtensionArrayExt: TypedArrayRef<Extension> + ExtensionArraySlotsExt {
     fn ext_dtype(&self) -> &ExtDTypeRef {
-        self.as_ref()
-            .dtype()
+        self.dtype()
             .as_extension_opt()
             .vortex_expect("extension array somehow did not have an extension dtype")
     }
@@ -60,7 +59,11 @@ impl Array<Extension> {
         let dtype = DType::Extension(ext_dtype);
         let len = storage_array.len();
 
-        let parts = ArrayParts::new(Extension, dtype, len, EmptyArrayData).with_slots(
+        let parts = ArrayParts::new(
+            Extension,
+            dtype,
+            len,
+            EmptyArrayData,
             ExtensionSlots {
                 storage: storage_array,
             }

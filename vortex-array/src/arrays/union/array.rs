@@ -53,8 +53,8 @@ pub(super) fn make_union_parts(
         DType::Union(variants, nullability),
         len,
         EmptyArrayData,
+        slots,
     )
-    .with_slots(slots)
 }
 
 /// Concrete parts of a [`UnionArray`](super::UnionArray).
@@ -74,7 +74,7 @@ pub struct UnionDataParts {
 pub trait UnionArrayExt: UnionArraySlotsExt {
     /// The union's variant schema.
     fn variants(&self) -> &UnionVariants {
-        match self.as_ref().dtype() {
+        match self.dtype() {
             DType::Union(variants, _) => variants,
             _ => unreachable!("UnionArrayExt requires a union dtype"),
         }

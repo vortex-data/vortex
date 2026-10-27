@@ -17,10 +17,10 @@ arrow-schema = { workspace = true, features = ["ffi"] }
 futures = { workspace = true, features = ["executor"] }
 vortex = { workspace = true, features = ["object_store"] }
 vortex-cuda = { path = ".." }
+vortex-cuda-driver = { workspace = true }
 vortex-ffi = { path = "../../vortex-ffi" }
 
 [dev-dependencies]
-cudarc = { workspace = true }
 tempfile = { workspace = true }
 vortex-cuda-macros = { workspace = true }
 

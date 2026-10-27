@@ -534,21 +534,6 @@ pub fn dict_layout_supported(dtype: &DType) -> bool {
     )
 }
 
-#[derive(prost::Message)]
-pub struct DictLayoutMetadata {
-    #[prost(enumeration = "PType", tag = "1")]
-    // i32 is required for proto, use the generated getter to read this field.
-    codes_ptype: i32,
-}
-
-impl DictLayoutMetadata {
-    pub fn new(codes_ptype: PType) -> Self {
-        let mut metadata = Self::default();
-        metadata.set_codes_ptype(codes_ptype);
-        metadata
-    }
-}
-
 enum EncodingState {
     Continue((Box<dyn DictEncoder>, ArrayRef)),
     // (values, encoded, unencoded)
@@ -592,13 +577,18 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::VarBinArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::builders::dict::DictConstraints;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType;
     use vortex_array::session::ArraySession;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::DictChunkLabeler;
+    use super::DictStreamState;
+    use super::DictionaryChunk;
     use super::DictionaryTransformer;
     use super::dict_encode_stream;
     use crate::sequence::SequenceId;
@@ -694,5 +684,69 @@ mod tests {
             &DType::Primitive(PType::U16, NonNullable),
             "codes stream should use U16 dtype for dictionaries with >255 entries"
         );
+    }
+
+    fn encoded_row_count(chunks: &[DictionaryChunk]) -> usize {
+        chunks
+            .iter()
+            .map(|chunk| match chunk {
+                DictionaryChunk::Codes { codes, .. } => codes.len(),
+                DictionaryChunk::Values(_) => 0,
+            })
+            .sum()
+    }
+
+    /// A 49-byte value plus its 16-byte `BinaryView` exceeds the 64-byte budget of an empty
+    /// dictionary. Encoding must still make progress instead of looping forever.
+    #[test]
+    fn test_encode_value_larger_than_dictionary_budget_terminates() -> VortexResult<()> {
+        let mut state = DictStreamState {
+            encoder: None,
+            constraints: DictConstraints {
+                max_bytes: 64,
+                max_len: 100,
+            },
+        };
+
+        let value = "x".repeat(49);
+        let chunk = VarBinArray::from(vec![value.as_str()]).into_array();
+        let mut labeler = DictChunkLabeler::new(SequenceId::root().advance());
+        let encoded = state.encode(&mut labeler, chunk, &mut SESSION.create_execution_ctx())?;
+
+        assert_eq!(encoded_row_count(&encoded), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_encode_splits_oversized_value_into_its_own_dictionary() -> VortexResult<()> {
+        let mut state = DictStreamState {
+            encoder: None,
+            constraints: DictConstraints {
+                max_bytes: 64,
+                max_len: 100,
+            },
+        };
+
+        let big = "x".repeat(49);
+        let chunk = VarBinArray::from(vec!["a", big.as_str(), "b"]).into_array();
+        let mut labeler = DictChunkLabeler::new(SequenceId::root().advance());
+        let encoded = state.encode(&mut labeler, chunk, &mut SESSION.create_execution_ctx())?;
+        let drained = state.drain_values(&mut labeler);
+
+        assert_eq!(encoded_row_count(&encoded) + encoded_row_count(&drained), 3);
+        let dictionaries = encoded
+            .iter()
+            .chain(&drained)
+            .filter_map(|chunk| match chunk {
+                DictionaryChunk::Values((_, values)) => Some(values),
+                DictionaryChunk::Codes { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(dictionaries.len(), 3);
+        let mut ctx = SESSION.create_execution_ctx();
+        for (values, expected) in dictionaries.into_iter().zip(["a", big.as_str(), "b"]) {
+            assert_arrays_eq!(values, VarBinArray::from(vec![expected]), &mut ctx);
+        }
+        Ok(())
     }
 }

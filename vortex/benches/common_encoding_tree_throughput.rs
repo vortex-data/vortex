@@ -14,11 +14,11 @@ use divan::counter::BytesCount;
 use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
-use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
+use vortex::array::aggregate_fn::session::AggregateFnSession;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::TemporalArray;
@@ -26,26 +26,41 @@ use vortex::array::arrays::VarBinArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::varbin::VarBinArraySlotsExt;
 use vortex::array::builtins::ArrayBuiltins;
+use vortex::array::memory::MemorySession;
+use vortex::array::optimizer::kernels::KernelSession;
+use vortex::array::scalar::Scalar;
+use vortex::array::session::ArraySession;
 use vortex::dtype::DType;
+use vortex::dtype::DecimalDType;
 use vortex::dtype::PType;
+use vortex::encodings::alp;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPArrayExt;
 use vortex::encodings::alp::ALPArraySlotsExt;
 use vortex::encodings::alp::alp_encode;
+use vortex::encodings::datetime_parts;
 use vortex::encodings::datetime_parts::DateTimeParts;
 use vortex::encodings::datetime_parts::split_temporal;
+use vortex::encodings::decimal_byte_parts;
+use vortex::encodings::decimal_byte_parts::DecimalByteParts;
+use vortex::encodings::fastlanes;
 use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::FoR;
+use vortex::encodings::fastlanes::FoRArray;
 use vortex::encodings::fastlanes::FoRArrayExt;
 use vortex::encodings::fastlanes::FoRArraySlotsExt;
+use vortex::encodings::fastlanes::FoRReferences;
+use vortex::encodings::fsst;
 use vortex::encodings::fsst::FSST;
 use vortex::encodings::fsst::FSSTArrayExt;
 use vortex::encodings::fsst::FSSTArraySlotsExt;
 use vortex::encodings::fsst::fsst_compress;
 use vortex::encodings::fsst::fsst_train_compressor;
+use vortex::encodings::runend;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::RunEndArraySlotsExt;
 use vortex::error::VortexExpect;
+use vortex::error::vortex_panic;
 use vortex::extension::datetime::TimeUnit;
 use vortex_session::VortexSession;
 
@@ -57,7 +72,20 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>();
+    alp::initialize(&session);
+    datetime_parts::initialize(&session);
+    decimal_byte_parts::initialize(&session);
+    fastlanes::initialize(&session);
+    fsst::initialize(&session);
+    runend::initialize(&session);
+    session
+});
 
 // Sized so the slowest tree decompression stays well under 1ms on CodSpeed.
 const NUM_VALUES: u64 = 2048;
@@ -81,6 +109,16 @@ mod setup {
     use vortex_fsst::FSSTSymbolTable;
 
     use super::*;
+
+    /// The reference of a FoR array built by [`FoR::encode`], which is always global.
+    fn global_reference(array: &FoRArray) -> Scalar {
+        match array.references() {
+            FoRReferences::Global(reference) => reference.clone(),
+            FoRReferences::Blocked(_) => {
+                vortex_panic!("FoR::encode uses a global reference")
+            }
+        }
+    }
 
     fn setup_primitive_arrays() -> (PrimitiveArray, PrimitiveArray, PrimitiveArray) {
         let mut ctx = SESSION.create_execution_ctx();
@@ -111,14 +149,9 @@ mod setup {
         let compressed = FoR::encode(uint_array, &mut ctx).unwrap();
         let inner = compressed.encoded();
         let bp = BitPacked::encode(inner, 8, &mut ctx).unwrap();
-        FoR::try_new(
-            bp.into_array(),
-            compressed
-                .constant_reference()
-                .vortex_expect("constant reference"),
-        )
-        .unwrap()
-        .into_array()
+        FoR::try_new(bp.into_array(), global_reference(&compressed))
+            .unwrap()
+            .into_array()
     }
 
     /// Create ALP <- FoR <- BitPacked encoding tree for f64
@@ -136,13 +169,7 @@ mod setup {
         let for_array = FoR::encode(alp_encoded_prim, &mut ctx).unwrap();
         let inner = for_array.encoded();
         let bp = BitPacked::encode(inner, 8, &mut ctx).unwrap();
-        let for_with_bp = FoR::try_new(
-            bp.into_array(),
-            for_array
-                .constant_reference()
-                .vortex_expect("constant reference"),
-        )
-        .unwrap();
+        let for_with_bp = FoR::try_new(bp.into_array(), global_reference(&for_array)).unwrap();
 
         ALP::try_new(
             for_with_bp.into_array(),
@@ -219,14 +246,9 @@ mod setup {
         let ends_for = FoR::encode(ends_prim, &mut ctx).unwrap();
         let ends_inner = ends_for.encoded();
         let ends_bp = BitPacked::encode(ends_inner, 8, &mut ctx).unwrap();
-        let compressed_ends = FoR::try_new(
-            ends_bp.into_array(),
-            ends_for
-                .constant_reference()
-                .vortex_expect("constant reference"),
-        )
-        .unwrap()
-        .into_array();
+        let compressed_ends = FoR::try_new(ends_bp.into_array(), global_reference(&ends_for))
+            .unwrap()
+            .into_array();
 
         // Compress the values with BitPacked
         let values_prim = runend
@@ -314,6 +336,7 @@ mod setup {
             codes
                 .validity()
                 .vortex_expect("FSST code validity should be derivable"),
+            &mut ctx,
         )
         .unwrap();
 
@@ -372,14 +395,9 @@ mod setup {
         let days_for = FoR::encode(days_prim, &mut ctx).unwrap();
         let days_inner = days_for.encoded();
         let days_bp = BitPacked::encode(days_inner, 16, &mut ctx).unwrap();
-        let compressed_days = FoR::try_new(
-            days_bp.into_array(),
-            days_for
-                .constant_reference()
-                .vortex_expect("constant reference"),
-        )
-        .unwrap()
-        .into_array();
+        let compressed_days = FoR::try_new(days_bp.into_array(), global_reference(&days_for))
+            .unwrap()
+            .into_array();
 
         // Compress seconds with FoR <- BitPacked
         let seconds_prim = parts
@@ -390,14 +408,10 @@ mod setup {
         let seconds_for = FoR::encode(seconds_prim, &mut ctx).unwrap();
         let seconds_inner = seconds_for.encoded();
         let seconds_bp = BitPacked::encode(seconds_inner, 17, &mut ctx).unwrap();
-        let compressed_seconds = FoR::try_new(
-            seconds_bp.into_array(),
-            seconds_for
-                .constant_reference()
-                .vortex_expect("constant reference"),
-        )
-        .unwrap()
-        .into_array();
+        let compressed_seconds =
+            FoR::try_new(seconds_bp.into_array(), global_reference(&seconds_for))
+                .unwrap()
+                .into_array();
 
         // Compress subseconds with FoR <- BitPacked
         let subseconds_prim = parts
@@ -409,9 +423,7 @@ mod setup {
         let subseconds_bp = BitPacked::encode(subseconds_inner, 20, &mut ctx).unwrap();
         let compressed_subseconds = FoR::try_new(
             subseconds_bp.into_array(),
-            subseconds_for
-                .constant_reference()
-                .vortex_expect("constant reference"),
+            global_reference(&subseconds_for),
         )
         .unwrap()
         .into_array();
@@ -424,6 +436,22 @@ mod setup {
         )
         .unwrap()
         .into_array()
+    }
+
+    /// Create DecimalByteParts <- BitPacked encoding tree, the tree that the compressor builds for
+    /// the golden `decimal_prices` column.
+    pub fn dbp_bp_i32() -> ArrayRef {
+        let mut rng = StdRng::seed_from_u64(115);
+        let msp =
+            PrimitiveArray::from_iter((0..NUM_VALUES).map(|_| rng.random_range(0..10_000_000i32)))
+                .into_array();
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let msp_bp = BitPacked::encode(&msp, 24, &mut ctx).unwrap();
+
+        DecimalByteParts::try_new(msp_bp.into_array(), DecimalDType::new(12, 2))
+            .unwrap()
+            .into_array()
     }
 }
 
@@ -474,6 +502,7 @@ macro_rules! setup_fn {
         setup_fn!(setup::dict_fsst_varbin_string),
         setup_fn!(setup::dict_fsst_varbin_bp_string),
         setup_fn!(setup::datetime_for_bp),
+        setup_fn!(setup::dbp_bp_i32),
     ]
 )]
 fn decompress(bencher: Bencher, setup_fn: SetupFn) {

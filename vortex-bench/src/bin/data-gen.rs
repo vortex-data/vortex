@@ -11,6 +11,7 @@ use std::process::Command;
 
 use clap::Parser;
 use clap::value_parser;
+use mimalloc::MiMalloc;
 use tracing::info;
 use vortex::error::VortexExpect;
 use vortex_bench::Benchmark;
@@ -50,8 +51,12 @@ struct Args {
     options: Vec<Opt>,
 }
 
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    vortex_bench::configure_allocator();
     let args = Args::parse();
     let opts = Opts::from(args.options);
 

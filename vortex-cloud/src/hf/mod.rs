@@ -57,6 +57,8 @@ use percent_encoding::percent_decode_str;
 use percent_encoding::utf8_percent_encode;
 use url::Url;
 
+use crate::parse_object_store_bool;
+
 /// The URL scheme served by the Hugging Face Hub.
 pub const HF_SCHEME: &str = "hf";
 
@@ -386,13 +388,14 @@ where
 }
 
 /// Whether plain-HTTP endpoints are permitted, from the `ALLOW_HTTP` variable the `object_store`
-/// builders read. Anything other than a `true`-ish value leaves HTTPS as the requirement.
+/// builders read, parsed the same way they parse it.
 fn allow_http<F>(env_lookup: &F) -> bool
 where
     F: Fn(&str) -> Option<String>,
 {
     env_lookup(ALLOW_HTTP_VAR)
-        .is_some_and(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "true" | "1"))
+        .and_then(|value| parse_object_store_bool(&value))
+        .unwrap_or(false)
 }
 
 /// The bearer token to read with, following the same precedence as `huggingface_hub.get_token()`:

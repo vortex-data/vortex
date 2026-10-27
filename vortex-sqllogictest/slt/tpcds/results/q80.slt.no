@@ -1,0 +1,191 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTRRR
+WITH ssr AS
+  (SELECT s_store_id AS store_id,
+          sum(ss_ext_sales_price) AS sales,
+          sum(coalesce(sr_return_amt, 0)) AS returns_,
+          sum(ss_net_profit - coalesce(sr_net_loss, 0)) AS profit
+   FROM store_sales
+   LEFT OUTER JOIN store_returns ON (ss_item_sk = sr_item_sk
+                                     AND ss_ticket_number = sr_ticket_number), date_dim,
+                                                                               store,
+                                                                               item,
+                                                                               promotion
+   WHERE ss_sold_date_sk = d_date_sk
+     AND d_date BETWEEN cast('2000-08-23' AS date) AND cast('2000-09-22' AS date)
+     AND ss_store_sk = s_store_sk
+     AND ss_item_sk = i_item_sk
+     AND i_current_price > 50
+     AND ss_promo_sk = p_promo_sk
+     AND p_channel_tv = 'N'
+   GROUP BY s_store_id) ,
+     csr AS
+  (SELECT cp_catalog_page_id AS catalog_page_id,
+          sum(cs_ext_sales_price) AS sales,
+          sum(coalesce(cr_return_amount, 0)) AS returns_,
+          sum(cs_net_profit - coalesce(cr_net_loss, 0)) AS profit
+   FROM catalog_sales
+   LEFT OUTER JOIN catalog_returns ON (cs_item_sk = cr_item_sk
+                                       AND cs_order_number = cr_order_number), date_dim,
+                                                                               catalog_page,
+                                                                               item,
+                                                                               promotion
+   WHERE cs_sold_date_sk = d_date_sk
+     AND d_date BETWEEN cast('2000-08-23' AS date) AND cast('2000-09-22' AS date)
+     AND cs_catalog_page_sk = cp_catalog_page_sk
+     AND cs_item_sk = i_item_sk
+     AND i_current_price > 50
+     AND cs_promo_sk = p_promo_sk
+     AND p_channel_tv = 'N'
+   GROUP BY cp_catalog_page_id) ,
+     wsr AS
+  (SELECT web_site_id,
+          sum(ws_ext_sales_price) AS sales,
+          sum(coalesce(wr_return_amt, 0)) AS returns_,
+          sum(ws_net_profit - coalesce(wr_net_loss, 0)) AS profit
+   FROM web_sales
+   LEFT OUTER JOIN web_returns ON (ws_item_sk = wr_item_sk
+                                   AND ws_order_number = wr_order_number), date_dim,
+                                                                           web_site,
+                                                                           item,
+                                                                           promotion
+   WHERE ws_sold_date_sk = d_date_sk
+     AND d_date BETWEEN cast('2000-08-23' AS date) AND cast('2000-09-22' AS date)
+     AND ws_web_site_sk = web_site_sk
+     AND ws_item_sk = i_item_sk
+     AND i_current_price > 50
+     AND ws_promo_sk = p_promo_sk
+     AND p_channel_tv = 'N'
+   GROUP BY web_site_id)
+SELECT channel ,
+       id ,
+       sum(sales) AS sales ,
+       sum(returns_) AS returns_ ,
+       sum(profit) AS profit
+FROM
+  (SELECT 'store channel' AS channel ,
+          concat('store', store_id) AS id ,
+          sales ,
+          returns_ ,
+          profit
+   FROM ssr
+   UNION ALL SELECT 'catalog channel' AS channel ,
+                    concat('catalog_page', catalog_page_id) AS id ,
+                    sales ,
+                    returns_ ,
+                    profit
+   FROM csr
+   UNION ALL SELECT 'web channel' AS channel ,
+                    concat('web_site', web_site_id) AS id ,
+                    sales ,
+                    returns_ ,
+                    profit
+   FROM wsr ) x
+GROUP BY ROLLUP (channel,
+                 id)
+ORDER BY channel NULLS FIRST,
+         id NULLS FIRST
+LIMIT 100;
+----
+NULL NULL 1386774.14 64922.43 -296007.21
+catalog channel NULL 578672.46 19737.87 -41639.77
+catalog channel catalog_pageAAAAAAAAAAABAAAA 2128.7 0 861.56
+catalog channel catalog_pageAAAAAAAAAEABAAAA 2560.44 0 1006.25
+catalog channel catalog_pageAAAAAAAAAFABAAAA 270.36 0 -2487.6
+catalog channel catalog_pageAAAAAAAAAICBAAAA 67.98 0 2.97
+catalog channel catalog_pageAAAAAAAAAKPAAAAA 5971.95 0 404.21
+catalog channel catalog_pageAAAAAAAAALPAAAAA 984.96 0 -1241.6
+catalog channel catalog_pageAAAAAAAAAPPAAAAA 606.32 0 240.62
+catalog channel catalog_pageAAAAAAAABBABAAAA 12642.18 0 4282.74
+catalog channel catalog_pageAAAAAAAABDABAAAA 100.8 0 -359.85
+catalog channel catalog_pageAAAAAAAABFABAAAA 2732.08 0 -1332.37
+catalog channel catalog_pageAAAAAAAABKCBAAAA 12857.17 1032.85 -6567.82
+catalog channel catalog_pageAAAAAAAABKPAAAAA 985.72 0 -141.36
+catalog channel catalog_pageAAAAAAAABLCBAAAA 158.5 0 -635
+catalog channel catalog_pageAAAAAAAABMCBAAAA 1665.9 0 -93.42
+catalog channel catalog_pageAAAAAAAABMPAAAAA 249.44 0 -320.8
+catalog channel catalog_pageAAAAAAAABNCBAAAA 14520.55 0 7190.15
+catalog channel catalog_pageAAAAAAAABNPAAAAA 10365.15 0 -430
+catalog channel catalog_pageAAAAAAAABOPAAAAA 1670.76 0 667.59
+catalog channel catalog_pageAAAAAAAABPPAAAAA 1783.98 0 -362.29
+catalog channel catalog_pageAAAAAAAACAABAAAA 4384.38 0 1471.08
+catalog channel catalog_pageAAAAAAAACCABAAAA 501.76 0 230.72
+catalog channel catalog_pageAAAAAAAACFCBAAAA 41.6 0 -82.94
+catalog channel catalog_pageAAAAAAAACGABAAAA 6704.04 0 -370.76
+catalog channel catalog_pageAAAAAAAACHABAAAA 649.54 0 171.08
+catalog channel catalog_pageAAAAAAAACKPAAAAA 5595.68 0 -2514.94
+catalog channel catalog_pageAAAAAAAACLPAAAAA 11349.83 0 4340.66
+catalog channel catalog_pageAAAAAAAACMPAAAAA 4324.06 0 -2838.94
+catalog channel catalog_pageAAAAAAAACNCBAAAA 2220.75 0 764.69
+catalog channel catalog_pageAAAAAAAACOCBAAAA 53.8 0 -38.94
+catalog channel catalog_pageAAAAAAAACOPAAAAA 8265.7 345.95 -3851.47
+catalog channel catalog_pageAAAAAAAACPPAAAAA 1914.63 0 792.63
+catalog channel catalog_pageAAAAAAAADAABAAAA 2472.48 0 -464.49
+catalog channel catalog_pageAAAAAAAADBABAAAA 5581.44 0 1590.69
+catalog channel catalog_pageAAAAAAAADCABAAAA 3842.55 1963.97 -1680.23
+catalog channel catalog_pageAAAAAAAADEABAAAA 115.6 0 -4019.65
+catalog channel catalog_pageAAAAAAAADHABAAAA 152.19 0 81.1
+catalog channel catalog_pageAAAAAAAADKPAAAAA 6167.46 0 2820.87
+catalog channel catalog_pageAAAAAAAADLCBAAAA 31.35 0 -252.56
+catalog channel catalog_pageAAAAAAAADLPAAAAA 381.36 0 -138.81
+catalog channel catalog_pageAAAAAAAADMCBAAAA 232.68 0 -317.04
+catalog channel catalog_pageAAAAAAAADMPAAAAA 18723.68 1039 4325.11
+catalog channel catalog_pageAAAAAAAADNPAAAAA 8942.13 612.8 -342.53
+catalog channel catalog_pageAAAAAAAADPCBAAAA 2000.8 0 -595.2
+catalog channel catalog_pageAAAAAAAADPPAAAAA 8491.1 0 3579.6
+catalog channel catalog_pageAAAAAAAAEDCBAAAA 754.4 0 -2073.6
+catalog channel catalog_pageAAAAAAAAEEABAAAA 993.51 851.58 70.37
+catalog channel catalog_pageAAAAAAAAEECBAAAA 2040.08 0 -7198.74
+catalog channel catalog_pageAAAAAAAAEGABAAAA 4622.63 0 -7197.32
+catalog channel catalog_pageAAAAAAAAEGCBAAAA 6515.52 0 -5294.1
+catalog channel catalog_pageAAAAAAAAEKPAAAAA 71.61 0 -1165.78
+catalog channel catalog_pageAAAAAAAAELCBAAAA 549.44 0 -256.32
+catalog channel catalog_pageAAAAAAAAEMCBAAAA 0 0 -1033.43
+catalog channel catalog_pageAAAAAAAAEMPAAAAA 769.45 0 -3460.05
+catalog channel catalog_pageAAAAAAAAENPAAAAA 5675.49 0 -2879.45
+catalog channel catalog_pageAAAAAAAAEOPAAAAA 66.41 0 -488.36
+catalog channel catalog_pageAAAAAAAAEPCBAAAA 2532.32 299.88 121.67
+catalog channel catalog_pageAAAAAAAAEPPAAAAA 4619.65 0 785.92
+catalog channel catalog_pageAAAAAAAAFAABAAAA 190.95 0 -6737.36
+catalog channel catalog_pageAAAAAAAAFBABAAAA 8394.62 0 4535.95
+catalog channel catalog_pageAAAAAAAAFCABAAAA 897.6 0 474.32
+catalog channel catalog_pageAAAAAAAAFDABAAAA 567.54 0 246.51
+catalog channel catalog_pageAAAAAAAAFEABAAAA 5952.96 2046.33 1819.1
+catalog channel catalog_pageAAAAAAAAFFABAAAA 2344.05 0 -176.85
+catalog channel catalog_pageAAAAAAAAFLPAAAAA 2959.95 0 -2027.76
+catalog channel catalog_pageAAAAAAAAFNPAAAAA 375.36 0 56.16
+catalog channel catalog_pageAAAAAAAAFOPAAAAA 2169.15 0 -1810.08
+catalog channel catalog_pageAAAAAAAAFPPAAAAA 1155.66 0 -725.3
+catalog channel catalog_pageAAAAAAAAGAABAAAA 1588.18 0 -572.66
+catalog channel catalog_pageAAAAAAAAGBABAAAA 901.55 0 -24.82
+catalog channel catalog_pageAAAAAAAAGCABAAAA 5279.43 0 -194.64
+catalog channel catalog_pageAAAAAAAAGFABAAAA 1283.36 0 71.76
+catalog channel catalog_pageAAAAAAAAGGABAAAA 1123.8 187.3 -1181.76
+catalog channel catalog_pageAAAAAAAAGGCBAAAA 1323 0 -1376.55
+catalog channel catalog_pageAAAAAAAAGKCBAAAA 3020.92 0 -1545.02
+catalog channel catalog_pageAAAAAAAAGKPAAAAA 2986.44 574.95 -1183.57
+catalog channel catalog_pageAAAAAAAAGNPAAAAA 5440.17 0 -3005.02
+catalog channel catalog_pageAAAAAAAAHAABAAAA 2402.82 0 682.29
+catalog channel catalog_pageAAAAAAAAHDABAAAA 335.22 0 99.96
+catalog channel catalog_pageAAAAAAAAHEABAAAA 1560 0 -305.2
+catalog channel catalog_pageAAAAAAAAHKPAAAAA 693.3 0 -450.16
+catalog channel catalog_pageAAAAAAAAHLCBAAAA 5182.25 0 -1257.94
+catalog channel catalog_pageAAAAAAAAHMPAAAAA 62.25 0 -14.55
+catalog channel catalog_pageAAAAAAAAHNPAAAAA 2117.96 0 -1800.74
+catalog channel catalog_pageAAAAAAAAHOPAAAAA 4423.5 0 -301.08
+catalog channel catalog_pageAAAAAAAAIICBAAAA 16726.49 0 9627.24
+catalog channel catalog_pageAAAAAAAAIJCBAAAA 1392.16 0 -1733.6
+catalog channel catalog_pageAAAAAAAAILPAAAAA 21264.78 0 10207.47
+catalog channel catalog_pageAAAAAAAAIMPAAAAA 5627.14 4047.84 -2588.88
+catalog channel catalog_pageAAAAAAAAINPAAAAA 347.88 0 -789.36
+catalog channel catalog_pageAAAAAAAAIPPAAAAA 8194.16 0 1427.44
+catalog channel catalog_pageAAAAAAAAJAABAAAA 37.31 0 -20.02
+catalog channel catalog_pageAAAAAAAAJCABAAAA 0 0 -1819.99
+catalog channel catalog_pageAAAAAAAAJDABAAAA 1249.2 1006.3 -1059.17
+catalog channel catalog_pageAAAAAAAAJFABAAAA 391.59 0 41.22
+catalog channel catalog_pageAAAAAAAAJICBAAAA 156.91 0 -1528.86
+catalog channel catalog_pageAAAAAAAAJKPAAAAA 1874.2 0 -5143.5
+catalog channel catalog_pageAAAAAAAAJLCBAAAA 1741.82 0 -1284.76
+catalog channel catalog_pageAAAAAAAAJLPAAAAA 194.32 0 -42.32

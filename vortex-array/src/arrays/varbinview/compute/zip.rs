@@ -19,6 +19,7 @@ use crate::arrays::varbinview::BinaryView;
 use crate::arrays::varbinview::VarBinViewArrayExt;
 use crate::builders::DeduplicatedBuffers;
 use crate::builders::LazyBitBufferBuilder;
+use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::zip::ZipKernel;
 
 // A dedicated VarBinView zip kernel that builds the result directly by adjusting views and validity,
@@ -57,7 +58,7 @@ impl ZipKernel for VarBinView {
         let true_validity = if_true.varbinview_validity().execute_mask(len, ctx)?;
         let false_validity = if_false.varbinview_validity().execute_mask(len, ctx)?;
 
-        let mask = mask.clone().null_as_false().execute(ctx)?;
+        let mask = mask.clone().fill_null(false)?.execute::<Mask>(ctx)?;
         let if_false_view = if_false;
         match mask.slices() {
             AllOr::All => push_range(
@@ -209,16 +210,20 @@ fn push_view(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::VarBinViewArray;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn zip_varbinview_kernel_zips() -> VortexResult<()> {
@@ -248,14 +253,14 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, true, false, false, true]);
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let zipped = mask
             .clone()
             .into_array()
             .zip(a.into_array(), b.into_array())?
             .execute::<VarBinViewArray>(&mut ctx)?;
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let validity_mask = zipped.validity()?.execute_mask(zipped.len(), &mut ctx)?;
         let values = (0..zipped.len())
             .map(|i| {

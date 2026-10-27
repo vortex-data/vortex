@@ -168,7 +168,7 @@ public final class VortexDataSourceWriteTest {
 
         Dataset<Row> reread =
                 spark.read().format("vortex").option("path", barePath).load();
-        assertEquals(25, reread.count(), "Should have data from second write after overwrite");
+        verifyDataContent(replacementDf, reread);
     }
 
     @Test
@@ -226,7 +226,7 @@ public final class VortexDataSourceWriteTest {
                 .option("path", outputPath.toUri().toString())
                 .load();
 
-        assertEquals(75, readDf.count(), "Should have data from second write after overwrite");
+        verifyDataContent(df2, readDf);
     }
 
     @Test
@@ -274,7 +274,7 @@ public final class VortexDataSourceWriteTest {
                 .load();
 
         // Then: verify all rows are present
-        assertEquals(5, readDf.count(), "Should read all 5 rows back");
+        assertEquals(rows, readDf.select("id", "name", "group").orderBy("id").collectAsList());
 
         // Verify partition values are correct
         Dataset<Row> groupA = readDf.filter(readDf.col("group").equalTo("A")).orderBy("id");
@@ -323,7 +323,8 @@ public final class VortexDataSourceWriteTest {
                 .option("path", outputPath.toUri().toString())
                 .load();
 
-        assertEquals(4, readDf.count(), "Should read all 4 rows back");
+        assertEquals(
+                rows, readDf.select("id", "category", "bucket").orderBy("id").collectAsList());
     }
 
     @Test
@@ -360,7 +361,7 @@ public final class VortexDataSourceWriteTest {
                 .load();
 
         // Verify all special cases are preserved
-        assertEquals(6, readDf.count());
+        assertEquals(rows, readDf.select("id", "text").orderBy("id").collectAsList());
 
         // Check null value
         Dataset<Row> nullRows = readDf.filter(readDf.col("text").isNull());
@@ -425,11 +426,11 @@ public final class VortexDataSourceWriteTest {
     @DisplayName("Write TimestampNTZ columns and nested structs")
     public void testWriteTimestampNtzColumns() throws IOException {
         Dataset<Row> timestampNtzDf = spark.range(0, 2).selectExpr("cast(id as int) as id", """
-                CASE WHEN id = 0 THEN CAST('2024-01-02 03:04:05.123456' AS TIMESTAMP_NTZ)
+                CASE WHEN id = 0 THEN TIMESTAMP_NTZ '2024-01-02 03:04:05.123456'
                 ELSE CAST(NULL AS TIMESTAMP_NTZ) END AS event_ntz""", """
                 named_struct(
-                    'event_ntz', CASE WHEN id = 0 THEN CAST('2024-01-02 03:04:05.123456' AS TIMESTAMP_NTZ)
-                        ELSE CAST('2024-02-03 04:05:06.654321' AS TIMESTAMP_NTZ) END
+                    'event_ntz', CASE WHEN id = 0 THEN TIMESTAMP_NTZ '2024-01-02 03:04:05.123456'
+                        ELSE TIMESTAMP_NTZ '2024-02-03 04:05:06.654321' END
                 ) AS payload""");
 
         Path outputPath = tempDir.resolve("timestamp_ntz_output");
@@ -441,6 +442,9 @@ public final class VortexDataSourceWriteTest {
                 .save());
 
         assertFalse(findVortexFiles(outputPath).isEmpty(), "TimestampNTZ write should create Vortex files");
+        Dataset<Row> actual = spark.read().format("vortex").load(outputPath.toString());
+        assertSchemaEquals(timestampNtzDf.schema(), actual.schema());
+        verifyDataContent(timestampNtzDf, actual);
     }
 
     @Test
@@ -462,13 +466,14 @@ public final class VortexDataSourceWriteTest {
                 .mode(SaveMode.Overwrite)
                 .save();
 
-        Row read = spark.read()
+        List<Row> rows = spark.read()
                 .format("vortex")
                 .option("path", outputPath.toUri().toString())
                 .load()
                 .selectExpr("ints", "doubles", "strings")
-                .collectAsList()
-                .get(0);
+                .collectAsList();
+        assertEquals(1, rows.size());
+        Row read = rows.get(0);
 
         assertEquals(Arrays.asList(1, null, 3), read.getList(0));
         assertEquals(Arrays.asList(null, 2.5d), read.getList(1));
@@ -508,6 +513,7 @@ public final class VortexDataSourceWriteTest {
         assertTrue(mapType.valueContainsNull());
 
         List<Row> rows = readDf.collectAsList();
+        assertEquals(3, rows.size());
         Map<Integer, String> expected = new HashMap<>();
         expected.put(1, "one");
         expected.put(2, null);
@@ -583,23 +589,8 @@ public final class VortexDataSourceWriteTest {
 
     /** Verifies that the data content of two DataFrames is identical. */
     private void verifyDataContent(Dataset<Row> expected, Dataset<Row> actual) {
-        // Sort both DataFrames by id to ensure consistent ordering
-        Dataset<Row> expectedSorted = expected.orderBy("id");
-        Dataset<Row> actualSorted = actual.orderBy("id");
-
-        // Collect and compare
-        List<Row> expectedRows = expectedSorted.collectAsList();
-        List<Row> actualRows = actualSorted.collectAsList();
-
-        assertEquals(expectedRows.size(), actualRows.size(), "Should have same number of rows");
-
-        for (int i = 0; i < expectedRows.size(); i++) {
-            Row expectedRow = expectedRows.get(i);
-            Row actualRow = actualRows.get(i);
-
-            assertEquals(expectedRow.getInt(0), actualRow.getInt(0), "ID should match at row " + i);
-            assertEquals(expectedRow.getString(1), actualRow.getString(1), "Value should match at row " + i);
-        }
+        assertEquals(
+                expected.orderBy("id").collectAsList(), actual.orderBy("id").collectAsList());
     }
 
     @AfterEach

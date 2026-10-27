@@ -11,7 +11,7 @@ use rand::prelude::*;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -19,6 +19,7 @@ use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::stats::Stat;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -34,7 +35,11 @@ fn main() {
 // to keep the CodSpeed simulation under 1ms per benchmark.
 const SIZES: &[usize] = &[8_192];
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+});
 
 #[divan::bench(args = SIZES)]
 fn cast_u16_to_u32(bencher: Bencher, n: usize) {

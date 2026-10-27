@@ -10,11 +10,14 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use itertools::Itertools;
+use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 
 use crate::dtype::DType;
+use crate::dtype::FieldName;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::traversal::TraversalOrder;
 use crate::expr::traversal::pre_order_visit_down;
@@ -26,10 +29,12 @@ const NO_CHILDREN: &[Expression] = &[];
 
 /// A node in a Vortex expression tree.
 ///
-/// Most nodes are a scalar function applied to child expressions. [`Expression::Root`] is the scope
-/// itself: a language primitive rather than a registered function, because its dtype comes from the
-/// scope rather than from children and it is not executable. A [`ScalarFnVTable`] can answer neither
-/// of those, so `Root` is a variant instead.
+/// Most nodes are a scalar function applied to child expressions. The other two are leaves that
+/// name a value rather than compute one: [`Expression::Root`], the scope itself, and
+/// [`Expression::Variable`], a parameter of an enclosing lambda. They are language primitives
+/// rather than registered functions, because their dtype comes from where they appear rather than
+/// from children and they are not executable. A [`ScalarFnVTable`] can answer neither of those, so
+/// they are variants instead.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Expression {
     /// A scalar function applied to child expressions.
@@ -41,6 +46,11 @@ pub enum Expression {
     },
     /// The full scope of the expression evaluation.
     Root,
+    /// A parameter of the enclosing lambda, read by name.
+    ///
+    /// Binding a [`Lambda`](crate::expr::Lambda) turns its variables into reads of the struct of
+    /// its inputs. Anywhere else a variable fails to bind, and it is not serializable yet.
+    Variable(FieldName),
 }
 
 impl Expression {
@@ -73,7 +83,7 @@ impl Expression {
     pub fn as_scalar(&self) -> Option<&ScalarFnRef> {
         match self {
             Self::Scalar { scalar_fn, .. } => Some(scalar_fn),
-            Self::Root => None,
+            Self::Root | Self::Variable(_) => None,
         }
     }
 
@@ -101,7 +111,7 @@ impl Expression {
     pub fn children(&self) -> &[Expression] {
         match self {
             Self::Scalar { children, .. } => children.as_slice(),
-            Self::Root => NO_CHILDREN,
+            Self::Root | Self::Variable(_) => NO_CHILDREN,
         }
     }
 
@@ -125,6 +135,14 @@ impl Expression {
                 );
                 Ok(Self::Root)
             }
+            Self::Variable(name) => {
+                vortex_ensure!(
+                    children.is_empty(),
+                    "Expression arity mismatch: variable expects 0 children but got {}",
+                    children.len()
+                );
+                Ok(Self::Variable(name.clone()))
+            }
             Self::Scalar { scalar_fn, .. } => {
                 vortex_ensure!(
                     scalar_fn.signature().arity().matches(children.len()),
@@ -144,6 +162,7 @@ impl Expression {
     pub fn return_dtype(&self, scope: &DType) -> VortexResult<DType> {
         match self {
             Self::Root => Ok(scope.clone()),
+            Self::Variable(name) => Err(unbound_variable(name)),
             Self::Scalar {
                 scalar_fn,
                 children,
@@ -164,6 +183,7 @@ impl Expression {
     pub fn fmt_sql(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Root => write!(f, "$"),
+            Self::Variable(name) => write!(f, "@{name}"),
             Self::Scalar { scalar_fn, .. } => scalar_fn.fmt_sql(self, f),
         }
     }
@@ -247,6 +267,11 @@ impl Expression {
         })?;
         Ok(contains)
     }
+}
+
+/// The error for a variable that no enclosing lambda declares.
+pub(crate) fn unbound_variable(name: &FieldName) -> VortexError {
+    vortex_err!("variable @{name} is not a parameter of an enclosing lambda")
 }
 
 /// The default display implementation for expressions uses the 'SQL'-style format.
@@ -353,6 +378,6 @@ mod tests {
 
         drop(expr);
 
-        assert_eq!(shared.children().len(), 1);
+        assert_eq!(shared.children(), &[lit(true)]);
     }
 }

@@ -82,6 +82,8 @@ pub enum BenchmarkDataset {
     Fineweb,
     #[serde(rename = "gharchive")]
     GhArchive,
+    #[serde(rename = "job")]
+    Job,
     #[serde(rename = "vortex")]
     VortexQueries,
 }
@@ -100,6 +102,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::PolarSignals { .. } => "polarsignals",
             BenchmarkDataset::Fineweb => "fineweb",
             BenchmarkDataset::GhArchive => "gharchive",
+            BenchmarkDataset::Job => "job",
             BenchmarkDataset::VortexQueries => "vortex",
         }
     }
@@ -126,6 +129,7 @@ impl Display for BenchmarkDataset {
             }
             BenchmarkDataset::Fineweb => write!(f, "fineweb"),
             BenchmarkDataset::GhArchive => write!(f, "gharchive"),
+            BenchmarkDataset::Job => write!(f, "job"),
             BenchmarkDataset::VortexQueries => write!(f, "vortex"),
         }
     }
@@ -186,6 +190,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::PolarSignals { .. } => &["stacktraces"],
             BenchmarkDataset::Fineweb => &["fineweb"],
             BenchmarkDataset::GhArchive => &["events"],
+            BenchmarkDataset::Job => crate::job::TABLES,
             // See VortexBenchmark::table_specs
             BenchmarkDataset::VortexQueries => &[],
         }

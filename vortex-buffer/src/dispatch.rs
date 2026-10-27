@@ -38,7 +38,7 @@
 //! For the same reason, gate on input size *before* [`get`](CpuKernel::get) when tiny
 //! inputs are common: call the portable kernel directly below the size where SIMD pays
 //! off, so those calls stay inlinable and skip the dispatch entirely (see
-//! `count_ones_aligned`).
+//! `count_ones`).
 
 use core::mem::transmute_copy;
 use core::ptr;
@@ -144,17 +144,6 @@ mod tests {
         assert_eq!(add_one(1), 2);
         assert_eq!(add_one(2), 3);
         assert_eq!(SELECT_CALLS.load(Ordering::Relaxed), 1);
-    }
-
-    #[test]
-    fn selector_early_returns_skip_the_default() {
-        static KERNEL: CpuKernel<fn(u64) -> u64> = CpuKernel::new(|| {
-            if 1 + 1 == 2 {
-                return |x| x + 2;
-            }
-            |x| x + 100
-        });
-        assert_eq!(KERNEL.get()(0), 2);
     }
 
     type XorFn = fn(&[u8; 4], &mut [u8; 4]);

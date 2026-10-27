@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use rstest::rstest;
 use vortex_array::ArrayProbe;
 use vortex_array::ArrayRef;
@@ -12,8 +14,11 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::Pco;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 /// A one-off or retained probe over `array`, the retained one living in `retained`.
 fn probe_for<'a>(
@@ -34,7 +39,7 @@ fn random_access(
     #[values(false, true)] nullable: bool,
     #[values(false, true)] sliced: bool,
 ) -> VortexResult<()> {
-    let mut ctx = vortex_array::array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let input = if nullable {
         PrimitiveArray::from_option_iter((0..4096i32).map(|i| (i % 7 != 0).then_some(i * 19)))
     } else {
@@ -66,7 +71,7 @@ fn random_access(
 #[case(PrimitiveArray::from_iter([i64::MIN, -1, 0, i64::MAX]))]
 #[case(PrimitiveArray::from_iter([1.25f64, -2.5, 0.0, f64::INFINITY]))]
 fn preserves_physical_type(#[case] input: PrimitiveArray) -> VortexResult<()> {
-    let mut ctx = vortex_array::array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let encoded = Pco::from_primitive(input.as_view(), 3, 2, &mut ctx)?.into_array();
     let mut probe = encoded.repeated_probe();
     let mut actual = builder_with_capacity_in(input.dtype(), input.len(), ctx.allocator());
@@ -79,7 +84,7 @@ fn preserves_physical_type(#[case] input: PrimitiveArray) -> VortexResult<()> {
 
 #[test]
 fn all_null_access_returns_null() -> VortexResult<()> {
-    let mut ctx = vortex_array::array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let input = PrimitiveArray::new(vec![0i32; 128], Validity::AllInvalid);
     let encoded = Pco::from_primitive(input.as_view(), 3, 128, &mut ctx)?;
     let encoded = encoded.into_array();
@@ -90,7 +95,7 @@ fn all_null_access_returns_null() -> VortexResult<()> {
 
 #[test]
 fn probe_outlives_source_and_moves() -> VortexResult<()> {
-    let mut ctx = vortex_array::array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let input = PrimitiveArray::from_iter(0..4096u32);
     let array = Pco::from_primitive(input.as_view(), 3, 512, &mut ctx)?.into_array();
     let probe = RepeatedArrayProbe::new(array.clone());

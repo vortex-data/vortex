@@ -798,6 +798,230 @@ impl ::core::fmt::Debug for PostscriptSegment<'_> {
       ds.finish()
   }
 }
+pub enum AggregateSpecOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+/// An aggregate function and its options, as recorded in the file statistics.
+///
+/// Specs are dictionary-encoded: each distinct (id, options) pair is stored once and referenced
+/// by index from `AggregateSet.specs`.
+pub struct AggregateSpec<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for AggregateSpec<'a> {
+  type Inner = AggregateSpec<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> AggregateSpec<'a> {
+  pub const VT_ID: ::flatbuffers::VOffsetT = 4;
+  pub const VT_OPTIONS: ::flatbuffers::VOffsetT = 6;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    AggregateSpec { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args AggregateSpecArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<AggregateSpec<'bldr>> {
+    let mut builder = AggregateSpecBuilder::new(_fbb);
+    if let Some(x) = args.options { builder.add_options(x); }
+    if let Some(x) = args.id { builder.add_id(x); }
+    builder.finish()
+  }
+
+
+  /// The aggregate function's globally unique ID, looked up in the session's aggregate registry
+  /// at read time.
+  #[inline]
+  pub fn id(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(AggregateSpec::VT_ID, None).unwrap()}
+  }
+  /// The aggregate function's serialized options. Absent when the options serialize to nothing.
+  #[inline]
+  pub fn options(&self) -> Option<::flatbuffers::Vector<'a, u8>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u8>>>(AggregateSpec::VT_OPTIONS, None)}
+  }
+}
+
+impl ::flatbuffers::Verifiable for AggregateSpec<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("id", Self::VT_ID, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u8>>>("options", Self::VT_OPTIONS, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct AggregateSpecArgs<'a> {
+    pub id: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub options: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u8>>>,
+}
+impl<'a> Default for AggregateSpecArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    AggregateSpecArgs {
+      id: None, // required field
+      options: None,
+    }
+  }
+}
+
+pub struct AggregateSpecBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> AggregateSpecBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_id(&mut self, id: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(AggregateSpec::VT_ID, id);
+  }
+  #[inline]
+  pub fn add_options(&mut self, options: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , u8>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(AggregateSpec::VT_OPTIONS, options);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> AggregateSpecBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    AggregateSpecBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<AggregateSpec<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, AggregateSpec::VT_ID,"id");
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for AggregateSpec<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("AggregateSpec");
+      ds.field("id", &self.id());
+      ds.field("options", &self.options());
+      ds.finish()
+  }
+}
+pub enum AggregateSetOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+/// An ordered list of aggregates recorded together for one or more file statistics entries.
+///
+/// Most columns of the same kind record the same aggregates, so a file typically has only a
+/// handful of distinct sets regardless of how many columns it has.
+pub struct AggregateSet<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for AggregateSet<'a> {
+  type Inner = AggregateSet<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> AggregateSet<'a> {
+  pub const VT_SPECS: ::flatbuffers::VOffsetT = 4;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    AggregateSet { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args AggregateSetArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<AggregateSet<'bldr>> {
+    let mut builder = AggregateSetBuilder::new(_fbb);
+    if let Some(x) = args.specs { builder.add_specs(x); }
+    builder.finish()
+  }
+
+
+  /// Indices into `FileStatistics.aggregate_specs`, in the order their partial states appear in
+  /// `FileStatistics.partials`. May be empty for an entry that records nothing.
+  #[inline]
+  pub fn specs(&self) -> ::flatbuffers::Vector<'a, u16> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u16>>>(AggregateSet::VT_SPECS, None).unwrap()}
+  }
+}
+
+impl ::flatbuffers::Verifiable for AggregateSet<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u16>>>("specs", Self::VT_SPECS, true)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct AggregateSetArgs<'a> {
+    pub specs: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u16>>>,
+}
+impl<'a> Default for AggregateSetArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    AggregateSetArgs {
+      specs: None, // required field
+    }
+  }
+}
+
+pub struct AggregateSetBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> AggregateSetBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_specs(&mut self, specs: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , u16>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(AggregateSet::VT_SPECS, specs);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> AggregateSetBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    AggregateSetBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<AggregateSet<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, AggregateSet::VT_SPECS,"specs");
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for AggregateSet<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("AggregateSet");
+      ds.field("specs", &self.specs());
+      ds.finish()
+  }
+}
 pub enum FileStatisticsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -816,6 +1040,10 @@ impl<'a> ::flatbuffers::Follow<'a> for FileStatistics<'a> {
 
 impl<'a> FileStatistics<'a> {
   pub const VT_FIELD_STATS: ::flatbuffers::VOffsetT = 4;
+  pub const VT_AGGREGATE_SPECS: ::flatbuffers::VOffsetT = 6;
+  pub const VT_AGGREGATE_SETS: ::flatbuffers::VOffsetT = 8;
+  pub const VT_ENTRY_SETS: ::flatbuffers::VOffsetT = 10;
+  pub const VT_PARTIALS: ::flatbuffers::VOffsetT = 12;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -827,19 +1055,77 @@ impl<'a> FileStatistics<'a> {
     args: &'args FileStatisticsArgs<'args>
   ) -> ::flatbuffers::WIPOffset<FileStatistics<'bldr>> {
     let mut builder = FileStatisticsBuilder::new(_fbb);
+    if let Some(x) = args.partials { builder.add_partials(x); }
+    if let Some(x) = args.entry_sets { builder.add_entry_sets(x); }
+    if let Some(x) = args.aggregate_sets { builder.add_aggregate_sets(x); }
+    if let Some(x) = args.aggregate_specs { builder.add_aggregate_specs(x); }
     if let Some(x) = args.field_stats { builder.add_field_stats(x); }
     builder.finish()
   }
 
 
-  /// Statistics for each field in the root schema. If the root schema is not a struct, there will
-  /// be a single entry in this array.
+  /// Statistics for each top-level field in the root schema, in schema order. If the root schema
+  /// is not a struct, there will be a single entry in this array. Does not recurse into nested
+  /// struct fields.
+  ///
+  /// Kept in this legacy shape for readers that predate the aggregate-based statistics below,
+  /// which strictly validate this array's length against the number of top-level struct fields.
+  /// Independent of the fields below: neither refers to the other.
   #[inline]
   pub fn field_stats(&self) -> Option<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ArrayStats<'a>>>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ArrayStats>>>>(FileStatistics::VT_FIELD_STATS, None)}
+  }
+  /// Dictionary of the (aggregate ID, options) pairs used by this file, up to u16::MAX.
+  #[inline]
+  pub fn aggregate_specs(&self) -> Option<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<AggregateSpec<'a>>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<AggregateSpec>>>>(FileStatistics::VT_AGGREGATE_SPECS, None)}
+  }
+  /// Dictionary of the distinct aggregate lists used by entries, up to u16::MAX.
+  #[inline]
+  pub fn aggregate_sets(&self) -> Option<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<AggregateSet<'a>>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<AggregateSet>>>>(FileStatistics::VT_AGGREGATE_SETS, None)}
+  }
+  /// One element per file statistics entry, in post-order of the root `DType`: each leaf field
+  /// gets an entry, and each nullable struct additionally gets a trailing entry for its own null
+  /// count, after its children's entries. Each element is an index into `aggregate_sets`.
+  ///
+  /// The entry paths and dtypes are not stored; readers derive them from the root `DType` with
+  /// the same post-order walk.
+  ///
+  /// Absent for files written before aggregate-based statistics, whose readers fall back to
+  /// `field_stats`.
+  #[inline]
+  pub fn entry_sets(&self) -> Option<::flatbuffers::Vector<'a, u16>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u16>>>(FileStatistics::VT_ENTRY_SETS, None)}
+  }
+  /// The partial states of every entry's aggregates, concatenated. For each entry in
+  /// `entry_sets` order, and for each spec in that entry's set in order:
+  ///
+  ///   - an unsigned LEB128 varint byte length `n`, then
+  ///   - `n` bytes of a protobuf-serialized `vortex.scalar.ScalarValue`, typed by the
+  ///     aggregate's partial dtype for the entry's dtype. A null value means no value was
+  ///     accumulated.
+  ///
+  /// Readers skip the partial of an aggregate they don't recognize using its length prefix, so
+  /// unknown aggregates never desynchronize the stream.
+  #[inline]
+  pub fn partials(&self) -> Option<::flatbuffers::Vector<'a, u8>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u8>>>(FileStatistics::VT_PARTIALS, None)}
   }
 }
 
@@ -850,18 +1136,30 @@ impl ::flatbuffers::Verifiable for FileStatistics<'_> {
   ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
     v.visit_table(pos)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<ArrayStats>>>>("field_stats", Self::VT_FIELD_STATS, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<AggregateSpec>>>>("aggregate_specs", Self::VT_AGGREGATE_SPECS, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<AggregateSet>>>>("aggregate_sets", Self::VT_AGGREGATE_SETS, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u16>>>("entry_sets", Self::VT_ENTRY_SETS, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u8>>>("partials", Self::VT_PARTIALS, false)?
      .finish();
     Ok(())
   }
 }
 pub struct FileStatisticsArgs<'a> {
     pub field_stats: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<ArrayStats<'a>>>>>,
+    pub aggregate_specs: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<AggregateSpec<'a>>>>>,
+    pub aggregate_sets: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<AggregateSet<'a>>>>>,
+    pub entry_sets: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u16>>>,
+    pub partials: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u8>>>,
 }
 impl<'a> Default for FileStatisticsArgs<'a> {
   #[inline]
   fn default() -> Self {
     FileStatisticsArgs {
       field_stats: None,
+      aggregate_specs: None,
+      aggregate_sets: None,
+      entry_sets: None,
+      partials: None,
     }
   }
 }
@@ -874,6 +1172,22 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> FileStatisticsBuilder<'a, 'b,
   #[inline]
   pub fn add_field_stats(&mut self, field_stats: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<ArrayStats<'b >>>>) {
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(FileStatistics::VT_FIELD_STATS, field_stats);
+  }
+  #[inline]
+  pub fn add_aggregate_specs(&mut self, aggregate_specs: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<AggregateSpec<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(FileStatistics::VT_AGGREGATE_SPECS, aggregate_specs);
+  }
+  #[inline]
+  pub fn add_aggregate_sets(&mut self, aggregate_sets: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<AggregateSet<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(FileStatistics::VT_AGGREGATE_SETS, aggregate_sets);
+  }
+  #[inline]
+  pub fn add_entry_sets(&mut self, entry_sets: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , u16>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(FileStatistics::VT_ENTRY_SETS, entry_sets);
+  }
+  #[inline]
+  pub fn add_partials(&mut self, partials: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , u8>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(FileStatistics::VT_PARTIALS, partials);
   }
   #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> FileStatisticsBuilder<'a, 'b, A> {
@@ -894,6 +1208,10 @@ impl ::core::fmt::Debug for FileStatistics<'_> {
   fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
     let mut ds = f.debug_struct("FileStatistics");
       ds.field("field_stats", &self.field_stats());
+      ds.field("aggregate_specs", &self.aggregate_specs());
+      ds.field("aggregate_sets", &self.aggregate_sets());
+      ds.field("entry_sets", &self.entry_sets());
+      ds.field("partials", &self.partials());
       ds.finish()
   }
 }

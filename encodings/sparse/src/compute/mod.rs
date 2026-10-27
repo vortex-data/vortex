@@ -7,6 +7,7 @@ mod compare;
 mod fill_null;
 mod filter;
 pub(crate) mod is_constant;
+mod like;
 pub(crate) mod min_max;
 pub(crate) mod nan_count;
 pub(crate) mod null_count;
@@ -23,9 +24,7 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
@@ -36,86 +35,29 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
-    use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
     use crate::Sparse;
     use crate::SparseArray;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
 
     #[fixture]
     fn array() -> ArrayRef {
+        let mut ctx = SESSION.create_execution_ctx();
         Sparse::try_new(
             buffer![2u64, 9, 15].into_array(),
             PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
             20,
             Scalar::null_native::<i32>(),
+            &mut ctx,
         )
         .unwrap()
         .into_array()
-    }
-
-    #[rstest]
-    fn test_filter(array: ArrayRef) {
-        let mut predicate = vec![false, false, true];
-        predicate.extend_from_slice(&[false; 17]);
-        let mask = Mask::from_iter(predicate);
-
-        let filtered_array = array.filter(mask).unwrap();
-
-        // Construct expected SparseArray: index 2 was kept, which had value 33.
-        // The new index is 0 (since it's the only element).
-        let expected = Sparse::try_new(
-            buffer![0u64].into_array(),
-            PrimitiveArray::new(buffer![33_i32], Validity::AllValid).into_array(),
-            1,
-            Scalar::null_native::<i32>(),
-        )
-        .unwrap();
-
-        assert_arrays_eq!(
-            filtered_array,
-            expected,
-            &mut SESSION.create_execution_ctx()
-        );
-    }
-
-    #[test]
-    fn true_fill_value() {
-        let mask = Mask::from_iter([false, true, false, true, false, true, true]);
-        let array = Sparse::try_new(
-            buffer![0_u64, 3, 6].into_array(),
-            PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
-            7,
-            Scalar::null_native::<i32>(),
-        )
-        .unwrap()
-        .into_array();
-
-        let filtered_array = array.filter(mask).unwrap();
-
-        // Original indices 0, 3, 6 with values 33, 44, 55.
-        // Mask keeps indices 1, 3, 5, 6 -> new indices 0, 1, 2, 3.
-        // Index 3 (value 44) maps to new index 1.
-        // Index 6 (value 55) maps to new index 3.
-        let expected = Sparse::try_new(
-            buffer![1u64, 3].into_array(),
-            PrimitiveArray::new(buffer![44_i32, 55], Validity::AllValid).into_array(),
-            4,
-            Scalar::null_native::<i32>(),
-        )
-        .unwrap();
-
-        assert_arrays_eq!(
-            filtered_array,
-            expected,
-            &mut SESSION.create_execution_ctx()
-        );
     }
 
     #[rstest]
@@ -125,6 +67,7 @@ mod tests {
 
     #[test]
     fn test_mask_sparse_array() {
+        let mut ctx = SESSION.create_execution_ctx();
         let null_fill_value = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
         test_mask_conformance(
             &Sparse::try_new(
@@ -135,6 +78,7 @@ mod tests {
                     .unwrap(),
                 5,
                 null_fill_value,
+                &mut ctx,
             )
             .unwrap()
             .into_array(),
@@ -148,6 +92,7 @@ mod tests {
                 buffer![100i32, 200, 300].into_array(),
                 5,
                 ten_fill_value,
+                &mut ctx,
             )
             .unwrap()
             .into_array(),
@@ -161,46 +106,53 @@ mod tests {
         buffer![2u64, 5, 8].into_array(),
         PrimitiveArray::from_option_iter([Some(100i32), Some(200), Some(300)]).into_array(),
         10,
-        Scalar::null_native::<i32>()
+        Scalar::null_native::<i32>(),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     #[case::sparse_i32_value_fill(Sparse::try_new(
         buffer![1u64, 3, 7].into_array(),
         buffer![42i32, 84, 126].into_array(),
         10,
-        Scalar::from(0i32)
+        Scalar::from(0i32),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     // Different types
     #[case::sparse_u64(Sparse::try_new(
         buffer![0u64, 4, 9].into_array(),
         buffer![1000u64, 2000, 3000].into_array(),
         10,
-        Scalar::from(999u64)
+        Scalar::from(999u64),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     #[case::sparse_f32(Sparse::try_new(
         buffer![2u64, 6].into_array(),
         buffer![f32::consts::PI, f32::consts::E].into_array(),
         8,
-        Scalar::from(0.0f32)
+        Scalar::from(0.0f32),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     // Edge cases
     #[case::sparse_single_patch(Sparse::try_new(
         buffer![5u64].into_array(),
         buffer![42i32].into_array(),
         10,
-        Scalar::from(-1i32)
+        Scalar::from(-1i32),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     #[case::sparse_dense_patches(Sparse::try_new(
         buffer![0u64, 1, 2, 3, 4].into_array(),
         PrimitiveArray::from_option_iter([Some(10i32), Some(20), Some(30), Some(40), Some(50)]).into_array(),
         5,
-        Scalar::null_native::<i32>()
+        Scalar::null_native::<i32>(),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     // Large sparse arrays
     #[case::sparse_large(Sparse::try_new(
         buffer![100u64, 500, 900, 1500, 1999].into_array(),
         buffer![111i32, 222, 333, 444, 555].into_array(),
         2000,
-        Scalar::from(0i32)
+        Scalar::from(0i32),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     // Nullable patches
     #[case::sparse_nullable_patches({
@@ -212,7 +164,8 @@ mod tests {
                 .cast(null_fill_value.dtype().clone())
                 .unwrap(),
             10,
-            null_fill_value
+            null_fill_value,
+            &mut SESSION.create_execution_ctx(),
         ).unwrap()
     })]
     fn test_sparse_consistency(#[case] array: SparseArray) {
@@ -224,38 +177,43 @@ mod tests {
         buffer![2u64, 5, 8].into_array(),
         buffer![100i32, 200, 300].into_array(),
         10,
-        Scalar::from(0i32)
+        Scalar::from(0i32),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     #[case::sparse_u32_basic(Sparse::try_new(
         buffer![1u64, 3, 7].into_array(),
         buffer![1000u32, 2000, 3000].into_array(),
         10,
-        Scalar::from(100u32)
+        Scalar::from(100u32),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     #[case::sparse_i64_basic(Sparse::try_new(
         buffer![0u64, 4, 9].into_array(),
         buffer![5000i64, 6000, 7000].into_array(),
         10,
-        Scalar::from(1000i64)
+        Scalar::from(1000i64),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     #[case::sparse_f32_basic(Sparse::try_new(
         buffer![2u64, 6].into_array(),
         buffer![1.5f32, 2.5].into_array(),
         8,
-        Scalar::from(0.5f32)
+        Scalar::from(0.5f32),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     #[case::sparse_f64_basic(Sparse::try_new(
         buffer![1u64, 5, 9].into_array(),
         buffer![10.1f64, 20.2, 30.3].into_array(),
         10,
-        Scalar::from(5.0f64)
+        Scalar::from(5.0f64),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     #[case::sparse_i32_large(Sparse::try_new(
         buffer![10u64, 50, 90, 150, 199].into_array(),
         buffer![111i32, 222, 333, 444, 555].into_array(),
         200,
         Scalar::from(0i32)
-    ).unwrap())]
+    , &mut SESSION.create_execution_ctx()).unwrap())]
     fn test_sparse_binary_numeric(#[case] array: SparseArray) {
         test_binary_numeric_array(&array.into_array(), &mut SESSION.create_execution_ctx());
     }

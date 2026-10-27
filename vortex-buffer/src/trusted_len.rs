@@ -30,29 +30,23 @@ impl<I: Iterator> Iterator for TrustedLenAdapter<I> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        match self.inner.next() {
-            None => {
-                #[cfg(debug_assertions)]
-                {
-                    assert_eq!(
-                        self.len, self.count,
-                        "TrustedLenAdapter: iterator ended early"
-                    );
-                }
-                None
-            }
-            Some(item) => {
-                #[cfg(debug_assertions)]
-                {
-                    self.count += 1;
-                    assert!(
-                        self.count <= self.len,
-                        "TrustedLenAdapter: iterator yielded more items than promised"
-                    );
-                }
-                Some(item)
+        let item = self.inner.next();
+        #[cfg(debug_assertions)]
+        {
+            if item.is_some() {
+                self.count += 1;
+                assert!(
+                    self.count <= self.len,
+                    "TrustedLenAdapter: iterator yielded more items than promised"
+                );
+            } else {
+                assert_eq!(
+                    self.len, self.count,
+                    "TrustedLenAdapter: iterator ended early"
+                );
             }
         }
+        item
     }
 
     #[inline]
@@ -153,10 +147,34 @@ unsafe impl<'a, I, T: 'a, E: 'a> TrustedLen for itertools::ProcessResults<'a, I,
 unsafe impl<I, T> TrustedLen for std::iter::Enumerate<I> where I: TrustedLen<Item = T> {}
 
 // Zip
+//
+// Both halves must be `TrustedLen`. `Zip::size_hint` reports `min(a_upper, b_upper)`, so an
+// untrusted `U` that under-reports its upper bound while yielding more items makes the `Zip`
+// under-report too. `BufferMut::extend_trusted` reserves exactly that many slots and then
+// writes without bounds checks, so an unconstrained `U` turns a safe `Iterator` impl into an
+// out-of-bounds heap write.
+/// A `Zip` is only `TrustedLen` when both halves are, so it cannot be built from an iterator
+/// without an exact upper bound, such as [`std::iter::repeat`]:
+///
+/// ```compile_fail
+/// use vortex_buffer::trusted_len::TrustedLen;
+///
+/// fn assert_trusted_len<I: TrustedLen>(_: I) {}
+/// assert_trusted_len([1u8, 2, 3].into_iter().zip(std::iter::repeat(0u8)));
+/// ```
+///
+/// Bound the other half instead, e.g. with [`std::iter::repeat_n`]:
+///
+/// ```
+/// use vortex_buffer::trusted_len::TrustedLen;
+///
+/// fn assert_trusted_len<I: TrustedLen>(_: I) {}
+/// assert_trusted_len([1u8, 2, 3].into_iter().zip(std::iter::repeat_n(0u8, 3)));
+/// ```
 unsafe impl<T, U> TrustedLen for std::iter::Zip<T, U>
 where
     T: TrustedLen,
-    U: Iterator,
+    U: TrustedLen,
 {
 }
 

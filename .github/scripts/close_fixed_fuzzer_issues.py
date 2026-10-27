@@ -15,6 +15,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import zipfile
 from dataclasses import dataclass
 
 CLEANUP_MARKER = "Auto-checked by weekly fuzzer issue cleanup"
@@ -90,6 +91,57 @@ def extract_run_id(artifact_url: str) -> str | None:
     return match.group(1) if match else None
 
 
+def extract_artifact_id(artifact_url: str) -> str | None:
+    """Extract the artifact ID from an artifact URL like .../artifacts/67890."""
+    match = re.search(r"artifacts/(\d+)", artifact_url)
+    return match.group(1) if match else None
+
+
+def download_artifact(
+    repo: str, run_id: str, artifact_id: str | None, artifact_name: str, dest: str
+) -> str | None:
+    """Download the crash artifact into dest. Returns an error message on failure.
+
+    Download by artifact ID when the URL has one. A re-run of the fuzz workflow uploads a second
+    artifact with the same name, and `gh run download --name` then gets the artifact of the
+    latest attempt, which does not contain the crash file of the issue.
+    """
+    if not artifact_id:
+        result = run(
+            [
+                "gh",
+                "run",
+                "download",
+                run_id,
+                "--name",
+                artifact_name,
+                "--repo",
+                repo,
+                "--dir",
+                dest,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        return result.stderr.strip() if result.returncode != 0 else None
+
+    zip_path = os.path.join(dest, "artifact.zip")
+    with open(zip_path, "wb") as zip_file:
+        result = run(
+            ["gh", "api", f"repos/{repo}/actions/artifacts/{artifact_id}/zip"],
+            stdout=zip_file,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    if result.returncode != 0:
+        return result.stderr.strip()
+
+    with zipfile.ZipFile(zip_path) as archive:
+        archive.extractall(dest)
+    os.remove(zip_path)
+    return None
+
+
 def has_cleanup_comment(repo: str, issue_number: int) -> bool:
     """Check if the issue already has an 'Artifact Unavailable' cleanup comment."""
     result = run(
@@ -162,8 +214,9 @@ def build_fuzz_target(target: str) -> bool:
     """Build the fuzz target once. Returns True on success."""
     print(f"\nBuilding fuzz target: {target}")
     env = os.environ.copy()
+    toolchain = env.get("NIGHTLY_TOOLCHAIN", "nightly")
     result = run(
-        ["cargo", "+nightly", "fuzz", "build", "--dev", "--sanitizer=none", target],
+        ["cargo", f"+{toolchain}", "fuzz", "build", "--dev", "--sanitizer=none", target],
         env=env,
     )
     return result.returncode == 0
@@ -172,11 +225,12 @@ def build_fuzz_target(target: str) -> bool:
 def retest_crash(target: str, crash_path: str, timeout_secs: int = 120) -> str:
     """Run the fuzz target with the crash file. Returns 'fixed', 'reproduces', or 'timeout'."""
     env = os.environ.copy()
+    toolchain = env.get("NIGHTLY_TOOLCHAIN", "nightly")
     try:
         result = run(
             [
                 "cargo",
-                "+nightly",
+                f"+{toolchain}",
                 "fuzz",
                 "run",
                 "--dev",
@@ -279,26 +333,16 @@ def main() -> None:
 
         # Download artifact into a temp directory
         with tempfile.TemporaryDirectory() as tmpdir:
-            artifact_name = f"{args.target}-crash-artifacts"
-            dl_result = run(
-                [
-                    "gh",
-                    "run",
-                    "download",
-                    run_id,
-                    "--name",
-                    artifact_name,
-                    "--repo",
-                    args.repo,
-                    "--dir",
-                    tmpdir,
-                ],
-                capture_output=True,
-                text=True,
+            dl_error = download_artifact(
+                args.repo,
+                run_id,
+                extract_artifact_id(issue.artifact_url),
+                f"{args.target}-crash-artifacts",
+                tmpdir,
             )
 
-            if dl_result.returncode != 0:
-                print(f"  Artifact download failed: {dl_result.stderr.strip()}")
+            if dl_error is not None:
+                print(f"  Artifact download failed: {dl_error}")
                 if not has_cleanup_comment(args.repo, issue.number):
                     close_artifact_unavailable(args.repo, issue.number, args.dry_run)
                 else:

@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-mod canonical;
 mod operations;
 mod validity;
 
@@ -42,7 +41,6 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
-use crate::legacy_session;
 use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
@@ -74,7 +72,6 @@ impl VTable for Masked {
         *ID
     }
 
-    #[expect(clippy::disallowed_methods)]
     fn validate(
         &self,
         _data: &MaskedData,
@@ -94,10 +91,6 @@ impl VTable for Masked {
             child.dtype().as_nullable(),
             *dtype,
             "MaskedArray dtype does not match child and validity",
-        );
-        vortex_ensure!(
-            child.all_valid(&mut legacy_session().create_execution_ctx())?,
-            "MaskedArray children must not have nulls",
         );
         Ok(())
     }
@@ -129,7 +122,6 @@ impl VTable for Masked {
         Ok(Some(vec![]))
     }
 
-    #[allow(clippy::disallowed_methods)]
     fn deserialize(
         &self,
         dtype: &DType,
@@ -138,7 +130,7 @@ impl VTable for Masked {
 
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         if !metadata.is_empty() {
             vortex_bail!(
@@ -168,11 +160,16 @@ impl VTable for Masked {
         let validity_slot = validity_to_child(&validity, len);
         let data = MaskedData::try_new(
             len,
-            child.all_valid(&mut legacy_session().create_execution_ctx())?,
+            child.all_valid(&mut session.create_execution_ctx())?,
             validity,
         )?;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data)
-            .with_slots(smallvec![Some(child), validity_slot]))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            data,
+            smallvec![Some(child), validity_slot],
+        ))
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -214,41 +211,49 @@ impl VTable for Masked {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::ByteBufferMut;
     use vortex_error::VortexError;
+    use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
     use crate::ArrayContext;
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Masked;
     use crate::arrays::MaskedArray;
     use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
     use crate::dtype::Nullability;
     use crate::serde::SerializeOptions;
     use crate::serde::SerializedArray;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[rstest]
     #[case(
         MaskedArray::try_new(
             PrimitiveArray::from_iter([1i32, 2, 3]).into_array(),
-            Validity::AllValid
+            Validity::AllValid,
+            &mut SESSION.create_execution_ctx(),
         ).unwrap()
     )]
     #[case(
         MaskedArray::try_new(
             PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]).into_array(),
-            Validity::from_iter([true, true, false, true, false])
+            Validity::from_iter([true, true, false, true, false]),
+            &mut SESSION.create_execution_ctx(),
         ).unwrap()
     )]
     #[case(
         MaskedArray::try_new(
             PrimitiveArray::from_iter(0..100).into_array(),
-            Validity::from_iter((0..100).map(|i| i % 3 != 0))
+            Validity::from_iter((0..100).map(|i| i % 3 != 0)),
+            &mut SESSION.create_execution_ctx(),
         ).unwrap()
     )]
     fn test_serde_roundtrip(#[case] array: MaskedArray) {
@@ -259,7 +264,7 @@ mod tests {
         let serialized = array
             .clone()
             .into_array()
-            .serialize(&ctx, &array_session(), &SerializeOptions::default())
+            .serialize(&ctx, &VortexSession::empty(), &SerializeOptions::default())
             .unwrap();
 
         // Concat into a single buffer.
@@ -275,15 +280,12 @@ mod tests {
                 &dtype,
                 len,
                 &ReadContext::new(ctx.to_ids()),
-                &array_session(),
+                &VortexSession::empty(),
             )
             .unwrap();
 
         assert!(decoded.is::<Masked>());
-        assert_eq!(
-            array.as_ref().display_values().to_string(),
-            decoded.display_values().to_string()
-        );
+        assert_arrays_eq!(decoded, array, &mut SESSION.create_execution_ctx());
     }
 
     /// Regression test for issue #5989: execute_fast_path returns child with wrong dtype.
@@ -293,17 +295,18 @@ mod tests {
     /// MaskedArray always has Nullable dtype.
     #[test]
     fn test_execute_with_all_valid_preserves_nullable_dtype() -> Result<(), VortexError> {
+        let mut ctx = SESSION.create_execution_ctx();
         // Create a MaskedArray with AllValid validity.
 
         // Child has NonNullable dtype, but MaskedArray's dtype is Nullable.
         let child = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
         assert_eq!(child.dtype().nullability(), Nullability::NonNullable);
 
-        let array = MaskedArray::try_new(child, Validity::AllValid)?;
+        let array = MaskedArray::try_new(child, Validity::AllValid, &mut ctx)?;
         assert_eq!(array.dtype().nullability(), Nullability::Nullable);
 
         // Execute the array. This should produce a Canonical with Nullable dtype.
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let result: Canonical = array.into_array().execute(&mut ctx)?;
 
         assert_eq!(

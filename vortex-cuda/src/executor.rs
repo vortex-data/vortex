@@ -6,13 +6,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use cudarc::driver::CudaEvent;
-use cudarc::driver::CudaFunction;
-use cudarc::driver::CudaSlice;
-use cudarc::driver::DeviceRepr;
-use cudarc::driver::LaunchArgs;
-use cudarc::driver::LaunchConfig;
-use cudarc::driver::ValidAsZeroBits;
 use futures::future::BoxFuture;
 use tracing::debug;
 use tracing::trace;
@@ -39,6 +32,13 @@ use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
+use vortex_cuda_driver::CudaEvent;
+use vortex_cuda_driver::CudaFunction;
+use vortex_cuda_driver::CudaSlice;
+use vortex_cuda_driver::DeviceRepr;
+use vortex_cuda_driver::LaunchArgs;
+use vortex_cuda_driver::LaunchConfig;
+use vortex_cuda_driver::ValidAsZeroBits;
 
 use crate::CudaSession;
 use crate::DictionaryExport;
@@ -146,7 +146,7 @@ impl CudaExecutionCtx {
     /// Perform an external kernel launch, with events created and logged via the configured
     /// [`LaunchStrategy`].
     ///
-    /// We use CUB and NVCOMP routines, and those don't match the normal `cudarc` entrypoints, so
+    /// We use CUB and NVCOMP routines, and those don't match the normal launch entrypoints, so
     /// to inject the configured launch strategy we need to bracket it ourselves.
     pub fn launch_external<F: FnMut() -> VortexResult<()>>(
         &self,
@@ -315,7 +315,7 @@ impl CudaExecutionCtx {
     /// Returns a reference to the underlying [`VortexCudaStream`].
     ///
     /// Through [`Deref`][std::ops::Deref], this also provides access to the
-    /// inner [`Arc<CudaStream>`] and all of cudarc's stream methods.
+    /// inner [`Arc<CudaStream>`] and all of its stream methods.
     pub fn stream(&self) -> &VortexCudaStream {
         &self.stream
     }

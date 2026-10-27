@@ -151,13 +151,25 @@ mod tests {
     /// and callers pass an empty target list when the baseline format is absent. Both used to
     /// panic: the first on the missing baseline key, the second on a divide-by-zero capacity.
     #[rstest]
-    #[case::no_measurements(&[Target::new(Engine::Vortex, Format::OnDiskVortex)])]
-    #[case::no_targets(&[])]
-    fn render_table_without_a_baseline_is_a_noop(#[case] targets: &[Target]) -> anyhow::Result<()> {
+    #[case::no_measurements(false, &[Target::new(Engine::Vortex, Format::OnDiskVortex)])]
+    #[case::no_targets(false, &[])]
+    #[case::measurements_without_targets(true, &[])]
+    fn render_table_without_a_baseline_is_a_noop(
+        #[case] has_measurements: bool,
+        #[case] targets: &[Target],
+    ) -> anyhow::Result<()> {
         let mut out = Vec::new();
         render_table(
             &mut out,
-            Vec::<CompressionTimingMeasurement>::new(),
+            if has_measurements {
+                vec![CompressionTimingMeasurement {
+                    name: "fixture".into(),
+                    format: Format::OnDiskVortex,
+                    time: std::time::Duration::from_micros(1),
+                }]
+            } else {
+                Vec::new()
+            },
             targets,
         )?;
         assert!(out.is_empty());

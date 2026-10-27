@@ -27,6 +27,8 @@ use crate::common::i256_values;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    #[cfg(not(codspeed))]
+    std::sync::LazyLock::force(&arrays::SESSION);
     divan::main();
 }
 
@@ -102,28 +104,34 @@ fn dbp_assemble_kernel_narrow_msp(bencher: Bencher, (values_type, len): (Decimal
 /// are more volatile and should not be run in CI due to noise.
 #[cfg(not(codspeed))]
 mod arrays {
+    use std::sync::LazyLock;
+
     use divan::Bencher;
     use divan::black_box;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::DecimalType;
+    use vortex_array::optimizer::kernels::KernelSession;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_decimal_byte_parts::_benchmarking::assemble_decimal;
     use vortex_decimal_byte_parts::split_decimal;
     use vortex_error::VortexExpect;
     use vortex_error::vortex_panic;
+    use vortex_session::VortexSession;
 
     use crate::common::arrays::cases;
     use crate::common::arrays::decimal_array;
 
+    pub(super) static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
+
     #[divan::bench(args = cases())]
     fn dbp_assemble(bencher: Bencher, (values_type, len): (DecimalType, usize)) {
         let decimal = decimal_array(values_type, len, Validity::NonNullable);
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let parts = split_decimal(&decimal, &mut ctx).vortex_expect("split benchmark input");
         bench_parts(
             bencher,
@@ -162,9 +170,8 @@ mod arrays {
         lower_parts: Vec<ArrayRef>,
         decimal_dtype: DecimalDType,
     ) {
-        let session = array_session();
         bencher
-            .with_inputs(|| session.create_execution_ctx())
+            .with_inputs(|| SESSION.create_execution_ctx())
             .bench_refs(|ctx| {
                 assemble_decimal(black_box(&msp), black_box(&lower_parts), decimal_dtype, ctx)
                     .vortex_expect("assemble decimal byte parts")

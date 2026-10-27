@@ -12,6 +12,7 @@
 //! See <https://docs.vortex.dev/developer-guide/internals/execution> for the full execution
 //! narrative, diagrams, and walkthroughs.
 
+use std::any::TypeId;
 use std::env::VarError;
 use std::fmt;
 use std::fmt::Display;
@@ -32,8 +33,9 @@ use vortex_session::VortexSession;
 
 use crate::AnyCanonical;
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::IntoArray;
+use crate::aggregate_fn::session::AggregateFnSessionExt;
+use crate::aggregate_fn::session::AggregateKernels;
 use crate::array::ArrayId;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
@@ -45,15 +47,14 @@ use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::kernels::ParentExecutionKernels;
 use crate::optimizer::kernels::execute_parent_key;
-use crate::stats::ArrayStats;
 use crate::stats::StatsSet;
 use crate::trace_op;
 
 /// Returns the maximum number of iterations to attempt when executing an array before giving up and returning
 /// an error, can be by the `VORTEX_MAX_ITERATIONS` env variables, otherwise defaults to 2^22.
 pub(crate) fn max_iterations() -> usize {
-    static MAX_ITERATIONS: LazyLock<usize> =
-        LazyLock::new(|| match std::env::var("VORTEX_MAX_ITERATIONS") {
+    static MAX_ITERATIONS: LazyLock<usize> = LazyLock::new(|| {
+        match std::env::var("VORTEX_MAX_ITERATIONS") {
             Ok(val) => val.parse::<usize>().unwrap_or_else(|e| {
                 vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid usize: {e}")
             }),
@@ -61,7 +62,8 @@ pub(crate) fn max_iterations() -> usize {
             Err(VarError::NotUnicode(_)) => {
                 vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid unicode string")
             }
-        });
+        }
+    });
     *MAX_ITERATIONS
 }
 
@@ -166,7 +168,10 @@ impl ArrayRef {
     /// parent rewrite would observe inconsistent state and could discard accumulated builder
     /// data.
     #[allow(clippy::cognitive_complexity)]
-    pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    pub fn execute_until<M: Matcher + 'static>(
+        self,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
         let mut current_array = self;
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
         let mut stack: Vec<StackFrame> = Vec::new();
@@ -186,12 +191,13 @@ impl ArrayRef {
                 current_builder.is_some(),
             ));
 
-            let is_done = stack
-                .last()
-                .map_or(M::matches as DonePredicate, |frame| frame.done);
-
-            let done_target = is_done(&current_array);
-            let done_canonical = AnyCanonical::matches(&current_array);
+            let (done_target, done_canonical) = match stack.last() {
+                None => root_done_check::<M>(&current_array),
+                Some(frame) => (
+                    (frame.done)(&current_array),
+                    AnyCanonical::matches(&current_array),
+                ),
+            };
             trace_op!(record_execute_until_done_check(done_target, done_canonical));
 
             if done_target || done_canonical {
@@ -268,7 +274,7 @@ impl ArrayRef {
 
             let expected_len = current_array.len();
             let expected_dtype = current_array.dtype().clone();
-            let stats = current_array.statistics().to_array_stats();
+            let stats = current_array.statistics().to_owned();
             let encoding_id = current_array.encoding_id();
             trace_op!(record_execute_encoding(&current_array));
             let result = current_array.execute_encoding_unchecked(ctx)?;
@@ -354,6 +360,8 @@ pub struct ExecutionCtx {
     // OnceLock avoids cloning the session allocator when a context does not allocate.
     allocator: OnceLock<BufferAllocatorRef>,
     execute_parent_kernels: Arc<ParentExecutionKernels>,
+    // OnceLock avoids snapshotting the aggregate kernels when a context does not aggregate.
+    aggregate_kernels: OnceLock<AggregateKernels>,
     #[cfg(debug_assertions)]
     id: usize,
     #[cfg(debug_assertions)]
@@ -372,6 +380,7 @@ impl ExecutionCtx {
             session,
             allocator: OnceLock::new(),
             execute_parent_kernels,
+            aggregate_kernels: OnceLock::new(),
             #[cfg(debug_assertions)]
             id: {
                 static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
@@ -390,6 +399,15 @@ impl ExecutionCtx {
     /// Get the allocator for this execution context.
     pub fn allocator(&self) -> &BufferAllocatorRef {
         self.allocator.get_or_init(|| self.session.allocator())
+    }
+
+    /// Get the aggregate kernels for this execution context.
+    ///
+    /// The session's aggregate kernel registries are snapshotted on first use. Kernels registered
+    /// after that are not visible to this context.
+    pub(crate) fn aggregate_kernels(&self) -> &AggregateKernels {
+        self.aggregate_kernels
+            .get_or_init(|| self.session.aggregate_fns().kernels_snapshot())
     }
 
     /// Set the allocator for this execution context.
@@ -462,10 +480,9 @@ impl Executable for ArrayRef {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         trace_op!(record_single_step_start(&array));
 
-        if let Some(canonical) = array.as_opt::<AnyCanonical>() {
-            let output = Canonical::from(canonical).into_array();
-            trace_op!(record_single_step_applied("canonical", &array, &output));
-            return Ok(output);
+        if array.is::<AnyCanonical>() {
+            trace_op!(record_single_step_applied("canonical", &array, &array));
+            return Ok(array);
         }
         trace_op!(record_single_step_phase_none("canonical", &array));
 
@@ -479,6 +496,14 @@ impl Executable for ArrayRef {
         for (slot_idx, slot) in array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
             if let Some(reduced_parent) = child.reduce_parent(&array, slot_idx)? {
+                log_parent_rewrite(
+                    ctx,
+                    "reduce_parent",
+                    slot_idx,
+                    &array,
+                    child,
+                    &reduced_parent,
+                );
                 reduced_parent.statistics().inherit_from(array.statistics());
                 trace_op!(record_single_step_applied(
                     "reduce_parent",
@@ -503,13 +528,6 @@ impl Executable for ArrayRef {
                 kernels,
                 ctx,
             )? {
-                ctx.log(format_args!(
-                    "execute_parent: slot[{}]({}) rewrote {} -> {}",
-                    slot_idx,
-                    child.encoding_id(),
-                    array,
-                    executed_parent
-                ));
                 executed_parent
                     .statistics()
                     .inherit_from(array.statistics());
@@ -568,6 +586,16 @@ pub fn execute_into_builder(
     Ok(builder)
 }
 
+/// Returns `(matches M, is canonical)`, scanning once when `M` is [`AnyCanonical`].
+#[inline]
+fn root_done_check<M: Matcher + 'static>(array: &ArrayRef) -> (bool, bool) {
+    if TypeId::of::<M>() == TypeId::of::<AnyCanonical>() {
+        let canonical = AnyCanonical::matches(array);
+        return (canonical, canonical);
+    }
+    (M::matches(array), AnyCanonical::matches(array))
+}
+
 /// Pop a stack frame, restoring the parent with the finished child in its slot.
 fn pop_frame(
     frame: StackFrame,
@@ -592,7 +620,7 @@ fn finalize_done(
     mut builder: Option<Box<dyn ArrayBuilder>>,
     expected_len: usize,
     expected_dtype: DType,
-    stats: ArrayStats,
+    stats: StatsSet,
     encoding_id: ArrayId,
 ) -> VortexResult<(ArrayRef, Option<Box<dyn ArrayBuilder>>)> {
     let output = if let Some(mut builder) = builder.take() {
@@ -616,14 +644,12 @@ fn finalize_done(
         );
     }
 
-    output
-        .statistics()
-        .set_iter(StatsSet::from(stats).into_iter());
+    output.statistics().set_iter(stats.into_iter());
     Ok((output, None))
 }
 
 fn execute_parent_for_child(
-    _phase: &'static str,
+    phase: &'static str,
     parent: &ArrayRef,
     child: &ArrayRef,
     slot_idx: usize,
@@ -647,8 +673,9 @@ fn execute_parent_for_child(
                         "Executed parent canonical dtype mismatch"
                     );
                 }
+                log_parent_rewrite(ctx, phase, slot_idx, parent, child, &result);
                 trace_op!(record_session_execute_parent_applied(
-                    _phase,
+                    phase,
                     parent,
                     child,
                     slot_idx,
@@ -658,7 +685,7 @@ fn execute_parent_for_child(
                 return Ok(Some(result));
             }
             trace_op!(record_session_execute_parent_declined(
-                _phase,
+                phase,
                 parent,
                 child,
                 slot_idx,
@@ -668,6 +695,21 @@ fn execute_parent_for_child(
     }
 
     Ok(None)
+}
+
+/// Log a parent rewrite to the execution log.
+fn log_parent_rewrite(
+    ctx: &mut ExecutionCtx,
+    phase: &'static str,
+    slot_idx: usize,
+    parent: &ArrayRef,
+    child: &ArrayRef,
+    output: &ArrayRef,
+) {
+    ctx.log(format_args!(
+        "{phase}: slot[{slot_idx}]({}) rewrote {parent} -> {output}",
+        child.encoding_id(),
+    ));
 }
 
 /// Try execute_parent on each occupied slot of the array.
@@ -681,13 +723,6 @@ fn try_execute_parent(
         if let Some(executed_parent) =
             execute_parent_for_child("child_execute_parent", array, child, slot_idx, kernels, ctx)?
         {
-            ctx.log(format_args!(
-                "execute_parent: slot[{}]({}) rewrote {} -> {}",
-                slot_idx,
-                child.encoding_id(),
-                array,
-                executed_parent
-            ));
             executed_parent
                 .statistics()
                 .inherit_from(array.statistics());

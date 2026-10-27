@@ -6,7 +6,6 @@ package dev.vortex.spark;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.adobe.testing.s3mock.testcontainers.S3MockContainer;
-import java.util.List;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SaveMode;
@@ -160,22 +159,7 @@ public final class VortexDataSourceS3MockTest {
 
     /** Verifies that the data content of two DataFrames is identical. */
     private void verifyDataContent(Dataset<Row> expected, Dataset<Row> actual) {
-        // Sort both DataFrames by id to ensure consistent ordering
-        Dataset<Row> expectedSorted = expected.orderBy("id");
-        Dataset<Row> actualSorted = actual.orderBy("id");
-
-        // Collect and compare
-        List<Row> expectedRows = expectedSorted.collectAsList();
-        List<Row> actualRows = actualSorted.collectAsList();
-
-        assertEquals(expectedRows.size(), actualRows.size(), "Should have same number of rows");
-
-        for (int i = 0; i < expectedRows.size(); i++) {
-            Row expectedRow = expectedRows.get(i);
-            Row actualRow = actualRows.get(i);
-
-            assertEquals(expectedRow.getInt(0), actualRow.getInt(0), "ID should match at row " + i);
-            assertEquals(expectedRow.getString(1), actualRow.getString(1), "Value should match at row " + i);
-        }
+        assertEquals(
+                expected.orderBy("id").collectAsList(), actual.orderBy("id").collectAsList());
     }
 }

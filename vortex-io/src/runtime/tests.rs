@@ -11,13 +11,9 @@ use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
 use futures::channel::oneshot;
-use futures::future::BoxFuture;
 use tempfile::NamedTempFile;
-use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
-use vortex_buffer::ByteBufferMut;
-use vortex_error::VortexResult;
 
 use crate::VortexReadAt;
 use crate::runtime::Task;
@@ -271,71 +267,6 @@ async fn test_spawned_cpu_task_panic_reraises_original() {
         "got: {:?}",
         panic_message(&*payload)
     );
-}
-
-// ============================================================================
-// Test custom VortexRead implementation
-// ============================================================================
-
-struct CountingReadAt {
-    data: ByteBuffer,
-    read_count: Arc<AtomicUsize>,
-}
-
-impl VortexReadAt for CountingReadAt {
-    fn uri(&self) -> Option<&Arc<str>> {
-        None
-    }
-
-    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
-        let len = self.data.len() as u64;
-        async move { Ok(len) }.boxed()
-    }
-
-    fn concurrency(&self) -> usize {
-        16
-    }
-
-    fn read_at(
-        &self,
-        offset: u64,
-        length: usize,
-        alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
-        self.read_count.fetch_add(1, Ordering::SeqCst);
-        let data = self.data.clone();
-        async move {
-            let start = offset as usize;
-            if start + length > data.len() {
-                return Err(vortex_error::vortex_err!("Read out of bounds"));
-            }
-            let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
-            unsafe { buffer.set_len(length) };
-            buffer
-                .as_mut_slice()
-                .copy_from_slice(&data.as_slice()[start..start + length]);
-            Ok(BufferHandle::new_host(buffer.freeze()))
-        }
-        .boxed()
-    }
-}
-
-#[tokio::test]
-async fn test_custom_vortex_read() {
-    let read_count = Arc::new(AtomicUsize::new(0));
-
-    let read_at: Arc<dyn VortexReadAt> = Arc::new(CountingReadAt {
-        data: ByteBuffer::from(TEST_DATA.to_vec()),
-        read_count: Arc::clone(&read_count),
-    });
-
-    // Perform several reads
-    read_at.read_at(0, 5, Alignment::new(1)).await.unwrap();
-    read_at.read_at(5, 5, Alignment::new(1)).await.unwrap();
-    read_at.read_at(10, 5, Alignment::new(1)).await.unwrap();
-
-    // Check that our custom VortexRead was called 3 times
-    assert_eq!(read_count.load(Ordering::SeqCst), 3);
 }
 
 // ============================================================================

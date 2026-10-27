@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use prost::Message as _;
 use rstest::rstest;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayDeserialization;
 use vortex_array::ArrayVTable;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::Primitive;
@@ -25,12 +26,15 @@ use vortex_array::validity::Validity;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
+use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
 use super::*;
 use crate::DecimalBytePartsArray;
 use crate::DecimalBytePartsArraySlotsExt;
 use crate::decimal_byte_parts::MAX_LOWER_PARTS;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 #[rstest]
 #[case::no_lower_parts(DecimalByteParts::try_new(
@@ -41,18 +45,18 @@ use crate::decimal_byte_parts::MAX_LOWER_PARTS;
 ))]
 #[case::wider_i64_storage(DecimalByteParts::encode(
     &DecimalArray::new(buffer![-99i64, 0, 99], DecimalDType::new(2, 0), Validity::NonNullable),
-    &mut array_session().create_execution_ctx(),
+    &mut SESSION.create_execution_ctx(),
 ))]
 #[case::wider_i128_storage(DecimalByteParts::encode(
     &DecimalArray::new(buffer![-99i128, 0, 99], DecimalDType::new(2, 0), Validity::NonNullable),
-    &mut array_session().create_execution_ctx(),
+    &mut SESSION.create_execution_ctx(),
 ))]
 #[case::wider_i256_storage(DecimalByteParts::encode(
     &DecimalArray::new(
         buffer![i256::from_i128(-99), i256::ZERO, i256::from_i128(99)],
         DecimalDType::new(2, 0), Validity::NonNullable,
     ),
-    &mut array_session().create_execution_ctx(),
+    &mut SESSION.create_execution_ctx(),
 ))]
 #[case::redundant_lower_parts(DecimalByteParts::try_new_with_lower_parts(
     buffer![0i64; 3].into_array(),
@@ -246,15 +250,13 @@ fn serialization_requires_v2_permission() -> VortexResult<()> {
 
 #[test]
 fn bare_vtable_refuses_serde() -> VortexResult<()> {
-    let session = array_session();
+    let session = VortexSession::empty();
     session.arrays().register(DecimalByteParts);
     let msp = msp();
     let array = DecimalByteParts::try_new(msp.clone(), DecimalDType::new(19, 2))?.into_array();
-    let result = session.array_serialize(&array);
+    let result = session.array_serialize(&array)?;
     assert!(
-        result.as_ref().is_err_and(|err| err
-            .to_string()
-            .contains("DecimalByteParts serialization requires DecimalBytePartsPlugin")),
+        result.is_none(),
         "expected unsupported VTable serialization, got {result:?}"
     );
 
@@ -305,7 +307,7 @@ fn v2_metadata(lower_part_ptypes: Vec<i32>) -> Vec<u8> {
 }
 
 fn session() -> VortexSession {
-    let session = array_session();
+    let session = VortexSession::empty();
     crate::initialize(&session);
     session
 }
@@ -319,6 +321,6 @@ fn deserialize_with(
     let dtype = DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable);
     DecimalBytePartsPlugin.deserialize(
         ArrayDeserialization::new(serialized_id, &dtype, 3, metadata, &[], &children),
-        &array_session(),
+        &VortexSession::empty(),
     )
 }

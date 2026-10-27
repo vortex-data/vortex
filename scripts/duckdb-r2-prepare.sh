@@ -12,9 +12,18 @@
 set -eu
 
 if [ "$RELEASE" = "true" ]; then
-    echo "Mirroring DuckDB release ${REF_DIR}/${ARCHIVE}"
-    curl -fSL --retry 3 -o "$ARCHIVE" \
-        "https://github.com/duckdb/duckdb/releases/download/${REF_DIR}/${ARCHIVE}"
+    suffix="${ARCHIVE#libduckdb-}"
+    suffix="${suffix%.zip}"
+    upstream="duckdb-shared-libs-${suffix}.tar.gz"
+
+    echo "Mirroring DuckDB release ${REF_DIR}/${upstream} as ${ARCHIVE}"
+    curl -fSL --retry 3 -o "$upstream" \
+        "https://github.com/duckdb/duckdb/releases/download/${REF_DIR}/${upstream}"
+
+    stage="stage"
+    mkdir -p "$stage"
+    tar -xzf "$upstream" -C "$stage"
+    ( cd "$stage" && zip -r "../${ARCHIVE}" . )
 else
     echo "Building DuckDB commit ${REF_DIR} from source"
 
@@ -33,6 +42,12 @@ else
     extra=""
     if [ "$PLATFORM_OS" = "osx" ]; then
         extra="OSX_BUILD_UNIVERSAL=1"
+        extensions="parquet;tpch;tpcds;icu"
+    else
+        make -C "$src_dir" setup-vcpkg
+        VCPKG_TOOLCHAIN_PATH="$PWD/${src_dir}/vcpkg/scripts/buildsystems/vcpkg.cmake"
+        export VCPKG_TOOLCHAIN_PATH
+        extensions="parquet;tpch;tpcds;icu;httpfs"
     fi
 
     make -C "$src_dir" \
@@ -42,7 +57,8 @@ else
         BUILD_SHELL=false \
         BUILD_UNITTESTS=false \
         ENABLE_UNITTEST_CPP_TESTS=false \
-        BUILD_EXTENSIONS="parquet;tpch;tpcds" \
+        BUILD_EXTENSIONS="$extensions" \
+        LINK_CORE_EXTENSIONS=1 \
         $extra
 
     lib_dir="${src_dir}/build/release/src"

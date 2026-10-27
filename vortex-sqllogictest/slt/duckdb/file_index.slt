@@ -46,11 +46,11 @@ true 3
 true Hello
 true Hi
 
-query IB
-SELECT count(*) AS cnt, sum(file_index) <= 3 FROM '${WORK_DIR}/file_index_*.vortex'
+query IBIII
+SELECT count(*) AS cnt, sum(file_index) <= 3, count(DISTINCT file_index), min(file_index), max(file_index) FROM '${WORK_DIR}/file_index_*.vortex'
 ORDER BY cnt;
 ----
-5 true
+5 true 2 0 1
 
 query B
 SELECT file_index < 2 FROM '${WORK_DIR}/file_index_*.vortex'
