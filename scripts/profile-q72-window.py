@@ -65,14 +65,18 @@ for query, iterations in [('72', 1)]:
             benchmark = subprocess.Popen(command(v2, query, iterations, label), env=env,
                                          stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
             cmd = ['sudo', '-n', str(samply), 'record', '--save-only', '--rate', '1000',
-                   '--duration', '60', '--pid', str(benchmark.pid), '--output', str(output)]
+                   '--pid', str(benchmark.pid), '--output', str(output)]
             metadata = {'command': command(v2, query, iterations, label), 'profile_command': cmd,
                         'env': profile_env, 'binary_sha256': binary_sha,
                         'binary_run': 40444903733,
                         'production_head': 'eb29280cffbea33f1a5c5fa6b22c71efb5ad0a0b',
                         'mode': 'bounded CPU profile; not a completed query timing'}
+            profiler = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT)
             try:
-                subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT, timeout=120, check=True)
+                try:
+                    benchmark.wait(timeout=60)
+                except subprocess.TimeoutExpired:
+                    pass
             finally:
                 metadata['query_finished_before_stop'] = benchmark.poll() is not None
                 if benchmark.poll() is None:
@@ -83,7 +87,13 @@ for query, iterations in [('72', 1)]:
                         os.killpg(benchmark.pid, signal.SIGKILL)
                         benchmark.wait(timeout=20)
                 metadata['query_returncode'] = benchmark.returncode
-                Path(label + '.command.json').write_text(json.dumps(metadata, indent=2))
+                metadata['capture_window_seconds'] = 60
+                try:
+                    metadata['profiler_returncode'] = profiler.wait(timeout=120)
+                finally:
+                    Path(label + '.command.json').write_text(json.dumps(metadata, indent=2))
+                if profiler.returncode != 0:
+                    raise RuntimeError(f'Profiler exited with {profiler.returncode}')
         profile = summary.load_profile(output)
         addresses = summary.collect_symbol_addresses(profile, binary.name)
         result = subprocess.run(['llvm-symbolizer', '--obj=' + str(binary), '--no-inlines', '--demangle'],
