@@ -12,31 +12,40 @@
 //! not global row order. An earlier runnable branch can starve later branches.
 //!
 //! A run never blocks: [`Run::advance`] returns [`Progress::Waiting`] when every live item waits
-//! for IO, and the caller decides how to wait, by awaiting [`Run::poll_completion`] or by handing
-//! a completion it took from a source to [`Run::complete`]. [`Driver::run`] is the blocking
+//! for IO, and the caller decides how to wait, by awaiting [`Run::poll_completion`] or by calling
+//! [`Run::poll_io`] once it knows reads have finished. [`Driver::run`] is the blocking
 //! convenience for one root.
+//!
+//! Every root reads through its own [`SegmentIoSession`]. The run holds the handles of what its
+//! items published: fetches until they are delivered, and announcements and prefetches until the
+//! item that published them retires.
 
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
+use std::task::Wake;
+use std::task::Waker;
 
+use futures::FutureExt;
+use futures::StreamExt;
+use futures::future::BoxFuture;
+use futures::stream::FuturesUnordered;
 use vortex_array::ArrayRef;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_io::request::Completion;
-use vortex_io::request::IoBatch;
-use vortex_io::request::IoConsumer;
-use vortex_io::request::IoIntent;
-use vortex_io::request::IoOwnerId;
-use vortex_io::request::IoRequestId;
-use vortex_io::request::IoResult;
-use vortex_io::request::IoSource;
-use vortex_io::request::IoTarget;
-use vortex_utils::aliases::hash_map::Entry;
+use vortex_io::segments::IoHandle;
+use vortex_io::segments::IoIntent;
+use vortex_io::segments::IoKey;
+use vortex_io::segments::IoOwnerId;
+use vortex_io::segments::IoRequest;
+use vortex_io::segments::SegmentIoSession;
+use vortex_io::segments::SourceResult;
 use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::planning::morsel::Morsel;
 use crate::planning::morsel::MorselOutput;
@@ -63,13 +72,13 @@ pub struct Batch {
 pub enum Progress {
     /// A morsel's batch. One morsel's batches arrive in the order it emitted them.
     Batch(Batch),
-    /// Every item descended from the root has retired, and its IO session was cleared.
+    /// Every item descended from the root has retired, and its IO session was dropped.
     RootDone(RootId),
     /// A planner declared this child independent. The run has not queued it: the owner runs it,
     /// on this run as another root through [`Run::admit`] or on a run of its own elsewhere.
     Spawn(WorkScope, Box<dyn Planner>),
-    /// Every live item waits for IO. Await [`Run::poll_completion`], or pass the next completion
-    /// to [`Run::complete`].
+    /// Every live item waits for IO. Await [`Run::poll_completion`], or call [`Run::poll_io`]
+    /// once reads have finished.
     Waiting,
     /// Nothing is live: every admitted root has finished.
     Idle,
@@ -97,9 +106,17 @@ struct Work {
     path: Vec<u64>,
     /// The parent continuation sorts after all previously emitted child subtrees.
     next_child: u64,
-    /// Published `Fetch` requests not yet delivered, with the target each must be answered with.
-    outstanding: HashMap<IoRequestId, IoTarget>,
+    /// Published fetches not yet delivered. Each finishes with its key and result, so a report
+    /// from the session yields exactly the fetches that finished.
+    fetches: FuturesUnordered<BoxFuture<'static, (IoKey, FetchResult)>>,
+    /// The keys of `fetches`, to reject a fetch published while one of the same key is
+    /// outstanding.
+    outstanding: HashSet<IoKey>,
+    /// Announcements and prefetches, held until the item retires.
+    hints: Vec<IoHandle>,
 }
+
+type FetchResult = Result<SourceResult, Arc<VortexError>>;
 
 impl Work {
     fn priority(&self) -> Vec<u64> {
@@ -123,25 +140,20 @@ impl Work {
         }
     }
 
-    fn consumer(&mut self) -> &mut dyn IoConsumer {
-        match &mut self.item {
-            Item::Planner(planner) => &mut **planner,
-            Item::Morsel(morsel) => &mut **morsel,
+    /// Hands every finished fetch to the item, in the order they finished. A failed fetch fails
+    /// the run.
+    fn deliver_finished(&mut self) -> VortexResult<()> {
+        let mut cx = Context::from_waker(Waker::noop());
+        while let Poll::Ready(Some((key, result))) = self.fetches.poll_next_unpin(&mut cx) {
+            self.outstanding.remove(&key);
+            let result = result.map_err(|error| {
+                VortexError::from(error).with_context(format!("reading {key:?}"))
+            })?;
+            match &mut self.item {
+                Item::Planner(planner) => planner.deliver(key, result),
+                Item::Morsel(morsel) => morsel.deliver(key, result),
+            }
         }
-    }
-
-    /// Checks `result` against the outstanding request it answers and hands it to the item.
-    fn deliver(&mut self, request: IoRequestId, result: IoResult) -> VortexResult<()> {
-        let Some(target) = self.outstanding.remove(&request) else {
-            vortex_bail!(
-                "completion for {request:?} of {:?}, which is not outstanding",
-                self.id
-            );
-        };
-        if !result.matches(&target) {
-            vortex_bail!("IO source answered {target:?} with {}", result.kind());
-        }
-        self.consumer().set_io_result(request, result);
         Ok(())
     }
 }
@@ -180,13 +192,18 @@ const IO_POLL_INTERVAL: usize = 64;
 
 /// One admitted root: the session its descendants read through, and how many of them are live.
 struct Root {
-    io: Arc<dyn IoSource>,
+    io: Arc<dyn SegmentIoSession>,
     live: usize,
+}
+
+/// Identifies a session by its address, since roots may share one.
+fn session_key(io: &Arc<dyn SegmentIoSession>) -> usize {
+    Arc::as_ptr(io).cast::<()>() as usize
 }
 
 /// A set of root planners advanced by its caller on one thread at a time.
 ///
-/// Dropping a run clears the IO session of every root still live, even when it ends in an error.
+/// Dropping a run drops the IO session of every root still live, even when it ends in an error.
 #[derive(Default)]
 pub struct Run {
     roots: HashMap<RootId, Root>,
@@ -194,20 +211,15 @@ pub struct Run {
     next_owner: u64,
     queue: ReadyQueue,
     parked: HashMap<IoOwnerId, Box<Work>>,
+    /// Fetches each session has not reported yet, by [`session_key`]. Roots may share a session,
+    /// and a session reports the fetches of all of them.
+    in_flight: HashMap<usize, usize>,
     /// Batches and finished roots not yet returned by [`advance`](Self::advance).
     events: VecDeque<Progress>,
     /// Visits left before the sources are polled for completions again.
     visits_until_poll: usize,
     step_limit: Option<usize>,
     steps: usize,
-}
-
-impl Drop for Run {
-    fn drop(&mut self) {
-        for root in self.roots.values() {
-            root.io.clear();
-        }
-    }
 }
 
 impl Run {
@@ -226,12 +238,12 @@ impl Run {
     /// Admits `root` and everything it spawns, reading through `io`.
     ///
     /// The session belongs to the root: the run submits the requests of every descendant to it,
-    /// and clears it once they have all retired or the root is cancelled.
+    /// and drops it once they have all retired or the root is cancelled.
     pub fn admit(
         &mut self,
         root: Box<dyn Planner>,
         scope: WorkScope,
-        io: Arc<dyn IoSource>,
+        io: Arc<dyn SegmentIoSession>,
     ) -> RootId {
         let id = RootId(self.next_root);
         self.next_root += 1;
@@ -240,15 +252,15 @@ impl Run {
         id
     }
 
-    /// Drops every live item descended from `root` and clears its session. Batches the root
-    /// already produced are still returned, followed by no [`Progress::RootDone`].
+    /// Drops every live item descended from `root` and its session. Batches the root already
+    /// produced are still returned, followed by no [`Progress::RootDone`].
     pub fn cancel(&mut self, root: RootId) {
         let Some(cancelled) = self.roots.remove(&root) else {
             return;
         };
         self.queue.cancel(root);
         self.parked.retain(|_, work| work.root != root);
-        cancelled.io.clear();
+        self.release_session(&cancelled);
     }
 
     /// The number of admitted roots that have not finished.
@@ -264,7 +276,7 @@ impl Run {
                 return Ok(event);
             }
             if self.visits_until_poll == 0 || self.queue.is_empty() {
-                self.take_completions()?;
+                self.poll_io()?;
                 self.visits_until_poll = IO_POLL_INTERVAL;
                 if self.queue.is_empty() {
                     return Ok(if self.parked.is_empty() {
@@ -288,94 +300,80 @@ impl Run {
         }
     }
 
-    /// Delivers a completion taken from the session of one of the run's roots.
-    pub fn complete(&mut self, completion: Completion) -> VortexResult<()> {
-        let Completion {
-            owner,
-            request,
-            result,
-        } = completion;
-        let result = result?;
-        if let Entry::Occupied(mut parked) = self.parked.entry(owner) {
-            let work = parked.get_mut();
-            work.deliver(request, result)?;
-            // An item that still waits for other requests stays parked.
-            if work.state() != State::Waiting {
-                let work = parked.remove();
-                self.queue.insert(work);
-            } else if work.outstanding.is_empty() {
-                vortex_bail!(
-                    "work for scope {:?} waits with no outstanding fetch",
-                    work.scope
-                );
-            }
-            return Ok(());
-        }
-        // An item that published fetches and had CPU work left is still in the run queue.
-        let Some(work) = self.queue.work.get_mut(&owner) else {
-            vortex_bail!("completion for unknown work {owner:?}");
-        };
-        work.deliver(request, result)
-    }
-
-    /// Waits for a completion from any root's session, registering `cx` to be woken by the next
-    /// one, and delivers every completion that is ready.
+    /// Waits for a fetch of any root's session to finish, registering `cx` to be woken by the
+    /// next one, and delivers every finished fetch.
     ///
     /// Call it after [`advance`](Self::advance) returned [`Progress::Waiting`].
     pub fn poll_completion(&mut self, cx: &mut Context<'_>) -> Poll<VortexResult<()>> {
-        let sources: Vec<_> = self
-            .roots
-            .values()
-            .map(|root| Arc::clone(&root.io))
-            .collect();
-        if sources.is_empty() {
+        if self.roots.values().all(|root| {
+            self.in_flight
+                .get(&session_key(&root.io))
+                .is_none_or(|n| *n == 0)
+        }) {
             return Poll::Ready(Err(vortex_err!(
-                "the run is waiting for IO with no live root"
+                "the run is waiting for IO with no fetch in flight"
             )));
         }
-        let mut delivered = false;
-        for io in sources {
-            match io.poll_completion(cx) {
-                Poll::Ready(Ok(completion)) => {
-                    if let Err(error) = self.complete(completion) {
-                        return Poll::Ready(Err(error));
-                    }
-                    delivered = true;
-                }
-                Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
-                Poll::Pending => {}
-            }
-        }
-        if delivered {
-            Poll::Ready(Ok(()))
-        } else {
-            Poll::Pending
+        match self.poll_sessions(cx) {
+            Ok(true) => Poll::Ready(Ok(())),
+            Ok(false) => Poll::Pending,
+            Err(error) => Poll::Ready(Err(error)),
         }
     }
 
-    /// Delivers the completions every root's session has ready, without blocking.
-    fn take_completions(&mut self) -> VortexResult<()> {
-        if self.roots.len() == 1 {
-            // The common case, without collecting the sessions.
-            let Some(io) = self.roots.values().next().map(|root| Arc::clone(&root.io)) else {
-                return Ok(());
+    /// Delivers every fetch the roots' sessions have finished, without blocking.
+    pub fn poll_io(&mut self) -> VortexResult<()> {
+        self.poll_sessions(&mut Context::from_waker(Waker::noop()))
+            .map(drop)
+    }
+
+    /// Delivers the fetches every root's session reports finished, returning whether any was.
+    fn poll_sessions(&mut self, cx: &mut Context<'_>) -> VortexResult<bool> {
+        let mut owners = Vec::new();
+        let mut polled = HashSet::<usize>::default();
+        for root in self.roots.values() {
+            let key = session_key(&root.io);
+            let Some(in_flight) = self.in_flight.get_mut(&key) else {
+                continue;
             };
-            while let Some(completion) = io.poll()? {
-                self.complete(completion)?;
+            if *in_flight == 0 || !polled.insert(key) {
+                continue;
+            }
+            let before = owners.len();
+            if let Poll::Ready(result) = root.io.poll_ready(cx, &mut owners) {
+                result?;
+            }
+            *in_flight -= owners.len() - before;
+        }
+        for owner in &owners {
+            self.deliver(*owner)?;
+        }
+        Ok(!owners.is_empty())
+    }
+
+    /// Delivers the finished fetches of `owner`, if it is still live, and requeues it once it no
+    /// longer waits.
+    fn deliver(&mut self, owner: IoOwnerId) -> VortexResult<()> {
+        if let Some(work) = self.parked.get_mut(&owner) {
+            work.deliver_finished()?;
+            if work.state() == State::Waiting {
+                if work.outstanding.is_empty() {
+                    vortex_bail!(
+                        "work for scope {:?} waits with no outstanding fetch",
+                        work.scope
+                    );
+                }
+            } else if let Some(work) = self.parked.remove(&owner) {
+                self.queue.insert(work);
             }
             return Ok(());
         }
-        let sources: Vec<_> = self
-            .roots
-            .values()
-            .map(|root| Arc::clone(&root.io))
-            .collect();
-        for io in sources {
-            while let Some(completion) = io.poll()? {
-                self.complete(completion)?;
-            }
+        // An item that published fetches and had CPU work left is still in the run queue. One
+        // that retired or was cancelled is gone, and its fetches are dropped.
+        match self.queue.work.get_mut(&owner) {
+            Some(work) => work.deliver_finished(),
+            None => Ok(()),
         }
-        Ok(())
     }
 
     fn spawn(&mut self, root: RootId, scope: WorkScope, item: Item, path: Vec<u64>) {
@@ -391,21 +389,34 @@ impl Run {
             item,
             path,
             next_child: 0,
-            outstanding: HashMap::default(),
+            fetches: FuturesUnordered::new(),
+            outstanding: HashSet::default(),
+            hints: Vec::new(),
         });
         self.queue.insert(work);
     }
 
-    /// Retires a finished item, and its root once nothing descended from it is live.
+    /// Retires a finished item, and its root once nothing descended from it is live. The item's
+    /// handles are dropped with it.
     fn retire(&mut self, work: &Work) {
-        let Entry::Occupied(mut root) = self.roots.entry(work.root) else {
+        let Some(root) = self.roots.get_mut(&work.root) else {
             return;
         };
-        root.get().io.release(work.id);
-        root.get_mut().live -= 1;
-        if root.get().live == 0 {
-            root.remove().io.clear();
+        root.live -= 1;
+        if root.live == 0 {
+            if let Some(done) = self.roots.remove(&work.root) {
+                self.release_session(&done);
+            }
             self.events.push_back(Progress::RootDone(work.root));
+        }
+    }
+
+    /// Forgets the fetch count of a removed root's session once no live root reads through it,
+    /// so a later session at the same address starts from zero.
+    fn release_session(&mut self, removed: &Root) {
+        let key = session_key(&removed.io);
+        if !self.roots.values().any(|root| session_key(&root.io) == key) {
+            self.in_flight.remove(&key);
         }
     }
 
@@ -484,41 +495,55 @@ impl Run {
         Ok(())
     }
 
-    /// Registers the requests an item published with its root's session.
-    fn submit(&mut self, work: &mut Work, batch: IoBatch) -> VortexResult<()> {
+    /// Registers the requests an item published with its root's session, and keeps their
+    /// handles.
+    fn submit(&mut self, work: &mut Work, batch: Vec<IoRequest>) -> VortexResult<()> {
         if batch.is_empty() {
             vortex_bail!("compute() published an empty batch");
         }
         for request in &batch {
-            if request.intent == IoIntent::Fetch
-                && work
-                    .outstanding
-                    .insert(request.request, request.target)
-                    .is_some()
-            {
+            if request.intent == IoIntent::Fetch && !work.outstanding.insert(request.key) {
                 vortex_bail!(
-                    "fetch {:?} of {:?} was published while it is outstanding",
-                    request.request,
+                    "fetch of {:?} by {:?} was published while it is outstanding",
+                    request.key,
                     work.id
                 );
             }
         }
-        let Some(root) = self.roots.get(&work.root) else {
+        let Some(root) = self.roots.get_mut(&work.root) else {
             vortex_bail!("work {:?} outlived its root {:?}", work.id, work.root);
         };
-        root.io.submit(work.id, batch)
+        let handles = root.io.submit(work.id, &batch)?;
+        for (request, handle) in batch.iter().zip(handles) {
+            if request.intent != IoIntent::Fetch {
+                work.hints.push(handle);
+                continue;
+            }
+            *self.in_flight.entry(session_key(&root.io)).or_default() += 1;
+            let key = request.key;
+            work.fetches.push(
+                async move {
+                    let result = handle.result().await;
+                    // The handle keeps the read registered until it is delivered.
+                    drop(handle);
+                    (key, result)
+                }
+                .boxed(),
+            );
+        }
+        Ok(())
     }
 }
 
 /// Drives one root to completion on the calling thread, blocking while it waits for IO.
 pub struct Driver {
-    io: Arc<dyn IoSource>,
+    io: Arc<dyn SegmentIoSession>,
     step_limit: Option<usize>,
 }
 
 impl Driver {
     /// Creates a driver that submits every request to `io`.
-    pub fn new(io: Arc<dyn IoSource>) -> Self {
+    pub fn new(io: Arc<dyn SegmentIoSession>) -> Self {
         Self {
             io,
             step_limit: None,
@@ -553,9 +578,29 @@ impl Driver {
                 }
                 Progress::RootDone(_) if run.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => return Ok(batches),
-                Progress::Waiting => run.complete(self.io.wait()?)?,
+                Progress::Waiting => block_on_completion(&mut run)?,
             }
         }
+    }
+}
+
+/// Parks the calling thread until `run` delivers a finished fetch.
+fn block_on_completion(run: &mut Run) -> VortexResult<()> {
+    struct Unpark(std::thread::Thread);
+
+    impl Wake for Unpark {
+        fn wake(self: Arc<Self>) {
+            self.0.unpark();
+        }
+    }
+
+    let waker = Waker::from(Arc::new(Unpark(std::thread::current())));
+    let mut cx = Context::from_waker(&waker);
+    loop {
+        if let Poll::Ready(result) = run.poll_completion(&mut cx) {
+            return result;
+        }
+        std::thread::park();
     }
 }
 

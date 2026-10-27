@@ -9,9 +9,9 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_io::request::IoConsumer;
-use vortex_io::request::IoRequestId;
-use vortex_io::request::IoResult;
+use vortex_error::vortex_panic;
+use vortex_io::segments::IoKey;
+use vortex_io::segments::SourceResult;
 use vortex_mask::Mask;
 use vortex_scan::planning::morsel::Morsel;
 use vortex_scan::planning::morsel::MorselOutput;
@@ -70,11 +70,11 @@ impl ProjectionPlanner {
     }
 }
 
-impl IoConsumer for ProjectionPlanner {
-    fn set_io_result(&mut self, _request: IoRequestId, _result: IoResult) {}
-}
-
 impl Planner for ProjectionPlanner {
+    fn deliver(&mut self, key: IoKey, _result: SourceResult) {
+        vortex_panic!("ProjectionPlanner: delivery of {key:?}, though it never fetches");
+    }
+
     fn state(&self) -> State {
         if !self.selected.as_slice().is_empty() {
             State::NeedsCompute
@@ -138,15 +138,13 @@ impl ProjectionMorsel {
     }
 }
 
-impl IoConsumer for ProjectionMorsel {
-    fn set_io_result(&mut self, request: IoRequestId, result: IoResult) {
+impl Morsel for ProjectionMorsel {
+    fn deliver(&mut self, key: IoKey, result: SourceResult) {
         if let Some(adaptor) = self.adaptor.as_mut() {
-            adaptor.set_io_result(request, result);
+            adaptor.set_result(key, result);
         }
     }
-}
 
-impl Morsel for ProjectionMorsel {
     fn state(&self) -> State {
         match &self.adaptor {
             _ if self.done => State::Done,
@@ -177,7 +175,11 @@ impl Morsel for ProjectionMorsel {
             )?
             .with_row_offset(self.scan.row_offset)
             .with_value_cache(self.scan.values.clone());
-            self.adaptor = Some(ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)));
+            self.adaptor = Some(ScanAdaptor::new(
+                scan,
+                Arc::clone(&self.scan.locations),
+                self.scan.source(),
+            ));
             return Ok(MorselOutput::Continue);
         };
         if adaptor.state() == State::Done {

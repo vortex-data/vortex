@@ -8,9 +8,9 @@ use std::sync::Arc;
 use std::vec::IntoIter;
 
 use vortex_error::VortexResult;
-use vortex_io::request::IoConsumer;
-use vortex_io::request::IoRequestId;
-use vortex_io::request::IoResult;
+use vortex_error::vortex_panic;
+use vortex_io::segments::IoKey;
+use vortex_io::segments::SourceResult;
 use vortex_mask::Mask;
 use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::PlannerOutput;
@@ -90,11 +90,11 @@ impl ChunkPlanner {
     }
 }
 
-impl IoConsumer for ChunkPlanner {
-    fn set_io_result(&mut self, _request: IoRequestId, _result: IoResult) {}
-}
-
 impl Planner for ChunkPlanner {
+    fn deliver(&mut self, key: IoKey, _result: SourceResult) {
+        vortex_panic!("ChunkPlanner: delivery of {key:?}, though it never fetches");
+    }
+
     fn state(&self) -> State {
         if self.chunks.as_slice().is_empty() {
             State::Done

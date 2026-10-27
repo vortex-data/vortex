@@ -6,8 +6,8 @@
 //! A V2 scan lowers the file's layout once into a physical plan and runs it through the planning
 //! protocol: an engine composes planners over a [`PreparedScan`], a [`PrunePlanner`] into a
 //! [`ChunkPlanner`], admits the first to a [`Run`](vortex_scan::planning::driver::Run) of its own
-//! driver, and every segment read is a protocol request served from the file's
-//! [`SegmentSource`]. The layout reader is never asked to evaluate anything, and this crate never
+//! driver, and every segment read is a request to the segment IO service the file is registered
+//! with. The layout reader is never asked to evaluate anything, and this crate never
 //! decides where compute runs or how IO is awaited: that is the engine's driver.
 //!
 //! Import this module's [`ScanBuilder`] to prepare a V2 scan. It accepts a [`ScanFile`] directly
@@ -18,11 +18,10 @@
 //! serialized bytes per row are high.
 //!
 //! A [`ScanFile`] carrying a [`ScanCache`] shares its lowered plan, filter plans and pruned
-//! zones, segment index, and dictionary values with every other scan of that file, like a cached
+//! zones, and dictionary values with every other scan of that file, like a cached
 //! layout reader does for V1 scans.
 
 mod cache;
-pub(crate) mod io;
 #[cfg(test)]
 mod tests;
 
@@ -33,6 +32,7 @@ use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_io::segments::RegisteredSource;
 use vortex_scan::selection::Selection;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
@@ -53,8 +53,6 @@ pub use crate::scan::execution::PrunePlanner;
 use crate::scan::execution::ROW_BLOCK_SIZE;
 pub use crate::scan::execution::SegmentLocation;
 use crate::scan::execution::rows_per_chunk;
-use crate::scan::v2::io::segment_ranges;
-use crate::segments::SegmentSource;
 
 /// The rows a byte range of the file stands for when an engine splits the file by bytes before
 /// opening it. Consecutive byte ranges give consecutive row ranges that tile the file, with
@@ -79,8 +77,9 @@ pub struct ScanFile {
     pub layout: LayoutRef,
     /// The location of every segment, indexed by segment id.
     pub locations: Arc<[SegmentLocation]>,
-    /// Fetches segment bytes by id.
-    pub segments: Arc<dyn SegmentSource>,
+    /// The file's registration with the segment IO service that serves its reads. The scan keeps
+    /// it alive while it runs.
+    pub segment_io: RegisteredSource,
     /// State shared by every scan of this file, or `None` to rebuild it for each scan.
     pub cache: Option<ScanCache>,
 }
@@ -197,17 +196,12 @@ impl ScanBuilder {
         } else {
             MAX_ROWS_PER_CHUNK
         };
-        let ranges = match cache.ranges() {
-            Some(ranges) => ranges,
-            None => cache.insert_ranges(segment_ranges(&file.locations)),
-        };
         let values = cache.values();
         Ok(PreparedScan {
             session: self.session,
             rows: self.row_range.unwrap_or(0..row_count),
             selection: self.selection,
-            segments: file.segments,
-            ranges,
+            segment_io: file.segment_io,
             cache,
             locations: file.locations,
             projection,
