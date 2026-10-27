@@ -546,6 +546,47 @@ async fn evicted_mappings_are_unmapped_before_release_returns() -> VortexResult<
     Ok(())
 }
 
+/// Whether `path` is mapped into this process.
+fn is_mapped(path: &Path) -> VortexResult<bool> {
+    let maps = std::fs::read_to_string("/proc/self/maps")?;
+    Ok(maps.contains(&*path.to_string_lossy()))
+}
+
+/// Closing the last reader of a deleted file unmaps it, returning its disk space.
+#[crate::test]
+async fn deleted_files_are_unmapped_when_their_readers_close() -> VortexResult<()> {
+    let _cache = MAPPING_CACHE.lock();
+    let (_runtime, reader, file) = mapped_reader()?;
+    if reader.mapped.is_none() {
+        return Ok(());
+    }
+    let path = file.path().to_owned();
+    file.close()?;
+    drop(reader);
+    wait_for_releases();
+    assert!(!is_mapped(&path)?);
+    Ok(())
+}
+
+/// Opening a file unmaps the idle mappings of deleted files, returning their disk space.
+#[crate::test]
+async fn deleted_files_are_unmapped_by_later_opens() -> VortexResult<()> {
+    let _cache = MAPPING_CACHE.lock();
+    let (_runtime, reader, file) = mapped_reader()?;
+    if reader.mapped.is_none() {
+        return Ok(());
+    }
+    drop(reader);
+    wait_for_releases();
+    let path = file.path().to_owned();
+    assert!(is_mapped(&path)?);
+    file.close()?;
+    let _other = mapped_reader()?;
+    wait_for_releases();
+    assert!(!is_mapped(&path)?);
+    Ok(())
+}
+
 /// Files that cannot be mapped, such as those of procfs, take the staged path instead of failing.
 #[cfg(target_os = "linux")]
 #[test]
