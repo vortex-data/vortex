@@ -11,6 +11,7 @@ use flatbuffers::FlatBufferBuilder;
 use flatbuffers::Follow;
 use flatbuffers::WIPOffset;
 use flatbuffers::root;
+use flatbuffers::root_unchecked;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexError;
@@ -579,7 +580,9 @@ impl SerializedArray {
     /// Validate and align the array tree flatbuffer, returning the aligned buffer and root location.
     fn validate_array_tree(array_tree: impl Into<ByteBuffer>) -> VortexResult<(FlatBuffer, usize)> {
         let fb_buffer = FlatBuffer::align_from(array_tree.into());
-        let fb_array = root::<fba::Array>(fb_buffer.as_ref())?;
+        // SAFETY: EXPERIMENT ONLY. Flatbuffer verification is skipped to measure its cost; this
+        // is unsound for untrusted input and must not be merged.
+        let fb_array = unsafe { root_unchecked::<fba::Array>(fb_buffer.as_ref()) };
         let fb_root = fb_array
             .root()
             .ok_or_else(|| vortex_err!("Array must have a root node"))?;
