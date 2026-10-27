@@ -9,6 +9,9 @@ with alternating backend order for each query/iteration. The bucket region and r
 are checked before measurement. The workflow supports Vortex (default) and Parquet.
 
 The default workflow validates a **frozen learned profile** against fresh real S3 measurements.
+The long comparison job explicitly uses on-demand capacity. Measurement artifacts include the
+GitHub run attempt so an infrastructure retry preserves earlier evidence without name conflicts.
+
 The current profile, `profiles/us-east-1-c8gd-vortex.json`, was learned from 1,205,642 eligible
 real GETs in three earlier CI runs. Its JSON records the source run IDs, input SHA-256 hashes,
 hardware, region, coverage and calibration method. The first profile is preserved as
