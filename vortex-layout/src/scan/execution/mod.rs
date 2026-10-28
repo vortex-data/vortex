@@ -102,6 +102,8 @@ pub struct PreparedScan {
     pub(super) values: ValueCache,
     /// The rows of one chunk, the unit of work a chunk planner emits.
     pub(super) chunk_rows: usize,
+    /// Uncompressed bytes per row of the projection's columns, for the experiment's windows.
+    pub(super) proj_bpr: u64,
 }
 
 impl PreparedScan {

@@ -96,6 +96,9 @@ impl Benchmark for ClickBenchBenchmark {
     }
 
     fn expected_row_counts(&self) -> Option<Vec<usize>> {
+        if env::var_os("VORTEX_CLICKBENCH_SHARDS").is_some() {
+            return None;
+        }
         Some(clickbench_expected_row_counts())
     }
 

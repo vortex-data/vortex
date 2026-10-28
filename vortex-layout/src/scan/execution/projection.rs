@@ -41,13 +41,23 @@ pub(super) struct ProjectionPlanner {
 impl ProjectionPlanner {
     /// Creates a planner for `selected`.
     pub(super) fn new(scan: Arc<PreparedScan>, selected: SelectedRows) -> Self {
-        let selected = if selected.mask.true_count() <= MAX_OUTPUT_ROWS {
+        let window = crate::scan::v2::oracle::projection_window(
+            scan.proj_bpr,
+            selected.mask.len(),
+            selected.mask.true_count(),
+        );
+        let whole = match window {
+            Some(window) => selected.mask.len() <= window,
+            None => selected.mask.true_count() <= MAX_OUTPUT_ROWS,
+        };
+        let window = window.unwrap_or(MAX_OUTPUT_ROWS);
+        let selected = if whole {
             vec![selected]
         } else {
             (0..selected.mask.len())
-                .step_by(MAX_OUTPUT_ROWS)
+                .step_by(window)
                 .filter_map(|start| {
-                    let end = (start + MAX_OUTPUT_ROWS).min(selected.mask.len());
+                    let end = (start + window).min(selected.mask.len());
                     let mask = selected.mask.slice(start..end);
                     if mask.all_false() {
                         return None;

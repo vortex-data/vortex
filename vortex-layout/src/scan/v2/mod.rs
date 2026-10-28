@@ -23,6 +23,7 @@
 
 mod cache;
 pub(crate) mod io;
+pub(crate) mod oracle;
 mod retain;
 #[cfg(test)]
 mod tests;
@@ -165,6 +166,11 @@ impl ScanBuilder {
             None => cache.insert_root(lower(&file.layout)?),
         };
         let row_count = root.row_count();
+        let filter_bpr = self
+            .filter
+            .as_ref()
+            .map(|filter| oracle::bytes_per_row(filter, root.dtype()));
+        let proj_bpr = oracle::bytes_per_row(&self.projection, root.dtype());
         let filter = self
             .filter
             .map(|filter| -> VortexResult<_> {
@@ -192,7 +198,9 @@ impl ScanBuilder {
             }
         };
         let chunk_rows = if filter.is_some() {
-            FILTERED_ROWS_PER_CHUNK
+            filter_bpr
+                .and_then(oracle::filtered_chunk_rows)
+                .unwrap_or(FILTERED_ROWS_PER_CHUNK)
         } else if identity {
             rows_per_chunk(row_count, &file.locations)
         } else {
@@ -216,6 +224,7 @@ impl ScanBuilder {
             row_offset: self.row_offset,
             values,
             chunk_rows,
+            proj_bpr,
         })
     }
 }
