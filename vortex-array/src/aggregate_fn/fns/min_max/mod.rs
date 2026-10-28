@@ -707,6 +707,40 @@ mod tests {
         Ok(())
     }
 
+    /// The null rows hold infinities and NaNs, which the masked float kernel must not read, in a
+    /// full 64-row word and in the partial word after it. Valid NaNs are skipped by default.
+    #[test]
+    fn float_min_max_ignores_values_under_nulls() -> VortexResult<()> {
+        let values: Buffer<f64> = (0..100)
+            .map(|i| match i % 6 {
+                0 => f64::NEG_INFINITY,
+                3 => f64::INFINITY,
+                4 if i == 4 => f64::NAN,
+                _ => f64::from(i) - 50.5,
+            })
+            .collect();
+        let validity = Validity::from_iter((0..100).map(|i| i % 3 != 0));
+        let array = PrimitiveArray::new(values, validity).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let result = min_max(&array, &mut ctx, NumericalAggregateOpts::default())?
+            .vortex_expect("has valid rows");
+        assert_eq!(f64::try_from(&result.min)?, -49.5);
+        assert_eq!(f64::try_from(&result.max)?, 47.5);
+
+        // Including NaNs, the valid NaN poisons both extrema.
+        let mut acc = Accumulator::try_new(
+            MinMax,
+            NumericalAggregateOpts::include_nans(),
+            array.dtype().clone(),
+        )?;
+        acc.accumulate(&array, &mut ctx)?;
+        let result = MinMaxResult::from_scalar(&acc.finish()?)?.vortex_expect("has valid rows");
+        assert!(f64::try_from(&result.min)?.is_nan());
+        assert!(f64::try_from(&result.max)?.is_nan());
+        Ok(())
+    }
+
     #[test]
     fn test_prim_nan() -> VortexResult<()> {
         let array = PrimitiveArray::new(

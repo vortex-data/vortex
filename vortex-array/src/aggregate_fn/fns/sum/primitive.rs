@@ -133,63 +133,30 @@ where
     false
 }
 
-/// Sum the valid elements.
-///
-/// Integers narrower than 64 bits read null lanes as zero, so the sum vectorizes the same way as
-/// the all-valid path however the valid values are spread. Wider integers and floats sum each
-/// contiguous `[start, end)` run of valid values through the all-valid reduction, since they
-/// check every element for overflow or must add in order.
+/// Sum the valid elements of `p`, whose validity is `valid`.
 fn accumulate_primitive_valid(
     inner: &mut SumState,
     p: &PrimitiveArray,
     valid: &MaskValues,
     skip_nans: bool,
 ) -> VortexResult<bool> {
+    let valid = valid.bit_buffer();
     match inner {
         SumState::Unsigned(acc) => match_each_native_ptype!(p.ptype(),
-            unsigned: |T| {
-                let values = p.as_slice::<T>();
-                if T::PTYPE != PType::U64 {
-                    return Ok(sum_masked(values, valid.bit_buffer(), |chunk_sum| {
-                        checked_add_u64(acc, chunk_sum)
-                    }));
-                }
-                for &(start, end) in valid.slices() {
-                    if sum_unsigned_all(acc, &values[start..end]) {
-                        return Ok(true);
-                    }
-                }
-                Ok(false)
-            },
+            unsigned: |T| { Ok(sum_unsigned_masked(acc, p.as_slice::<T>(), valid)) },
             signed: |_T| { vortex_panic!("unsigned sum state with signed input") },
             floating: |_T| { vortex_panic!("unsigned sum state with float input") }
         ),
         SumState::Signed(acc) => match_each_native_ptype!(p.ptype(),
             unsigned: |_T| { vortex_panic!("signed sum state with unsigned input") },
-            signed: |T| {
-                let values = p.as_slice::<T>();
-                if T::PTYPE != PType::I64 {
-                    return Ok(sum_masked(values, valid.bit_buffer(), |chunk_sum| {
-                        checked_add_i64(acc, chunk_sum)
-                    }));
-                }
-                for &(start, end) in valid.slices() {
-                    if sum_signed_all(acc, &values[start..end]) {
-                        return Ok(true);
-                    }
-                }
-                Ok(false)
-            },
+            signed: |T| { Ok(sum_signed_masked(acc, p.as_slice::<T>(), valid)) },
             floating: |_T| { vortex_panic!("signed sum state with float input") }
         ),
         SumState::Float(acc) => match_each_native_ptype!(p.ptype(),
             unsigned: |_T| { vortex_panic!("float sum state with unsigned input") },
             signed: |_T| { vortex_panic!("float sum state with signed input") },
             floating: |T| {
-                let values = p.as_slice::<T>();
-                for &(start, end) in valid.slices() {
-                    sum_float_all(acc, &values[start..end], skip_nans);
-                }
+                sum_float_masked(acc, p.as_slice::<T>(), valid, skip_nans);
                 Ok(false)
             }
         ),
@@ -199,10 +166,63 @@ fn accumulate_primitive_valid(
     }
 }
 
+/// Sum the values of `values` that `valid` marks valid into a `u64` accumulator. Returns `true` on
+/// overflow.
+///
+/// Values narrower than 64 bits read null lanes as zero, so the sum vectorizes the same way as
+/// [`sum_unsigned_all`] however the valid values are spread. `u64` values check every element
+/// for overflow, so they sum each contiguous run of valid values through [`sum_unsigned_all`].
+fn sum_unsigned_masked<T>(acc: &mut u64, values: &[T], valid: &BitBuffer) -> bool
+where
+    T: NativePType + AsPrimitive<u64>,
+{
+    if T::PTYPE == PType::U64 {
+        return valid
+            .set_slices()
+            .any(|(start, end)| sum_unsigned_all(acc, &values[start..end]));
+    }
+    sum_chunks_masked(values, valid, |chunk_sum| checked_add_u64(acc, chunk_sum))
+}
+
+/// Signed counterpart of [`sum_unsigned_masked`].
+fn sum_signed_masked<T>(acc: &mut i64, values: &[T], valid: &BitBuffer) -> bool
+where
+    T: NativePType + AsPrimitive<i64>,
+{
+    if T::PTYPE == PType::I64 {
+        return valid
+            .set_slices()
+            .any(|(start, end)| sum_signed_all(acc, &values[start..end]));
+    }
+    sum_chunks_masked(values, valid, |chunk_sum| checked_add_i64(acc, chunk_sum))
+}
+
+/// Sum the values of `values` that `valid` marks valid into an `f64` accumulator, skipping NaN
+/// values when `skip_nans` is set, as [`sum_float_all`] does.
+///
+/// Null and skipped lanes read as zero. The values are added in order, as by [`sum_float_all`],
+/// and adding zero leaves the accumulator unchanged: it starts at positive zero, so it is never
+/// negative zero, the one value adding zero would change. The result is therefore exactly that of
+/// summing the valid values alone, without walking their runs.
+fn sum_float_masked<T: NativePType>(
+    acc: &mut f64,
+    values: &[T],
+    valid: &BitBuffer,
+    skip_nans: bool,
+) {
+    *acc = values.fold_masked(valid, T::zero(), *acc, |sum, v| {
+        if skip_nans && v.is_nan() {
+            sum
+        } else {
+            sum + ToPrimitive::to_f64(&v).vortex_expect("float to f64")
+        }
+    });
+}
+
 /// Sum the valid values of an integer slice narrower than 64 bits in chunks of [`SUM_CHUNK`],
 /// reading null lanes as zero, and hand each chunk's sum to `add`, which returns `true` on
 /// overflow. A chunk cannot overflow its 64-bit sum, as in [`sum_unsigned_all`].
-fn sum_masked<T, S>(values: &[T], valid: &BitBuffer, mut add: impl FnMut(S) -> bool) -> bool
+fn sum_chunks_masked<T, S>(values: &[T], valid: &BitBuffer, mut add: impl FnMut(S) -> bool) -> bool
 where
     T: NativePType + AsPrimitive<S>,
     S: NativePType + Add<Output = S>,
@@ -269,6 +289,29 @@ mod tests {
         let expected: u64 = (0..100u64).filter(|i| i % 3 != 0).sum();
         let result = sum(&arr, &mut SESSION.create_execution_ctx())?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(expected));
+        Ok(())
+    }
+
+    /// The null rows hold infinities and NaNs, which the masked float kernel must not add, and
+    /// the valid NaN is skipped by default.
+    #[test]
+    fn float_sum_ignores_values_under_nulls() -> VortexResult<()> {
+        let values: Buffer<f32> = (0..100u16)
+            .map(|i| match i % 3 {
+                0 if i % 2 == 0 => f32::INFINITY,
+                0 => f32::NAN,
+                _ if i == 50 => f32::NAN,
+                _ => f32::from(i) - 50.0,
+            })
+            .collect();
+        let validity = Validity::from_iter((0..100).map(|i| i % 3 != 0));
+        let arr = PrimitiveArray::new(values, validity).into_array();
+        let expected: f64 = (0..100u16)
+            .filter(|&i| i % 3 != 0 && i != 50)
+            .map(|i| f64::from(i) - 50.0)
+            .sum();
+        let result = sum(&arr, &mut SESSION.create_execution_ctx())?;
+        assert_eq!(result.as_primitive().typed_value::<f64>(), Some(expected));
         Ok(())
     }
 
