@@ -150,16 +150,14 @@ fn uncompressed_size_in_bytes_u64(
     opts: UncompressedSizeOpts,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<u64> {
-    // An inexact query is happy to reuse an exact size or an inexact upper bound.
-    let cached = match (
-        opts.is_exact(),
-        array.statistics().get(Stat::UncompressedSizeInBytes),
-    ) {
-        (_, Precision::Exact(size)) | (false, Precision::Inexact(size)) => Some(size),
-        _ => None,
-    };
-    if let Some(size_scalar) = cached {
-        return u64::try_from(&size_scalar)
+    // The stat slot holds only the exact size. The inexact size is a different measure, which can
+    // be larger or smaller than the exact one, so it neither reads nor writes the slot: reusing an
+    // exact value would make it depend on what was computed before, and caching it would put a
+    // value in the slot that bounds nothing.
+    if opts.is_exact()
+        && let Precision::Exact(size) = array.statistics().get(Stat::UncompressedSizeInBytes)
+    {
+        return u64::try_from(&size)
             .map_err(|e| e.with_context("Failed to convert uncompressed size stat to u64"));
     }
 
@@ -168,19 +166,10 @@ fn uncompressed_size_in_bytes_u64(
     acc.accumulate(array, ctx)?;
     let result = acc.finish()?;
 
-    let size = result
+    Ok(result
         .as_primitive()
         .typed_value::<u64>()
-        .vortex_expect("uncompressed_size_in_bytes result should not be null");
-
-    // An inexact result is cached as an upper bound, so exact queries still compute.
-    if !opts.is_exact() {
-        array.statistics().set(
-            Stat::UncompressedSizeInBytes,
-            Precision::Inexact(size.into()),
-        );
-    }
-    Ok(size)
+        .vortex_expect("uncompressed_size_in_bytes result should not be null"))
 }
 
 /// The byte size of all buffers in children in their canonical representation.
@@ -855,32 +844,59 @@ mod tests {
     }
 
     #[test]
-    fn inexact_result_is_cached_as_upper_bound() -> VortexResult<()> {
+    fn inexact_result_is_not_cached_and_ignores_exact_stat() -> VortexResult<()> {
         let sliced = views_into_shared_page(0..10)?;
         let mut ctx = SESSION.create_execution_ctx();
 
         let inexact =
             uncompressed_size_in_bytes(&sliced, UncompressedSizeOpts::inexact(), &mut ctx)?;
-        assert_eq!(
-            sliced.statistics().get(Stat::UncompressedSizeInBytes),
-            Precision::inexact(u64::try_from(inexact)?)
+        assert!(
+            sliced
+                .statistics()
+                .get(Stat::UncompressedSizeInBytes)
+                .is_absent()
         );
 
-        // An exact query ignores the bound and computes, then replaces it.
+        // An exact query computes and caches the exact size.
         let exact = uncompressed_size_in_bytes(&sliced, UncompressedSizeOpts::exact(), &mut ctx)?;
-        assert!(exact < inexact);
         assert_eq!(
             sliced.statistics().get(Stat::UncompressedSizeInBytes),
             Precision::exact(u64::try_from(exact)?)
         );
 
-        // An inexact query reuses the exact value.
+        // An inexact query still measures the held buffers rather than reusing the exact size.
         assert_eq!(
             uncompressed_size_in_bytes(&sliced, UncompressedSizeOpts::inexact(), &mut ctx)?,
-            exact
+            inexact
         );
         assert_eq!(exact, 430);
         assert_eq!(inexact, 27160);
+        Ok(())
+    }
+
+    #[test]
+    fn inexact_can_be_smaller_than_exact() -> VortexResult<()> {
+        // Every row references the same out-of-line value, which the data buffer holds once.
+        const VALUE_LEN: u32 = 20;
+        let page = ByteBuffer::from(vec![b'x'; VALUE_LEN as usize]);
+        let views = (0..10)
+            .map(|_| BinaryView::make_view(&[b'x'; VALUE_LEN as usize], 0, 0))
+            .collect::<Buffer<BinaryView>>();
+        // SAFETY: every view points at the `VALUE_LEN` bytes of the page.
+        let one_value = unsafe {
+            VarBinViewArray::new_unchecked(
+                views,
+                Arc::from([page]),
+                DType::Utf8(Nullability::NonNullable),
+                Validity::NonNullable,
+            )
+        }
+        .into_array();
+
+        let exact = aggregate_with(&one_value, UncompressedSizeOpts::exact())?;
+        let inexact = aggregate_with(&one_value, UncompressedSizeOpts::inexact())?;
+        assert_eq!(exact, 10 * (16 + 20));
+        assert_eq!(inexact, 10 * 16 + 20);
         Ok(())
     }
 
