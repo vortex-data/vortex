@@ -51,7 +51,10 @@ pub(super) unsafe fn compress<T: Copy>(
 ) -> usize {
     let mut written = 0;
 
-    for_each_mask_word(bits, |word, word_start, word_len| {
+    // The word walk calls this closure from three places. Without `inline(always)`, LLVM keeps
+    // it out of line in large callers such as `filter_records`, and sparse masks then pay for
+    // one call per word.
+    for_each_mask_word(bits, #[inline(always)] |word, word_start, word_len| {
         let (chunks, tail) = src[word_start..][..word_len].as_chunks::<8>();
         let mask_bytes = word.to_le_bytes();
 
