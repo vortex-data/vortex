@@ -196,6 +196,34 @@ fn narrow_checked_values<F: NativeDecimalType, W: NativeDecimalType>(
     buffer.freeze()
 }
 
+/// Returns the smallest and the largest valid value, or `None` when no value is valid.
+///
+/// Null slots can hold any value and do not contribute to the range. The mask must have the same
+/// length as `values`. The scan allocates nothing and does not check decimal precision.
+pub fn valid_range<T: NativeDecimalType>(values: &[T], validity: &Mask) -> Option<(T, T)> {
+    match validity {
+        Mask::AllTrue(_) => {
+            let (&first, rest) = values.split_first()?;
+            Some(rest.iter().fold((first, first), |(min, max), &value| {
+                (min.min(value), max.max(value))
+            }))
+        }
+        Mask::AllFalse(_) => None,
+        Mask::Values(validity) => {
+            let mut range: Option<(T, T)> = None;
+            validity.bit_buffer().for_each_set_index(|row| {
+                let value = values[row];
+                range = Some(match range {
+                    Some((min, max)) => (min.min(value), max.max(value)),
+                    None => (value, value),
+                });
+            });
+
+            range
+        }
+    }
+}
+
 /// Checks that every valid value fits the precision of `decimal_dtype`.
 ///
 /// Null slots are not checked, so they can hold any value. The check takes a materialized
@@ -318,6 +346,7 @@ mod tests {
     use super::check_precision;
     use super::converted_buffer;
     use super::copy_to_canonical_width;
+    use super::valid_range;
     use crate::arrays::DecimalArray;
     use crate::dtype::BigCast;
     use crate::dtype::DecimalDType;
@@ -360,6 +389,76 @@ mod tests {
             .iter()
             .map(|&value| <T as BigCast>::from(value).vortex_expect("test value fits the type"))
             .collect()
+    }
+
+    #[rstest]
+    #[case::all_valid(vec![5, -3, 7], vec![true, true, true], Some((-3, 7)))]
+    #[case::partly_valid(vec![5, -3, 7], vec![true, true, false], Some((-3, 5)))]
+    #[case::all_null(vec![5, -3, 7], vec![false, false, false], None)]
+    #[case::empty(vec![], vec![], None)]
+    #[case::one_valid(vec![5, -3, 7], vec![false, true, false], Some((-3, -3)))]
+    #[case::outside_precision(vec![-100, 100], vec![true, true], Some((-100, 100)))]
+    fn test_valid_range(
+        #[case] values: Vec<i8>,
+        #[case] validity: Vec<bool>,
+        #[case] expected: Option<(i8, i8)>,
+        #[values(
+            DecimalType::I8,
+            DecimalType::I16,
+            DecimalType::I32,
+            DecimalType::I64,
+            DecimalType::I128,
+            DecimalType::I256
+        )]
+        storage: DecimalType,
+    ) -> VortexResult<()> {
+        let validity = Mask::from_iter(validity);
+        match_each_decimal_value_type!(storage, |T| {
+            let values: Vec<T> = values
+                .iter()
+                .map(|&value| {
+                    <T as BigCast>::from(value).vortex_expect("i8 values fit every decimal type")
+                })
+                .collect();
+            let expected = expected.map(|(min, max)| {
+                (
+                    <T as BigCast>::from(min).vortex_expect("i8 values fit every decimal type"),
+                    <T as BigCast>::from(max).vortex_expect("i8 values fit every decimal type"),
+                )
+            });
+            assert_eq!(valid_range(&values, &validity), expected);
+        });
+
+        Ok(())
+    }
+
+    #[rstest]
+    fn test_valid_range_ignores_null_extremes(
+        #[values(
+            DecimalType::I8,
+            DecimalType::I16,
+            DecimalType::I32,
+            DecimalType::I64,
+            DecimalType::I128,
+            DecimalType::I256
+        )]
+        storage: DecimalType,
+    ) -> VortexResult<()> {
+        let validity = Mask::from_iter([false, true, true, false]);
+        match_each_decimal_value_type!(storage, |T| {
+            let min = <T as BigCast>::from(-3i8).vortex_expect("-3 fits every decimal type");
+            let max = <T as BigCast>::from(7i8).vortex_expect("7 fits every decimal type");
+            assert_eq!(
+                valid_range(&[T::MIN, min, max, T::MAX], &validity),
+                Some((min, max))
+            );
+            assert_eq!(
+                valid_range(&[T::MIN, T::MAX], &Mask::AllTrue(2)),
+                Some((T::MIN, T::MAX))
+            );
+        });
+
+        Ok(())
     }
 
     /// Each pair selects a different widening or narrowing conversion.
