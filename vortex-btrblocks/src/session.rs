@@ -71,9 +71,8 @@ impl Default for CompressionSession {
                 // String schemes.
                 ////////////////////////////////////////////////////////////////////////////////////
                 &string::StringDictScheme,
-                // Both string-fragmentation schemes are registered; the sample-based
-                // selector keeps whichever is smaller per column.
-                &string::FSSTScheme,
+                // FSST is not registered: OnPair is the only default string-fragmentation
+                // scheme.
                 &string::OnPairScheme,
                 &string::NullDominatedSparseScheme,
                 #[cfg(feature = "zstd")]

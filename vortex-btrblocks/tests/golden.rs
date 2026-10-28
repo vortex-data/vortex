@@ -9,10 +9,9 @@
 //! snapshot untouched, so snapshot churn in a later change is the reviewable signal of a
 //! behavior change.
 //!
-//! Three variants cover the edition and feature matrix:
+//! Two variants cover the edition and feature matrix:
 //!
-//! - `regular`: the schemes permitted by the default `core` edition, minus OnPair.
-//! - `onpair`: the structured-string entry with OnPair enabled — pins OnPair selection.
+//! - `regular`: the schemes permitted by the default `core` edition.
 //! - `compact`: the schemes permitted by the default `core` and opt-in `zstd` editions, with
 //!   the `zstd` + `pco` features and
 //!   [`BtrBlocksCompressorBuilder::with_compact`] — pins Zstd / Pco selection.
@@ -429,16 +428,6 @@ fn list_of_int_runs() -> VortexResult<ArrayRef> {
     .into_array())
 }
 
-/// Excludes OnPair from the `regular` and `compact` variants: it beats FSST on
-/// `string_fsst_structured`, and those variants pin the FSST selection. OnPair's own decisions
-/// are pinned by [`golden_onpair`].
-fn without_onpair(builder: BtrBlocksCompressorBuilder) -> BtrBlocksCompressorBuilder {
-    use vortex_btrblocks::SchemeExt;
-    use vortex_btrblocks::schemes::string::OnPairScheme;
-
-    builder.exclude_schemes([OnPairScheme.id()])
-}
-
 fn edition_session(editions: &[EditionId]) -> VortexResult<VortexSession> {
     let session = VortexSession::empty().with::<EditionSession>();
     // The compressor only produces encodings registered on the session.
@@ -468,20 +457,8 @@ fn edition_session(editions: &[EditionId]) -> VortexResult<VortexSession> {
 #[test]
 fn golden_regular() -> VortexResult<()> {
     let session = edition_session(&[CORE_2026_08_3])?;
-    let compressor = without_onpair(BtrBlocksCompressorBuilder::from_session(&session)).build();
-    golden_corpus_snapshots("regular", &compressor)
-}
-
-/// Pins OnPair's selection over FSST on the structured-string entry.
-#[test]
-fn golden_onpair() -> VortexResult<()> {
-    let session = edition_session(&[CORE_2026_08_3])?;
     let compressor = BtrBlocksCompressorBuilder::from_session(&session).build();
-    golden_snapshots(
-        "onpair",
-        &compressor,
-        vec![("string_fsst_structured", string_fsst_structured())],
-    )
+    golden_corpus_snapshots("regular", &compressor)
 }
 
 #[cfg(all(feature = "zstd", feature = "pco"))]
@@ -490,7 +467,8 @@ fn golden_compact() -> VortexResult<()> {
     let session = edition_session(&[CORE_2026_08_3])?;
     vortex_zstd::initialize(&session);
     session.enable_edition(vortex_zstd::editions::ZSTD_2026_02)?;
-    let compressor =
-        without_onpair(BtrBlocksCompressorBuilder::from_session(&session).with_compact()).build();
+    let compressor = BtrBlocksCompressorBuilder::from_session(&session)
+        .with_compact()
+        .build();
     golden_corpus_snapshots("compact", &compressor)
 }

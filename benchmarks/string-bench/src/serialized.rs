@@ -60,11 +60,11 @@ use crate::verify_canonicalized;
 /// The btrblocks string schemes that `BtrBlocksCompressorBuilder::from_session` can
 /// choose between. Forcing one encoder excludes every entry except its own
 /// scheme, so this list must track the default scheme set: add a row whenever a
-/// new string encoder becomes selectable by default (e.g. Zstd).
+/// new string encoder becomes selectable by default (e.g. Zstd). FSST is not
+/// registered by default, so forcing it adds the scheme instead.
 fn default_string_scheme_ids() -> Vec<SchemeId> {
     vec![
         StringDictScheme.id(),
-        FSSTScheme.id(),
         OnPairScheme.id(),
         NullDominatedSparseScheme.id(),
     ]
@@ -181,6 +181,10 @@ fn serialized_write_strategy(
             .filter(|&id| id != forced)
             .chain([DeltaScheme::default().id()]),
     );
+    let compressor = match encoder {
+        StringEncoder::OnPair => compressor,
+        StringEncoder::Fsst => compressor.with_new_scheme(&FSSTScheme),
+    };
     WriteStrategyBuilder::from_session(session)
         .with_btrblocks_builder(compressor)
         .build()

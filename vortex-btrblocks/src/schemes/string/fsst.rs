@@ -34,10 +34,10 @@ use crate::SchemeExt;
 
 /// FSST (Fast Static Symbol Table) compression.
 ///
-/// One of the two string-fragmentation schemes in the default
-/// [`crate::CompressionSession`] (alongside `OnPairScheme`); the sample-based selector
-/// keeps whichever is smaller per column. FSST compresses faster, OnPair
-/// usually wins on ratio.
+/// Not registered in the default [`crate::CompressionSession`], which uses `OnPairScheme` for
+/// string fragmentation. Add it with
+/// [`BtrBlocksCompressorBuilder::with_new_scheme`](crate::BtrBlocksCompressorBuilder::with_new_scheme)
+/// or [`CompressionSession::register`](crate::CompressionSession::register).
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct FSSTScheme;
 

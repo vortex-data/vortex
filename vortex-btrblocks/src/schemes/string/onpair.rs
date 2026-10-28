@@ -29,7 +29,7 @@ use crate::SchemeExt;
 
 /// OnPair short-string compression (dict-12).
 ///
-/// A default string-fragmentation scheme (alongside [`super::FSSTScheme`]) —
+/// The default string-fragmentation scheme ([`super::FSSTScheme`] is opt-in) —
 /// targets large columns of short-to-medium strings with high lexical
 /// overlap, like URLs or log lines. Uses a learned dictionary of frequent
 /// adjacent substrings (built by the OnPair trainer at compress time) and

@@ -35,7 +35,7 @@ pub(crate) enum CompressionMode {
     /// Excludes buffer-level Zstd, keeping Zstd for strings and binary and Pco for numerics.
     /// Set by [`with_compact`](BtrBlocksCompressorBuilder::with_compact).
     Compact,
-    /// Excludes schemes without CUDA kernel support, keeping FSST for strings and both Zstd
+    /// Excludes schemes without CUDA kernel support, keeping OnPair for strings and both Zstd
     /// schemes for binary. Set by
     /// [`only_cuda_compatible`](BtrBlocksCompressorBuilder::only_cuda_compatible).
     Cuda,
@@ -62,10 +62,10 @@ impl CompressionMode {
                 excluded.push(binary::ZstdBuffersScheme.id());
             }
             Self::Cuda => {
-                // Keep FSST, which has a CUDA decoder and direct Arrow offset-based export. Other
-                // string fragmentation and dictionary schemes still require unsupported decode
-                // paths. Delta has a CUDA decode kernel, but stays excluded until GPU delta
-                // decode is benchmarked against the schemes it would displace.
+                // Keep OnPair, which has a CUDA decoder and direct Arrow offset-based export.
+                // String dictionary schemes still require unsupported decode paths. Delta has a
+                // CUDA decode kernel, but stays excluded until GPU delta decode is benchmarked
+                // against the schemes it would displace.
                 excluded.extend([
                     integer::DeltaScheme::default().id(),
                     integer::SparseScheme.id(),
@@ -192,7 +192,7 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
-    /// Switches to the CUDA preset, excluding schemes without CUDA kernel support, keeping FSST
+    /// Switches to the CUDA preset, excluding schemes without CUDA kernel support, keeping OnPair
     /// for string compression and Zstd for binary compression.
     ///
     /// This preset is intended for files that will be decoded by CUDA kernels. It may choose a
