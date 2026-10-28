@@ -53,7 +53,9 @@ pub(super) struct ProjectionPlanner {
 impl ProjectionPlanner {
     /// Creates a planner for `selected`.
     pub(super) fn new(scan: Arc<PreparedScan>, selected: SelectedRows) -> Self {
-        let output_rows = if scan.filter.is_some() {
+        // Dense filters should not fragment an almost unchanged chunk into small outputs.
+        let dense = selected.mask.true_count() >= selected.mask.len() - selected.mask.len() / 4;
+        let output_rows = if scan.filter.is_some() && !dense {
             MAX_FILTERED_OUTPUT_ROWS
         } else {
             MAX_OUTPUT_ROWS
