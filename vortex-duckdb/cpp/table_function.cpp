@@ -229,7 +229,7 @@ static void serialize(Serializer &serializer,
 
     const string_t vortex_state = {reinterpret_cast<const char *>(state_data),
                                    static_cast<uint32_t>(state_len)};
-    serializer.WritePropertyWithDefault(104, "vortex_state", vortex_state);
+    serializer.WriteProperty(104, "vortex_state", vortex_state);
 }
 
 static unique_ptr<FunctionData> deserialize(Deserializer &deserializer, BoundTableFunction &) {
