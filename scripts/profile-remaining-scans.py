@@ -15,7 +15,7 @@ import urllib.request
 scale = sys.argv[1]
 suite = 'tpcds' if scale and float(scale) > 0 else 'clickbench'
 root = Path.cwd()
-binary = root / 'target/release_debug/datafusion-bench'
+binary = root / 'target/rebalanced/datafusion-bench'
 archive_name = 'samply-aarch64-unknown-linux-gnu.tar.xz'
 release = 'https://github.com/mstange/samply/releases/download/samply-v0.13.1/'
 archive = root / archive_name
@@ -42,19 +42,20 @@ def command(v2, query, iterations, label):
             '--ingest-jsonl', label + '.jsonl'] + (['--opt', f'scale-factor={scale}'] if suite == 'tpcds' else [])
 
 current_binary = binary
-baseline = root / 'target/coarse-baseline/datafusion-bench'
+baseline = root / 'target/release_debug/datafusion-bench'
 variants = [('v1', current_binary, False), ('accepted', baseline, True), ('candidate', current_binary, True)]
-Path('scan-provenance.json').write_text(json.dumps({'baseline_run': 40627772121, 'candidate_run': os.environ['GITHUB_RUN_ID'], 'candidate_head': os.environ['GITHUB_SHA'], 'candidate': 'Apply native footer-statistics pruning before V2 scan preparation; no allocation fast path', 'binary_sha256': {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path, _ in variants}}, indent=2))
-for round in range(3):
-    for label_name, binary, v2 in variants[round:] + variants[:round]:
-        label = f'scan-timing-r{round}-{label_name}'
-        cmd = command(v2, ('13,16,20,22,28,32,41,47,48,58,62,76' if suite == 'tpcds' else '0,6,13,28'), 9, label)
-        Path(label + '.command.json').write_text(json.dumps({'command': cmd, 'env': profile_env}, indent=2))
-        with open(label + '.txt', 'w') as log:
-            subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=600, check=True)
+assert hashlib.sha256(current_binary.read_bytes()).hexdigest() == '6562a360adabf8853a1969973f0031c112eadbe6e6cb1fc7f1f21237d856a485'
+assert hashlib.sha256(baseline.read_bytes()).hexdigest() == 'a1dbc572cbec9b9eaa0d8f461cdc9f9e0d15d976de0b0e5b77ecc2380476a388'
+Path('scan-provenance.json').write_text(json.dumps({'baseline_run': 40627772121, 'candidate_binary_run': 40634053252, 'candidate_run': os.environ['GITHUB_RUN_ID'], 'candidate_head': os.environ['GITHUB_SHA'], 'candidate': 'Frozen footer-pruning binary from run 40634053252; diagnostics only for Q41 footer overhead and Q62 scan gap', 'binary_sha256': {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path, _ in variants}}, indent=2))
+for label_name, binary, v2 in variants:
+    label = f'scan-plan-{label_name}'
+    cmd = command(v2, '41,62', 1, label) + ['--explain']
+    Path(label + '.command.json').write_text(json.dumps({'command': cmd, 'env': profile_env}, indent=2))
+    with open(label + '.txt', 'w') as log:
+        subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=600, check=True)
 for label_name, binary, v2 in variants:
     label = f'scan-metrics-{label_name}'
-    cmd = command(v2, ('16,20,22,28,32,41,47,48,58,62,76' if suite == 'tpcds' else '0,6,13,28'), 1, label) + ['--show-metrics']
+    cmd = command(v2, '41,62', 1, label) + ['--show-metrics']
     with open(label + '.txt', 'w') as log:
         subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=600, check=True)
 binary = current_binary
@@ -72,7 +73,7 @@ def frame_label(thread, index, symbols=None):
 
 summary.frame_label = frame_label
 binary_sha = hashlib.sha256(binary.read_bytes()).hexdigest()
-for query, iterations in ([('16', 500), ('22', 20), ('28', 20)] if suite == 'tpcds' else [('13', 20), ('28', 10)]):
+for query, iterations in [('41', 500), ('62', 50)]:
     for label_name, binary, v2 in variants:
         binary_sha = hashlib.sha256(binary.read_bytes()).hexdigest()
         label = f'scan-q{query}-{label_name}'

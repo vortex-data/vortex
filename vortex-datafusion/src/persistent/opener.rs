@@ -378,18 +378,7 @@ impl FileOpener for VortexOpener {
                 }
             }
             let residual_filter = conjunction_opt(residual_filters);
-            let native_filter = and_collect(native_filters);
-            // V1's layout reader checks footer statistics before reading zone maps. V2
-            // lowers the layout directly, so apply the same file-level check here.
-            if scan_v2
-                && let Some(filter) = &native_filter
-                && vxf
-                    .can_prune(filter)
-                    .map_err(|error| DataFusionError::External(Box::new(error)))?
-            {
-                return Ok(stream::empty().boxed());
-            }
-            let native_filter = native_filter
+            let native_filter = and_collect(native_filters)
                 .map(|filter| filter.bind(vxf.dtype())?.optimize_recursive())
                 .transpose()
                 .map_err(|e| {
@@ -1247,40 +1236,6 @@ mod tests {
         let num_rows = data.iter().map(|rb| rb.num_rows()).sum::<usize>();
         assert_eq!((num_batches, num_rows), (0, 0));
 
-        Ok(())
-    }
-
-    #[rstest]
-    #[case(100, 0)]
-    #[case(1, 2)]
-    #[tokio::test]
-    async fn test_v2_footer_pruning_before_scan_preparation(
-        #[case] threshold: i32,
-        #[case] expected_rows: usize,
-    ) -> anyhow::Result<()> {
-        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
-        let batch = record_batch!(("a", Int32, vec![1, 2, 3]))?;
-        let size =
-            write_arrow_to_vortex(Arc::clone(&store), "footer-pruning.vortex", batch.clone())
-                .await?;
-        let table_schema = TableSchema::from(batch.schema());
-        let filter = logical2physical(&col("a").gt(lit(threshold)), table_schema.table_schema());
-        let mut opener = make_opener(store, table_schema, Some(filter));
-        opener.scan_v2 = true;
-        let batches = opener
-            .open(PartitionedFile::new(
-                "footer-pruning.vortex".to_string(),
-                size,
-            ))?
-            .await?
-            .try_collect::<Vec<_>>()
-            .await?;
-        assert_eq!(
-            batches.iter().map(RecordBatch::num_rows).sum::<usize>(),
-            expected_rows
-        );
-        assert_eq!(opener.scan_caches.is_empty(), expected_rows == 0);
-        assert_eq!(opener.segment_sources.is_empty(), expected_rows == 0);
         Ok(())
     }
 
