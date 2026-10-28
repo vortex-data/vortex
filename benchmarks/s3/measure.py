@@ -16,8 +16,6 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 
-import aws_credentials
-
 
 def quantile(values: list[float], probability: float) -> float:
     ordered = sorted(values)
@@ -214,8 +212,7 @@ def main():
         parser.error("Window timeout must be finite and positive")
     if args.probe_args[:1] == ["--"]:
         args.probe_args = args.probe_args[1:]
-    with aws_credentials.environment(os.environ.get("S3_MEASUREMENT_ROLE_ARN")) as env:
-        run(args, env)
+    run(args, dict(os.environ))
 
 
 if __name__ == "__main__":

@@ -4,19 +4,7 @@
 name: S3 Measurements
 
 on:
-  workflow_dispatch:
-    inputs:
-      windows:
-        description: "Measurement windows, three hours apart, then stop"
-        type: choice
-        options: ["4", "1", "2", "3"]
-        default: "4"
-  push:
-    branches: ["ji/s3-measurements"]
-    paths:
-      - .github/workflows/s3-measurements.yml
-      - vortex-bench/src/bin/s3-measure.rs
-      - benchmarks/s3/**
+  workflow_dispatch: { }
 
 permissions:
   contents: read
@@ -28,13 +16,11 @@ concurrency:
 
 jobs:
   collect:
-    timeout-minutes: 780
+    timeout-minutes: 120
     runs-on: runs-on=${{ github.run_id }}/runner=bench-dedicated/family=c8gd.16xlarge/spot=false/image=ubuntu24-full-arm64-pre-v2/tag=s3-measure/extras=s3-cache
     env:
       AWS_REGION: us-east-1
       REMOTE_ROOT: s3://vortex-ci-benchmark-datasets/s3-measurements/${{ github.run_id }}-${{ github.run_attempt }}
-      S3_MEASUREMENT_ROLE_ARN: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
-      MEASUREMENT_WINDOWS: ${{ inputs.windows || '1' }}
     steps:
       - uses: runs-on/action@v2
         with:
@@ -52,7 +38,6 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
           aws-region: us-east-1
-          role-duration-seconds: 7200
       - name: Verify region and create immutable probe objects
         run: |
           set -Eeuo pipefail
@@ -68,10 +53,8 @@ jobs:
           for object in 1 2 3 4; do
             aws s3 cp s3-probe.bin "$REMOTE_ROOT/probe-$object.bin"
           done
-      - name: Collect fixed-time S3 windows
-        run: |
-          python3 benchmarks/s3/measure.py --source "$REMOTE_ROOT/" \
-            --output s3-measurements --count "$MEASUREMENT_WINDOWS" --interval-seconds 10800
+      - name: Collect one S3 measurement window
+        run: python3 benchmarks/s3/measure.py --source "$REMOTE_ROOT/" --output s3-measurements --count 1
       - name: Preserve raw requests, manifests, schedule and median/p90 tables
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
@@ -79,12 +62,6 @@ jobs:
           name: s3-measurements-${{ github.run_attempt }}
           path: s3-measurements/
           retention-days: 30
-      - name: Refresh credentials for cleanup
-        if: always()
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
-        with:
-          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
-          aws-region: us-east-1
       - name: Remove this run's probe objects
         if: always()
         run: aws s3 rm --recursive "$REMOTE_ROOT/"

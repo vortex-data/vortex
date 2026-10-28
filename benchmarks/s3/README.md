@@ -19,10 +19,11 @@ retains a SHA-256 for each trace and the binary, checks identical runner/object/
 and preserves partial evidence on failure. Each request has a deadline; a window has a 30-minute
 budget. Starts over five minutes late are failures, without silently shifting the remaining schedule.
 
-The manual `S3 Measurements` workflow keeps one on-demand `c8gd.16xlarge` in `us-east-1` for the
-whole study. It creates four seeded 16 MiB fixtures in a unique prefix, verifies bucket/runner
-region, collects one to four windows, uploads evidence and removes only its fixtures. Branch pushes
-run one window to exercise the collector. OIDC refresh supports studies longer than an STS session.
+The manual `S3 Measurements` workflow runs one window on an on-demand `c8gd.16xlarge` in `us-east-1`.
+It authenticates with the same `GitHubBenchmarkRole` OIDC role as the other S3 benchmarks, uploads
+four seeded 16 MiB fixtures to a run-scoped prefix of `s3://vortex-ci-benchmark-datasets/`, verifies
+bucket/runner region, uploads the evidence and removes its fixtures. Multi-window studies run
+`measure.py --count` with credentials that outlive the study, or dispatch the workflow repeatedly.
 
 Each JSONL starts with a **schema version 1 environment**: actual CI run/attempt and commit,
 measurement window ID, source, hardware/region/availability zone, CPU/memory, seed, probe configuration,
