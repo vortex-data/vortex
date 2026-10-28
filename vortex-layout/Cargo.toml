@@ -81,6 +81,7 @@ vortex-file = { path = "../vortex-file" }
 vortex-io = { path = "../vortex-io", features = ["tokio", "object_store"] }
 
 [features]
+io-uring = ["vortex-io/io-uring"]
 default = ["wasm-bindgen"]
 _test-harness = ["vortex-array/_test-harness"]
 tokio = ["dep:tokio", "vortex-error/tokio"]

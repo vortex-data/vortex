@@ -4,6 +4,7 @@
 use std::future::ready;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::Weak;
 
 use arrow_array::RecordBatchOptions;
@@ -24,6 +25,7 @@ use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::CachedFileMetadataEntry;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::PhysicalExprRef;
+use datafusion_physical_expr::expressions;
 use datafusion_physical_expr::expressions::LambdaExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
@@ -37,6 +39,9 @@ use datafusion_physical_plan::filter::batch_filter;
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::metrics::MetricBuilder;
 use datafusion_physical_plan::metrics::MetricCategory;
+use datafusion_physical_plan::metrics::SplitMetrics;
+use datafusion_physical_plan::stream::BatchSplitStream;
+use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion_pruning::FilePruner;
 use futures::FutureExt;
 use futures::StreamExt;
@@ -52,6 +57,8 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::scan_builder::ScanBuilder;
+use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
+use vortex::layout::scan::v2::ScanCache;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
 use vortex::session::VortexSession;
@@ -100,6 +107,8 @@ pub(crate) struct VortexOpener {
     /// To save on the overhead of reparsing FlatBuffers and rebuilding the layout tree, we cache
     /// a file reader the first time we read a file.
     pub layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
+    /// V2 state scoped to this physical scan and keyed by immutable file path.
+    pub scan_caches: Option<Arc<OnceLock<DashMap<Path, ScanCache>>>>,
     /// Shared full-file natural splits keyed by file path.
     pub natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by file path.
@@ -112,6 +121,15 @@ pub(crate) struct VortexOpener {
     /// Whether to enable expression pushdown into the underlying Vortex scan.
     pub projection_pushdown: bool,
     pub scan_concurrency: Option<usize>,
+    pub scan_v2: bool,
+    pub scan_v2_io_cache_bytes: usize,
+    pub scan_v2_chunk_rows: Option<usize>,
+    /// Convert V2 output to Arrow when the consumer polls the stream.
+    pub scan_v2_consumer_mapping: bool,
+    /// Limit consumer mapping to flat primitive, boolean, or null output fields.
+    pub scan_v2_consumer_mapping_fixed_width_only: bool,
+    /// Bounds residual-expression batches independently of V2's I/O work chunks.
+    pub batch_size: Option<usize>,
 }
 
 impl FileOpener for VortexOpener {
@@ -144,10 +162,20 @@ impl FileOpener for VortexOpener {
         let unified_file_schema = Arc::clone(self.table_schema.file_schema());
         let limit = self.limit;
         let layout_readers = Arc::clone(&self.layout_readers);
+        let scan_caches = self.scan_caches.clone();
         let natural_splits = Arc::clone(&self.natural_splits);
         let file_schemas = Arc::clone(&self.file_schemas);
         let has_output_ordering = self.has_output_ordering;
         let scan_concurrency = self.scan_concurrency;
+        let scan_v2 = self.scan_v2;
+        let scan_v2_io_cache_bytes = self.scan_v2_io_cache_bytes;
+        let scan_v2_chunk_rows = self.scan_v2_chunk_rows;
+        let scan_v2_consumer_mapping = self.scan_v2_consumer_mapping;
+        let scan_v2_consumer_mapping_fixed_width_only =
+            self.scan_v2_consumer_mapping_fixed_width_only;
+        let split = self.batch_size.filter(|_| scan_v2)
+            .map(|size| (size, SplitMetrics::new(&self.df_metrics, self.partition)));
+        let vortex_reader_factory = Arc::clone(&self.vortex_reader_factory);
 
         let expr_converter = Arc::clone(&self.expression_converter);
         let projection_pushdown = self.projection_pushdown;
@@ -359,65 +387,96 @@ impl FileOpener for VortexOpener {
 
             let stream_schema =
                 calculate_physical_schema(&scan_dtype, &scan_reference_schema, &session.arrow())?;
+            let scan_v2_consumer_mapping = scan_v2_consumer_mapping
+                && (!scan_v2_consumer_mapping_fixed_width_only
+                    || stream_schema.fields().iter().all(|field| {
+                        field.data_type().is_primitive()
+                            || matches!(field.data_type(), DataType::Boolean | DataType::Null)
+                    }));
 
             let leftover_projection = leftover_projection
                 .try_map_exprs(|expr| reassign_expr_columns(expr, &stream_schema))?;
             let residual_filter = residual_filter
                 .map(|expr| reassign_expr_columns(expr, &stream_schema))
                 .transpose()?;
+            let split = split.filter(|_| {
+                residual_filter.is_some()
+                    || leftover_projection.as_ref().iter()
+                        .any(|projection| projection.expr.downcast_ref::<expressions::Column>().is_none())
+            });
             let projector = leftover_projection.make_projector(&stream_schema)?;
 
-            // We share our layout readers with others partitions in the scan, so we can only need to read each layout in each file once.
-            let layout_reader = match layout_readers.entry(file.object_meta.location.clone()) {
-                Entry::Occupied(mut occupied_entry) => {
-                    if let Some(reader) = occupied_entry.get().upgrade() {
-                        tracing::trace!("reusing layout reader for {}", occupied_entry.key());
-                        reader
-                    } else {
-                        tracing::trace!("creating layout reader for {}", occupied_entry.key());
+            // V2 only needs a legacy reader when a missing split map requires a layout walk.
+            let build_v1_scan = || -> DFResult<_> {
+                let layout_reader = match layout_readers.entry(file.object_meta.location.clone()) {
+                    Entry::Occupied(mut occupied_entry) => {
+                        if let Some(reader) = occupied_entry.get().upgrade() {
+                            tracing::trace!("reusing layout reader for {}", occupied_entry.key());
+                            reader
+                        } else {
+                            tracing::trace!("creating layout reader for {}", occupied_entry.key());
+                            let reader = vxf.layout_reader().map_err(|e| {
+                                DataFusionError::Execution(format!(
+                                    "Failed to create layout reader: {e}"
+                                ))
+                            })?;
+                            occupied_entry.insert(Arc::downgrade(&reader));
+                            reader
+                        }
+                    }
+                    Entry::Vacant(vacant_entry) => {
+                        tracing::trace!("creating layout reader for {}", vacant_entry.key());
                         let reader = vxf.layout_reader().map_err(|e| {
-                            DataFusionError::Execution(format!(
-                                "Failed to create layout reader: {e}"
-                            ))
+                            DataFusionError::Execution(format!("Failed to create layout reader: {e}"))
                         })?;
-                        occupied_entry.insert(Arc::downgrade(&reader));
+                        vacant_entry.insert(Arc::downgrade(&reader));
+
                         reader
                     }
-                }
-                Entry::Vacant(vacant_entry) => {
-                    tracing::trace!("creating layout reader for {}", vacant_entry.key());
-                    let reader = vxf.layout_reader().map_err(|e| {
-                        DataFusionError::Execution(format!("Failed to create layout reader: {e}"))
-                    })?;
-                    vacant_entry.insert(Arc::downgrade(&reader));
+                };
 
-                    reader
+                let mut builder = ScanBuilder::new(session.clone(), layout_reader);
+                if let Some(vortex_plan) = file.extensions.get::<VortexAccessPlan>() {
+                    builder = vortex_plan.apply_to_builder(builder);
                 }
+                // Residual filters must run before DataFusion applies the limit.
+                if let Some(limit) = limit
+                    && residual_filter.is_none()
+                {
+                    builder = builder.with_limit(limit);
+                }
+                if let Some(concurrency) = scan_concurrency {
+                    builder = builder.with_concurrency(concurrency);
+                }
+                Ok(builder
+                    .with_projection(scan_projection.clone())
+                    .with_some_filter(native_filter.clone()))
             };
-
-            let mut scan_builder = ScanBuilder::new(session.clone(), Arc::clone(&layout_reader));
+            let mut scan_builder = if scan_v2 { None } else { Some(build_v1_scan()?) };
+            let mut v2_builder = scan_v2.then(|| {
+                let mut scan_file = vxf.scan_file();
+                if let Some(caches) = scan_caches {
+                    scan_file.cache = Some(caches.get_or_init(DashMap::default)
+                        .entry(file.path().clone()).or_default().clone());
+                }
+                V2ScanBuilder::new(session.clone(), scan_file)
+                    .with_projection(scan_projection.clone())
+                    .with_some_filter(native_filter.clone())
+                    .with_io_cache_bytes(scan_v2_io_cache_bytes)
+                    .with_concurrency(scan_concurrency.unwrap_or(4))
+            });
+            if let Some(rows) = scan_v2_chunk_rows {
+                if rows == 0 {
+                    return Err(DataFusionError::Execution("V2 chunk rows must be positive".into()));
+                }
+                v2_builder = v2_builder.map(|scan| scan.with_chunk_rows(rows));
+            }
 
             if let Some(vortex_plan) = file.extensions.get::<VortexAccessPlan>() {
-                scan_builder = vortex_plan.apply_to_builder(scan_builder);
+                if let Some(selection) = vortex_plan.selection() {
+                    v2_builder = v2_builder.map(|scan| scan.with_selection(selection.clone()));
+                }
             }
-
-            // Native scans apply limits after filtering. Residual filters still need the
-            // full scan output, with the limit enforced by DataFusion's file stream.
-            if let Some(limit) = limit
-                && residual_filter.is_none()
-            {
-                scan_builder = scan_builder.with_limit(limit);
-            }
-
-            if let Some(concurrency) = scan_concurrency {
-                scan_builder = scan_builder.with_concurrency(concurrency);
-            }
-
-            // Set before the byte-range translation below, which computes natural splits for
-            // the fields the scan's projection and filter reference.
-            scan_builder = scan_builder
-                .with_projection(scan_projection)
-                .with_some_filter(native_filter);
 
             if let Some(file_range) = &file.range {
                 let byte_range = Range {
@@ -432,8 +491,10 @@ impl FileOpener for VortexOpener {
                     let natural_splits = natural_splits_for_file(
                         natural_splits.as_ref(),
                         &file.object_meta.location,
-                        &scan_builder,
-                        file.object_meta.size,
+                        || match &scan_builder {
+                            Some(scan) => compute_natural_splits(scan, file.object_meta.size),
+                            None => compute_natural_splits(&build_v1_scan()?, file.object_meta.size),
+                        },
                     )?;
 
                     let Some(row_range) =
@@ -442,21 +503,19 @@ impl FileOpener for VortexOpener {
                         return Ok(stream::empty().boxed());
                     };
 
-                    scan_builder = scan_builder
-                        .with_row_range(row_range)
-                        // Hand the shared full-file boundaries back to the scan so prepare()
-                        // skips its own layout walk.
-                        .with_natural_splits(Arc::clone(&natural_splits.row_boundaries));
+                    scan_builder = scan_builder.map(|scan| {
+                        scan.with_row_range(row_range.clone())
+                            .with_natural_splits(Arc::clone(&natural_splits.row_boundaries))
+                    });
+                    v2_builder = v2_builder.map(|scan| scan.with_row_range(row_range));
                 }
             }
 
             let stream_target_field = Field::new_struct("", stream_schema.fields().clone(), false);
             let residual_path = file.path().clone();
-            let stream = scan_builder
-                .with_metrics_registry(metrics_registry)
-                .with_ordered(has_output_ordering)
-                .map(move |chunk| {
-                    let mut ctx = session.create_execution_ctx();
+            let mapping_session = session.clone();
+            let into_arrow = move |chunk| {
+                    let mut ctx = mapping_session.create_execution_ctx();
                     let arrow_session = ctx.session().clone();
                     let arrow = arrow_session.arrow().execute_arrow(
                         chunk,
@@ -464,15 +523,67 @@ impl FileOpener for VortexOpener {
                         &mut ctx,
                     )?;
                     Ok(RecordBatch::from(arrow.as_struct().clone()))
-                })
-                .into_stream()
-                .map_err(|e| exec_datafusion_err!("Failed to create Vortex stream: {e}"))?
+                };
+            // Residual predicates must run before limiting. For native predicates V2 limits
+            // the emitted batches below; DataFusion still enforces the total across files.
+            let batches = if let Some(scan) = v2_builder {
+                let scan = vortex_reader_factory.configure_v2_scan(&file, &session, scan)?
+                    .with_ordered(has_output_ordering);
+                if scan_v2_consumer_mapping {
+                    // Defer Arrow materialization until downstream execution needs each chunk.
+                    scan.into_stream().map(|stream| {
+                        stream
+                            .and_then(move |chunk| ready(into_arrow(chunk)))
+                            .boxed()
+                    })
+                } else {
+                    scan.map(into_arrow).into_stream()
+                }
+            } else {
+                scan_builder
+                    .vortex_expect("V1 scan builder was initialized")
+                    .with_metrics_registry(metrics_registry)
+                    .with_ordered(has_output_ordering)
+                    .map(into_arrow)
+                    .into_stream()
+                    .map(|stream| stream.boxed())
+            };
+            let batches = batches
+                .map_err(|e| exec_datafusion_err!("Failed to create Vortex stream: {e}"))?;
+            let batches = if scan_v2 && residual_filter.is_none() && let Some(limit) = limit {
+                stream::try_unfold((batches, limit), |(mut batches, remaining)| async move {
+                    if remaining == 0 {
+                        return Ok::<_, VortexError>(None);
+                    }
+                    let Some(batch) = batches.try_next().await? else {
+                        return Ok(None);
+                    };
+                    let count = (batch.num_rows() as u64).min(remaining) as usize;
+                    Ok(Some((batch.slice(0, count), (batches, remaining - count as u64))))
+                }).boxed()
+            } else {
+                batches
+            };
+            let batches = batches
                 .map_err(move |e: VortexError| {
                     DataFusionError::External(Box::new(e.with_context(format!(
                         "Failed to read Vortex file: {}",
                         file.object_meta.location
                     ))))
                 })
+                .boxed();
+            // Bound residual-expression intermediates. Column-only projection can retain I/O
+            // chunks until DataSourceExec splits them, avoiding repeated file-stream accounting.
+            let batches = if let Some((batch_size, split_metrics)) = split {
+                BatchSplitStream::new(
+                    Box::pin(RecordBatchStreamAdapter::new(Arc::new(stream_schema), batches)),
+                    batch_size,
+                    split_metrics,
+                ).boxed()
+            } else {
+                batches
+            };
+            let stream = batches
                 .map(move |batch| -> DFResult<Option<RecordBatch>> {
                     let mut batch = batch?;
                     if let Some(residual) = &residual_filter {
@@ -579,11 +690,10 @@ fn contains_lambda(projection: &ProjectionExprs) -> DFResult<bool> {
 }
 
 /// Return the cached [`NaturalSplits`] for `path`, computing and caching them on first use.
-fn natural_splits_for_file<A: 'static + Send>(
+fn natural_splits_for_file(
     natural_splits: &DashMap<Path, Arc<NaturalSplits>>,
     path: &Path,
-    scan_builder: &ScanBuilder<A>,
-    total_size: u64,
+    compute: impl FnOnce() -> DFResult<Arc<NaturalSplits>>,
 ) -> DFResult<Arc<NaturalSplits>> {
     if let Some(splits) = natural_splits.get(path) {
         return Ok(Arc::clone(splits.value()));
@@ -595,7 +705,7 @@ fn natural_splits_for_file<A: 'static + Send>(
     match natural_splits.entry(path.clone()) {
         Entry::Occupied(entry) => Ok(Arc::clone(entry.get())),
         Entry::Vacant(entry) => {
-            let splits = compute_natural_splits(scan_builder, total_size)?;
+            let splits = compute()?;
             entry.insert(Arc::clone(&splits));
             Ok(splits)
         }
@@ -697,7 +807,11 @@ mod tests {
     use datafusion_common::stats::Precision;
     use datafusion_execution::cache::default_cache::DefaultCache;
     use datafusion_expr::Operator;
+    use datafusion_expr::ColumnarValue;
+    use datafusion_expr::Volatility;
+    use datafusion_expr::create_udf;
     use datafusion_physical_expr::PhysicalExpr;
+    use datafusion_physical_expr::ScalarFunctionExpr;
     use datafusion_physical_expr::expressions as df_expr;
     use datafusion_physical_expr::projection::ProjectionExpr;
     use futures::TryStreamExt;
@@ -746,7 +860,7 @@ mod tests {
             fmt::Display::fmt(self, f)
         }
 
-        fn evaluate(&self, _batch: &RecordBatch) -> DFResult<datafusion_expr::ColumnarValue> {
+        fn evaluate(&self, _batch: &RecordBatch) -> DFResult<ColumnarValue> {
             Err(DataFusionError::Internal(
                 "intentional snapshot error".to_owned(),
             ))
@@ -897,6 +1011,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
+            scan_caches: Some(Arc::default()),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -904,11 +1019,215 @@ mod tests {
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
+            scan_v2: false,
+            scan_v2_io_cache_bytes: 0,
+            scan_v2_chunk_rows: None,
+            scan_v2_consumer_mapping: false,
+            scan_v2_consumer_mapping_fixed_width_only: false,
+            batch_size: None,
         }
     }
 
+    #[rstest]
+    #[case::v1(false, false, false)]
+    #[case::v2_worker(true, false, false)]
+    #[case::v2_consumer(true, true, false)]
+    #[case::v2_fixed_width_consumer(true, true, true)]
     #[tokio::test]
-    async fn test_open() -> anyhow::Result<()> {
+    async fn column_projection_keeps_io_batches_until_datasource_splits(
+        #[case] scan_v2: bool,
+        #[case] consumer_mapping: bool,
+        #[case] fixed_width_only: bool,
+    ) -> anyhow::Result<()> {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let batch = record_batch!(("a", Int32, vec![Some(1), None, Some(3), Some(4), Some(5)]))?;
+        let size = write_arrow_to_vortex(Arc::clone(&store), "columns.vortex", batch.clone()).await?;
+        let projection = ProjectionExprs::from_indices(&[0], batch.schema().as_ref());
+        let mut opener = make_test_opener(store, batch.schema(), projection);
+        opener.scan_v2 = scan_v2;
+        opener.scan_v2_consumer_mapping = consumer_mapping;
+        opener.scan_v2_consumer_mapping_fixed_width_only = fixed_width_only;
+        opener.scan_v2_chunk_rows = Some(64);
+        opener.batch_size = Some(2);
+        opener.has_output_ordering = true;
+        let actual = opener.open(PartitionedFile::new("columns.vortex", size))?
+            .await?.try_collect::<Vec<_>>().await?;
+        assert_eq!(actual.len(), 1, "Column selection fragmented the I/O batch");
+        assert_eq!(actual[0], batch);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::worker(false, false)]
+    #[case::consumer(true, false)]
+    #[case::fixed_width_consumer(true, true)]
+    #[tokio::test]
+    async fn v2_splits_before_residual_projection(
+        #[values(1, 2, 4)] batch_size: usize,
+        #[case] consumer_mapping: bool,
+        #[case] fixed_width_only: bool,
+    ) -> anyhow::Result<()> {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let batch = record_batch!(("a", Int32, vec![Some(1), None, Some(3), Some(4), Some(5)]))?;
+        let size = write_arrow_to_vortex(Arc::clone(&store), "batches.vortex", batch.clone()).await?;
+        let udf = create_udf(
+            "bounded_batch",
+            vec![DataType::Int32],
+            DataType::Int32,
+            Volatility::Immutable,
+            Arc::new(move |args| {
+                let ColumnarValue::Array(array) = &args[0] else {
+                    return Err(exec_datafusion_err!("Expected an array input"));
+                };
+                assert!(array.len() <= batch_size, "Projection evaluated {} rows", array.len());
+                Ok(args[0].clone())
+            }),
+        );
+        let expression = ScalarFunctionExpr::try_new(
+            Arc::new(udf),
+            vec![df_expr::col("a", batch.schema().as_ref())?],
+            batch.schema().as_ref(),
+            Arc::default(),
+        )?;
+        let projection = ProjectionExprs::new(vec![ProjectionExpr::new(Arc::new(expression), "a")]);
+        let mut opener = make_test_opener(store, batch.schema(), projection);
+        opener.scan_v2 = true;
+        opener.scan_v2_consumer_mapping = consumer_mapping;
+        opener.scan_v2_consumer_mapping_fixed_width_only = fixed_width_only;
+        opener.scan_v2_chunk_rows = Some(64);
+        opener.batch_size = Some(batch_size);
+        opener.has_output_ordering = true;
+        let actual = opener.open(PartitionedFile::new("batches.vortex", size))?
+            .await?.try_collect::<Vec<_>>().await?;
+        assert!(actual.iter().all(|batch| batch.num_rows() <= batch_size));
+        assert_eq!(concat_batches(&batch.schema(), &actual)?, batch);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::worker(false, false)]
+    #[case::consumer(true, false)]
+    #[case::fixed_width_consumer(true, true)]
+    #[tokio::test]
+    async fn v2_shared_plans_isolate_files_and_projections(
+        #[values(false, true)] share_plans: bool,
+        #[case] consumer_mapping: bool,
+        #[case] fixed_width_only: bool,
+    ) -> anyhow::Result<()> {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let batch = record_batch!(
+            ("a", Int32, vec![1, 2, 3, 4]),
+            ("b", Utf8, vec!["one", "two", "three", "four"])
+        )?;
+        let size = write_arrow_to_vortex(Arc::clone(&store), "first.vortex", batch.clone()).await?;
+        let file = PartitionedFile::new("first.vortex".to_string(), size);
+        let mut first = make_opener(
+            Arc::clone(&store), TableSchema::from(batch.schema()),
+            Some(logical2physical(&col("a").gt(lit(1)), &batch.schema())),
+        );
+        first.scan_v2 = true;
+        first.scan_v2_consumer_mapping = consumer_mapping;
+        first.scan_v2_consumer_mapping_fixed_width_only = fixed_width_only;
+        first.scan_v2_chunk_rows = Some(2);
+        first.projection_pushdown = true;
+        first.has_output_ordering = true;
+        if !share_plans { first.scan_caches = None; }
+        let mut second = first.clone();
+        second.partition = 2;
+        second.projection = ProjectionExprs::from_indices(&[1], &batch.schema());
+        second.filter = Some(logical2physical(&col("a").lt_eq(lit(2)), &batch.schema()));
+        let (left, right) = futures::try_join!(
+            async { first.open(file.clone())?.await?.try_collect::<Vec<_>>().await },
+            async { second.open(file.clone())?.await?.try_collect::<Vec<_>>().await },
+        )?;
+        let expected_left = record_batch!(("a", Int32, vec![2, 3, 4]))?;
+        let expected_right = record_batch!(("b", Utf8, vec!["one", "two"]))?;
+        assert_eq!(concat_batches(&expected_left.schema(), &left)?, expected_left);
+        assert_eq!(concat_batches(&expected_right.schema(), &right)?, expected_right);
+
+        let other = record_batch!(
+            ("a", Int32, vec![9, 10]), ("b", Utf8, vec!["nine", "ten"])
+        )?;
+        let size = write_arrow_to_vortex(store, "second.vortex", other).await?;
+        let result = second.open(PartitionedFile::new("second.vortex".to_string(), size))?
+            .await?.try_collect::<Vec<_>>().await?;
+        assert!(result.iter().all(|batch| batch.num_rows() == 0));
+        if let Some(caches) = &first.scan_caches {
+            assert_eq!(caches.get().map(DashMap::len), Some(2));
+        }
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::implicit_full_file(false, false)]
+    #[case::explicit_full_file(true, false)]
+    #[case::cached_partial_range(true, true)]
+    #[tokio::test]
+    async fn v2_does_not_construct_unused_layout_readers(
+        #[case] explicit_range: bool,
+        #[case] cached_range: bool,
+    ) -> anyhow::Result<()> {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let batch = record_batch!(("a", Int32, vec![Some(1), None, Some(3), Some(4), Some(5)]))?;
+        let size = write_arrow_to_vortex(Arc::clone(&store), "v2-only.vortex", batch.clone()).await?;
+        let file = if explicit_range {
+            let end = if cached_range { size / 2 } else { size };
+            PartitionedFile::new_with_range("v2-only.vortex".to_string(), size, 0, end as i64)
+        } else {
+            PartitionedFile::new("v2-only.vortex", size)
+        };
+        let mut opener = make_opener(store, TableSchema::from(batch.schema()), None);
+        opener.scan_v2 = true;
+        opener.scan_v2_chunk_rows = Some(2);
+        opener.has_output_ordering = true;
+        if cached_range {
+            opener.natural_splits.insert(
+                file.path().clone(),
+                Arc::new(NaturalSplits::new(vec![0, 2, 5].into(), size)),
+            );
+        }
+        let expected = batch.slice(0, if cached_range { 2 } else { 5 });
+        for _ in 0..2 {
+            let batches = opener.open(file.clone())?.await?.try_collect::<Vec<_>>().await?;
+            assert_eq!(concat_batches(&expected.schema(), &batches)?, expected);
+            assert!(
+                opener.layout_readers.is_empty(),
+                "V2 constructed a V1 reader without needing layout-derived split boundaries"
+            );
+        }
+        Ok(())
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn ranged_scans_reuse_splits_without_rebuilding_layout_readers(
+        #[values(false, true)] scan_v2: bool,
+    ) -> anyhow::Result<()> {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let batch = record_batch!(("a", Int32, vec![Some(1), None, Some(3), Some(4), Some(5)]))?;
+        let size = write_arrow_to_vortex(Arc::clone(&store), "ranged.vortex", batch.clone()).await?;
+        let mut opener = make_opener(store, TableSchema::from(batch.schema()), None);
+        opener.scan_v2 = scan_v2;
+        opener.has_output_ordering = true;
+        let mut actual = Vec::new();
+        for (index, range) in [0..size / 2, size / 2..size].into_iter().enumerate() {
+            opener.layout_readers.clear();
+            let file = PartitionedFile::new_with_range(
+                "ranged.vortex".to_string(), size, range.start as i64, range.end as i64,
+            );
+            actual.extend(opener.open(file)?.await?.try_collect::<Vec<_>>().await?);
+            assert_eq!(opener.natural_splits.len(), 1);
+            if scan_v2 && index != 0 {
+                assert!(opener.layout_readers.is_empty(), "Cached splits rebuilt a V1 reader");
+            }
+        }
+        assert_eq!(concat_batches(&batch.schema(), &actual)?, batch);
+        Ok(())
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_open(#[values(false, true)] scan_v2: bool) -> anyhow::Result<()> {
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file_path = "part=1/file.vortex";
         let batch = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)])).unwrap();
@@ -927,11 +1246,12 @@ mod tests {
         let filter = col("part").eq(lit(1));
         let filter = logical2physical(&filter, table_schema.table_schema());
 
-        let opener = make_opener(
+        let mut opener = make_opener(
             Arc::clone(&object_store),
             table_schema.clone(),
             Some(filter),
         );
+        opener.scan_v2 = scan_v2;
         let stream = opener.open(file.clone()).unwrap().await.unwrap();
 
         let data = stream.try_collect::<Vec<_>>().await?;
@@ -945,11 +1265,12 @@ mod tests {
         let filter = col("part").eq(lit(2));
         let filter = logical2physical(&filter, table_schema.table_schema());
 
-        let opener = make_opener(
+        let mut opener = make_opener(
             Arc::clone(&object_store),
             table_schema.clone(),
             Some(filter),
         );
+        opener.scan_v2 = scan_v2;
         let stream = opener.open(file.clone()).unwrap().await.unwrap();
 
         let data = stream.try_collect::<Vec<_>>().await?;
@@ -961,8 +1282,15 @@ mod tests {
     }
 
     #[rstest]
+    #[case::v1(false, false, false)]
+    #[case::v2_worker(true, false, false)]
+    #[case::v2_consumer(true, true, false)]
+    #[case::v2_fixed_width_consumer(true, true, true)]
     #[tokio::test]
     async fn test_residual_filter_unprojected_column(
+        #[case] scan_v2: bool,
+        #[case] consumer_mapping: bool,
+        #[case] fixed_width_only: bool,
         #[values(false, true)] projection_pushdown: bool,
         #[values(false, true)] reordered_schema: bool,
     ) -> anyhow::Result<()> {
@@ -990,6 +1318,9 @@ mod tests {
             Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(0)))),
         ));
         let mut opener = make_opener(store, TableSchema::from(Arc::clone(&schema)), Some(filter));
+        opener.scan_v2 = scan_v2;
+        opener.scan_v2_consumer_mapping = consumer_mapping;
+        opener.scan_v2_consumer_mapping_fixed_width_only = fixed_width_only;
         opener.projection = ProjectionExprs::from_indices(&[schema.index_of("a")?], &schema);
         opener.projection_pushdown = projection_pushdown;
         opener.limit = Some(1);
@@ -1130,8 +1461,17 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
+    #[case::v1(false, false, false)]
+    #[case::v2_worker(true, false, false)]
+    #[case::v2_consumer(true, true, false)]
+    #[case::v2_fixed_width_consumer(true, true, true)]
     #[tokio::test]
-    async fn test_open_applies_limit_after_filtering() -> anyhow::Result<()> {
+    async fn test_open_applies_limit_after_filtering(
+        #[case] scan_v2: bool,
+        #[case] consumer_mapping: bool,
+        #[case] fixed_width_only: bool,
+    ) -> anyhow::Result<()> {
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file_path = "filtered-limit/file.vortex";
         let batch = record_batch!((
@@ -1160,6 +1500,9 @@ mod tests {
         let filter = logical2physical(&col("a").gt(lit(3_i32)), table_schema.table_schema());
 
         let mut opener = make_opener(object_store, table_schema, Some(filter));
+        opener.scan_v2 = scan_v2;
+        opener.scan_v2_consumer_mapping = consumer_mapping;
+        opener.scan_v2_consumer_mapping_fixed_width_only = fixed_width_only;
         opener.limit = Some(3);
 
         let batches = opener.open(file)?.await?.try_collect::<Vec<_>>().await?;
@@ -1181,8 +1524,17 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
+    #[case::v1(false, false, false)]
+    #[case::v2_worker(true, false, false)]
+    #[case::v2_consumer(true, true, false)]
+    #[case::v2_fixed_width_consumer(true, true, true)]
     #[tokio::test]
-    async fn test_open_empty_file() -> anyhow::Result<()> {
+    async fn test_open_empty_file(
+        #[case] scan_v2: bool,
+        #[case] consumer_mapping: bool,
+        #[case] fixed_width_only: bool,
+    ) -> anyhow::Result<()> {
         use futures::TryStreamExt;
 
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
@@ -1199,7 +1551,10 @@ mod tests {
 
         let table_schema = TableSchema::from(Arc::clone(&file_schema));
 
-        let opener = make_opener(object_store, table_schema, None);
+        let mut opener = make_opener(object_store, table_schema, None);
+        opener.scan_v2 = scan_v2;
+        opener.scan_v2_consumer_mapping = consumer_mapping;
+        opener.scan_v2_consumer_mapping_fixed_width_only = fixed_width_only;
         let stream = opener.open(file)?.await?;
         let data = stream.try_collect::<Vec<_>>().await?;
 
@@ -1208,8 +1563,9 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
     #[tokio::test]
-    async fn test_open_populates_file_metadata_cache() -> anyhow::Result<()> {
+    async fn test_open_populates_file_metadata_cache(#[values(false, true)] scan_v2: bool) -> anyhow::Result<()> {
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file_path = "cached/file.vortex";
         let batch = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)])).unwrap();
@@ -1223,6 +1579,7 @@ mod tests {
             DefaultCache::<Path, CachedFileMetadataEntry>::new(64 * 1024 * 1024),
         );
         let mut opener = make_opener(Arc::clone(&object_store), table_schema, None);
+        opener.scan_v2 = scan_v2;
         opener.file_metadata_cache = Some(Arc::clone(&cache));
 
         // The first open misses the cache and must write the parsed footer back.
@@ -1294,6 +1651,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
+            scan_caches: Some(Arc::default()),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1301,6 +1659,12 @@ mod tests {
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
+            scan_v2: false,
+            scan_v2_io_cache_bytes: 0,
+            scan_v2_chunk_rows: None,
+            scan_v2_consumer_mapping: false,
+            scan_v2_consumer_mapping_fixed_width_only: false,
+            batch_size: None,
         };
 
         let filter = col("a").lt(lit(100_i32));
@@ -1382,6 +1746,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
+            scan_caches: Some(Arc::default()),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1389,6 +1754,12 @@ mod tests {
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
+            scan_v2: false,
+            scan_v2_io_cache_bytes: 0,
+            scan_v2_chunk_rows: None,
+            scan_v2_consumer_mapping: false,
+            scan_v2_consumer_mapping_fixed_width_only: false,
+            batch_size: None,
         };
 
         let stream = opener.open(file)?.await?;
@@ -1561,6 +1932,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
+            scan_caches: Some(Arc::default()),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1568,6 +1940,12 @@ mod tests {
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
+            scan_v2: false,
+            scan_v2_io_cache_bytes: 0,
+            scan_v2_chunk_rows: None,
+            scan_v2_consumer_mapping: false,
+            scan_v2_consumer_mapping_fixed_width_only: false,
+            batch_size: None,
         };
 
         // This should succeed and return the correctly projected and cast data
@@ -1622,6 +2000,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
+            scan_caches: Some(Arc::default()),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1629,12 +2008,19 @@ mod tests {
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
+            scan_v2: false,
+            scan_v2_io_cache_bytes: 0,
+            scan_v2_chunk_rows: None,
+            scan_v2_consumer_mapping: false,
+            scan_v2_consumer_mapping_fixed_width_only: false,
+            batch_size: None,
         }
     }
 
+    #[rstest]
     #[tokio::test]
     // Test that Selection::IncludeByIndex filters to specific row indices.
-    async fn test_selection_include_by_index() -> anyhow::Result<()> {
+    async fn test_selection_include_by_index(#[values(false, true)] scan_v2: bool) -> anyhow::Result<()> {
         use datafusion::arrow::util::pretty::pretty_format_batches_with_options;
 
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
@@ -1653,17 +2039,20 @@ mod tests {
                 )),
             );
 
-        let opener = make_test_opener(
+        let mut opener = make_test_opener(
             Arc::clone(&object_store),
             Arc::clone(&schema),
             ProjectionExprs::from_indices(&[0, 1], &schema),
         );
 
+        opener.scan_v2 = scan_v2;
         let stream = opener.open(file)?.await?;
         let data = stream.try_collect::<Vec<_>>().await?;
         let format_opts = FormatOptions::new().with_types_info(true);
 
-        assert_snapshot!(pretty_format_batches_with_options(&data, &format_opts)?.to_string(), @r"
+        let formatted = pretty_format_batches_with_options(&data, &format_opts)?.to_string();
+        insta::allow_duplicates! {
+        assert_snapshot!(formatted, @r"
         +-------+------+
         | a     | b    |
         | Int32 | Utf8 |
@@ -1674,13 +2063,15 @@ mod tests {
         | 7     | r7   |
         +-------+------+
         ");
+        }
 
         Ok(())
     }
 
+    #[rstest]
     #[tokio::test]
     // Test that Selection::ExcludeByIndex excludes specific row indices.
-    async fn test_selection_exclude_by_index() -> anyhow::Result<()> {
+    async fn test_selection_exclude_by_index(#[values(false, true)] scan_v2: bool) -> anyhow::Result<()> {
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file_path = "/path/file.vortex";
 
@@ -1697,17 +2088,20 @@ mod tests {
                 )),
             );
 
-        let opener = make_test_opener(
+        let mut opener = make_test_opener(
             Arc::clone(&object_store),
             Arc::clone(&schema),
             ProjectionExprs::from_indices(&[0, 1], &schema),
         );
 
+        opener.scan_v2 = scan_v2;
         let stream = opener.open(file)?.await?;
         let data = stream.try_collect::<Vec<_>>().await?;
         let format_opts = FormatOptions::new().with_types_info(true);
 
-        assert_snapshot!(pretty_format_batches_with_options(&data, &format_opts)?.to_string(), @r"
+        let formatted = pretty_format_batches_with_options(&data, &format_opts)?.to_string();
+        insta::allow_duplicates! {
+        assert_snapshot!(formatted, @r"
         +-------+------+
         | a     | b    |
         | Int32 | Utf8 |
@@ -1719,6 +2113,7 @@ mod tests {
         | 9     | r9   |
         +-------+------+
         ");
+        }
 
         Ok(())
     }
@@ -1834,6 +2229,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
+            scan_caches: Some(Arc::default()),
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1841,6 +2237,12 @@ mod tests {
             file_metadata_cache: None,
             projection_pushdown: false,
             scan_concurrency: None,
+            scan_v2: false,
+            scan_v2_io_cache_bytes: 0,
+            scan_v2_chunk_rows: None,
+            scan_v2_consumer_mapping: false,
+            scan_v2_consumer_mapping_fixed_width_only: false,
+            batch_size: None,
         };
 
         let file = PartitionedFile::new(file_path.to_string(), data_size);
@@ -1918,6 +2320,7 @@ mod tests {
     #[rstest]
     #[tokio::test]
     async fn test_temporal_adapter_residual(
+        #[values(false, true)] scan_v2: bool,
         #[values(false, true)] projection_pushdown: bool,
     ) -> anyhow::Result<()> {
         let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
@@ -1963,6 +2366,7 @@ mod tests {
                 .is_some()
         );
         let mut opener = make_opener(store, TableSchema::from(logical), Some(filter));
+        opener.scan_v2 = scan_v2;
         opener.projection_pushdown = projection_pushdown;
         let batches = opener
             .open(PartitionedFile::new("temporal.vortex", size))?
@@ -1976,6 +2380,7 @@ mod tests {
     #[rstest]
     #[tokio::test]
     async fn test_residual_literal_retains_zero_column_rows(
+        #[values(false, true)] scan_v2: bool,
         #[values(Some(true), Some(false), None)] value: Option<bool>,
     ) -> anyhow::Result<()> {
         let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
@@ -1987,6 +2392,7 @@ mod tests {
             TableSchema::from(batch.schema()),
             Some(Arc::new(df_expr::Literal::new(ScalarValue::Boolean(value)))),
         );
+        opener.scan_v2 = scan_v2;
         opener.projection = Vec::<ProjectionExpr>::new().into();
         // Force a supported physical expression to use the residual path.
         opener.expression_converter = Arc::new(ResidualConverter);
@@ -2017,6 +2423,7 @@ mod tests {
     #[rstest]
     #[tokio::test]
     async fn test_native_and_residual_composition(
+        #[values(false, true)] scan_v2: bool,
         #[values(Operator::And, Operator::Or)] operator: Operator,
     ) -> anyhow::Result<()> {
         let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
@@ -2043,7 +2450,8 @@ mod tests {
         let filter: PhysicalExprRef =
             Arc::new(df_expr::BinaryExpr::new(native, operator, residual));
         let expected = batch_filter(&batch, &filter)?.project(&[0])?;
-        let opener = make_opener(store, TableSchema::from(batch.schema()), Some(filter));
+        let mut opener = make_opener(store, TableSchema::from(batch.schema()), Some(filter));
+        opener.scan_v2 = scan_v2;
         let actual = opener
             .open(PartitionedFile::new("composition.vortex", size))?
             .await?

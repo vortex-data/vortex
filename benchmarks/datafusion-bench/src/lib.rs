@@ -3,6 +3,10 @@
 
 pub mod metrics;
 pub mod tracer;
+#[cfg(all(target_os = "linux", feature = "io-uring"))]
+pub mod uring;
+#[cfg(all(target_os = "linux", feature = "io-uring"))]
+pub mod memory;
 
 use std::sync::Arc;
 
@@ -102,9 +106,15 @@ pub fn format_to_df_format(format: Format) -> anyhow::Result<Arc<dyn FileFormat>
     Ok(match format {
         Format::Csv => Arc::new(CsvFormat::default()) as _,
         Format::Parquet => Arc::new(ParquetFormat::new()),
-        Format::OnDiskVortex | Format::VortexCompact | Format::VortexSpatialNative => Arc::new(
-            VortexFormat::new_with_options(SESSION.clone(), vortex_table_options()),
-        ),
+        Format::OnDiskVortex | Format::VortexCompact | Format::VortexSpatialNative => {
+            let format = VortexFormat::new_with_options(SESSION.clone(), vortex_table_options());
+            #[cfg(all(target_os = "linux", feature = "io-uring"))]
+            let format = match uring::factory()? {
+                Some(factory) => format.with_vortex_reader_factory(factory),
+                None => format,
+            };
+            Arc::new(format)
+        }
         Format::ArrowIpc | Format::OnDiskDuckDB | Format::Lance | Format::LitData => {
             anyhow::bail!("Format {format} cannot be turned into a DataFusion `FileFormat`")
         }
@@ -116,6 +126,20 @@ fn vortex_table_options() -> VortexTableOptions {
 
     opts.predicate_pushdown = true;
     opts.projection_pushdown = true;
+    opts.scan_v2 = std::env::var("VORTEX_SCAN_V2").is_ok_and(|value| value == "1");
+    opts.scan_v2_share_plans = std::env::var("VORTEX_SCAN_V2_SHARE_PLANS")
+        .map_or(true, |value| value == "1");
+    opts.scan_v2_io_cache_bytes = std::env::var("VORTEX_SCAN_V2_IO_CACHE_BYTES")
+        .ok().map(|value| value.parse().expect("VORTEX_SCAN_V2_IO_CACHE_BYTES must be an integer"))
+        .unwrap_or(0);
+    opts.scan_v2_chunk_rows = std::env::var("VORTEX_SCAN_V2_CHUNK_ROWS")
+        .ok().map(|value| value.parse().expect("VORTEX_SCAN_V2_CHUNK_ROWS must be an integer"));
+    opts.scan_v2_consumer_mapping = std::env::var("VORTEX_SCAN_V2_CONSUMER_MAPPING")
+        .as_deref() == Ok("1");
+    opts.scan_v2_consumer_mapping_fixed_width_only =
+        std::env::var("VORTEX_SCAN_V2_CONSUMER_MAPPING_FIXED_WIDTH_ONLY").as_deref() == Ok("1");
+    opts.scan_concurrency = std::env::var("VORTEX_SCAN_CONCURRENCY")
+        .ok().map(|value| value.parse().expect("VORTEX_SCAN_CONCURRENCY must be an integer"));
 
     opts
 }

@@ -29,11 +29,16 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::expr::get_item;
+use vortex_array::expr::and;
+use vortex_array::expr::between;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
+use vortex_array::expr::lt;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
 use vortex_array::validity::Validity;
+use vortex_array::scalar_fn::fns::between::BetweenOptions;
+use vortex_array::scalar_fn::fns::between::StrictComparison;
 use vortex_arrow::ArrowSessionExt;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
@@ -64,6 +69,8 @@ use crate::layouts::zoned::writer::ZonedStrategy;
 use crate::scan::execution::FilePlanner;
 use crate::scan::execution::SegmentLocation;
 use crate::scan::scan_builder::ScanBuilder as V1ScanBuilder;
+use crate::scan::v2::io::SegmentScanIo;
+use crate::scan::v2::io::segment_ranges;
 use crate::scan::v2::split::SplitPlan;
 use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
@@ -124,11 +131,11 @@ async fn sparse_primitive_reads_preserve_rows_and_skip_bytes(
         if nullable { Validity::AllValid } else { Validity::NonNullable },
     ).into_array();
     let segments = Arc::new(TestSegments::default());
-    let (sequence, eof) = SequenceId::root().split();
+    let (mut sequence, eof) = SequenceId::root().split();
     let layout = FlatLayoutStrategy::default().write_stream(
         ArrayContext::empty().into(),
         Arc::clone(&segments) as _,
-        SequentialStreamAdapter::new(array.dtype().clone(), stream::iter([Ok((sequence, array))])).sendable(),
+        SequentialStreamAdapter::new(array.dtype().clone(), stream::iter([Ok((sequence.advance(), array))])).sendable(),
         eof,
         &session,
     ).await?;
@@ -578,6 +585,39 @@ async fn unordered_returns_every_row() -> VortexResult<()> {
 }
 
 #[tokio::test]
+async fn paired_bounds_read_once_like_between() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write(&session, table().as_ref()).await?;
+    let bytes = Arc::new(AtomicUsize::new(0));
+    let source: Arc<dyn SegmentSource> = Arc::new(RangeCountingSource {
+        inner: segments, bytes: Arc::clone(&bytes),
+    });
+    let column = get_item("ints", root());
+    let filters = [
+        between(column.clone(), lit(999_i32), lit(2000_i32), BetweenOptions {
+            lower_strict: StrictComparison::Strict,
+            upper_strict: StrictComparison::Strict,
+        }),
+        and(gt(column.clone(), lit(999_i32)), lt(column.clone(), lit(2000_i32))),
+    ];
+    let mut reads = Vec::new();
+    for filter in filters {
+        bytes.store(0, Ordering::Relaxed);
+        let scan = builder(&session, &source, &layout)?
+            .with_subsegment_reads(false)
+            .with_projection(column.clone().bind(layout.dtype())?)
+            .with_filter(filter.bind(layout.dtype())?);
+        let actual = collect(scan.dtype().clone(), scan.into_stream()?).await?;
+        assert_arrays_eq!(actual, PrimitiveArray::from_iter(1000_i32..2000),
+            &mut session.create_execution_ctx());
+        reads.push(bytes.load(Ordering::Relaxed));
+    }
+    assert!(reads[0] > 0);
+    assert_eq!(reads[1], reads[0], "paired bounds must not reread their column");
+    Ok(())
+}
+
+#[tokio::test]
 async fn primitive_column() -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write(&session, table().as_ref()).await?;
@@ -640,6 +680,50 @@ async fn chunked_ints(
             session,
         )
         .await
+}
+
+#[rstest]
+#[case::shared(true, false, [2, 0])]
+#[case::separate(false, false, [1, 1])]
+#[case::override_service(true, true, [1, 1])]
+#[tokio::test]
+async fn scan_cache_shares_default_source_until_dropped(
+    #[case] cached: bool,
+    #[case] override_service: bool,
+    #[case] expected_reads: [usize; 2],
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let segments = Arc::new(TestSegments::default());
+    let layout = chunked_ints(&session, &segments).await?;
+    let sources = [0, 1].map(|_| Arc::new(CountingSegments {
+        inner: Arc::clone(&segments) as _,
+        reads: AtomicUsize::new(0),
+    }));
+    let first = Arc::downgrade(&sources[0]);
+    let cache = cached.then(ScanCache::default);
+    for (partition, source) in sources.iter().enumerate() {
+        let segments = Arc::clone(source) as Arc<dyn SegmentSource>;
+        let mut file = scan_file(&segments, &layout)?;
+        file.cache = cache.clone();
+        let service = SegmentScanIo::new(segments, segment_ranges(&file.locations));
+        let rows = (partition as u64 * 10)..((partition as u64 + 1) * 10);
+        let mut scan = ScanBuilder::new(session.clone(), file).with_row_range(rows.clone());
+        if partition == 1 && override_service {
+            scan = scan.with_io_service(Arc::new(service));
+        }
+        let actual = collect(layout.dtype().clone(), scan.into_stream()?).await?;
+        assert_arrays_eq!(
+            actual,
+            PrimitiveArray::from_iter(rows.map(|row| row as i32)),
+            &mut session.create_execution_ctx()
+        );
+    }
+    assert_eq!(sources.each_ref().map(|source| source.reads.load(Ordering::Relaxed)), expected_reads);
+    drop(sources);
+    assert_eq!(first.upgrade().is_some(), cached);
+    drop(cache);
+    assert!(first.upgrade().is_none());
+    Ok(())
 }
 
 /// A shared [`ScanCache`] keeps dictionary values between scans; without one, each scan reads

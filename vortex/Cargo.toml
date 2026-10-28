@@ -31,6 +31,7 @@ vortex-decimal-byte-parts = { workspace = true }
 vortex-edition = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
+futures = { workspace = true }
 vortex-file = { workspace = true, optional = true }
 vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }
@@ -56,10 +57,12 @@ arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 divan = { workspace = true }
 fastlanes = { workspace = true }
+futures = { workspace = true }
 mimalloc = { workspace = true }
 parquet = { workspace = true }
 rand = { workspace = true }
 serde_json = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -67,6 +70,7 @@ vortex = { path = ".", features = ["tokio"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 
 [features]
+io-uring = ["vortex-io/io-uring", "vortex-layout/io-uring"]
 default = ["files", "parquet-variant", "wasm-bindgen", "zstd"]
 files = ["dep:vortex-file"]
 memmap2 = ["vortex-buffer/memmap2"]
@@ -98,6 +102,14 @@ pretty = ["vortex-array/table-display"]
 serde = ["vortex-array/serde", "vortex-buffer/serde", "vortex-mask/serde"]
 # Exposes experimental row-function APIs without compatibility guarantees.
 unstable_row_fns = ["vortex-array/unstable_row_fns"]
+
+[[example]]
+name = "v2_uring_scan"
+required-features = ["io-uring", "tokio", "files"]
+
+[[test]]
+name = "uring_scan"
+required-features = ["io-uring", "tokio", "files"]
 
 [[bench]]
 name = "single_encoding_throughput"

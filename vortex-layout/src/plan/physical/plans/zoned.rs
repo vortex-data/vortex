@@ -35,6 +35,7 @@ use vortex_session::registry::CachedId;
 
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::plan::physical::Eval;
+use crate::plan::physical::EvalPlan;
 use crate::plan::physical::Plan;
 use crate::plan::physical::PlanChildren;
 use crate::plan::physical::PlanId;
@@ -458,7 +459,7 @@ fn expand_zones(
     array.filter(mask.clone())
 }
 
-/// Rewrites an abstract statistic expression over a zoned plan into its pruning state.
+/// Pushes data expressions through a zoned plan and rewrites statistic expressions into pruning.
 #[derive(Debug)]
 pub(crate) struct ExpressionZonedRule;
 
@@ -488,7 +489,17 @@ impl PlanParentReduceRule<Zoned> for ExpressionZonedRule {
             contains_root |= expression.is_root();
             Ok(Transformed::no(expression))
         })?;
-        if !parent.dtype().is_boolean() || !contains_stat || contains_root {
+        if !contains_stat {
+            // Data execution bypasses the zones. Expose the same child during optimization so
+            // expressions can reach encodings such as dictionaries before they materialize.
+            return child
+                .data_plan()?
+                .map(|data| {
+                    EvalPlan::try_new(parent.expression().clone(), data).map(Plan::into_plan)
+                })
+                .transpose();
+        }
+        if !parent.dtype().is_boolean() || contains_root {
             return Ok(None);
         }
 

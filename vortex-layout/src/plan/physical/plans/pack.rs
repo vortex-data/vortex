@@ -351,17 +351,17 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
 
         let expression = parent.expression();
         let fields = child.fields();
-        let referenced_fields =
-            descendent_bound_annotations(expression, make_bound_free_field_annotator(fields))
-                .get(&ExactBoundExpr(expression.clone()))
-                .vortex_expect("Bound expression missing free-field annotations")
-                .clone();
-        let expanded_root = expanded_struct_root(child.dtype(), fields)?;
-        let expanded = expand_struct_root(expression.clone(), &expanded_root, fields)?;
+        let expanded = expand_struct_root(expression.clone(), fields)?;
         let partitioned =
             partition_bound(expanded.clone(), make_bound_free_field_annotator(fields))?;
 
         if partitioned.partition_names.is_empty() {
+            // Expansion removes the root below an empty selection, which reads no fields.
+            let referenced_fields =
+                descendent_bound_annotations(&expanded, make_bound_free_field_annotator(fields))
+                    .get(&ExactBoundExpr(expanded.clone()))
+                    .vortex_expect("Bound expression missing free-field annotations")
+                    .clone();
             let selected_indices = fields
                 .names()
                 .iter()
@@ -383,7 +383,7 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
                 .collect::<VortexResult<Vec<_>>>()?;
             let rewritten = child.with_pruned_fields(pruned_fields)?.into_plan();
             return Ok(Some(
-                EvalPlan::try_new(expression.clone(), rewritten)?.into_plan(),
+                EvalPlan::try_new(expanded, rewritten)?.into_plan(),
             ));
         }
 
@@ -545,14 +545,20 @@ fn is_identity_expression(expression: &BoundExpression, input_dtype: &DType) -> 
 
 fn expand_struct_root(
     expression: BoundExpression,
-    expanded_root: &BoundExpression,
     fields: &StructFields,
 ) -> VortexResult<BoundExpression> {
+    let mut expanded_root = None;
     Ok(expression
         .transform_down(|node| {
             if node.is_root() {
+                if expanded_root.is_none() {
+                    expanded_root = Some(expanded_struct_root(node.dtype(), fields)?);
+                }
                 return Ok(Transformed {
-                    value: expanded_root.clone(),
+                    value: expanded_root
+                        .as_ref()
+                        .vortex_expect("expanded root was initialized")
+                        .clone(),
                     changed: true,
                     order: TraversalOrder::Skip,
                 });
@@ -570,12 +576,13 @@ fn expand_struct_root(
             }
 
             if let Some(field_name) = scalar_fn.as_opt::<GetItem>() {
-                let index = fields.find(field_name).ok_or_else(|| {
+                fields.find(field_name).ok_or_else(|| {
                     vortex_err!("Field {field_name} not found while expanding struct root")
                 })?;
+                // A direct field access already has the required form; do not expand its root.
                 return Ok(Transformed {
-                    value: expanded_root.children()[index].clone(),
-                    changed: true,
+                    value: node,
+                    changed: false,
                     order: TraversalOrder::Skip,
                 });
             }
@@ -585,12 +592,12 @@ fn expand_struct_root(
                 let children = names
                     .iter()
                     .map(|name| {
-                        let index = fields
-                            .find(name)
-                            .vortex_expect("normalized selection fields must exist in the root");
-                        expanded_root.children()[index].clone()
+                        BoundExpression::try_new(
+                            GetItem.bind(name.clone()),
+                            [node.children()[0].clone()],
+                        )
                     })
-                    .collect();
+                    .collect::<VortexResult<Vec<_>>>()?;
                 return Ok(Transformed {
                     value: bound_pack(names, children)?,
                     changed: true,

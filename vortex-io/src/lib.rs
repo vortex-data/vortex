@@ -23,6 +23,7 @@ mod limit;
 #[cfg(feature = "object_store")]
 pub mod object_store;
 mod read_at;
+pub mod read_at2;
 pub mod request;
 pub mod runtime;
 pub mod session;
@@ -30,4 +31,6 @@ pub mod session;
 pub mod std_file;
 #[cfg(feature = "tokio")]
 mod tokio;
+#[cfg(all(target_os = "linux", feature = "io-uring"))]
+pub mod uring;
 mod write;

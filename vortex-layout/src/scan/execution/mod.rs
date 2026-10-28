@@ -9,6 +9,7 @@
 //! through a `ScanAdaptor`, so the planning driver can advance other work while reads wait.
 
 mod adaptor;
+mod filter;
 mod projection;
 mod primitive;
 mod selection;
@@ -22,6 +23,7 @@ use vortex_scan::planning::planner::WorkScope;
 use vortex_session::VortexSession;
 
 pub(super) use self::selection::FilePlanner;
+pub(super) use self::filter::FilterPlans;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::pipeline::ValueCache;
 
@@ -56,6 +58,8 @@ pub(super) struct ScanPlans {
     pub(super) locations: Arc<[SegmentLocation]>,
     /// The optimized projection plan, over the scan's root row domain.
     pub(super) projection: PlanRef,
+    /// Conjuncts evaluated before the projection, sharing selectivity information across splits.
+    pub(super) filter: Option<Arc<FilterPlans>>,
     /// The global row index of the root row domain's first row.
     pub(super) row_offset: u64,
     /// Whole values, such as dictionary values, shared by the splits of this scan. Their plans

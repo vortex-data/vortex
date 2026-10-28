@@ -76,7 +76,7 @@ pub(super) struct ScanAdaptor {
 
 enum Delivery {
     Whole(ReadId, SegmentId),
-    Probe(ReadRequest, usize),
+    Probe(ReadRequest, usize, Vec<Range<usize>>),
     Part(ReadId, Range<usize>),
 }
 
@@ -87,6 +87,16 @@ struct SparseRead {
 }
 
 impl ScanAdaptor {
+    /// Keeps protocol identities unique when one planner executes consecutive scans.
+    pub(super) fn with_request_start(mut self, next_id: u32) -> Self {
+        self.next_id = next_id;
+        self
+    }
+
+    pub(super) fn next_request_id(&self) -> u32 {
+        self.next_id
+    }
+
     /// Wraps a scan, numbering requests uniquely within this adaptor's lifetime.
     pub(super) fn new(scan: Scan, locations: Arc<[SegmentLocation]>, subsegment_reads: bool) -> Self {
         Self {
@@ -174,11 +184,12 @@ impl ScanAdaptor {
             && len >= demand.buffer_len
             && len - demand.buffer_len <= 4096
             && len > 4096
+            && let Some(ranges) = demand.ranges()
         {
             let start = len - 4096;
             return self.publish(
                 IoTarget::Range { offset: location.offset + start as u64, len: 4096, alignment: Alignment::none() },
-                Delivery::Probe(read, start),
+                Delivery::Probe(read, start, ranges),
             );
         }
         self.publish(location.target(), Delivery::Whole(read.id, read.segment_id))
@@ -208,22 +219,21 @@ impl ScanAdaptor {
         };
         match delivery {
             Delivery::Whole(read, segment) => self.deliver(read, segment, bytes),
-            Delivery::Probe(read, start) => {
+            Delivery::Probe(read, start, ranges) => {
                 let location = self.location(read.segment_id)?;
                 let tail = bytes.try_into_host_sync()?;
                 vortex_ensure_eq!(tail.len(), location.length as usize - start);
-                let offset = read.primitive.as_ref().and_then(|demand| value_offset(&tail, location.length as usize, demand));
+                let offset = read.primitive.as_ref().and_then(|demand| value_offset(&tail, location.length as usize, demand, &ranges));
                 let Some(offset) = offset else {
                     let request = self.publish(location.target(), Delivery::Whole(read.id, read.segment_id))?;
                     self.queued.push(request);
                     return Ok(());
                 };
-                let demand = read.primitive.ok_or_else(|| vortex_err!("Sparse read lost its demand"))?;
                 // The scan source filters these bytes before any row leaves it. Missing values
                 // remain initialized, and this private reconstruction is never put in a cache.
                 let mut buffer = ByteBufferMut::zeroed_aligned(location.length as usize, location.alignment);
                 buffer.as_mut_slice()[start..].copy_from_slice(&tail);
-                let ranges: Vec<_> = demand.ranges.into_iter().filter_map(|range| {
+                let ranges: Vec<_> = ranges.into_iter().filter_map(|range| {
                     let begin = offset + range.start;
                     let end = (offset + range.end).min(start);
                     (begin < end).then_some(begin..end)

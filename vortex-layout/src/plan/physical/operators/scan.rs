@@ -95,30 +95,13 @@ impl ScanSource {
         if selected == 0 || selected > row_count / 8 {
             return None;
         }
-        let rows = match &self.filter {
-            Some(Mask::AllFalse(_)) => return None,
-            Some(Mask::Values(values)) => values.slices().to_vec(),
-            _ => vec![(0, slice.len())],
-        };
-        let mut ranges: Vec<Range<usize>> = Vec::new();
-        for (start, end) in rows {
-            let range = (slice.start + start) * width..(slice.start + end) * width;
-            if let Some(previous) = ranges.last_mut()
-                && range.start - previous.end <= 4096
-            {
-                previous.end = range.end;
-            } else {
-                ranges.push(range);
-            }
-        }
-        if ranges.len() > 32 || ranges.iter().map(Range::len).sum::<usize>() > buffer_len / 8 {
-            return None;
-        }
-        Some(PrimitiveRead {
-            array_ctx: self.plan.array_ctx().clone(),
+        Some(PrimitiveRead::new(
+            self.plan.array_ctx().clone(),
             buffer_len,
-            ranges,
-        })
+            width,
+            slice.start,
+            self.filter.clone().unwrap_or_else(|| Mask::new_true(slice.len())),
+        ))
     }
 
     pub(crate) fn new(
@@ -194,5 +177,41 @@ impl Operator for SelectStage {
             self.slice.as_ref(),
             self.filter.as_ref(),
         )?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::ArrayContext;
+    use vortex_array::dtype::PType;
+    use vortex_error::VortexResult;
+    use vortex_mask::Mask;
+    use vortex_session::registry::ReadContext;
+
+    use super::ScanSource;
+    use crate::plan::physical::SegmentScanPlan;
+    use crate::segments::SegmentId;
+
+    #[test]
+    fn primitive_hint_does_not_materialize_sparse_ranges() -> VortexResult<()> {
+        let row_count = 131072;
+        let mask = Mask::from_indices(row_count, (0..row_count).step_by(16));
+        let Mask::Values(values) = &mask else {
+            unreachable!("the selection is neither empty nor full");
+        };
+        let source = ScanSource::new(
+            SegmentScanPlan::new(
+                PType::I64.into(),
+                u64::try_from(row_count)?,
+                SegmentId::from(0),
+                ReadContext::new(ArrayContext::empty().to_ids()),
+                None,
+            ),
+            None,
+            Some(mask.clone()),
+        );
+        let _hint = source.primitive_read();
+        assert!(values.cached_slices().is_none());
+        Ok(())
     }
 }

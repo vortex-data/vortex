@@ -13,6 +13,7 @@ use vortex_array::expr::ExactBoundExpr;
 use super::io::SegmentRanges;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::pipeline::ValueCache;
+use crate::segments::SegmentSource;
 
 /// Reusable state for repeated V2 scans of one file, the V2 counterpart of a cached
 /// [`LayoutReader`](crate::LayoutReader) tree.
@@ -22,10 +23,12 @@ use crate::plan::physical::pipeline::ValueCache;
 /// that finds an entry here reuses it, and one that misses builds the entry and keeps it for later
 /// scans. The lowered plan keeps the children it has initialized, each distinct projection keeps
 /// its optimized plan, and dictionary values stay keyed by the cached plan that produced them.
+/// Scans using the default I/O service also share the first segment source, so their requests can
+/// be coalesced across partitions. An explicit I/O service continues to override that source.
 ///
-/// A cache describes one file's layout, segment locations, and segment source. Use a new cache
-/// when any of them changes. Cached plans and values live as long as the cache, one set per
-/// distinct projection.
+/// A cache describes one immutable file's layout, segment locations, and compatible segment
+/// sources. Use a new cache when the file or its read configuration changes. Cached plans, values,
+/// and the default segment source live as long as the cache, with one plan per distinct projection.
 #[derive(Clone, Default)]
 pub struct ScanCache(Arc<Inner>);
 
@@ -36,6 +39,7 @@ struct Inner {
     /// them, so a projection must reuse its plan for its values to be found again.
     projections: Mutex<FxHashMap<ExactBoundExpr, PlanRef>>,
     ranges: Mutex<Option<SegmentRanges>>,
+    segments: Mutex<Option<Arc<dyn SegmentSource>>>,
     values: ValueCache,
 }
 
@@ -78,6 +82,11 @@ impl ScanCache {
     /// Keeps `ranges`, returning the index already kept if another scan got there first.
     pub(super) fn insert_ranges(&self, ranges: SegmentRanges) -> SegmentRanges {
         Arc::clone(self.0.ranges.lock().get_or_insert(ranges))
+    }
+
+    /// Keeps the first default source so independently opened partitions share its coalescer.
+    pub(super) fn insert_segments(&self, segments: Arc<dyn SegmentSource>) -> Arc<dyn SegmentSource> {
+        Arc::clone(self.0.segments.lock().get_or_insert(segments))
     }
 
     pub(super) fn values(&self) -> ValueCache {

@@ -44,6 +44,12 @@ vortex-utils = { workspace = true }
 [target.'cfg(unix)'.dependencies]
 custom-labels = { workspace = true }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+io-uring = { workspace = true, optional = true }
+libc = { workspace = true, optional = true }
+memmap2 = { workspace = true, optional = true }
+rustix = { workspace = true, features = ["thread", "mm", "param"], optional = true }
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Smol is our default impl, so we don't want it to be optional, but it cannot be part of wasm
 smol = { workspace = true }
@@ -61,6 +67,7 @@ tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 
 [features]
+io-uring = ["dep:io-uring", "dep:libc", "dep:memmap2", "dep:rustix"]
 object_store = ["dep:object_store", "vortex-error/object_store"]
 tokio = ["tokio/fs", "tokio/rt-multi-thread"]
 wasm-bindgen = ["dep:wasm-bindgen-futures"]

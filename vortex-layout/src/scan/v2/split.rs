@@ -24,6 +24,24 @@ pub(super) struct SplitPlan {
 }
 
 impl SplitPlan {
+    /// Runs on one scan worker, using the service's native completion wait.
+    #[cfg(all(target_os = "linux", feature = "io-uring"))]
+    pub(super) fn run_blocking(self, io: Arc<dyn IoService>) -> VortexResult<Vec<ArrayRef>> {
+        let source = io.session();
+        let mut run = Run::new();
+        run.admit(self.root, self.scope, Arc::clone(&source));
+        let mut batches = Vec::new();
+        loop {
+            match run.advance()? {
+                Progress::Batch(batch) => batches.push(batch),
+                Progress::RootDone(_) | Progress::Idle => break,
+                Progress::Waiting => run.complete(source.wait()?)?,
+            }
+        }
+        batches.sort_by_key(|batch| batch.scope.rows.start);
+        Ok(batches.into_iter().map(|batch| batch.array).collect())
+    }
+
     /// Runs the split on a planning run of its own, reading through a session of `io`, and
     /// returns its batches in row order.
     ///

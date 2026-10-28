@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use std::time::Instant;
 
 use clap::Parser;
@@ -53,6 +55,8 @@ use vortex_bench::v3;
 use vortex_datafusion::metrics::VortexMetricsFinder;
 use vortex_datafusion::v2::VortexTable;
 
+mod diagnostics;
+
 /// Common arguments shared across benchmarks
 #[derive(Parser)]
 struct Args {
@@ -93,6 +97,26 @@ struct Args {
     #[arg(long = "ingest-jsonl")]
     ingest_output: Option<PathBuf>,
 
+    /// Write timings and I/O deltas for every iteration, including warmups.
+    #[arg(long)]
+    io_jsonl: Option<PathBuf>,
+
+    /// Save each query's first result as Arrow IPC, outside the timed interval.
+    #[arg(long)]
+    result_dir: Option<PathBuf>,
+
+    /// Override SQL with a JSON array of [query id, SQL] pairs for targeted diagnostics.
+    #[arg(long)]
+    queries_json: Option<PathBuf>,
+
+    /// Evict and verify local data-file pages before every iteration (Linux only).
+    #[arg(long)]
+    cold_cache: bool,
+
+    /// Idle before each cold preparation, outside query/reset timings, to control device load.
+    #[arg(long, requires = "cold_cache")]
+    cold_cache_delay_ms: Option<u64>,
+
     #[arg(long, default_value_t = false)]
     show_metrics: bool,
 
@@ -127,8 +151,17 @@ struct Args {
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
+    let mut runtime = tokio::runtime::Builder::new_multi_thread();
+    if let Ok(value) = std::env::var("VORTEX_BENCH_BLOCKING_THREADS") {
+        let threads: usize = value.parse()?;
+        anyhow::ensure!(threads > 0, "VORTEX_BENCH_BLOCKING_THREADS must be positive");
+        runtime.max_blocking_threads(threads);
+    }
+    runtime.enable_all().build()?.block_on(run())
+}
+
+async fn run() -> anyhow::Result<()> {
     vortex_bench::configure_allocator();
     let args = Args::parse();
     let opts = Opts::from(args.options);
@@ -138,8 +171,12 @@ async fn main() -> anyhow::Result<()> {
 
     let benchmark = create_benchmark(args.benchmark, &opts)?;
 
+    let queries = match args.queries_json.as_deref() {
+        Some(path) => serde_json::from_reader(File::open(path)?)?,
+        None => benchmark.queries()?,
+    };
     let filtered_queries = filter_queries(
-        benchmark.queries()?,
+        queries,
         args.queries.as_ref(),
         args.exclude_queries.as_ref(),
     );
@@ -152,6 +189,23 @@ async fn main() -> anyhow::Result<()> {
     }
 
     require_prepared_data(&*benchmark, &args.formats)?;
+
+    #[cfg(all(target_os = "linux", feature = "io-uring"))]
+    datafusion_bench::memory::prepare(benchmark.data_url(), &args.formats, args.cold_cache)?;
+
+    let completion_io = std::env::var("VORTEX_IO_BACKEND")
+        .is_ok_and(|value| !value.is_empty() && value != "legacy");
+    if completion_io {
+        anyhow::ensure!(cfg!(all(target_os = "linux", feature = "io-uring")),
+            "Completion I/O experiments require the Linux io-uring build feature");
+        anyhow::ensure!(benchmark.data_url().scheme() == "file", "Completion I/O experiments require local data");
+        anyhow::ensure!(!use_scan_api(), "VORTEX_USE_SCAN_API selects a different scan integration");
+    }
+    let diagnostics = Arc::new(diagnostics::Diagnostics::new(
+        args.io_jsonl.as_deref(), args.result_dir, args.cold_cache,
+        Duration::from_millis(args.cold_cache_delay_ms.unwrap_or(0)),
+        benchmark.data_url(), &args.formats,
+    )?);
 
     let benchmark_name = benchmark.dataset().to_string();
 
@@ -197,16 +251,22 @@ async fn main() -> anyhow::Result<()> {
             },
             |query_idx, (session, format), query| {
                 let plans = Arc::clone(&collected_plans);
+                let diagnostics = Arc::clone(&diagnostics);
 
                 let labelset = set_labels(benchmark_name.clone(), query_idx, *format);
 
                 Box::pin(
                     async move {
+                        let cache = diagnostics.prepare()?;
+                        let before = diagnostics::Snapshot::take();
                         let timer = Instant::now();
                         let (batches, plan) = execute_query(session, query)
                             .with_labelset(get_labelset_from_global())
                             .await?;
                         let time = timer.elapsed();
+                        let after = diagnostics::Snapshot::take();
+                        diagnostics.record(query_idx, *format, time, before, after, cache,
+                            &batches, &plan.schema())?;
 
                         // Store plan for metrics (only store once per query/format combination)
                         if show_metrics {

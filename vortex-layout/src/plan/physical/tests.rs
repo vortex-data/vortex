@@ -5,6 +5,7 @@ use std::fmt;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
@@ -28,9 +29,12 @@ use vortex_array::expr::dynamic;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::is_null;
+use vortex_array::expr::like;
 use vortex_array::expr::lit;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
+use vortex_array::expr::select;
+use vortex_array::expr::select_exclude;
 use vortex_array::expr::stats::Stat;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
@@ -193,6 +197,47 @@ fn struct_plan_lowers_each_field_on_access() -> VortexResult<()> {
             .err()
             .ok_or_else(|| vortex_err!("unsupported field unexpectedly produced a plan"))?,
     );
+    Ok(())
+}
+
+#[rstest]
+#[case(select(["b", "a"], root()))]
+#[case(select_exclude(["unused"], root()))]
+#[case(select([] as [&str; 0], root()))]
+fn struct_selection_preserves_dtype_and_prunes_unused_fields(
+    #[case] projection: Expression,
+) -> VortexResult<()> {
+    let integer = primitive(PType::I32, Nullability::NonNullable);
+    let boolean = DType::Bool(Nullability::Nullable);
+    let layout = StructLayout::new(
+        3,
+        DType::Struct(
+            StructFields::from_iter([
+                ("a", integer.clone()),
+                ("b", boolean.clone()),
+                ("unused", integer.clone()),
+            ]),
+            Nullability::NonNullable,
+        ),
+        vec![flat(3, integer.clone(), 0), flat(3, boolean, 1), unsupported(3, integer)],
+    )
+    .into_layout();
+    let plan = make_plan(layout)?;
+    let projection = projection.bind(plan.dtype())?;
+    let expected_dtype = projection.dtype().clone();
+    let optimized = optimize(EvalPlan::try_new(projection, plan)?.into_plan())?;
+    assert_eq!(optimized.dtype(), &expected_dtype);
+    assert_eq!(optimized.row_count(), 3);
+    let reoptimized = optimize(optimized.clone())?;
+    assert!(PlanRef::ptr_eq(&optimized, &reoptimized));
+
+    // Resolve every retained child: the unsupported field must have been pruned.
+    let mut pending = vec![optimized];
+    while let Some(plan) = pending.pop() {
+        for child in plan.children().iter_refs() {
+            pending.push(child?.clone());
+        }
+    }
     Ok(())
 }
 
@@ -1225,6 +1270,39 @@ fn zoned_plan_exposes_data_and_zones() -> VortexResult<()> {
       zones: vortex.plan.filter({vortex.max()=i32?}, rows=2)
         child: vortex.plan.segment_scan({vortex.max()=i32?}, rows=2)
     ");
+    Ok(())
+}
+
+#[rstest]
+fn predicate_pushes_through_zones_into_dictionary(
+    #[values(Nullability::NonNullable, Nullability::Nullable)] values_nullability: Nullability,
+    #[values(Nullability::NonNullable, Nullability::Nullable)] codes_nullability: Nullability,
+) -> VortexResult<()> {
+    let values_dtype = DType::Utf8(values_nullability);
+    let dictionary = TakePlan::new(
+        make_plan(flat(5, primitive(PType::U8, codes_nullability), 1))?,
+        make_plan(flat(2, values_dtype, 0))?,
+    )
+    .into_plan();
+    let (max, zones_dtype) = max_zones_dtype(dictionary.dtype())?;
+    let zoned = ZonedPlan::new(
+        dictionary,
+        make_plan(flat(2, zones_dtype, 2))?,
+        3,
+        vec![max].into(),
+    )
+    .into_plan();
+    let expression = like(root(), lit("%google%"));
+    let plan = make_eval(expression, zoned)?.into_plan();
+    let expected_dtype = plan.dtype().clone();
+    let optimized = optimize(plan)?;
+    assert_eq!(optimized.dtype(), &expected_dtype);
+    assert_eq!(optimized.row_count(), 5);
+    let take = optimized.as_opt::<Take>().ok_or_else(|| {
+        vortex_err!("Predicate did not reach dictionary values: {}", optimized.display_tree())
+    })?;
+    assert!(take.values()?.is::<Eval>());
+    assert!(PlanRef::ptr_eq(&optimized, &optimize(optimized.clone())?));
     Ok(())
 }
 

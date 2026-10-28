@@ -20,7 +20,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
-use vortex_session::registry::ReadContext;
 
 use super::DEFAULT_CAPACITY;
 use super::compile::Chain;
@@ -30,6 +29,7 @@ use super::port::PipelineId;
 use super::port::PortId;
 use super::port::Slab;
 use super::port::SourceEnd;
+use super::primitive::PrimitiveRead;
 use super::values::ValueCache;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::operator::Cx;
@@ -58,17 +58,6 @@ pub struct ReadRequest {
     pub segment_id: SegmentId,
     /// Optional sparse primitive byte demand. Owners may ignore it and read the whole segment.
     pub primitive: Option<PrimitiveRead>,
-}
-
-/// Byte demand for a non-null primitive segment, subject to verification of its encoding tree.
-#[derive(Clone, Debug)]
-pub struct PrimitiveRead {
-    /// Encoding registry used to identify the serialized array.
-    pub array_ctx: ReadContext,
-    /// Expected length of the primitive value buffer.
-    pub buffer_len: usize,
-    /// Sorted, disjoint ranges within that buffer. Only these rows will leave the scan source.
-    pub ranges: Vec<Range<usize>>,
 }
 
 /// A row range of the plan's domain, and the rows of it to produce.

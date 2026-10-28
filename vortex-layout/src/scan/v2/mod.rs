@@ -9,15 +9,16 @@
 //! file's [`SegmentSource`]. The layout reader is never asked to evaluate anything.
 //!
 //! Import this module's [`ScanBuilder`] to select V2 explicitly. It accepts a [`ScanFile`]
-//! directly and supports projection, row ranges, and selections. Unsupported layouts return an
-//! error; filters and limits are not part of this builder's API. Work is partitioned into fixed
+//! directly and supports projection, predicates, row ranges, and selections. Unsupported layouts
+//! return an error; row limits remain the caller's responsibility. Work is partitioned into fixed
 //! chunks of up to 65,536 rows, independently of the stored layout's chunk boundaries.
 //! Full-file projections use smaller 8,192-row multiples when serialized bytes per row are high.
 //! A file planner emits selected chunk planners incrementally to tasks on the runtime, without
 //! an upfront walk or allocation of all selected chunk planners.
 //!
-//! A [`ScanFile`] carrying a [`ScanCache`] shares its lowered plan, segment index, and dictionary
-//! values with every other scan of that file, like a cached layout reader does for V1 scans.
+//! A [`ScanFile`] carrying a [`ScanCache`] shares its lowered plan, segment index, dictionary
+//! values, and default segment source with other scans of that file, like a cached layout reader
+//! does for V1 scans.
 
 mod cache;
 mod io;
@@ -33,6 +34,7 @@ use arrow_schema::ArrowError;
 use arrow_schema::Field;
 use arrow_schema::SchemaRef;
 use futures::Stream;
+use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
@@ -41,9 +43,14 @@ use vortex_array::ArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
+use vortex_array::expr::transform::find_between;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_io::request::IoService;
+use vortex_io::request::ScopedIoCache;
 use vortex_io::session::RuntimeSessionExt;
+#[cfg(all(target_os = "linux", feature = "io-uring"))]
+use vortex_io::uring::UringWorkerPool;
 use vortex_scan::selection::Selection;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
@@ -56,11 +63,13 @@ use crate::plan::physical::optimize;
 use crate::plan::physical::plan_row_idx_expression;
 use crate::scan::arrow::to_record_batch;
 use crate::scan::execution::FilePlanner;
+use crate::scan::execution::FilterPlans;
 use crate::scan::execution::ScanPlans;
 pub use crate::scan::execution::SegmentLocation;
 use crate::scan::v2::io::SegmentScanIo;
 use crate::scan::v2::io::segment_ranges;
 use crate::scan::v2::split::SplitPlan;
+use crate::scan::filter::FilterExpr;
 use crate::segments::SegmentSource;
 
 const ROW_BLOCK_SIZE: usize = 8192;
@@ -97,11 +106,12 @@ pub struct ScanFile {
 /// Builds a projection scan on the planner-driven V2 executor.
 ///
 /// This builder reads the file's layout and segments directly. Unsupported layouts return an
-/// error when the stream is polled. Filters and row limits are not supported.
+/// error when the stream is polled. Predicates run before projection over the selected rows.
 pub struct ScanBuilder<A = ArrayRef> {
     session: VortexSession,
     file: ScanFile,
     projection: BoundExpression,
+    filter: Option<BoundExpression>,
     ordered: bool,
     row_range: Option<Range<u64>>,
     selection: Selection,
@@ -109,6 +119,11 @@ pub struct ScanBuilder<A = ArrayRef> {
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     row_offset: u64,
     subsegment_reads: bool,
+    io: Option<Arc<dyn IoService>>,
+    io_cache_bytes: usize,
+    chunk_rows: Option<usize>,
+    #[cfg(all(target_os = "linux", feature = "io-uring"))]
+    workers: Option<UringWorkerPool>,
 }
 
 impl ScanBuilder<ArrayRef> {
@@ -116,6 +131,7 @@ impl ScanBuilder<ArrayRef> {
     pub fn new(session: VortexSession, file: ScanFile) -> Self {
         Self {
             projection: BoundExpression::new_root(file.layout.dtype().clone()),
+            filter: None,
             session,
             file,
             ordered: true,
@@ -125,6 +141,11 @@ impl ScanBuilder<ArrayRef> {
             map_fn: Arc::new(Ok),
             row_offset: 0,
             subsegment_reads: true,
+            io: None,
+            io_cache_bytes: 0,
+            chunk_rows: None,
+            #[cfg(all(target_os = "linux", feature = "io-uring"))]
+            workers: None,
         }
     }
 
@@ -146,6 +167,23 @@ impl ScanBuilder<ArrayRef> {
 }
 
 impl<A: 'static + Send> ScanBuilder<A> {
+    /// Uses a positional I/O service instead of the file's segment source.
+    /// The service must address the same immutable file as the layout and segment locations.
+    /// Each split receives an independent registration scope.
+    pub fn with_io_service(mut self, io: Arc<dyn IoService>) -> Self {
+        self.io = Some(io);
+        self
+    }
+
+    /// Runs each split on one scan worker, driving that worker's ring between compute steps.
+    /// With multiple active jobs configured, other splits can run while one awaits I/O.
+    /// With one active job, the split uses the service's native blocking completion wait.
+    #[cfg(all(target_os = "linux", feature = "io-uring"))]
+    pub fn with_uring_workers(mut self, workers: UringWorkerPool) -> Self {
+        self.workers = Some(workers);
+        self
+    }
+
     /// The output dtype after projection, before any output mapping.
     pub fn dtype(&self) -> &DType {
         self.projection.dtype()
@@ -154,6 +192,18 @@ impl<A: 'static + Send> ScanBuilder<A> {
     /// Sets a projection bound against the file's dtype.
     pub fn with_projection(mut self, projection: BoundExpression) -> Self {
         self.projection = projection;
+        self
+    }
+
+    /// Evaluates a Boolean predicate before requesting the projection's rows.
+    pub fn with_filter(mut self, filter: BoundExpression) -> Self {
+        self.filter = Some(filter);
+        self
+    }
+
+    /// Sets or clears the predicate evaluated before projection.
+    pub fn with_some_filter(mut self, filter: Option<BoundExpression>) -> Self {
+        self.filter = filter;
         self
     }
 
@@ -199,8 +249,25 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    /// Retains completed reads for reuse by one row-work chunk's predicates and projection.
+    /// The requested-byte budget applies independently to each active chunk; zero disables it.
+    /// Retained bytes are released when that chunk completes, rather than at file or scan end.
+    pub fn with_io_cache_bytes(mut self, budget: usize) -> Self {
+        self.io_cache_bytes = budget;
+        self
+    }
+
+    /// Overrides the number of file rows in each independently scheduled work chunk.
+    /// Larger chunks can reuse storage segments across more rows, at the cost of larger
+    /// working sets and fewer independent tasks. Must be greater than zero.
+    pub fn with_chunk_rows(mut self, rows: usize) -> Self {
+        assert!(rows > 0);
+        self.chunk_rows = Some(rows);
+        self
+    }
+
     /// Maps each output batch on its split's task.
-    fn map<B: 'static>(
+    pub fn map<B: 'static>(
         self,
         map_fn: impl Fn(A) -> VortexResult<B> + 'static + Send + Sync,
     ) -> ScanBuilder<B> {
@@ -209,12 +276,18 @@ impl<A: 'static + Send> ScanBuilder<A> {
             session: self.session,
             file: self.file,
             projection: self.projection,
+            filter: self.filter,
             ordered: self.ordered,
             row_range: self.row_range,
             selection: self.selection,
             concurrency: self.concurrency,
             row_offset: self.row_offset,
             subsegment_reads: self.subsegment_reads,
+            io: self.io,
+            io_cache_bytes: self.io_cache_bytes,
+            chunk_rows: self.chunk_rows,
+            #[cfg(all(target_os = "linux", feature = "io-uring"))]
+            workers: self.workers,
             map_fn: Arc::new(move |array| old_map_fn(array).and_then(&map_fn)),
         }
     }
@@ -245,6 +318,8 @@ struct PreparedScan<A: 'static + Send> {
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     ordered: bool,
     concurrency: usize,
+    #[cfg(all(target_os = "linux", feature = "io-uring"))]
+    workers: Option<UringWorkerPool>,
 }
 
 impl<A: 'static + Send> PreparedScan<A> {
@@ -257,6 +332,18 @@ impl<A: 'static + Send> PreparedScan<A> {
             None => cache.insert_root(lower(&file.layout)?),
         };
         let row_count = root.row_count();
+        let filter = builder.filter.map(|expression| -> VortexResult<_> {
+            vortex_ensure!(expression.dtype().is_boolean(), "Scan filter must be Boolean");
+            let expressions = FilterExpr::new(find_between(expression)?);
+            let plans = expressions.conjuncts().iter().map(|expression| {
+                if let Some(plan) = cache.projection(expression) {
+                    return Ok(plan);
+                }
+                let plan = optimize(plan_row_idx_expression(expression.clone(), root.clone())?)?;
+                Ok(cache.insert_projection(expression.clone(), plan))
+            }).collect::<VortexResult<Vec<_>>>()?;
+            Ok(Arc::new(FilterPlans { expressions, plans }))
+        }).transpose()?;
         // An identity projection needs no rewrites. Keep the lowered children lazy, including
         // statistics that a projection-only scan never reads.
         let identity = builder.projection.is_root() && builder.projection.dtype() == root.dtype();
@@ -272,23 +359,33 @@ impl<A: 'static + Send> PreparedScan<A> {
                 }
             }
         };
-        let chunk_rows = if identity {
+        let chunk_rows = builder.chunk_rows.unwrap_or_else(|| if identity {
             rows_per_chunk(row_count, &file.locations)
         } else {
             MAX_ROWS_PER_CHUNK
+        });
+        let segments = if builder.io.is_none() {
+            cache.insert_segments(file.segments)
+        } else {
+            file.segments
         };
-        let subsegment_reads = builder.subsegment_reads && file.segments.supports_ranges();
+        let subsegment_reads = builder.subsegment_reads
+            && (builder.io.is_some() || segments.supports_ranges());
         let ranges = match cache.ranges() {
             Some(ranges) => ranges,
             None => cache.insert_ranges(segment_ranges(&file.locations)),
         };
-        let io = Arc::new(SegmentScanIo::new(file.segments, ranges));
+        let io = builder.io.unwrap_or_else(|| Arc::new(SegmentScanIo::new(segments, ranges)));
+        let io = if builder.io_cache_bytes == 0 { io } else {
+            Arc::new(ScopedIoCache::new(io, builder.io_cache_bytes)) as Arc<dyn IoService>
+        };
         Ok(Self {
             session: builder.session.clone(),
             plans: ScanPlans {
                 session: builder.session,
                 locations: file.locations,
                 projection,
+                filter,
                 row_offset: builder.row_offset,
                 values: cache.values(),
                 subsegment_reads,
@@ -300,21 +397,41 @@ impl<A: 'static + Send> PreparedScan<A> {
             map_fn: builder.map_fn,
             ordered: builder.ordered,
             concurrency: builder.concurrency,
+            #[cfg(all(target_os = "linux", feature = "io-uring"))]
+            workers: builder.workers,
         })
     }
 
     /// Runs one file planner and schedules its children independently as they are emitted.
     fn execute_stream(self) -> VortexResult<BoxStream<'static, VortexResult<A>>> {
-        let concurrency = self.concurrency * get_available_parallelism().unwrap_or(1);
+        let worker_count = get_available_parallelism().unwrap_or(1);
+        #[cfg(all(target_os = "linux", feature = "io-uring"))]
+        let worker_count = self.workers.as_ref().map_or(worker_count, UringWorkerPool::workers);
+        let concurrency = self.concurrency * worker_count;
         let handle = self.session.handle();
         let planner = FilePlanner::new(self.plans, self.rows, self.chunk_rows, self.selection);
         let io = self.io;
         let map_fn = self.map_fn;
+        #[cfg(all(target_os = "linux", feature = "io-uring"))]
+        let workers = self.workers;
         let tasks = planner
             .into_stream(concurrency)
             .map_ok(move |(scope, root)| {
                 let io = Arc::clone(&io);
                 let map_fn = Arc::clone(&map_fn);
+                #[cfg(all(target_os = "linux", feature = "io-uring"))]
+                if let Some(workers) = &workers {
+                    if workers.max_active_jobs() > 1 {
+                        return workers.spawn_async(move || async move {
+                            SplitPlan { scope, root }.run(io).await?
+                                .into_iter().map(|array| map_fn(array)).collect::<VortexResult<Vec<_>>>()
+                        });
+                    }
+                    return workers.spawn(move || {
+                        SplitPlan { scope, root }.run_blocking(io)?
+                            .into_iter().map(|array| map_fn(array)).collect::<VortexResult<Vec<_>>>()
+                    });
+                }
                 handle.spawn(async move {
                     SplitPlan { scope, root }
                         .run(io)
@@ -322,7 +439,7 @@ impl<A: 'static + Send> PreparedScan<A> {
                         .into_iter()
                         .map(|array| map_fn(array))
                         .collect::<VortexResult<Vec<_>>>()
-                })
+                }).boxed()
             });
         let batches = if self.ordered {
             tasks.try_buffered(concurrency).boxed()
