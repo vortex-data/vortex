@@ -10,6 +10,7 @@ use futures::FutureExt;
 use futures::future::try_join_all;
 use futures::try_join;
 use itertools::Itertools;
+use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::arrays::StructArray;
@@ -39,7 +40,6 @@ use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_array::scalar_fn::fns::select::FieldSelection;
 use vortex_array::scalar_fn::fns::select::Select;
-use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -273,61 +273,85 @@ impl StructReader {
         Ok(Partitioned::Multi(Arc::new(partitioned)))
     }
 
-    /// Recognize projections that pass fields of a non-nullable struct through unchanged: `$`,
-    /// `select(..., $)` and `pack(name: $.field, ...)`.
-    ///
-    /// These read each field with its own root expression and assemble the result directly,
-    /// instead of partitioning a `pack` over every field and evaluating it lazily on top of the
-    /// field arrays, a per-field cost that dominates scans of wide tables.
+    /// Recognize field forwarding and nested packs over a non-nullable struct.
     fn direct_projection(&self, expr: &BoundExpression) -> VortexResult<Option<DirectProjection>> {
-        if self.dtype().is_nullable() {
+        if self.dtype().is_nullable() || !matches!(expr.dtype(), DType::Struct(..)) {
             return Ok(None);
         }
+        let mut fields = Vec::new();
+        let mut slots = HashMap::new();
+        Ok(self
+            .direct_projection_output(expr, &mut fields, &mut slots)?
+            .map(|output| DirectProjection {
+                fields,
+                output: Arc::new(output),
+            }))
+    }
+
+    fn direct_projection_output(
+        &self,
+        expr: &BoundExpression,
+        inputs: &mut Vec<(usize, BoundExpression)>,
+        slots: &mut HashMap<usize, usize>,
+    ) -> VortexResult<Option<ProjectionOutput>> {
         let fields = self.struct_fields();
         let field_index = |name: &FieldName| {
             fields
                 .find(name)
                 .ok_or_else(|| vortex_err!("Field {name} not found in struct layout"))
         };
-
-        let (names, indices) = if expr.is_root() {
-            (fields.names().clone(), (0..fields.nfields()).collect())
+        let mut field_output = |idx: usize| {
+            let slot = *slots.entry(idx).or_insert_with(|| {
+                let slot = inputs.len();
+                inputs.push((
+                    idx,
+                    BoundExpression::new_root(
+                        fields
+                            .field_by_index(idx)
+                            .vortex_expect("field index is in bounds"),
+                    ),
+                ));
+                slot
+            });
+            ProjectionOutput::Field(slot)
+        };
+        if let Some(name) = expr.as_opt::<GetItem>()
+            && expr.child(0).is_root()
+        {
+            return Ok(Some(field_output(field_index(name)?)));
+        }
+        let (names, children) = if expr.is_root() {
+            (
+                fields.names().clone(),
+                (0..fields.nfields()).map(&mut field_output).collect(),
+            )
         } else if let Some(FieldSelection::Include(names)) = expr.as_opt::<Select>()
             && expr.child(0).is_root()
         {
-            let indices = names.iter().map(field_index).try_collect()?;
-            (names.clone(), indices)
-        } else if let Some(pack) = expr.as_opt::<Pack>()
-            && !pack.nullability.is_nullable()
-        {
-            let Some(indices) = expr
-                .children()
-                .iter()
-                .map(|child| {
-                    child
-                        .as_opt::<GetItem>()
-                        .filter(|_| child.child(0).is_root())
-                        .map(field_index)
-                })
-                .collect::<Option<VortexResult<Vec<_>>>>()
-            else {
-                return Ok(None);
-            };
-            (pack.names.clone(), indices?)
+            (
+                names.clone(),
+                names
+                    .iter()
+                    .map(|name| field_index(name).map(&mut field_output))
+                    .try_collect()?,
+            )
+        } else if let Some(pack) = expr.as_opt::<Pack>() {
+            let mut children = Vec::with_capacity(expr.children().len());
+            for child in expr.children() {
+                let Some(output) = self.direct_projection_output(child, inputs, slots)? else {
+                    return Ok(None);
+                };
+                children.push(output);
+            }
+            (pack.names.clone(), children)
         } else {
             return Ok(None);
         };
-
-        let fields = indices
-            .into_iter()
-            .map(|idx: usize| -> VortexResult<_> {
-                let dtype = fields
-                    .field_by_index(idx)
-                    .ok_or_else(|| vortex_err!("Field index {idx} out of bounds"))?;
-                Ok((idx, BoundExpression::new_root(dtype)))
-            })
-            .try_collect()?;
-        Ok(Some(DirectProjection { names, fields }))
+        Ok(Some(ProjectionOutput::Struct {
+            names,
+            children,
+            nullability: expr.dtype().nullability(),
+        }))
     }
 
     /// Evaluate a [`DirectProjection`] by reading each field and packing the results.
@@ -353,14 +377,11 @@ impl StructReader {
                     })
             })
             .try_collect()?;
-        let names = direct.names.clone();
+        let output = Arc::clone(&direct.output);
 
         Ok(async move {
             let (fields, mask) = try_join!(try_join_all(field_futs), mask_fut)?;
-            Ok(
-                StructArray::try_new(names, fields, mask.true_count(), Validity::NonNullable)?
-                    .into_array(),
-            )
+            output.assemble(&fields, mask.true_count())
         }
         .boxed())
     }
@@ -543,12 +564,41 @@ enum Partitioned {
     Direct(Arc<DirectProjection>),
 }
 
-/// The fields read by a pass-through projection of a non-nullable struct.
+/// Source fields and output structure of a forwarding projection.
 struct DirectProjection {
-    /// The output field names.
-    names: FieldNames,
-    /// The struct field index for each output field, with the root expression it is read with.
     fields: Vec<(usize, BoundExpression)>,
+    output: Arc<ProjectionOutput>,
+}
+
+enum ProjectionOutput {
+    Field(usize),
+    Struct {
+        names: FieldNames,
+        children: Vec<Self>,
+        nullability: Nullability,
+    },
+}
+
+impl ProjectionOutput {
+    fn assemble(&self, fields: &[ArrayRef], len: usize) -> VortexResult<ArrayRef> {
+        match self {
+            Self::Field(slot) => Ok(fields[*slot].clone()),
+            Self::Struct {
+                names,
+                children,
+                nullability,
+            } => Ok(StructArray::try_new(
+                names.clone(),
+                children
+                    .iter()
+                    .map(|child| child.assemble(fields, len))
+                    .try_collect::<_, Vec<_>, _>()?,
+                len,
+                (*nullability).into(),
+            )?
+            .into_array()),
+        }
+    }
 }
 
 impl LayoutReader for StructReader {
@@ -734,6 +784,7 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::Struct;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::assert_arrays_eq;
@@ -768,6 +819,8 @@ mod tests {
     use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::Mask;
 
+    use super::Partitioned;
+    use super::StructReader;
     use crate::LayoutReaderRef;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
@@ -1116,6 +1169,55 @@ mod tests {
     }
 
     #[rstest]
+    #[case::all(Mask::new_true(3))]
+    #[case::filtered(Mask::from_iter([true, true, false]))]
+    #[case::empty(Mask::new_false(3))]
+    fn test_nested_forwarding_projection(
+        #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+        #[case] mask: Mask,
+        #[values(Nullability::NonNullable, Nullability::Nullable)] nullability: Nullability,
+    ) -> VortexResult<()> {
+        let data = pack(
+            [
+                ("x", col("b")),
+                ("y", col("b")),
+                ("all", root()),
+                ("selected", select(["c", "a"], root())),
+                ("empty", pack(Vec::<(&str, Expression)>::new(), nullability)),
+            ],
+            nullability,
+        );
+        let projection = pack([("data", data)], Nullability::NonNullable);
+        let input = StructArray::from_fields(&[
+            ("a", buffer![7, 2, 3].into_array()),
+            ("b", buffer![4, 5, 6].into_array()),
+            ("c", buffer![4, 5, 6].into_array()),
+        ])?
+        .into_array();
+        let expected = input.filter(mask.clone())?.apply(&projection)?;
+        let reader = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+        let expr = projection.bind(reader.dtype())?;
+        let struct_reader = reader
+            .as_any()
+            .downcast_ref::<StructReader>()
+            .expect("struct reader");
+        assert!(matches!(
+            struct_reader.partition_expr(&expr)?,
+            Partitioned::Direct(_)
+        ));
+        let future = reader.projection_evaluation(&(0..3), &expr, MaskFuture::ready(mask))?;
+        let result = block_on(|_| future)?;
+        let outer = result.as_::<Struct>();
+        let data = outer.unmasked_field_by_name("data")?.as_::<Struct>();
+        assert!(ArrayRef::ptr_eq(
+            data.unmasked_field_by_name("x")?,
+            data.unmasked_field_by_name("y")?
+        ));
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    }
+
+    #[rstest]
     fn test_struct_layout_nulls(
         #[from(null_struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
@@ -1449,11 +1551,14 @@ mod tests {
     }
 
     #[rstest]
+    #[case::root(root())]
+    #[case::nested(pack([("wrapped", root())], Nullability::NonNullable))]
     fn test_nested_validity_projection_root(
         #[values(false, true)] root_nullable: bool,
+        #[case] projection: Expression,
     ) -> VortexResult<()> {
-        let result = nested_validity_project(root_nullable, root(), Mask::new_true(6))?;
-        let expected = nested_validity_array(root_nullable)?;
+        let result = nested_validity_project(root_nullable, projection.clone(), Mask::new_true(6))?;
+        let expected = nested_validity_array(root_nullable)?.apply(&projection)?;
         assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
         Ok(())
     }
