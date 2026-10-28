@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 use rstest::rstest;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -20,6 +21,7 @@ use crate::arrays::DecimalArray;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::BigCast;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
@@ -28,6 +30,7 @@ use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::i256;
+use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
@@ -422,7 +425,7 @@ fn test_decimal_mixed_storage_widths() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let dtype = DecimalDType::new(10, 2);
     let lhs = DecimalArray::from_iter::<i32, _>([100, 250], dtype).into_array();
-    let rhs = DecimalArray::from_iter::<i128, _>([200, 250], dtype).into_array();
+    let rhs = DecimalArray::from_iter::<i64, _>([200, 250], dtype).into_array();
 
     let result = decimal_binary(lhs, rhs, Operator::Add)?;
     assert_arrays_eq!(
@@ -458,10 +461,12 @@ fn test_decimal_nullable_lanes() -> VortexResult<()> {
 
 #[test]
 fn test_decimal_value_outside_working_width_errors() {
-    let dtype = DecimalDType::new(2, 0);
-    let value = i256::from_i128(1_000_000);
-    let lhs = DecimalArray::new(buffer![value], dtype, Validity::NonNullable).into_array();
-    let rhs = DecimalArray::new(buffer![value], dtype, Validity::NonNullable).into_array();
+    // Storage is bounded by precision, so an out-of-precision value can only overflow the
+    // working width when the result precision shares the input storage width: decimal(3, 0) and
+    // its decimal(4, 0) Add result are both i16, and 32_000 + 32_000 overflows it.
+    let dtype = DecimalDType::new(3, 0);
+    let lhs = DecimalArray::new(buffer![32_000i16], dtype, Validity::NonNullable).into_array();
+    let rhs = DecimalArray::new(buffer![32_000i16], dtype, Validity::NonNullable).into_array();
 
     assert!(decimal_binary(lhs, rhs, Operator::Add).is_err());
 }
@@ -488,22 +493,24 @@ fn test_decimal_div_negative_result_scale() -> VortexResult<()> {
 #[test]
 fn test_decimal_mul_value_outside_precision_errors() {
     // `DecimalArray::new` does not validate stored values against the declared precision, so Mul
-    // cannot assume its inputs are in-precision: 500 * 500 is 250_000, well past the 99_999 that
-    // the decimal(5, 0) result can represent.
-    let dtype = DecimalDType::new(2, 0);
-    let value = i256::from_i128(500);
-    let lhs = DecimalArray::new(buffer![value], dtype, Validity::NonNullable).into_array();
-    let rhs = DecimalArray::new(buffer![value], dtype, Validity::NonNullable).into_array();
+    // cannot assume its inputs are in-precision: 32_000 fits the i16 storage of decimal(3, 0),
+    // and 32_000 * 32_000 is 1_024_000_000, well past the 9_999_999 that the decimal(7, 0) result
+    // can represent while still fitting its i32 working width.
+    let dtype = DecimalDType::new(3, 0);
+    let lhs = DecimalArray::new(buffer![32_000i16], dtype, Validity::NonNullable).into_array();
+    let rhs = DecimalArray::new(buffer![32_000i16], dtype, Validity::NonNullable).into_array();
 
     assert!(decimal_binary(lhs, rhs, Operator::Mul).is_err());
 }
 
 #[test]
 fn test_decimal_mul_value_outside_working_width_errors() {
-    // 50_000 * 50_000 overflows the i32 working width chosen for a decimal(5, 0) result, which
-    // an unchecked multiply would wrap in release and panic on in debug.
-    let dtype = DecimalDType::new(2, 0);
-    let value = i256::from_i128(50_000);
+    // Below i256 the working width always holds the product of two in-storage values, so only an
+    // i256 input can overflow it: 2^228 squared exceeds the i256 working width chosen for the
+    // decimal(76, 0) result, which an unchecked multiply would wrap in release and panic on in
+    // debug.
+    let dtype = DecimalDType::new(39, 0);
+    let value = i256::from_parts(0, 1 << 100);
     let lhs = DecimalArray::new(buffer![value], dtype, Validity::NonNullable).into_array();
     let rhs = DecimalArray::new(buffer![value], dtype, Validity::NonNullable).into_array();
 
@@ -513,15 +520,17 @@ fn test_decimal_mul_value_outside_working_width_errors() {
 #[test]
 fn test_decimal_value_outside_working_width_on_null_lane_ignored() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let dtype = DecimalDType::new(2, 0);
+    // The null lane holds a payload whose sum would overflow the i16 working width shared by
+    // decimal(3, 0) and its decimal(4, 0) result; invalid lanes never error.
+    let dtype = DecimalDType::new(3, 0);
     let result_dtype = result_decimal_dtype(dtype, NumericOperator::Add)?;
     let lhs = DecimalArray::new(
-        buffer![i256::from_i128(1_000_000), i256::from_i128(1)],
+        buffer![i16::MAX, 1],
         dtype,
         Validity::from_iter([false, true]),
     )
     .into_array();
-    let rhs = decimal_constant(i256::from_i128(1), dtype, 2);
+    let rhs = decimal_constant(1i16, dtype, 2);
 
     let result = decimal_binary(lhs, rhs, Operator::Add)?;
     assert_arrays_eq!(
@@ -679,14 +688,15 @@ fn test_decimal_result_uses_widened_logical_storage_width(
 
     assert_eq!(result.values_type(), expected_type);
     assert_eq!(result.decimal_dtype(), expected_dtype);
-    assert_arrays_eq!(
-        result,
-        DecimalArray::from_iter::<i256, _>(
-            [i256::from_i128(20), i256::from_i128(40)],
-            expected_dtype
-        ),
-        &mut SESSION.create_execution_ctx()
-    );
+    let expected = match_each_decimal_value_type!(expected_type, |T| {
+        DecimalArray::from_iter::<T, _>(
+            [20i8, 40].map(|value| {
+                <T as BigCast>::from(value).vortex_expect("small values fit every decimal type")
+            }),
+            expected_dtype,
+        )
+    });
+    assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
     Ok(())
 }
 
@@ -806,7 +816,7 @@ fn test_decimal_null_constant_yields_all_null(
     assert!(matches!(&result, Columnar::Constant(_)));
     assert_arrays_eq!(
         result.into_array(),
-        DecimalArray::from_option_iter::<i256, _>([None, None], result_decimal_dtype(dtype, op)?,),
+        DecimalArray::from_option_iter::<i64, _>([None, None], result_decimal_dtype(dtype, op)?,),
         &mut ctx
     );
     Ok(())
@@ -846,7 +856,7 @@ fn test_decimal_empty(#[case] op: NumericOperator) -> VortexResult<()> {
     let result = decimal_binary(empty.clone(), empty, op.into())?;
     assert_arrays_eq!(
         result,
-        DecimalArray::from_iter::<i256, _>([], result_decimal_dtype(dtype, op)?,),
+        DecimalArray::from_iter::<i64, _>([], result_decimal_dtype(dtype, op)?,),
         &mut ctx
     );
     Ok(())
@@ -859,7 +869,7 @@ fn test_decimal_empty(#[case] op: NumericOperator) -> VortexResult<()> {
 #[case::div(NumericOperator::Div, 3_000_000)]
 fn test_decimal_constant_constant_folds(
     #[case] op: NumericOperator,
-    #[case] expected: i128,
+    #[case] expected: i64,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let dtype = DecimalDType::new(10, 2);
@@ -869,10 +879,7 @@ fn test_decimal_constant_constant_folds(
     let result = decimal_binary(lhs, rhs, op.into())?;
     assert_arrays_eq!(
         result,
-        DecimalArray::from_iter::<i256, _>(
-            [i256::from_i128(expected); 3],
-            result_decimal_dtype(dtype, op)?,
-        ),
+        DecimalArray::from_iter::<i64, _>([expected; 3], result_decimal_dtype(dtype, op)?),
         &mut ctx
     );
     Ok(())

@@ -129,10 +129,18 @@ mod tests {
                      {canonical_type}",
                 );
 
+                // A width above the canonical width can no longer be constructed, so such a
+                // column is written at the canonical width with zeroed null slots.
+                let written_type = column.written_type();
+                let written_slots = if written_type == column.stored_type {
+                    column.slots
+                } else {
+                    column.canonical_slots()
+                };
                 let written_field = written.unmasked_field_by_name(column.name)?;
                 assert_eq!(
                     written_field.as_::<Decimal>().values_type(),
-                    column.stored_type,
+                    written_type,
                     "{context}",
                 );
 
@@ -142,12 +150,12 @@ mod tests {
                     .execute::<DecimalArray>(&mut ctx)?;
                 assert_eq!(
                     read_field.values_type(),
-                    column.stored_type,
+                    written_type,
                     "{context} after a file round trip",
                 );
                 assert_eq!(
                     raw_slots(&read_field),
-                    column.slots,
+                    written_slots,
                     "{context} after a file round trip",
                 );
             }

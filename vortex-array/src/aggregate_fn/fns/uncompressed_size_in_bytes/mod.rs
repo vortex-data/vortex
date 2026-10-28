@@ -670,7 +670,7 @@ mod tests {
     #[test]
     fn decimal_matches_materialized_size() -> VortexResult<()> {
         let array = DecimalArray::new(
-            buffer![12345i64, -123i64, 0i64],
+            buffer![12345i32, -123i32, 0i32],
             DecimalDType::new(5, 2),
             Validity::NonNullable,
         )
@@ -780,7 +780,7 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array(),
             BoolArray::from_iter([Some(true), None, Some(false)]).into_array(),
             DecimalArray::new(
-                buffer![12345i64, -123i64, 0i64],
+                buffer![12345i32, -123i32, 0i32],
                 DecimalDType::new(5, 2),
                 Validity::NonNullable,
             )

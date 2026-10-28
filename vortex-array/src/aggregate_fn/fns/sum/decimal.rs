@@ -151,7 +151,7 @@ mod tests {
     #[test]
     fn sum_decimal_basic() -> VortexResult<()> {
         let decimal = DecimalArray::new(
-            buffer![100i32, 200i32, 300i32],
+            buffer![100i16, 200i16, 300i16],
             DecimalDType::new(4, 2),
             Validity::AllValid,
         );
@@ -170,7 +170,7 @@ mod tests {
     #[test]
     fn sum_decimal_with_nulls() -> VortexResult<()> {
         let decimal = DecimalArray::new(
-            buffer![100i32, 200i32, 300i32, 400i32],
+            buffer![100i16, 200i16, 300i16, 400i16],
             DecimalDType::new(4, 2),
             Validity::from_iter([true, false, true, true]),
         );
@@ -189,7 +189,7 @@ mod tests {
     #[test]
     fn sum_decimal_negative_values() -> VortexResult<()> {
         let decimal = DecimalArray::new(
-            buffer![100i32, -200i32, 300i32, -50i32],
+            buffer![100i16, -200i16, 300i16, -50i16],
             DecimalDType::new(4, 2),
             Validity::AllValid,
         );
@@ -269,7 +269,7 @@ mod tests {
     #[test]
     fn sum_decimal_single_value() -> VortexResult<()> {
         let decimal =
-            DecimalArray::new(buffer![42i32], DecimalDType::new(3, 1), Validity::AllValid);
+            DecimalArray::new(buffer![42i16], DecimalDType::new(3, 1), Validity::AllValid);
 
         let result = sum(&decimal.into_array(), &mut SESSION.create_execution_ctx())?;
 
@@ -285,7 +285,7 @@ mod tests {
     #[test]
     fn sum_decimal_all_nulls_except_one() -> VortexResult<()> {
         let decimal = DecimalArray::new(
-            buffer![100i32, 200i32, 300i32, 400i32],
+            buffer![100i16, 200i16, 300i16, 400i16],
             DecimalDType::new(4, 2),
             Validity::from_iter([false, false, true, false]),
         );

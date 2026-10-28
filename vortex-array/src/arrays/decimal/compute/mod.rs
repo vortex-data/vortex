@@ -41,12 +41,12 @@ mod tests {
     ))]
     // Additional test cases
     #[case::decimal_small_precision(DecimalArray::new(
-        buffer![10i128, 20i128, 30i128],
+        buffer![10i32, 20i32, 30i32],
         DecimalDType::new(5, 1),
         Validity::NonNullable,
     ))]
     #[case::decimal_single(DecimalArray::new(
-        buffer![42i128],
+        buffer![42i64],
         DecimalDType::new(10, 0),
         Validity::NonNullable,
     ))]
@@ -56,7 +56,7 @@ mod tests {
         Validity::NonNullable,
     ))]
     #[case::decimal_negative(DecimalArray::new(
-        buffer![-100i128, -200i128, 300i128, -400i128],
+        buffer![-100i64, -200i64, 300i64, -400i64],
         DecimalDType::new(10, 2),
         Validity::NonNullable,
     ))]
@@ -76,7 +76,7 @@ mod tests {
         Validity::from_iter([true, false, true, true, false]),
     ))]
     #[case::decimal_small_precision(DecimalArray::new(
-        buffer![10i128, 20i128, 30i128],
+        buffer![10i32, 20i32, 30i32],
         DecimalDType::new(5, 1),
         Validity::NonNullable,
     ))]
@@ -94,7 +94,7 @@ mod tests {
         Validity::NonNullable,
     ))]
     #[case::decimal_single(DecimalArray::new(
-        buffer![42i128],
+        buffer![42i64],
         DecimalDType::new(10, 0),
         Validity::NonNullable,
     ))]
@@ -104,7 +104,7 @@ mod tests {
         Validity::NonNullable,
     ))]
     #[case::decimal_negative(DecimalArray::new(
-        buffer![-100i128, -200i128, 300i128, -400i128],
+        buffer![-100i64, -200i64, 300i64, -400i64],
         DecimalDType::new(10, 2),
         Validity::NonNullable,
     ))]

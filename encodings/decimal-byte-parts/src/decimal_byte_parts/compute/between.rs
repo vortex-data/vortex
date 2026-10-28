@@ -172,7 +172,7 @@ mod tests {
         )?
         .into_array();
         let canonical = DecimalArray::new(
-            Buffer::from_iter(values.iter().map(|v| *v as i128)),
+            Buffer::from_iter(values.iter().map(|v| *v as i64)),
             decimal_dtype,
             validity,
         )

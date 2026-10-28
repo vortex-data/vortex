@@ -29,6 +29,7 @@ use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
 use crate::dtype::FieldNames;
+use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_decimal_value_type;
@@ -299,8 +300,8 @@ fn decimal_different_value_types() -> VortexResult<()> {
 }
 
 /// Decimal values `[1, 2, last]` stored as `values_type`.
-fn decimal_with_storage(values_type: DecimalType, last: i8) -> ArrayRef {
-    let dtype = DecimalDType::new(2, 0);
+fn decimal_with_storage(values_type: DecimalType, precision: u8, last: i8) -> ArrayRef {
+    let dtype = DecimalDType::new(precision, 0);
     match_each_decimal_value_type!(values_type, |T| {
         let values = [1i8, 2, last].map(|value| {
             <T as BigCast>::from(value).vortex_expect("small values fit every decimal type")
@@ -331,10 +332,18 @@ fn decimal_every_storage_pair(
     )]
     rhs: DecimalType,
 ) -> VortexResult<()> {
-    assert_matches_baseline(&decimal_with_storage(lhs, 3), &decimal_with_storage(rhs, 3))?;
+    // Both sides share a dtype whose precision admits the wider storage; the narrower side
+    // stays narrow because storage may be any width up to the precision bound.
+    let precision = match_each_decimal_value_type!(lhs.max(rhs), |T| {
+        <T as NativeDecimalType>::MAX_PRECISION
+    });
     assert_matches_baseline(
-        &decimal_with_storage(lhs, 3),
-        &decimal_with_storage(rhs, -3),
+        &decimal_with_storage(lhs, precision, 3),
+        &decimal_with_storage(rhs, precision, 3),
+    )?;
+    assert_matches_baseline(
+        &decimal_with_storage(lhs, precision, 3),
+        &decimal_with_storage(rhs, precision, -3),
     )
 }
 

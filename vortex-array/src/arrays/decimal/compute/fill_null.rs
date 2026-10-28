@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::cmp::max;
 use std::ops::Not;
 
 use vortex_buffer::BitBuffer;
@@ -16,6 +15,7 @@ use crate::array::ArrayView;
 use crate::arrays::BoolArray;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
+use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
@@ -61,7 +61,7 @@ fn fill_invalid_positions<T: NativeDecimalType>(
     match decimal_value.cast::<T>() {
         Some(fill_val) => fill_buffer::<T>(array, is_invalid, fill_val, result_validity),
         None => {
-            let target = max(array.values_type(), decimal_value.decimal_type());
+            let target = DecimalType::smallest_decimal_value_type(&array.decimal_dtype());
             let upcasted = upcast_decimal_values(array, target)?;
             match_each_decimal_value_type!(upcasted.values_type(), |U| {
                 let upcasted = upcasted.as_view();
@@ -90,6 +90,7 @@ mod tests {
 
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::IntoArray;
@@ -105,6 +106,28 @@ mod tests {
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[test]
+    fn fill_null_widens_only_to_precision_bound() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dtype = DecimalDType::new(4, 0);
+        let array = DecimalArray::from_option_iter([Some(1i8), None], dtype);
+        let filled = array
+            .into_array()
+            .fill_null(Scalar::decimal(
+                DecimalValue::I128(300),
+                dtype,
+                Nullability::NonNullable,
+            ))?
+            .execute::<DecimalArray>(&mut ctx)?;
+        assert_eq!(filled.values_type(), DecimalType::I16);
+        assert_arrays_eq!(
+            filled,
+            DecimalArray::new(buffer![1i16, 300], dtype, Validity::NonNullable),
+            &mut ctx
+        );
+        Ok(())
+    }
 
     #[test]
     fn fill_null_leading_none() {
@@ -168,10 +191,11 @@ mod tests {
         );
     }
 
-    /// fill_null with a value that overflows the array's storage type should upcast the array.
+    /// fill_null with a value that overflows the array's storage type should upcast the array,
+    /// but never beyond the storage its precision requires.
     #[rstest]
     #[case(DecimalValue::I16(200), DecimalType::I16)]
-    #[case(DecimalValue::I128(200), DecimalType::I128)]
+    #[case(DecimalValue::I128(200), DecimalType::I16)]
     fn fill_null_overflow_upcasts(#[case] fill: DecimalValue, #[case] expected_type: DecimalType) {
         let mut ctx = SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(3, 0);

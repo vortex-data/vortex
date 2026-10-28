@@ -172,6 +172,7 @@ mod tests {
     use crate::dtype::BigCast;
     use crate::dtype::DecimalDType;
     use crate::dtype::DecimalType;
+    use crate::dtype::NativeDecimalType;
     use crate::match_each_decimal_value_type;
     use crate::validity::Validity;
 
@@ -198,8 +199,8 @@ mod tests {
         target: DecimalType,
     ) -> VortexResult<()> {
         let values = [1i8, -2, 3];
-        let dtype = DecimalDType::new(2, 0);
         let array = match_each_decimal_value_type!(storage, |S| {
+            let dtype = DecimalDType::new(<S as NativeDecimalType>::MAX_PRECISION, 0);
             let values = values.map(|value| {
                 <S as BigCast>::from(value).vortex_expect("small values fit every decimal type")
             });
