@@ -2407,7 +2407,7 @@ mod tests {
             &self,
             _expr: &PhysicalExprRef,
             _schema: &Schema,
-        ) -> DFResult<Option<vortex::expr::Expression>> {
+        ) -> DFResult<Option<Expression>> {
             Ok(None)
         }
     }
