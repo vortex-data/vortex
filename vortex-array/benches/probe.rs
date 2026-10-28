@@ -139,9 +139,9 @@ fn nullable_filter() -> ArrayRef {
 }
 
 fn nullable_union() -> ArrayRef {
-    let type_ids = PrimitiveArray::from_option_iter((0..LEN).map(|index| {
-        (index % 13 != 0).then_some(if index % 2 == 0 { 5u8 } else { 9u8 })
-    }))
+    let type_ids = PrimitiveArray::from_option_iter(
+        (0..LEN).map(|index| (index % 13 != 0).then_some(if index % 2 == 0 { 5u8 } else { 9u8 })),
+    )
     .into_array();
     let variants = UnionVariants::try_new(
         ["number", "flag"].into(),
@@ -156,7 +156,10 @@ fn nullable_union() -> ArrayRef {
         type_ids,
         variants,
         vec![
-            PrimitiveArray::from_iter((0..LEN).map(|index| index as i32)).into_array(),
+            PrimitiveArray::from_iter(
+                (0..LEN).map(|index| i32::try_from(index).vortex_expect("fixture values fit i32")),
+            )
+            .into_array(),
             BoolArray::from_iter((0..LEN).map(|index| index % 2 == 1)).into_array(),
         ],
     )

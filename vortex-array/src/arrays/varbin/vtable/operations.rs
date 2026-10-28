@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use num_traits::ToPrimitive;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -56,7 +57,8 @@ fn offset_at(
         && primitive.buffer_handle().is_on_host()
     {
         return match_each_integer_ptype!(primitive.ptype(), |T| {
-            Ok(usize::try_from(primitive.as_slice::<T>()[index])
+            Ok(primitive.as_slice::<T>()[index]
+                .to_usize()
                 .vortex_expect("Failed to convert offset to usize"))
         });
     }

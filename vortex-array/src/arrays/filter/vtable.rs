@@ -234,8 +234,8 @@ mod tests {
     use std::sync::LazyLock;
 
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
