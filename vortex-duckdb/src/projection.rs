@@ -25,9 +25,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::convert::try_from_table_filter;
 use crate::convert::try_from_virtual_column_filter;
-use crate::duckdb::ExpressionClass;
 use crate::duckdb::LogicalType;
-use crate::duckdb::TableFilterClass;
 use crate::duckdb::TableFilterSetRef;
 use crate::table_function::ColumnAggregate;
 
@@ -192,7 +190,6 @@ pub struct Filter {
     pub filter: Option<BoundExpression>,
     pub row_selection: Selection,
     pub row_range: Option<Range<u64>>,
-    pub has_non_optional_filter: bool,
 }
 
 fn push_filter_expr(filter_exprs: &mut Vec<Expression>, expr: &Expression) {
@@ -211,23 +208,12 @@ impl Filter {
         additional_filters: &[Expression],
         dtype: &DType,
     ) -> VortexResult<Self> {
-        let mut has_non_optional_filter = false;
-
         let mut table_filter_exprs = Vec::new();
         if let Some(filter) = table_filter_set {
             for (idx, ex) in filter.into_iter().filter(|(idx, _)| {
                 let idx_u: usize = idx.as_();
                 !is_virtual_column(column_ids[idx_u])
             }) {
-                has_non_optional_filter |= match ex.as_class() {
-                    TableFilterClass::Optional(_) => false,
-                    TableFilterClass::ExpressionRef(expr) => match expr.as_class() {
-                        Some(ExpressionClass::BoundFunction(bfn)) => bfn.optional().is_none(),
-                        _ => true,
-                    },
-                    _ => true,
-                };
-
                 let idx_u: usize = idx.as_();
                 let col_idx: usize = column_ids[idx_u].as_();
                 let name = &column_fields.get(col_idx).vortex_expect("exists").name;
@@ -260,7 +246,6 @@ impl Filter {
             filter,
             row_selection,
             row_range,
-            has_non_optional_filter,
         };
         Ok(out)
     }

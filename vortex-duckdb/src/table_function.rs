@@ -5,7 +5,6 @@ use std::cmp::max;
 use std::fmt::Formatter;
 use std::fmt::{self};
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
@@ -90,9 +89,6 @@ pub(crate) struct BindState {
     pub first_file_row_count: u64,
     pub filters: Vec<Expression>,
     pub columns: Vec<DuckdbField>,
-    // There exists at least one non-optional table filter or at least one
-    // complex filter is pushed down.
-    pub has_non_optional_filter: AtomicBool,
     // Non-empty iff this scan is aggregate
     pub aggregates: Vec<ColumnAggregate>,
     // Any of files present in scan lack a footer
@@ -107,7 +103,6 @@ impl BindState {
             first_file_row_count: 0,
             filters: vec![],
             columns: vec![],
-            has_non_optional_filter: AtomicBool::new(false),
             aggregates: vec![],
             no_footer_caches: true,
         }
@@ -121,9 +116,6 @@ impl Clone for BindState {
             first_file_row_count: self.first_file_row_count,
             filters: vec![],
             columns: self.columns.clone(),
-            has_non_optional_filter: AtomicBool::new(
-                self.has_non_optional_filter.load(Ordering::Relaxed),
-            ),
             aggregates: self.aggregates.clone(),
             no_footer_caches: false,
         }
@@ -149,8 +141,7 @@ impl fmt::Debug for BindState {
 const COUNT_STAR_KIND: &str = "count_star";
 #[derive(Clone, PartialEq, prost::Message)]
 struct SerializedBindState {
-    #[prost(bool, tag = "1")]
-    has_non_optional_filter: bool,
+    // Tag 1 held the removed `has_non_optional_filter` flag. Do not reuse it.
     #[prost(message, repeated, tag = "2")]
     filters: Vec<expr_pb::Expr>,
     #[prost(uint64, repeated, tag = "3")]
@@ -237,7 +228,7 @@ pub(crate) enum ColumnAggregate {
     CountStar,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Cardinality {
     /// The exact number of rows.
     Exact(u64),
@@ -331,11 +322,6 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         &bind_data.filters,
         &bind_data.dtype,
     )?;
-    if filter.has_non_optional_filter {
-        bind_data
-            .has_non_optional_filter
-            .store(true, Ordering::Relaxed);
-    }
 
     debug!(
         %projection,
@@ -470,6 +456,14 @@ fn aggregate_output_value(scalar: Scalar, expected: &LogicalTypeRef) -> VortexRe
     }
 }
 
+/// Copies a DuckDB filter into the scan, so the scan can prune and filter
+/// with it.
+///
+/// Always returns `false`, so DuckDB also keeps the filter in its plan. The
+/// join order optimizer estimates the selectivity only of filters that it
+/// can see. If the scan took the filter away, DuckDB would treat the
+/// filtered scan as unfiltered, and it could pick a join order that makes
+/// large intermediate results, as in TPC-DS query 64.
 pub fn pushdown_complex_filter(
     bind_data: &mut BindState,
     expr: &ExpressionRef,
@@ -481,15 +475,13 @@ pub fn pushdown_complex_filter(
         return Ok(false);
     };
 
-    // Only table filters may be optional, any complex filter is
-    // non-optional by definition.
-    bind_data
-        .has_non_optional_filter
-        .store(true, Ordering::Relaxed);
+    // DuckDB keeps the filter, so a later optimizer pass can offer it again.
+    if !bind_data.filters.contains(&expr) {
+        debug!(%expr, "pushed down expression");
+        bind_data.filters.push(expr);
+    }
 
-    debug!(%expr, "pushed down expression");
-    bind_data.filters.push(expr);
-    Ok(true)
+    Ok(false)
 }
 
 pub fn pushdown_projection_expression(
@@ -634,34 +626,27 @@ fn try_push_projection_aggregate(
     }))
 }
 
-/// Duckdb requires post-filter cardinality estimates, otherwise join planner
-/// may flip join sides which is a huge regression for some queries i.e. 1000x
-/// for tpcds 85.
+/// Reports the row count of the scan before filters.
 ///
-/// See duckdb/src/optimizer/join_order/relation_statistics_helper.cpp
+/// DuckDB applies the selectivity of the filters itself, because every filter
+/// stays in its plan (see [`pushdown_complex_filter`]). DuckDB also uses this
+/// count as the upper limit for distinct values of a join key, so a
+/// post-filter count here makes join estimates too high.
 ///
-/// As we don't report distinct values (same as Parquet), the only heuristic
-/// duckdb uses is a 0.2 filter if there is any non-optional filter. We mimic it
-/// here.
-const DEFAULT_SELECTIVITY: f64 = 0.2;
+/// See duckdb/src/optimizer/relation_statistics/relation_statistics_scan.cpp
 pub fn cardinality(bind_data: &BindState, file_count: u64) -> Cardinality {
     // If we're doing an aggregate scan, we don't change output cardinality to
     // 1 as we want duckdb to do our aggregation in parallel. That may look
     // counterintuitive in the plan, though.
-    let has_non_optional_filter = bind_data.has_non_optional_filter.load(Ordering::Relaxed);
     let total = bind_data
         .first_file_row_count
         .saturating_mul(max(file_count, 1));
-    if !has_non_optional_filter {
-        return if file_count <= 1 {
-            Cardinality::Exact(total)
-        } else {
-            Cardinality::Estimate(total)
-        };
+
+    if file_count <= 1 {
+        Cardinality::Exact(total)
+    } else {
+        Cardinality::Estimate(total)
     }
-    let post_cardinality = total as f64 * DEFAULT_SELECTIVITY;
-    let post_cardinality: u64 = post_cardinality.as_();
-    Cardinality::Estimate(max(1, post_cardinality))
 }
 
 pub fn to_string(bind_data: &BindState, map: &mut DuckdbStringMapRef) {
@@ -708,10 +693,7 @@ pub fn to_string(bind_data: &BindState, map: &mut DuckdbStringMapRef) {
 }
 
 pub fn serialize(bind_data: &BindState) -> VortexResult<Vec<u8>> {
-    let mut state = SerializedBindState {
-        has_non_optional_filter: bind_data.has_non_optional_filter.load(Ordering::Relaxed),
-        ..Default::default()
-    };
+    let mut state = SerializedBindState::default();
     for expr in &bind_data.filters {
         state.filters.push(expr.serialize_proto()?);
     }
@@ -748,9 +730,6 @@ pub fn deserialize(
         "bind state length mismatch"
     );
 
-    bind_data
-        .has_non_optional_filter
-        .store(state.has_non_optional_filter, Ordering::Relaxed);
     bind_data.filters = state
         .filters
         .iter()
@@ -787,4 +766,31 @@ pub fn deserialize(
         field.projection_expr = Some(expr);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex::expr::col;
+    use vortex::expr::gt;
+    use vortex::expr::lit;
+
+    use super::BindState;
+    use super::Cardinality;
+    use super::cardinality;
+
+    /// Pushed filters stay in DuckDB's plan, so the scan reports its row count before filters.
+    #[rstest]
+    #[case::one_file(1, Cardinality::Exact(100))]
+    #[case::many_files(3, Cardinality::Estimate(300))]
+    fn cardinality_ignores_pushed_filters(
+        #[case] file_count: u64,
+        #[case] expected: Cardinality,
+    ) {
+        let mut bind_data = BindState::empty();
+        bind_data.first_file_row_count = 100;
+        bind_data.filters.push(gt(col("x"), lit(1i32)));
+
+        assert_eq!(cardinality(&bind_data, file_count), expected);
+    }
 }

@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 use std::sync::OnceLock;
-use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
@@ -199,7 +198,6 @@ pub fn reader_bind(file: &OpenFileReader, result: &mut BindResultRef) -> VortexR
         first_file_row_count: file.reader().row_count(),
         filters: vec![],
         columns,
-        has_non_optional_filter: AtomicBool::new(false),
         aggregates: vec![],
         no_footer_caches: false,
     })

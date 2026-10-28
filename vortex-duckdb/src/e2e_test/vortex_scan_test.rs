@@ -305,7 +305,7 @@ fn assert_membership_filter_pushed(
         }
     }
     assert!(plan.contains("Read Vortex"), "missing Vortex scan:\n{plan}");
-    assert!(!plan.contains("FILTER"), "filter was not pushed:\n{plan}");
+    assert!(plan.contains("Filters"), "filter was not pushed:\n{plan}");
     Ok(())
 }
 
