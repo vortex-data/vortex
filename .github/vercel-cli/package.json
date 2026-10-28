@@ -1,0 +1,8 @@
+{
+  "name": "vortex-vercel-cli",
+  "private": true,
+  "description": "Pins the Vercel CLI that .github/workflows/deploy-vercel.yml runs.",
+  "dependencies": {
+    "vercel": "64.0.2"
+  }
+}

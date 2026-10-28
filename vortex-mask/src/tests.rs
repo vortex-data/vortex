@@ -108,6 +108,7 @@ fn test_mask_first() {
 fn test_mask_last() {
     assert_eq!(Mask::new_true(5).last(), Some(4));
     assert_eq!(Mask::new_false(5).last(), None);
+    assert_eq!(Mask::new_true(0).last(), None);
 
     let buffer = BitBuffer::from_iter([true, false, true, false, true, false, true]);
     let values = Mask::from_buffer(buffer.slice(1..6));

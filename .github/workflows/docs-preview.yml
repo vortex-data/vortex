@@ -51,9 +51,11 @@ jobs:
                 '.github/workflows/docs.yml',
                 '.github/workflows/docs-build.yml',
                 '.github/workflows/docs-preview.yml',
+                '.github/workflows/deploy-vercel.yml',
               ]);
               eligible = files.some(file => [file.filename, file.previous_filename].some(
-                path => path && (path.startsWith('docs/') || workflows.has(path)),
+                path => path && (path.startsWith('docs/') ||
+                  path.startsWith('.github/vercel-cli/') || workflows.has(path)),
               ));
             }
             core.setOutput('eligible', eligible);
@@ -140,3 +142,22 @@ jobs:
               .addRaw(`\n\nCommit: \`${pr.head.sha}\`\n\n`)
               .addLink('Immutable deployment', process.env.DEPLOYMENT_URL)
               .write();
+
+  # Publishes the same preview to Vercel while docs move off Pages. Each
+  # Vercel deployment has its own URL, so a stale build cannot replace a
+  # newer preview, and this job skips the recheck that the Pages job needs.
+  publish-vercel:
+    name: Publish preview to Vercel
+    needs: build
+    permissions:
+      contents: read
+      deployments: write
+    uses: ./.github/workflows/deploy-vercel.yml
+    # A called workflow only sees the secrets its caller passes, including
+    # the secrets of the environment the called job deploys to.
+    secrets: inherit
+    with:
+      environment: vercel-docs
+      artifact-ids: ${{ needs.build.outputs.artifact-id }}
+      config: docs/vercel-output-config.json
+      pages-html-handling: true

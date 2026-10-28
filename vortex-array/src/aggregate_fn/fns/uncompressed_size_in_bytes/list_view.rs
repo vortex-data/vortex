@@ -17,7 +17,6 @@ use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::listview::ListViewRebuildMode;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::dtype::DType;
-use crate::dtype::DecimalType;
 use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
 
@@ -100,7 +99,7 @@ fn referenced_elements_size(
         }
         DType::Decimal(decimal, _) => checked_len_mul(
             referenced.count,
-            DecimalType::smallest_decimal_value_type(decimal).byte_width(),
+            decimal.canonical_values_type().byte_width(),
             "decimal",
         )?,
         _ => {

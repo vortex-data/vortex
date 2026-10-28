@@ -6,6 +6,7 @@
 use std::mem::MaybeUninit;
 
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_mask::MaskValues;
 
@@ -92,8 +93,9 @@ pub fn filter_chunked<T: NativePType>(
     decoder: &impl ChunkDecoder<T>,
     offset: usize,
     mask: &MaskValues,
+    allocator: &BufferAllocatorRef,
 ) -> Buffer<T> {
-    let mut filter = ChunkedFilter::new(decoder, mask.true_count());
+    let mut filter = ChunkedFilter::new(decoder, mask.true_count(), allocator);
     if let Some(slices) = useful_cached_slices(mask) {
         filter.push_slices(offset, slices);
     } else if let Some(indices) = useful_cached_indices(mask) {
@@ -129,11 +131,14 @@ struct ChunkedFilter<'a, T, D> {
 }
 
 impl<'a, T: NativePType, D: ChunkDecoder<T>> ChunkedFilter<'a, T, D> {
-    fn new(decoder: &'a D, true_count: usize) -> Self {
+    fn new(decoder: &'a D, true_count: usize, allocator: &BufferAllocatorRef) -> Self {
         Self {
             decoder,
             // The SIMD kernels can store one vector past the last value that they write.
-            values: BufferMut::with_capacity(true_count + SLACK_BYTES / size_of::<T>()),
+            values: BufferMut::with_capacity_in(
+                true_count + SLACK_BYTES / size_of::<T>(),
+                allocator.clone(),
+            ),
             true_count,
             written: 0,
             scratch: Scratch([const { MaybeUninit::uninit() }; FILTER_CHUNK_LEN]),
@@ -423,6 +428,7 @@ mod tests {
     use rand::rngs::StdRng;
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
+    use vortex_buffer::BufferAllocatorRef;
     use vortex_mask::Mask;
 
     use super::ChunkDecoder;
@@ -476,7 +482,12 @@ mod tests {
         let Mask::Values(mask) = mask else {
             unreachable!("the patterns select some but not all values")
         };
-        let filtered = filter_chunked(&SliceDecoder(&values), offset, &mask);
+        let filtered = filter_chunked(
+            &SliceDecoder(&values),
+            offset,
+            &mask,
+            BufferAllocatorRef::static_ref(),
+        );
         assert_eq!(filtered.as_slice(), expected);
     }
 

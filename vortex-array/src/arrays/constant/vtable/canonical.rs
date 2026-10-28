@@ -10,7 +10,6 @@ use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
-use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -40,7 +39,6 @@ use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
-use crate::dtype::DecimalType;
 use crate::dtype::Nullability;
 use crate::match_each_decimal_value;
 use crate::match_each_decimal_value_type;
@@ -94,7 +92,7 @@ pub(crate) fn constant_canonicalize(
             })
         }
         DType::Decimal(decimal_type, ..) => {
-            let size = DecimalType::smallest_decimal_value_type(decimal_type);
+            let size = decimal_type.canonical_values_type();
             let decimal = scalar.as_decimal();
             let Some(value) = decimal.decimal_value() else {
                 let all_null = match_each_decimal_value_type!(size, |D| {
@@ -132,6 +130,7 @@ pub(crate) fn constant_canonicalize(
                 value,
                 array.dtype(),
                 array.len(),
+                ctx.allocator(),
             ))
         }
         DType::Binary(_) => {
@@ -140,6 +139,7 @@ pub(crate) fn constant_canonicalize(
                 value,
                 array.dtype(),
                 array.len(),
+                ctx.allocator(),
             ))
         }
         DType::List(..) => Canonical::List(constant_canonical_list_array(
@@ -225,10 +225,11 @@ fn constant_canonical_byte_view(
     scalar_bytes: Option<ByteBuffer>,
     dtype: &DType,
     len: usize,
+    allocator: &BufferAllocatorRef,
 ) -> VarBinViewArray {
     match scalar_bytes {
         None => {
-            let views = buffer![BinaryView::empty_view(); len];
+            let views = Buffer::full_in(BinaryView::empty_view(), len, allocator.clone());
 
             // SAFETY: for all-null the views and buffers are just zeroed, never accessed.
             unsafe {
@@ -251,7 +252,7 @@ fn constant_canonical_byte_view(
             }
 
             // Clone our constant view `len` times.
-            let views = buffer![view; len];
+            let views = Buffer::full_in(view, len, allocator.clone());
 
             // SAFETY: all the views are identical and point to a constant value.
             unsafe {
@@ -353,7 +354,7 @@ fn flat_elements(
                 .into_array()
         }),
         DType::Decimal(decimal, nullability) => {
-            let values_type = DecimalType::smallest_decimal_value_type(decimal);
+            let values_type = decimal.canonical_values_type();
             match_each_decimal_value_type!(values_type, |T| {
                 let mut buffer =
                     BufferMut::<T>::with_capacity_in(elements.len(), allocator.clone());

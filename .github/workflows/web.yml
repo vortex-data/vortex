@@ -36,6 +36,8 @@ jobs:
             web:
               - "vortex-web/**"
               - ".github/workflows/web.yml"
+              - ".github/workflows/deploy-vercel.yml"
+              - ".github/vercel-cli/**"
 
   check:
     name: Check & Lint
@@ -114,3 +116,25 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy dist/ --project-name=vortex-explorer --branch=${{ github.head_ref || github.ref_name }}
+
+  # Deploys the same build to Vercel. Both hosts run until explore.vortex.dev
+  # has served from Vercel for two weeks, then the Pages job above goes.
+  deploy-vercel:
+    name: Deploy to Vercel
+    needs: [build]
+    # Fork PRs get no secrets, so only pushes and same-repo PRs deploy.
+    if: >-
+      github.event_name == 'push' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      deployments: write
+    uses: ./.github/workflows/deploy-vercel.yml
+    # A called workflow only sees the secrets its caller passes, including
+    # the secrets of the environment the called job deploys to.
+    secrets: inherit
+    with:
+      environment: vercel-explorer
+      artifact-name: vortex-explorer
+      config: vortex-web/vercel-output-config.json
+      production: ${{ github.event_name == 'push' }}

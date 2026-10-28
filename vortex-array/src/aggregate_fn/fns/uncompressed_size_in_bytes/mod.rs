@@ -53,7 +53,6 @@ use crate::arrays::ListView;
 use crate::arrays::map::MapArraySlotsExt;
 use crate::arrays::varbinview::BinaryView;
 use crate::dtype::DType;
-use crate::dtype::DecimalType;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::PType;
 use crate::expr::stats::Precision;
@@ -150,16 +149,14 @@ fn uncompressed_size_in_bytes_u64(
     opts: UncompressedSizeOpts,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<u64> {
-    // An inexact query is happy to reuse an exact size or an inexact upper bound.
-    let cached = match (
-        opts.is_exact(),
-        array.statistics().get(Stat::UncompressedSizeInBytes),
-    ) {
-        (_, Precision::Exact(size)) | (false, Precision::Inexact(size)) => Some(size),
-        _ => None,
-    };
-    if let Some(size_scalar) = cached {
-        return u64::try_from(&size_scalar)
+    // The stat slot holds only the exact size. The inexact size is a different measure, which can
+    // be larger or smaller than the exact one, so it neither reads nor writes the slot: reusing an
+    // exact value would make it depend on what was computed before, and caching it would put a
+    // value in the slot that bounds nothing.
+    if opts.is_exact()
+        && let Precision::Exact(size) = array.statistics().get(Stat::UncompressedSizeInBytes)
+    {
+        return u64::try_from(&size)
             .map_err(|e| e.with_context("Failed to convert uncompressed size stat to u64"));
     }
 
@@ -168,19 +165,10 @@ fn uncompressed_size_in_bytes_u64(
     acc.accumulate(array, ctx)?;
     let result = acc.finish()?;
 
-    let size = result
+    Ok(result
         .as_primitive()
         .typed_value::<u64>()
-        .vortex_expect("uncompressed_size_in_bytes result should not be null");
-
-    // An inexact result is cached as an upper bound, so exact queries still compute.
-    if !opts.is_exact() {
-        array.statistics().set(
-            Stat::UncompressedSizeInBytes,
-            Precision::Inexact(size.into()),
-        );
-    }
-    Ok(size)
+        .vortex_expect("uncompressed_size_in_bytes result should not be null"))
 }
 
 /// The byte size of all buffers in children in their canonical representation.
@@ -362,16 +350,18 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
         }
         DType::Decimal(decimal_type, _) => checked_len_mul(
             array.len(),
-            DecimalType::smallest_decimal_value_type(decimal_type).byte_width(),
+            decimal_type.canonical_values_type().byte_width(),
             "decimal",
         )?,
         DType::Utf8(_) => constant_varbinview_value_size(
             array.len(),
             array.scalar().as_utf8().value().map(|value| value.len()),
+            opts,
         )?,
         DType::Binary(_) => constant_varbinview_value_size(
             array.len(),
             array.scalar().as_binary().value().map(|value| value.len()),
+            opts,
         )?,
         DType::List(..)
         | DType::Map(..)
@@ -392,12 +382,20 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
         .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))
 }
 
-fn constant_varbinview_value_size(len: usize, scalar_len: Option<usize>) -> VortexResult<u64> {
+fn constant_varbinview_value_size(
+    len: usize,
+    scalar_len: Option<usize>,
+    opts: UncompressedSizeOpts,
+) -> VortexResult<u64> {
     let views_size = checked_len_mul(len, size_of::<BinaryView>(), "binary view")?;
-    // Only a value too long to inline adds a data buffer, matching `constant_canonicalize`.
+    // Only a value too long to inline adds a data buffer, matching `constant_canonicalize`. Every
+    // row references it, so the exact size counts it once per row, like a canonical array's
+    // views, while the buffer canonicalization creates holds it once.
     let data_size = match scalar_len {
-        Some(scalar_len) if scalar_len > BinaryView::MAX_INLINED_SIZE => u64::try_from(scalar_len)
-            .map_err(|e| vortex_err!("Failed to convert data buffer length to u64: {e}"))?,
+        Some(scalar_len) if scalar_len > BinaryView::MAX_INLINED_SIZE => {
+            let rows = if opts.is_exact() { len } else { 1 };
+            checked_len_mul(rows, scalar_len, "binary data")?
+        }
         _ => 0,
     };
 
@@ -525,8 +523,8 @@ mod tests {
 
     /// The size the array occupies once rebuilt through the canonical builders, which is the
     /// layout [`UncompressedSizeInBytes`] is defined against: the builders normalize physical
-    /// widths that the input array is free to choose differently, picking the smallest decimal
-    /// value type for a precision and `u64` list-view offsets and sizes.
+    /// widths that the input array is free to choose differently, picking the canonical decimal
+    /// width of a precision and `u64` list-view offsets and sizes.
     ///
     /// Builders no longer canonicalize their children, so the finished array is only canonical at
     /// the top level - recursively canonicalize it before measuring.
@@ -845,32 +843,59 @@ mod tests {
     }
 
     #[test]
-    fn inexact_result_is_cached_as_upper_bound() -> VortexResult<()> {
+    fn inexact_result_is_not_cached_and_ignores_exact_stat() -> VortexResult<()> {
         let sliced = views_into_shared_page(0..10)?;
         let mut ctx = SESSION.create_execution_ctx();
 
         let inexact =
             uncompressed_size_in_bytes(&sliced, UncompressedSizeOpts::inexact(), &mut ctx)?;
-        assert_eq!(
-            sliced.statistics().get(Stat::UncompressedSizeInBytes),
-            Precision::inexact(u64::try_from(inexact)?)
+        assert!(
+            sliced
+                .statistics()
+                .get(Stat::UncompressedSizeInBytes)
+                .is_absent()
         );
 
-        // An exact query ignores the bound and computes, then replaces it.
+        // An exact query computes and caches the exact size.
         let exact = uncompressed_size_in_bytes(&sliced, UncompressedSizeOpts::exact(), &mut ctx)?;
-        assert!(exact < inexact);
         assert_eq!(
             sliced.statistics().get(Stat::UncompressedSizeInBytes),
             Precision::exact(u64::try_from(exact)?)
         );
 
-        // An inexact query reuses the exact value.
+        // An inexact query still measures the held buffers rather than reusing the exact size.
         assert_eq!(
             uncompressed_size_in_bytes(&sliced, UncompressedSizeOpts::inexact(), &mut ctx)?,
-            exact
+            inexact
         );
         assert_eq!(exact, 430);
         assert_eq!(inexact, 27160);
+        Ok(())
+    }
+
+    #[test]
+    fn inexact_can_be_smaller_than_exact() -> VortexResult<()> {
+        // Every row references the same out-of-line value, which the data buffer holds once.
+        const VALUE_LEN: u32 = 20;
+        let page = ByteBuffer::from(vec![b'x'; VALUE_LEN as usize]);
+        let views = (0..10)
+            .map(|_| BinaryView::make_view(&[b'x'; VALUE_LEN as usize], 0, 0))
+            .collect::<Buffer<BinaryView>>();
+        // SAFETY: every view points at the `VALUE_LEN` bytes of the page.
+        let one_value = unsafe {
+            VarBinViewArray::new_unchecked(
+                views,
+                Arc::from([page]),
+                DType::Utf8(Nullability::NonNullable),
+                Validity::NonNullable,
+            )
+        }
+        .into_array();
+
+        let exact = aggregate_with(&one_value, UncompressedSizeOpts::exact())?;
+        let inexact = aggregate_with(&one_value, UncompressedSizeOpts::inexact())?;
+        assert_eq!(exact, 10 * (16 + 20));
+        assert_eq!(inexact, 10 * 16 + 20);
         Ok(())
     }
 
