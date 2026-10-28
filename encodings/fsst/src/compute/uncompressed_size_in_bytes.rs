@@ -10,7 +10,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
-use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -23,7 +22,6 @@ use vortex_mask::Mask;
 
 use crate::FSST;
 use crate::FSSTArraySlotsExt;
-use crate::canonical::total_uncompressed_len;
 
 /// Computes the canonical FSST size from stored lengths without decoding the string payload.
 ///
@@ -38,36 +36,27 @@ impl DynAggregateKernel for FsstUncompressedSizeKernel {
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Scalar>> {
-        let Some(opts) = aggregate_fn.as_opt::<UncompressedSizeInBytes>() else {
+        if !aggregate_fn.is::<UncompressedSizeInBytes>() {
             return Ok(None);
-        };
+        }
 
         let Some(fsst) = batch.as_opt::<FSST>() else {
             return Ok(None);
         };
 
-        Ok(Some(Scalar::from(uncompressed_size(fsst, *opts, ctx)?)))
+        Ok(Some(Scalar::from(uncompressed_size(fsst, ctx)?)))
     }
 }
 
-fn uncompressed_size(
-    fsst: ArrayView<'_, FSST>,
-    opts: UncompressedSizeOpts,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<u64> {
+fn uncompressed_size(fsst: ArrayView<'_, FSST>, ctx: &mut ExecutionCtx) -> VortexResult<u64> {
     let lengths = fsst
         .uncompressed_lengths()
         .clone()
         .execute::<PrimitiveArray>(ctx)?;
     let validity = fsst.validity()?.execute_mask(fsst.len(), ctx)?;
 
-    // Canonicalization decodes every row into data buffers, so they hold the sum of the lengths.
     // Only the valid rows too long to inline are referenced by the views.
-    let data_bytes = if opts.is_exact() {
-        referenced_len(&lengths, &validity)?
-    } else {
-        total_uncompressed_len(&lengths)?
-    };
+    let data_bytes = referenced_len(&lengths, &validity)?;
 
     fsst.len()
         .checked_mul(size_of::<BinaryView>())
@@ -120,7 +109,6 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::AggregateFnVTable;
     use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
-    use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
     use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
     use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
     use vortex_array::arrays::PrimitiveArray;
@@ -170,8 +158,6 @@ mod tests {
     fn matches_decoded_size(
         #[case] values: Vec<Option<&str>>,
         #[case] range: Option<std::ops::Range<usize>>,
-        #[values(UncompressedSizeOpts::inexact(), UncompressedSizeOpts::exact())]
-        opts: UncompressedSizeOpts,
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let encoded = encode(values, range)?;
@@ -181,8 +167,8 @@ mod tests {
             .into_array();
 
         assert_eq!(
-            uncompressed_size_in_bytes(&encoded, opts, &mut ctx)?,
-            uncompressed_size_in_bytes(&decoded, opts, &mut ctx)?,
+            uncompressed_size_in_bytes(&encoded, &mut ctx)?,
+            uncompressed_size_in_bytes(&decoded, &mut ctx)?,
         );
         Ok(())
     }

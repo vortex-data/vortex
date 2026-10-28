@@ -5,7 +5,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
-use super::UncompressedSizeOpts;
 use super::checked_len_mul;
 use super::packed_bit_buffer_size_in_bytes;
 use super::uncompressed_size_in_bytes_u64;
@@ -23,7 +22,6 @@ use crate::match_each_integer_ptype;
 
 pub(super) fn list_view_uncompressed_size_in_bytes(
     array: &ListViewArray,
-    opts: UncompressedSizeOpts,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<u64> {
     let validity = array
@@ -33,10 +31,8 @@ pub(super) fn list_view_uncompressed_size_in_bytes(
 
     let mut size = if array.is_empty() {
         0
-    } else if opts.is_exact() {
-        referenced_elements_size(array, &validity, opts, ctx)?
     } else {
-        uncompressed_size_in_bytes_u64(array.elements(), opts, ctx)?
+        referenced_elements_size(array, &validity, ctx)?
     };
 
     let view_buffer_size = u64::try_from(array.len())
@@ -73,7 +69,6 @@ struct ReferencedElements {
 fn referenced_elements_size(
     array: &ListViewArray,
     validity: &Mask,
-    opts: UncompressedSizeOpts,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<u64> {
     let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
@@ -90,7 +85,7 @@ fn referenced_elements_size(
     let elements = array.elements();
     if referenced.count == referenced.end - referenced.start {
         let used = elements.slice(referenced.start..referenced.end)?;
-        return uncompressed_size_in_bytes_u64(&used, opts, ctx);
+        return uncompressed_size_in_bytes_u64(&used, ctx);
     }
 
     let values_size = match elements.dtype() {
@@ -105,7 +100,7 @@ fn referenced_elements_size(
         )?,
         _ => {
             let rebuilt = array.rebuild(ListViewRebuildMode::MakeExact, ctx)?;
-            return uncompressed_size_in_bytes_u64(rebuilt.elements(), opts, ctx);
+            return uncompressed_size_in_bytes_u64(rebuilt.elements(), ctx);
         }
     };
 

@@ -40,7 +40,6 @@ use parquet::file::properties::WriterProperties;
 use tokio::fs::File;
 use url::Url;
 use vortex::VortexSessionDefault;
-use vortex::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
 use vortex::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
@@ -250,11 +249,7 @@ pub(crate) fn prepare_column(
     // Use an aggressively compacted array so the baseline cannot include
     // retained backing-buffer regions that the compressors never see.
     let canonical = canonical.compact_with_threshold(1.0, ctx)?;
-    let uncompressed_bytes = u64::try_from(uncompressed_size_in_bytes(
-        canonical.as_ref(),
-        UncompressedSizeOpts::exact(),
-        ctx,
-    )?)?;
+    let uncompressed_bytes = u64::try_from(uncompressed_size_in_bytes(canonical.as_ref(), ctx)?)?;
     if uncompressed_bytes == 0 {
         bail!("column {} has zero uncompressed bytes", column.name);
     }
