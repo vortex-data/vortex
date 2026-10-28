@@ -2828,6 +2828,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "parking_lot",
+ "t4",
  "tokio",
  "url",
  "vortex",

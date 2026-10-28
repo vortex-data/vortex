@@ -43,11 +43,14 @@ opentelemetry_sdk.workspace = true
 parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 url = { workspace = true }
-vortex = { workspace = true, features = ["object_store", "files", "tokio"] }
+vortex = { workspace = true, features = ["object_store", "files", "tokio", "t4"] }
 vortex-arrow = { workspace = true }
 vortex-bench = { workspace = true }
 vortex-datafusion = { workspace = true }
 vortex-metrics = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+t4 = { workspace = true }
 
 [build-dependencies]
 custom-labels = { workspace = true }

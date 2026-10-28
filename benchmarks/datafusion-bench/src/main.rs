@@ -51,6 +51,7 @@ use vortex_bench::runner::filter_queries;
 use vortex_bench::setup_logging_and_tracing;
 use vortex_bench::v3;
 use vortex_datafusion::metrics::VortexMetricsFinder;
+use vortex_datafusion::reader::VortexReaderFactory;
 use vortex_datafusion::v2::VortexTable;
 
 /// Common arguments shared across benchmarks
@@ -193,13 +194,22 @@ async fn main() -> anyhow::Result<()> {
             mode,
             |format| {
                 let benchmark = &*benchmark;
+                let opts = &opts;
                 async move {
                     let session = datafusion_bench::get_session_context();
                     for sql in benchmark.engine_init_sql(Engine::DataFusion) {
                         session.sql(&sql).await?.collect().await?;
                     }
-                    datafusion_bench::make_object_store(&session, benchmark.data_url())?;
-                    register_benchmark_tables(&session, benchmark, format, scan_v2).await?;
+                    let store =
+                        datafusion_bench::make_object_store(&session, benchmark.data_url())?;
+                    let reader_factory = datafusion_bench::t4_in_front(
+                        &session,
+                        opts,
+                        benchmark.data_url(),
+                        store,
+                    )?;
+                    register_benchmark_tables(&session, benchmark, format, scan_v2, reader_factory)
+                        .await?;
                     Ok((session, format))
                 }
             },
@@ -264,13 +274,18 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     benchmark: &B,
     format: Format,
     scan_v2: bool,
+    reader_factory: Option<Arc<dyn VortexReaderFactory>>,
 ) -> anyhow::Result<()> {
     if !scan_v2 && use_scan_api() && matches!(format, Format::OnDiskVortex | Format::VortexCompact)
     {
+        anyhow::ensure!(
+            reader_factory.is_none(),
+            "t4 isn't wired into the scan API's tables yet"
+        );
         register_v2_tables(session, benchmark, format).await
     } else {
         let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
-        let file_format = format_to_df_format(format, scan_v2)?;
+        let file_format = format_to_df_format(format, scan_v2, reader_factory)?;
 
         for table in benchmark.table_specs().iter() {
             let pattern = benchmark.pattern(table.name, format);

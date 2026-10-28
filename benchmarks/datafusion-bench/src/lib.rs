@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod metrics;
+#[cfg(unix)]
+mod t4_cache;
 pub mod tracer;
 
 use std::sync::Arc;
@@ -22,10 +24,12 @@ use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::local::LocalFileSystem;
 use url::Url;
 use vortex_bench::Format;
+use vortex_bench::Opts;
 use vortex_bench::SESSION;
 use vortex_datafusion::VortexFormat;
 use vortex_datafusion::VortexFormatFactory;
 use vortex_datafusion::VortexTableOptions;
+use vortex_datafusion::reader::VortexReaderFactory;
 
 #[expect(clippy::expect_used)]
 pub fn get_session_context() -> SessionContext {
@@ -98,14 +102,40 @@ pub fn make_object_store(
     }
 }
 
-pub fn format_to_df_format(format: Format, scan_v2: bool) -> anyhow::Result<Arc<dyn FileFormat>> {
+/// t4 in front of `store`, which serves `data_url`, if `--opt t4-policy` asks for it: the
+/// factory that reads every Vortex file through t4 ([`t4_cache`]).
+pub fn t4_in_front(
+    session: &SessionContext,
+    opts: &Opts,
+    data_url: &Url,
+    store: Arc<dyn ObjectStore>,
+) -> anyhow::Result<Option<Arc<dyn VortexReaderFactory>>> {
+    #[cfg(unix)]
+    return t4_cache::t4_in_front(session, opts, data_url, store);
+    #[cfg(not(unix))]
+    {
+        let _ = (session, data_url, store);
+        anyhow::ensure!(opts.get("t4-policy").is_none(), "t4 runs on unix only");
+        Ok(None)
+    }
+}
+
+pub fn format_to_df_format(
+    format: Format,
+    scan_v2: bool,
+    reader_factory: Option<Arc<dyn VortexReaderFactory>>,
+) -> anyhow::Result<Arc<dyn FileFormat>> {
     let mut options = vortex_table_options();
     options.scan_v2 = scan_v2;
     Ok(match format {
         Format::Csv => Arc::new(CsvFormat::default()) as _,
         Format::Parquet => Arc::new(ParquetFormat::new()),
         Format::OnDiskVortex | Format::VortexCompact | Format::VortexSpatialNative => {
-            Arc::new(VortexFormat::new_with_options(SESSION.clone(), options))
+            let mut vortex = VortexFormat::new_with_options(SESSION.clone(), options);
+            if let Some(reader_factory) = reader_factory {
+                vortex = vortex.with_vortex_reader_factory(reader_factory);
+            }
+            Arc::new(vortex)
         }
         Format::ArrowIpc | Format::OnDiskDuckDB | Format::Lance | Format::LitData => {
             anyhow::bail!("Format {format} cannot be turned into a DataFusion `FileFormat`")
