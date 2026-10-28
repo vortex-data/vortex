@@ -18,6 +18,8 @@ use crate::utils::file::resolve_data_url;
 /// ClickBench benchmark implementation
 pub struct ClickBenchBenchmark {
     pub flavor: Flavor,
+    /// How many of the partitioned dataset's files to use, from 1 to [`CLICKBENCH_FILES`].
+    pub files: u32,
     pub queries_file: Option<String>,
     pub data_url: Url,
 }
@@ -25,19 +27,28 @@ pub struct ClickBenchBenchmark {
 impl ClickBenchBenchmark {
     pub fn new(
         flavor: Flavor,
+        files: u32,
         queries_file: Option<String>,
         use_remote_data_dir: Option<String>,
     ) -> Result<Self> {
-        let url = Self::create_data_url(use_remote_data_dir.as_deref(), flavor)?;
+        anyhow::ensure!(
+            (1..=CLICKBENCH_FILES).contains(&files),
+            "ClickBench files must be between 1 and {CLICKBENCH_FILES}, got {files}"
+        );
+        anyhow::ensure!(
+            flavor == Flavor::Partitioned || files == CLICKBENCH_FILES,
+            "ClickBench files applies only to the partitioned flavor"
+        );
+        let url = resolve_data_url(
+            use_remote_data_dir.as_deref(),
+            &clickbench_data_dir(flavor, files),
+        )?;
         Ok(Self {
             flavor,
+            files,
             queries_file,
             data_url: url,
         })
-    }
-
-    fn create_data_url(remote_data_dir: Option<&str>, flavor: Flavor) -> Result<Url> {
-        resolve_data_url(remote_data_dir, &format!("clickbench_{flavor}"))
     }
 }
 
@@ -89,19 +100,21 @@ impl Benchmark for ClickBenchBenchmark {
             return Ok(());
         }
 
-        let basepath = clickbench_flavor(self.flavor).to_data_path();
-        self.flavor.download(basepath).await?;
+        let basepath = clickbench_data_dir(self.flavor, self.files).to_data_path();
+        self.flavor.download(basepath, self.files).await?;
 
         Ok(())
     }
 
     fn expected_row_counts(&self) -> Option<Vec<usize>> {
-        Some(clickbench_expected_row_counts())
+        // The known row counts hold only for the complete dataset.
+        (self.files == CLICKBENCH_FILES).then(clickbench_expected_row_counts)
     }
 
     fn dataset(&self) -> BenchmarkDataset {
         BenchmarkDataset::ClickBench {
             flavor: self.flavor,
+            files: (self.files != CLICKBENCH_FILES).then_some(self.files),
         }
     }
 
@@ -110,7 +123,7 @@ impl Benchmark for ClickBenchBenchmark {
     }
 
     fn dataset_display(&self) -> String {
-        format!("clickbench_{}", self.flavor)
+        clickbench_data_dir(self.flavor, self.files)
     }
 
     fn data_url(&self) -> &Url {
@@ -168,6 +181,34 @@ impl Benchmark for ClickBenchSortedBenchmark {
     }
 }
 
-fn clickbench_flavor(flavor: Flavor) -> String {
-    format!("clickbench_{flavor}")
+fn clickbench_data_dir(flavor: Flavor, files: u32) -> String {
+    if files == CLICKBENCH_FILES {
+        format!("clickbench_{flavor}")
+    } else {
+        format!("clickbench_{flavor}_{files}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn subsets_skip_the_full_dataset_row_counts() -> Result<()> {
+        let subset = ClickBenchBenchmark::new(Flavor::Partitioned, 10, None, None)?;
+        assert!(subset.expected_row_counts().is_none());
+        assert!(
+            subset
+                .data_url
+                .path()
+                .ends_with("/clickbench_partitioned_10/")
+        );
+
+        let full = ClickBenchBenchmark::new(Flavor::Partitioned, CLICKBENCH_FILES, None, None)?;
+        assert!(full.expected_row_counts().is_some());
+        assert!(full.data_url.path().ends_with("/clickbench_partitioned/"));
+
+        assert!(ClickBenchBenchmark::new(Flavor::Single, 10, None, None).is_err());
+        Ok(())
+    }
 }
