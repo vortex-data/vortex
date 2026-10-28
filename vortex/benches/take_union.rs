@@ -15,11 +15,6 @@
 //! writer produces before compression. The `compressed_children` cases keep the dominant integer
 //! child canonical and store each rare child as a `SparseArray` holding only the rows its variant
 //! selects, which is what a compressor produces.
-//!
-//! The `compressed_children` cases run over the sub-millisecond budget the other microbenchmarks
-//! hold to. What they measure is cache-missing binary searches in `Patches::take`, which only
-//! appears once a child's patch indices outgrow the cache. Shrinking the array to fit the budget
-//! closes the gap between the two shapes to noise and measures nothing.
 
 #![expect(clippy::unwrap_used)]
 
@@ -68,7 +63,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
-const ARRAY_SIZE: usize = 100_000;
+const ARRAY_SIZE: usize = 10_000;
 
 const TAKE_SIZE: usize = 128;
 

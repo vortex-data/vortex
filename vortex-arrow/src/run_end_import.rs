@@ -8,13 +8,13 @@ use arrow_buffer::ArrowNativeType;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::RunEnd;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::NativePType;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
-use vortex_runend::RunEnd;
 
 /// Build a Vortex run-end array from an Arrow [`RunArray`] and its already-converted `values`.
 ///
@@ -85,6 +85,7 @@ mod tests {
     use vortex_array::IntoArray as _;
     use vortex_array::VortexSessionExecute as _;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::RunEnd;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::NativePType;
@@ -92,16 +93,11 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_runend::RunEnd;
     use vortex_session::VortexSession;
 
     use crate::ArrowSessionExt;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty();
-        vortex_runend::initialize(&session);
-        session
-    });
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     /// Decode through the session import path, which is what production callers use.
     fn decode_run_array<R: RunEndIndexType>(

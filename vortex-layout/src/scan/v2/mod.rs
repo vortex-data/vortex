@@ -118,6 +118,11 @@ impl ScanBuilder {
         self.projection.dtype()
     }
 
+    /// The session the scan decodes and evaluates expressions with.
+    pub fn session(&self) -> &VortexSession {
+        &self.session
+    }
+
     /// Sets a projection bound against the file's dtype.
     pub fn with_projection(mut self, projection: BoundExpression) -> Self {
         self.projection = projection;

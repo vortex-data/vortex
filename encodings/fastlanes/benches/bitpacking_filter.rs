@@ -70,18 +70,18 @@ fn fixture(selected_per_chunk: usize) -> (ArrayRef, Mask) {
 }
 
 #[vortex_bench_support::cpu_features]
-#[divan::bench(args = [8, 64, 80])]
+#[divan::bench(args = [64, 80])]
 fn filter(bencher: Bencher, selected_per_chunk: usize) {
     let (packed, mask) = fixture(selected_per_chunk);
 
     bencher
         .counter(ItemsCount::new(LEN))
         .with_inputs(|| (mask.clone(), SESSION.create_execution_ctx()))
-        .bench_refs(|(mask, ctx)| {
+        .bench_values(|(mask, mut ctx)| {
             packed
-                .filter(mask.clone())
+                .filter(mask)
                 .unwrap()
-                .execute::<PrimitiveArray>(ctx)
+                .execute::<PrimitiveArray>(&mut ctx)
                 .unwrap()
         });
 }

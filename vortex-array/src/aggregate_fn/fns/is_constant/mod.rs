@@ -195,10 +195,11 @@ impl IsConstant {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let partial_dtype = make_is_constant_partial_dtype(batch.dtype());
+        if batch.is_empty() {
+            return Ok(Scalar::null(partial_dtype));
+        }
+
         if is_constant {
-            if batch.is_empty() {
-                return Ok(Scalar::null(partial_dtype));
-            }
             let first_value = batch.execute_scalar(0, ctx)?.into_nullable();
             Ok(Scalar::struct_(
                 partial_dtype,
@@ -489,9 +490,11 @@ mod tests {
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::DecimalArray;
+    use crate::arrays::DictArray;
     use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    use crate::arrays::runend::RunEnd;
     use crate::builders::MapBuilder;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
@@ -857,6 +860,34 @@ mod tests {
             IsConstant.finalize_scalar(args, &parsed)?,
             Scalar::bool(false, Nullability::NonNullable)
         );
+        Ok(())
+    }
+
+    #[rstest]
+    fn empty_batch_leaves_constant_partial_empty(
+        #[values("primitive", "dict", "runend")] encoding: &str,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let empty = match encoding {
+            "primitive" => Buffer::<i32>::empty().into_array(),
+            "dict" => DictArray::try_new(
+                Buffer::<u32>::empty().into_array(),
+                buffer![1i32].into_array(),
+            )?
+            .into_array(),
+            "runend" => RunEnd::encode(Buffer::<i32>::empty().into_array(), &mut ctx)?.into_array(),
+            _ => unreachable!(),
+        };
+        let mut acc = Accumulator::try_new(IsConstant, EmptyOptions, empty.dtype().clone())?;
+        acc.accumulate(&empty, &mut ctx)?;
+
+        assert!(acc.partial_scalar()?.is_null());
+        assert!(!is_constant(&empty, &mut ctx)?);
+
+        acc.accumulate(&buffer![1i32, 1].into_array(), &mut ctx)?;
+        acc.accumulate(&empty, &mut ctx)?;
+
+        assert_eq!(acc.finish()?, Scalar::bool(true, Nullability::NonNullable));
         Ok(())
     }
 }

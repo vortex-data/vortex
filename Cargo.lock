@@ -7894,9 +7894,9 @@ dependencies = [
 
 [[package]]
 name = "openssl-probe"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
+checksum = "7e036b411754132fd6b74e94b74e9a13c5cf606fa93d1885c35860d3060820b1"
 
 [[package]]
 name = "opentelemetry"
@@ -9589,9 +9589,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "1.1.5"
+version = "1.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "891efababe418670775f199f0d233d84843c227a0949a883ce15b37c78d6629d"
+checksum = "e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa"
 dependencies = [
  "bitflags 2.13.2",
  "errno",
@@ -10308,10 +10308,12 @@ dependencies = [
  "tabled",
  "tokio",
  "tracing",
+ "url",
  "vortex",
  "vortex-arrow",
  "vortex-bench",
  "vortex-btrblocks",
+ "vortex-cloud",
  "vortex-fsst",
  "vortex-onpair",
 ]
@@ -10902,9 +10904,9 @@ checksum = "06bdbd8cfc056b8d2e2e85f29b56a3bdbecb527cef81eb39e3e7b98af4652770"
 
 [[package]]
 name = "tonic"
-version = "0.14.6"
+version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac2a5518c70fa84342385732db33fb3f44bc4cc748936eb5833d2df34d6445ef"
+checksum = "16ea7e687c08008d22518056608ad0c1cc721204d30ed48c8439a88ae5b9fc73"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -10922,6 +10924,7 @@ dependencies = [
  "sync_wrapper",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "tower",
  "tower-layer",
  "tower-service",
@@ -10930,9 +10933,9 @@ dependencies = [
 
 [[package]]
 name = "tonic-prost"
-version = "0.14.6"
+version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50849f68853be452acf590cde0b146665b8d507b3b8af17261df47e02c209ea0"
+checksum = "8fe9efdab8bb668f5ef526e21c247c8cb658853a754983cb70f1dac3fc4f462a"
 dependencies = [
  "bytes",
  "prost 0.14.4",
@@ -11348,7 +11351,6 @@ dependencies = [
  "vortex-metrics",
  "vortex-parquet-variant",
  "vortex-pco",
- "vortex-runend",
  "vortex-scan",
  "vortex-sequence",
  "vortex-session",
@@ -11471,7 +11473,6 @@ dependencies = [
  "vortex-fsst",
  "vortex-mask",
  "vortex-onpair",
- "vortex-runend",
  "vortex-session",
  "vortex-zstd",
 ]
@@ -11555,6 +11556,7 @@ name = "vortex-btrblocks"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
+ "enum-iterator",
  "insta",
  "itertools 0.14.0",
  "mimalloc",
@@ -11573,7 +11575,6 @@ dependencies = [
  "vortex-fsst",
  "vortex-onpair",
  "vortex-pco",
- "vortex-runend",
  "vortex-sequence",
  "vortex-session",
  "vortex-sparse",
@@ -11894,7 +11895,6 @@ dependencies = [
  "url",
  "vortex",
  "vortex-array",
- "vortex-runend",
  "vortex-sequence",
  "vortex-spatial",
  "vortex-utils",
@@ -11993,6 +11993,8 @@ name = "vortex-file"
 version = "0.1.0"
 dependencies = [
  "allocator-api2",
+ "arrow-array 59.3.2",
+ "arrow-schema 59.3.2",
  "async-trait",
  "bytes",
  "codspeed-divan-compat",
@@ -12014,6 +12016,7 @@ dependencies = [
  "url",
  "vortex-alp",
  "vortex-array",
+ "vortex-arrow",
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",
@@ -12030,7 +12033,6 @@ dependencies = [
  "vortex-metrics",
  "vortex-onpair",
  "vortex-pco",
- "vortex-runend",
  "vortex-scan",
  "vortex-sequence",
  "vortex-session",
@@ -12084,7 +12086,6 @@ dependencies = [
  "vortex-io",
  "vortex-mask",
  "vortex-row",
- "vortex-runend",
  "vortex-session",
  "vortex-utils",
 ]
@@ -12229,7 +12230,6 @@ dependencies = [
  "vortex-io",
  "vortex-mask",
  "vortex-metrics",
- "vortex-runend",
  "vortex-scan",
  "vortex-sequence",
  "vortex-session",
@@ -12393,26 +12393,6 @@ dependencies = [
  "rand 0.10.3",
  "rstest",
  "smallvec",
- "vortex-array",
- "vortex-buffer",
- "vortex-error",
- "vortex-mask",
- "vortex-session",
-]
-
-[[package]]
-name = "vortex-runend"
-version = "0.1.0"
-dependencies = [
- "arbitrary",
- "codspeed-divan-compat",
- "insta",
- "itertools 0.14.0",
- "mimalloc",
- "num-traits",
- "prost 0.14.4",
- "rand 0.10.3",
- "rstest",
  "vortex-array",
  "vortex-buffer",
  "vortex-error",

@@ -28,6 +28,7 @@ use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::max::Max;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::columnar_min_max;
+use crate::aggregate_fn::fns::min_max::min_max;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
@@ -280,6 +281,21 @@ impl AggregateFnVTable for BoundedMax {
         matches!(partial.state, BoundedMaxState::Unknown)
     }
 
+    fn try_accumulate(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        partial: &mut Self::Partial,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        // `min_max` computes both extrema in one pass and caches both on `batch`, so a
+        // `BoundedMin` over the same batch reads the cached value instead of a second scan.
+        if let Some(result) = min_max(batch, ctx, NumericalAggregateOpts::default())? {
+            merge_max(partial, result.max, args.options.max_bytes.get())?;
+        }
+        Ok(true)
+    }
+
     fn accumulate(
         &self,
         args: AggregateArgs<'_, Self::Options>,
@@ -292,11 +308,7 @@ impl AggregateFnVTable for BoundedMax {
         let Some(result) = columnar_min_max(batch, NumericalAggregateOpts::default(), ctx)? else {
             return Ok(());
         };
-        match truncate_max(result.max, args.options.max_bytes.get())? {
-            Some(bound) => partial.merge_bound(bound),
-            None => partial.unknown(),
-        }
-        Ok(())
+        merge_max(partial, result.max, args.options.max_bytes.get())
     }
 
     fn finalize(
@@ -314,6 +326,15 @@ impl AggregateFnVTable for BoundedMax {
     ) -> VortexResult<Scalar> {
         partial.final_scalar(args)
     }
+}
+
+/// Merge the byte-bounded upper bound of `max` into `partial`.
+fn merge_max(partial: &mut BoundedMaxPartial, max: Scalar, max_bytes: usize) -> VortexResult<()> {
+    match truncate_max(max, max_bytes)? {
+        Some(bound) => partial.merge_bound(bound),
+        None => partial.unknown(),
+    }
+    Ok(())
 }
 
 fn supported_dtype<'a>(_options: &BoundedMaxOptions, input_dtype: &'a DType) -> Option<&'a DType> {

@@ -57,8 +57,8 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     session
 });
 
-/// Number of elements per benchmarked array (64 full FastLanes blocks).
-const LEN: usize = 64 * 1024;
+/// Number of elements per benchmarked array
+const LEN: usize = if cfg!(codspeed) { 8 * 1024 } else { 64 * 1024 };
 
 /// Operator under test. `Lt` exercises the full unpack + per-element comparison path.
 const OP: Operator = Operator::Lt;

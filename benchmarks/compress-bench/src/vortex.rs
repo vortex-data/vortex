@@ -8,13 +8,11 @@ use std::time::Instant;
 
 use anyhow::Result;
 use anyhow::bail;
-use arrow_schema::Field;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::StreamExt;
 use futures::pin_mut;
 use vortex::array::IntoArray;
-use vortex::array::VortexSessionExecute;
 use vortex::dtype::FieldNames;
 use vortex::expr::root;
 use vortex::expr::select;
@@ -23,7 +21,6 @@ use vortex::file::WriteOptionsSessionExt;
 use vortex::file::v2::ScanDriver;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::scan::v2::ScanBuilder;
-use vortex_arrow::ArrowSessionExt;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
 use vortex_bench::compress::Compressed;
@@ -99,17 +96,11 @@ async fn vortex_decompress_read(data: Bytes) -> Result<()> {
             .optimize_recursive()?;
         scan = scan.with_projection(projection);
     }
-    let schema = SESSION.arrow().to_arrow_schema(scan.dtype())?;
-    let field = Field::new_struct("", schema.fields().clone(), false);
-
-    let stream = ScanDriver::new(SESSION.handle(), 4, true).run(scan);
+    let stream = ScanDriver::new(SESSION.handle(), 4, true).run_record_batches(scan, None);
     pin_mut!(stream);
 
-    while let Some(chunk) = stream.next().await {
-        let mut ctx = SESSION.create_execution_ctx();
-        let _batch = SESSION
-            .arrow()
-            .execute_arrow(chunk?, Some(&field), &mut ctx)?;
+    while let Some(batch) = stream.next().await {
+        let _batch = batch?;
     }
     Ok(())
 }

@@ -50,7 +50,6 @@ and registers itself with the session. The standard encodings are bundled into t
 | `vortex-alp`                | Adaptive Lossless floating-Point compression         |
 | `vortex-fastlanes`          | FastLanes bit-packing, delta, and frame-of-reference |
 | `vortex-fsst`               | Fast Static Symbol Table compression for strings     |
-| `vortex-runend`             | Run-end encoding for repetitive data                 |
 | `vortex-sparse`             | Sparse array encoding                                |
 | `vortex-zigzag`             | ZigZag encoding for signed integers                  |
 | `vortex-roaring`            | Roaring bitmap encoding                              |
