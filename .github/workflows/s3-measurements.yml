@@ -1,0 +1,90 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+name: S3 Measurements
+
+on:
+  workflow_dispatch:
+    inputs:
+      windows:
+        description: "Measurement windows, three hours apart, then stop"
+        type: choice
+        options: ["4", "1", "2", "3"]
+        default: "4"
+  push:
+    branches: ["ji/s3-measurements"]
+    paths:
+      - .github/workflows/s3-measurements.yml
+      - vortex-bench/src/bin/s3-measure.rs
+      - benchmarks/s3/**
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: s3-measurements-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    timeout-minutes: 780
+    runs-on: runs-on=${{ github.run_id }}/runner=bench-dedicated/family=c8gd.16xlarge/spot=false/image=ubuntu24-full-arm64-pre-v2/tag=s3-measure/extras=s3-cache
+    env:
+      AWS_REGION: us-east-1
+      REMOTE_ROOT: s3://vortex-ci-benchmark-datasets/s3-measurements/${{ github.run_id }}-${{ github.run_attempt }}
+      S3_MEASUREMENT_ROLE_ARN: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+      MEASUREMENT_WINDOWS: ${{ inputs.windows || '1' }}
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
+      - uses: ./.github/actions/system-info
+      - name: Build collector
+        env:
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+        run: cargo build --locked -p vortex-bench --bin s3-measure --profile release_debug
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+          role-duration-seconds: 7200
+      - name: Verify region and create immutable probe objects
+        run: |
+          set -Eeuo pipefail
+          region=$(curl --silent --show-error --head --max-time 20 https://vortex-ci-benchmark-datasets.s3.amazonaws.com/ |
+            awk 'tolower($1) == "x-amz-bucket-region:" {gsub("\r", "", $2); print $2}')
+          test "$region" = "$AWS_REGION"
+          test "$RUNS_ON_AWS_REGION" = "$AWS_REGION"
+          python3 - <<'PY'
+          import pathlib
+          import random
+          pathlib.Path("s3-probe.bin").write_bytes(random.Random(20261028).randbytes(16 * 1024 * 1024))
+          PY
+          for object in 1 2 3 4; do
+            aws s3 cp s3-probe.bin "$REMOTE_ROOT/probe-$object.bin"
+          done
+      - name: Collect fixed-time S3 windows
+        run: |
+          python3 benchmarks/s3/measure.py --source "$REMOTE_ROOT/" \
+            --output s3-measurements --count "$MEASUREMENT_WINDOWS" --interval-seconds 10800
+      - name: Preserve raw requests, manifests, schedule and median/p90 tables
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: s3-measurements-${{ github.run_attempt }}
+          path: s3-measurements/
+          retention-days: 30
+      - name: Refresh credentials for cleanup
+        if: always()
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+      - name: Remove this run's probe objects
+        if: always()
+        run: aws s3 rm --recursive "$REMOTE_ROOT/"
