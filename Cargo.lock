@@ -11886,6 +11886,7 @@ dependencies = [
  "object_store 0.13.2",
  "parking_lot",
  "paste",
+ "prost 0.14.4",
  "reqwest 0.13.5",
  "rstest",
  "static_assertions",

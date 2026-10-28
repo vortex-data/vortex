@@ -48,7 +48,21 @@ duckdb_vx_data duckdb_table_function_init_global(const duckdb_vx_tfunc_init_inpu
 
 extern duckdb_vx_data duckdb_table_function_init_local(const void *bind, const void *global);
 
-extern duckdb_vx_data duckdb_table_function_serialize(const void *bind, duckdb_vx_error *error_out);
+extern duckdb_vx_data duckdb_table_function_bind_empty(void);
+
+extern
+duckdb_vx_data duckdb_table_function_serialize(const void *bind,
+                                               const uint8_t **state_out,
+                                               size_t *state_len_out,
+                                               duckdb_vx_error *error_out);
+
+extern
+bool duckdb_table_function_deserialize(void *bind,
+                                       const uint8_t *state,
+                                       size_t state_len,
+                                       const duckdb_logical_type *types,
+                                       size_t types_len,
+                                       duckdb_vx_error *error_out);
 
 extern
 duckdb_vx_data duckdb_reader_bind(const void *first_file,

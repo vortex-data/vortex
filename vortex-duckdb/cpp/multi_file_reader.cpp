@@ -97,6 +97,14 @@ VortexMultiFileReader::InitializeReader(MultiFileReaderData &reader_data,
     return skip ? ReaderInitializeType::SKIP_READING_FILE : ReaderInitializeType::INITIALIZED;
 }
 
+unique_ptr<TableFunctionData> VortexReaderInterface::InitializeBindData(MultiFileBindData &,
+                                                                        unique_ptr<BaseFileReaderOptions>) {
+    auto result = make_uniq<VortexBindData>();
+    result->ffi_bind_data =
+        unique_ptr<CData>(reinterpret_cast<CData *>(duckdb_table_function_bind_empty()));
+    return result;
+}
+
 void VortexReaderInterface::BindReader(ClientContext &context,
                                        vector<LogicalType> &types,
                                        vector<Identifier> &names,

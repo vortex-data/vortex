@@ -170,14 +170,46 @@ pub unsafe extern "C-unwind" fn duckdb_table_function_init_local(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn duckdb_table_function_bind_empty() -> cpp::duckdb_vx_data {
+    Data::from(Box::new(BindState::empty())).as_ptr()
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn duckdb_table_function_serialize(
     bind: *const c_void,
+    state_out: *mut *const u8,
+    state_len_out: *mut usize,
     error_out: *mut cpp::duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
     let bind = unsafe { bind.cast::<BindState>().as_ref() }.vortex_expect("null pointer");
     try_or_null(error_out, || {
-        let state = serialize(bind)?;
-        Ok(Data::from(Box::new(state)).as_ptr())
+        let state = Box::new(serialize(bind)?);
+        unsafe {
+            state_out.write(state.as_ptr());
+            state_len_out.write(state.len());
+        }
+        Ok(Data::from(state).as_ptr())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn duckdb_table_function_deserialize(
+    bind: *mut c_void,
+    state: *const u8,
+    state_len: usize,
+    types: *const cpp::duckdb_logical_type,
+    types_len: usize,
+    error_out: *mut cpp::duckdb_vx_error,
+) -> bool {
+    let bind = unsafe { bind.cast::<BindState>().as_mut() }.vortex_expect("null pointer");
+    let state = unsafe { std::slice::from_raw_parts(state, state_len) };
+    let types = unsafe { std::slice::from_raw_parts(types, types_len) }
+        .iter()
+        .map(|ffi_type| unsafe { LogicalType::borrow(*ffi_type) })
+        .collect::<Vec<_>>();
+    try_or(error_out, || {
+        deserialize(bind, state, &types)?;
+        Ok(true)
     })
 }
 
