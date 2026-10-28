@@ -29,6 +29,8 @@ use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::get_item::GetItem;
 use vortex_array::scalar_fn::fns::is_not_null::IsNotNull;
 use vortex_array::scalar_fn::fns::is_null::IsNull;
+use vortex_array::scalar_fn::fns::list_project::Project;
+use vortex_array::scalar_fn::fns::list_project::project_paths_bound;
 use vortex_array::scalar_fn::fns::mask::Mask as MaskFn;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::scalar_fn::fns::select::Select;
@@ -351,6 +353,37 @@ fn expand_struct_root(
                         names.into_iter().zip(children),
                         Nullability::NonNullable,
                     )),
+                    changed: true,
+                    order: TraversalOrder::Skip,
+                });
+            }
+
+            if let Some(paths) = scalar_fn.as_opt::<Project>() {
+                let mut children = Vec::new();
+                for name in fields.names().iter() {
+                    let matching: Vec<_> = paths
+                        .0
+                        .iter()
+                        .filter(|path| path.first() == Some(name))
+                        .collect();
+                    if matching.is_empty() {
+                        continue;
+                    }
+                    let idx = fields.find(name).vortex_expect("project path field exists");
+                    let child = packed.children()[idx].clone();
+                    let child = if matching.iter().any(|path| path.len() == 1) {
+                        child
+                    } else {
+                        let descendants = matching
+                            .iter()
+                            .map(|path| path[1..].to_vec())
+                            .collect::<Vec<_>>();
+                        project_paths_bound(&descendants, child)?
+                    };
+                    children.push((name.clone(), child));
+                }
+                return Ok(Transformed {
+                    value: with_validity(pack(children, Nullability::NonNullable)),
                     changed: true,
                     order: TraversalOrder::Skip,
                 });

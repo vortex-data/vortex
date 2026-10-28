@@ -21,6 +21,8 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::root;
+use vortex_array::scalar_fn::fns::list_project::Project;
+use vortex_array::scalar_fn::fns::list_project::project_paths;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
@@ -189,7 +191,8 @@ impl ListReader {
         let expr = expr.clone();
 
         let offsets_fut = self.fetch_raw_offsets(&(0..row_count))?;
-        let elements_fut = self.fetch_raw_elements(&(0..elements_row_count))?;
+        let elements_fut =
+            self.fetch_elements_for_projection(&(0..elements_row_count), &expr)?;
         let validity_fut = fetch_validity(
             self.validity.as_ref(),
             &(0..row_count),
@@ -204,7 +207,11 @@ impl ListReader {
                 ListArray::new_unchecked(elements, offsets, create_validity(validity, nullability))
             }
             .into_array();
-            list.apply_bound(&expr)
+            if is_root_list_project(&expr) {
+                Ok(list)
+            } else {
+                list.apply_bound(&expr)
+            }
         }
         .boxed())
     }
@@ -239,7 +246,7 @@ impl ListReader {
             let offsets = offsets_fut.await?;
 
             let elements_range = elements_range_from_offsets(&offsets, &reader.session)?;
-            let elements_fut = reader.fetch_raw_elements(&elements_range)?;
+            let elements_fut = reader.fetch_elements_for_projection(&elements_range, &expr)?;
             let validity_fut = fetch_validity(
                 reader.validity.as_ref(),
                 &selected_row_range,
@@ -260,7 +267,11 @@ impl ListReader {
             } else {
                 list.filter(selected_mask)?
             };
-            list.apply_bound(&expr)
+            if is_root_list_project(&expr) {
+                Ok(list)
+            } else {
+                list.apply_bound(&expr)
+            }
         }
         .boxed())
     }
@@ -329,6 +340,28 @@ impl ListReader {
         self.elements
             .projection_evaluation(row_range, &root, MaskFuture::new_true(row_count))
     }
+
+    /// Push a list projection into its elements reader, leaving offsets and validity unchanged.
+    fn fetch_elements_for_projection(
+        &self,
+        row_range: &Range<u64>,
+        expr: &BoundExpression,
+    ) -> VortexResult<ArrayFuture> {
+        if !is_root_list_project(expr) {
+            return self.fetch_raw_elements(row_range);
+        }
+        let paths = expr.as_opt::<Project>().vortex_expect("root list projection");
+        let projection = project_paths(&paths.0, root(), self.elements.dtype())?
+            .bind(self.elements.dtype())?;
+        let row_count = usize::try_from(row_range.end - row_range.start)?;
+        self.elements
+            .projection_evaluation(row_range, &projection, MaskFuture::new_true(row_count))
+    }
+
+}
+
+fn is_root_list_project(expr: &BoundExpression) -> bool {
+    expr.as_opt::<Project>().is_some() && expr.children()[0].is_root()
 }
 
 fn selected_row_range(mask: &Mask) -> Option<Range<usize>> {
@@ -625,7 +658,9 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ListArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::FieldNames;
     use vortex_array::expr::Expression;
     use vortex_array::expr::cast;
     use vortex_array::expr::gt;
@@ -633,7 +668,10 @@ mod tests {
     use vortex_array::expr::is_null;
     use vortex_array::expr::list_length;
     use vortex_array::expr::lit;
+    use vortex_array::scalar_fn::fns::list_project::list_project;
     use vortex_buffer::buffer;
+    use vortex_error::vortex_bail;
+    use vortex_error::vortex_err;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_session::VortexSession;
@@ -647,7 +685,9 @@ mod tests {
     use crate::layouts::repartition::RepartitionStrategy;
     use crate::layouts::repartition::RepartitionWriterOptions;
     use crate::scan::split_by::SplitBy;
+    use crate::layouts::struct_::writer::StructStrategy;
     use crate::segments::SegmentFuture;
+    use crate::segments::SegmentId;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -1149,6 +1189,137 @@ mod tests {
             self.request_count.fetch_add(1, Ordering::Relaxed);
             self.inner.request(id)
         }
+    }
+
+    struct RejectSegmentSource {
+        inner: Arc<dyn SegmentSource>,
+        forbidden: Vec<SegmentId>,
+    }
+
+    impl SegmentSource for RejectSegmentSource {
+        fn request(&self, id: SegmentId) -> SegmentFuture {
+            if self.forbidden.contains(&id) {
+                return Box::pin(async move {
+                    Err(vortex_err!("unexpected read of omitted segment {id}"))
+                });
+            }
+            self.inner.request(id)
+        }
+    }
+
+    fn segment_ids_at_path(layout: &LayoutRef, path: &[&str]) -> VortexResult<Vec<SegmentId>> {
+        if path.is_empty() {
+            return Ok(layout.segment_ids());
+        }
+        for (child_type, child) in layout.child_types().zip(layout.children()?) {
+            if child_type.name().as_ref() == path[0] {
+                return segment_ids_at_path(&child, &path[1..]);
+            }
+        }
+        vortex_bail!("layout has no child at path {path:?}");
+    }
+
+    #[rstest]
+    #[case::full(0..4, Mask::new_true(4))]
+    #[case::bounded(1..4, Mask::from_iter([true, false, true]))]
+    #[case::sparse(0..4, Mask::from_iter([true, false, true, true]))]
+    #[tokio::test]
+    async fn nested_list_projection_skips_sibling_segments(
+        #[case] row_range: Range<u64>,
+        #[case] mask: Mask,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dp = buffer![10i32, 20, 30, 40, 50].into_array();
+        let value_validity = Validity::from_iter([true, false, true, true, true]);
+        let value = StructArray::try_new(
+            FieldNames::from(["DP", "GQ"]),
+            vec![dp.clone(), buffer![90i32, 91, 92, 93, 94].into_array()],
+            5,
+            value_validity.clone(),
+        )?;
+        let elements = StructArray::try_new(
+            FieldNames::from(["value", "unused"]),
+            vec![value.into_array(), buffer![1i32, 2, 3, 4, 5].into_array()],
+            5,
+            Validity::NonNullable,
+        )?;
+        let offsets = buffer![0u32, 2, 2, 4, 5].into_array();
+        let validity = Validity::from_iter([true, true, false, true]);
+        let list = ListArray::try_new(
+            elements.into_array(),
+            offsets.clone(),
+            validity.clone(),
+            &mut ctx,
+        )?
+        .into_array();
+        let expected_value = StructArray::try_new(
+            FieldNames::from(["DP"]),
+            vec![dp],
+            5,
+            value_validity,
+        )?;
+        let expected_elements = StructArray::try_new(
+            FieldNames::from(["value"]),
+            vec![expected_value.into_array()],
+            5,
+            Validity::NonNullable,
+        )?;
+        let expected = ListArray::try_new(
+            expected_elements.into_array(),
+            offsets,
+            validity,
+            &mut ctx,
+        )?
+        .into_array()
+        .slice(row_range.start as usize..row_range.end as usize)?
+        .filter(mask.clone())?;
+
+        let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
+        let value_strategy = StructStrategy::new(Arc::clone(&flat), Arc::clone(&flat));
+        let element_strategy = StructStrategy::new(Arc::clone(&flat), Arc::clone(&flat))
+            .with_field_writer("value", Arc::new(value_strategy));
+        let strategy = ListLayoutStrategy::default().with_elements(Arc::new(element_strategy));
+        let (segments, layout, session) = write_layout(&strategy, list).await?;
+        let mut forbidden = segment_ids_at_path(&layout, &["elements", "value", "GQ"])?;
+        forbidden.extend(segment_ids_at_path(&layout, &["elements", "unused"])?);
+        assert!(!forbidden.is_empty());
+
+        let full_reader = layout.new_reader(
+            "".into(),
+            Arc::clone(&segments),
+            &session,
+            &LayoutReaderContext::new(),
+        )?;
+        full_reader
+            .projection_evaluation(
+                &row_range,
+                &root().bind(full_reader.dtype())?,
+                MaskFuture::ready(mask.clone()),
+            )?
+            .await?;
+
+        let source = Arc::new(RejectSegmentSource {
+            inner: segments,
+            forbidden,
+        });
+        let reader = layout.new_reader(
+            "".into(),
+            source,
+            &session,
+            &LayoutReaderContext::new(),
+        )?;
+        let expr = list_project(
+            &[vec!["value".into(), "DP".into()]],
+            root(),
+            reader.dtype(),
+        )?
+        .bind(reader.dtype())?;
+        let projected = reader
+            .projection_evaluation(&row_range, &expr, MaskFuture::ready(mask))?
+            .await?;
+        let mut ctx = session.create_execution_ctx();
+        assert_arrays_eq!(projected, expected, &mut ctx);
+        Ok(())
     }
 
     /// The chunked-elements strategy must actually produce a chunked `elements` layout, otherwise
