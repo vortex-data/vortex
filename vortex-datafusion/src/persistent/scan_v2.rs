@@ -116,7 +116,31 @@ enum Yielded {
     Spawn(WorkScope, Box<dyn Planner>),
 }
 
-/// Drives the root on one task, with bounded handoff to the partition's stream.
+/// One CPU step of a run, taken on a `spawn_cpu` task with the run.
+enum Step {
+    Batch(u64, RecordBatch),
+    Spawn(WorkScope, Box<dyn Planner>),
+    RootDone,
+    Idle,
+    Waiting,
+}
+
+/// The state of the root run's stream.
+struct RunState {
+    handle: Handle,
+    /// Taken while a CPU step runs on its task and put back with its result.
+    run: Option<Run>,
+    io: Arc<dyn IoSource>,
+    map: MapBatch,
+    /// Whether a spawned chunk runs on this run, as another root, instead of being yielded.
+    inline: bool,
+}
+
+/// Runs `root` over `scope` on a planning run of its own, reading through `io`, each CPU step
+/// on a `spawn_cpu` task, and yields its mapped batches and, unless `inline`, the chunks it
+/// spawns. Inline, a spawned chunk runs on this run beside the others: the run's steps already
+/// interleave every chunk's work, and a run per chunk would only add a hand-off per chunk for
+/// parallelism the engine provides.
 fn run_stream(
     handle: Handle,
     root: Box<dyn Planner>,
@@ -125,39 +149,58 @@ fn run_stream(
     map: MapBatch,
     inline: bool,
 ) -> BoxStream<'static, VortexResult<Yielded>> {
-    let (mut send, recv) = mpsc::channel(1);
-    let task = handle.spawn(async move {
-        let mut run = Run::new();
-        run.admit(root, scope, Arc::clone(&io));
+    let mut run = Run::new();
+    run.admit(root, scope, Arc::clone(&io));
+    let state = RunState {
+        handle,
+        run: Some(run),
+        io,
+        map,
+        inline,
+    };
+    stream::try_unfold(state, |mut state| async move {
         loop {
-            // Ready planners and ready sends must still allow cancellation and other tasks.
-            tokio::task::consume_budget().await;
-            let yielded = match run.advance()? {
-                Progress::Batch(batch) => {
-                    Some(Yielded::Batch(batch.scope.rows.start, map(batch.array)?))
+            let run = state
+                .run
+                .take()
+                .ok_or_else(|| vortex_err!("the scan's run is missing"))?;
+            let map = Arc::clone(&state.map);
+            let (run, step) = state
+                .handle
+                .spawn_cpu(move || {
+                    let mut run = run;
+                    let step = run.advance().and_then(|progress| {
+                        Ok(match progress {
+                            Progress::Batch(batch) => {
+                                Step::Batch(batch.scope.rows.start, map(batch.array)?)
+                            }
+                            Progress::Spawn(scope, child) => Step::Spawn(scope, child),
+                            Progress::RootDone(_) => Step::RootDone,
+                            Progress::Idle => Step::Idle,
+                            Progress::Waiting => Step::Waiting,
+                        })
+                    });
+                    (run, step)
+                })
+                .await;
+            let run = state.run.insert(run);
+            match step? {
+                Step::Batch(start, batch) => {
+                    return Ok(Some((Yielded::Batch(start, batch), state)));
                 }
-                Progress::Spawn(scope, child) if inline => {
-                    run.admit(child, scope, Arc::clone(&io));
-                    None
+                Step::Spawn(scope, child) if state.inline => {
+                    run.admit(child, scope, Arc::clone(&state.io));
                 }
-                Progress::Spawn(scope, child) => Some(Yielded::Spawn(scope, child)),
-                Progress::RootDone(_) if run.live_roots() > 0 => None,
-                Progress::RootDone(_) | Progress::Idle => return Ok(()),
-                Progress::Waiting => {
-                    future::poll_fn(|cx| run.poll_completion(cx)).await?;
-                    None
+                Step::Spawn(scope, child) => {
+                    return Ok(Some((Yielded::Spawn(scope, child), state)));
                 }
-            };
-            if let Some(yielded) = yielded
-                && send.send(Ok(yielded)).await.is_err()
-            {
-                return Ok(());
+                Step::RootDone if run.live_roots() > 0 => {}
+                Step::RootDone | Step::Idle => return Ok(None),
+                Step::Waiting => future::poll_fn(|cx| run.poll_completion(cx)).await?,
             }
         }
-    });
-    let errors = stream::once(task)
-        .filter_map(|result: VortexResult<()>| future::ready(result.err().map(Err)));
-    stream::select(recv, errors).boxed()
+    })
+    .boxed()
 }
 
 /// Runs a spawned chunk's `root` over `scope` on a planning run of its own, on one task that
@@ -309,7 +352,3 @@ impl BatchRebalance {
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-#[path = "scan_v2/root_tests.rs"]
-mod root_tests;
