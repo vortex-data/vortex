@@ -35,7 +35,7 @@ jobs:
     timeout-minutes: 60
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.8xlarge/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag=build-{1}', github.run_id, matrix.benchmark.id)
+          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.8xlarge/image=ubuntu26-full-arm64-pre-v2/extras=s3-cache/tag=build-{1}', github.run_id, matrix.benchmark.id)
           || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
@@ -83,7 +83,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.metal-24xl/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag={1}{2}', github.run_id, matrix.benchmark.id, matrix.benchmark.variant_id)
+          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.metal-24xl/image=ubuntu26-full-arm64-pre-v2/extras=s3-cache/tag={1}{2}', github.run_id, matrix.benchmark.id, matrix.benchmark.variant_id)
           || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
