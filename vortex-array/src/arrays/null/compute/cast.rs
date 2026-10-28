@@ -34,7 +34,6 @@ mod tests {
     use rstest::rstest;
     use vortex_session::VortexSession;
 
-    use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::NullArray;
@@ -43,6 +42,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::optimizer::ArrayOptimizer;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
@@ -83,11 +83,11 @@ mod tests {
     #[test]
     fn test_cast_null_to_non_nullable_fails() {
         let null_array = NullArray::new(5);
-        // The cast is rejected when it executes.
+        // The cast is rejected when it is optimized.
         let result = null_array
             .into_array()
             .cast(DType::Primitive(PType::I32, Nullability::NonNullable))
-            .and_then(|cast| cast.execute::<Canonical>(&mut SESSION.create_execution_ctx()));
+            .and_then(|cast| cast.optimize(&SESSION));
         assert!(result.is_err());
     }
 

@@ -599,11 +599,11 @@ fn cast_can_drop_but_not_create_sortedness_assertion() -> VortexResult<()> {
         true,
         Nullability::Nullable,
     )?;
-    // The cast is rejected when it executes.
+    // The cast is rejected when it is optimized.
     assert!(
         unsorted_source
             .cast(sorted_target)?
-            .execute::<Canonical>(&mut SESSION.create_execution_ctx())
+            .optimize(&SESSION)
             .is_err()
     );
 
@@ -635,12 +635,7 @@ fn null_map_cast_cannot_create_sortedness_assertion() -> VortexResult<()> {
 
     let all_null =
         map_array_from_rows(unsorted_map_dtype, Nullability::Nullable, [None, None])?.into_array();
-    assert!(
-        all_null
-            .cast(sorted_dtype)?
-            .execute::<Canonical>(&mut ctx)
-            .is_err()
-    );
+    assert!(all_null.cast(sorted_dtype)?.optimize(&SESSION).is_err());
 
     Ok(())
 }
