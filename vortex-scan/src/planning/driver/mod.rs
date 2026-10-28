@@ -16,12 +16,18 @@
 //! a completion it took from a source to [`Run::complete`]. [`Driver::run`] is the blocking
 //! convenience for one root.
 
+mod reads;
+
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 
+pub use reads::FileReads;
+pub use reads::ReadLifetime;
+pub use reads::ReadLifetimes;
+pub use reads::RowClaim;
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;

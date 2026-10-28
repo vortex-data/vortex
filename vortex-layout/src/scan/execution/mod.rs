@@ -6,7 +6,7 @@
 //! A [`PreparedScan`] holds a scan's plans over one file. An engine composes the planners over it
 //! and drives them: a [`PrunePlanner`] evaluates the filter's pruning plans over the scan's rows and
 //! emits the planner it was built to continue into, with the rows they keep; a [`ChunkPlanner`]
-//! cuts those rows into chunks and spawns a [`FilterPlanner`] or a [`ProjectionPlanner`] per
+//! cuts those rows into chunks and emits a [`FilterPlanner`] or a [`ProjectionPlanner`] per
 //! chunk; a filter planner runs its chunk's conjuncts and emits a projection planner for the rows
 //! that survive; a projection planner emits one morsel per piece of its rows. A planner only
 //! says what it needs, compute or reads; where either runs is the engine's driver's decision.
@@ -16,6 +16,7 @@ mod chunk;
 mod filter;
 mod projection;
 mod prune;
+mod reads;
 mod selection;
 
 use std::ops::Range;
@@ -25,6 +26,8 @@ use vortex_buffer::Alignment;
 use vortex_io::request::IoService;
 use vortex_io::request::IoTarget;
 use vortex_mask::Mask;
+use vortex_scan::planning::driver::ReadLifetimes;
+use vortex_scan::planning::driver::RowClaim;
 use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::WorkScope;
 use vortex_scan::selection::Selection;
@@ -44,6 +47,7 @@ pub use self::filter::FilterPlans;
 use self::projection::ProjectionPlanner;
 pub use self::prune::PruneNext;
 pub use self::prune::PrunePlanner;
+pub(crate) use self::reads::read_lifetimes;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::pipeline::ValueCache;
 use crate::scan::v2::ScanCache;
@@ -89,6 +93,8 @@ pub struct PreparedScan {
     pub(super) segments: Arc<dyn SegmentSource>,
     /// The segments' byte ranges, back to their ids.
     pub(super) ranges: SegmentRanges,
+    /// Last possible consumer rows for the file's reads, shared as immutable planning metadata.
+    pub(super) read_lifetimes: ReadLifetimes,
     /// Held for the scan's life, so scans of the file that start meanwhile share it.
     #[expect(dead_code, reason = "kept alive, never read")]
     pub(super) cache: ScanCache,
@@ -142,14 +148,19 @@ impl PreparedScan {
     /// The service a driver takes IO sessions from: every read a planner of the scan requests is
     /// served from it by segment.
     ///
-    /// A [sparse selection](Self::sparse_selection) retains its reads for the scan's lifetime,
-    /// as the chunks that select its few rows read the same wide segments one after another.
+    /// Engines wrap this transport in a [`FileReads`](vortex_scan::planning::driver::FileReads)
+    /// coordinator using [`read_lifetimes`](Self::read_lifetimes), and give the initial planner
+    /// a claim over the scan's rows.
     pub fn io(&self) -> Arc<dyn IoService> {
         Arc::new(SegmentScanIo::new(
             Arc::clone(&self.segments),
             Arc::clone(&self.ranges),
-            self.sparse_selection(),
         ))
+    }
+
+    /// Conservative last-consumer rows for constructing a file execution's read coordinator.
+    pub fn read_lifetimes(&self) -> ReadLifetimes {
+        Arc::clone(&self.read_lifetimes)
     }
 
     /// The planner of one chunk's selected rows: its conjuncts when the scan has a filter, else
@@ -169,4 +180,6 @@ pub(super) struct SelectedRows {
     scope: WorkScope,
     /// Which rows of `scope.rows` are selected.
     mask: Mask,
+    /// Ownership of the rows, transferred from filtering through projection to its morsel.
+    claim: RowClaim,
 }

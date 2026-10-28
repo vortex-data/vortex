@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
+use vortex_scan::planning::driver::RowClaim;
 use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::WorkScope;
 use vortex_scan::selection::Selection;
@@ -21,26 +22,31 @@ use super::SelectedRows;
 pub(super) fn plan_selection(
     scan: &Arc<PreparedScan>,
     scope: WorkScope,
+    mut claim: RowClaim,
     selection: &Selection,
     kept: Option<(&Mask, u64)>,
 ) -> Option<(WorkScope, Box<dyn Planner>)> {
-    let mut selected = select_rows(scope, selection)?;
+    let (mut scope, mut mask) = select_rows(scope, selection)?;
     if let Some((kept, first_row)) = kept {
-        let offset = usize::try_from(selected.scope.rows.start - first_row)
-            .vortex_expect("a work chunk fits usize");
-        let kept = kept.slice(offset..offset + selected.mask.len());
-        let mask = &selected.mask & &kept;
+        let offset =
+            usize::try_from(scope.rows.start - first_row).vortex_expect("a work chunk fits usize");
+        let kept = kept.slice(offset..offset + mask.len());
+        mask = &mask & &kept;
         let first = mask.first()?;
         let end = mask.last()? + 1;
-        selected.scope.rows =
-            selected.scope.rows.start + first as u64..selected.scope.rows.start + end as u64;
-        selected.mask = mask.slice(first..end);
+        scope.rows = scope.rows.start + first as u64..scope.rows.start + end as u64;
+        mask = mask.slice(first..end);
     }
-    let scope = selected.scope.clone();
+    claim.restrict_to(scope.rows.clone());
+    let selected = SelectedRows {
+        scope: scope.clone(),
+        mask,
+        claim,
+    };
     Some((scope, scan.split_planner(selected)))
 }
 
-fn select_rows(mut scope: WorkScope, selection: &Selection) -> Option<SelectedRows> {
+fn select_rows(mut scope: WorkScope, selection: &Selection) -> Option<(WorkScope, Mask)> {
     let count = match selection {
         Selection::IncludeByIndex(indices) => {
             let first = indices.partition_point(|&row| row < scope.rows.start);
@@ -65,10 +71,7 @@ fn select_rows(mut scope: WorkScope, selection: &Selection) -> Option<SelectedRo
     let first = mask.first()?;
     let end = mask.last()? + 1;
     scope.rows = scope.rows.start + first as u64..scope.rows.start + end as u64;
-    Some(SelectedRows {
-        scope,
-        mask: mask.slice(first..end),
-    })
+    Some((scope, mask.slice(first..end)))
 }
 
 #[cfg(test)]
@@ -94,7 +97,7 @@ mod tests {
     ) -> VortexResult<()> {
         let selection =
             Selection::IncludeByIndex(StrictSortedBuffer::try_new(Buffer::from(indices))?);
-        let selected = select_rows(
+        let (scope, mask) = select_rows(
             WorkScope {
                 file_ordinal: 3,
                 rows: 5..20,
@@ -102,9 +105,9 @@ mod tests {
             &selection,
         )
         .expect("selected rows");
-        assert_eq!(selected.scope.file_ordinal, 3);
-        assert_eq!(selected.scope.rows, expected);
-        assert_eq!(selected.mask.all_true(), all_true);
+        assert_eq!(scope.file_ordinal, 3);
+        assert_eq!(scope.rows, expected);
+        assert_eq!(mask.all_true(), all_true);
         Ok(())
     }
 

@@ -11,26 +11,24 @@ use std::sync::Weak;
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use vortex_array::expr::BoundExpression;
+use vortex_scan::planning::driver::ReadLifetimes;
 
 use super::io::SegmentRanges;
-use super::retain::RetainedSegments;
-use super::retain::RetainingSegmentSource;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::pipeline::ValueCache;
 use crate::scan::execution::FilterPlans;
-use crate::segments::SegmentSource;
 
 /// Reusable state for repeated V2 scans of one file, the V2 counterpart of a cached
 /// [`LayoutReader`](crate::LayoutReader) tree.
 ///
 /// Every scan otherwise lowers the layout into a fresh physical plan, optimizes its projection
-/// over it, indexes every segment's byte range, and decodes the dictionary values it needs. A scan
-/// that finds an entry here reuses it, and one that misses builds the entry and keeps it for later
-/// scans. The lowered plan keeps the children it has initialized, each distinct projection keeps
+/// over it, indexes every segment's byte range and consumer row range, and decodes the dictionary
+/// values it needs. A scan that finds an entry here reuses it, and one that misses builds the
+/// entry and keeps it for later scans. The lowered plan keeps the children it has initialized,
+/// each distinct projection keeps
 /// its optimized plan, each distinct filter keeps its conjunct and pruning plans along with the
 /// zones those plans have already excluded, and dictionary values stay keyed by the cached plan
-/// that produced them. Recently read segments are retained up to a byte budget, so the chunks of
-/// the file's scans that share a stored segment read it once.
+/// that produced them.
 ///
 /// A cache describes one file's layout, segment locations, and segment source. Use a new cache
 /// when any of them changes. Cached plans and values live as long as the cache, one set per
@@ -45,24 +43,14 @@ struct Inner {
     /// them, so a projection must reuse its plan for its values to be found again.
     projections: Mutex<FxHashMap<ExprKey, PlanRef>>,
     ranges: Mutex<Option<SegmentRanges>>,
+    read_lifetimes: Mutex<Option<ReadLifetimes>>,
     /// Plans of filters, keyed by the filter expression. A pruning plan remembers the zones it
     /// excluded, so sharing the plans prunes a file's zones once for every scan of that filter.
     filters: Mutex<FxHashMap<ExprKey, Arc<FilterPlans>>>,
     values: ValueCache,
-    /// Recently read segments, shared by the chunks of every scan of the file.
-    retained: Arc<RetainedSegments>,
 }
 
 impl ScanCache {
-    /// A cache whose scans retain up to `bytes` of recently read segments, so chunks that share
-    /// a stored segment read it once. The default retains 64 MiB; zero retains nothing.
-    pub fn with_retained_bytes(bytes: u64) -> Self {
-        Self(Arc::new(Inner {
-            retained: Arc::new(RetainedSegments::new(bytes)),
-            ..Inner::default()
-        }))
-    }
-
     /// The lowered root plan an earlier scan kept.
     pub(super) fn root(&self) -> Option<PlanRef> {
         self.0.root.lock().clone()
@@ -98,6 +86,14 @@ impl ScanCache {
         self.0.ranges.lock().clone()
     }
 
+    pub(super) fn read_lifetimes(&self) -> Option<ReadLifetimes> {
+        self.0.read_lifetimes.lock().clone()
+    }
+
+    pub(super) fn insert_read_lifetimes(&self, lifetimes: ReadLifetimes) -> ReadLifetimes {
+        Arc::clone(self.0.read_lifetimes.lock().get_or_insert(lifetimes))
+    }
+
     /// Keeps `ranges`, returning the index already kept if another scan got there first.
     pub(super) fn insert_ranges(&self, ranges: SegmentRanges) -> SegmentRanges {
         Arc::clone(self.0.ranges.lock().get_or_insert(ranges))
@@ -122,14 +118,6 @@ impl ScanCache {
                 .entry(ExprKey(filter))
                 .or_insert(plans),
         )
-    }
-
-    /// Serves `segments` through the segments the file's scans retain.
-    pub(super) fn retaining(&self, segments: Arc<dyn SegmentSource>) -> Arc<dyn SegmentSource> {
-        Arc::new(RetainingSegmentSource {
-            inner: segments,
-            retained: Arc::clone(&self.0.retained),
-        })
     }
 
     pub(super) fn values(&self) -> ValueCache {

@@ -13,6 +13,7 @@ use vortex_io::request::IoConsumer;
 use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
 use vortex_mask::Mask;
+use vortex_scan::planning::driver::RowClaim;
 use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::PlannerOutput;
 use vortex_scan::planning::planner::State;
@@ -77,42 +78,42 @@ pub(crate) fn scan_chunks(rows: Range<u64>, rows_per_chunk: usize) -> Vec<Range<
     chunks
 }
 
-/// Emits one planner per chunk of a scan's rows, in row order, each spawned as independent so
-/// the driver may run it beside the others. A chunk none of whose rows is selected and kept is
-/// never planned.
+/// Emits one child planner per chunk of a scan's rows, in row order. A chunk none of whose
+/// rows is selected and kept is never planned.
 pub struct ChunkPlanner {
     scan: Arc<PreparedScan>,
     rows: Range<u64>,
+    /// The suffix not yet handed to child planners, including unselected rows.
+    claim: RowClaim,
     chunks: IntoIter<Range<u64>>,
     selection: Selection,
     /// The rows zone pruning kept, over `rows`, or `None` when nothing was pruned.
     kept: Option<Mask>,
-    /// Whether the chunks run as children of this planner instead of being spawned.
-    inline: bool,
 }
 
 impl ChunkPlanner {
-    /// The planner of the chunks of `rows`, planning only what `selection` and `kept`, the rows
-    /// zone pruning left over `rows`, leave something of.
+    /// Plans chunks of the claimed rows, skipping rows excluded by `selection` or `kept`.
+    /// The pruning mask `kept`, when present, covers the entire claim.
     pub fn new(
         scan: Arc<PreparedScan>,
-        rows: Range<u64>,
+        claim: RowClaim,
         selection: Selection,
         kept: Option<Mask>,
     ) -> Self {
-        let chunks = scan_chunks(rows.clone(), scan.chunk_rows);
-        Self::with_chunks(scan, rows, chunks, selection, kept)
+        let chunks = scan_chunks(claim.rows().clone(), scan.chunk_rows);
+        Self::with_chunks(scan, claim, chunks, selection, kept)
     }
 
-    /// The planner of `chunks`, which tile `rows` in row order, for a driver that cuts the rows
+    /// The planner of `chunks`, which tile the claim in row order, for a driver that cuts the rows
     /// itself, such as on the file's own chunk boundaries.
     pub fn with_chunks(
         scan: Arc<PreparedScan>,
-        rows: Range<u64>,
+        claim: RowClaim,
         chunks: Vec<Range<u64>>,
         selection: Selection,
         kept: Option<Mask>,
     ) -> Self {
+        let rows = claim.rows().clone();
         debug_assert!(
             chunks.first().is_none_or(|chunk| chunk.start == rows.start)
                 && chunks.last().is_none_or(|chunk| chunk.end == rows.end)
@@ -122,19 +123,11 @@ impl ChunkPlanner {
         Self {
             scan,
             rows,
+            claim,
             chunks: chunks.into_iter(),
             selection,
             kept,
-            inline: false,
         }
-    }
-
-    /// Runs the chunks as children of this planner, on its run and IO session, instead of
-    /// spawning them for the driver to place. Chunks that read the same segment, such as a
-    /// column chunk longer than the scan's chunks, then share the read.
-    pub fn inline(mut self) -> Self {
-        self.inline = true;
-        self
     }
 }
 
@@ -154,17 +147,15 @@ impl Planner for ChunkPlanner {
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
         let kept = self.kept.as_ref().map(|kept| (kept, self.rows.start));
         for chunk in self.chunks.by_ref() {
+            let claim = self.claim.split_to(chunk.end);
             let scope = WorkScope {
                 file_ordinal: 0,
                 rows: chunk,
             };
-            if let Some((scope, planner)) = plan_selection(&self.scan, scope, &self.selection, kept)
+            if let Some((scope, planner)) =
+                plan_selection(&self.scan, scope, claim, &self.selection, kept)
             {
-                return Ok(if self.inline {
-                    PlannerOutput::Planner(scope, planner)
-                } else {
-                    PlannerOutput::Spawn(scope, planner)
-                });
+                return Ok(PlannerOutput::Planner(scope, planner));
             }
         }
         Ok(PlannerOutput::Done)

@@ -55,6 +55,7 @@ pub use crate::scan::execution::PruneNext;
 pub use crate::scan::execution::PrunePlanner;
 use crate::scan::execution::ROW_BLOCK_SIZE;
 pub use crate::scan::execution::SegmentLocation;
+use crate::scan::execution::read_lifetimes;
 use crate::scan::execution::rows_per_chunk;
 use crate::scan::v2::io::segment_ranges;
 use crate::segments::SegmentSource;
@@ -215,12 +216,17 @@ impl ScanBuilder {
             None => cache.insert_ranges(segment_ranges(&file.locations)),
         };
         let values = cache.values();
+        let read_lifetimes = match cache.read_lifetimes() {
+            Some(lifetimes) => lifetimes,
+            None => cache.insert_read_lifetimes(read_lifetimes(&file.layout, &file.locations)?),
+        };
         Ok(PreparedScan {
             session: self.session,
             rows: self.row_range.unwrap_or(0..row_count),
             selection: self.selection,
             segments: cache.retaining(file.segments),
             ranges,
+            read_lifetimes,
             cache,
             locations: file.locations,
             projection,
