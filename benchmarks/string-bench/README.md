@@ -7,7 +7,11 @@ Compares Vortex string encoders on configured real-world Utf8 columns.
 
 ## What it measures
 
-Three metrics per (column, encoder), from the default `vortex` suite:
+Three metrics per (column, encoder), from the default `vortex` suite. OnPair
+runs twice, with 12-bit and 16-bit dictionary budgets (`onpair-12`,
+`onpair-16`); FSST runs once (`fsst`). Both suites force the configured scheme
+rather than letting btrblocks choose, so `onpair-16` measures a budget the
+default compressor does not use.
 
 | Metric | Meaning | Table unit | `gh-json` unit |
 | --- | --- | --- | --- |
@@ -107,6 +111,7 @@ The develop benchmark workflow runs the default suite after each merge to
 `develop` and publishes the results to the shared benchmark history.
 
 Metric names are `<metric>/<input>/<encoder>`, for example
-`read/clickbench/URL/shard-0/onpair-12` and `size/tpch/l_comment/fsst`. The unit
+`read/clickbench/URL/shard-0/onpair-12`, `read/clickbench/URL/shard-0/onpair-16`,
+and `size/tpch/l_comment/fsst`. The unit
 is reported separately in the JSON output and the CI table, which groups rows by
 unit — so metric-first names keep the rows you compare adjacent.

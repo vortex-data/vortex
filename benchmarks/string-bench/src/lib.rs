@@ -52,11 +52,12 @@ use vortex_bench::datasets::data_downloads::download_data;
 use vortex_bench::datasets::tpch_l_comment::TPCHLCommentCanonical;
 use vortex_fsst::FSST;
 use vortex_onpair::Config;
+use vortex_onpair::DEFAULT_CONFIG;
+use vortex_onpair::MaxDictBits;
 use vortex_onpair::OnPair;
 
 mod codec;
 pub use codec::ColumnResult;
-pub use codec::DirectCandidate;
 pub use codec::bench_column;
 
 const CLICKBENCH_SHARD_COUNT: u32 = 100;
@@ -115,6 +116,52 @@ impl StringEncoder {
 impl std::fmt::Display for StringEncoder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.label())
+    }
+}
+
+/// A fully configured encoder candidate, run by both suites: an encoder family
+/// plus the fixed configuration that path needs.
+pub enum Candidate {
+    /// OnPair with a deterministic config, whose dictionary budget is the only
+    /// thing the benchmark varies.
+    OnPair(Config),
+    /// FSST (no configuration).
+    Fsst,
+}
+
+impl Candidate {
+    /// OnPair with a dictionary budget of up to `2^max_dict_bits` tokens,
+    /// reusing every other default. `max_dict_bits` must be in `9..=16`; OnPair
+    /// stores codes as `u16`, so all of those fit.
+    pub fn on_pair(max_dict_bits: u8) -> Result<Self> {
+        let max_dict_bits = MaxDictBits::new(max_dict_bits).map_err(|e| {
+            anyhow::anyhow!(
+                "invalid maximum dictionary bit width {max_dict_bits} (want 9..=16): {e}"
+            )
+        })?;
+        Ok(Self::OnPair(Config {
+            max_dict_bits,
+            ..DEFAULT_CONFIG
+        }))
+    }
+
+    /// The encoder family, for the post-compression type check.
+    pub fn family(&self) -> StringEncoder {
+        match self {
+            Self::OnPair(_) => StringEncoder::OnPair,
+            Self::Fsst => StringEncoder::Fsst,
+        }
+    }
+
+    /// Stable label used in benchmark output, e.g. `onpair-12` or `fsst`.
+    /// Changing a candidate's config renames its metrics and so restarts their
+    /// benchmark history, which is intended: neither size nor speed is
+    /// comparable across dictionary budgets.
+    pub fn label(&self) -> String {
+        match self {
+            Self::OnPair(config) => onpair_label(config),
+            Self::Fsst => StringEncoder::Fsst.label().to_string(),
+        }
     }
 }
 

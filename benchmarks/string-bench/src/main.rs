@@ -12,8 +12,8 @@ use clap::ValueEnum;
 use indicatif::ProgressBar;
 use mimalloc::MiMalloc;
 use regex::Regex;
+use string_bench::Candidate;
 use string_bench::ColumnResult;
-use string_bench::DirectCandidate;
 use string_bench::SESSION;
 use string_bench::SerializedResult;
 use string_bench::StringColumn;
@@ -44,7 +44,8 @@ const BENCHMARK_ID: &str = "string";
 /// Repo-relative path of the suite explainer linked from CI benchmark PR comments.
 const DOC_PATH: &str = "benchmarks/string-bench/README.md";
 
-const CODEC_ONPAIR_DICT_BITS: [u8; 2] = [12, 16];
+/// OnPair dictionary budgets (in bits) both suites sweep.
+const ONPAIR_DICT_BITS: [u8; 2] = [12, 16];
 
 /// The configured benchmark inputs. Add a variant to extend the catalog.
 enum Input {
@@ -162,18 +163,14 @@ async fn run(args: Args) -> Result<()> {
     if contains_duplicates(&args.encoders) {
         bail!("--encoders must not contain duplicates");
     }
-    // The codec suite sweeps OnPair dictionary budgets; the file suite cannot,
-    // since btrblocks picks the budget it compresses with.
-    let mut candidates: Vec<DirectCandidate> = Vec::new();
-    if run_codec {
-        if args.encoders.contains(&StringEncoder::OnPair) {
-            for bits in CODEC_ONPAIR_DICT_BITS {
-                candidates.push(DirectCandidate::on_pair(bits)?);
-            }
+    let mut candidates: Vec<Candidate> = Vec::new();
+    if args.encoders.contains(&StringEncoder::OnPair) {
+        for bits in ONPAIR_DICT_BITS {
+            candidates.push(Candidate::on_pair(bits)?);
         }
-        if args.encoders.contains(&StringEncoder::Fsst) {
-            candidates.push(DirectCandidate::Fsst);
-        }
+    }
+    if args.encoders.contains(&StringEncoder::Fsst) {
+        candidates.push(Candidate::Fsst);
     }
 
     let filter = args.columns.as_deref().map(Regex::new).transpose()?;
@@ -194,8 +191,7 @@ async fn run(args: Args) -> Result<()> {
 
     let verify = !args.no_verify;
 
-    // `candidates` is empty unless the codec suite runs.
-    let steps_per_column = candidates.len() + if run_vortex { args.encoders.len() } else { 0 };
+    let steps_per_column = candidates.len() * (usize::from(run_codec) + usize::from(run_vortex));
     let progress = ProgressBar::new((columns.len() * steps_per_column) as u64);
 
     let mut column_results: Vec<ColumnResult> = Vec::new();
@@ -219,7 +215,7 @@ async fn run(args: Args) -> Result<()> {
                 iterations,
                 args.warmup,
                 verify,
-                &args.encoders,
+                &candidates,
                 &progress,
             )?);
         }
@@ -256,7 +252,7 @@ fn run_codec_column(
     iterations: usize,
     warmup: usize,
     verify: bool,
-    candidates: &[DirectCandidate],
+    candidates: &[Candidate],
     progress: &ProgressBar,
 ) -> Result<Vec<ColumnResult>> {
     let mut results = Vec::with_capacity(candidates.len());
@@ -282,15 +278,15 @@ fn run_vortex_column(
     iterations: usize,
     warmup: usize,
     verify: bool,
-    encoders: &[StringEncoder],
+    candidates: &[Candidate],
     progress: &ProgressBar,
 ) -> Result<Vec<SerializedResult>> {
     let runtime = CurrentThreadRuntime::new();
     let session = VortexSession::default().with_handle(runtime.handle());
-    let mut results = Vec::with_capacity(encoders.len());
-    for &encoder in encoders {
+    let mut results = Vec::with_capacity(candidates.len());
+    for candidate in candidates {
         let result = runtime.block_on(bench_serialized_with_session(
-            &session, column, iterations, warmup, verify, encoder,
+            &session, column, iterations, warmup, verify, candidate,
         ))?;
         tracing::info!(
             "{} [{}]: size {:.2}% | write {:.2} MB/s | read {:.2} MB/s",
