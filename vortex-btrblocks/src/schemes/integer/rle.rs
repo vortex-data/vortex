@@ -10,7 +10,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::arrays::WidenArray;
 use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
@@ -61,8 +61,12 @@ pub(crate) fn rle_compress(
     let rle_indices_primitive = rle_array
         .indices()
         .clone()
-        .execute::<PrimitiveArray>(exec_ctx)?
-        .narrow(exec_ctx)?;
+        .execute::<PrimitiveArray>(exec_ctx)?;
+    #[expect(
+        deprecated,
+        reason = "TODO(connor): decide whether this child narrows its dtype or becomes a Widen"
+    )]
+    let rle_indices_primitive = WidenArray::encode_values(rle_indices_primitive, exec_ctx)?;
     let compressed_indices = compressor.compress_child(
         &rle_indices_primitive.into_array(),
         &compress_ctx,
@@ -74,8 +78,12 @@ pub(crate) fn rle_compress(
     let rle_offsets_primitive = rle_array
         .values_idx_offsets()
         .clone()
-        .execute::<PrimitiveArray>(exec_ctx)?
-        .narrow(exec_ctx)?;
+        .execute::<PrimitiveArray>(exec_ctx)?;
+    #[expect(
+        deprecated,
+        reason = "TODO(connor): decide whether this child narrows its dtype or becomes a Widen"
+    )]
+    let rle_offsets_primitive = WidenArray::encode_values(rle_offsets_primitive, exec_ctx)?;
     let compressed_offsets = compressor.compress_child(
         &rle_offsets_primitive.into_array(),
         &compress_ctx,

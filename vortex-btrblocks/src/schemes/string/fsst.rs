@@ -14,7 +14,7 @@ use vortex_array::VTable;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinArray;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::arrays::WidenArray;
 use vortex_array::arrays::varbin::VarBinArraySlotsExt;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
@@ -82,8 +82,13 @@ impl Scheme for FSSTScheme {
         let uncompressed_lengths_primitive = fsst
             .uncompressed_lengths()
             .clone()
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow(exec_ctx)?;
+            .execute::<PrimitiveArray>(exec_ctx)?;
+        #[expect(
+            deprecated,
+            reason = "TODO(connor): decide whether this child narrows its dtype or becomes a Widen"
+        )]
+        let uncompressed_lengths_primitive =
+            WidenArray::encode_values(uncompressed_lengths_primitive, exec_ctx)?;
         let compressed_original_lengths = compressor.compress_child(
             &uncompressed_lengths_primitive.into_array(),
             &compress_ctx,
@@ -96,8 +101,12 @@ impl Scheme for FSSTScheme {
             .codes()
             .offsets()
             .clone()
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow(exec_ctx)?;
+            .execute::<PrimitiveArray>(exec_ctx)?;
+        #[expect(
+            deprecated,
+            reason = "TODO(connor): decide whether this child narrows its dtype or becomes a Widen"
+        )]
+        let codes_offsets_primitive = WidenArray::encode_values(codes_offsets_primitive, exec_ctx)?;
         let compressed_codes_offsets = compressor.compress_child(
             &codes_offsets_primitive.into_array(),
             &compress_ctx,

@@ -6,7 +6,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::arrays::WidenArray;
 use vortex_array::patches::Patches;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -14,12 +14,12 @@ use vortex_error::VortexResult;
 /// Compresses the given patches by downscaling integers and checking for constant values.
 pub fn compress_patches(patches: Patches, ctx: &mut ExecutionCtx) -> VortexResult<Patches> {
     // Downscale the patch indices.
-    let indices = patches
-        .indices()
-        .clone()
-        .execute::<PrimitiveArray>(ctx)?
-        .narrow(ctx)?
-        .into_array();
+    let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+    #[expect(
+        deprecated,
+        reason = "TODO(connor): decide whether this child narrows its dtype or becomes a Widen"
+    )]
+    let indices = WidenArray::encode_values(indices, ctx)?.into_array();
 
     // Check if the values are constant.
     let values = patches.values();
@@ -38,8 +38,12 @@ pub fn compress_patches(patches: Patches, ctx: &mut ExecutionCtx) -> VortexResul
         .map(|offsets| {
             let offsets_primitive = offsets
                 .clone()
-                .execute::<PrimitiveArray>(ctx)?
-                .narrow(ctx)?
+                .execute::<PrimitiveArray>(ctx)?;
+            #[expect(
+                deprecated,
+                reason = "TODO(connor): decide whether this child narrows its dtype or becomes a Widen"
+            )]
+            let offsets_primitive = WidenArray::encode_values(offsets_primitive, ctx)?
                 .into_array();
             Ok::<ArrayRef, VortexError>(offsets_primitive)
         })

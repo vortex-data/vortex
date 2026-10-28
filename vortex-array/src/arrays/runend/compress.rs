@@ -22,9 +22,9 @@ use crate::arrays::DecimalArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::WidenArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::decimal::DecimalArrayExt;
-use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::arrays::runend::iter::trimmed_ends_iter;
 use crate::buffer::BufferHandle;
 use crate::dtype::NativePType;
@@ -88,9 +88,11 @@ pub fn runend_encode(
         }
     };
 
-    let ends = ends
-        .narrow(ctx)
-        .vortex_expect("Ends must succeed downcasting");
+    #[expect(
+        deprecated,
+        reason = "TODO(connor): decide whether this child narrows its dtype or becomes a Widen"
+    )]
+    let ends = WidenArray::encode_values(ends, ctx).vortex_expect("Ends must succeed downcasting");
 
     ends.statistics()
         .set(Stat::IsStrictSorted, Precision::Exact(true.into()));

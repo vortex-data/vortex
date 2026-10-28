@@ -125,7 +125,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::primitive::PrimitiveArrayExt;
+    use vortex_array::arrays::WidenArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -435,11 +435,12 @@ mod tests {
 
         // Simulate cascading compression: narrow u16->u8 then re-encode with RLE,
         // matching the path taken by the BtrBlocks compressor.
-        let indices_prim = rle
-            .indices()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?
-            .narrow(&mut ctx)?;
+        let indices_prim = rle.indices().clone().execute::<PrimitiveArray>(&mut ctx)?;
+        #[expect(
+            deprecated,
+            reason = "TODO(connor): decide whether this child narrows its dtype or becomes a Widen"
+        )]
+        let indices_prim = WidenArray::encode_values(indices_prim, &mut ctx)?;
         let re_encoded = RLEData::encode(indices_prim.as_view(), &mut ctx)?;
 
         // Reconstruct the outer RLE with re-encoded indices.

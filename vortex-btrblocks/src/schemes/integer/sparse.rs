@@ -12,7 +12,7 @@ use vortex_array::VTable;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::arrays::WidenArray;
 use vortex_array::scalar::Scalar;
 use vortex_compressor::builtins::IntDictScheme;
 use vortex_compressor::scheme::ChildSelection;
@@ -188,8 +188,12 @@ impl Scheme for SparseScheme {
                 .patches()
                 .indices()
                 .clone()
-                .execute::<PrimitiveArray>(exec_ctx)?
-                .narrow(exec_ctx)?;
+                .execute::<PrimitiveArray>(exec_ctx)?;
+            #[expect(
+                deprecated,
+                reason = "TODO(connor): decide whether this child narrows its dtype or becomes a Widen"
+            )]
+            let indices = WidenArray::encode_values(indices, exec_ctx)?;
 
             let compressed_indices = compressor.compress_child(
                 &indices.into_array(),
