@@ -10308,10 +10308,12 @@ dependencies = [
  "tabled",
  "tokio",
  "tracing",
+ "url",
  "vortex",
  "vortex-arrow",
  "vortex-bench",
  "vortex-btrblocks",
+ "vortex-cloud",
  "vortex-fsst",
  "vortex-onpair",
 ]

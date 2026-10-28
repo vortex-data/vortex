@@ -14,6 +14,8 @@ use mimalloc::MiMalloc;
 use regex::Regex;
 use string_bench::Candidate;
 use string_bench::ColumnResult;
+use string_bench::HF_COLUMNS;
+use string_bench::HfColumn;
 use string_bench::SESSION;
 use string_bench::SerializedResult;
 use string_bench::StringColumn;
@@ -21,6 +23,7 @@ use string_bench::StringEncoder;
 use string_bench::bench_column;
 use string_bench::bench_serialized_with_session;
 use string_bench::load_clickbench_url;
+use string_bench::load_hf_column;
 use string_bench::load_tpch_l_comment;
 use tabled::builder::Builder;
 use tabled::settings::Style;
@@ -53,6 +56,8 @@ enum Input {
     ClickBenchUrl(u32),
     /// The TPC-H SF1 `lineitem.l_comment` column.
     TpchLComment,
+    /// A column of a pinned Hugging Face parquet file.
+    Hf(&'static HfColumn),
 }
 
 impl Input {
@@ -61,6 +66,7 @@ impl Input {
         match self {
             Self::ClickBenchUrl(_) => "URL",
             Self::TpchLComment => "l_comment",
+            Self::Hf(source) => source.name,
         }
     }
 
@@ -68,6 +74,7 @@ impl Input {
         match *self {
             Self::ClickBenchUrl(shard) => load_clickbench_url(shard, ctx).await,
             Self::TpchLComment => load_tpch_l_comment(ctx).await,
+            Self::Hf(source) => load_hf_column(source, ctx).await,
         }
     }
 }
@@ -181,6 +188,7 @@ async fn run(args: Args) -> Result<()> {
         Input::TpchLComment,
     ]
     .into_iter()
+    .chain(HF_COLUMNS.iter().map(Input::Hf))
     .filter(|input| filter.as_ref().is_none_or(|f| f.is_match(input.name())))
     {
         columns.push(input.load(&mut ctx).await?);

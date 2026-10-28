@@ -69,16 +69,30 @@ writes in chunks and compresses those children.
 
 The current input catalog is:
 
-| Output name | Source |
-| --- | --- |
-| `clickbench/URL/shard-N` | ClickBench `hits_N.parquet`, `URL` column |
-| `tpch/l_comment` | TPC-H SF1 `lineitem`, `l_comment` column |
+| Output name | Source | Rows |
+| --- | --- | --- |
+| `clickbench/URL/shard-N` | ClickBench `hits_N.parquet`, `URL` column | ~1M |
+| `tpch/l_comment` | TPC-H SF1 `lineitem`, `l_comment` column | 6M |
+| `amazon/book_reviews` | Amazon Reviews 2023, Books reviews, `text` | first 200k |
+| `amazon/book_titles` | Amazon Reviews 2023, Books metadata shard 0, `title` | 159k |
+| `news/headlines` | "A Million News Headlines" (ABC News), `headline_text` | 1.23M |
+| `twitter/sentiment140` | Sentiment140 tweets, train split, `text` | 1.36M |
+| `fineweb/text` | FineWeb `sample/10BT/001_00000.parquet`, `text` | first 10k |
+
+The Amazon, news, and tweet inputs are four of the five datasets the
+[OnPair paper](https://arxiv.org/abs/2508.02280) evaluates on. The fifth,
+OpenWebText URLs, has no public parquet mirror; ClickBench `URL` covers that
+shape. FineWeb adds long web documents.
 
 On first use, the selected ClickBench shard is downloaded through
 `vortex-bench`'s shared idempotent downloader. TPC-H SF1 is generated
-deterministically through the shared TPC-H dataset helper. Both are stored
-under `vortex-bench/data/`, which is gitignored, and reused on later runs.
-Input preparation is outside benchmark timing.
+deterministically through the shared TPC-H dataset helper. The Hugging Face
+inputs are read from parquet files pinned to a commit or tag, with range
+requests, so a row prefix of a large file (FineWeb's shard is 2 GB) fetches
+only the row groups it needs; the selected column is cached as zstd parquet
+under `vortex-bench/data/string-bench/`. All of these are stored under
+`vortex-bench/data/`, which is gitignored, and reused on later runs. Input
+preparation is outside benchmark timing.
 
 ## Running locally
 
