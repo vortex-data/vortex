@@ -317,8 +317,26 @@ fn bit_width_histogram_typed<T: NativePType + PrimInt>(
         .bit_buffer()
     {
         AllOr::All => {
-            // All values are valid.
-            for v in array.as_slice::<T>() {
+            let values = array.as_slice::<T>();
+            // Repeated widths otherwise serialize updates to the same counter.
+            // Small inputs avoid the cost of clearing and merging four histograms.
+            let remainder = if values.len() >= 1024 {
+                let mut partial = [[0usize; 65]; 4];
+                let (chunks, remainder) = values.as_chunks::<4>();
+                for &[a, b, c, d] in chunks {
+                    partial[0][bit_width(a)] += 1;
+                    partial[1][bit_width(b)] += 1;
+                    partial[2][bit_width(c)] += 1;
+                    partial[3][bit_width(d)] += 1;
+                }
+                for (width, count) in bit_widths.iter_mut().enumerate() {
+                    *count = partial.iter().map(|histogram| histogram[width]).sum();
+                }
+                remainder
+            } else {
+                values
+            };
+            for v in remainder {
                 bit_widths[bit_width(*v)] += 1;
             }
         }
@@ -428,6 +446,7 @@ mod test {
 
     use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use rstest::rstest;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::assert_arrays_eq;
@@ -447,6 +466,50 @@ mod test {
         crate::initialize(&session);
         session
     });
+
+    #[rstest]
+    fn bit_width_histogram_matches_reference(
+        #[values(
+            PType::U8, PType::U16, PType::U32, PType::U64, PType::I8, PType::I16, PType::I32,
+            PType::I64
+        )]
+        ptype: PType,
+        #[values(0usize, 1, 3, 4, 1023, 1024, 1025, 8193)] len: usize,
+        #[values(0u8, 1, 2)] null_pattern: u8,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        match_each_integer_ptype!(ptype, |T| {
+            let values = (0..len)
+                .map(|i| {
+                    (match i % 5 {
+                        0 => 1u64 << (i % 64),
+                        1 => 0x9e37_79b9_7f4a_7c15u64.wrapping_mul(i as u64),
+                        2 => 0,
+                        _ => 1023,
+                    }) as T
+                })
+                .collect::<Vec<_>>();
+            let valid = (0..len)
+                .map(|i| match null_pattern {
+                    0 => true,
+                    1 => false,
+                    _ => i % 3 != 0,
+                })
+                .collect::<Vec<_>>();
+            let mut expected = vec![0usize; T::BITS as usize + 1];
+            for (&value, &valid) in values.iter().zip(&valid) {
+                let width = if valid {
+                    (T::BITS - value.leading_zeros()) as usize
+                } else {
+                    0
+                };
+                expected[width] += 1;
+            }
+            let array = PrimitiveArray::new(Buffer::from(values), Validity::from_iter(valid));
+            assert_eq!(bit_width_histogram(array.as_view(), &mut ctx)?, expected);
+            Ok(())
+        })
+    }
 
     #[test]
     fn test_best_bit_width() {
