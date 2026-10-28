@@ -161,7 +161,7 @@ fastlanes = { version = "0.7.1", features = ["runtime"] }
 fearless_simd = "1.0.0"
 fearless_simd_macros = "0.1.0"
 flatbuffers = "25.2.10"
-fsst-rs = "0.6.0"
+fsst-rs = "0.7.0"
 futures = { version = "0.3.31", default-features = false }
 fuzzy-matcher = "0.3"
 geo = "0.31.0"
@@ -203,7 +203,7 @@ num_enum = { version = "0.7.3", default-features = false }
 object_store = { version = "0.13.2", default-features = false }
 object_store_opendal = "0.58.0"
 once_cell = "1.21.4"
-onpair = "0.2.1"
+onpair = "0.3.0"
 opendal = { version = "0.58.1", default-features = false }
 opentelemetry = "0.32.0"
 opentelemetry-otlp = "0.32.0"
@@ -227,7 +227,7 @@ pyo3-bytes = "0.7"
 pyo3-log = "0.13.0"
 pyo3-object_store = "0.11.0"
 quote = "1.0.44"
-rand = "0.10.1"
+rand = "0.10.3"
 rand_distr = "0.6"
 ratatui = { version = "0.30", default-features = false }
 regex = "1.12"
