@@ -13,6 +13,7 @@ use vortex_error::vortex_ensure_eq;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
+pub use crate::aggregate_fn::fns::min_max::valid_range;
 use crate::arrays::DecimalArray;
 use crate::arrays::decimal::DecimalArrayExt;
 use crate::buffer::BufferHandle;
@@ -196,34 +197,6 @@ fn narrow_checked_values<F: NativeDecimalType, W: NativeDecimalType>(
     buffer.freeze()
 }
 
-/// Returns the smallest and the largest valid value, or `None` when no value is valid.
-///
-/// Null slots can hold any value and do not contribute to the range. The mask must have the same
-/// length as `values`. The scan allocates nothing and does not check decimal precision.
-pub fn valid_range<T: NativeDecimalType>(values: &[T], validity: &Mask) -> Option<(T, T)> {
-    match validity {
-        Mask::AllTrue(_) => {
-            let (&first, rest) = values.split_first()?;
-            Some(rest.iter().fold((first, first), |(min, max), &value| {
-                (min.min(value), max.max(value))
-            }))
-        }
-        Mask::AllFalse(_) => None,
-        Mask::Values(validity) => {
-            let mut range: Option<(T, T)> = None;
-            validity.bit_buffer().for_each_set_index(|row| {
-                let value = values[row];
-                range = Some(match range {
-                    Some((min, max)) => (min.min(value), max.max(value)),
-                    None => (value, value),
-                });
-            });
-
-            range
-        }
-    }
-}
-
 /// Checks that every valid value fits the precision of `decimal_dtype`.
 ///
 /// Null slots are not checked, so they can hold any value. The check takes a materialized
@@ -397,7 +370,7 @@ mod tests {
     #[case::all_null(vec![5, -3, 7], vec![false, false, false], None)]
     #[case::empty(vec![], vec![], None)]
     #[case::one_valid(vec![5, -3, 7], vec![false, true, false], Some((-3, -3)))]
-    #[case::outside_precision(vec![-100, 100], vec![true, true], Some((-100, 100)))]
+    #[case::outside_i8_precision(vec![-100, 100], vec![true, true], Some((-100, 100)))]
     fn test_valid_range(
         #[case] values: Vec<i8>,
         #[case] validity: Vec<bool>,
@@ -459,6 +432,12 @@ mod tests {
         });
 
         Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "valid_range requires one validity bit per value")]
+    fn test_valid_range_rejects_mismatched_mask() {
+        valid_range(&[1i8, 2], &Mask::AllTrue(3));
     }
 
     /// Each pair selects a different widening or narrowing conversion.
