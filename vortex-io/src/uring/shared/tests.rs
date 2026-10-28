@@ -385,7 +385,7 @@ fn reactor_and_eager_kernel_worker_affinity(
             continue;
         }
         let owner = tid.as_raw_nonzero().get();
-        let expected_name = format!("iou-wrk-{owner}");
+        let expected_name = format!("iou-wrk-{owner}"); // spellchecker:disable-line
         let mut found = false;
         for entry in fs::read_dir("/proc/self/task")? {
             let entry = entry?;

@@ -84,7 +84,7 @@ async fn eager_kernel_worker_inherits_affinity_before_scan_worker_is_pinned() ->
         assert_eq!(file.stats().physical_reads, 1);
 
         let owner = rustix::thread::gettid().as_raw_nonzero().get();
-        let expected_name = format!("iou-wrk-{owner}");
+        let expected_name = format!("iou-wrk-{owner}"); // spellchecker:disable-line
         let mut found = false;
         for entry in fs::read_dir("/proc/self/task")? {
             let entry = entry?;
