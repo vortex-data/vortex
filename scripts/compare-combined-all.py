@@ -12,6 +12,12 @@ suite, scale = sys.argv[1:3]
 current = Path('target/release_debug/datafusion-bench')
 variants = [('v1', current, False), ('combined', current, True)]
 env = dict(os.environ, TOKIO_WORKER_THREADS='8', DATAFUSION_EXECUTION_TARGET_PARTITIONS='8', RUST_LOG='warn')
+affinity = sorted(os.sched_getaffinity(0))
+assert len(affinity) == 8, affinity
+Path('scan-cpu-affinity.json').write_text(json.dumps({
+    'cpus': affinity, 'worker_threads': 8, 'target_partitions': 8,
+    'proc_status': Path('/proc/self/status').read_text(),
+}, indent=2))
 records = []
 Path('scan-provenance.json').write_text(json.dumps({'binary_run': 40627772121, 'head': '27ac729770aeed0d06600ebb4146ef8ef480cc7b', 'scope': 'same-binary V1/V2 all queries; timeouts retained, not parity'}, indent=2))
 metadata = {name: hashlib.sha256(binary.read_bytes()).hexdigest() for name, binary, _ in variants}

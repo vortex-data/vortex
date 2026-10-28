@@ -40,7 +40,7 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps([x for x in json.load(sys.stdin) if x["id"] == "clickbench-nvme"]))')"
+          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps([y for x in json.load(sys.stdin) for y in ([x] if x["id"] == "clickbench-nvme" else [dict(x, id="tpcds-nvme-"+str(sf), name="TPC-DS SF="+str(sf)+" on NVME", scale_factor=float(sf)) for sf in (1,10,30)] if x["id"] == "tpcds-nvme" else [])]))')"
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   bench:
@@ -94,6 +94,7 @@ jobs:
         run: chmod +x target/release_debug/*
 
       - name: Prefetch ClickBench with resumable ranges
+        if: matrix.subcommand == 'clickbench'
         timeout-minutes: 45
         run: python3 scripts/prefetch-clickbench.py
 
@@ -181,13 +182,15 @@ jobs:
       - name: Compare all queries and repeated guards
         timeout-minutes: 165
         shell: bash
-        run: python3 scripts/compare-combined-all.py "${{ matrix.subcommand }}" "${{ matrix.scale_factor }}"
+        env:
+          BENCH_MAX_CPUS: "8"
+        run: bash scripts/bench-taskset.sh python3 scripts/compare-combined-all.py "${{ matrix.subcommand }}" "${{ matrix.scale_factor }}"
 
       - name: Upload scan comparison
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: scan-rebalanced-all-${{ matrix.id }}
+          name: scan-eight-core-all-${{ matrix.id }}
           path: scan-*
 
       - name: Compare results
