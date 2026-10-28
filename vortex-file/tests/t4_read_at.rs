@@ -6,7 +6,6 @@
 //! scan fetching from the store and the second reading t4's tiers.
 
 #![cfg(all(feature = "t4", unix))]
-#![expect(clippy::tests_outside_test_module)]
 
 use std::sync::Arc;
 

@@ -499,9 +499,9 @@ impl VortexFormat {
 
     /// The factory that creates this format's readers: the one set, or one over `store`.
     fn reader_factory(&self, store: &Arc<dyn ObjectStore>) -> Arc<dyn VortexReaderFactory> {
-        self.vortex_reader_factory.clone().unwrap_or_else(|| {
-            Arc::new(DefaultVortexReaderFactory::new(Arc::clone(store))) as _
-        })
+        self.vortex_reader_factory
+            .clone()
+            .unwrap_or_else(|| Arc::new(DefaultVortexReaderFactory::new(Arc::clone(store))) as _)
     }
 }
 
