@@ -8,7 +8,8 @@
 //! - `t4-policy`: `clock`, t4's defaults; or every fetched block kept in `memory`, on `disk`, or
 //!   `none` kept, so that a run measures one tier alone.
 //! - `t4-memory-gib`: the memory tier.
-//! - `t4-disk`: the cache files, each `path:GiB`, comma separated.
+//! - `t4-disk`: the directories of the cache files, a file `t4.cache` each, colon separated, as
+//!   `--opt` splits its values on commas; `t4-disk-gib`: each file's size.
 //! - `t4-coalesce`: `on`, Vortex merging nearby reads as it does for object stores, the default;
 //!   or `off`, t4 taking each read as asked.
 
@@ -53,30 +54,31 @@ pub fn t4_in_front(
     let memory_gib: u64 = opts
         .get_as("t4-memory-gib")
         .context("t4 needs --opt t4-memory-gib=<GiB>")?;
-    let disk_files = opts
+    let disk_dirs = opts
         .get("t4-disk")
-        .context("t4 needs --opt t4-disk=<path>:<GiB>[,...]")?;
+        .context("t4 needs --opt t4-disk=<dir>[:<dir>...]")?;
+    let disk_gib: u64 = opts
+        .get_as("t4-disk-gib")
+        .context("t4 needs --opt t4-disk-gib=<GiB>")?;
 
     let mut builder = T4Caching::builder(store)
         .with_memory_capacity(memory_gib * GIB)
         .with_sleep(|after| Box::pin(tokio::time::sleep(after)));
-    for disk_file in disk_files.split(',') {
-        let (path, gib) = disk_file
-            .rsplit_once(':')
-            .context("each t4 cache file is <path>:<GiB>")?;
-        builder = builder.with_disk_file(PathBuf::from(path), gib.parse::<u64>()? * GIB);
+    for dir in disk_dirs.split(':') {
+        builder = builder.with_disk_file(PathBuf::from(dir).join("t4.cache"), disk_gib * GIB);
     }
-    let builder = match policy {
-        "clock" => builder,
-        "memory" => builder
-            .with_placement_policy(|sizes| FixedPlacementPolicy::new(sizes, Admit::Memory)),
-        "disk" => {
-            builder.with_placement_policy(|sizes| FixedPlacementPolicy::new(sizes, Admit::Disk))
-        }
-        "none" => builder
-            .with_placement_policy(|sizes| FixedPlacementPolicy::new(sizes, Admit::Discard)),
-        other => anyhow::bail!("t4-policy is clock, memory, disk or none, not {other}"),
-    };
+    let builder =
+        match policy {
+            "clock" => builder,
+            "memory" => builder
+                .with_placement_policy(|sizes| FixedPlacementPolicy::new(sizes, Admit::Memory)),
+            "disk" => {
+                builder.with_placement_policy(|sizes| FixedPlacementPolicy::new(sizes, Admit::Disk))
+            }
+            "none" => builder
+                .with_placement_policy(|sizes| FixedPlacementPolicy::new(sizes, Admit::Discard)),
+            other => anyhow::bail!("t4-policy is clock, memory, disk or none, not {other}"),
+        };
     let coalesce_config = match opts.get("t4-coalesce").unwrap_or("on") {
         "on" => Some(CoalesceConfig::object_storage()),
         "off" => None,

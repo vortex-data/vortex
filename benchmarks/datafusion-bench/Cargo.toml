@@ -23,6 +23,7 @@ test = false
 
 [dependencies]
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 custom-labels = { workspace = true }
 datafusion = { workspace = true, features = [
@@ -51,6 +52,9 @@ vortex-metrics = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 t4 = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { workspace = true, features = ["time"] }
 
 [build-dependencies]
 custom-labels = { workspace = true }

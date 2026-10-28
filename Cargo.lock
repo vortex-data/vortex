@@ -2815,6 +2815,7 @@ name = "datafusion-bench"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "clap",
  "custom-labels",
  "datafusion 55.2.0",
@@ -2828,6 +2829,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "parking_lot",
+ "rustix",
  "t4",
  "tokio",
  "url",
@@ -10498,6 +10500,7 @@ dependencies = [
 [[package]]
 name = "t4"
 version = "0.2.0"
+source = "git+https://github.com/XiangpengHao/t4?rev=0cb2fbfd863a180ad6aa6e52eb8c11aea6a56a5c#0cb2fbfd863a180ad6aa6e52eb8c11aea6a56a5c"
 dependencies = [
  "async-trait",
  "bbtree",

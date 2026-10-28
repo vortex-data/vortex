@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+pub mod cpu_log;
+pub mod get_counter;
 pub mod metrics;
+pub mod page_cache;
+pub mod run_rests;
 #[cfg(unix)]
 mod t4_cache;
 pub mod tracer;
@@ -18,6 +22,7 @@ use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::prelude::SessionConfig;
 use datafusion::prelude::SessionContext;
 use datafusion_common::GetExt;
+use get_counter::GetCounter;
 use object_store::ObjectStore;
 use object_store::aws::AmazonS3Builder;
 use object_store::gcp::GoogleCloudStorageBuilder;
@@ -62,34 +67,41 @@ pub fn get_session_context() -> SessionContext {
     SessionContext::new_with_state(session_state_builder.build())
 }
 
+/// The store serving `source`, registered with `session`; its GETs counted by `gets` if given,
+/// for a store over the network.
 pub fn make_object_store(
     session: &SessionContext,
     source: &Url,
+    gets: Option<&Arc<GetCounter>>,
 ) -> anyhow::Result<Arc<dyn ObjectStore>> {
+    let counted = |store: Arc<dyn ObjectStore>| match gets {
+        Some(gets) => gets.wrap(store),
+        None => store,
+    };
     match source.scheme() {
         "s3" => {
             let bucket_name = &source[url::Position::BeforeHost..url::Position::AfterHost];
-            let s3 = Arc::new(
+            let s3 = counted(Arc::new(
                 AmazonS3Builder::from_env()
                     .with_bucket_name(bucket_name)
                     .build()?,
-            );
+            ));
             session.register_object_store(
                 &Url::parse(&format!("s3://{bucket_name}/"))?,
-                Arc::<object_store::aws::AmazonS3>::clone(&s3),
+                Arc::clone(&s3),
             );
             Ok(s3)
         }
         "gs" => {
             let bucket_name = &source[url::Position::BeforeHost..url::Position::AfterHost];
-            let gcs = Arc::new(
+            let gcs = counted(Arc::new(
                 GoogleCloudStorageBuilder::from_env()
                     .with_bucket_name(bucket_name)
                     .build()?,
-            );
+            ));
             session.register_object_store(
                 &Url::parse(&format!("gs://{bucket_name}/"))?,
-                Arc::<object_store::gcp::GoogleCloudStorage>::clone(&gcs),
+                Arc::clone(&gcs),
             );
             Ok(gcs)
         }
