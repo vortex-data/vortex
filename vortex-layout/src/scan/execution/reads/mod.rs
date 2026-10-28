@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Conservative last-consumer rows for the file's segment reads.
+//! Conservative consumer row ranges for the file's segment reads.
 
 #[cfg(test)]
 mod tests;
@@ -21,7 +21,7 @@ use crate::LayoutRef;
 
 /// Index the stored layout once, independently of the scan's selection and optimized plans.
 /// Auxiliary descendants all inherit their containing root-row region: dictionary value row
-/// numbers and zone-table row numbers cannot be compared to the execution watermark.
+/// numbers and zone-table row numbers cannot be compared to root-row claims.
 pub(crate) fn read_lifetimes(
     layout: &LayoutRef,
     locations: &[SegmentLocation],
@@ -48,11 +48,15 @@ fn visit(
         let location = locations
             .get(*segment as usize)
             .ok_or_else(|| vortex_err!("segment {segment} has no known location"))?;
-        let lifetime = ReadLifetime::ThroughRow(rows.end);
         lifetimes
             .entry(location.target())
-            .and_modify(|current| *current = (*current).max(lifetime))
-            .or_insert(lifetime);
+            .and_modify(|current| {
+                if let ReadLifetime::Rows(current) = current {
+                    current.start = current.start.min(rows.start);
+                    current.end = current.end.max(rows.end);
+                }
+            })
+            .or_insert_with(|| ReadLifetime::Rows(rows.clone()));
     }
     for slot in 0..layout.nslots() {
         let Some(child) = layout.slot(slot)? else {

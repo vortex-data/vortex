@@ -158,7 +158,7 @@ impl PreparedScan {
         ))
     }
 
-    /// Conservative last-consumer rows for constructing a file execution's read coordinator.
+    /// Conservative consumer row ranges for constructing a file execution's read coordinator.
     pub fn read_lifetimes(&self) -> ReadLifetimes {
         Arc::clone(&self.read_lifetimes)
     }

@@ -3,6 +3,9 @@
 
 //! Owned row claims travel with queued and running work.
 
+use std::collections::BTreeMap;
+use std::ops::Bound::Excluded;
+use std::ops::Bound::Included;
 use std::ops::Range;
 
 use vortex_error::VortexExpect;
@@ -11,34 +14,157 @@ use super::FileReads;
 use super::ReadEntry;
 use super::ReadState;
 
-impl ReadState {
-    fn remove_claim(&mut self, start: u64) {
-        let count = self
-            .claims
-            .get_mut(&start)
-            .vortex_expect("claim is registered");
-        *count -= 1;
-        if *count == 0 {
-            self.claims.remove(&start);
+/// Disjoint spans with the number of owners covering each span. Splitting ownership does not
+/// change coverage; only sharing and releasing rows touch this index.
+#[derive(Default)]
+pub(super) struct Claims(BTreeMap<u64, Span>);
+
+#[derive(Clone, Copy)]
+struct Span {
+    end: u64,
+    owners: usize,
+}
+
+impl Claims {
+    pub(super) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    fn split_at(&mut self, row: u64) {
+        if let Some((&start, &span)) = self.0.range(..row).next_back()
+            && row < span.end
+        {
+            self.0.get_mut(&start).vortex_expect("span exists").end = row;
+            self.0.insert(row, span);
         }
     }
 
+    fn join_at(&mut self, row: u64) {
+        if let Some((&start, &left)) = self.0.range(..row).next_back()
+            && let Some(&right) = self.0.get(&row)
+            && left.end == row
+            && left.owners == right.owners
+        {
+            self.0.get_mut(&start).vortex_expect("span exists").end = right.end;
+            self.0.remove(&row);
+        }
+    }
+
+    fn add(&mut self, rows: &Range<u64>) {
+        if rows.is_empty() {
+            return;
+        }
+        self.split_at(rows.start);
+        self.split_at(rows.end);
+        let starts: Vec<_> = self
+            .0
+            .range(rows.clone())
+            .map(|(&start, _)| start)
+            .collect();
+        let mut cursor = rows.start;
+        for start in starts {
+            if cursor < start {
+                self.0.insert(
+                    cursor,
+                    Span {
+                        end: start,
+                        owners: 1,
+                    },
+                );
+            }
+            let span = self.0.get_mut(&start).vortex_expect("span exists");
+            span.owners += 1;
+            cursor = span.end;
+        }
+        if cursor < rows.end {
+            self.0.insert(
+                cursor,
+                Span {
+                    end: rows.end,
+                    owners: 1,
+                },
+            );
+        }
+        self.join_at(rows.start);
+        self.join_at(rows.end);
+    }
+
+    /// Returns newly uncovered gaps, including adjacent rows already released by other parts.
+    fn release(&mut self, rows: &Range<u64>) -> Vec<Range<u64>> {
+        if rows.is_empty() {
+            return Vec::new();
+        }
+        self.split_at(rows.start);
+        self.split_at(rows.end);
+        let starts: Vec<_> = self
+            .0
+            .range(rows.clone())
+            .map(|(&start, _)| start)
+            .collect();
+        let mut removed = Vec::new();
+        for start in starts {
+            let span = self.0.get_mut(&start).vortex_expect("span exists");
+            span.owners -= 1;
+            if span.owners == 0 {
+                self.0.remove(&start);
+                removed.push(start);
+            }
+        }
+        self.join_at(rows.start);
+        self.join_at(rows.end);
+        let mut gaps = Vec::new();
+        for row in removed {
+            let start = self
+                .0
+                .range(..row)
+                .next_back()
+                .map_or(0, |(_, span)| span.end);
+            let end = self
+                .0
+                .range(row..)
+                .next()
+                .map_or(u64::MAX, |(&start, _)| start);
+            let gap = start..end;
+            if gaps.last() != Some(&gap) {
+                gaps.push(gap);
+            }
+        }
+        gaps
+    }
+}
+
+impl ReadState {
     /// Return evicted entries so transport cancellation runs outside the state lock.
-    fn evict(&mut self) -> Vec<ReadEntry> {
-        let Some((&watermark, _)) = self.claims.first_key_value() else {
+    fn release(&mut self, rows: &Range<u64>) -> Vec<ReadEntry> {
+        let gaps = self.claims.release(rows);
+        if self.claims.is_empty() {
             self.expiry.clear();
             return self.entries.drain().map(|(_, entry)| entry).collect();
-        };
+        }
         let mut evicted = Vec::new();
-        while self
-            .expiry
-            .first_key_value()
-            .is_some_and(|(&end, _)| end <= watermark)
-        {
-            let (_, targets) = self.expiry.pop_first().vortex_expect("expiry is present");
-            for target in targets {
-                if let Some(entry) = self.entries.remove(&target) {
-                    evicted.push(entry);
+        for gap in gaps {
+            let ends: Vec<_> = self
+                .expiry
+                .range((Excluded(gap.start), Included(gap.end)))
+                .map(|(&end, _)| end)
+                .collect();
+            for end in ends {
+                let targets = self.expiry.get_mut(&end).vortex_expect("expiry exists");
+                targets.retain(|target| {
+                    let entry = self.entries.get(target).vortex_expect("read exists");
+                    if entry
+                        .rows
+                        .as_ref()
+                        .is_some_and(|rows| rows.start >= gap.start)
+                    {
+                        evicted.push(self.entries.remove(target).vortex_expect("read exists"));
+                        false
+                    } else {
+                        true
+                    }
+                });
+                if targets.is_empty() {
+                    self.expiry.remove(&end);
                 }
             }
         }
@@ -60,9 +186,7 @@ pub struct RowClaim {
 impl RowClaim {
     pub(super) fn new(file: FileReads, rows: Range<u64>) -> Self {
         assert!(rows.start <= rows.end, "claim rows must be ordered");
-        if !rows.is_empty() {
-            *file.state.lock().claims.entry(rows.start).or_default() += 1;
-        }
+        file.state.lock().claims.add(&rows);
         Self { file, rows }
     }
 
@@ -72,7 +196,7 @@ impl RowClaim {
     }
 
     /// Transfers the prefix ending at `end` into a child claim, keeping the suffix in `self`.
-    /// Both registrations change under one lock, so no observer can see a gap in ownership.
+    /// Coverage is unchanged, so splitting requires no lock or registration updates.
     /// Panics if `end` is outside this claim's range.
     pub fn split_to(&mut self, end: u64) -> Self {
         assert!(
@@ -80,19 +204,7 @@ impl RowClaim {
             "split must lie within the claim"
         );
         let rows = self.rows.start..end;
-        {
-            let mut state = self.file.state.lock();
-            if !self.rows.is_empty() {
-                state.remove_claim(self.rows.start);
-            }
-            if !rows.is_empty() {
-                *state.claims.entry(rows.start).or_default() += 1;
-            }
-            if end < self.rows.end {
-                *state.claims.entry(end).or_default() += 1;
-            }
-            self.rows.start = end;
-        }
+        self.rows.start = end;
         Self {
             file: self.file.clone(),
             rows,
@@ -111,14 +223,10 @@ impl RowClaim {
         }
         let evicted = {
             let mut state = self.file.state.lock();
-            if !self.rows.is_empty() {
-                state.remove_claim(self.rows.start);
-            }
-            if !rows.is_empty() {
-                *state.claims.entry(rows.start).or_default() += 1;
-            }
+            let mut evicted = state.release(&(self.rows.start..rows.start));
+            evicted.extend(state.release(&(rows.end..self.rows.end)));
             self.rows = rows;
-            state.evict()
+            evicted
         };
         drop(evicted);
     }
@@ -137,8 +245,7 @@ impl Drop for RowClaim {
         }
         let evicted = {
             let mut state = self.file.state.lock();
-            state.remove_claim(self.rows.start);
-            state.evict()
+            state.release(&self.rows)
         };
         drop(evicted);
     }

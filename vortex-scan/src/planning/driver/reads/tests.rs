@@ -75,7 +75,13 @@ impl IoSource for TestSource {
                     Err(vortex_err!("transport failure"))
                 } else {
                     Ok(IoResult::Bytes(BufferHandle::new_host(ByteBuffer::from(
-                        vec![7; 4],
+                        vec![
+                            7;
+                            match request.target {
+                                IoTarget::Range { len, .. } => len,
+                                _ => 4,
+                            }
+                        ],
                     ))))
                 },
             });
@@ -121,8 +127,8 @@ fn file(control: &Arc<Control>) -> FileReads {
         Arc::new(TestService(Arc::clone(control))),
         Arc::new(
             [
-                (IoTarget::range(0, 4), ReadLifetime::ThroughRow(20)),
-                (IoTarget::range(4, 4), ReadLifetime::ThroughRow(40)),
+                (IoTarget::range(0, 4), ReadLifetime::Rows(0..20)),
+                (IoTarget::range(4, 4), ReadLifetime::Rows(20..40)),
                 (IoTarget::range(8, 4), ReadLifetime::File),
             ]
             .into_iter()
@@ -137,6 +143,219 @@ fn request(intent: IoIntent, id: u32, offset: u64) -> IoRequest {
         request: IoRequestId(id),
         target: IoTarget::range(offset, 4),
     }
+}
+
+fn retained(file: &FileReads) -> (usize, usize) {
+    let state = file.state.lock();
+    let bytes = state
+        .entries
+        .values()
+        .map(
+            |entry| match entry.read.as_ref().and_then(SharedRead::peek) {
+                Some(Ok(IoResult::Bytes(buffer))) => buffer.len(),
+                _ => 0,
+            },
+        )
+        .sum();
+    (state.entries.len(), bytes)
+}
+
+#[rstest]
+#[case::flat(false)]
+#[case::shared_dictionary(true)]
+fn part_retention_compared_with_file_watermark(
+    #[case] dictionary: bool,
+    #[values(false, true)] bound_start: bool,
+) -> VortexResult<()> {
+    const PARTS: u64 = 32;
+    const SEGMENT_BYTES: usize = 4096;
+    const DICTIONARY_BYTES: usize = 16384;
+    let control = Arc::new(Control::default());
+    control.complete();
+    let mut lifetimes: HashMap<_, _> = (0..PARTS)
+        .map(|part| {
+            (
+                IoTarget::range(part * SEGMENT_BYTES as u64, SEGMENT_BYTES),
+                // Starting every region at zero reproduces the former file-wide watermark:
+                // a stalled first part keeps every later part's reads alive.
+                ReadLifetime::Rows(if bound_start { part * 20 } else { 0 }..(part + 1) * 20),
+            )
+        })
+        .collect();
+    let values = IoTarget::range(PARTS * SEGMENT_BYTES as u64, DICTIONARY_BYTES);
+    // Values span two parts and must remain shared until both finish. The stalled first
+    // part and queued later parts cannot read these values.
+    lifetimes.insert(
+        values,
+        ReadLifetime::Rows(if bound_start { 20 } else { 0 }..60),
+    );
+    let file = FileReads::new(
+        Arc::new(TestService(Arc::clone(&control))),
+        Arc::new(lifetimes),
+    );
+    let mut remaining = file.claim(0..PARTS * 20);
+    let first = remaining.split_to(20);
+    let session = file.session();
+    let mut peak = (0, 0);
+    for part in 0..PARTS {
+        let work = (part != 0).then(|| remaining.split_to((part + 1) * 20));
+        session.submit(
+            IoOwnerId(0),
+            vec![IoRequest {
+                intent: IoIntent::Fetch,
+                request: IoRequestId(0),
+                target: IoTarget::range(part * SEGMENT_BYTES as u64, SEGMENT_BYTES),
+            }],
+        )?;
+        session.wait()?.result?;
+        if dictionary && (1..=2).contains(&part) {
+            session.submit(
+                IoOwnerId(0),
+                vec![IoRequest {
+                    intent: IoIntent::Fetch,
+                    request: IoRequestId(1),
+                    target: values,
+                }],
+            )?;
+            session.wait()?.result?;
+        }
+        let current = retained(&file);
+        peak = (peak.0.max(current.0), peak.1.max(current.1));
+        drop(work);
+        let keep_segments = if bound_start {
+            1
+        } else {
+            usize::try_from(part)? + 1
+        };
+        let keep_values =
+            usize::from(dictionary && if bound_start { part == 1 } else { part >= 1 });
+        assert_eq!(
+            retained(&file),
+            (
+                keep_segments + keep_values,
+                keep_segments * SEGMENT_BYTES + keep_values * DICTIONARY_BYTES
+            )
+        );
+    }
+    assert_eq!(
+        control.reads.load(Ordering::SeqCst),
+        usize::try_from(PARTS)? + usize::from(dictionary)
+    );
+    let peak_segments = if bound_start {
+        2
+    } else {
+        usize::try_from(PARTS)?
+    };
+    assert_eq!(
+        peak,
+        (
+            peak_segments + usize::from(dictionary),
+            peak_segments * SEGMENT_BYTES + usize::from(dictionary) * DICTIONARY_BYTES
+        )
+    );
+    drop(first);
+    assert_eq!(retained(&file), (0, 0));
+    Ok(())
+}
+
+#[test]
+fn overlapping_claims_release_only_uncovered_segments() -> VortexResult<()> {
+    let control = Arc::new(Control::default());
+    control.complete();
+    let file = file(&control);
+    let mut original = file.claim(0..60);
+    let mut overlap = original.share();
+    overlap.restrict_to(10..30);
+    let session = file.session();
+    for offset in [0, 4] {
+        session.submit(IoOwnerId(0), vec![request(IoIntent::Fetch, 0, offset)])?;
+        session.wait()?.result?;
+    }
+    original.restrict_to(40..60);
+    assert_eq!(retained(&file), (2, 8));
+    overlap.restrict_to(20..30);
+    assert_eq!(retained(&file), (1, 4));
+    drop(overlap);
+    assert_eq!(retained(&file), (0, 0));
+    Ok(())
+}
+
+#[test]
+fn trimming_a_claim_releases_segments_on_both_sides() -> VortexResult<()> {
+    let control = Arc::new(Control::default());
+    control.complete();
+    let file = file(&control);
+    let mut claim = file.claim(0..40);
+    let session = file.session();
+    for offset in [0, 4] {
+        session.submit(IoOwnerId(0), vec![request(IoIntent::Fetch, 0, offset)])?;
+        session.wait()?.result?;
+    }
+    claim.restrict_to(0..20);
+    assert_eq!(retained(&file), (1, 4));
+    claim.restrict_to(10..10);
+    assert_eq!(retained(&file), (0, 0));
+    Ok(())
+}
+
+#[rstest]
+#[case::forward([0, 1, 2, 3])]
+#[case::reverse([3, 2, 1, 0])]
+#[case::outside_in([0, 3, 1, 2])]
+#[case::inside_out([1, 2, 0, 3])]
+fn eviction_matches_remaining_consumers(#[case] order: [usize; 4]) -> VortexResult<()> {
+    let control = Arc::new(Control::default());
+    control.complete();
+    let regions: Vec<_> = (0..80)
+        .step_by(10)
+        .flat_map(|start| (start + 10..=80).step_by(10).map(move |end| start..end))
+        .collect();
+    let lifetimes = regions
+        .iter()
+        .enumerate()
+        .map(|(index, rows)| {
+            (
+                IoTarget::range(index as u64 * 4, 4),
+                ReadLifetime::Rows(rows.clone()),
+            )
+        })
+        .collect();
+    let file = FileReads::new(
+        Arc::new(TestService(Arc::clone(&control))),
+        Arc::new(lifetimes),
+    );
+    let mut root = file.claim(0..80);
+    let mut overlap = root.share();
+    overlap.restrict_to(10..70);
+    let mut parts: Vec<_> = (1..=4).map(|part| Some(root.split_to(part * 20))).collect();
+    let session = file.session();
+    for index in 0..regions.len() {
+        session.submit(
+            IoOwnerId(0),
+            vec![request(IoIntent::Fetch, 0, index as u64 * 4)],
+        )?;
+        session.wait()?.result?;
+    }
+    for (step, index) in order.into_iter().enumerate() {
+        drop(parts[index].take());
+        if step == 1 {
+            overlap.restrict_to(30..50);
+        }
+        let expected = regions
+            .iter()
+            .filter(|region| {
+                parts
+                    .iter()
+                    .flatten()
+                    .chain(std::iter::once(&overlap))
+                    .any(|claim| claim.rows().start < region.end && region.start < claim.rows().end)
+            })
+            .count();
+        assert_eq!(retained(&file), (expected, expected * 4));
+    }
+    drop(overlap);
+    assert_eq!(retained(&file), (0, 0));
+    Ok(())
 }
 
 struct Hold {
@@ -158,7 +377,7 @@ impl Planner for Hold {
 }
 
 #[test]
-fn completed_reads_expire_at_the_earliest_unfinished_row() -> VortexResult<()> {
+fn completed_parts_release_reads_before_earlier_parts_finish() -> VortexResult<()> {
     let control = Arc::new(Control::default());
     control.complete();
     let file = file(&control);
@@ -174,7 +393,7 @@ fn completed_reads_expire_at_the_earliest_unfinished_row() -> VortexResult<()> {
         session.wait()?.result?;
     }
     drop(second);
-    assert_eq!(control.clears.load(Ordering::SeqCst), 0);
+    assert_eq!(control.clears.load(Ordering::SeqCst), 1);
     drop(first);
     assert_eq!(control.clears.load(Ordering::SeqCst), 2);
     drop(third);
@@ -288,7 +507,7 @@ fn read_errors_reach_every_subscriber() -> VortexResult<()> {
 }
 
 #[test]
-fn unused_announcements_expire_with_their_region() -> VortexResult<()> {
+fn duplicate_announcements_share_one_hint_and_expire_with_their_region() -> VortexResult<()> {
     let control = Arc::new(Control::default());
     let file = file(&control);
     let mut remaining = file.claim(0..40);
@@ -301,7 +520,7 @@ fn unused_announcements_expire_with_their_region() -> VortexResult<()> {
             request(IoIntent::Announce, 1, 0),
         ],
     )?;
-    assert_eq!(control.announcements.load(Ordering::SeqCst), 2);
+    assert_eq!(control.announcements.load(Ordering::SeqCst), 1);
     assert_eq!(control.reads.load(Ordering::SeqCst), 0);
     drop(first);
     assert_eq!(control.clears.load(Ordering::SeqCst), 1);
@@ -517,17 +736,16 @@ fn overlapping_consumers_keep_independent_claims() -> VortexResult<()> {
 }
 
 #[rstest]
-#[case::empty_prefix(0, 1)]
-#[case::two_ranges(20, 2)]
-#[case::empty_suffix(40, 1)]
-fn split_boundaries_register_only_nonempty_claims(#[case] end: u64, #[case] count: usize) {
+#[case::empty_prefix(0)]
+#[case::two_ranges(20)]
+#[case::empty_suffix(40)]
+fn split_boundaries_preserve_coverage(#[case] end: u64) {
     let control = Arc::new(Control::default());
     let file = file(&control);
     let mut remaining = file.claim(0..40);
     let child = remaining.split_to(end);
     assert_eq!(child.rows(), &(0..end));
     assert_eq!(remaining.rows(), &(end..40));
-    assert_eq!(file.state.lock().claims.values().sum::<usize>(), count);
     drop(child);
     drop(remaining);
     assert!(file.state.lock().claims.is_empty());

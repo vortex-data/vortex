@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! File-execution read sharing, bounded by the earliest unfinished consumer row.
+//! File-execution read sharing, bounded by unfinished consumer row ranges.
 
 mod progress;
 #[cfg(test)]
@@ -46,11 +46,11 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 pub use self::progress::RowClaim;
 
-/// The last possible use of a read, expressed in the file's root row domain.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+/// The possible consumers of a read, expressed in the file's root row domain.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReadLifetime {
-    /// No consumer at or beyond this exclusive row end can need the read.
-    ThroughRow(u64),
+    /// Only consumers overlapping this range can need the read.
+    Rows(Range<u64>),
     /// No tighter bound is known; keep the read until the file execution ends.
     File,
 }
@@ -64,7 +64,7 @@ type SharedRead = Shared<BoxFuture<'static, SharedVortexResult<IoResult>>>;
 ///
 /// Reserve the scan's rows with [`claim`](Self::claim), then move and split that claim with
 /// the work. Queued work retains its claim before any worker takes it. Completed reads and
-/// unconsumed hints expire when all claims have passed their row end. Dropping the last nonempty
+/// unconsumed hints expire when no claim overlaps their consumer range. Dropping the last nonempty
 /// claim clears even file-lifetime reads, independently of the service or prepared plan lifetime.
 #[derive(Clone)]
 pub struct FileReads {
@@ -75,7 +75,7 @@ pub struct FileReads {
 
 #[derive(Default)]
 struct ReadState {
-    claims: BTreeMap<u64, usize>,
+    claims: progress::Claims,
     entries: HashMap<IoTarget, ReadEntry>,
     expiry: BTreeMap<u64, Vec<IoTarget>>,
 }
@@ -83,6 +83,8 @@ struct ReadState {
 struct ReadEntry {
     transport: Arc<ReadTransport>,
     read: Option<SharedRead>,
+    rows: Option<Range<u64>>,
+    announced: bool,
 }
 
 /// One target's transport scope. Clearing it also releases unused announcements on eviction.
@@ -106,7 +108,7 @@ impl FileReads {
     }
 
     /// Reserves the initial rows before any work runs. Descendants receive splits or shares
-    /// of this claim; they must not register fresh ranges behind the execution's watermark.
+    /// of this claim; they must not register fresh ranges after those rows have been released.
     pub fn claim(&self, rows: Range<u64>) -> RowClaim {
         RowClaim::new(self.clone(), rows)
     }
@@ -126,19 +128,25 @@ impl FileReads {
                 let lifetime = self
                     .lifetimes
                     .get(&request.target)
-                    .copied()
+                    .cloned()
                     .unwrap_or(ReadLifetime::File);
-                if let ReadLifetime::ThroughRow(end) = lifetime {
-                    expiry.entry(end).or_default().push(request.target);
-                }
+                let rows = match lifetime {
+                    ReadLifetime::Rows(rows) => {
+                        expiry.entry(rows.end).or_default().push(request.target);
+                        Some(rows)
+                    }
+                    ReadLifetime::File => None,
+                };
                 entry.insert(ReadEntry {
                     transport: Arc::new(ReadTransport(self.transport.session())),
                     read: None,
+                    rows,
+                    announced: false,
                 })
             }
         };
         if request.intent == IoIntent::Announce {
-            if entry.read.is_none() {
+            if entry.read.is_none() && !entry.announced {
                 entry.transport.0.submit(
                     IoOwnerId(0),
                     vec![IoRequest {
@@ -146,6 +154,7 @@ impl FileReads {
                         ..request
                     }],
                 )?;
+                entry.announced = true;
             }
             return Ok(None);
         }

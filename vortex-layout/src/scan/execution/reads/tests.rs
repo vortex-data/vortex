@@ -45,10 +45,10 @@ fn locations(count: u64) -> Vec<SegmentLocation> {
 fn nested_chunks_use_root_file_rows() -> VortexResult<()> {
     let layout = chunks(vec![flat(0, 10), chunks(vec![flat(1, 20), flat(2, 30)])]);
     let lifetimes = read_lifetimes(&layout, &locations(3))?;
-    for (offset, end) in [(0, 10), (4, 30), (8, 60)] {
+    for (offset, rows) in [(0, 0..10), (4, 10..30), (8, 30..60)] {
         assert_eq!(
             lifetimes[&IoTarget::range(offset, 4)],
-            ReadLifetime::ThroughRow(end)
+            ReadLifetime::Rows(rows)
         );
     }
     Ok(())
@@ -65,31 +65,28 @@ fn dictionary_values_inherit_the_entire_consumer_region() -> VortexResult<()> {
     for offset in [4, 8] {
         assert_eq!(
             lifetimes[&IoTarget::range(offset, 4)],
-            ReadLifetime::ThroughRow(30)
+            ReadLifetime::Rows(10..30)
         );
     }
     assert_eq!(
         lifetimes[&IoTarget::range(12, 4)],
-        ReadLifetime::ThroughRow(20)
+        ReadLifetime::Rows(10..20)
     );
     assert_eq!(
         lifetimes[&IoTarget::range(16, 4)],
-        ReadLifetime::ThroughRow(30)
+        ReadLifetime::Rows(20..30)
     );
     Ok(())
 }
 
 #[test]
-fn repeated_segments_use_the_latest_consumer_boundary() -> VortexResult<()> {
+fn repeated_segments_cover_all_consumer_regions() -> VortexResult<()> {
     let layout = chunks(vec![flat(0, 20), flat(1, 20), flat(0, 20)]);
     let lifetimes = read_lifetimes(&layout, &locations(2))?;
-    assert_eq!(
-        lifetimes[&IoTarget::range(0, 4)],
-        ReadLifetime::ThroughRow(60)
-    );
+    assert_eq!(lifetimes[&IoTarget::range(0, 4)], ReadLifetime::Rows(0..60));
     assert_eq!(
         lifetimes[&IoTarget::range(4, 4)],
-        ReadLifetime::ThroughRow(40)
+        ReadLifetime::Rows(20..40)
     );
     Ok(())
 }
