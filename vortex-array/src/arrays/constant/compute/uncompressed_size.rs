@@ -5,6 +5,7 @@
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
@@ -103,6 +104,24 @@ mod tests {
 
         assert_eq!(aggregate(&constant)?, expected);
         assert_eq!(aggregate(&constant)?, 160);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::exact(UncompressedSizeOpts::exact(), 10 * (16 + 20))]
+    #[case::inexact(UncompressedSizeOpts::inexact(), 10 * 16 + 20)]
+    fn constant_out_of_line_utf8_matches_canonical_size(
+        #[case] opts: UncompressedSizeOpts,
+        #[case] size: u64,
+    ) -> VortexResult<()> {
+        // Every row references the one out-of-line value, which canonicalization stores once.
+        let constant = ConstantArray::new("abcdefghijklmnopqrst".to_string(), 10).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let canonical = constant.clone().execute::<Canonical>(&mut ctx)?;
+        let expected = canonical_uncompressed_size_in_bytes(&canonical, opts, &mut ctx)?;
+
+        assert_eq!(aggregate_with(&constant, opts)?, expected);
+        assert_eq!(aggregate_with(&constant, opts)?, size);
         Ok(())
     }
 

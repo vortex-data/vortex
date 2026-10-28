@@ -450,13 +450,13 @@ logical_opt [
                 "name": "PROJECTION",
                 "children": [
                     {
-                        "name": "CROSS_PRODUCT",
+                        "name": "CTE",
                         "children": [
                             {
                                 "name": "PROJECTION",
                                 "children": [
                                     {
-                                        "name": "AGGREGATE",
+                                        "name": "COMPARISON_JOIN",
                                         "children": [
                                             {
                                                 "name": "COMPARISON_JOIN",
@@ -465,179 +465,167 @@ logical_opt [
                                                         "name": "READ_VORTEX",
                                                         "children": [],
                                                         "extra_info": {
-                                                            "Filters": [
-                                                                "(8i32 <= $.t_hour <= 9i32)",
-                                                                "(46i32 <= $.t_time_sk <= 86203i32)"
-                                                            ],
+                                                            "Filters": "",
                                                             "Function": "Vortex Scan",
-                                                            "Estimated Cardinality": "17280"
+                                                            "Estimated Cardinality": "71632"
                                                         }
                                                     },
                                                     {
-                                                        "name": "COMPARISON_JOIN",
-                                                        "children": [
-                                                            {
-                                                                "name": "COMPARISON_JOIN",
-                                                                "children": [
-                                                                    {
-                                                                        "name": "READ_VORTEX",
-                                                                        "children": [],
-                                                                        "extra_info": {
-                                                                            "Filters": "",
-                                                                            "Function": "Vortex Scan",
-                                                                            "Estimated Cardinality": "71632"
-                                                                        }
-                                                                    },
-                                                                    {
-                                                                        "name": "READ_VORTEX",
-                                                                        "children": [],
-                                                                        "extra_info": {
-                                                                            "Filters": "(5000i32 <= $.wp_char_count <= 5200i32)",
-                                                                            "Function": "Vortex Scan",
-                                                                            "Estimated Cardinality": "1"
-                                                                        }
-                                                                    }
-                                                                ],
-                                                                "extra_info": {
-                                                                    "Join Type": "INNER",
-                                                                    "Conditions": "(ws_web_page_sk = wp_web_page_sk)",
-                                                                    "Estimated Cardinality": "11938"
-                                                                }
-                                                            },
-                                                            {
-                                                                "name": "READ_VORTEX",
-                                                                "children": [],
-                                                                "extra_info": {
-                                                                    "Filters": [
-                                                                        "($.hd_dep_count = 6i32)",
-                                                                        "($.hd_demo_sk >= 2i32)"
-                                                                    ],
-                                                                    "Function": "Vortex Scan",
-                                                                    "Estimated Cardinality": "1440"
-                                                                }
-                                                            }
-                                                        ],
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
                                                         "extra_info": {
-                                                            "Join Type": "INNER",
-                                                            "Conditions": "(ws_ship_hdemo_sk = hd_demo_sk)",
-                                                            "Estimated Cardinality": "2388"
+                                                            "Filters": "(5000i32 <= $.wp_char_count <= 5200i32)",
+                                                            "Function": "Vortex Scan",
+                                                            "Estimated Cardinality": "1"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
                                                     "Join Type": "INNER",
-                                                    "Conditions": "(t_time_sk = ws_sold_time_sk)",
-                                                    "Estimated Cardinality": "576"
+                                                    "Conditions": "(ws_web_page_sk = wp_web_page_sk)",
+                                                    "Estimated Cardinality": "11938"
+                                                }
+                                            },
+                                            {
+                                                "name": "READ_VORTEX",
+                                                "children": [],
+                                                "extra_info": {
+                                                    "Filters": [
+                                                        "($.hd_dep_count = 6i32)",
+                                                        "($.hd_demo_sk >= 2i32)"
+                                                    ],
+                                                    "Function": "Vortex Scan",
+                                                    "Estimated Cardinality": "1440"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
-                                            "Groups": "",
-                                            "Expressions": "count_star()",
-                                            "Estimated Cardinality": "1"
+                                            "Join Type": "INNER",
+                                            "Conditions": "(ws_ship_hdemo_sk = hd_demo_sk)",
+                                            "Estimated Cardinality": "2388"
                                         }
                                     }
                                 ],
                                 "extra_info": {
-                                    "Expressions": "amc",
-                                    "Estimated Cardinality": "1"
+                                    "Expressions": [
+                                        "#0",
+                                        "#1"
+                                    ],
+                                    "Estimated Cardinality": "2388"
                                 }
                             },
                             {
-                                "name": "PROJECTION",
+                                "name": "CROSS_PRODUCT",
                                 "children": [
                                     {
-                                        "name": "AGGREGATE",
+                                        "name": "PROJECTION",
                                         "children": [
                                             {
-                                                "name": "COMPARISON_JOIN",
+                                                "name": "AGGREGATE",
                                                 "children": [
-                                                    {
-                                                        "name": "READ_VORTEX",
-                                                        "children": [],
-                                                        "extra_info": {
-                                                            "Filters": [
-                                                                "(19i32 <= $.t_hour <= 20i32)",
-                                                                "(46i32 <= $.t_time_sk <= 86203i32)"
-                                                            ],
-                                                            "Function": "Vortex Scan",
-                                                            "Estimated Cardinality": "17280"
-                                                        }
-                                                    },
                                                     {
                                                         "name": "COMPARISON_JOIN",
                                                         "children": [
-                                                            {
-                                                                "name": "COMPARISON_JOIN",
-                                                                "children": [
-                                                                    {
-                                                                        "name": "READ_VORTEX",
-                                                                        "children": [],
-                                                                        "extra_info": {
-                                                                            "Filters": "",
-                                                                            "Function": "Vortex Scan",
-                                                                            "Estimated Cardinality": "71632"
-                                                                        }
-                                                                    },
-                                                                    {
-                                                                        "name": "READ_VORTEX",
-                                                                        "children": [],
-                                                                        "extra_info": {
-                                                                            "Filters": "(5000i32 <= $.wp_char_count <= 5200i32)",
-                                                                            "Function": "Vortex Scan",
-                                                                            "Estimated Cardinality": "1"
-                                                                        }
-                                                                    }
-                                                                ],
-                                                                "extra_info": {
-                                                                    "Join Type": "INNER",
-                                                                    "Conditions": "(ws_web_page_sk = wp_web_page_sk)",
-                                                                    "Estimated Cardinality": "11938"
-                                                                }
-                                                            },
                                                             {
                                                                 "name": "READ_VORTEX",
                                                                 "children": [],
                                                                 "extra_info": {
                                                                     "Filters": [
-                                                                        "($.hd_dep_count = 6i32)",
-                                                                        "($.hd_demo_sk >= 2i32)"
+                                                                        "(8i32 <= $.t_hour <= 9i32)",
+                                                                        "(46i32 <= $.t_time_sk <= 86203i32)"
                                                                     ],
                                                                     "Function": "Vortex Scan",
-                                                                    "Estimated Cardinality": "1440"
+                                                                    "Estimated Cardinality": "17280"
+                                                                }
+                                                            },
+                                                            {
+                                                                "name": "CTE_SCAN",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "CTE Index": "74",
+                                                                    "Estimated Cardinality": "2388"
                                                                 }
                                                             }
                                                         ],
                                                         "extra_info": {
                                                             "Join Type": "INNER",
-                                                            "Conditions": "(ws_ship_hdemo_sk = hd_demo_sk)",
-                                                            "Estimated Cardinality": "2388"
+                                                            "Conditions": "(t_time_sk = ws_sold_time_sk)",
+                                                            "Estimated Cardinality": "576"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
-                                                    "Join Type": "INNER",
-                                                    "Conditions": "(t_time_sk = ws_sold_time_sk)",
-                                                    "Estimated Cardinality": "576"
+                                                    "Groups": "",
+                                                    "Expressions": "count_star()",
+                                                    "Estimated Cardinality": "1"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
-                                            "Groups": "",
-                                            "Expressions": "count_star()",
+                                            "Expressions": "amc",
+                                            "Estimated Cardinality": "1"
+                                        }
+                                    },
+                                    {
+                                        "name": "PROJECTION",
+                                        "children": [
+                                            {
+                                                "name": "AGGREGATE",
+                                                "children": [
+                                                    {
+                                                        "name": "COMPARISON_JOIN",
+                                                        "children": [
+                                                            {
+                                                                "name": "READ_VORTEX",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "Filters": [
+                                                                        "(19i32 <= $.t_hour <= 20i32)",
+                                                                        "(46i32 <= $.t_time_sk <= 86203i32)"
+                                                                    ],
+                                                                    "Function": "Vortex Scan",
+                                                                    "Estimated Cardinality": "17280"
+                                                                }
+                                                            },
+                                                            {
+                                                                "name": "CTE_SCAN",
+                                                                "children": [],
+                                                                "extra_info": {
+                                                                    "CTE Index": "74",
+                                                                    "Estimated Cardinality": "2388"
+                                                                }
+                                                            }
+                                                        ],
+                                                        "extra_info": {
+                                                            "Join Type": "INNER",
+                                                            "Conditions": "(t_time_sk = ws_sold_time_sk)",
+                                                            "Estimated Cardinality": "576"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Groups": "",
+                                                    "Expressions": "count_star()",
+                                                    "Estimated Cardinality": "1"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Expressions": "pmc",
                                             "Estimated Cardinality": "1"
                                         }
                                     }
                                 ],
                                 "extra_info": {
-                                    "Expressions": "pmc",
+                                    "Expressions": "",
                                     "Estimated Cardinality": "1"
                                 }
                             }
                         ],
                         "extra_info": {
-                            "Expressions": "",
-                            "Estimated Cardinality": "1"
+                            "CTE Name": "__common_subplan_1",
+                            "Table Index": "74",
+                            "Estimated Cardinality": "2388"
                         }
                     }
                 ],
@@ -661,10 +649,10 @@ physical_plan [
                 "name": "PROJECTION",
                 "children": [
                     {
-                        "name": "CROSS_PRODUCT",
+                        "name": "CTE",
                         "children": [
                             {
-                                "name": "UNGROUPED_AGGREGATE",
+                                "name": "HASH_JOIN",
                                 "children": [
                                     {
                                         "name": "HASH_JOIN",
@@ -674,173 +662,144 @@ physical_plan [
                                                 "children": [],
                                                 "extra_info": {
                                                     "Function": "Vortex Scan",
-                                                    "Filters": [
-                                                        "(8i32 <= $.t_hour <= 9i32)",
-                                                        "(46i32 <= $.t_time_sk <= 86203i32)"
+                                                    "Projections": [
+                                                        "ws_sold_time_sk",
+                                                        "ws_ship_hdemo_sk",
+                                                        "ws_web_page_sk"
                                                     ],
-                                                    "Projections": "t_time_sk",
-                                                    "Estimated Cardinality": "17280"
+                                                    "Estimated Cardinality": "71632"
                                                 }
                                             },
                                             {
-                                                "name": "HASH_JOIN",
-                                                "children": [
-                                                    {
-                                                        "name": "HASH_JOIN",
-                                                        "children": [
-                                                            {
-                                                                "name": "READ_VORTEX",
-                                                                "children": [],
-                                                                "extra_info": {
-                                                                    "Function": "Vortex Scan",
-                                                                    "Projections": [
-                                                                        "ws_sold_time_sk",
-                                                                        "ws_ship_hdemo_sk",
-                                                                        "ws_web_page_sk"
-                                                                    ],
-                                                                    "Estimated Cardinality": "71632"
-                                                                }
-                                                            },
-                                                            {
-                                                                "name": "READ_VORTEX",
-                                                                "children": [],
-                                                                "extra_info": {
-                                                                    "Function": "Vortex Scan",
-                                                                    "Filters": "(5000i32 <= $.wp_char_count <= 5200i32)",
-                                                                    "Projections": "wp_web_page_sk",
-                                                                    "Estimated Cardinality": "1"
-                                                                }
-                                                            }
-                                                        ],
-                                                        "extra_info": {
-                                                            "Join Type": "INNER",
-                                                            "Conditions": "ws_web_page_sk = wp_web_page_sk",
-                                                            "Estimated Cardinality": "11938"
-                                                        }
-                                                    },
-                                                    {
-                                                        "name": "READ_VORTEX",
-                                                        "children": [],
-                                                        "extra_info": {
-                                                            "Function": "Vortex Scan",
-                                                            "Filters": [
-                                                                "($.hd_dep_count = 6i32)",
-                                                                "($.hd_demo_sk >= 2i32)"
-                                                            ],
-                                                            "Projections": "hd_demo_sk",
-                                                            "Estimated Cardinality": "1440"
-                                                        }
-                                                    }
-                                                ],
+                                                "name": "READ_VORTEX",
+                                                "children": [],
                                                 "extra_info": {
-                                                    "Join Type": "INNER",
-                                                    "Conditions": "ws_ship_hdemo_sk = hd_demo_sk",
-                                                    "Estimated Cardinality": "2388"
+                                                    "Function": "Vortex Scan",
+                                                    "Filters": "(5000i32 <= $.wp_char_count <= 5200i32)",
+                                                    "Projections": "wp_web_page_sk",
+                                                    "Estimated Cardinality": "1"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "Join Type": "INNER",
-                                            "Conditions": "t_time_sk = ws_sold_time_sk",
-                                            "Estimated Cardinality": "576"
+                                            "Conditions": "ws_web_page_sk = wp_web_page_sk",
+                                            "Estimated Cardinality": "11938"
+                                        }
+                                    },
+                                    {
+                                        "name": "READ_VORTEX",
+                                        "children": [],
+                                        "extra_info": {
+                                            "Function": "Vortex Scan",
+                                            "Filters": [
+                                                "($.hd_dep_count = 6i32)",
+                                                "($.hd_demo_sk >= 2i32)"
+                                            ],
+                                            "Projections": "hd_demo_sk",
+                                            "Estimated Cardinality": "1440"
                                         }
                                     }
                                 ],
                                 "extra_info": {
-                                    "Aggregates": "count_star()",
-                                    "Estimated Cardinality": "1"
+                                    "Join Type": "INNER",
+                                    "Conditions": "ws_ship_hdemo_sk = hd_demo_sk",
+                                    "Estimated Cardinality": "2388"
                                 }
                             },
                             {
-                                "name": "UNGROUPED_AGGREGATE",
+                                "name": "CROSS_PRODUCT",
                                 "children": [
                                     {
-                                        "name": "HASH_JOIN",
+                                        "name": "UNGROUPED_AGGREGATE",
                                         "children": [
-                                            {
-                                                "name": "READ_VORTEX",
-                                                "children": [],
-                                                "extra_info": {
-                                                    "Function": "Vortex Scan",
-                                                    "Filters": [
-                                                        "(19i32 <= $.t_hour <= 20i32)",
-                                                        "(46i32 <= $.t_time_sk <= 86203i32)"
-                                                    ],
-                                                    "Projections": "t_time_sk",
-                                                    "Estimated Cardinality": "17280"
-                                                }
-                                            },
                                             {
                                                 "name": "HASH_JOIN",
                                                 "children": [
-                                                    {
-                                                        "name": "HASH_JOIN",
-                                                        "children": [
-                                                            {
-                                                                "name": "READ_VORTEX",
-                                                                "children": [],
-                                                                "extra_info": {
-                                                                    "Function": "Vortex Scan",
-                                                                    "Projections": [
-                                                                        "ws_sold_time_sk",
-                                                                        "ws_ship_hdemo_sk",
-                                                                        "ws_web_page_sk"
-                                                                    ],
-                                                                    "Estimated Cardinality": "71632"
-                                                                }
-                                                            },
-                                                            {
-                                                                "name": "READ_VORTEX",
-                                                                "children": [],
-                                                                "extra_info": {
-                                                                    "Function": "Vortex Scan",
-                                                                    "Filters": "(5000i32 <= $.wp_char_count <= 5200i32)",
-                                                                    "Projections": "wp_web_page_sk",
-                                                                    "Estimated Cardinality": "1"
-                                                                }
-                                                            }
-                                                        ],
-                                                        "extra_info": {
-                                                            "Join Type": "INNER",
-                                                            "Conditions": "ws_web_page_sk = wp_web_page_sk",
-                                                            "Estimated Cardinality": "11938"
-                                                        }
-                                                    },
                                                     {
                                                         "name": "READ_VORTEX",
                                                         "children": [],
                                                         "extra_info": {
                                                             "Function": "Vortex Scan",
                                                             "Filters": [
-                                                                "($.hd_dep_count = 6i32)",
-                                                                "($.hd_demo_sk >= 2i32)"
+                                                                "(8i32 <= $.t_hour <= 9i32)",
+                                                                "(46i32 <= $.t_time_sk <= 86203i32)"
                                                             ],
-                                                            "Projections": "hd_demo_sk",
-                                                            "Estimated Cardinality": "1440"
+                                                            "Projections": "t_time_sk",
+                                                            "Estimated Cardinality": "17280"
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "CTE_SCAN",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "CTE Index": "74",
+                                                            "Estimated Cardinality": "2388"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
                                                     "Join Type": "INNER",
-                                                    "Conditions": "ws_ship_hdemo_sk = hd_demo_sk",
-                                                    "Estimated Cardinality": "2388"
+                                                    "Conditions": "t_time_sk = ws_sold_time_sk",
+                                                    "Estimated Cardinality": "576"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
-                                            "Join Type": "INNER",
-                                            "Conditions": "t_time_sk = ws_sold_time_sk",
-                                            "Estimated Cardinality": "576"
+                                            "Aggregates": "count_star()",
+                                            "Estimated Cardinality": "1"
+                                        }
+                                    },
+                                    {
+                                        "name": "UNGROUPED_AGGREGATE",
+                                        "children": [
+                                            {
+                                                "name": "HASH_JOIN",
+                                                "children": [
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Function": "Vortex Scan",
+                                                            "Filters": [
+                                                                "(19i32 <= $.t_hour <= 20i32)",
+                                                                "(46i32 <= $.t_time_sk <= 86203i32)"
+                                                            ],
+                                                            "Projections": "t_time_sk",
+                                                            "Estimated Cardinality": "17280"
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "CTE_SCAN",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "CTE Index": "74",
+                                                            "Estimated Cardinality": "2388"
+                                                        }
+                                                    }
+                                                ],
+                                                "extra_info": {
+                                                    "Join Type": "INNER",
+                                                    "Conditions": "t_time_sk = ws_sold_time_sk",
+                                                    "Estimated Cardinality": "576"
+                                                }
+                                            }
+                                        ],
+                                        "extra_info": {
+                                            "Aggregates": "count_star()",
+                                            "Estimated Cardinality": "1"
                                         }
                                     }
                                 ],
-                                "extra_info": {
-                                    "Aggregates": "count_star()",
-                                    "Estimated Cardinality": "1"
-                                }
+                                "extra_info": {}
                             }
                         ],
-                        "extra_info": {}
+                        "extra_info": {
+                            "CTE Name": "__common_subplan_1",
+                            "Table Index": "74",
+                            "Execution Mode": "PIPELINE_DEPENDENT",
+                            "Estimated Cardinality": "2388"
+                        }
                     }
                 ],
                 "extra_info": {

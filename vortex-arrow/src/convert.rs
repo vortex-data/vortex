@@ -82,12 +82,16 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::decimal::check_precision;
+use vortex_array::arrays::decimal::copy_to_canonical_width;
 use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::MapDType;
+use vortex_array::dtype::NativeDecimalType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -104,6 +108,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_mask::Mask;
 
 use crate::dtype::from_arrow_time_unit;
 
@@ -176,52 +181,125 @@ where
     Ok(PrimitiveArray::new(buffer, validity).into_array())
 }
 
-/// Zero-copy conversion of an Arrow `Decimal32` array into a Vortex decimal array.
+/// Conversion of an Arrow `Decimal32` array into a Vortex decimal array, zero-copy when the Arrow
+/// width is the [canonical width](DecimalDType::canonical_values_type), otherwise a checked copy.
 pub fn from_arrow_decimal32(
     array: &ArrowPrimitiveArray<Decimal32Type>,
     nullable: bool,
 ) -> VortexResult<ArrayRef> {
-    let decimal_type = DecimalDType::new(array.precision(), array.scale());
-    let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
-    let validity = nulls(array.nulls(), nullable)?;
-    Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
+    let values = Buffer::from_arrow_scalar_buffer(array.values().clone());
+    from_arrow_decimal(
+        values,
+        array.nulls(),
+        array.precision(),
+        array.scale(),
+        nullable,
+    )
 }
 
-/// Zero-copy conversion of an Arrow `Decimal64` array into a Vortex decimal array.
+/// Conversion of an Arrow `Decimal64` array into a Vortex decimal array, zero-copy when the Arrow
+/// width is the [canonical width](DecimalDType::canonical_values_type), otherwise a checked copy.
 pub fn from_arrow_decimal64(
     array: &ArrowPrimitiveArray<Decimal64Type>,
     nullable: bool,
 ) -> VortexResult<ArrayRef> {
-    let decimal_type = DecimalDType::new(array.precision(), array.scale());
-    let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
-    let validity = nulls(array.nulls(), nullable)?;
-    Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
+    let values = Buffer::from_arrow_scalar_buffer(array.values().clone());
+    from_arrow_decimal(
+        values,
+        array.nulls(),
+        array.precision(),
+        array.scale(),
+        nullable,
+    )
 }
 
-/// Zero-copy conversion of an Arrow `Decimal128` array into a Vortex decimal array.
+/// Conversion of an Arrow `Decimal128` array into a Vortex decimal array, zero-copy when the Arrow
+/// width is the [canonical width](DecimalDType::canonical_values_type), otherwise a checked copy.
 pub fn from_arrow_decimal128(
     array: &ArrowPrimitiveArray<Decimal128Type>,
     nullable: bool,
 ) -> VortexResult<ArrayRef> {
-    let decimal_type = DecimalDType::new(array.precision(), array.scale());
-    let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
-    let validity = nulls(array.nulls(), nullable)?;
-    Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
+    let values = Buffer::from_arrow_scalar_buffer(array.values().clone());
+    from_arrow_decimal(
+        values,
+        array.nulls(),
+        array.precision(),
+        array.scale(),
+        nullable,
+    )
 }
 
-/// Zero-copy conversion of an Arrow `Decimal256` array into a Vortex decimal array.
+/// Conversion of an Arrow `Decimal256` array into a Vortex decimal array, zero-copy when the Arrow
+/// width is the [canonical width](DecimalDType::canonical_values_type), otherwise a checked copy.
 pub fn from_arrow_decimal256(
     array: &ArrowPrimitiveArray<Decimal256Type>,
     nullable: bool,
 ) -> VortexResult<ArrayRef> {
-    let decimal_type = DecimalDType::new(array.precision(), array.scale());
-    let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
+    let values = Buffer::from_arrow_scalar_buffer(array.values().clone());
     // SAFETY: Our i256 implementation has the same bit-pattern representation of the
     //  arrow_buffer::i256 type. It is safe to treat values held inside the buffer as values
     //  of either type.
-    let buffer = unsafe { std::mem::transmute::<Buffer<arrow_buffer::i256>, Buffer<i256>>(buffer) };
-    let validity = nulls(array.nulls(), nullable)?;
-    Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
+    let values = unsafe { std::mem::transmute::<Buffer<arrow_buffer::i256>, Buffer<i256>>(values) };
+    from_arrow_decimal(
+        values,
+        array.nulls(),
+        array.precision(),
+        array.scale(),
+        nullable,
+    )
+}
+
+/// Converts the values of an Arrow decimal array into a Vortex decimal array at the canonical width
+/// of its precision.
+///
+/// arrow-rs does not check that the values of an array fit its precision, so this function checks
+/// every valid value. When `T` is the canonical width, the array keeps the Arrow buffer and
+/// [`check_precision`] checks it. Otherwise [`copy_to_canonical_width`] copies the values, which
+/// writes zeros into the null slots when it narrows. Null slots are never checked.
+///
+/// # Errors
+///
+/// Returns an error if the precision or scale is invalid, if `nullable` is false and the array has
+/// nulls, or if a valid value is outside the precision.
+fn from_arrow_decimal<T: NativeDecimalType>(
+    values: Buffer<T>,
+    arrow_nulls: Option<&NullBuffer>,
+    precision: u8,
+    scale: i8,
+    nullable: bool,
+) -> VortexResult<ArrayRef> {
+    let decimal_dtype = DecimalDType::try_new(precision, scale)?;
+    let validity = nulls(arrow_nulls, nullable)?;
+    let mask = arrow_nulls.map_or_else(
+        || Mask::new_true(values.len()),
+        |arrow_nulls| Mask::from_buffer(BitBuffer::from(arrow_nulls.inner().clone())),
+    );
+
+    let values_type = decimal_dtype.canonical_values_type();
+    let checked_values = if T::DECIMAL_TYPE == values_type {
+        check_precision(values.as_slice(), &mask, decimal_dtype)
+            .map(|()| BufferHandle::new_host(values.into_byte_buffer()))
+    } else {
+        copy_to_canonical_width(values.as_slice(), &mask, decimal_dtype)
+    };
+    let checked_values = checked_values.map_err(|err| {
+        err.with_context(format!(
+            "Arrow decimal import requires every valid value to be within the precision of \
+             {decimal_dtype}; call arrow-rs PrimitiveArray::null_if_overflow_precision before \
+             the import to turn such values into nulls"
+        ))
+    })?;
+
+    // SAFETY: Every valid value is within the precision of `decimal_dtype`. `check_precision`
+    // checked the zero-copy values, and `copy_to_canonical_width` checks a narrowing copy. A
+    // widening copy needs no check: the canonical width is wider than `T` only when the precision
+    // is above `T::MAX_PRECISION`, and every value of `T` has at most `T::MAX_PRECISION + 1`
+    // digits. Arrow keeps its null buffer at the length of the values, so the validity matches.
+    let array = unsafe {
+        DecimalArray::new_unchecked_handle(checked_values, values_type, decimal_dtype, validity)
+    };
+
+    Ok(array.into_array())
 }
 
 /// Conversion of an Arrow temporal array (timestamp/date/time) into a Vortex temporal
@@ -755,6 +833,8 @@ mod tests {
     use arrow_array::BooleanArray;
     use arrow_array::Date32Array;
     use arrow_array::Date64Array;
+    use arrow_array::Decimal128Array;
+    use arrow_array::Decimal256Array;
     use arrow_array::FixedSizeListArray as ArrowFixedSizeListArray;
     use arrow_array::Float32Array;
     use arrow_array::Float64Array;
@@ -796,6 +876,7 @@ mod tests {
     use arrow_array::types::Float16Type;
     use arrow_buffer::BooleanBuffer;
     use arrow_buffer::Buffer as ArrowBuffer;
+    use arrow_buffer::NullBuffer;
     use arrow_buffer::OffsetBuffer;
     use arrow_buffer::ScalarBuffer;
     use arrow_schema::DataType;
@@ -830,6 +911,7 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
+    use vortex_array::dtype::DecimalType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::i256;
@@ -1035,10 +1117,11 @@ mod tests {
         let vortex_array_non_null = from_arrow_dyn(&decimal_array_non_null, false).unwrap();
         assert_eq!(vortex_array_non_null.len(), 3);
 
-        // Verify metadata - should be DecimalArray with correct precision and scale
+        // Verify metadata: a DecimalArray with the precision, scale and canonical width
         let decimal_vortex_array = vortex_array.as_::<Decimal>();
         assert_eq!(decimal_vortex_array.decimal_dtype().precision(), 10);
         assert_eq!(decimal_vortex_array.decimal_dtype().scale(), 2);
+        assert_eq!(decimal_vortex_array.values_type(), DecimalType::I64);
 
         let decimal_vortex_array_non_null = vortex_array_non_null.as_::<Decimal>();
         assert_eq!(
@@ -1046,17 +1129,21 @@ mod tests {
             10
         );
         assert_eq!(decimal_vortex_array_non_null.decimal_dtype().scale(), 2);
+        assert_eq!(
+            decimal_vortex_array_non_null.values_type(),
+            DecimalType::I64
+        );
         assert_arrays_eq!(
             vortex_array,
             DecimalArray::from_option_iter(
-                [Some(12345i128), None, Some(67890i128), Some(11111i128)],
+                [Some(12345i64), None, Some(67890i64), Some(11111i64)],
                 DecimalDType::new(10, 2)
             ),
             &mut SESSION.create_execution_ctx()
         );
         assert_arrays_eq!(
             vortex_array_non_null,
-            DecimalArray::from_iter([12345i128, 67890i128, 11111i128], DecimalDType::new(10, 2)),
+            DecimalArray::from_iter([12345i64, 67890i64, 11111i64], DecimalDType::new(10, 2)),
             &mut SESSION.create_execution_ctx()
         );
     }
@@ -1085,10 +1172,11 @@ mod tests {
         let vortex_array_non_null = from_arrow_dyn(&decimal_array_non_null, false).unwrap();
         assert_eq!(vortex_array_non_null.len(), 3);
 
-        // Verify metadata - should be DecimalArray with correct precision and scale
+        // Verify metadata: a DecimalArray with the precision, scale and canonical width
         let decimal_vortex_array = vortex_array.as_::<Decimal>();
         assert_eq!(decimal_vortex_array.decimal_dtype().precision(), 38);
         assert_eq!(decimal_vortex_array.decimal_dtype().scale(), 10);
+        assert_eq!(decimal_vortex_array.values_type(), DecimalType::I128);
 
         let decimal_vortex_array_non_null = vortex_array_non_null.as_::<Decimal>();
         assert_eq!(
@@ -1096,31 +1184,145 @@ mod tests {
             38
         );
         assert_eq!(decimal_vortex_array_non_null.decimal_dtype().scale(), 10);
+        assert_eq!(
+            decimal_vortex_array_non_null.values_type(),
+            DecimalType::I128
+        );
         assert_arrays_eq!(
             vortex_array,
             DecimalArray::from_option_iter(
-                [
-                    Some(i256::from_i128(12345)),
-                    None,
-                    Some(i256::from_i128(67890)),
-                    Some(i256::from_i128(11111))
-                ],
+                [Some(12345i128), None, Some(67890i128), Some(11111i128)],
                 DecimalDType::new(38, 10)
             ),
             &mut SESSION.create_execution_ctx()
         );
         assert_arrays_eq!(
             vortex_array_non_null,
-            DecimalArray::from_iter(
-                [
-                    i256::from_i128(12345),
-                    i256::from_i128(67890),
-                    i256::from_i128(11111)
-                ],
-                DecimalDType::new(38, 10)
+            DecimalArray::from_iter([12345i128, 67890i128, 11111i128], DecimalDType::new(38, 10)),
+            &mut SESSION.create_execution_ctx()
+        );
+    }
+
+    #[rstest]
+    #[case::decimal32_p4(DataType::Decimal32(4, 2), DecimalType::I16, false)]
+    #[case::decimal64_p9(DataType::Decimal64(9, 2), DecimalType::I32, false)]
+    #[case::decimal128_p5(DataType::Decimal128(5, 2), DecimalType::I32, false)]
+    #[case::decimal128_p18(DataType::Decimal128(18, 2), DecimalType::I64, false)]
+    #[case::decimal128_p38(DataType::Decimal128(38, 2), DecimalType::I128, true)]
+    #[case::decimal256_p38(DataType::Decimal256(38, 2), DecimalType::I128, false)]
+    #[case::decimal256_p40(DataType::Decimal256(40, 2), DecimalType::I256, true)]
+    fn test_decimal_import_canonical_width(
+        #[case] data_type: DataType,
+        #[case] values_type: DecimalType,
+        #[case] zero_copy: bool,
+    ) -> VortexResult<()> {
+        let (precision, scale) = match data_type {
+            DataType::Decimal32(precision, scale)
+            | DataType::Decimal64(precision, scale)
+            | DataType::Decimal128(precision, scale)
+            | DataType::Decimal256(precision, scale) => (precision, scale),
+            _ => unreachable!("every case is an Arrow decimal type, got {data_type}"),
+        };
+
+        // The largest and smallest values of the precision, around a null and a zero.
+        let max = i256::from_i128(10).wrapping_pow(u32::from(precision)) - i256::ONE;
+        let values = [Some(-max), None, Some(i256::ZERO), Some(max)];
+        let arrow_values = values.map(|value| value.map(arrow_buffer::i256::from));
+        let bounds =
+            Decimal256Array::from_iter(arrow_values).with_precision_and_scale(precision, scale)?;
+        let arrow = arrow_cast::cast(&bounds, &data_type)?;
+
+        let imported = from_arrow_dyn(arrow.as_ref(), true)?;
+        let decimal = imported.as_::<Decimal>();
+        assert_eq!(decimal.values_type(), values_type);
+        if zero_copy {
+            assert_eq!(
+                decimal.buffer_handle().as_host().as_ptr(),
+                arrow.to_data().buffers()[0].as_ptr()
+            );
+        }
+
+        assert_arrays_eq!(
+            imported,
+            DecimalArray::from_option_iter(values, DecimalDType::new(precision, scale)),
+            &mut SESSION.create_execution_ctx()
+        );
+        Ok(())
+    }
+
+    /// The null slot holds 10^30, which is outside both precisions and does not fit `i32`.
+    #[rstest]
+    #[case::narrowing(5, false)]
+    #[case::equal_width(20, true)]
+    fn test_decimal_import_ignores_null_slots(
+        #[case] precision: u8,
+        #[case] zero_copy: bool,
+    ) -> VortexResult<()> {
+        let arrow = Decimal128Array::new(
+            ScalarBuffer::from(vec![12_345, 10i128.pow(30), -12_345]),
+            Some(NullBuffer::from(vec![true, false, true])),
+        )
+        .with_precision_and_scale(precision, 2)?;
+
+        let imported = from_arrow_dyn(&arrow, true)?;
+        let decimal = imported.as_::<Decimal>();
+        if zero_copy {
+            assert_eq!(
+                decimal.buffer_handle().as_host().as_ptr(),
+                arrow.to_data().buffers()[0].as_ptr()
+            );
+        } else {
+            // A narrowing copy writes zeros into the null slots.
+            assert_eq!(decimal.values_type(), DecimalType::I32);
+            assert_eq!(decimal.buffer::<i32>().as_slice(), &[12_345, 0, -12_345]);
+        }
+
+        assert_arrays_eq!(
+            imported,
+            DecimalArray::from_option_iter(
+                [Some(12_345i128), None, Some(-12_345)],
+                DecimalDType::new(precision, 2)
             ),
             &mut SESSION.create_execution_ctx()
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_decimal_import_rejects_value_outside_precision() -> VortexResult<()> {
+        let arrow =
+            Decimal128Array::from(vec![12_345, 1_000_000]).with_precision_and_scale(5, 2)?;
+
+        let err = from_arrow_dyn(&arrow, true)
+            .expect_err("a valid value outside the precision must fail the import");
+        let message = err.to_string();
+        assert!(message.contains("row 1"), "{message}");
+        assert!(message.contains("null_if_overflow_precision"), "{message}");
+        Ok(())
+    }
+
+    #[test]
+    fn test_decimal_import_zero_copy_rejects_value_outside_precision() -> VortexResult<()> {
+        let arrow =
+            Decimal128Array::from(vec![12_345, 10i128.pow(20)]).with_precision_and_scale(20, 2)?;
+
+        let err = from_arrow_dyn(&arrow, true)
+            .expect_err("a valid value outside the precision must fail the import");
+        let message = err.to_string();
+        assert!(message.contains("row 1"), "{message}");
+        assert!(message.contains("null_if_overflow_precision"), "{message}");
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::precision_zero(DataType::Decimal128(0, 0))]
+    #[case::precision_above_max(DataType::Decimal128(77, 0))]
+    #[case::scale_above_precision(DataType::Decimal128(5, 6))]
+    fn test_decimal_import_rejects_invalid_precision(#[case] data_type: DataType) {
+        // `with_data_type` does not validate the precision or scale, as an FFI import would not.
+        let arrow = Decimal128Array::from(vec![1]).with_data_type(data_type);
+
+        assert!(from_arrow_dyn(&arrow, true).is_err());
     }
 
     // Test temporal array conversions
@@ -1540,7 +1742,7 @@ mod tests {
                 Arc::new(Int32Array::from(vec![Some(1), None, Some(3)])),
                 Arc::new(StringArray::from(vec!["a", "b", "c"])),
             ],
-            Some(arrow_buffer::NullBuffer::new(BooleanBuffer::from(vec![
+            Some(NullBuffer::new(BooleanBuffer::from(vec![
                 true, false, true,
             ]))),
         );
@@ -1779,8 +1981,7 @@ mod tests {
         ]);
 
         // Create nulls buffer - second list is null
-        let null_buffer =
-            arrow_buffer::NullBuffer::new(BooleanBuffer::from(vec![true, false, true]));
+        let null_buffer = NullBuffer::new(BooleanBuffer::from(vec![true, false, true]));
 
         let arrow_array_nullable = ArrowFixedSizeListArray::try_new(
             field,
@@ -1889,8 +2090,7 @@ mod tests {
         assert_eq!(sizes_array.ptype(), PType::I32);
 
         // Test nullable ListView
-        let null_buffer =
-            arrow_buffer::NullBuffer::new(BooleanBuffer::from(vec![true, false, true, true]));
+        let null_buffer = NullBuffer::new(BooleanBuffer::from(vec![true, false, true, true]));
 
         let arrow_array_nullable = GenericListViewArray::try_new(
             Arc::clone(&field),

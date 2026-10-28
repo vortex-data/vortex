@@ -31,7 +31,6 @@ use crate::arrays::decimal::converted_buffer;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::arrays::varbinview::BinaryView;
 use crate::dtype::DType;
-use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
@@ -116,7 +115,7 @@ fn new_state(elements: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Box<dyn
             })
         }
         DType::Decimal(decimal, _) => {
-            let values_type = DecimalType::smallest_decimal_value_type(decimal);
+            let values_type = decimal.canonical_values_type();
             let elements = elements.execute::<DecimalArray>(ctx)?;
             let all_valid = Mask::new_true(elements.len());
             match_each_decimal_value_type!(values_type, |T| {

@@ -582,7 +582,7 @@ fn add_size_map(
 /// so keys from differently compressed chunks stay memcmp-comparable. Both the size plan
 /// ([`row_width_for_dtype`]) and the encoder derive their width from here.
 fn decimal_key_type(dt: &DecimalDType) -> DecimalType {
-    DecimalType::smallest_decimal_value_type(dt)
+    dt.canonical_values_type()
 }
 
 fn add_size_varbinview(

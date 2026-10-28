@@ -35,6 +35,7 @@ use vortex_error::vortex_panic;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::BitPackedData;
 use vortex_fastlanes::FoR;
+use vortex_fastlanes::FoRArray;
 use vortex_fastlanes::FoRArrayExt;
 use vortex_fastlanes::FoRArraySlotsExt;
 use vortex_fastlanes::FoRReferences;
@@ -77,44 +78,72 @@ fn values<T: NativePType + TryFrom<usize>>(len: usize) -> Buffer<T> {
 
 #[derive(Clone, Copy)]
 enum Child {
-    Primitive,
     BitPacked,
     BlockedBitPacked,
 }
 
-fn for_array<T: NativePType + TryFrom<usize>>(len: usize, child: Child) -> ArrayRef {
+fn blocked_references(for_array: &FoRArray) -> ArrayRef {
+    let FoRReferences::Blocked(references) = for_array.references() else {
+        vortex_panic!("every chunk has its own reference");
+    };
+    references.clone()
+}
+
+fn bitpacked_for_array<T: NativePType + TryFrom<usize>>(len: usize, child: Child) -> ArrayRef {
     let mut ctx = SESSION.create_execution_ctx();
     let array = PrimitiveArray::new(values::<T>(len), Validity::NonNullable);
     let for_array = FoR::encode_chunked(array, &mut ctx).unwrap();
     let packed = match child {
-        Child::Primitive => return for_array.into_array(),
         Child::BitPacked => BitPacked::encode(for_array.encoded(), BIT_WIDTH, &mut ctx).unwrap(),
         Child::BlockedBitPacked => {
             let bit_widths = vec![BIT_WIDTH; len.div_ceil(1024)];
             BitPackedData::encode_blocked(for_array.encoded(), &bit_widths, &mut ctx).unwrap()
         }
     };
-    let FoRReferences::Blocked(references) = for_array.references() else {
-        vortex_panic!("every chunk has its own reference");
-    };
-    FoR::try_new_chunked(packed.into_array(), references.clone(), 0)
+    FoR::try_new_chunked(packed.into_array(), blocked_references(&for_array), 0)
         .unwrap()
         .into_array()
 }
 
 fn run<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize, child: Child) {
     let len = bytes / size_of::<T>();
-    let array = for_array::<T>(len, child);
+    let array = bitpacked_for_array::<T>(len, child);
     bencher
         .counter(ItemsCount::new(len))
         .with_inputs(|| (&array, SESSION.create_execution_ctx()))
         .bench_refs(|(array, ctx)| (*array).clone().execute::<PrimitiveArray>(ctx).unwrap());
 }
 
+/// Each iteration decodes a uniquely owned FoR array over a uniquely owned buffer, so the
+/// references are added in place instead of into a copy.
 #[vortex_bench_support::cpu_features]
 #[divan::bench(types = [i64], args = INPUT_BYTES)]
 fn decode_chunked<T: NativePType + TryFrom<usize>>(bencher: Bencher, bytes: usize) {
-    run::<T>(bencher, bytes, Child::Primitive);
+    let len = bytes / size_of::<T>();
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = PrimitiveArray::new(values::<T>(len), Validity::NonNullable);
+    let for_array = FoR::encode_chunked(array, &mut ctx).unwrap();
+    let encoded = for_array
+        .encoded()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)
+        .unwrap();
+    let references = blocked_references(&for_array);
+
+    bencher
+        .counter(ItemsCount::new(len))
+        .with_inputs(|| {
+            let encoded = PrimitiveArray::new(
+                Buffer::<T>::copy_from(encoded.as_slice::<T>()),
+                Validity::NonNullable,
+            );
+            let array = FoR::try_new_chunked(encoded.into_array(), references.clone(), 0)
+                .unwrap()
+                .into_array();
+
+            (array, SESSION.create_execution_ctx())
+        })
+        .bench_values(|(array, mut ctx)| array.execute::<PrimitiveArray>(&mut ctx).unwrap());
 }
 
 #[vortex_bench_support::cpu_features]

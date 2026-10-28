@@ -152,7 +152,7 @@ impl CastKernel for Decimal {
                 ConstantArray::new(Scalar::null(dtype.clone()), array.len()).into_array(),
             ));
         }
-        let target_values_type = DecimalType::smallest_decimal_value_type(to_decimal_dtype);
+        let target_values_type = to_decimal_dtype.canonical_values_type();
 
         match_each_decimal_value_type!(array.values_type(), |F| {
             match_each_decimal_value_type!(target_values_type, |T| {
