@@ -152,6 +152,9 @@ jobs:
       contents: read
       deployments: write
     uses: ./.github/workflows/deploy-vercel.yml
+    # A called workflow only sees the secrets its caller passes, including
+    # the secrets of the environment the called job deploys to.
+    secrets: inherit
     with:
       environment: vercel-docs
       artifact-ids: ${{ needs.build.outputs.artifact-id }}
