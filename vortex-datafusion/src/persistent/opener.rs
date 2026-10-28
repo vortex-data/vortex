@@ -836,6 +836,7 @@ mod tests {
     use arrow_array::record_batch;
     use arrow_schema::Field;
     use arrow_schema::Fields;
+    use arrow_schema::Metadata;
     use arrow_schema::SchemaRef;
     use datafusion::arrow::array::DictionaryArray;
     use datafusion::arrow::array::Int32Array;
@@ -1274,7 +1275,7 @@ mod tests {
             batch.schema().as_ref().clone().with_metadata(
                 [("table".to_string(), "metadata".to_string())]
                     .into_iter()
-                    .collect(),
+                    .collect::<Metadata>(),
             ),
         );
         let table_schema = TableSchema::builder(file_schema)
@@ -1282,7 +1283,7 @@ mod tests {
                 Field::new("part", DataType::Int32, false).with_metadata(
                     [("partition".to_string(), "metadata".to_string())]
                         .into_iter()
-                        .collect(),
+                        .collect::<Metadata>(),
                 ),
             )])
             .build();

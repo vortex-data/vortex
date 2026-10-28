@@ -404,11 +404,8 @@ fn concat_parquet_parts(parts: &[PathBuf], output: &Path) -> Result<()> {
     )?;
 
     for (input, metadata) in &inputs {
-        let column_indexes = metadata.column_index();
-        let offset_indexes = metadata.offset_index();
         for (rg_idx, rg) in metadata.row_groups().iter().enumerate() {
-            let rg_column_indexes = column_indexes.and_then(|ci| ci.get(rg_idx));
-            let rg_offset_indexes = offset_indexes.and_then(|oi| oi.get(rg_idx));
+            let rg_page_index = metadata.page_index_for_row_group(rg_idx);
             let mut rg_out = writer.next_row_group()?;
             for (col_idx, column) in rg.columns().iter().enumerate() {
                 let result = ColumnCloseResult {
@@ -416,8 +413,8 @@ fn concat_parquet_parts(parts: &[PathBuf], output: &Path) -> Result<()> {
                     rows_written: rg.num_rows() as _,
                     metadata: column.clone(),
                     bloom_filter: None,
-                    column_index: rg_column_indexes.and_then(|row| row.get(col_idx)).cloned(),
-                    offset_index: rg_offset_indexes.and_then(|row| row.get(col_idx)).cloned(),
+                    column_index: rg_page_index.column_index(col_idx).cloned(),
+                    offset_index: rg_page_index.offset_index(col_idx).cloned(),
                 };
                 rg_out.append_column(input, result)?;
             }

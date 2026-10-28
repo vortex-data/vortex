@@ -263,12 +263,12 @@ mod tests {
             panic!("expected Arrow map dtype, got {}", arrow.data_type());
         };
         assert!(!*keys_sorted);
-        assert_eq!(entries_field.name(), "entries");
+        assert_eq!(entries_field.name(), Field::MAP_ENTRIES_FIELD_DEFAULT_NAME);
         let DataType::Struct(fields) = entries_field.data_type() else {
             panic!("expected Arrow map entries struct, got {entries_field:?}");
         };
-        assert_eq!(fields[0].name(), "keys");
-        assert_eq!(fields[1].name(), "values");
+        assert_eq!(fields[0].name(), Field::MAP_KEY_FIELD_DEFAULT_NAME);
+        assert_eq!(fields[1].name(), Field::MAP_VALUE_FIELD_DEFAULT_NAME);
 
         let expected_dtype = DType::map(
             DType::Utf8(NonNullable),
