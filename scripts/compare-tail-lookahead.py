@@ -25,7 +25,7 @@ for rnd in range(3):
     for q in queries:
         for name,binary,v2 in variants[rnd:] + variants[:rnd]:
             label = f'scan-r{rnd}-q{q}-{name}'
-            cmd = [str(binary),'tpcds','--formats','vortex','--queries',str(q),'--iterations','9','--scan-v2',str(v2).lower(),'--hide-progress-bar','--display-format','gh-json','--ingest-jsonl',label+'.jsonl','--opt',f'scale-factor={scale}']
+            cmd = [str(binary),'tpcds','--formats','vortex','--queries',str(q),'--iterations','9','--scan-v2',str(v2).lower(),'--runner','isolated-tail-lookahead-8cores','--hide-progress-bar','--display-format','gh-json','--ingest-jsonl',label+'.jsonl','--opt',f'scale-factor={scale}']
             Path(label+'.command.json').write_text(json.dumps(dict(command=cmd,env=record_env),indent=2))
             with open(label+'.txt','w') as log:
                 subprocess.run(cmd,env=env,stdout=log,stderr=subprocess.STDOUT,timeout=600,check=True)
@@ -39,7 +39,7 @@ for rnd in range(3):
             print(json.dumps(record),flush=True)
 for name,binary,v2 in variants:
     label = f'scan-metrics-{name}'
-    cmd = [str(binary),'tpcds','--formats','vortex','--queries','28,30,32,42,58,99','--iterations','1','--scan-v2',str(v2).lower(),'--hide-progress-bar','--show-metrics','--opt',f'scale-factor={scale}']
+    cmd = [str(binary),'tpcds','--formats','vortex','--queries','28,30,32,42,58,99','--iterations','1','--scan-v2',str(v2).lower(),'--runner','isolated-tail-lookahead-8cores','--hide-progress-bar','--show-metrics','--opt',f'scale-factor={scale}']
     Path(label+'.command.json').write_text(json.dumps(dict(command=cmd,env=record_env),indent=2))
     with open(label+'.txt','w') as log:
         subprocess.run(cmd,env=env,stdout=log,stderr=subprocess.STDOUT,timeout=600,check=True)
