@@ -88,3 +88,10 @@ Version 4 SHA-256: `e365685a374cba7cb7939042067f0830d46ea64f0278c417f9c796b569d5
 Checks: 20 Rust tests, 29 Python tests, scoped Clippy, pinned formatting, Ruff, strict YAML lint,
 and local CLI tests of both profiles, warmup counters and exact probability serialization.
 Local filesystem tests verify the harness and do not count as S3 performance evidence.
+
+The [full version 4 validation](RESULTS.md) has now completed all 121 queries: 173/242 medians
+meet ±10%, overall Spearman is 0.9947 cold/warm, and all I/O/result checks match exactly.
+The [four-window same-host study](https://github.com/vortex-data/vortex/actions/runs/40661847573)
+is running at 09:18/12:18/15:18/18:18 UTC on 2026-10-28. Its model stays frozen while two S3
+controls measure time variation. This study is still in progress; a generated candidate requires
+held-out validation. The simulator remains opt-in.

@@ -1,7 +1,75 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- SPDX-FileCopyrightText: Copyright the Vortex contributors -->
 
-# Learned S3 model: full SF10 validation
+# Version 4: full SF10 validation
+
+**Keep real S3 as the default.** The learned model passes **173/242** query/cache medians at the
+requested ±10% target. Overall Spearman is **0.9947 cold / 0.9947 warm**, and every iteration
+matches requests, ranges, bytes and result rows exactly. This supports opt-in simulation while
+retaining a real S3 reference; it does not establish accuracy for native adaptive SQL scans.
+
+[Run 40613168535](https://github.com/vortex-data/vortex/actions/runs/40613168535) completed all
+22 TPC-H and 99 TPC-DS SF10 queries, five iterations each except three for TPC-DS q72. Both
+backends ran sequentially on one on-demand `c8gd.16xlarge` in `us-east-1`. Cold and immediate warm
+results are separate. All **2,412 samples** were independently recomputed from the raw traces.
+
+The [per-query comparison](results/comparison-40613168535.csv) includes median/p90, counts, bytes
+and concurrency. The [summary](results/summary-40613168535.json) retains all 69 ±10% flags.
+
+| Suite/cache | Within ±10% | Model/S3 median range | Spearman |
+| --- | ---: | ---: | ---: |
+| tpch/cold | 21/22 | 0.897–1.097 | 0.9966 |
+| tpch/warm | 20/22 | 0.867–1.106 | 0.9887 |
+| tpcds/cold | 73/99 | 0.837–1.263 | 0.9914 |
+| tpcds/warm | 59/99 | 0.919–1.347 | 0.9913 |
+| all/cold | 94/121 | 0.837–1.263 | 0.9947 |
+| all/warm | 79/121 | 0.867–1.347 | 0.9947 |
+
+Median absolute ratio error is **6.25%**. Under the separate historical ±30% criterion,
+241/242 medians pass. TPC-DS q30 warm is the sole flag: **1.3467×**, with S3/model medians
+0.494/0.665 seconds. Eleven p90 comparisons fall outside ±30%. Five samples (three for q72)
+limit tail estimates. q72 passes ±10% at 1.048 cold / 1.030 warm.
+
+Each backend made **1,368,393 measured GETs** and consumed **380,744,124,525 bytes**, with no
+query/store errors. All 32 object sizes/ETags match the earlier full validation. Counts describe
+object-store API calls; internal HTTP retries and recovered 503s are not separately instrumented.
+
+The frozen [version 4 profile](profiles/us-east-1-c8gd-vortex-v4.json) learns **2,420,879 eligible
+real GETs** from CI runs 40573067681 and 40591491612, excluding this validation run. It samples
+header/body residual pairs jointly within request-size classes, preserving sparse-tail probability.
+Scalar HEAD/LIST TTFB is **25.504 ms**, per-request transfer cost **147.414 MiB/s**, concurrency
+cap unlimited, seed **20261027**. Query runtimes are excluded from fitting. Profile SHA-256:
+`e365685a374cba7cb7939042067f0830d46ea64f0278c417f9c796b569d50fc0`.
+
+TPC-H header means are 28.01 ms model / 28.18 ms S3, with body means 3.81/3.43 ms.
+TPC-DS header means are 29.63/30.21 ms, with body means 3.92/3.41 ms. Phase allocation improved,
+but matching marginal request timings does not guarantee each query’s critical path. The earlier
+version 2 run passed 136/242 medians at ±10%; different CI windows and warmup protocols prevent
+treating that comparison as a controlled estimate of improvement.
+
+Both S3 variance and model error remain plausible for individual flags. The same-host
+[four-window study](https://github.com/vortex-data/vortex/actions/runs/40661847573) pairs two S3
+controls with frozen version 4 at 09:18, 12:18, 15:18 and 18:18 UTC on 2026-10-28. It remains
+in progress and will generate a new request-derived candidate after the fourth window. Native
+adaptive scans, shared bandwidth, temporal correlation and retry behavior still need validation.
+
+The controlled protocol disables opportunistic coalescing, repartitioning and predicate/dynamic
+filter pushdown, retains parallel operators and scans, and resets database caches for cold samples.
+A recorded 20-second S3-only warmup occurs outside query timers. End-to-end query medians are
+proxies for scans, not isolated scan-operator timings. Neither the ±10% target nor the historical
+all-query gate passes, so the simulator remains opt-in and version 2 remains the default *profile*.
+
+Raw [artifact 12807015480](https://github.com/vortex-data/vortex/actions/runs/40613168535/artifacts/12807015480),
+SHA-256 `7ec3904649c695575d39937342c73a2edf7249e287b77a2161788b8d5529f851`.
+CI cleaned up its temporary S3 objects. Checks: 20 Rust tests, 33 Python tests, scoped Clippy,
+pinned formatting, Ruff, strict YAML and the complete same-host AWS comparison.
+
+---
+
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-FileCopyrightText: Copyright the Vortex contributors -->
+
+# Version 2: historical full SF10 validation
 
 **Recommendation: keep real S3 as the default reference.** The learned RAM model closely
 predicts median runtimes in the controlled benchmark: **241 of 242 comparisons** fall within

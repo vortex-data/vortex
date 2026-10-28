@@ -17,9 +17,9 @@ real GETs in three earlier CI runs. Its JSON records the source run IDs, input S
 hardware, region, coverage and calibration method. The first profile is preserved as
 `profiles/us-east-1-c8gd-vortex-v1.json`; [measured results](RESULTS.md) distinguish the versions.
 
-**[Full SF10 CI results](RESULTS.md):** 241/242 median comparisons inside 0.7–1.3×, with exact
-requests/ranges/bytes/rows across all 121 queries. The strict gate remains false; the report
-explains the one median flag and tail limitations.
+**[Latest full SF10 CI results](RESULTS.md):** version 4 passes 173/242 medians at the ±10%
+target, with overall Spearman 0.9947 and exact requests/ranges/bytes/rows across all 121 queries.
+It remains opt-in; real S3 stays the default reference.
 
 The [24-round repeatability investigation](REPEATABILITY.md) separates real-S3 variation from
 model error and describes the opt-in candidate. The default profile remains version 2 until
