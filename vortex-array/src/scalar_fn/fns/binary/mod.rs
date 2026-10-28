@@ -74,27 +74,6 @@ const KLEENE_LUT: [[[bool; 2]; 2]; 2] = [
     [[false, false], [false, true]], // and
 ];
 
-/// Kleene and/or reduction where one argument is constant non-NULL and other
-/// is non-constant: reduces `node AND constant` or `node OR constant`, where `node` has
-/// `node_nullability` and the result has `nullability`.
-///
-/// Returns `None` when the result would be `node` itself but `node` has a different
-/// nullability than the result, which only a cast could fix.
-fn kleene_one_const<T: ReduceNode>(
-    node_nullability: Nullability,
-    node: T,
-    constant: bool,
-    is_and: bool,
-    nullability: Nullability,
-) -> Option<T> {
-    match (is_and, constant) {
-        (true, true) | (false, false) => (node_nullability == nullability).then_some(node),
-        (is_and, constant) => {
-            Some(node.new_constant(Scalar::bool(constant && !is_and, nullability)))
-        }
-    }
-}
-
 impl ScalarFnVTable for Binary {
     type Options = Operator;
 
@@ -307,27 +286,27 @@ impl ScalarFnVTable for Binary {
         let is_and = *operator == Operator::And;
         let nullability = node.node_dtype()?.nullability();
 
-        match (left_const, right_const) {
-            (None, None) => Ok(None),
-            (Some(left_const), Some(right_const)) => Ok(Some(left.new_constant(Scalar::bool(
-                KLEENE_LUT[is_and as usize][left_const as usize][right_const as usize],
-                nullability,
-            )))),
-            (Some(constant), None) => Ok(kleene_one_const(
-                right.node_dtype()?.nullability(),
-                right,
-                constant,
-                is_and,
-                nullability,
-            )),
-            (None, Some(constant)) => Ok(kleene_one_const(
-                left.node_dtype()?.nullability(),
-                left,
-                constant,
-                is_and,
-                nullability,
-            )),
+        let (constant, other) = match (left_const, right_const) {
+            (None, None) => return Ok(None),
+            (Some(left_const), Some(right_const)) => {
+                return Ok(Some(left.new_constant(Scalar::bool(
+                    KLEENE_LUT[is_and as usize][left_const as usize][right_const as usize],
+                    nullability,
+                ))));
+            }
+            (Some(constant), None) => (constant, right),
+            (None, Some(constant)) => (constant, left),
+        };
+
+        // `x AND true` and `x OR false` are `x`, but only when `x` already has the result's
+        // nullability: otherwise leave the cast to the boolean kernel.
+        if constant == is_and {
+            return Ok((other.node_dtype()?.nullability() == nullability).then_some(other));
         }
+        // `x AND false` and `x OR true` are the constant itself.
+        Ok(Some(
+            other.new_constant(Scalar::bool(constant, nullability)),
+        ))
     }
 
     fn is_strict(&self, operator: &Operator) -> bool {
