@@ -17,6 +17,14 @@
 //! return the wrapped array. Execution optimizes the whole tree with its session before it starts
 //! and the array it produced when it finishes. Whenever a rule rewrites a node, the nodes the rule
 //! built are optimized too, as constructing them used to do.
+//!
+//! Each array records how far the optimizer has taken it in its optimized state. A new array
+//! starts unoptimized, and the optimizer marks the arrays it returns, so optimizing an array again
+//! returns it without trying any rule. The mark does not record the session: an array optimized
+//! with one session is not optimized again with a session that registers more kernels.
+
+use std::sync::atomic::AtomicU8;
+use std::sync::atomic::Ordering;
 
 use smallvec::SmallVec;
 use vortex_error::VortexResult;
@@ -35,6 +43,41 @@ pub mod rules;
 /// Last zero-based fixpoint pass attempted before treating continued rewrites as an infinite loop.
 /// Increasing this value permits longer rewrite chains but delays detection of cyclic rules.
 const MAX_OPTIMIZER_REWRITE_PASS: usize = 100;
+
+/// Records how far the optimizer has already taken an array node.
+///
+/// A shared array never changes, so a node that reached the optimizer's fixpoint stays there.
+/// Every new array starts unoptimized, and changing a uniquely owned array in place clears the
+/// state.
+#[derive(Debug, Default)]
+pub(crate) struct OptimizedState(AtomicU8);
+
+impl OptimizedState {
+    /// No rule rewrites the node itself.
+    const ROOT: u8 = 1;
+    /// No rule rewrites the node or any of its descendants.
+    const TREE: u8 = 1 << 1;
+
+    pub(crate) fn is_root_optimized(&self) -> bool {
+        self.0.load(Ordering::Relaxed) & Self::ROOT != 0
+    }
+
+    pub(crate) fn is_tree_optimized(&self) -> bool {
+        self.0.load(Ordering::Relaxed) & Self::TREE != 0
+    }
+
+    fn mark_root_optimized(&self) {
+        self.0.fetch_or(Self::ROOT, Ordering::Relaxed);
+    }
+
+    fn mark_tree_optimized(&self) {
+        self.0.fetch_or(Self::ROOT | Self::TREE, Ordering::Relaxed);
+    }
+
+    pub(crate) fn clear(&mut self) {
+        *self.0.get_mut() = 0;
+    }
+}
 
 /// Extension trait for optimizing array trees using reduce/reduce_parent rules.
 pub trait ArrayOptimizer {
@@ -66,6 +109,10 @@ fn optimize_owned(
     mut current_array: ArrayRef,
     session: &VortexSession,
 ) -> VortexResult<(ArrayRef, bool)> {
+    if current_array.optimized_state().is_root_optimized() {
+        return Ok((current_array, false));
+    }
+
     let mut any_optimizations = false;
     let session_kernels = session.kernels();
 
@@ -116,6 +163,7 @@ fn optimize_owned(
 
         trace_op!(record_optimize_done(&current_array, any_optimizations));
 
+        current_array.optimized_state().mark_root_optimized();
         return Ok((current_array, any_optimizations));
     }
 
@@ -211,6 +259,10 @@ fn try_optimize_recursive(
     current_array: ArrayRef,
     session: &VortexSession,
 ) -> VortexResult<(ArrayRef, bool)> {
+    if current_array.optimized_state().is_tree_optimized() {
+        return Ok((current_array, false));
+    }
+
     trace_op!(record_optimize_recursive_start(&current_array));
 
     let (mut current_array, mut any_optimizations) = optimize_owned(current_array, session)?;
@@ -236,12 +288,79 @@ fn try_optimize_recursive(
         }
     }
 
+    // New children may let a rule rewrite the parent, so only an unchanged tree is marked; the
+    // next pass tries a rebuilt parent again.
     if any_slot_optimized {
         // SAFETY: optimizer rules only replace child slots with logically equivalent arrays, so
         // parent logical values and statistics remain valid.
         current_array = unsafe { current_array.with_slots(new_slots) }?;
         any_optimizations = true;
+    } else {
+        current_array.optimized_state().mark_tree_optimized();
     }
 
     Ok((current_array, any_optimizations))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+    use vortex_mask::Mask;
+    use vortex_session::VortexSession;
+
+    use crate::ArrayRef;
+    use crate::IntoArray;
+    use crate::arrays::Primitive;
+    use crate::optimizer::ArrayOptimizer;
+    use crate::optimizer::MAX_OPTIMIZER_REWRITE_PASS;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[test]
+    fn optimize_marks_result_and_skips_it_after() -> VortexResult<()> {
+        let sliced = buffer![1i32, 2, 3, 4].into_array().slice(1..3)?;
+        assert!(!sliced.is_optimized());
+
+        let optimized = sliced.optimize(&SESSION)?;
+        assert!(optimized.is::<Primitive>());
+        assert!(optimized.is_optimized());
+        assert!(ArrayRef::ptr_eq(&optimized.optimize(&SESSION)?, &optimized));
+
+        // A new array built over an optimized one starts unoptimized.
+        assert!(!optimized.slice(0..1)?.is_optimized());
+        Ok(())
+    }
+
+    #[test]
+    fn optimize_recursive_marks_tree_once_nothing_changes() -> VortexResult<()> {
+        let array = buffer![1i32, 2, 3, 4].into_array();
+        let filtered = array
+            .slice(1..4)?
+            .filter(Mask::from_iter([true, false, true]))?;
+        assert!(!filtered.is_recursively_optimized());
+
+        // A pass that rewrites a child leaves the parent for the next pass to check.
+        let mut optimized = filtered.optimize_recursive(&SESSION)?;
+        for _ in 0..MAX_OPTIMIZER_REWRITE_PASS {
+            if optimized.is_recursively_optimized() {
+                break;
+            }
+            optimized = optimized.optimize_recursive(&SESSION)?;
+        }
+        assert!(optimized.is_recursively_optimized());
+        assert!(optimized.is_optimized());
+        assert!(
+            optimized
+                .depth_first_traversal()
+                .all(|node| node.is_recursively_optimized())
+        );
+        assert!(ArrayRef::ptr_eq(
+            &optimized.optimize_recursive(&SESSION)?,
+            &optimized
+        ));
+        Ok(())
+    }
 }

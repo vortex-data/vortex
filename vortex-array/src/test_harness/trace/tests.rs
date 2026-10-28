@@ -442,8 +442,6 @@ fn trace_optimize_contiguous_filter() -> VortexResult<()> {
     optimize root=vortex.filter(i32, len=2)
       reduce TrivialFilterRule: vortex.filter(i32, len=2) -> vortex.slice(i32, len=2)
       done output=vortex.slice(i32, len=2)
-    optimize_recursive root=vortex.filter(i32, len=4)
-    optimize_recursive root=vortex.primitive(i32, len=6)
     execute_until target=AnyCanonical root=vortex.slice(i32, len=2)
       iter 0 current=vortex.slice(i32, len=2) builder_active=false
         ExecuteSlot slot=0 parent=vortex.slice(i32, len=2) child=vortex.filter(i32, len=4)
@@ -566,11 +564,6 @@ fn trace_execution_stack_parent_kernel_attempts(
       iter 2 current=vortex.primitive(i32, len=3) builder_active=false
         done_check target=true canonical=true
     optimize_recursive root=vortex.primitive(i32, len=3)
-    optimize root=vortex.primitive(i32, len=3)
-      loop input=vortex.primitive(i32, len=3)
-        reduce none array=vortex.primitive(i32, len=3)
-        reduce_parent none array=vortex.primitive(i32, len=3)
-      done output=vortex.primitive(i32, len=3) changed=false
       return output=vortex.primitive(i32, len=3)
     ");
 
