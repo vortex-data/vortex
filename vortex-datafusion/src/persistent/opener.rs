@@ -40,7 +40,6 @@ use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::metrics::MetricBuilder;
 use datafusion_physical_plan::metrics::MetricCategory;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
-use datafusion_pruning::FilePruner;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
@@ -82,6 +81,8 @@ use crate::convert::schema::calculate_physical_schema;
 use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
+use crate::persistent::pruning::FilePruners;
+use crate::persistent::pruning::Pruner;
 use crate::persistent::reader::VortexReaderFactory;
 use crate::persistent::scan_v2::ScanDriver;
 use crate::persistent::scan_v2::rebalance_batches;
@@ -118,6 +119,7 @@ pub(crate) struct VortexOpener {
     /// To save on the overhead of reparsing FlatBuffers and rebuilding the layout tree, we cache
     /// a file reader the first time we read a file.
     pub layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
+    pub file_pruners: Arc<FilePruners>,
     /// Shared V2 segment sources keyed by file path.
     ///
     /// Partitions of one file read through one source, so a chunk straddling a partition
@@ -176,6 +178,7 @@ impl FileOpener for VortexOpener {
         let unified_file_schema = Arc::clone(self.table_schema.file_schema());
         let limit = self.limit;
         let layout_readers = Arc::clone(&self.layout_readers);
+        let file_pruners = Arc::clone(&self.file_pruners);
         let segment_sources = Arc::clone(&self.segment_sources);
         let scan_caches = Arc::clone(&self.scan_caches);
         let natural_splits = Arc::clone(&self.natural_splits);
@@ -219,7 +222,8 @@ impl FileOpener for VortexOpener {
         Ok(async move {
             // FilePruner now has all the logic to figure out if its worthwhile, and will return `None` if not.
             let mut file_pruner = file_pruning_predicate.and_then(|predicate| {
-                FilePruner::try_new(
+                Pruner::try_new(
+                    scan_v2.then_some(file_pruners.as_ref()),
                     Arc::clone(&predicate),
                     &unified_file_schema,
                     &file,
@@ -1168,6 +1172,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
+            file_pruners: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
@@ -1579,6 +1584,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
+            file_pruners: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
@@ -1672,6 +1678,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
+            file_pruners: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
@@ -1856,6 +1863,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
+            file_pruners: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
@@ -1922,6 +1930,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
+            file_pruners: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
@@ -2139,6 +2148,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
+            file_pruners: Default::default(),
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,

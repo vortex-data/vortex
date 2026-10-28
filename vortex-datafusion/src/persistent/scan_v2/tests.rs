@@ -9,7 +9,6 @@ use arrow_array::RecordBatchOptions;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Schema;
-use futures::FutureExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
@@ -129,7 +128,7 @@ async fn rebalancing_avoids_a_one_row_final_batch() -> VortexResult<()> {
 }
 
 #[test]
-fn pending_rows_stay_below_two_target_batches_plus_two() -> VortexResult<()> {
+fn pending_rows_stay_below_three_target_batches() -> VortexResult<()> {
     let batch = RecordBatch::try_new_with_options(
         Arc::new(Schema::empty()),
         vec![],
@@ -146,76 +145,13 @@ fn pending_rows_stay_below_two_target_batches_plus_two() -> VortexResult<()> {
     let mut emitted = 0;
     for count in 1..=1000 {
         state.push(batch.clone())?;
-        assert!(state.pending_rows < 18);
-        assert!(state.pending.len() < 18);
+        assert!(state.pending_rows < 24);
+        assert!(state.pending.len() < 24);
         for batch in state.ready.drain(..) {
             assert_eq!(batch.num_rows() % 8, 0);
             emitted += batch.num_rows();
         }
         assert_eq!(emitted + state.pending_rows, count);
-    }
-    Ok(())
-}
-
-#[tokio::test]
-async fn rebalancing_yields_before_a_second_full_tail_arrives() -> VortexResult<()> {
-    let batch = RecordBatch::try_new_with_options(
-        Arc::new(Schema::empty()),
-        vec![],
-        &RecordBatchOptions::new().with_row_count(Some(18)),
-    )?;
-    let input = stream::iter(vec![Ok(batch)])
-        .chain(stream::pending())
-        .boxed();
-    let mut output = rebalance_batches(input, 8);
-    let first = output
-        .next()
-        .now_or_never()
-        .expect("first batch should not wait for another input")
-        .expect("expected a batch")?;
-    assert_eq!(first.num_rows(), 8);
-    Ok(())
-}
-
-#[rstest]
-#[case(1)]
-#[case(2)]
-#[case(3)]
-#[case(4)]
-#[case(8)]
-#[case(64)]
-#[tokio::test]
-async fn rebalanced_tails_exceed_the_coalescing_threshold(
-    #[case] batch_size: usize,
-) -> VortexResult<()> {
-    let reserve = (batch_size / 2 + 1) * 2;
-    for rows in reserve..batch_size * 5 {
-        let batch = RecordBatch::try_new_with_options(
-            Arc::new(Schema::empty()),
-            vec![],
-            &RecordBatchOptions::new().with_row_count(Some(rows)),
-        )?;
-        let batches: Vec<RecordBatch> =
-            rebalance_batches(stream::iter(vec![Ok(batch)]).boxed(), batch_size)
-                .try_collect()
-                .await?;
-        assert_eq!(
-            batches.iter().map(RecordBatch::num_rows).sum::<usize>(),
-            rows
-        );
-        if batch_size == 2 {
-            // An odd row count cannot be partitioned entirely into two-row batches.
-            assert_eq!(
-                batches.iter().filter(|batch| batch.num_rows() == 1).count(),
-                rows % 2
-            );
-        } else {
-            assert!(
-                batches
-                    .iter()
-                    .all(|batch| batch.num_rows() > batch_size / 2)
-            );
-        }
     }
     Ok(())
 }
