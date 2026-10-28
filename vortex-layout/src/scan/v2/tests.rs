@@ -1030,7 +1030,7 @@ async fn large_filtered_selection_preserves_rows(
     let layout = FlatLayoutStrategy::default()
         .write_stream(
             ArrayContext::empty().into(),
-            Arc::clone(&segments),
+            Arc::<TestSegments>::clone(&segments),
             SequentialStreamAdapter::new(
                 dtype.clone(),
                 stream::iter(vec![Ok((sequence_id.advance(), array))]),
