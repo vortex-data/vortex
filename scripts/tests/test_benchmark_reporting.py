@@ -701,6 +701,8 @@ def test_capture_file_sizes_emits_shared_benchmark_rows(tmp_path: Path) -> None:
             str(data_dir),
             "--benchmark",
             "tpch",
+            "--dataset-dir",
+            "tpch",
             "--commit",
             "deadbeef",
             "-o",
@@ -787,3 +789,32 @@ def test_summary_reports_hot_alone_when_no_row_recorded_its_runs(tmp_path: Path)
     assert "**Vortex (geomean)**: hot 0.500x ✅" in summary
     assert "**Parquet (geomean)**: hot 1.000x ➖" in summary
     assert "cold" not in summary
+
+
+def test_capture_file_sizes_reads_only_the_named_directory(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    for name, size in (("clickbench_partitioned", 42), ("clickbench_partitioned_10", 7)):
+        format_dir = data_dir / name / "vortex-file-compressed"
+        format_dir.mkdir(parents=True)
+        (format_dir / "hits_0.vortex").write_bytes(b"x" * size)
+    output_path = tmp_path / "sizes.jsonl"
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(CAPTURE_SCRIPT),
+            str(data_dir),
+            "--benchmark",
+            "clickbench",
+            "--dataset-dir",
+            "clickbench_partitioned",
+            "--commit",
+            "deadbeef",
+            "-o",
+            str(output_path),
+        ],
+        check=True,
+    )
+
+    records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
+    assert [record["value"] for record in records] == [42]
