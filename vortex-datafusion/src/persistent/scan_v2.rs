@@ -66,7 +66,9 @@ impl ScanDriver {
         map: impl Fn(ArrayRef) -> VortexResult<RecordBatch> + Send + Sync + 'static,
     ) -> BoxStream<'static, VortexResult<RecordBatch>> {
         let map: MapBatch = Arc::new(map);
-        let in_flight = self.concurrency * get_available_parallelism().unwrap_or(1);
+        // The opener already budgets cores across partitions; overlap reads without
+        // multiplying each partition's allowance by the whole machine again.
+        let in_flight = self.concurrency * get_available_parallelism().unwrap_or(1).min(2);
         let inline = in_flight <= 1;
         let scope = WorkScope {
             file_ordinal: 0,
