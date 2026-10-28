@@ -5,7 +5,8 @@
 //!
 //! [`filter_buffer`] filters values that are already in memory, and [`filter_chunked`] filters
 //! values that a [`ChunkDecoder`] decodes one chunk at a time. Both work for any `T: Copy` and
-//! share one strategy ladder. The first matching row wins:
+//! share one strategy ladder. [`filter_records`] filters records whose byte width is known only
+//! at run time, and uses [`filter_buffer`] for power-of-two widths. The first matching row wins:
 //!
 //! | Priority | Selection or condition                              | Out-of-place   | In-place      |
 //! | -------- | --------------------------------------------------- | -------------- | ------------- |
@@ -30,6 +31,7 @@ use crate::BufferMut;
 mod bits;
 mod byte_compress;
 mod chunked;
+mod records;
 mod scalar;
 mod simd;
 #[cfg(test)]
@@ -39,6 +41,7 @@ use bits::MaskBits;
 pub use chunked::ChunkDecoder;
 pub use chunked::FILTER_CHUNK_LEN;
 pub use chunked::filter_chunked;
+pub use records::filter_records;
 
 const IN_PLACE_MIN_DENSITY: f64 = 0.5;
 
