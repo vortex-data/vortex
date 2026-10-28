@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem::MaybeUninit;
+
 use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -21,9 +23,12 @@ use vortex_array::scalar_fn::fns::mask::MaskReduce;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::BufferMut;
+use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
+use vortex_mask::Mask;
 
 use super::ByteBool;
 
@@ -92,25 +97,37 @@ impl TakeExecute for ByteBool {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        let indices_mask = indices.validity()?.execute_mask(indices.len(), ctx)?;
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
         let values = array.truthy_bytes();
 
-        // This handles combining validity from both source array and nullable indices
         let validity = array.validity()?.take(&indices.clone().into_array())?;
 
-        let taken = match_each_integer_ptype!(indices.ptype(), |I| {
-            indices
-                .as_slice::<I>()
-                .iter()
-                .map(|&idx| {
-                    let idx: usize = idx.as_();
-                    values[idx]
-                })
-                .collect::<ByteBuffer>()
+        let len = indices.len();
+        let mut taken = BufferMut::<u8>::with_capacity_in(len, ctx.allocator().clone());
+        let out = &mut taken.spare_capacity_mut()[..len];
+        match_each_integer_ptype!(indices.ptype(), |I| {
+            let indices = indices.as_slice::<I>();
+            // A negative index wraps to a huge `usize` and fails the lookup like any other
+            // out-of-bounds index. Null indices are exempt from the bounds check.
+            let value_at = |index: I| values.get(AsPrimitive::<usize>::as_(index)).copied();
+            let gathered = match &indices_mask {
+                Mask::AllTrue(_) => indices.try_map_into(out, value_at),
+                Mask::AllFalse(_) => {
+                    out.fill(MaybeUninit::new(0));
+                    Ok(())
+                }
+                Mask::Values(mask) => indices.try_map_masked_into(mask.bit_buffer(), out, value_at),
+            };
+            if let Err(position) = gathered {
+                vortex_panic!(OutOfBounds: indices[position].as_(), 0, values.len());
+            }
         });
+        // SAFETY: every branch wrote all `len` lanes before returning `Ok`.
+        unsafe { taken.set_len(len) };
 
         Ok(Some(
-            ByteBool::new(BufferHandle::new_host(taken), validity).into_array(),
+            ByteBool::new(BufferHandle::new_host(taken.freeze()), validity).into_array(),
         ))
     }
 }
