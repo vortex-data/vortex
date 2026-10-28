@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use half::f16;
+use itertools::Either;
+use num_traits::Float;
 use vortex_buffer::BitBuffer;
 use vortex_compute::lane_kernels::IndexedFoldExt;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -25,126 +27,214 @@ pub(super) fn accumulate_primitive(
     p: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    let skip_nans = args.options.skip_nans;
-    let validity = p.as_ref().validity()?.execute_mask(p.as_ref().len(), ctx)?;
-    let valid = match &validity {
-        Mask::AllTrue(_) => None,
+    let mask = p.as_ref().validity()?.execute_mask(p.as_ref().len(), ctx)?;
+    let valid = match &mask {
         Mask::AllFalse(_) => return Ok(()),
+        Mask::AllTrue(_) => None,
         Mask::Values(v) => Some(v.bit_buffer()),
     };
+
     let local = match_each_native_ptype!(p.ptype(),
         integral: |T| { integer_min_max(p.as_slice::<T>(), valid).map(min_max_result) },
-        floating: |T| { float_min_max(p.as_slice::<T>(), valid, skip_nans).map(min_max_result) }
+        floating: |T| {
+            float_min_max(p.as_slice::<T>(), valid, args.options.skip_nans).map(min_max_result)
+        }
     );
     partial.merge(args, local);
     Ok(())
 }
 
-/// Min/max of the valid values of an integer slice, given its validity unless every value is
-/// valid.
+/// Min/max of the valid values of an integer slice.
 ///
-/// Null lanes read as a valid value, which leaves both extrema unchanged, so the reduction
-/// autovectorizes to packed min/max however the valid values are spread.
-fn integer_min_max<T: NativePType>(slice: &[T], valid: Option<&BitBuffer>) -> Option<(T, T)> {
-    let first = slice[first_valid(slice.len(), valid, |_| true)?];
-    let min_max = |(min, max): (T, T), v: T| {
-        (
-            if v.is_lt(min) { v } else { min },
-            if v.is_gt(max) { v } else { max },
-        )
-    };
-    Some(match valid {
-        None => slice.iter().copied().fold((first, first), min_max),
-        Some(valid) => slice.fold_masked(valid, first, (first, first), min_max),
-    })
-}
-
-/// Min/max of the valid values of a float slice under the IEEE 754 total order, skipping NaN
-/// values when `skip_nans` is set.
-///
-/// Without `skip_nans`, NaN values sort to the ends of the total order, so a NaN extremum lets the
-/// partial's merge poison the result. The reduction runs over [`TotalOrderKey`]s, integers that
-/// order exactly as the floats do, so it autovectorizes to packed integer min/max; null and
-/// skipped lanes read as the key of a value that is neither, which leaves both extrema unchanged.
-fn float_min_max<T: TotalOrderKey>(
-    slice: &[T],
-    valid: Option<&BitBuffer>,
-    skip_nans: bool,
-) -> Option<(T, T)> {
-    let first = slice[first_valid(slice.len(), valid, |i| !(skip_nans && slice[i].is_nan()))?];
-    let first_key = first.key();
-    let min_max = |(min, max): (T::Key, T::Key), v: T| {
-        let key = if skip_nans && v.is_nan() {
-            first_key
-        } else {
-            v.key()
-        };
-        (min.min(key), max.max(key))
-    };
-    let (min, max) = match valid {
-        None => slice.iter().copied().fold((first_key, first_key), min_max),
-        Some(valid) => slice.fold_masked(valid, first, (first_key, first_key), min_max),
-    };
-    Some((T::from_key(min), T::from_key(max)))
-}
-
-/// The index of the first valid lane for which `include` holds, or `None` if there is none.
-fn first_valid(
-    len: usize,
-    valid: Option<&BitBuffer>,
-    include: impl Fn(usize) -> bool,
-) -> Option<usize> {
+/// Kept out of line so each integer type gets a function of its own, as the float types do: inlined
+/// into the dispatch over every type, the scalar 64-bit loop of baseline x86-64 ran 40% slower.
+#[inline(never)]
+fn integer_min_max<T>(slice: &[T], valid: Option<&BitBuffer>) -> Option<(T, T)>
+where
+    T: NativePType,
+{
     match valid {
-        None => (0..len).find(|&i| include(i)),
-        Some(valid) => valid.set_indices().find(|&i| include(i)),
+        None => integer_min_max_raw(slice),
+        Some(valid) => {
+            let first = valid
+                .set_indices()
+                .next()
+                .vortex_expect("a mask with values has a valid row");
+            Some(integer_min_max_masked(slice, valid, slice[first]))
+        }
     }
 }
 
-/// A float whose IEEE 754 total order, the order of `total_cmp`, is the order of a signed
-/// integer key derived from its bits.
-///
-/// Flipping every bit but the sign of a negative float's bits reverses the order of the negative
-/// floats, so the bits order as `total_cmp` does when read as a signed integer. This is how
-/// `total_cmp` itself is implemented. The transform keeps the sign bit, so it is its own inverse.
-trait TotalOrderKey: NativePType {
-    type Key: Copy + Ord;
-
-    fn key(self) -> Self::Key;
-
-    fn from_key(key: Self::Key) -> Self;
-}
-
-macro_rules! total_order_key {
-    ($float:ty, $signed:ty, $unsigned:ty) => {
-        impl TotalOrderKey for $float {
-            type Key = $signed;
-
-            #[inline]
-            #[expect(
-                clippy::cast_possible_wrap,
-                reason = "the key reinterprets the float's bits"
-            )]
-            fn key(self) -> $signed {
-                let bits = self.to_bits() as $signed;
-                bits ^ ((((bits >> (<$signed>::BITS - 1)) as $unsigned) >> 1) as $signed)
-            }
-
-            #[inline]
-            #[expect(
-                clippy::cast_sign_loss,
-                reason = "the key reinterprets the float's bits"
-            )]
-            fn from_key(key: $signed) -> Self {
-                let bits = key ^ ((((key >> (<$signed>::BITS - 1)) as $unsigned) >> 1) as $signed);
-                <$float>::from_bits(bits as $unsigned)
-            }
+/// Min/max of an all-valid integer slice as native values. Autovectorizes to packed min/max.
+fn integer_min_max_raw<T>(slice: &[T]) -> Option<(T, T)>
+where
+    T: NativePType,
+{
+    let (&first, rest) = slice.split_first()?;
+    let mut min = first;
+    let mut max = first;
+    for &v in rest {
+        if v.is_lt(min) {
+            min = v;
         }
-    };
+        if v.is_gt(max) {
+            max = v;
+        }
+    }
+    Some((min, max))
 }
 
-total_order_key!(f16, i16, u16);
-total_order_key!(f32, i32, u32);
-total_order_key!(f64, i64, u64);
+/// Min/max of the valid values of an integer slice, reading null lanes as `valid_value`, a value of
+/// some valid lane, which leaves both extrema unchanged. Selecting per lane rather than walking the
+/// runs of valid values keeps the packed min/max of [`integer_min_max_raw`] however short the runs.
+fn integer_min_max_masked<T>(slice: &[T], valid: &BitBuffer, valid_value: T) -> (T, T)
+where
+    T: NativePType,
+{
+    slice.fold_masked(
+        valid,
+        valid_value,
+        (valid_value, valid_value),
+        |(min, max), v| {
+            (
+                if v.is_lt(min) { v } else { min },
+                if v.is_gt(max) { v } else { max },
+            )
+        },
+    )
+}
+
+/// Min/max of the valid values of a float slice under the total order, or `None` if there are
+/// none.
+///
+/// With `skip_nans`, NaN values are ignored. Otherwise a valid NaN makes both extrema NaN, which
+/// poisons the partial state.
+///
+/// The extrema are folded with float comparisons, which every target compares in vector registers,
+/// unlike the 64-bit integer keys of the total order, which baseline x86-64 cannot. A comparison
+/// with a NaN is false, so the folds skip NaN values for free, and null lanes read `seed`, a valid
+/// non-NaN value, which leaves both extrema unchanged. Each extremum is a fold of its own: a fold
+/// into one float per lane vectorizes on every target, where a fold into a pair of floats can stay
+/// scalar. Two cases the comparisons cannot see are settled after the folds, each with another
+/// pass that runs only when needed:
+///
+/// - Without `skip_nans`, a third fold sums `v - v`, which turns NaN only for a NaN or infinite
+///   value. When it does, [`find_nan`] looks for a valid NaN.
+/// - The total order puts `-0.0` below `0.0`, but the comparisons see them as equal. When an
+///   extremum is zero, [`has_zero_with_sign`] finds which signs are present.
+fn float_min_max<T>(values: &[T], valid: Option<&BitBuffer>, skip_nans: bool) -> Option<(T, T)>
+where
+    T: NativePType + Float,
+{
+    let mut indices = valid_indices(values.len(), valid);
+    let seed = if skip_nans {
+        indices.map(|i| values[i]).find(|&v| !Float::is_nan(v))?
+    } else {
+        values[indices.next()?]
+    };
+    if Float::is_nan(seed) {
+        return Some((seed, seed));
+    }
+
+    if !skip_nans {
+        let non_finite = fold_floats(values, valid, seed, T::zero(), |e, v| e + (v - v), add);
+        if Float::is_nan(non_finite)
+            && let Some(nan) = find_nan(values, valid)
+        {
+            return Some((nan, nan));
+        }
+    }
+
+    let min = fold_floats(values, valid, seed, seed, lower, lower);
+    let max = fold_floats(values, valid, seed, seed, higher, higher);
+
+    let min = if min.is_zero() {
+        zero_with_sign(has_zero_with_sign(values, valid, true))
+    } else {
+        min
+    };
+    let max = if max.is_zero() {
+        zero_with_sign(!has_zero_with_sign(values, valid, false))
+    } else {
+        max
+    };
+    Some((min, max))
+}
+
+/// Fold the valid float values with [`IndexedFoldExt::fold_lanes`], or its masked form reading null
+/// lanes as `null`, with as many lanes as fill 64 bytes per accumulator.
+#[inline]
+fn fold_floats<T, A>(
+    values: &[T],
+    valid: Option<&BitBuffer>,
+    null: T,
+    init: A,
+    f: impl Fn(A, T) -> A,
+    merge: impl Fn(A, A) -> A,
+) -> A
+where
+    T: NativePType,
+    A: Copy,
+{
+    macro_rules! fold {
+        ($lanes:literal) => {
+            match valid {
+                None => values.fold_lanes::<$lanes, _, _, _>(init, f, merge),
+                Some(valid) => values.fold_lanes_masked::<$lanes, _, _, _>(valid, null, init, f, merge),
+            }
+        };
+    }
+
+    match size_of::<T>() {
+        2 => fold!(32),
+        4 => fold!(16),
+        _ => fold!(8),
+    }
+}
+
+fn add<T: Float>(a: T, b: T) -> T {
+    a + b
+}
+
+/// `v` if it compares below `min`, else `min`. NaN never compares below.
+#[inline]
+fn lower<T: Float>(min: T, v: T) -> T {
+    if v < min { v } else { min }
+}
+
+/// `v` if it compares above `max`, else `max`. NaN never compares above.
+#[inline]
+fn higher<T: Float>(max: T, v: T) -> T {
+    if v > max { v } else { max }
+}
+
+/// The first valid NaN.
+#[cold]
+#[inline(never)]
+fn find_nan<T: Float>(values: &[T], valid: Option<&BitBuffer>) -> Option<T> {
+    valid_indices(values.len(), valid)
+        .map(|i| values[i])
+        .find(|v| v.is_nan())
+}
+
+/// Whether a valid value is a zero of the given sign.
+#[cold]
+#[inline(never)]
+fn has_zero_with_sign<T: Float>(values: &[T], valid: Option<&BitBuffer>, negative: bool) -> bool {
+    valid_indices(values.len(), valid)
+        .any(|i| values[i].is_zero() && values[i].is_sign_negative() == negative)
+}
+
+fn zero_with_sign<T: Float>(negative: bool) -> T {
+    if negative { -T::zero() } else { T::zero() }
+}
+
+fn valid_indices(len: usize, valid: Option<&BitBuffer>) -> impl Iterator<Item = usize> + '_ {
+    match valid {
+        None => Either::Left(0..len),
+        Some(valid) => Either::Right(valid.set_indices()),
+    }
+}
 
 fn min_max_result<T>((min, max): (T, T)) -> MinMaxResult
 where
@@ -154,38 +244,5 @@ where
     MinMaxResult {
         min: Scalar::primitive(min, NonNullable),
         max: Scalar::primitive(max, NonNullable),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #![allow(
-        clippy::cast_possible_truncation,
-        reason = "narrows the f64 cases to f32"
-    )]
-
-    use half::f16;
-    use rstest::rstest;
-
-    use super::TotalOrderKey;
-
-    /// Keys order exactly as `total_cmp` does, and convert back to the same bits.
-    #[rstest]
-    #[case(&[f64::NAN, -f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 0.0, -0.0, 1.5, -1.5, f64::MIN_POSITIVE, -f64::MIN_POSITIVE, f64::MAX, f64::MIN])]
-    fn total_order_keys_order_as_total_cmp(#[case] values: &[f64]) {
-        for &a in values {
-            assert_eq!(f64::from_key(a.key()).to_bits(), a.to_bits());
-            assert_eq!(
-                f32::from_key((a as f32).key()).to_bits(),
-                (a as f32).to_bits()
-            );
-            let h = f16::from_f64(a);
-            assert_eq!(f16::from_key(h.key()).to_bits(), h.to_bits());
-            for &b in values {
-                assert_eq!(a.key().cmp(&b.key()), a.total_cmp(&b), "{a} vs {b}");
-                let (af, bf) = (a as f32, b as f32);
-                assert_eq!(af.key().cmp(&bf.key()), af.total_cmp(&bf), "{af} vs {bf}");
-            }
-        }
     }
 }

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Add;
+use std::ops::BitOr;
 
 use num_traits::AsPrimitive;
 use num_traits::ToPrimitive;
@@ -25,6 +26,13 @@ use crate::match_each_native_ptype;
 /// Number of elements summed without an overflow check. Chosen so that a chunk of values narrower
 /// than 64 bits cannot overflow the 64-bit accumulator: `2^16 * (2^32 - 1) < 2^64`.
 const SUM_CHUNK: usize = 1 << 16;
+
+/// Partial sums of a sum of integers narrower than 64 bits, each widened to a 64-bit lane.
+const NARROW_SUM_LANES: usize = 16;
+
+/// Partial sums of a float sum. Sixteen `f64` lanes fill eight NEON, four AVX2 or two AVX-512
+/// registers, enough to hide the latency of a vector add on each.
+const FLOAT_SUM_LANES: usize = 16;
 
 pub(crate) fn accumulate_primitive(
     inner: &mut SumState,
@@ -73,37 +81,66 @@ fn accumulate_primitive_all(
 /// are skipped to match the scalar `sum` semantics; otherwise any NaN poisons the accumulator to
 /// NaN. Floats cannot overflow the accumulator, so this never reports saturation.
 pub(crate) fn sum_float_all<T: NativePType>(acc: &mut f64, slice: &[T], skip_nans: bool) {
-    if skip_nans {
-        for &v in slice {
-            if !v.is_nan() {
-                *acc += ToPrimitive::to_f64(&v).vortex_expect("float to f64");
-            }
-        }
+    sum_float(acc, slice, None, skip_nans);
+}
+
+/// Sum the values of a float slice, or only its `valid` values, into an `f64` accumulator.
+///
+/// The values are added in [`FLOAT_SUM_LANES`] independent partial sums, so the sum vectorizes
+/// although float addition does not reassociate. The result can differ from an in-order sum only
+/// in rounding.
+///
+/// With `skip_nans`, the values are first summed as they are: a sum that is not NaN saw no NaN.
+/// Only a NaN sum, which a NaN or infinities of both signs make, is summed again reading NaNs as
+/// zero. A select per lane to skip NaNs on top of the select for null lanes leaves the masked
+/// fold scalar on NEON.
+fn sum_float<T: NativePType>(acc: &mut f64, values: &[T], valid: Option<&BitBuffer>, skip_nans: bool) {
+    let sum = fold_float(values, valid, |v| v);
+    *acc += if skip_nans && sum.is_nan() {
+        fold_float(values, valid, non_nan)
     } else {
-        for &v in slice {
-            *acc += ToPrimitive::to_f64(&v).vortex_expect("float to f64");
-        }
+        sum
+    };
+}
+
+/// Sum `read` of each value, or of each `valid` value, into [`FLOAT_SUM_LANES`] partial sums.
+#[inline]
+fn fold_float<T: NativePType>(
+    values: &[T],
+    valid: Option<&BitBuffer>,
+    read: impl Fn(f64) -> f64,
+) -> f64 {
+    let add = |sum: f64, v: T| sum + read(ToPrimitive::to_f64(&v).vortex_expect("float to f64"));
+    match valid {
+        None => values.fold_lanes::<FLOAT_SUM_LANES, _, _, _>(0.0, add, |a, b| a + b),
+        Some(valid) => values.fold_lanes_masked::<FLOAT_SUM_LANES, _, _, _>(
+            valid,
+            T::zero(),
+            0.0,
+            add,
+            |a, b| a + b,
+        ),
     }
 }
 
+/// `v`, or zero when `v` is NaN.
+#[inline]
+fn non_nan(v: f64) -> f64 {
+    if v.is_nan() { 0.0 } else { v }
+}
+
 /// Sum all values into a `u64` accumulator. For types narrower than 64 bits, values are summed in
-/// chunks of [`SUM_CHUNK`] with a single checked add per chunk, which lets the inner loop vectorize
-/// to packed widening adds. `u64` input keeps a per-element checked add since a chunk of `u64`s
-/// could itself overflow. Returns `true` on overflow.
+/// chunks of [`SUM_CHUNK`] by [`narrow_sum`] with a single checked add per chunk. A chunk of `u64`s could itself overflow, so `u64` input is summed by
+/// [`sum_wide`]. Returns `true` on overflow.
 pub(crate) fn sum_unsigned_all<T>(acc: &mut u64, slice: &[T]) -> bool
 where
     T: NativePType + AsPrimitive<u64>,
 {
     if T::PTYPE == PType::U64 {
-        for &v in slice {
-            if checked_add_u64(acc, v.as_()) {
-                return true;
-            }
-        }
-        return false;
+        return sum_wide(acc, slice, None);
     }
     for chunk in slice.chunks(SUM_CHUNK) {
-        let chunk_sum: u64 = chunk.iter().map(|&v| v.as_()).sum();
+        let chunk_sum = narrow_sum::<T, u64>(chunk);
         if checked_add_u64(acc, chunk_sum) {
             return true;
         }
@@ -117,15 +154,10 @@ where
     T: NativePType + AsPrimitive<i64>,
 {
     if T::PTYPE == PType::I64 {
-        for &v in slice {
-            if checked_add_i64(acc, v.as_()) {
-                return true;
-            }
-        }
-        return false;
+        return sum_wide(acc, slice, None);
     }
     for chunk in slice.chunks(SUM_CHUNK) {
-        let chunk_sum: i64 = chunk.iter().map(|&v| v.as_()).sum();
+        let chunk_sum = narrow_sum::<T, i64>(chunk);
         if checked_add_i64(acc, chunk_sum) {
             return true;
         }
@@ -133,30 +165,48 @@ where
     false
 }
 
-/// Sum the valid elements of `p`, whose validity is `valid`.
+/// Sum the valid elements.
+///
+/// Every kernel reads null lanes as zero, so the sum vectorizes the same way as the all-valid path
+/// however the valid values are spread.
 fn accumulate_primitive_valid(
     inner: &mut SumState,
     p: &PrimitiveArray,
     valid: &MaskValues,
     skip_nans: bool,
 ) -> VortexResult<bool> {
-    let valid = valid.bit_buffer();
     match inner {
         SumState::Unsigned(acc) => match_each_native_ptype!(p.ptype(),
-            unsigned: |T| { Ok(sum_unsigned_masked(acc, p.as_slice::<T>(), valid)) },
+            unsigned: |T| {
+                let values = p.as_slice::<T>();
+                if T::PTYPE == PType::U64 {
+                    return Ok(sum_wide(acc, values, Some(valid.bit_buffer())));
+                }
+                Ok(sum_masked(values, valid.bit_buffer(), |chunk_sum| {
+                    checked_add_u64(acc, chunk_sum)
+                }))
+            },
             signed: |_T| { vortex_panic!("unsigned sum state with signed input") },
             floating: |_T| { vortex_panic!("unsigned sum state with float input") }
         ),
         SumState::Signed(acc) => match_each_native_ptype!(p.ptype(),
             unsigned: |_T| { vortex_panic!("signed sum state with unsigned input") },
-            signed: |T| { Ok(sum_signed_masked(acc, p.as_slice::<T>(), valid)) },
+            signed: |T| {
+                let values = p.as_slice::<T>();
+                if T::PTYPE == PType::I64 {
+                    return Ok(sum_wide(acc, values, Some(valid.bit_buffer())));
+                }
+                Ok(sum_masked(values, valid.bit_buffer(), |chunk_sum| {
+                    checked_add_i64(acc, chunk_sum)
+                }))
+            },
             floating: |_T| { vortex_panic!("signed sum state with float input") }
         ),
         SumState::Float(acc) => match_each_native_ptype!(p.ptype(),
             unsigned: |_T| { vortex_panic!("float sum state with unsigned input") },
             signed: |_T| { vortex_panic!("float sum state with signed input") },
             floating: |T| {
-                sum_float_masked(acc, p.as_slice::<T>(), valid, skip_nans);
+                sum_float(acc, p.as_slice::<T>(), Some(valid.bit_buffer()), skip_nans);
                 Ok(false)
             }
         ),
@@ -166,77 +216,207 @@ fn accumulate_primitive_valid(
     }
 }
 
-/// Sum the values of `values` that `valid` marks valid into a `u64` accumulator. Returns `true` on
-/// overflow.
-///
-/// Values narrower than 64 bits read null lanes as zero, so the sum vectorizes the same way as
-/// [`sum_unsigned_all`] however the valid values are spread. `u64` values check every element
-/// for overflow, so they sum each contiguous run of valid values through [`sum_unsigned_all`].
-fn sum_unsigned_masked<T>(acc: &mut u64, values: &[T], valid: &BitBuffer) -> bool
-where
-    T: NativePType + AsPrimitive<u64>,
-{
-    if T::PTYPE == PType::U64 {
-        return valid
-            .set_slices()
-            .any(|(start, end)| sum_unsigned_all(acc, &values[start..end]));
-    }
-    sum_chunks_masked(values, valid, |chunk_sum| checked_add_u64(acc, chunk_sum))
-}
-
-/// Signed counterpart of [`sum_unsigned_masked`].
-fn sum_signed_masked<T>(acc: &mut i64, values: &[T], valid: &BitBuffer) -> bool
-where
-    T: NativePType + AsPrimitive<i64>,
-{
-    if T::PTYPE == PType::I64 {
-        return valid
-            .set_slices()
-            .any(|(start, end)| sum_signed_all(acc, &values[start..end]));
-    }
-    sum_chunks_masked(values, valid, |chunk_sum| checked_add_i64(acc, chunk_sum))
-}
-
-/// Sum the values of `values` that `valid` marks valid into an `f64` accumulator, skipping NaN
-/// values when `skip_nans` is set, as [`sum_float_all`] does.
-///
-/// Null and skipped lanes read as zero. The values are added in order, as by [`sum_float_all`],
-/// and adding zero leaves the accumulator unchanged: it starts at positive zero, so it is never
-/// negative zero, the one value adding zero would change. The result is therefore exactly that of
-/// summing the valid values alone, without walking their runs.
-fn sum_float_masked<T: NativePType>(
-    acc: &mut f64,
-    values: &[T],
-    valid: &BitBuffer,
-    skip_nans: bool,
-) {
-    *acc = values.fold_masked(valid, T::zero(), *acc, |sum, v| {
-        if skip_nans && v.is_nan() {
-            sum
-        } else {
-            sum + ToPrimitive::to_f64(&v).vortex_expect("float to f64")
-        }
-    });
-}
-
 /// Sum the valid values of an integer slice narrower than 64 bits in chunks of [`SUM_CHUNK`],
 /// reading null lanes as zero, and hand each chunk's sum to `add`, which returns `true` on
 /// overflow. A chunk cannot overflow its 64-bit sum, as in [`sum_unsigned_all`].
-fn sum_chunks_masked<T, S>(values: &[T], valid: &BitBuffer, mut add: impl FnMut(S) -> bool) -> bool
+fn sum_masked<T, S>(values: &[T], valid: &BitBuffer, mut add: impl FnMut(S) -> bool) -> bool
 where
     T: NativePType + AsPrimitive<S>,
     S: NativePType + Add<Output = S>,
 {
     (0..values.len()).step_by(SUM_CHUNK).any(|start| {
         let end = (start + SUM_CHUNK).min(values.len());
-        let chunk_sum = values[start..end].fold_masked(
+        let chunk_sum = values[start..end].fold_lanes_masked::<NARROW_SUM_LANES, _, _, _>(
             &valid.slice(start..end),
             T::zero(),
             S::zero(),
             |sum, v| sum + v.as_(),
+            |a, b| a + b,
         );
         add(chunk_sum)
     })
+}
+
+/// Sum a chunk of at most [`SUM_CHUNK`] integers narrower than 64 bits, which cannot overflow `S`.
+///
+/// The compiler would vectorize an in-order sum on its own, but into a loop of two adds that runs
+/// at the mercy of where it lands in the instruction cache: on x86-64 without SSE4.1 the same loop
+/// ran 30% slower once it straddled a 64-byte boundary. [`NARROW_SUM_LANES`] partial sums make a
+/// loop body large enough not to care, and are as fast or faster on every target, with one
+/// exception: x86-64 without SSE4.1 has no vector sign extension, and widening signed values into
+/// that many lanes costs more than the in-order loop does.
+fn narrow_sum<T, S>(chunk: &[T]) -> S
+where
+    T: NativePType + AsPrimitive<S>,
+    S: NativePType + Add<Output = S>,
+{
+    if NO_SIGN_EXTENSION && T::PTYPE.is_signed_int() {
+        return chunk.iter().map(|&v| v.as_()).fold(S::zero(), |a, b| a + b);
+    }
+    chunk.fold_lanes::<NARROW_SUM_LANES, _, _, _>(S::zero(), |sum, v| sum + v.as_(), |a, b| a + b)
+}
+
+/// Whether the target lacks a vector sign extension of narrow integers to 64 bits.
+const NO_SIGN_EXTENSION: bool = cfg!(all(target_arch = "x86_64", not(target_feature = "sse4.1")));
+
+/// Sum 64-bit integers, or only the `valid` ones, into `acc`. Returns `true` on overflow.
+///
+/// A checked add per element does not vectorize, so the values are added with wrapping, and
+/// evidence of each value's magnitude is ORed together alongside. Both reassociate, so the
+/// compiler vectorizes the fold in lane order with the width and interleave it picks, which beats
+/// independent per-lane partial sums on every target. If every value is small enough that
+/// `values.len()` of them cannot overflow, which holds for most data, the sum is exact. Otherwise the values are summed again in
+/// [`sum_exact`]. Either way the result overflows only if the exact sum does not fit, whatever the
+/// order of the values.
+fn sum_wide<T, S>(acc: &mut S, values: &[T], valid: Option<&BitBuffer>) -> bool
+where
+    T: NativePType + AsPrimitive<S>,
+    S: WrappingSum,
+{
+    let Some(bound) = S::Bound::for_len(values.len()) else {
+        return false;
+    };
+
+    let add = |(sum, evidence): (S, S), v: T| {
+        let v = v.as_();
+        (sum.wrapping_add(v), evidence | bound.evidence(v))
+    };
+    let zero = (S::zero(), S::zero());
+
+    let (sum, evidence) = match valid {
+        None => values.iter().fold(zero, |acc, &v| add(acc, v)),
+        Some(valid) => values.fold_masked(valid, T::zero(), zero, add),
+    };
+
+    if !bound.holds(evidence) {
+        return sum_exact(acc, values, valid);
+    }
+    S::checked_add_into(acc, sum)
+}
+
+/// Sum the values, or only the `valid` ones, into `acc` in 128-bit arithmetic, which no slice of
+/// 64-bit integers can overflow. Returns `true` if the result does not fit `S`.
+#[cold]
+#[inline(never)]
+fn sum_exact<T, S>(acc: &mut S, values: &[T], valid: Option<&BitBuffer>) -> bool
+where
+    T: NativePType,
+    S: WrappingSum,
+{
+    let sum: i128 = match valid {
+        None => values.iter().map(|&v| to_i128(v)).sum(),
+        Some(valid) => valid.set_indices().map(|i| to_i128(values[i])).sum(),
+    };
+
+    match S::from(to_i128(*acc) + sum) {
+        Some(total) => {
+            *acc = total;
+            false
+        }
+        None => true,
+    }
+}
+
+fn to_i128<T: NativePType>(v: T) -> i128 {
+    v.to_i128().vortex_expect("64-bit integers fit i128")
+}
+
+/// A 64-bit sum accumulator that adds with wrapping, with a bound on its values under which a
+/// wrapping sum cannot overflow.
+trait WrappingSum: NativePType + BitOr<Output = Self> {
+    /// The magnitude bound for this type.
+    type Bound: SumBound<Self>;
+
+    /// Add with wrapping.
+    fn wrapping_add(self, v: Self) -> Self;
+
+    /// Checked add of `v` into `acc`, returning `true` on overflow.
+    fn checked_add_into(acc: &mut Self, v: Self) -> bool;
+}
+
+/// A bound on the magnitude of the values of a sum, tested with one add and one OR per value.
+trait SumBound<S>: Copy {
+    /// The bound under which `len` values cannot overflow their sum, or `None` if `len` is zero.
+    fn for_len(len: usize) -> Option<Self>;
+
+    /// Evidence of the magnitude of `v`, to OR together over all values.
+    fn evidence(self, v: S) -> S;
+
+    /// Whether the ORed evidence shows every value is within the bound.
+    fn holds(self, evidence: S) -> bool;
+}
+
+/// Signed values within `[-2^bits, 2^bits)`, where `len` of them sum to less than `2^63` in
+/// magnitude. A value is within the bound iff adding `2^bits` leaves it in `[0, 2^(bits + 1))`.
+#[derive(Clone, Copy)]
+struct SignedBound {
+    bits: u32,
+}
+
+impl SumBound<i64> for SignedBound {
+    fn for_len(len: usize) -> Option<Self> {
+        (len != 0).then(|| Self {
+            bits: 63 - (usize::BITS - len.leading_zeros()),
+        })
+    }
+
+    #[inline]
+    fn evidence(self, v: i64) -> i64 {
+        v.wrapping_add(1 << self.bits)
+    }
+
+    fn holds(self, evidence: i64) -> bool {
+        evidence >> (self.bits + 1) == 0
+    }
+}
+
+/// Unsigned values below `2^bits`, where `len` of them sum to less than `2^64`.
+#[derive(Clone, Copy)]
+struct UnsignedBound {
+    bits: u32,
+}
+
+impl SumBound<u64> for UnsignedBound {
+    fn for_len(len: usize) -> Option<Self> {
+        (len != 0).then(|| Self {
+            bits: 64 - (usize::BITS - len.leading_zeros()),
+        })
+    }
+
+    #[inline]
+    fn evidence(self, v: u64) -> u64 {
+        v
+    }
+
+    fn holds(self, evidence: u64) -> bool {
+        evidence >> self.bits == 0
+    }
+}
+
+impl WrappingSum for i64 {
+    type Bound = SignedBound;
+
+    #[inline]
+    fn wrapping_add(self, v: i64) -> i64 {
+        i64::wrapping_add(self, v)
+    }
+
+    fn checked_add_into(acc: &mut i64, v: i64) -> bool {
+        checked_add_i64(acc, v)
+    }
+}
+
+impl WrappingSum for u64 {
+    type Bound = UnsignedBound;
+
+    #[inline]
+    fn wrapping_add(self, v: u64) -> u64 {
+        u64::wrapping_add(self, v)
+    }
+
+    fn checked_add_into(acc: &mut u64, v: u64) -> bool {
+        checked_add_u64(acc, v)
+    }
 }
 
 #[cfg(test)]
@@ -541,6 +721,109 @@ mod tests {
         let arr = PrimitiveArray::new(buffer![i64::MAX, 1i64], Validity::NonNullable).into_array();
         let result = sum(&arr, &mut SESSION.create_execution_ctx())?;
         assert!(result.is_null());
+        Ok(())
+    }
+
+    /// Values past the magnitude bound take the exact sum, which overflows only if the total does
+    /// not fit, however the values are ordered.
+    #[test]
+    fn sum_i64_near_the_limits_is_exact() -> VortexResult<()> {
+        let fits =
+            PrimitiveArray::new(buffer![i64::MAX, 1, i64::MIN, -1, 5], Validity::NonNullable)
+                .into_array();
+        let overflows =
+            PrimitiveArray::new(buffer![i64::MAX - 1, 1, 1, 0], Validity::NonNullable).into_array();
+        let underflows =
+            PrimitiveArray::new(buffer![i64::MIN, 0, -1], Validity::NonNullable).into_array();
+
+        let ctx = &mut SESSION.create_execution_ctx();
+        assert_eq!(sum(&fits, ctx)?.as_primitive().typed_value::<i64>(), Some(4));
+        assert!(sum(&overflows, ctx)?.is_null());
+        assert!(sum(&underflows, ctx)?.is_null());
+        Ok(())
+    }
+
+    /// The null rows hold values that would overflow, in a full 64-row word and in the partial
+    /// word after it, on both the bounded and the exact path.
+    #[test]
+    fn sum_64_bit_ignores_values_under_nulls() -> VortexResult<()> {
+        let validity = || Validity::from_iter((0..100).map(|i| i % 3 != 0));
+        let unsigned: Buffer<u64> = (0..100u64)
+            .map(|i| if i % 3 == 0 { u64::MAX } else { i })
+            .collect();
+        let signed: Buffer<i64> = (0..100i64)
+            .map(|i| match i % 6 {
+                0 => i64::MIN,
+                3 => i64::MAX,
+                _ => -i,
+            })
+            .collect();
+        let large: Buffer<i64> = (0..100i64)
+            .map(|i| if i % 3 == 0 { i64::MAX } else { i64::MAX / 100 })
+            .collect();
+
+        let ctx = &mut SESSION.create_execution_ctx();
+        let unsigned = sum(&PrimitiveArray::new(unsigned, validity()).into_array(), ctx)?;
+        let signed = sum(&PrimitiveArray::new(signed, validity()).into_array(), ctx)?;
+        let large = sum(&PrimitiveArray::new(large, validity()).into_array(), ctx)?;
+
+        let valid = (0..100i64).filter(|i| i % 3 != 0);
+        assert_eq!(
+            unsigned.as_primitive().typed_value::<u64>(),
+            Some(valid.clone().map(i64::cast_unsigned).sum())
+        );
+        assert_eq!(
+            signed.as_primitive().typed_value::<i64>(),
+            Some(-valid.clone().sum::<i64>())
+        );
+        assert_eq!(
+            large.as_primitive().typed_value::<i64>(),
+            Some(valid.count() as i64 * (i64::MAX / 100))
+        );
+        Ok(())
+    }
+
+    /// NaNs under nulls are never read, and valid NaNs are skipped or poison the sum as asked.
+    #[test]
+    fn sum_masked_float_nans() -> VortexResult<()> {
+        let values: Buffer<f64> = (0..100)
+            .map(|i| match i % 5 {
+                0 => f64::NAN,
+                4 if i < 50 => f64::NAN,
+                _ => f64::from(i),
+            })
+            .collect();
+        let under_nulls = PrimitiveArray::new(
+            values.clone(),
+            Validity::from_iter((0..100).map(|i| i % 5 != 0 && !(i % 5 == 4 && i < 50))),
+        )
+        .into_array();
+        let valid_nans =
+            PrimitiveArray::new(values, Validity::from_iter((0..100).map(|i| i % 5 != 0)))
+                .into_array();
+
+        let expected: f64 = (0..100)
+            .filter(|&i| i % 5 != 0 && !(i % 5 == 4 && i < 50))
+            .map(f64::from)
+            .sum();
+        assert_eq!(
+            sum_with_options(&under_nulls, NumericalAggregateOpts::include_nans())?
+                .as_primitive()
+                .typed_value::<f64>(),
+            Some(expected)
+        );
+        assert_eq!(
+            sum_with_options(&valid_nans, NumericalAggregateOpts::default())?
+                .as_primitive()
+                .typed_value::<f64>(),
+            Some(expected)
+        );
+        assert!(
+            sum_with_options(&valid_nans, NumericalAggregateOpts::include_nans())?
+                .as_primitive()
+                .typed_value::<f64>()
+                .is_some_and(f64::is_nan)
+        );
         Ok(())
     }
 

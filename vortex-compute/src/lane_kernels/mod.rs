@@ -19,7 +19,9 @@
 //!   the sink itself).
 //! - [`collect_bits`](mod@collect_bits) — allocating wrappers that bit-pack a predicate into a
 //!   `BitBuffer`.
-//! - [`fold`] — masked reductions via [`IndexedFoldExt`], reading null lanes as an identity.
+//! - [`fold`] — reductions via [`IndexedFoldExt`]: a masked fold the compiler may reassociate,
+//!   and lane-parallel folds into independent accumulators for those it may not, such as float
+//!   sums. Masked forms read null lanes as an identity.
 //!
 //! The kernels outside [`collect_bits`](mod@collect_bits) never allocate. Both kernel families
 //! handle a mask with a non-byte-aligned offset and with a logical `len` shorter than the

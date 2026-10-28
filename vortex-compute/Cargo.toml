@@ -40,3 +40,7 @@ harness = false
 [[bench]]
 name = "fold_masked"
 harness = false
+
+[[bench]]
+name = "fold_lanes"
+harness = false

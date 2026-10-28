@@ -179,6 +179,36 @@ fn max_i32_nulls_scattered(bencher: Bencher) {
         .bench_refs(|(a, ctx)| a.statistics().compute_max::<i32>(ctx));
 }
 
+#[divan::bench]
+fn max_f32(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(6);
+    let data: Vec<f32> = (0..N).map(|_| rng.random::<f32>()).collect();
+    bencher
+        .with_inputs(|| {
+            (
+                PrimitiveArray::from_iter(data.iter().copied()).into_array(),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(a, ctx)| a.statistics().compute_max::<f32>(ctx));
+}
+
+#[divan::bench]
+fn max_f64_nulls_scattered(bencher: Bencher) {
+    let mut rng = StdRng::seed_from_u64(7);
+    let data: Vec<Option<f64>> = (0..N)
+        .map(|_| rng.random_bool(0.5).then(|| rng.random::<f64>()))
+        .collect();
+    bencher
+        .with_inputs(|| {
+            (
+                PrimitiveArray::from_option_iter(data.iter().copied()).into_array(),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(a, ctx)| a.statistics().compute_max::<f64>(ctx));
+}
+
 // String extrema. Every view carries its value's first four bytes inline, so the shape that
 // matters is how far into a value its order is settled: `distinct_prefixes` and
 // `low_cardinality` never have to look past the view, while the log-shaped columns (every value

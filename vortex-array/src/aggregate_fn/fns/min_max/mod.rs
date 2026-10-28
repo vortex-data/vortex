@@ -858,6 +858,87 @@ mod tests {
         Ok(())
     }
 
+    /// The null rows hold NaNs and extremes, which the masked float kernel must not read, in a
+    /// full 64-row word and in the partial word after it, whether NaNs are skipped or not.
+    #[test]
+    fn float_min_max_ignores_nans_under_nulls() -> VortexResult<()> {
+        let values: Buffer<f64> = (0..100)
+            .map(|i| match i % 6 {
+                0 => f64::NEG_INFINITY,
+                3 => f64::NAN,
+                _ => f64::from(i),
+            })
+            .collect();
+        let array = PrimitiveArray::new(values, Validity::from_iter((0..100).map(|i| i % 3 != 0)));
+        let mut ctx = SESSION.create_execution_ctx();
+        for options in [NumericalAggregateOpts::default(), KEEP_NANS] {
+            let result =
+                min_max(&array.clone().into_array(), &mut ctx, options)?.vortex_expect("valid");
+            assert_eq!(f64::try_from(&result.min)?, 1.0);
+            assert_eq!(f64::try_from(&result.max)?, 98.0);
+        }
+        Ok(())
+    }
+
+    /// The total order puts `-0.0` below `0.0`, although they compare equal as floats.
+    #[rstest]
+    #[case::negative_zero_is_the_min(&[0.0, 1.0, -0.0, 0.0], -0.0, 1.0)]
+    #[case::positive_zero_is_the_max(&[-1.0, -0.0, 0.0, -0.0], -1.0, 0.0)]
+    #[case::negative_zero_alone(&[-0.0, -0.0], -0.0, -0.0)]
+    #[case::positive_zero_alone(&[0.0, 0.0], 0.0, 0.0)]
+    fn float_min_max_orders_signed_zeros(
+        #[case] values: &[f32],
+        #[case] min: f32,
+        #[case] max: f32,
+    ) -> VortexResult<()> {
+        let array = PrimitiveArray::from_iter(values.iter().copied()).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = min_max(&array, &mut ctx, NumericalAggregateOpts::default())?
+            .vortex_expect("valid");
+        assert_eq!(f32::try_from(&result.min)?.to_bits(), min.to_bits());
+        assert_eq!(f32::try_from(&result.max)?.to_bits(), max.to_bits());
+        Ok(())
+    }
+
+    /// Infinities are values, not NaNs, so they never poison the result.
+    #[test]
+    fn float_min_max_of_infinities_is_not_poisoned() -> VortexResult<()> {
+        let array = PrimitiveArray::new(
+            buffer![1.0f64, f64::INFINITY, -2.0, f64::NEG_INFINITY],
+            Validity::from_iter([true, true, true, false]),
+        )
+        .into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = min_max(&array, &mut ctx, KEEP_NANS)?.vortex_expect("valid");
+        assert_eq!(f64::try_from(&result.min)?, -2.0);
+        assert_eq!(f64::try_from(&result.max)?, f64::INFINITY);
+        Ok(())
+    }
+
+    /// A valid NaN after the first valid value still poisons, and only NaN values is no result
+    /// when they are skipped.
+    #[test]
+    fn float_min_max_masked_nans() -> VortexResult<()> {
+        let validity = || Validity::from_iter((0..70).map(|i| i % 2 == 0));
+        let late_nan: Buffer<f64> = (0..70)
+            .map(|i| if i == 66 { f64::NAN } else { f64::from(i) })
+            .collect();
+        let only_nans: Buffer<f64> = (0..70)
+            .map(|i| if i % 2 == 0 { f64::NAN } else { f64::from(i) })
+            .collect();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let late_nan = PrimitiveArray::new(late_nan, validity()).into_array();
+        assert_poisoned(min_max(&late_nan, &mut ctx, KEEP_NANS)?)?;
+        let skipped = min_max(&late_nan, &mut ctx, NumericalAggregateOpts::default())?
+            .vortex_expect("valid");
+        assert_eq!(f64::try_from(&skipped.max)?, 68.0);
+
+        let only_nans = PrimitiveArray::new(only_nans, validity()).into_array();
+        assert!(min_max(&only_nans, &mut ctx, NumericalAggregateOpts::default())?.is_none());
+        Ok(())
+    }
+
     #[test]
     fn test_prim_nan_not_skipping() -> VortexResult<()> {
         let array = PrimitiveArray::new(
