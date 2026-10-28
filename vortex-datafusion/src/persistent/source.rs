@@ -249,7 +249,6 @@ pub struct VortexSource {
     file_metadata_cache: Option<Arc<FileMetadataCache>>,
     /// Options controlling scan planning and execution behavior.
     options: VortexTableOptions,
-    batch_size: usize,
 }
 
 impl VortexSource {
@@ -289,7 +288,6 @@ impl VortexSource {
             file_metadata_cache: None,
             ordered: false,
             options: VortexTableOptions::default(),
-            batch_size: 8192,
         }
     }
 
@@ -418,7 +416,6 @@ impl VortexSource {
             scan_concurrency: self.options.scan_concurrency,
             scan_v2: self.options.scan_v2,
             partitions: base_config.file_groups.len(),
-            batch_size: self.batch_size,
         };
 
         Ok(opener)
@@ -439,10 +436,9 @@ impl FileSource for VortexSource {
         )?))
     }
 
-    fn with_batch_size(&self, batch_size: usize) -> Arc<dyn FileSource> {
-        let mut source = self.clone();
-        source.batch_size = batch_size;
-        Arc::new(source)
+    fn with_batch_size(&self, _batch_size: usize) -> Arc<dyn FileSource> {
+        // DataSourceExec applies BatchSplitStream after the FileSource stream.
+        Arc::new(self.clone())
     }
 
     fn filter(&self) -> Option<Arc<dyn PhysicalExpr>> {

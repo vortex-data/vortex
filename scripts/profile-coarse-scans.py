@@ -1,113 +1,50 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
-import collections
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
-import tarfile
-import urllib.request
 
 scale = sys.argv[1]
-suite = 'tpcds' if scale and float(scale) > 0 else 'clickbench'
+assert float(scale) in [10, 30]
 root = Path.cwd()
-binary = root / 'target/release_debug/datafusion-bench'
-archive_name = 'samply-aarch64-unknown-linux-gnu.tar.xz'
-release = 'https://github.com/mstange/samply/releases/download/samply-v0.13.1/'
-archive = root / archive_name
-archive.write_bytes(urllib.request.urlopen(release + archive_name).read())
-expected = urllib.request.urlopen(release + archive_name + '.sha256').read().decode().split()[0]
-assert hashlib.sha256(archive.read_bytes()).hexdigest() == expected
-with tarfile.open(archive) as bundle:
-    bundle.extractall(root / 'samply-tool', filter='data')
-executables = list((root / 'samply-tool').rglob('samply'))
-assert len(executables) == 1
-samply = executables[0].resolve()
-samply.chmod(0o755)
-assert shutil.which('llvm-symbolizer')
-
-env = dict(os.environ)
-env.update(TOKIO_WORKER_THREADS='8', DATAFUSION_EXECUTION_TARGET_PARTITIONS='8', RUST_LOG='warn')
-profile_env = {key: env[key] for key in ('TOKIO_WORKER_THREADS', 'DATAFUSION_EXECUTION_TARGET_PARTITIONS', 'RUST_LOG')}
-
-def command(v2, query, iterations, label):
-    return [str(binary), suite, '--formats', 'vortex', '--queries', query,
-            '--iterations', str(iterations), '--scan-v2', str(v2).lower(),
-            '--hide-progress-bar', '--display-format', 'gh-json',
-            '--runner', 'isolated-coarse-profiles-8workers',
-            '--ingest-jsonl', label + '.jsonl'] + (['--opt', f'scale-factor={scale}'] if suite == 'tpcds' else [])
-
-current_binary = binary
 baseline = root / 'target/coarse-baseline/datafusion-bench'
-variants = [('v1', current_binary, False), ('accepted', baseline, True), ('candidate', current_binary, True)]
-Path('scan-provenance.json').write_text(json.dumps({'baseline_run': 40613767503, 'candidate_run': os.environ['GITHUB_RUN_ID'], 'candidate_head': os.environ['GITHUB_SHA'], 'candidate': 'Align per-file scan output to DataFusion batch size by merging short tails; baseline includes 256K filtered work and file-handle reuse', 'binary_sha256': {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path, _ in variants}}, indent=2))
-for round in range(3):
-    for label_name, binary, v2 in variants[round:] + variants[:round]:
-        label = f'scan-timing-r{round}-{label_name}'
-        cmd = command(v2, ('13,20,28,32,41,48,58,76' if suite == 'tpcds' else '0,6,13,28'), 9, label)
-        Path(label + '.command.json').write_text(json.dumps({'command': cmd, 'env': profile_env}, indent=2))
-        with open(label + '.txt', 'w') as log:
-            subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=600, check=True)
-for label_name, binary, v2 in variants:
-    label = f'scan-metrics-{label_name}'
-    cmd = command(v2, ('20,28,32,41,48,58,76' if suite == 'tpcds' else '0,6,13,28'), 1, label) + ['--show-metrics']
-    with open(label + '.txt', 'w') as log:
-        subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=600, check=True)
-binary = current_binary
+aligned = root / 'target/release_debug/datafusion-bench'
+base_hash = '9d17dbcae5ac168ee496c87135a977771e356dfe1dce8589363f9ea03e00e74a'
+aligned_hash = '20086be38ecc47bdbcbd22613b007d54f884e97fbf78923d1c5f5c70856a9bf7'
+assert hashlib.sha256(baseline.read_bytes()).hexdigest() == base_hash
+assert hashlib.sha256(aligned.read_bytes()).hexdigest() == aligned_hash
+variants = [
+    ('v1', baseline, False, False),
+    ('v2', baseline, True, False),
+    ('v1-null', baseline, False, True),
+    ('v2-null', baseline, True, True),
+    ('aligned-null', aligned, True, True),
+]
+Path('scan-provenance.json').write_text(json.dumps(dict(
+    baseline_run=40613767503, baseline_head='d88dd980c3b0153ce02faba6156ec584f3bd711a',
+    aligned_run=40620380829, aligned_head='c22f6a62728a0cffe9697dec505e61764723a08a',
+    runner_head=os.environ['GITHUB_SHA'], runner_run=os.environ['GITHUB_RUN_ID'],
+    binary_sha256={name: aligned_hash if path == aligned else base_hash for name,path,_,_ in variants}
+), indent=2))
 
-spec = importlib.util.spec_from_file_location('summary', root / '.agents/skills/samply/scripts/profile_summary.py')
-summary = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(summary)
-original_frame_label = summary.frame_label
+def run(name, binary, v2, nulls, label, queries, iterations, extra=()):
+    env = dict(os.environ, TOKIO_WORKER_THREADS='8', DATAFUSION_EXECUTION_TARGET_PARTITIONS='8',
+               RUST_LOG='warn', DATAFUSION_OPTIMIZER_FILTER_NULL_JOIN_KEYS=str(nulls).lower())
+    cmd = [str(binary), 'tpcds', '--formats', 'vortex', '--queries', queries,
+           '--iterations', str(iterations), '--scan-v2', str(v2).lower(),
+           '--hide-progress-bar', '--display-format', 'gh-json', '--runner', 'null-join-keys-8workers',
+           '--ingest-jsonl', label+'.jsonl', '--opt', f'scale-factor={scale}', *extra]
+    Path(label+'.command.json').write_text(json.dumps(dict(command=cmd, env={k:env[k] for k in (
+        'TOKIO_WORKER_THREADS','DATAFUSION_EXECUTION_TARGET_PARTITIONS','RUST_LOG','DATAFUSION_OPTIMIZER_FILTER_NULL_JOIN_KEYS')}), indent=2))
+    with Path(label+'.txt').open('w') as log:
+        subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=600)
 
-def frame_label(thread, index, symbols=None):
-    function = summary.value_at(thread.get('frameTable') or {}, 'func', index)
-    resource_index = summary.value_at(thread.get('funcTable') or {}, 'resource', function) if isinstance(function, int) else None
-    resource = summary.resource_name(thread, resource_index)
-    return original_frame_label(thread, index, symbols if os.path.basename(resource) == binary.name else None)
-
-summary.frame_label = frame_label
-binary_sha = hashlib.sha256(binary.read_bytes()).hexdigest()
-for query, iterations in ([('28', 20), ('32', 60), ('58', 20)] if suite == 'tpcds' else [('13', 20), ('28', 10)]):
-    for label_name, binary, v2 in variants:
-        binary_sha = hashlib.sha256(binary.read_bytes()).hexdigest()
-        label = f'scan-q{query}-{label_name}'
-        output = root / (label + '.profile.json.gz')
-        cmd = ['sudo', '-n', '--preserve-env=TOKIO_WORKER_THREADS,DATAFUSION_EXECUTION_TARGET_PARTITIONS,RUST_LOG',
-               str(samply), 'record', '--save-only', '--rate', '1000', '--output', str(output),
-               '--', *command(v2, query, iterations, label)]
-        Path(label + '.command.json').write_text(json.dumps({'command': cmd, 'env': profile_env, 'binary_sha256': binary_sha}, indent=2))
-        with open(label + '.txt', 'w') as log:
-            subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=600, check=True)
-        measurements = [json.loads(line) for line in Path(label + '.jsonl').read_text().splitlines()]
-        assert any(m.get('kind') == 'query_measurement' and len(m['all_runtimes_ns']) == iterations for m in measurements)
-        profile = summary.load_profile(output)
-        addresses = summary.collect_symbol_addresses(profile, binary.name)
-        result = subprocess.run(['llvm-symbolizer', '--obj=' + str(binary), '--no-inlines', '--demangle'],
-                                input='\n'.join(addresses) + '\n', text=True, capture_output=True, check=True)
-        blocks = result.stdout.strip().split('\n\n')
-        assert len(blocks) == len(addresses)
-        symbols = {address: block.splitlines()[0] for address, block in zip(addresses, blocks)
-                   if block.splitlines() and block.splitlines()[0] != '??'}
-        Path(label + '.symbols.json').write_text(json.dumps(symbols))
-        threads = sorted((t for t in profile['threads'] if t['name'] == 'tokio-rt-worker'),
-                         key=summary.thread_cpu_ms, reverse=True)[:8]
-        own, inclusive, stacks = collections.Counter(), collections.Counter(), collections.Counter()
-        cpu_ms = 0
-        for thread in threads:
-            counts = summary.summarize_thread(thread, symbols, 'cpu')
-            cpu_ms += counts['cpu_ms']
-            own.update(counts['self'])
-            inclusive.update(counts['inclusive'])
-            stacks.update(counts['stacks'])
-        counters = {'cpu_ms': cpu_ms, 'self': own, 'inclusive': inclusive,
-                    'all_threads': [{'name': t['name'], 'tid': t['tid'], 'cpu_ms': summary.thread_cpu_ms(t)} for t in profile['threads']],
-                    'top_stacks': [{'weight': weight, 'frames': frames} for frames, weight in stacks.most_common(30)]}
-        Path(label + '.counters.json').write_text(json.dumps(counters, indent=2))
-        print(json.dumps({'profile': str(output), 'worker_cpu_ms': cpu_ms,
-                          'symbols_resolved': len(symbols), 'symbol_addresses': len(addresses),
-                          'top_self': own.most_common(8)}), flush=True)
+for rnd in range(3):
+    for variant in variants[rnd:] + variants[:rnd]:
+        run(*variant, f'scan-timing-r{rnd}-{variant[0]}', '20,28,32,58', 9)
+for variant in variants:
+    run(*variant, f'scan-metrics-{variant[0]}', '20,28,32,58', 1, ['--show-metrics'])
+    run(*variant, f'scan-explain-{variant[0]}', '58', 1, ['--explain'])
