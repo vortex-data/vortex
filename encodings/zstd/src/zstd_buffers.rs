@@ -492,7 +492,9 @@ impl VTable for ZstdBuffers {
                 vortex_ensure_eq!(validity.dtype(), &Validity::DTYPE);
                 vortex_ensure_eq!(validity.len(), len);
             }
-            None => vortex_ensure_eq!(extra_slots, 0, "ZstdBuffers has unexpected extra slots"),
+            None => {
+                vortex_ensure_eq!(extra_slots, 0, "ZstdBuffers has unexpected extra slots")
+            }
         }
         Ok(())
     }
@@ -663,12 +665,13 @@ impl ValidityVTable<ZstdBuffers> for ZstdBuffers {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
@@ -681,9 +684,12 @@ mod tests {
     use vortex_buffer::ByteBufferMut;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
     use super::*;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn make_primitive_array() -> ArrayRef {
         PrimitiveArray::from_iter(0i32..100).into_array()
@@ -725,12 +731,12 @@ mod tests {
     #[case::empty_primitive(make_empty_primitive_array())]
     #[case::inlined_varbinview(make_inlined_varbinview_array())]
     fn test_roundtrip(#[case] input: ArrayRef) -> VortexResult<()> {
-        let compressed = ZstdBuffers::compress(&input, 3, &array_session())?;
+        let compressed = ZstdBuffers::compress(&input, 3, &SESSION)?;
 
         assert_eq!(compressed.len(), input.len());
         assert_eq!(compressed.dtype(), input.dtype());
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         assert_arrays_eq!(compressed, input, &mut ctx);
         Ok(())
@@ -744,7 +750,7 @@ mod tests {
     #[case::empty_primitive(make_empty_primitive_array())]
     #[case::inlined_varbinview(make_inlined_varbinview_array())]
     fn test_serde_roundtrip(#[case] input: ArrayRef) -> VortexResult<()> {
-        let session = array_session();
+        let session = VortexSession::empty();
         session.arrays().register(ZstdBuffers);
 
         let compressed = ZstdBuffers::compress(&input, 3, &session)?.into_array();
@@ -772,7 +778,7 @@ mod tests {
         let input = make_primitive_array();
         input.statistics().set(Stat::Min, Precision::exact(0i32));
 
-        let compressed = ZstdBuffers::compress(&input, 3, &array_session())?;
+        let compressed = ZstdBuffers::compress(&input, 3, &SESSION)?;
 
         assert_eq!(
             compressed.statistics().get(Stat::Min),
@@ -783,7 +789,7 @@ mod tests {
 
     #[test]
     fn test_rejects_mismatched_frame_content_size_before_output_allocation() -> VortexResult<()> {
-        let compressed = ZstdBuffers::compress(&make_primitive_array(), 3, &array_session())?;
+        let compressed = ZstdBuffers::compress(&make_primitive_array(), 3, &SESSION)?;
         let mut data = compressed.data().clone();
         data.uncompressed_sizes[0] = 16 * 1024 * 1024 * 1024;
 
@@ -802,9 +808,9 @@ mod tests {
     #[test]
     fn test_validity_delegates_for_nullable_input() -> VortexResult<()> {
         let input = make_nullable_primitive_array();
-        let compressed = ZstdBuffers::compress(&input, 3, &array_session())?.into_array();
+        let compressed = ZstdBuffers::compress(&input, 3, &SESSION)?.into_array();
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(compressed.all_valid(&mut ctx)?, input.all_valid(&mut ctx)?);
         assert_eq!(
             compressed.all_invalid(&mut ctx)?,
@@ -823,8 +829,7 @@ mod tests {
 
     #[test]
     fn test_validity_shares_inner_child() -> VortexResult<()> {
-        let compressed =
-            ZstdBuffers::compress(&make_nullable_primitive_array(), 3, &array_session())?;
+        let compressed = ZstdBuffers::compress(&make_nullable_primitive_array(), 3, &SESSION)?;
 
         assert_eq!(
             compressed.slots().len(),
@@ -838,20 +843,20 @@ mod tests {
     fn test_all_invalid_validity_uses_extra_slot() -> VortexResult<()> {
         let input = PrimitiveArray::new(vortex_buffer::buffer![1i32, 2, 3], Validity::AllInvalid)
             .into_array();
-        let compressed = ZstdBuffers::compress(&input, 3, &array_session())?;
+        let compressed = ZstdBuffers::compress(&input, 3, &SESSION)?;
 
         let inner_child_count = compressed.data().inner_child_count;
         assert_eq!(compressed.slots().len(), inner_child_count + 1);
         assert_eq!(compressed.data().validity_slot, Some(inner_child_count));
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert!(compressed.into_array().all_invalid(&mut ctx)?);
         Ok(())
     }
 
     #[test]
     fn test_deserialize_without_lifted_validity() -> VortexResult<()> {
-        let session = array_session();
+        let session = VortexSession::empty();
         let input = make_nullable_primitive_array();
         let compressed = ZstdBuffers::compress(&input, 3, &session)?;
 

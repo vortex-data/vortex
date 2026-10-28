@@ -59,28 +59,28 @@ logical_plan
 06)----------Projection: item.i_brand_id, item.i_brand, tmp.ext_price, tmp.time_sk
 07)------------Inner Join: item.i_item_sk = tmp.sold_item_sk
 08)--------------Projection: item.i_item_sk, item.i_brand_id, item.i_brand
-09)----------------Filter: item.i_manager_id = Int64(1)
-10)------------------TableScan: item projection=[i_item_sk, i_brand_id, i_brand, i_manager_id], partial_filters=[item.i_manager_id = Int64(1)]
+09)----------------Filter: item.i_manager_id = Int32(1)
+10)------------------TableScan: item projection=[i_item_sk, i_brand_id, i_brand, i_manager_id], partial_filters=[item.i_manager_id = Int32(1)]
 11)--------------SubqueryAlias: tmp
 12)----------------Union
 13)------------------Projection: web_sales.ws_ext_sales_price AS ext_price, web_sales.ws_item_sk AS sold_item_sk, web_sales.ws_sold_time_sk AS time_sk
 14)--------------------Inner Join: web_sales.ws_sold_date_sk = date_dim.d_date_sk
 15)----------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_sold_time_sk, ws_item_sk, ws_ext_sales_price]
 16)----------------------Projection: date_dim.d_date_sk
-17)------------------------Filter: date_dim.d_moy = Int64(11) AND date_dim.d_year = Int64(1999)
-18)--------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy = Int64(11), date_dim.d_year = Int64(1999)]
+17)------------------------Filter: date_dim.d_moy = Int32(11) AND date_dim.d_year = Int32(1999)
+18)--------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy = Int32(11), date_dim.d_year = Int32(1999)]
 19)------------------Projection: catalog_sales.cs_ext_sales_price AS ext_price, catalog_sales.cs_item_sk AS sold_item_sk, catalog_sales.cs_sold_time_sk AS time_sk
 20)--------------------Inner Join: catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
 21)----------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_sold_time_sk, cs_item_sk, cs_ext_sales_price]
 22)----------------------Projection: date_dim.d_date_sk
-23)------------------------Filter: date_dim.d_moy = Int64(11) AND date_dim.d_year = Int64(1999)
-24)--------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy = Int64(11), date_dim.d_year = Int64(1999)]
+23)------------------------Filter: date_dim.d_moy = Int32(11) AND date_dim.d_year = Int32(1999)
+24)--------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy = Int32(11), date_dim.d_year = Int32(1999)]
 25)------------------Projection: store_sales.ss_ext_sales_price AS ext_price, store_sales.ss_item_sk AS sold_item_sk, store_sales.ss_sold_time_sk AS time_sk
 26)--------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
 27)----------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_sold_time_sk, ss_item_sk, ss_ext_sales_price]
 28)----------------------Projection: date_dim.d_date_sk
-29)------------------------Filter: date_dim.d_moy = Int64(11) AND date_dim.d_year = Int64(1999)
-30)--------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy = Int64(11), date_dim.d_year = Int64(1999)]
+29)------------------------Filter: date_dim.d_moy = Int32(11) AND date_dim.d_year = Int32(1999)
+30)--------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy = Int32(11), date_dim.d_year = Int32(1999)]
 31)----------Projection: time_dim.t_time_sk, time_dim.t_hour, time_dim.t_minute
 32)------------Filter: time_dim.t_meal_time = Utf8View("breakfast") OR time_dim.t_meal_time = Utf8View("dinner")
 33)--------------TableScan: time_dim projection=[t_time_sk, t_hour, t_minute, t_meal_time], partial_filters=[time_dim.t_meal_time = Utf8View("breakfast") OR time_dim.t_meal_time = Utf8View("dinner")]

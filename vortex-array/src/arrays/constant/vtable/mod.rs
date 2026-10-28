@@ -414,9 +414,11 @@ fn append_value_or_nulls<B: ArrayBuilder + 'static>(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use rstest::rstest;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::ExecutionCtx;
@@ -447,6 +449,8 @@ mod tests {
     use crate::extension::datetime::TimeUnit;
     use crate::scalar::Scalar;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     fn assert_constant_values(
         array: &ArrayRef,
         scalar: &Scalar,
@@ -463,7 +467,7 @@ mod tests {
 
     /// Checks append against both the fixture scalar and the canonicalization path.
     fn assert_append_matches_canonical(array: ConstantArray) -> VortexResult<()> {
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let scalar = array.scalar().clone();
         let len = array.len();
@@ -601,7 +605,7 @@ mod tests {
     /// across the whole run.
     #[test]
     fn test_list_constant_append_keeps_one_copy_of_the_elements() -> VortexResult<()> {
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let scalar = Scalar::list(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![Scalar::from(1i32), Scalar::from(2i32), Scalar::from(3i32)],
@@ -632,7 +636,7 @@ mod tests {
     /// share its elements there and takes the canonical path instead.
     #[test]
     fn test_list_constant_append_into_list_builder() -> VortexResult<()> {
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let element_dtype: Arc<DType> =
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
         let scalar = Scalar::list(
@@ -688,7 +692,7 @@ mod tests {
     /// a value per row per field.
     #[test]
     fn test_struct_constant_append_keeps_fields_constant() -> VortexResult<()> {
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let fields = StructFields::new(
             ["x", "y"].into(),
             vec![
@@ -752,7 +756,7 @@ mod tests {
     /// tile's chunks stay constant-encoded rather than materializing a value per row.
     #[test]
     fn test_uniform_fixed_size_list_constant_append_keeps_elements_constant() -> VortexResult<()> {
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let scalar = Scalar::fixed_size_list(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![Scalar::from(7i32), Scalar::from(7i32)],
@@ -792,7 +796,7 @@ mod tests {
     /// the storage constant-encoded.
     #[test]
     fn test_extension_constant_append_keeps_storage_constant() -> VortexResult<()> {
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let scalar = Scalar::extension::<Date>(TimeUnit::Days, Scalar::from(Some(42i32)));
         let array = ConstantArray::new(scalar.clone(), 1_000);
 

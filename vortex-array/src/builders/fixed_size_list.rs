@@ -335,15 +335,16 @@ impl ArrayBuilder for FixedSizeListBuilder {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use vortex_buffer::BufferAllocatorRef;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
+    use vortex_session::VortexSession;
 
     use super::FixedSizeListBuilder;
     use crate::IntoArray as _;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
     use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
@@ -356,6 +357,8 @@ mod tests {
     use crate::dtype::PType::I32;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_empty() {
@@ -411,7 +414,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 2);
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let fsl_array = fsl.execute::<FixedSizeListArray>(&mut ctx).unwrap();
         assert_eq!(fsl_array.elements().len(), 6);
         assert_eq!(fsl_array.list_size(), 3);
@@ -447,7 +450,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 100);
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let fsl_array = fsl.execute::<FixedSizeListArray>(&mut ctx).unwrap();
         assert_eq!(fsl_array.list_size(), 0);
         // The elements array should be empty since list_size is 0.
@@ -485,7 +488,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 100);
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let fsl_array = fsl.execute::<FixedSizeListArray>(&mut ctx).unwrap();
         assert_eq!(fsl_array.list_size(), 0);
         assert_eq!(fsl_array.elements().len(), 0);
@@ -527,7 +530,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 5);
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let fsl_array = fsl.execute::<FixedSizeListArray>(&mut ctx).unwrap();
         assert_eq!(fsl_array.elements().len(), 10);
         let expected = FixedSizeListArray::new(
@@ -554,7 +557,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 0);
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let fsl_array = fsl.execute::<FixedSizeListArray>(&mut ctx).unwrap();
         assert_eq!(fsl_array.list_size(), 100000000);
         assert_eq!(fsl_array.elements().len(), 0);
@@ -562,7 +565,7 @@ mod tests {
 
     #[test]
     fn test_nullable_lists_non_nullable_elements() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, NonNullable));
         let mut builder = FixedSizeListBuilder::with_capacity_in(
             Arc::clone(&dtype),
@@ -669,7 +672,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 2);
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let fsl_array = fsl.execute::<FixedSizeListArray>(&mut ctx).unwrap();
         assert_eq!(fsl_array.elements().len(), 6);
         let expected = FixedSizeListArray::new(
@@ -705,7 +708,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 5);
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let fsl_array = fsl.execute::<FixedSizeListArray>(&mut ctx).unwrap();
         assert_eq!(fsl_array.list_size(), 3);
         assert_eq!(fsl_array.elements().len(), 15);
@@ -722,7 +725,7 @@ mod tests {
 
     #[test]
     fn test_append_nulls() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Elements must be nullable if we're going to append null lists
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, Nullable));
         let mut builder = FixedSizeListBuilder::with_capacity_in(
@@ -757,7 +760,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar_nulls() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Elements must be nullable if we're going to append null lists
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, Nullable));
         let mut builder = FixedSizeListBuilder::with_capacity_in(
@@ -808,7 +811,7 @@ mod tests {
         let fsl = builder.finish();
         assert_eq!(fsl.len(), 1000);
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let fsl_array = fsl.execute::<FixedSizeListArray>(&mut ctx).unwrap();
         assert_eq!(fsl_array.list_size(), 0);
         assert_eq!(fsl_array.elements().len(), 0);
@@ -846,7 +849,7 @@ mod tests {
 
     #[test]
     fn test_extend_from_array() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
 
         // Create a source array.
@@ -933,7 +936,7 @@ mod tests {
 
     #[test]
     fn test_extend_degenerate_arrays() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
 
         // Create degenerate source arrays (size = 0).
@@ -1015,7 +1018,7 @@ mod tests {
 
     #[test]
     fn test_extend_empty_array() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
 
         // Create an empty source array.
@@ -1065,7 +1068,7 @@ mod tests {
 
     #[test]
     fn test_mixed_operations() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Use nullable elements since we'll be appending nulls
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, Nullable));
         let mut builder = FixedSizeListBuilder::with_capacity_in(
@@ -1180,7 +1183,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder = FixedSizeListBuilder::with_capacity_in(
             Arc::clone(&dtype),
@@ -1262,7 +1265,7 @@ mod tests {
     #[test]
     fn test_append_array_as_list() {
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut builder = FixedSizeListBuilder::with_capacity_in(
             Arc::clone(&dtype),
             3,

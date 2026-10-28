@@ -27,7 +27,8 @@ Coordinates are stored as separate, non-nullable `f64` fields named `x`, `y`, an
 Call `initialize` before using spatial data with a session:
 
 ```rust
-let session = vortex_array::array_session();
+use vortex_session::VortexSession;
+let session = VortexSession::empty();
 vortex_spatial::initialize(&session);
 ```
 

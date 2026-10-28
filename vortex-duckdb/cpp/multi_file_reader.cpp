@@ -377,8 +377,10 @@ unique_ptr<BaseStatistics> to_duckdb_statistics(duckdb_column_statistics &statis
     case UBIGINT:
     case UHUGEINT:
     case HUGEINT:
+    case DECIMAL:
     case DATE:
     case TIME:
+    case TIME_NS:
     case TIME_TZ:
     case TIMESTAMP_SEC:
     case TIMESTAMP_MS:

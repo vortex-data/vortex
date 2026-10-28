@@ -88,11 +88,6 @@ impl Queue {
         usize::from(self.front.is_some()) + self.batches.len()
     }
 
-    #[cfg(debug_assertions)]
-    pub(crate) fn is_free(&self) -> bool {
-        self.free
-    }
-
     pub(crate) fn take_changed(&mut self) -> bool {
         std::mem::take(&mut self.changed)
     }
@@ -293,21 +288,6 @@ impl Arena {
         self.maybe_free(id);
     }
 
-    /// Frees a port nobody will read, once it is no longer an outlet of any pipeline: a share's
-    /// port whose claimant never came. Closes it on the sink's behalf if the sink has not.
-    pub(crate) fn discard(&mut self, id: PortId) {
-        let queue = &mut self.queues[id];
-        debug_assert!(
-            queue.sink.is_none() && queue.source == SourceEnd::Unclaimed,
-            "discarding port {id} still attached to a pipeline"
-        );
-        queue.closed = true;
-        queue.source_gone = true;
-        queue.front = None;
-        queue.batches.clear();
-        self.maybe_free(id);
-    }
-
     fn maybe_free(&mut self, id: PortId) {
         let queue = &mut self.queues[id];
         if queue.closed && queue.source_gone && !queue.free {
@@ -316,12 +296,6 @@ impl Arena {
             queue.batches.clear();
             self.free.push(id);
         }
-    }
-
-    /// Every port slot, free or not, with its id.
-    #[cfg(debug_assertions)]
-    pub(crate) fn iter(&self) -> impl Iterator<Item = (PortId, &Queue)> {
-        self.queues.iter().enumerate()
     }
 
     /// Ports in use.

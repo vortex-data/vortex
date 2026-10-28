@@ -442,7 +442,7 @@ PrimitiveView<T> Array::values(const Session &session) const {
     Array canonical = canonicalize(session);
     const vx_array *raw = detail::Access::c_ptr(canonical);
     if (!vx_array_is_primitive(raw, detail::to_ptype<T>())) {
-        throw VortexException("values<T>: T does not match the array's ptype", ErrorCode::MismatchedTypes);
+        throw VortexException("values<T>: T does not match the array's ptype");
     }
     vx_error *error = nullptr;
     const void *data = vx_array_data_ptr_primitive(raw, &error);

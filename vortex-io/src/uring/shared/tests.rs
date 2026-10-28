@@ -43,32 +43,48 @@ fn same_range_from_independent_producers_uses_one_ring_and_read(
     // Delay reactor intake until every producer has submitted so batching is deterministic.
     let channels: Vec<_> = (0..rings).map(|_| unbounded::<Vec<Work>>()).collect();
     let pool = SharedUringPool(Arc::new(Inner {
-        endpoints: channels.iter().map(|(sender, _)| Arc::new(Mutex::new(Some(sender.clone())))).collect(),
+        endpoints: channels
+            .iter()
+            .map(|(sender, _)| Arc::new(Mutex::new(Some(sender.clone()))))
+            .collect(),
         workers: Vec::new(),
         check_resident_pages: false,
         tids: Vec::new(),
     }));
     let factory = pool.factory(file.clone());
     let readers = thread::scope(|scope| {
-        let tasks: Vec<_> = (0..8).map(|_| {
-            let factory = Arc::clone(&factory);
-            scope.spawn(move || {
-                let reader = factory()?;
-                reader.submit(&[request(0, 64, 4096)])?;
-                Ok::<_, vortex_error::VortexError>(reader)
+        let tasks: Vec<_> = (0..8)
+            .map(|_| {
+                let factory = Arc::clone(&factory);
+                scope.spawn(move || {
+                    let reader = factory()?;
+                    reader.submit(&[request(0, 64, 4096)])?;
+                    Ok::<_, vortex_error::VortexError>(reader)
+                })
             })
-        }).collect();
-        tasks.into_iter().map(|task| task.join().expect("producer thread panicked"))
+            .collect();
+        tasks
+            .into_iter()
+            .map(|task| task.join().expect("producer thread panicked"))
             .collect::<VortexResult<Vec<_>>>()
     })?;
-    let batches: Vec<Vec<Work>> = channels.iter()
-        .map(|(_, receiver)| receiver.try_iter().flatten().collect()).collect();
+    let batches: Vec<Vec<Work>> = channels
+        .iter()
+        .map(|(_, receiver)| receiver.try_iter().flatten().collect())
+        .collect();
     assert_eq!(batches.iter().filter(|batch| !batch.is_empty()).count(), 1);
     assert_eq!(batches.iter().map(Vec::len).sum::<usize>(), readers.len());
     for batch in batches.into_iter().filter(|batch| !batch.is_empty()) {
-        let mut driver = Driver::new(UringOptions { reuse_inflight: true, ..Default::default() })?;
-        for work in batch { driver.enqueue(work); }
-        while driver.has_work() { driver.pump(true)?; }
+        let mut driver = Driver::new(UringOptions {
+            reuse_inflight: true,
+            ..Default::default()
+        })?;
+        for work in batch {
+            driver.enqueue(work);
+        }
+        while driver.has_work() {
+            driver.pump(true)?;
+        }
     }
     assert_eq!(file.stats().logical_reads, readers.len() as u64);
     assert_eq!(file.stats().physical_reads, 1);
@@ -76,12 +92,18 @@ fn same_range_from_independent_producers_uses_one_ring_and_read(
     for reader in readers {
         let completion = reader.wait()?;
         assert_eq!(completion.id, ReadId(0));
-        let ReadResult::Bytes(bytes) = completion.result? else { panic!("expected bytes") };
+        let ReadResult::Bytes(bytes) = completion.result? else {
+            panic!("expected bytes")
+        };
         let bytes = bytes.try_into_host_sync()?;
         assert_eq!(bytes.as_ref(), &data[64..4160]);
         assert!(bytes.is_aligned(Alignment::new(64)));
         let current = bytes.as_ptr() as usize;
-        assert_eq!(*address.get_or_insert(current), current, "duplicate reads must share their allocation");
+        assert_eq!(
+            *address.get_or_insert(current),
+            current,
+            "duplicate reads must share their allocation"
+        );
         assert!(reader.try_complete()?.is_none());
     }
     Ok(())
@@ -90,7 +112,14 @@ fn same_range_from_independent_producers_uses_one_ring_and_read(
 #[rstest]
 fn resident_reads_complete_without_reactor_handoff(
     #[values(1, 2)] rings: usize,
-    #[values(TestMode::Buffered, TestMode::Direct, TestMode::Mapped, TestMode::MappedRead, TestMode::MappedRandom)] mode: TestMode,
+    #[values(
+        TestMode::Buffered,
+        TestMode::Direct,
+        TestMode::Mapped,
+        TestMode::MappedRead,
+        TestMode::MappedRandom
+    )]
+    mode: TestMode,
     #[values(false, true)] pinned: bool,
 ) -> VortexResult<()> {
     let mut temporary = NamedTempFile::new()?;
@@ -98,7 +127,8 @@ fn resident_reads_complete_without_reactor_handoff(
     let file = mode.open(temporary.path())?;
     let mapped = file.mapping()?.is_some();
     let options = UringOptions {
-        check_resident_pages: true, read_mapped_misses: matches!(mode, TestMode::MappedRead),
+        check_resident_pages: true,
+        read_mapped_misses: matches!(mode, TestMode::MappedRead),
         ..Default::default()
     };
     let pool = if pinned {
@@ -113,14 +143,20 @@ fn resident_reads_complete_without_reactor_handoff(
     completion.result?;
     reader.submit(&[
         request(0, 3, 17000),
-        ReadRequest { id: ReadId(1), target: ReadTarget::Suffix {
-            length: 13, alignment: Alignment::new(64),
-        } },
+        ReadRequest {
+            id: ReadId(1),
+            target: ReadTarget::Suffix {
+                length: 13,
+                alignment: Alignment::new(64),
+            },
+        },
     ])?;
     reader.cancel(ReadId(0));
     let completion = reader.wait()?;
     assert_eq!(completion.id, ReadId(1));
-    let ReadResult::Suffix { size, bytes } = completion.result? else { panic!("expected suffix") };
+    let ReadResult::Suffix { size, bytes } = completion.result? else {
+        panic!("expected suffix")
+    };
     assert_eq!(size, 17003);
     let bytes = bytes.try_into_host_sync()?;
     assert_eq!(bytes.as_slice(), &[29; 13]);
@@ -141,16 +177,20 @@ fn resident_reads_complete_without_reactor_handoff(
 fn resident_reads_only_skip_populated_ranges_in_the_same_mapping(
     #[values(1, 2)] rings: usize,
     #[values(false, true)] read_mapped_misses: bool,
-)
-    -> VortexResult<()> {
+) -> VortexResult<()> {
     let page = rustix::param::page_size();
     let size = page * 130 + 3;
     let mut temporary = NamedTempFile::new()?;
     temporary.write_all(&vec![19; size])?;
     let file = TestMode::Mapped.open(temporary.path())?;
-    let pool = SharedUringPool::new(rings, UringOptions {
-        check_resident_pages: true, read_mapped_misses, ..Default::default()
-    })?;
+    let pool = SharedUringPool::new(
+        rings,
+        UringOptions {
+            check_resident_pages: true,
+            read_mapped_misses,
+            ..Default::default()
+        },
+    )?;
     let factory = pool.factory(file.clone());
     let reader = factory()?;
     for (id, offset, length, physical_reads) in [
@@ -163,7 +203,9 @@ fn resident_reads_only_skip_populated_ranges_in_the_same_mapping(
         reader.submit(&[request(id, offset as u64, length)])?;
         let completion = reader.wait()?;
         assert_eq!(completion.id, ReadId(id));
-        let ReadResult::Bytes(bytes) = completion.result? else { panic!("expected bytes") };
+        let ReadResult::Bytes(bytes) = completion.result? else {
+            panic!("expected bytes")
+        };
         let bytes = bytes.try_into_host_sync()?;
         assert_eq!(bytes.len(), length);
         assert!(bytes.iter().all(|&byte| byte == 19));
@@ -181,9 +223,14 @@ fn resident_reads_only_skip_populated_ranges_in_the_same_mapping(
 }
 
 fn request(id: u64, offset: u64, length: usize) -> ReadRequest {
-    ReadRequest { id: ReadId(id), target: ReadTarget::Range {
-        offset, length, alignment: Alignment::new(64),
-    } }
+    ReadRequest {
+        id: ReadId(id),
+        target: ReadTarget::Range {
+            offset,
+            length,
+            alignment: Alignment::new(64),
+        },
+    }
 }
 
 #[rstest]
@@ -197,7 +244,8 @@ fn request(id: u64, offset: u64, length: usize) -> ReadRequest {
 #[case(2, TestMode::MappedRead)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn concurrent_scopes_can_move_between_compute_threads(
-    #[case] rings: usize, #[case] mode: TestMode,
+    #[case] rings: usize,
+    #[case] mode: TestMode,
     #[values(false, true)] force_async: bool,
     #[values(false, true)] pinned: bool,
 ) -> VortexResult<()> {
@@ -208,8 +256,11 @@ async fn concurrent_scopes_can_move_between_compute_threads(
     temporary.write_all(&data)?;
     let file = mode.open(temporary.path())?;
     let options = UringOptions {
-        queue_depth: 2, reuse_inflight: true, force_async,
-        read_mapped_misses: matches!(mode, TestMode::MappedRead), ..Default::default()
+        queue_depth: 2,
+        reuse_inflight: true,
+        force_async,
+        read_mapped_misses: matches!(mode, TestMode::MappedRead),
+        ..Default::default()
     };
     let pool = if pinned {
         SharedUringPool::new_pinned(rings, options)?
@@ -228,11 +279,16 @@ async fn concurrent_scopes_can_move_between_compute_threads(
             reader.cancel(ReadId(0));
             reader.submit(&[request(1, start as u64, 1307)])?;
             tokio::task::yield_now().await;
-            let completion = tokio::time::timeout(Duration::from_secs(10),
-                std::future::poll_fn(|cx| reader.poll_complete(cx))).await
-                .map_err(|error| vortex_err!("Completion timeout: {error}"))??;
+            let completion = tokio::time::timeout(
+                Duration::from_secs(10),
+                std::future::poll_fn(|cx| reader.poll_complete(cx)),
+            )
+            .await
+            .map_err(|error| vortex_err!("Completion timeout: {error}"))??;
             assert_eq!(completion.id, ReadId(1));
-            let ReadResult::Bytes(bytes) = completion.result? else { panic!("expected bytes") };
+            let ReadResult::Bytes(bytes) = completion.result? else {
+                panic!("expected bytes")
+            };
             let bytes = bytes.try_into_host_sync()?;
             assert_eq!(bytes.as_ref(), &data[start..start + 1307]);
             assert!(bytes.is_aligned(Alignment::new(64)));
@@ -241,13 +297,16 @@ async fn concurrent_scopes_can_move_between_compute_threads(
         }));
     }
     for task in tasks {
-        task.await.map_err(|error| vortex_err!("Scan task failed: {error}"))??;
+        task.await
+            .map_err(|error| vortex_err!("Scan task failed: {error}"))??;
     }
     Ok(())
 }
 
 #[rstest]
-fn blocking_wait_and_registration_failures(#[values(false, true)] pinned: bool) -> VortexResult<()> {
+fn blocking_wait_and_registration_failures(
+    #[values(false, true)] pinned: bool,
+) -> VortexResult<()> {
     let mut temporary = NamedTempFile::new()?;
     temporary.write_all(&[29; 17003])?;
     let pool = if pinned {
@@ -256,11 +315,21 @@ fn blocking_wait_and_registration_failures(#[values(false, true)] pinned: bool) 
         SharedUringPool::new(1, UringOptions::default())?
     };
     let reader = pool.factory(UringFile::open(temporary.path(), FileMode::Buffered)?)()?;
-    assert!(reader.submit(&[request(0, 0, 5), request(1, u64::MAX, 2)]).is_err());
+    assert!(
+        reader
+            .submit(&[request(0, 0, 5), request(1, u64::MAX, 2)])
+            .is_err()
+    );
     assert!(reader.try_complete()?.is_none());
     assert!(reader.wait().is_err());
     reader.submit(&[
-        ReadRequest { id: ReadId(0), target: ReadTarget::Suffix { length: 13, alignment: Alignment::new(64) } },
+        ReadRequest {
+            id: ReadId(0),
+            target: ReadTarget::Suffix {
+                length: 13,
+                alignment: Alignment::new(64),
+            },
+        },
         request(1, 17002, 2),
     ])?;
     for _ in 0..2 {
@@ -268,7 +337,9 @@ fn blocking_wait_and_registration_failures(#[values(false, true)] pinned: bool) 
         if completion.id == ReadId(1) {
             assert!(completion.result.is_err());
         } else {
-            let ReadResult::Suffix { size, bytes } = completion.result? else { panic!("expected suffix") };
+            let ReadResult::Suffix { size, bytes } = completion.result? else {
+                panic!("expected suffix")
+            };
             assert_eq!(size, 17003);
             assert_eq!(bytes.try_into_host_sync()?.as_ref(), &[29; 13]);
         }
@@ -287,8 +358,13 @@ fn reactor_and_eager_kernel_worker_affinity(
     #[values(false, true)] eager_kernel_worker: bool,
 ) -> VortexResult<()> {
     let allowed = rustix::thread::sched_getaffinity(None).map_err(io::Error::from)?;
-    let cpus: Vec<_> = (0..CpuSet::MAX_CPU).filter(|&cpu| allowed.is_set(cpu)).collect();
-    let options = UringOptions { eager_kernel_worker, ..Default::default() };
+    let cpus: Vec<_> = (0..CpuSet::MAX_CPU)
+        .filter(|&cpu| allowed.is_set(cpu))
+        .collect();
+    let options = UringOptions {
+        eager_kernel_worker,
+        ..Default::default()
+    };
     let pool = if pinned {
         SharedUringPool::new_pinned(rings, options)?
     } else {
@@ -298,10 +374,16 @@ fn reactor_and_eager_kernel_worker_affinity(
     for (ring, &tid) in pool.0.tids.iter().enumerate() {
         let actual = rustix::thread::sched_getaffinity(Some(tid)).map_err(io::Error::from)?;
         for cpu in 0..CpuSet::MAX_CPU {
-            let expected = if pinned { cpu == cpus[ring] } else { allowed.is_set(cpu) };
+            let expected = if pinned {
+                cpu == cpus[ring]
+            } else {
+                allowed.is_set(cpu)
+            };
             assert_eq!(actual.is_set(cpu), expected, "reactor {ring}, CPU {cpu}");
         }
-        if !eager_kernel_worker { continue; }
+        if !eager_kernel_worker {
+            continue;
+        }
         let owner = tid.as_raw_nonzero().get();
         let expected_name = format!("iou-wrk-{owner}");
         let mut found = false;
@@ -311,16 +393,30 @@ fn reactor_and_eager_kernel_worker_affinity(
                 Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
                 result => result?,
             };
-            if name.trim() != expected_name { continue; }
-            let worker = entry.file_name().to_string_lossy().parse::<i32>().expect("numeric task directory");
+            if name.trim() != expected_name {
+                continue;
+            }
+            let worker = entry
+                .file_name()
+                .to_string_lossy()
+                .parse::<i32>()
+                .expect("numeric task directory");
             let worker = Pid::from_raw(worker).expect("positive task id");
-            let actual = rustix::thread::sched_getaffinity(Some(worker)).map_err(io::Error::from)?;
+            let actual =
+                rustix::thread::sched_getaffinity(Some(worker)).map_err(io::Error::from)?;
             for cpu in 0..CpuSet::MAX_CPU {
-                assert_eq!(actual.is_set(cpu), allowed.is_set(cpu), "kernel worker CPU {cpu}");
+                assert_eq!(
+                    actual.is_set(cpu),
+                    allowed.is_set(cpu),
+                    "kernel worker CPU {cpu}"
+                );
             }
             found = true;
         }
-        assert!(found, "eager setup must create an io-wq worker for reactor {ring}");
+        assert!(
+            found,
+            "eager setup must create an io-wq worker for reactor {ring}"
+        );
     }
     Ok(())
 }
@@ -328,7 +424,9 @@ fn reactor_and_eager_kernel_worker_affinity(
 #[test]
 fn pinned_reactor_count_must_fit_allowed_cpus() -> VortexResult<()> {
     let allowed = rustix::thread::sched_getaffinity(None).map_err(io::Error::from)?;
-    let cpus = (0..CpuSet::MAX_CPU).filter(|&cpu| allowed.is_set(cpu)).count();
+    let cpus = (0..CpuSet::MAX_CPU)
+        .filter(|&cpu| allowed.is_set(cpu))
+        .count();
     assert!(SharedUringPool::new_pinned(0, UringOptions::default()).is_err());
     assert!(SharedUringPool::new_pinned(cpus + 1, UringOptions::default()).is_err());
     Ok(())

@@ -33,11 +33,13 @@ impl FillNullReduce for Chunked {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::BitBuffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::assert_arrays_eq;
@@ -46,6 +48,8 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn fill_null_chunks() {
@@ -64,7 +68,7 @@ mod tests {
             BoolArray::from_iter([
                 false, false, false, false, false, true, true, true, true, true
             ]),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 }

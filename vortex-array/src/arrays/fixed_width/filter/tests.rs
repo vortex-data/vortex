@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
 use std::sync::atomic::Ordering;
 
 use rstest::rstest;
@@ -8,12 +9,12 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::buffer;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 use super::filter_records;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::DecimalArray;
 use crate::arrays::PrimitiveArray;
 use crate::compute::conformance::filter::LARGE_SIZE;
@@ -23,6 +24,8 @@ use crate::dtype::DecimalDType;
 use crate::dtype::i256;
 use crate::memory::test_allocator::counting_allocator;
 use crate::validity::Validity;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 #[test]
 fn filter_fallback_width_records() {
@@ -102,5 +105,5 @@ fn filter_records_use_execution_allocator() {
     Validity::NonNullable,
 ).into_array())]
 fn fixed_width_filter_conformance(#[case] array: ArrayRef) {
-    test_filter_conformance(&array, &mut array_session().create_execution_ctx());
+    test_filter_conformance(&array, &mut SESSION.create_execution_ctx());
 }

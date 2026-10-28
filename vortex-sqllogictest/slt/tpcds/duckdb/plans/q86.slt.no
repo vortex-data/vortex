@@ -202,10 +202,10 @@ logical_plan [
                                                         ],
                                                         "extra_info": {
                                                             "Expressions": [
-                                                                "(d_month_seq >= CAST(1200 AS BIGINT))",
+                                                                "(d_month_seq >= CAST(1200 AS INTEGER))",
                                                                 "(d_date_sk = ws_sold_date_sk)",
                                                                 "(i_item_sk = ws_item_sk)",
-                                                                "(d_month_seq <= CAST((1200 + 11) AS BIGINT))"
+                                                                "(d_month_seq <= (1200 + 11))"
                                                             ]
                                                         }
                                                     }
@@ -304,7 +304,7 @@ logical_opt [
                                                                                 "extra_info": {
                                                                                     "Filters": "",
                                                                                     "Function": "Vortex Scan",
-                                                                                    "Estimated Cardinality": "1800"
+                                                                                    "Estimated Cardinality": "2000"
                                                                                 }
                                                                             }
                                                                         ],
@@ -319,8 +319,8 @@ logical_opt [
                                                                         "children": [],
                                                                         "extra_info": {
                                                                             "Filters": [
-                                                                                "(1200i64 <= $.d_month_seq <= 1211i64)",
-                                                                                "(2450816i64 <= $.d_date_sk <= 2452642i64)"
+                                                                                "(1200i32 <= $.d_month_seq <= 1211i32)",
+                                                                                "(2450816i32 <= $.d_date_sk <= 2452642i32)"
                                                                             ],
                                                                             "Function": "Vortex Scan",
                                                                             "Estimated Cardinality": "14609"
@@ -635,7 +635,7 @@ physical_plan [
                                                                                                 "i_class",
                                                                                                 "i_category"
                                                                                             ],
-                                                                                            "Estimated Cardinality": "1800"
+                                                                                            "Estimated Cardinality": "2000"
                                                                                         }
                                                                                     }
                                                                                 ],
@@ -651,8 +651,8 @@ physical_plan [
                                                                                 "extra_info": {
                                                                                     "Function": "Vortex Scan",
                                                                                     "Filters": [
-                                                                                        "(1200i64 <= $.d_month_seq <= 1211i64)",
-                                                                                        "(2450816i64 <= $.d_date_sk <= 2452642i64)"
+                                                                                        "(1200i32 <= $.d_month_seq <= 1211i32)",
+                                                                                        "(2450816i32 <= $.d_date_sk <= 2452642i32)"
                                                                                     ],
                                                                                     "Projections": "d_date_sk",
                                                                                     "Estimated Cardinality": "14609"

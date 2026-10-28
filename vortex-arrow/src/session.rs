@@ -557,13 +557,13 @@ impl ArrowSession {
     /// use arrow_array::Array;
     /// use vortex_array::IntoArray;
     /// use vortex_array::VortexSessionExecute;
-    /// use vortex_array::array_session;
+    /// use vortex_session::VortexSession;
     /// use vortex_array::arrays::VarBinViewArray;
     /// use vortex_arrow::ArrowExportOptions;
     /// use vortex_arrow::ArrowSessionExt;
     /// use vortex_arrow::CompactBuffers;
     ///
-    /// let session = array_session();
+    /// let session = VortexSession::empty();
     /// let array = VarBinViewArray::from_iter_str(["a", "b"]).into_array();
     /// let options = ArrowExportOptions::default().with(CompactBuffers(false));
     /// let arrow = session.arrow().exporter(&options).execute_arrow(
@@ -939,6 +939,7 @@ impl<S: SessionExt> ArrowSessionExt for S {
 mod tests {
     use std::ops::Range;
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use arrow_array::DictionaryArray;
     use arrow_array::GenericListArray;
@@ -958,7 +959,6 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute as _;
-    use vortex_array::array_session;
     use vortex_array::arrays::Dict;
     use vortex_array::arrays::ListArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -969,9 +969,12 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
     use vortex_session::registry::CachedId;
 
     use super::*;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     #[case::prefix(0, 2)]
@@ -1009,7 +1012,7 @@ mod tests {
         let sliced = session.from_arrow_array(lists(0..1000).slice(start, len), false)?;
         let fresh = session.from_arrow_array(lists(start as i64..(start + len) as i64), false)?;
         assert_eq!(sliced.nbytes(), fresh.nbytes());
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expected = ListArray::new(
             PrimitiveArray::from_iter(
                 (start as i64..(start + len) as i64).flat_map(|row| [row, row + 1]),
@@ -1090,7 +1093,7 @@ mod tests {
         assert_arrays_eq!(
             array,
             VarBinViewArray::from_iter_str(["a", "b", "a", "b"]),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }

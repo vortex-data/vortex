@@ -326,7 +326,7 @@ logical_plan [
                                                                                                                 "s_zip",
                                                                                                                 "s_country",
                                                                                                                 "s_gmt_offset",
-                                                                                                                "s_tax_percentage"
+                                                                                                                "s_tax_precentage"
                                                                                                             ]
                                                                                                         }
                                                                                                     }
@@ -341,9 +341,9 @@ logical_plan [
                                                                                                 "(ss_sold_time_sk = t_time_sk)",
                                                                                                 "(ss_hdemo_sk = hd_demo_sk)",
                                                                                                 "(ss_store_sk = s_store_sk)",
-                                                                                                "(t_hour = CAST(8 AS BIGINT))",
-                                                                                                "(t_minute >= CAST(30 AS BIGINT))",
-                                                                                                "(((hd_dep_count = CAST(4 AS BIGINT)) AND (hd_vehicle_count <= (4 + 2))) OR ((hd_dep_count = CAST(2 AS BIGINT)) AND (hd_vehicle_count <= (2 + 2))) OR ((hd_dep_count = CAST(0 AS BIGINT)) AND (hd_vehicle_count <= (0 + 2))))",
+                                                                                                "(t_hour = CAST(8 AS INTEGER))",
+                                                                                                "(t_minute >= CAST(30 AS INTEGER))",
+                                                                                                "(((hd_dep_count = CAST(4 AS INTEGER)) AND (hd_vehicle_count <= (4 + 2))) OR ((hd_dep_count = CAST(2 AS INTEGER)) AND (hd_vehicle_count <= (2 + 2))) OR ((hd_dep_count = CAST(0 AS INTEGER)) AND (hd_vehicle_count <= (0 + 2))))",
                                                                                                 "(s_store_name = CAST('ese' AS VARCHAR))"
                                                                                             ]
                                                                                         }
@@ -518,7 +518,7 @@ logical_plan [
                                                                                                                 "s_zip",
                                                                                                                 "s_country",
                                                                                                                 "s_gmt_offset",
-                                                                                                                "s_tax_percentage"
+                                                                                                                "s_tax_precentage"
                                                                                                             ]
                                                                                                         }
                                                                                                     }
@@ -533,9 +533,9 @@ logical_plan [
                                                                                                 "(ss_sold_time_sk = t_time_sk)",
                                                                                                 "(ss_hdemo_sk = hd_demo_sk)",
                                                                                                 "(ss_store_sk = s_store_sk)",
-                                                                                                "(t_hour = CAST(9 AS BIGINT))",
-                                                                                                "(t_minute < CAST(30 AS BIGINT))",
-                                                                                                "(((hd_dep_count = CAST(4 AS BIGINT)) AND (hd_vehicle_count <= (4 + 2))) OR ((hd_dep_count = CAST(2 AS BIGINT)) AND (hd_vehicle_count <= (2 + 2))) OR ((hd_dep_count = CAST(0 AS BIGINT)) AND (hd_vehicle_count <= (0 + 2))))",
+                                                                                                "(t_hour = CAST(9 AS INTEGER))",
+                                                                                                "(t_minute < CAST(30 AS INTEGER))",
+                                                                                                "(((hd_dep_count = CAST(4 AS INTEGER)) AND (hd_vehicle_count <= (4 + 2))) OR ((hd_dep_count = CAST(2 AS INTEGER)) AND (hd_vehicle_count <= (2 + 2))) OR ((hd_dep_count = CAST(0 AS INTEGER)) AND (hd_vehicle_count <= (0 + 2))))",
                                                                                                 "(s_store_name = CAST('ese' AS VARCHAR))"
                                                                                             ]
                                                                                         }
@@ -715,7 +715,7 @@ logical_plan [
                                                                                                         "s_zip",
                                                                                                         "s_country",
                                                                                                         "s_gmt_offset",
-                                                                                                        "s_tax_percentage"
+                                                                                                        "s_tax_precentage"
                                                                                                     ]
                                                                                                 }
                                                                                             }
@@ -730,9 +730,9 @@ logical_plan [
                                                                                         "(ss_sold_time_sk = t_time_sk)",
                                                                                         "(ss_hdemo_sk = hd_demo_sk)",
                                                                                         "(ss_store_sk = s_store_sk)",
-                                                                                        "(t_hour = CAST(9 AS BIGINT))",
-                                                                                        "(t_minute >= CAST(30 AS BIGINT))",
-                                                                                        "(((hd_dep_count = CAST(4 AS BIGINT)) AND (hd_vehicle_count <= (4 + 2))) OR ((hd_dep_count = CAST(2 AS BIGINT)) AND (hd_vehicle_count <= (2 + 2))) OR ((hd_dep_count = CAST(0 AS BIGINT)) AND (hd_vehicle_count <= (0 + 2))))",
+                                                                                        "(t_hour = CAST(9 AS INTEGER))",
+                                                                                        "(t_minute >= CAST(30 AS INTEGER))",
+                                                                                        "(((hd_dep_count = CAST(4 AS INTEGER)) AND (hd_vehicle_count <= (4 + 2))) OR ((hd_dep_count = CAST(2 AS INTEGER)) AND (hd_vehicle_count <= (2 + 2))) OR ((hd_dep_count = CAST(0 AS INTEGER)) AND (hd_vehicle_count <= (0 + 2))))",
                                                                                         "(s_store_name = CAST('ese' AS VARCHAR))"
                                                                                     ]
                                                                                 }
@@ -912,7 +912,7 @@ logical_plan [
                                                                                                 "s_zip",
                                                                                                 "s_country",
                                                                                                 "s_gmt_offset",
-                                                                                                "s_tax_percentage"
+                                                                                                "s_tax_precentage"
                                                                                             ]
                                                                                         }
                                                                                     }
@@ -927,9 +927,9 @@ logical_plan [
                                                                                 "(ss_sold_time_sk = t_time_sk)",
                                                                                 "(ss_hdemo_sk = hd_demo_sk)",
                                                                                 "(ss_store_sk = s_store_sk)",
-                                                                                "(t_hour = CAST(10 AS BIGINT))",
-                                                                                "(t_minute < CAST(30 AS BIGINT))",
-                                                                                "(((hd_dep_count = CAST(4 AS BIGINT)) AND (hd_vehicle_count <= (4 + 2))) OR ((hd_dep_count = CAST(2 AS BIGINT)) AND (hd_vehicle_count <= (2 + 2))) OR ((hd_dep_count = CAST(0 AS BIGINT)) AND (hd_vehicle_count <= (0 + 2))))",
+                                                                                "(t_hour = CAST(10 AS INTEGER))",
+                                                                                "(t_minute < CAST(30 AS INTEGER))",
+                                                                                "(((hd_dep_count = CAST(4 AS INTEGER)) AND (hd_vehicle_count <= (4 + 2))) OR ((hd_dep_count = CAST(2 AS INTEGER)) AND (hd_vehicle_count <= (2 + 2))) OR ((hd_dep_count = CAST(0 AS INTEGER)) AND (hd_vehicle_count <= (0 + 2))))",
                                                                                 "(s_store_name = CAST('ese' AS VARCHAR))"
                                                                             ]
                                                                         }
@@ -1109,7 +1109,7 @@ logical_plan [
                                                                                         "s_zip",
                                                                                         "s_country",
                                                                                         "s_gmt_offset",
-                                                                                        "s_tax_percentage"
+                                                                                        "s_tax_precentage"
                                                                                     ]
                                                                                 }
                                                                             }
@@ -1124,9 +1124,9 @@ logical_plan [
                                                                         "(ss_sold_time_sk = t_time_sk)",
                                                                         "(ss_hdemo_sk = hd_demo_sk)",
                                                                         "(ss_store_sk = s_store_sk)",
-                                                                        "(t_hour = CAST(10 AS BIGINT))",
-                                                                        "(t_minute >= CAST(30 AS BIGINT))",
-                                                                        "(((hd_dep_count = CAST(4 AS BIGINT)) AND (hd_vehicle_count <= (4 + 2))) OR ((hd_dep_count = CAST(2 AS BIGINT)) AND (hd_vehicle_count <= (2 + 2))) OR ((hd_dep_count = CAST(0 AS BIGINT)) AND (hd_vehicle_count <= (0 + 2))))",
+                                                                        "(t_hour = CAST(10 AS INTEGER))",
+                                                                        "(t_minute >= CAST(30 AS INTEGER))",
+                                                                        "(((hd_dep_count = CAST(4 AS INTEGER)) AND (hd_vehicle_count <= (4 + 2))) OR ((hd_dep_count = CAST(2 AS INTEGER)) AND (hd_vehicle_count <= (2 + 2))) OR ((hd_dep_count = CAST(0 AS INTEGER)) AND (hd_vehicle_count <= (0 + 2))))",
                                                                         "(s_store_name = CAST('ese' AS VARCHAR))"
                                                                     ]
                                                                 }
@@ -1306,7 +1306,7 @@ logical_plan [
                                                                                 "s_zip",
                                                                                 "s_country",
                                                                                 "s_gmt_offset",
-                                                                                "s_tax_percentage"
+                                                                                "s_tax_precentage"
                                                                             ]
                                                                         }
                                                                     }
@@ -1321,9 +1321,9 @@ logical_plan [
                                                                 "(ss_sold_time_sk = t_time_sk)",
                                                                 "(ss_hdemo_sk = hd_demo_sk)",
                                                                 "(ss_store_sk = s_store_sk)",
-                                                                "(t_hour = CAST(11 AS BIGINT))",
-                                                                "(t_minute < CAST(30 AS BIGINT))",
-                                                                "(((hd_dep_count = CAST(4 AS BIGINT)) AND (hd_vehicle_count <= (4 + 2))) OR ((hd_dep_count = CAST(2 AS BIGINT)) AND (hd_vehicle_count <= (2 + 2))) OR ((hd_dep_count = CAST(0 AS BIGINT)) AND (hd_vehicle_count <= (0 + 2))))",
+                                                                "(t_hour = CAST(11 AS INTEGER))",
+                                                                "(t_minute < CAST(30 AS INTEGER))",
+                                                                "(((hd_dep_count = CAST(4 AS INTEGER)) AND (hd_vehicle_count <= (4 + 2))) OR ((hd_dep_count = CAST(2 AS INTEGER)) AND (hd_vehicle_count <= (2 + 2))) OR ((hd_dep_count = CAST(0 AS INTEGER)) AND (hd_vehicle_count <= (0 + 2))))",
                                                                 "(s_store_name = CAST('ese' AS VARCHAR))"
                                                             ]
                                                         }
@@ -1503,7 +1503,7 @@ logical_plan [
                                                                         "s_zip",
                                                                         "s_country",
                                                                         "s_gmt_offset",
-                                                                        "s_tax_percentage"
+                                                                        "s_tax_precentage"
                                                                     ]
                                                                 }
                                                             }
@@ -1518,9 +1518,9 @@ logical_plan [
                                                         "(ss_sold_time_sk = t_time_sk)",
                                                         "(ss_hdemo_sk = hd_demo_sk)",
                                                         "(ss_store_sk = s_store_sk)",
-                                                        "(t_hour = CAST(11 AS BIGINT))",
-                                                        "(t_minute >= CAST(30 AS BIGINT))",
-                                                        "(((hd_dep_count = CAST(4 AS BIGINT)) AND (hd_vehicle_count <= (4 + 2))) OR ((hd_dep_count = CAST(2 AS BIGINT)) AND (hd_vehicle_count <= (2 + 2))) OR ((hd_dep_count = CAST(0 AS BIGINT)) AND (hd_vehicle_count <= (0 + 2))))",
+                                                        "(t_hour = CAST(11 AS INTEGER))",
+                                                        "(t_minute >= CAST(30 AS INTEGER))",
+                                                        "(((hd_dep_count = CAST(4 AS INTEGER)) AND (hd_vehicle_count <= (4 + 2))) OR ((hd_dep_count = CAST(2 AS INTEGER)) AND (hd_vehicle_count <= (2 + 2))) OR ((hd_dep_count = CAST(0 AS INTEGER)) AND (hd_vehicle_count <= (0 + 2))))",
                                                         "(s_store_name = CAST('ese' AS VARCHAR))"
                                                     ]
                                                 }
@@ -1700,7 +1700,7 @@ logical_plan [
                                                                 "s_zip",
                                                                 "s_country",
                                                                 "s_gmt_offset",
-                                                                "s_tax_percentage"
+                                                                "s_tax_precentage"
                                                             ]
                                                         }
                                                     }
@@ -1715,9 +1715,9 @@ logical_plan [
                                                 "(ss_sold_time_sk = t_time_sk)",
                                                 "(ss_hdemo_sk = hd_demo_sk)",
                                                 "(ss_store_sk = s_store_sk)",
-                                                "(t_hour = CAST(12 AS BIGINT))",
-                                                "(t_minute < CAST(30 AS BIGINT))",
-                                                "(((hd_dep_count = CAST(4 AS BIGINT)) AND (hd_vehicle_count <= (4 + 2))) OR ((hd_dep_count = CAST(2 AS BIGINT)) AND (hd_vehicle_count <= (2 + 2))) OR ((hd_dep_count = CAST(0 AS BIGINT)) AND (hd_vehicle_count <= (0 + 2))))",
+                                                "(t_hour = CAST(12 AS INTEGER))",
+                                                "(t_minute < CAST(30 AS INTEGER))",
+                                                "(((hd_dep_count = CAST(4 AS INTEGER)) AND (hd_vehicle_count <= (4 + 2))) OR ((hd_dep_count = CAST(2 AS INTEGER)) AND (hd_vehicle_count <= (2 + 2))) OR ((hd_dep_count = CAST(0 AS INTEGER)) AND (hd_vehicle_count <= (0 + 2))))",
                                                 "(s_store_name = CAST('ese' AS VARCHAR))"
                                             ]
                                         }
@@ -1799,7 +1799,7 @@ logical_opt [
                                                                                                                 "extra_info": {
                                                                                                                     "Filters": "",
                                                                                                                     "Function": "Vortex Scan",
-                                                                                                                    "Estimated Cardinality": "288464"
+                                                                                                                    "Estimated Cardinality": "240485"
                                                                                                                 }
                                                                                                             },
                                                                                                             {
@@ -1807,8 +1807,8 @@ logical_opt [
                                                                                                                 "children": [],
                                                                                                                 "extra_info": {
                                                                                                                     "Filters": [
-                                                                                                                        "(((($.hd_dep_count = 4i64) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i64) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i64) and ($.hd_vehicle_count <= 2i32)))",
-                                                                                                                        "((($.hd_dep_count = 4i64) or ($.hd_dep_count = 2i64)) or ($.hd_dep_count = 0i64))",
+                                                                                                                        "(((($.hd_dep_count = 4i32) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i32) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i32) and ($.hd_vehicle_count <= 2i32)))",
+                                                                                                                        "((($.hd_dep_count = 4i32) or ($.hd_dep_count = 2i32)) or ($.hd_dep_count = 0i32))",
                                                                                                                         "((($.hd_vehicle_count <= 6i32) or ($.hd_vehicle_count <= 4i32)) or ($.hd_vehicle_count <= 2i32))"
                                                                                                                     ],
                                                                                                                     "Function": "Vortex Scan",
@@ -1819,7 +1819,7 @@ logical_opt [
                                                                                                         "extra_info": {
                                                                                                             "Join Type": "INNER",
                                                                                                             "Conditions": "(ss_hdemo_sk = hd_demo_sk)",
-                                                                                                            "Estimated Cardinality": "57692"
+                                                                                                            "Estimated Cardinality": "48097"
                                                                                                         }
                                                                                                     },
                                                                                                     {
@@ -1827,9 +1827,9 @@ logical_opt [
                                                                                                         "children": [],
                                                                                                         "extra_info": {
                                                                                                             "Filters": [
-                                                                                                                "($.t_hour = 11i64)",
-                                                                                                                "($.t_minute >= 30i64)",
-                                                                                                                "(28803i64 <= $.t_time_sk <= 75598i64)"
+                                                                                                                "($.t_hour = 11i32)",
+                                                                                                                "($.t_minute >= 30i32)",
+                                                                                                                "(28808i32 <= $.t_time_sk <= 75596i32)"
                                                                                                             ],
                                                                                                             "Function": "Vortex Scan",
                                                                                                             "Estimated Cardinality": "17280"
@@ -1839,7 +1839,7 @@ logical_opt [
                                                                                                 "extra_info": {
                                                                                                     "Join Type": "INNER",
                                                                                                     "Conditions": "(ss_sold_time_sk = t_time_sk)",
-                                                                                                    "Estimated Cardinality": "21303"
+                                                                                                    "Estimated Cardinality": "17763"
                                                                                                 }
                                                                                             },
                                                                                             {
@@ -1855,7 +1855,7 @@ logical_opt [
                                                                                         "extra_info": {
                                                                                             "Join Type": "INNER",
                                                                                             "Conditions": "(ss_store_sk = s_store_sk)",
-                                                                                            "Estimated Cardinality": "21303"
+                                                                                            "Estimated Cardinality": "8881"
                                                                                         }
                                                                                     }
                                                                                 ],
@@ -1892,7 +1892,7 @@ logical_opt [
                                                                                                                 "extra_info": {
                                                                                                                     "Filters": "",
                                                                                                                     "Function": "Vortex Scan",
-                                                                                                                    "Estimated Cardinality": "288464"
+                                                                                                                    "Estimated Cardinality": "240485"
                                                                                                                 }
                                                                                                             },
                                                                                                             {
@@ -1900,8 +1900,8 @@ logical_opt [
                                                                                                                 "children": [],
                                                                                                                 "extra_info": {
                                                                                                                     "Filters": [
-                                                                                                                        "(((($.hd_dep_count = 4i64) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i64) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i64) and ($.hd_vehicle_count <= 2i32)))",
-                                                                                                                        "((($.hd_dep_count = 4i64) or ($.hd_dep_count = 2i64)) or ($.hd_dep_count = 0i64))",
+                                                                                                                        "(((($.hd_dep_count = 4i32) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i32) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i32) and ($.hd_vehicle_count <= 2i32)))",
+                                                                                                                        "((($.hd_dep_count = 4i32) or ($.hd_dep_count = 2i32)) or ($.hd_dep_count = 0i32))",
                                                                                                                         "((($.hd_vehicle_count <= 6i32) or ($.hd_vehicle_count <= 4i32)) or ($.hd_vehicle_count <= 2i32))"
                                                                                                                     ],
                                                                                                                     "Function": "Vortex Scan",
@@ -1912,7 +1912,7 @@ logical_opt [
                                                                                                         "extra_info": {
                                                                                                             "Join Type": "INNER",
                                                                                                             "Conditions": "(ss_hdemo_sk = hd_demo_sk)",
-                                                                                                            "Estimated Cardinality": "57692"
+                                                                                                            "Estimated Cardinality": "48097"
                                                                                                         }
                                                                                                     },
                                                                                                     {
@@ -1920,9 +1920,9 @@ logical_opt [
                                                                                                         "children": [],
                                                                                                         "extra_info": {
                                                                                                             "Filters": [
-                                                                                                                "($.t_hour = 12i64)",
-                                                                                                                "($.t_minute < 30i64)",
-                                                                                                                "(28803i64 <= $.t_time_sk <= 75598i64)"
+                                                                                                                "($.t_hour = 12i32)",
+                                                                                                                "($.t_minute < 30i32)",
+                                                                                                                "(28808i32 <= $.t_time_sk <= 75596i32)"
                                                                                                             ],
                                                                                                             "Function": "Vortex Scan",
                                                                                                             "Estimated Cardinality": "17280"
@@ -1932,7 +1932,7 @@ logical_opt [
                                                                                                 "extra_info": {
                                                                                                     "Join Type": "INNER",
                                                                                                     "Conditions": "(ss_sold_time_sk = t_time_sk)",
-                                                                                                    "Estimated Cardinality": "21303"
+                                                                                                    "Estimated Cardinality": "17763"
                                                                                                 }
                                                                                             },
                                                                                             {
@@ -1948,7 +1948,7 @@ logical_opt [
                                                                                         "extra_info": {
                                                                                             "Join Type": "INNER",
                                                                                             "Conditions": "(ss_store_sk = s_store_sk)",
-                                                                                            "Estimated Cardinality": "21303"
+                                                                                            "Estimated Cardinality": "8881"
                                                                                         }
                                                                                     }
                                                                                 ],
@@ -1991,7 +1991,7 @@ logical_opt [
                                                                                                         "extra_info": {
                                                                                                             "Filters": "",
                                                                                                             "Function": "Vortex Scan",
-                                                                                                            "Estimated Cardinality": "288464"
+                                                                                                            "Estimated Cardinality": "240485"
                                                                                                         }
                                                                                                     },
                                                                                                     {
@@ -1999,8 +1999,8 @@ logical_opt [
                                                                                                         "children": [],
                                                                                                         "extra_info": {
                                                                                                             "Filters": [
-                                                                                                                "(((($.hd_dep_count = 4i64) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i64) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i64) and ($.hd_vehicle_count <= 2i32)))",
-                                                                                                                "((($.hd_dep_count = 4i64) or ($.hd_dep_count = 2i64)) or ($.hd_dep_count = 0i64))",
+                                                                                                                "(((($.hd_dep_count = 4i32) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i32) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i32) and ($.hd_vehicle_count <= 2i32)))",
+                                                                                                                "((($.hd_dep_count = 4i32) or ($.hd_dep_count = 2i32)) or ($.hd_dep_count = 0i32))",
                                                                                                                 "((($.hd_vehicle_count <= 6i32) or ($.hd_vehicle_count <= 4i32)) or ($.hd_vehicle_count <= 2i32))"
                                                                                                             ],
                                                                                                             "Function": "Vortex Scan",
@@ -2011,7 +2011,7 @@ logical_opt [
                                                                                                 "extra_info": {
                                                                                                     "Join Type": "INNER",
                                                                                                     "Conditions": "(ss_hdemo_sk = hd_demo_sk)",
-                                                                                                    "Estimated Cardinality": "57692"
+                                                                                                    "Estimated Cardinality": "48097"
                                                                                                 }
                                                                                             },
                                                                                             {
@@ -2019,9 +2019,9 @@ logical_opt [
                                                                                                 "children": [],
                                                                                                 "extra_info": {
                                                                                                     "Filters": [
-                                                                                                        "($.t_hour = 11i64)",
-                                                                                                        "($.t_minute < 30i64)",
-                                                                                                        "(28803i64 <= $.t_time_sk <= 75598i64)"
+                                                                                                        "($.t_hour = 11i32)",
+                                                                                                        "($.t_minute < 30i32)",
+                                                                                                        "(28808i32 <= $.t_time_sk <= 75596i32)"
                                                                                                     ],
                                                                                                     "Function": "Vortex Scan",
                                                                                                     "Estimated Cardinality": "17280"
@@ -2031,7 +2031,7 @@ logical_opt [
                                                                                         "extra_info": {
                                                                                             "Join Type": "INNER",
                                                                                             "Conditions": "(ss_sold_time_sk = t_time_sk)",
-                                                                                            "Estimated Cardinality": "21303"
+                                                                                            "Estimated Cardinality": "17763"
                                                                                         }
                                                                                     },
                                                                                     {
@@ -2047,7 +2047,7 @@ logical_opt [
                                                                                 "extra_info": {
                                                                                     "Join Type": "INNER",
                                                                                     "Conditions": "(ss_store_sk = s_store_sk)",
-                                                                                    "Estimated Cardinality": "21303"
+                                                                                    "Estimated Cardinality": "8881"
                                                                                 }
                                                                             }
                                                                         ],
@@ -2090,7 +2090,7 @@ logical_opt [
                                                                                                 "extra_info": {
                                                                                                     "Filters": "",
                                                                                                     "Function": "Vortex Scan",
-                                                                                                    "Estimated Cardinality": "288464"
+                                                                                                    "Estimated Cardinality": "240485"
                                                                                                 }
                                                                                             },
                                                                                             {
@@ -2098,8 +2098,8 @@ logical_opt [
                                                                                                 "children": [],
                                                                                                 "extra_info": {
                                                                                                     "Filters": [
-                                                                                                        "(((($.hd_dep_count = 4i64) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i64) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i64) and ($.hd_vehicle_count <= 2i32)))",
-                                                                                                        "((($.hd_dep_count = 4i64) or ($.hd_dep_count = 2i64)) or ($.hd_dep_count = 0i64))",
+                                                                                                        "(((($.hd_dep_count = 4i32) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i32) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i32) and ($.hd_vehicle_count <= 2i32)))",
+                                                                                                        "((($.hd_dep_count = 4i32) or ($.hd_dep_count = 2i32)) or ($.hd_dep_count = 0i32))",
                                                                                                         "((($.hd_vehicle_count <= 6i32) or ($.hd_vehicle_count <= 4i32)) or ($.hd_vehicle_count <= 2i32))"
                                                                                                     ],
                                                                                                     "Function": "Vortex Scan",
@@ -2110,7 +2110,7 @@ logical_opt [
                                                                                         "extra_info": {
                                                                                             "Join Type": "INNER",
                                                                                             "Conditions": "(ss_hdemo_sk = hd_demo_sk)",
-                                                                                            "Estimated Cardinality": "57692"
+                                                                                            "Estimated Cardinality": "48097"
                                                                                         }
                                                                                     },
                                                                                     {
@@ -2118,9 +2118,9 @@ logical_opt [
                                                                                         "children": [],
                                                                                         "extra_info": {
                                                                                             "Filters": [
-                                                                                                "($.t_hour = 10i64)",
-                                                                                                "($.t_minute >= 30i64)",
-                                                                                                "(28803i64 <= $.t_time_sk <= 75598i64)"
+                                                                                                "($.t_hour = 10i32)",
+                                                                                                "($.t_minute >= 30i32)",
+                                                                                                "(28808i32 <= $.t_time_sk <= 75596i32)"
                                                                                             ],
                                                                                             "Function": "Vortex Scan",
                                                                                             "Estimated Cardinality": "17280"
@@ -2130,7 +2130,7 @@ logical_opt [
                                                                                 "extra_info": {
                                                                                     "Join Type": "INNER",
                                                                                     "Conditions": "(ss_sold_time_sk = t_time_sk)",
-                                                                                    "Estimated Cardinality": "21303"
+                                                                                    "Estimated Cardinality": "17763"
                                                                                 }
                                                                             },
                                                                             {
@@ -2146,7 +2146,7 @@ logical_opt [
                                                                         "extra_info": {
                                                                             "Join Type": "INNER",
                                                                             "Conditions": "(ss_store_sk = s_store_sk)",
-                                                                            "Estimated Cardinality": "21303"
+                                                                            "Estimated Cardinality": "8881"
                                                                         }
                                                                     }
                                                                 ],
@@ -2189,7 +2189,7 @@ logical_opt [
                                                                                         "extra_info": {
                                                                                             "Filters": "",
                                                                                             "Function": "Vortex Scan",
-                                                                                            "Estimated Cardinality": "288464"
+                                                                                            "Estimated Cardinality": "240485"
                                                                                         }
                                                                                     },
                                                                                     {
@@ -2197,8 +2197,8 @@ logical_opt [
                                                                                         "children": [],
                                                                                         "extra_info": {
                                                                                             "Filters": [
-                                                                                                "(((($.hd_dep_count = 4i64) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i64) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i64) and ($.hd_vehicle_count <= 2i32)))",
-                                                                                                "((($.hd_dep_count = 4i64) or ($.hd_dep_count = 2i64)) or ($.hd_dep_count = 0i64))",
+                                                                                                "(((($.hd_dep_count = 4i32) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i32) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i32) and ($.hd_vehicle_count <= 2i32)))",
+                                                                                                "((($.hd_dep_count = 4i32) or ($.hd_dep_count = 2i32)) or ($.hd_dep_count = 0i32))",
                                                                                                 "((($.hd_vehicle_count <= 6i32) or ($.hd_vehicle_count <= 4i32)) or ($.hd_vehicle_count <= 2i32))"
                                                                                             ],
                                                                                             "Function": "Vortex Scan",
@@ -2209,7 +2209,7 @@ logical_opt [
                                                                                 "extra_info": {
                                                                                     "Join Type": "INNER",
                                                                                     "Conditions": "(ss_hdemo_sk = hd_demo_sk)",
-                                                                                    "Estimated Cardinality": "57692"
+                                                                                    "Estimated Cardinality": "48097"
                                                                                 }
                                                                             },
                                                                             {
@@ -2217,9 +2217,9 @@ logical_opt [
                                                                                 "children": [],
                                                                                 "extra_info": {
                                                                                     "Filters": [
-                                                                                        "($.t_hour = 10i64)",
-                                                                                        "($.t_minute < 30i64)",
-                                                                                        "(28803i64 <= $.t_time_sk <= 75598i64)"
+                                                                                        "($.t_hour = 10i32)",
+                                                                                        "($.t_minute < 30i32)",
+                                                                                        "(28808i32 <= $.t_time_sk <= 75596i32)"
                                                                                     ],
                                                                                     "Function": "Vortex Scan",
                                                                                     "Estimated Cardinality": "17280"
@@ -2229,7 +2229,7 @@ logical_opt [
                                                                         "extra_info": {
                                                                             "Join Type": "INNER",
                                                                             "Conditions": "(ss_sold_time_sk = t_time_sk)",
-                                                                            "Estimated Cardinality": "21303"
+                                                                            "Estimated Cardinality": "17763"
                                                                         }
                                                                     },
                                                                     {
@@ -2245,7 +2245,7 @@ logical_opt [
                                                                 "extra_info": {
                                                                     "Join Type": "INNER",
                                                                     "Conditions": "(ss_store_sk = s_store_sk)",
-                                                                    "Estimated Cardinality": "21303"
+                                                                    "Estimated Cardinality": "8881"
                                                                 }
                                                             }
                                                         ],
@@ -2288,7 +2288,7 @@ logical_opt [
                                                                                 "extra_info": {
                                                                                     "Filters": "",
                                                                                     "Function": "Vortex Scan",
-                                                                                    "Estimated Cardinality": "288464"
+                                                                                    "Estimated Cardinality": "240485"
                                                                                 }
                                                                             },
                                                                             {
@@ -2296,8 +2296,8 @@ logical_opt [
                                                                                 "children": [],
                                                                                 "extra_info": {
                                                                                     "Filters": [
-                                                                                        "(((($.hd_dep_count = 4i64) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i64) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i64) and ($.hd_vehicle_count <= 2i32)))",
-                                                                                        "((($.hd_dep_count = 4i64) or ($.hd_dep_count = 2i64)) or ($.hd_dep_count = 0i64))",
+                                                                                        "(((($.hd_dep_count = 4i32) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i32) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i32) and ($.hd_vehicle_count <= 2i32)))",
+                                                                                        "((($.hd_dep_count = 4i32) or ($.hd_dep_count = 2i32)) or ($.hd_dep_count = 0i32))",
                                                                                         "((($.hd_vehicle_count <= 6i32) or ($.hd_vehicle_count <= 4i32)) or ($.hd_vehicle_count <= 2i32))"
                                                                                     ],
                                                                                     "Function": "Vortex Scan",
@@ -2308,7 +2308,7 @@ logical_opt [
                                                                         "extra_info": {
                                                                             "Join Type": "INNER",
                                                                             "Conditions": "(ss_hdemo_sk = hd_demo_sk)",
-                                                                            "Estimated Cardinality": "57692"
+                                                                            "Estimated Cardinality": "48097"
                                                                         }
                                                                     },
                                                                     {
@@ -2316,9 +2316,9 @@ logical_opt [
                                                                         "children": [],
                                                                         "extra_info": {
                                                                             "Filters": [
-                                                                                "($.t_hour = 9i64)",
-                                                                                "($.t_minute >= 30i64)",
-                                                                                "(28803i64 <= $.t_time_sk <= 75598i64)"
+                                                                                "($.t_hour = 9i32)",
+                                                                                "($.t_minute >= 30i32)",
+                                                                                "(28808i32 <= $.t_time_sk <= 75596i32)"
                                                                             ],
                                                                             "Function": "Vortex Scan",
                                                                             "Estimated Cardinality": "17280"
@@ -2328,7 +2328,7 @@ logical_opt [
                                                                 "extra_info": {
                                                                     "Join Type": "INNER",
                                                                     "Conditions": "(ss_sold_time_sk = t_time_sk)",
-                                                                    "Estimated Cardinality": "21303"
+                                                                    "Estimated Cardinality": "17763"
                                                                 }
                                                             },
                                                             {
@@ -2344,7 +2344,7 @@ logical_opt [
                                                         "extra_info": {
                                                             "Join Type": "INNER",
                                                             "Conditions": "(ss_store_sk = s_store_sk)",
-                                                            "Estimated Cardinality": "21303"
+                                                            "Estimated Cardinality": "8881"
                                                         }
                                                     }
                                                 ],
@@ -2387,7 +2387,7 @@ logical_opt [
                                                                         "extra_info": {
                                                                             "Filters": "",
                                                                             "Function": "Vortex Scan",
-                                                                            "Estimated Cardinality": "288464"
+                                                                            "Estimated Cardinality": "240485"
                                                                         }
                                                                     },
                                                                     {
@@ -2395,8 +2395,8 @@ logical_opt [
                                                                         "children": [],
                                                                         "extra_info": {
                                                                             "Filters": [
-                                                                                "(((($.hd_dep_count = 4i64) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i64) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i64) and ($.hd_vehicle_count <= 2i32)))",
-                                                                                "((($.hd_dep_count = 4i64) or ($.hd_dep_count = 2i64)) or ($.hd_dep_count = 0i64))",
+                                                                                "(((($.hd_dep_count = 4i32) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i32) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i32) and ($.hd_vehicle_count <= 2i32)))",
+                                                                                "((($.hd_dep_count = 4i32) or ($.hd_dep_count = 2i32)) or ($.hd_dep_count = 0i32))",
                                                                                 "((($.hd_vehicle_count <= 6i32) or ($.hd_vehicle_count <= 4i32)) or ($.hd_vehicle_count <= 2i32))"
                                                                             ],
                                                                             "Function": "Vortex Scan",
@@ -2407,7 +2407,7 @@ logical_opt [
                                                                 "extra_info": {
                                                                     "Join Type": "INNER",
                                                                     "Conditions": "(ss_hdemo_sk = hd_demo_sk)",
-                                                                    "Estimated Cardinality": "57692"
+                                                                    "Estimated Cardinality": "48097"
                                                                 }
                                                             },
                                                             {
@@ -2415,9 +2415,9 @@ logical_opt [
                                                                 "children": [],
                                                                 "extra_info": {
                                                                     "Filters": [
-                                                                        "($.t_hour = 9i64)",
-                                                                        "($.t_minute < 30i64)",
-                                                                        "(28803i64 <= $.t_time_sk <= 75598i64)"
+                                                                        "($.t_hour = 9i32)",
+                                                                        "($.t_minute < 30i32)",
+                                                                        "(28808i32 <= $.t_time_sk <= 75596i32)"
                                                                     ],
                                                                     "Function": "Vortex Scan",
                                                                     "Estimated Cardinality": "17280"
@@ -2427,7 +2427,7 @@ logical_opt [
                                                         "extra_info": {
                                                             "Join Type": "INNER",
                                                             "Conditions": "(ss_sold_time_sk = t_time_sk)",
-                                                            "Estimated Cardinality": "21303"
+                                                            "Estimated Cardinality": "17763"
                                                         }
                                                     },
                                                     {
@@ -2443,7 +2443,7 @@ logical_opt [
                                                 "extra_info": {
                                                     "Join Type": "INNER",
                                                     "Conditions": "(ss_store_sk = s_store_sk)",
-                                                    "Estimated Cardinality": "21303"
+                                                    "Estimated Cardinality": "8881"
                                                 }
                                             }
                                         ],
@@ -2486,7 +2486,7 @@ logical_opt [
                                                                 "extra_info": {
                                                                     "Filters": "",
                                                                     "Function": "Vortex Scan",
-                                                                    "Estimated Cardinality": "288464"
+                                                                    "Estimated Cardinality": "240485"
                                                                 }
                                                             },
                                                             {
@@ -2494,8 +2494,8 @@ logical_opt [
                                                                 "children": [],
                                                                 "extra_info": {
                                                                     "Filters": [
-                                                                        "(((($.hd_dep_count = 4i64) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i64) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i64) and ($.hd_vehicle_count <= 2i32)))",
-                                                                        "((($.hd_dep_count = 4i64) or ($.hd_dep_count = 2i64)) or ($.hd_dep_count = 0i64))",
+                                                                        "(((($.hd_dep_count = 4i32) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i32) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i32) and ($.hd_vehicle_count <= 2i32)))",
+                                                                        "((($.hd_dep_count = 4i32) or ($.hd_dep_count = 2i32)) or ($.hd_dep_count = 0i32))",
                                                                         "((($.hd_vehicle_count <= 6i32) or ($.hd_vehicle_count <= 4i32)) or ($.hd_vehicle_count <= 2i32))"
                                                                     ],
                                                                     "Function": "Vortex Scan",
@@ -2506,7 +2506,7 @@ logical_opt [
                                                         "extra_info": {
                                                             "Join Type": "INNER",
                                                             "Conditions": "(ss_hdemo_sk = hd_demo_sk)",
-                                                            "Estimated Cardinality": "57692"
+                                                            "Estimated Cardinality": "48097"
                                                         }
                                                     },
                                                     {
@@ -2514,9 +2514,9 @@ logical_opt [
                                                         "children": [],
                                                         "extra_info": {
                                                             "Filters": [
-                                                                "($.t_hour = 8i64)",
-                                                                "($.t_minute >= 30i64)",
-                                                                "(28803i64 <= $.t_time_sk <= 75598i64)"
+                                                                "($.t_hour = 8i32)",
+                                                                "($.t_minute >= 30i32)",
+                                                                "(28808i32 <= $.t_time_sk <= 75596i32)"
                                                             ],
                                                             "Function": "Vortex Scan",
                                                             "Estimated Cardinality": "17280"
@@ -2526,7 +2526,7 @@ logical_opt [
                                                 "extra_info": {
                                                     "Join Type": "INNER",
                                                     "Conditions": "(ss_sold_time_sk = t_time_sk)",
-                                                    "Estimated Cardinality": "21303"
+                                                    "Estimated Cardinality": "17763"
                                                 }
                                             },
                                             {
@@ -2542,7 +2542,7 @@ logical_opt [
                                         "extra_info": {
                                             "Join Type": "INNER",
                                             "Conditions": "(ss_store_sk = s_store_sk)",
-                                            "Estimated Cardinality": "21303"
+                                            "Estimated Cardinality": "8881"
                                         }
                                     }
                                 ],
@@ -2627,7 +2627,7 @@ physical_plan [
                                                                                                                 "ss_hdemo_sk",
                                                                                                                 "ss_store_sk"
                                                                                                             ],
-                                                                                                            "Estimated Cardinality": "288464"
+                                                                                                            "Estimated Cardinality": "240485"
                                                                                                         }
                                                                                                     },
                                                                                                     {
@@ -2636,8 +2636,8 @@ physical_plan [
                                                                                                         "extra_info": {
                                                                                                             "Function": "Vortex Scan",
                                                                                                             "Filters": [
-                                                                                                                "(((($.hd_dep_count = 4i64) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i64) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i64) and ($.hd_vehicle_count <= 2i32)))",
-                                                                                                                "((($.hd_dep_count = 4i64) or ($.hd_dep_count = 2i64)) or ($.hd_dep_count = 0i64))",
+                                                                                                                "(((($.hd_dep_count = 4i32) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i32) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i32) and ($.hd_vehicle_count <= 2i32)))",
+                                                                                                                "((($.hd_dep_count = 4i32) or ($.hd_dep_count = 2i32)) or ($.hd_dep_count = 0i32))",
                                                                                                                 "((($.hd_vehicle_count <= 6i32) or ($.hd_vehicle_count <= 4i32)) or ($.hd_vehicle_count <= 2i32))"
                                                                                                             ],
                                                                                                             "Projections": "hd_demo_sk",
@@ -2648,7 +2648,7 @@ physical_plan [
                                                                                                 "extra_info": {
                                                                                                     "Join Type": "INNER",
                                                                                                     "Conditions": "ss_hdemo_sk = hd_demo_sk",
-                                                                                                    "Estimated Cardinality": "57692"
+                                                                                                    "Estimated Cardinality": "48097"
                                                                                                 }
                                                                                             },
                                                                                             {
@@ -2657,9 +2657,9 @@ physical_plan [
                                                                                                 "extra_info": {
                                                                                                     "Function": "Vortex Scan",
                                                                                                     "Filters": [
-                                                                                                        "($.t_hour = 11i64)",
-                                                                                                        "($.t_minute >= 30i64)",
-                                                                                                        "(28803i64 <= $.t_time_sk <= 75598i64)"
+                                                                                                        "($.t_hour = 11i32)",
+                                                                                                        "($.t_minute >= 30i32)",
+                                                                                                        "(28808i32 <= $.t_time_sk <= 75596i32)"
                                                                                                     ],
                                                                                                     "Projections": "t_time_sk",
                                                                                                     "Estimated Cardinality": "17280"
@@ -2669,7 +2669,7 @@ physical_plan [
                                                                                         "extra_info": {
                                                                                             "Join Type": "INNER",
                                                                                             "Conditions": "ss_sold_time_sk = t_time_sk",
-                                                                                            "Estimated Cardinality": "21303"
+                                                                                            "Estimated Cardinality": "17763"
                                                                                         }
                                                                                     },
                                                                                     {
@@ -2686,7 +2686,7 @@ physical_plan [
                                                                                 "extra_info": {
                                                                                     "Join Type": "INNER",
                                                                                     "Conditions": "ss_store_sk = s_store_sk",
-                                                                                    "Estimated Cardinality": "21303"
+                                                                                    "Estimated Cardinality": "8881"
                                                                                 }
                                                                             }
                                                                         ],
@@ -2717,7 +2717,7 @@ physical_plan [
                                                                                                                 "ss_hdemo_sk",
                                                                                                                 "ss_store_sk"
                                                                                                             ],
-                                                                                                            "Estimated Cardinality": "288464"
+                                                                                                            "Estimated Cardinality": "240485"
                                                                                                         }
                                                                                                     },
                                                                                                     {
@@ -2726,8 +2726,8 @@ physical_plan [
                                                                                                         "extra_info": {
                                                                                                             "Function": "Vortex Scan",
                                                                                                             "Filters": [
-                                                                                                                "(((($.hd_dep_count = 4i64) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i64) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i64) and ($.hd_vehicle_count <= 2i32)))",
-                                                                                                                "((($.hd_dep_count = 4i64) or ($.hd_dep_count = 2i64)) or ($.hd_dep_count = 0i64))",
+                                                                                                                "(((($.hd_dep_count = 4i32) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i32) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i32) and ($.hd_vehicle_count <= 2i32)))",
+                                                                                                                "((($.hd_dep_count = 4i32) or ($.hd_dep_count = 2i32)) or ($.hd_dep_count = 0i32))",
                                                                                                                 "((($.hd_vehicle_count <= 6i32) or ($.hd_vehicle_count <= 4i32)) or ($.hd_vehicle_count <= 2i32))"
                                                                                                             ],
                                                                                                             "Projections": "hd_demo_sk",
@@ -2738,7 +2738,7 @@ physical_plan [
                                                                                                 "extra_info": {
                                                                                                     "Join Type": "INNER",
                                                                                                     "Conditions": "ss_hdemo_sk = hd_demo_sk",
-                                                                                                    "Estimated Cardinality": "57692"
+                                                                                                    "Estimated Cardinality": "48097"
                                                                                                 }
                                                                                             },
                                                                                             {
@@ -2747,9 +2747,9 @@ physical_plan [
                                                                                                 "extra_info": {
                                                                                                     "Function": "Vortex Scan",
                                                                                                     "Filters": [
-                                                                                                        "($.t_hour = 12i64)",
-                                                                                                        "($.t_minute < 30i64)",
-                                                                                                        "(28803i64 <= $.t_time_sk <= 75598i64)"
+                                                                                                        "($.t_hour = 12i32)",
+                                                                                                        "($.t_minute < 30i32)",
+                                                                                                        "(28808i32 <= $.t_time_sk <= 75596i32)"
                                                                                                     ],
                                                                                                     "Projections": "t_time_sk",
                                                                                                     "Estimated Cardinality": "17280"
@@ -2759,7 +2759,7 @@ physical_plan [
                                                                                         "extra_info": {
                                                                                             "Join Type": "INNER",
                                                                                             "Conditions": "ss_sold_time_sk = t_time_sk",
-                                                                                            "Estimated Cardinality": "21303"
+                                                                                            "Estimated Cardinality": "17763"
                                                                                         }
                                                                                     },
                                                                                     {
@@ -2776,7 +2776,7 @@ physical_plan [
                                                                                 "extra_info": {
                                                                                     "Join Type": "INNER",
                                                                                     "Conditions": "ss_store_sk = s_store_sk",
-                                                                                    "Estimated Cardinality": "21303"
+                                                                                    "Estimated Cardinality": "8881"
                                                                                 }
                                                                             }
                                                                         ],
@@ -2810,7 +2810,7 @@ physical_plan [
                                                                                                         "ss_hdemo_sk",
                                                                                                         "ss_store_sk"
                                                                                                     ],
-                                                                                                    "Estimated Cardinality": "288464"
+                                                                                                    "Estimated Cardinality": "240485"
                                                                                                 }
                                                                                             },
                                                                                             {
@@ -2819,8 +2819,8 @@ physical_plan [
                                                                                                 "extra_info": {
                                                                                                     "Function": "Vortex Scan",
                                                                                                     "Filters": [
-                                                                                                        "(((($.hd_dep_count = 4i64) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i64) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i64) and ($.hd_vehicle_count <= 2i32)))",
-                                                                                                        "((($.hd_dep_count = 4i64) or ($.hd_dep_count = 2i64)) or ($.hd_dep_count = 0i64))",
+                                                                                                        "(((($.hd_dep_count = 4i32) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i32) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i32) and ($.hd_vehicle_count <= 2i32)))",
+                                                                                                        "((($.hd_dep_count = 4i32) or ($.hd_dep_count = 2i32)) or ($.hd_dep_count = 0i32))",
                                                                                                         "((($.hd_vehicle_count <= 6i32) or ($.hd_vehicle_count <= 4i32)) or ($.hd_vehicle_count <= 2i32))"
                                                                                                     ],
                                                                                                     "Projections": "hd_demo_sk",
@@ -2831,7 +2831,7 @@ physical_plan [
                                                                                         "extra_info": {
                                                                                             "Join Type": "INNER",
                                                                                             "Conditions": "ss_hdemo_sk = hd_demo_sk",
-                                                                                            "Estimated Cardinality": "57692"
+                                                                                            "Estimated Cardinality": "48097"
                                                                                         }
                                                                                     },
                                                                                     {
@@ -2840,9 +2840,9 @@ physical_plan [
                                                                                         "extra_info": {
                                                                                             "Function": "Vortex Scan",
                                                                                             "Filters": [
-                                                                                                "($.t_hour = 11i64)",
-                                                                                                "($.t_minute < 30i64)",
-                                                                                                "(28803i64 <= $.t_time_sk <= 75598i64)"
+                                                                                                "($.t_hour = 11i32)",
+                                                                                                "($.t_minute < 30i32)",
+                                                                                                "(28808i32 <= $.t_time_sk <= 75596i32)"
                                                                                             ],
                                                                                             "Projections": "t_time_sk",
                                                                                             "Estimated Cardinality": "17280"
@@ -2852,7 +2852,7 @@ physical_plan [
                                                                                 "extra_info": {
                                                                                     "Join Type": "INNER",
                                                                                     "Conditions": "ss_sold_time_sk = t_time_sk",
-                                                                                    "Estimated Cardinality": "21303"
+                                                                                    "Estimated Cardinality": "17763"
                                                                                 }
                                                                             },
                                                                             {
@@ -2869,7 +2869,7 @@ physical_plan [
                                                                         "extra_info": {
                                                                             "Join Type": "INNER",
                                                                             "Conditions": "ss_store_sk = s_store_sk",
-                                                                            "Estimated Cardinality": "21303"
+                                                                            "Estimated Cardinality": "8881"
                                                                         }
                                                                     }
                                                                 ],
@@ -2903,7 +2903,7 @@ physical_plan [
                                                                                                 "ss_hdemo_sk",
                                                                                                 "ss_store_sk"
                                                                                             ],
-                                                                                            "Estimated Cardinality": "288464"
+                                                                                            "Estimated Cardinality": "240485"
                                                                                         }
                                                                                     },
                                                                                     {
@@ -2912,8 +2912,8 @@ physical_plan [
                                                                                         "extra_info": {
                                                                                             "Function": "Vortex Scan",
                                                                                             "Filters": [
-                                                                                                "(((($.hd_dep_count = 4i64) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i64) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i64) and ($.hd_vehicle_count <= 2i32)))",
-                                                                                                "((($.hd_dep_count = 4i64) or ($.hd_dep_count = 2i64)) or ($.hd_dep_count = 0i64))",
+                                                                                                "(((($.hd_dep_count = 4i32) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i32) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i32) and ($.hd_vehicle_count <= 2i32)))",
+                                                                                                "((($.hd_dep_count = 4i32) or ($.hd_dep_count = 2i32)) or ($.hd_dep_count = 0i32))",
                                                                                                 "((($.hd_vehicle_count <= 6i32) or ($.hd_vehicle_count <= 4i32)) or ($.hd_vehicle_count <= 2i32))"
                                                                                             ],
                                                                                             "Projections": "hd_demo_sk",
@@ -2924,7 +2924,7 @@ physical_plan [
                                                                                 "extra_info": {
                                                                                     "Join Type": "INNER",
                                                                                     "Conditions": "ss_hdemo_sk = hd_demo_sk",
-                                                                                    "Estimated Cardinality": "57692"
+                                                                                    "Estimated Cardinality": "48097"
                                                                                 }
                                                                             },
                                                                             {
@@ -2933,9 +2933,9 @@ physical_plan [
                                                                                 "extra_info": {
                                                                                     "Function": "Vortex Scan",
                                                                                     "Filters": [
-                                                                                        "($.t_hour = 10i64)",
-                                                                                        "($.t_minute >= 30i64)",
-                                                                                        "(28803i64 <= $.t_time_sk <= 75598i64)"
+                                                                                        "($.t_hour = 10i32)",
+                                                                                        "($.t_minute >= 30i32)",
+                                                                                        "(28808i32 <= $.t_time_sk <= 75596i32)"
                                                                                     ],
                                                                                     "Projections": "t_time_sk",
                                                                                     "Estimated Cardinality": "17280"
@@ -2945,7 +2945,7 @@ physical_plan [
                                                                         "extra_info": {
                                                                             "Join Type": "INNER",
                                                                             "Conditions": "ss_sold_time_sk = t_time_sk",
-                                                                            "Estimated Cardinality": "21303"
+                                                                            "Estimated Cardinality": "17763"
                                                                         }
                                                                     },
                                                                     {
@@ -2962,7 +2962,7 @@ physical_plan [
                                                                 "extra_info": {
                                                                     "Join Type": "INNER",
                                                                     "Conditions": "ss_store_sk = s_store_sk",
-                                                                    "Estimated Cardinality": "21303"
+                                                                    "Estimated Cardinality": "8881"
                                                                 }
                                                             }
                                                         ],
@@ -2996,7 +2996,7 @@ physical_plan [
                                                                                         "ss_hdemo_sk",
                                                                                         "ss_store_sk"
                                                                                     ],
-                                                                                    "Estimated Cardinality": "288464"
+                                                                                    "Estimated Cardinality": "240485"
                                                                                 }
                                                                             },
                                                                             {
@@ -3005,8 +3005,8 @@ physical_plan [
                                                                                 "extra_info": {
                                                                                     "Function": "Vortex Scan",
                                                                                     "Filters": [
-                                                                                        "(((($.hd_dep_count = 4i64) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i64) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i64) and ($.hd_vehicle_count <= 2i32)))",
-                                                                                        "((($.hd_dep_count = 4i64) or ($.hd_dep_count = 2i64)) or ($.hd_dep_count = 0i64))",
+                                                                                        "(((($.hd_dep_count = 4i32) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i32) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i32) and ($.hd_vehicle_count <= 2i32)))",
+                                                                                        "((($.hd_dep_count = 4i32) or ($.hd_dep_count = 2i32)) or ($.hd_dep_count = 0i32))",
                                                                                         "((($.hd_vehicle_count <= 6i32) or ($.hd_vehicle_count <= 4i32)) or ($.hd_vehicle_count <= 2i32))"
                                                                                     ],
                                                                                     "Projections": "hd_demo_sk",
@@ -3017,7 +3017,7 @@ physical_plan [
                                                                         "extra_info": {
                                                                             "Join Type": "INNER",
                                                                             "Conditions": "ss_hdemo_sk = hd_demo_sk",
-                                                                            "Estimated Cardinality": "57692"
+                                                                            "Estimated Cardinality": "48097"
                                                                         }
                                                                     },
                                                                     {
@@ -3026,9 +3026,9 @@ physical_plan [
                                                                         "extra_info": {
                                                                             "Function": "Vortex Scan",
                                                                             "Filters": [
-                                                                                "($.t_hour = 10i64)",
-                                                                                "($.t_minute < 30i64)",
-                                                                                "(28803i64 <= $.t_time_sk <= 75598i64)"
+                                                                                "($.t_hour = 10i32)",
+                                                                                "($.t_minute < 30i32)",
+                                                                                "(28808i32 <= $.t_time_sk <= 75596i32)"
                                                                             ],
                                                                             "Projections": "t_time_sk",
                                                                             "Estimated Cardinality": "17280"
@@ -3038,7 +3038,7 @@ physical_plan [
                                                                 "extra_info": {
                                                                     "Join Type": "INNER",
                                                                     "Conditions": "ss_sold_time_sk = t_time_sk",
-                                                                    "Estimated Cardinality": "21303"
+                                                                    "Estimated Cardinality": "17763"
                                                                 }
                                                             },
                                                             {
@@ -3055,7 +3055,7 @@ physical_plan [
                                                         "extra_info": {
                                                             "Join Type": "INNER",
                                                             "Conditions": "ss_store_sk = s_store_sk",
-                                                            "Estimated Cardinality": "21303"
+                                                            "Estimated Cardinality": "8881"
                                                         }
                                                     }
                                                 ],
@@ -3089,7 +3089,7 @@ physical_plan [
                                                                                 "ss_hdemo_sk",
                                                                                 "ss_store_sk"
                                                                             ],
-                                                                            "Estimated Cardinality": "288464"
+                                                                            "Estimated Cardinality": "240485"
                                                                         }
                                                                     },
                                                                     {
@@ -3098,8 +3098,8 @@ physical_plan [
                                                                         "extra_info": {
                                                                             "Function": "Vortex Scan",
                                                                             "Filters": [
-                                                                                "(((($.hd_dep_count = 4i64) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i64) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i64) and ($.hd_vehicle_count <= 2i32)))",
-                                                                                "((($.hd_dep_count = 4i64) or ($.hd_dep_count = 2i64)) or ($.hd_dep_count = 0i64))",
+                                                                                "(((($.hd_dep_count = 4i32) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i32) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i32) and ($.hd_vehicle_count <= 2i32)))",
+                                                                                "((($.hd_dep_count = 4i32) or ($.hd_dep_count = 2i32)) or ($.hd_dep_count = 0i32))",
                                                                                 "((($.hd_vehicle_count <= 6i32) or ($.hd_vehicle_count <= 4i32)) or ($.hd_vehicle_count <= 2i32))"
                                                                             ],
                                                                             "Projections": "hd_demo_sk",
@@ -3110,7 +3110,7 @@ physical_plan [
                                                                 "extra_info": {
                                                                     "Join Type": "INNER",
                                                                     "Conditions": "ss_hdemo_sk = hd_demo_sk",
-                                                                    "Estimated Cardinality": "57692"
+                                                                    "Estimated Cardinality": "48097"
                                                                 }
                                                             },
                                                             {
@@ -3119,9 +3119,9 @@ physical_plan [
                                                                 "extra_info": {
                                                                     "Function": "Vortex Scan",
                                                                     "Filters": [
-                                                                        "($.t_hour = 9i64)",
-                                                                        "($.t_minute >= 30i64)",
-                                                                        "(28803i64 <= $.t_time_sk <= 75598i64)"
+                                                                        "($.t_hour = 9i32)",
+                                                                        "($.t_minute >= 30i32)",
+                                                                        "(28808i32 <= $.t_time_sk <= 75596i32)"
                                                                     ],
                                                                     "Projections": "t_time_sk",
                                                                     "Estimated Cardinality": "17280"
@@ -3131,7 +3131,7 @@ physical_plan [
                                                         "extra_info": {
                                                             "Join Type": "INNER",
                                                             "Conditions": "ss_sold_time_sk = t_time_sk",
-                                                            "Estimated Cardinality": "21303"
+                                                            "Estimated Cardinality": "17763"
                                                         }
                                                     },
                                                     {
@@ -3148,7 +3148,7 @@ physical_plan [
                                                 "extra_info": {
                                                     "Join Type": "INNER",
                                                     "Conditions": "ss_store_sk = s_store_sk",
-                                                    "Estimated Cardinality": "21303"
+                                                    "Estimated Cardinality": "8881"
                                                 }
                                             }
                                         ],
@@ -3182,7 +3182,7 @@ physical_plan [
                                                                         "ss_hdemo_sk",
                                                                         "ss_store_sk"
                                                                     ],
-                                                                    "Estimated Cardinality": "288464"
+                                                                    "Estimated Cardinality": "240485"
                                                                 }
                                                             },
                                                             {
@@ -3191,8 +3191,8 @@ physical_plan [
                                                                 "extra_info": {
                                                                     "Function": "Vortex Scan",
                                                                     "Filters": [
-                                                                        "(((($.hd_dep_count = 4i64) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i64) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i64) and ($.hd_vehicle_count <= 2i32)))",
-                                                                        "((($.hd_dep_count = 4i64) or ($.hd_dep_count = 2i64)) or ($.hd_dep_count = 0i64))",
+                                                                        "(((($.hd_dep_count = 4i32) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i32) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i32) and ($.hd_vehicle_count <= 2i32)))",
+                                                                        "((($.hd_dep_count = 4i32) or ($.hd_dep_count = 2i32)) or ($.hd_dep_count = 0i32))",
                                                                         "((($.hd_vehicle_count <= 6i32) or ($.hd_vehicle_count <= 4i32)) or ($.hd_vehicle_count <= 2i32))"
                                                                     ],
                                                                     "Projections": "hd_demo_sk",
@@ -3203,7 +3203,7 @@ physical_plan [
                                                         "extra_info": {
                                                             "Join Type": "INNER",
                                                             "Conditions": "ss_hdemo_sk = hd_demo_sk",
-                                                            "Estimated Cardinality": "57692"
+                                                            "Estimated Cardinality": "48097"
                                                         }
                                                     },
                                                     {
@@ -3212,9 +3212,9 @@ physical_plan [
                                                         "extra_info": {
                                                             "Function": "Vortex Scan",
                                                             "Filters": [
-                                                                "($.t_hour = 9i64)",
-                                                                "($.t_minute < 30i64)",
-                                                                "(28803i64 <= $.t_time_sk <= 75598i64)"
+                                                                "($.t_hour = 9i32)",
+                                                                "($.t_minute < 30i32)",
+                                                                "(28808i32 <= $.t_time_sk <= 75596i32)"
                                                             ],
                                                             "Projections": "t_time_sk",
                                                             "Estimated Cardinality": "17280"
@@ -3224,7 +3224,7 @@ physical_plan [
                                                 "extra_info": {
                                                     "Join Type": "INNER",
                                                     "Conditions": "ss_sold_time_sk = t_time_sk",
-                                                    "Estimated Cardinality": "21303"
+                                                    "Estimated Cardinality": "17763"
                                                 }
                                             },
                                             {
@@ -3241,7 +3241,7 @@ physical_plan [
                                         "extra_info": {
                                             "Join Type": "INNER",
                                             "Conditions": "ss_store_sk = s_store_sk",
-                                            "Estimated Cardinality": "21303"
+                                            "Estimated Cardinality": "8881"
                                         }
                                     }
                                 ],
@@ -3275,7 +3275,7 @@ physical_plan [
                                                                 "ss_hdemo_sk",
                                                                 "ss_store_sk"
                                                             ],
-                                                            "Estimated Cardinality": "288464"
+                                                            "Estimated Cardinality": "240485"
                                                         }
                                                     },
                                                     {
@@ -3284,8 +3284,8 @@ physical_plan [
                                                         "extra_info": {
                                                             "Function": "Vortex Scan",
                                                             "Filters": [
-                                                                "(((($.hd_dep_count = 4i64) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i64) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i64) and ($.hd_vehicle_count <= 2i32)))",
-                                                                "((($.hd_dep_count = 4i64) or ($.hd_dep_count = 2i64)) or ($.hd_dep_count = 0i64))",
+                                                                "(((($.hd_dep_count = 4i32) and ($.hd_vehicle_count <= 6i32)) or (($.hd_dep_count = 2i32) and ($.hd_vehicle_count <= 4i32))) or (($.hd_dep_count = 0i32) and ($.hd_vehicle_count <= 2i32)))",
+                                                                "((($.hd_dep_count = 4i32) or ($.hd_dep_count = 2i32)) or ($.hd_dep_count = 0i32))",
                                                                 "((($.hd_vehicle_count <= 6i32) or ($.hd_vehicle_count <= 4i32)) or ($.hd_vehicle_count <= 2i32))"
                                                             ],
                                                             "Projections": "hd_demo_sk",
@@ -3296,7 +3296,7 @@ physical_plan [
                                                 "extra_info": {
                                                     "Join Type": "INNER",
                                                     "Conditions": "ss_hdemo_sk = hd_demo_sk",
-                                                    "Estimated Cardinality": "57692"
+                                                    "Estimated Cardinality": "48097"
                                                 }
                                             },
                                             {
@@ -3305,9 +3305,9 @@ physical_plan [
                                                 "extra_info": {
                                                     "Function": "Vortex Scan",
                                                     "Filters": [
-                                                        "($.t_hour = 8i64)",
-                                                        "($.t_minute >= 30i64)",
-                                                        "(28803i64 <= $.t_time_sk <= 75598i64)"
+                                                        "($.t_hour = 8i32)",
+                                                        "($.t_minute >= 30i32)",
+                                                        "(28808i32 <= $.t_time_sk <= 75596i32)"
                                                     ],
                                                     "Projections": "t_time_sk",
                                                     "Estimated Cardinality": "17280"
@@ -3317,7 +3317,7 @@ physical_plan [
                                         "extra_info": {
                                             "Join Type": "INNER",
                                             "Conditions": "ss_sold_time_sk = t_time_sk",
-                                            "Estimated Cardinality": "21303"
+                                            "Estimated Cardinality": "17763"
                                         }
                                     },
                                     {
@@ -3334,7 +3334,7 @@ physical_plan [
                                 "extra_info": {
                                     "Join Type": "INNER",
                                     "Conditions": "ss_store_sk = s_store_sk",
-                                    "Estimated Cardinality": "21303"
+                                    "Estimated Cardinality": "8881"
                                 }
                             }
                         ],

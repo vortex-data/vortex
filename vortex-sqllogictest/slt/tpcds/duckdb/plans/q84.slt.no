@@ -250,7 +250,7 @@ logical_plan [
                                     "Expressions": [
                                         "(ca_city = CAST('Edgewood' AS VARCHAR))",
                                         "(c_current_addr_sk = ca_address_sk)",
-                                        "(ib_lower_bound >= CAST(38128 AS BIGINT))",
+                                        "(ib_lower_bound >= CAST(38128 AS INTEGER))",
                                         "(ib_upper_bound <= (38128 + 50000))",
                                         "(ib_income_band_sk = hd_income_band_sk)",
                                         "(cd_demo_sk = c_current_cdemo_sk)",
@@ -292,9 +292,9 @@ logical_opt [
                                 "name": "READ_VORTEX",
                                 "children": [],
                                 "extra_info": {
-                                    "Filters": "(7i64 <= $.cd_demo_sk <= 192051i64)",
+                                    "Filters": "(311i32 <= $.cd_demo_sk <= 1920559i32)",
                                     "Function": "Vortex Scan",
-                                    "Estimated Cardinality": "192080"
+                                    "Estimated Cardinality": "1920800"
                                 }
                             },
                             {
@@ -316,13 +316,22 @@ logical_opt [
                                                 "name": "COMPARISON_JOIN",
                                                 "children": [
                                                     {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Filters": "($.ca_city = \"Edgewood\")",
+                                                            "Function": "Vortex Scan",
+                                                            "Estimated Cardinality": "1000"
+                                                        }
+                                                    },
+                                                    {
                                                         "name": "COMPARISON_JOIN",
                                                         "children": [
                                                             {
                                                                 "name": "READ_VORTEX",
                                                                 "children": [],
                                                                 "extra_info": {
-                                                                    "Filters": "",
+                                                                    "Filters": "(311i32 <= $.c_current_cdemo_sk <= 1920559i32)",
                                                                     "Function": "Vortex Scan",
                                                                     "Estimated Cardinality": "10000"
                                                                 }
@@ -331,39 +340,30 @@ logical_opt [
                                                                 "name": "READ_VORTEX",
                                                                 "children": [],
                                                                 "extra_info": {
-                                                                    "Filters": "(7i64 <= $.sr_cdemo_sk <= 192051i64)",
+                                                                    "Filters": "",
                                                                     "Function": "Vortex Scan",
-                                                                    "Estimated Cardinality": "28576"
+                                                                    "Estimated Cardinality": "23925"
                                                                 }
                                                             }
                                                         ],
                                                         "extra_info": {
                                                             "Join Type": "INNER",
                                                             "Conditions": "(c_current_cdemo_sk = sr_cdemo_sk)",
-                                                            "Estimated Cardinality": "1487"
-                                                        }
-                                                    },
-                                                    {
-                                                        "name": "READ_VORTEX",
-                                                        "children": [],
-                                                        "extra_info": {
-                                                            "Filters": "($.ca_city = \"Edgewood\")",
-                                                            "Function": "Vortex Scan",
-                                                            "Estimated Cardinality": "1000"
+                                                            "Estimated Cardinality": "124"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
                                                     "Join Type": "INNER",
-                                                    "Conditions": "(c_current_addr_sk = ca_address_sk)",
-                                                    "Estimated Cardinality": "297"
+                                                    "Conditions": "(ca_address_sk = c_current_addr_sk)",
+                                                    "Estimated Cardinality": "24"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "Join Type": "INNER",
                                             "Conditions": "(hd_demo_sk = c_current_hdemo_sk)",
-                                            "Estimated Cardinality": "297"
+                                            "Estimated Cardinality": "24"
                                         }
                                     },
                                     {
@@ -371,7 +371,7 @@ logical_opt [
                                         "children": [],
                                         "extra_info": {
                                             "Filters": [
-                                                "($.ib_lower_bound >= 38128i64)",
+                                                "($.ib_lower_bound >= 38128i32)",
                                                 "($.ib_upper_bound <= 88128i32)"
                                             ],
                                             "Function": "Vortex Scan",
@@ -382,14 +382,14 @@ logical_opt [
                                 "extra_info": {
                                     "Join Type": "INNER",
                                     "Conditions": "(hd_income_band_sk = ib_income_band_sk)",
-                                    "Estimated Cardinality": "59"
+                                    "Estimated Cardinality": "4"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Join Type": "INNER",
                             "Conditions": "(cd_demo_sk = c_current_cdemo_sk)",
-                            "Estimated Cardinality": "59"
+                            "Estimated Cardinality": "4"
                         }
                     }
                 ],
@@ -398,13 +398,13 @@ logical_opt [
                         "customer_id",
                         "customername"
                     ],
-                    "Estimated Cardinality": "59"
+                    "Estimated Cardinality": "4"
                 }
             }
         ],
         "extra_info": {
             "Expressions": "",
-            "Estimated Cardinality": "59"
+            "Estimated Cardinality": "4"
         }
     }
 ]
@@ -423,9 +423,9 @@ physical_plan [
                                 "children": [],
                                 "extra_info": {
                                     "Function": "Vortex Scan",
-                                    "Filters": "(7i64 <= $.cd_demo_sk <= 192051i64)",
+                                    "Filters": "(311i32 <= $.cd_demo_sk <= 1920559i32)",
                                     "Projections": "cd_demo_sk",
-                                    "Estimated Cardinality": "192080"
+                                    "Estimated Cardinality": "1920800"
                                 }
                             },
                             {
@@ -450,6 +450,16 @@ physical_plan [
                                                 "name": "HASH_JOIN",
                                                 "children": [
                                                     {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Function": "Vortex Scan",
+                                                            "Filters": "($.ca_city = \"Edgewood\")",
+                                                            "Projections": "ca_address_sk",
+                                                            "Estimated Cardinality": "1000"
+                                                        }
+                                                    },
+                                                    {
                                                         "name": "HASH_JOIN",
                                                         "children": [
                                                             {
@@ -457,6 +467,7 @@ physical_plan [
                                                                 "children": [],
                                                                 "extra_info": {
                                                                     "Function": "Vortex Scan",
+                                                                    "Filters": "(311i32 <= $.c_current_cdemo_sk <= 1920559i32)",
                                                                     "Projections": [
                                                                         "c_customer_id",
                                                                         "c_current_cdemo_sk",
@@ -473,40 +484,29 @@ physical_plan [
                                                                 "children": [],
                                                                 "extra_info": {
                                                                     "Function": "Vortex Scan",
-                                                                    "Filters": "(7i64 <= $.sr_cdemo_sk <= 192051i64)",
                                                                     "Projections": "sr_cdemo_sk",
-                                                                    "Estimated Cardinality": "28576"
+                                                                    "Estimated Cardinality": "23925"
                                                                 }
                                                             }
                                                         ],
                                                         "extra_info": {
                                                             "Join Type": "INNER",
                                                             "Conditions": "c_current_cdemo_sk = sr_cdemo_sk",
-                                                            "Estimated Cardinality": "1487"
-                                                        }
-                                                    },
-                                                    {
-                                                        "name": "READ_VORTEX",
-                                                        "children": [],
-                                                        "extra_info": {
-                                                            "Function": "Vortex Scan",
-                                                            "Filters": "($.ca_city = \"Edgewood\")",
-                                                            "Projections": "ca_address_sk",
-                                                            "Estimated Cardinality": "1000"
+                                                            "Estimated Cardinality": "124"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
                                                     "Join Type": "INNER",
-                                                    "Conditions": "c_current_addr_sk = ca_address_sk",
-                                                    "Estimated Cardinality": "297"
+                                                    "Conditions": "ca_address_sk = c_current_addr_sk",
+                                                    "Estimated Cardinality": "24"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "Join Type": "INNER",
                                             "Conditions": "hd_demo_sk = c_current_hdemo_sk",
-                                            "Estimated Cardinality": "297"
+                                            "Estimated Cardinality": "24"
                                         }
                                     },
                                     {
@@ -515,7 +515,7 @@ physical_plan [
                                         "extra_info": {
                                             "Function": "Vortex Scan",
                                             "Filters": [
-                                                "($.ib_lower_bound >= 38128i64)",
+                                                "($.ib_lower_bound >= 38128i32)",
                                                 "($.ib_upper_bound <= 88128i32)"
                                             ],
                                             "Projections": "ib_income_band_sk",
@@ -526,14 +526,14 @@ physical_plan [
                                 "extra_info": {
                                     "Join Type": "INNER",
                                     "Conditions": "hd_income_band_sk = ib_income_band_sk",
-                                    "Estimated Cardinality": "59"
+                                    "Estimated Cardinality": "4"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Join Type": "INNER",
                             "Conditions": "cd_demo_sk = c_current_cdemo_sk",
-                            "Estimated Cardinality": "59"
+                            "Estimated Cardinality": "4"
                         }
                     }
                 ],
@@ -542,14 +542,14 @@ physical_plan [
                         "customer_id",
                         "customername"
                     ],
-                    "Estimated Cardinality": "59"
+                    "Estimated Cardinality": "4"
                 }
             }
         ],
         "extra_info": {
             "Top": "100",
             "Order By": "customer_id ASC",
-            "Estimated Cardinality": "59"
+            "Estimated Cardinality": "4"
         }
     }
 ]

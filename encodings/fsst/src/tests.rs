@@ -23,7 +23,7 @@ use crate::fsst_compress;
 use crate::fsst_train_compressor;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty();
     crate::initialize(&session);
     session
 });

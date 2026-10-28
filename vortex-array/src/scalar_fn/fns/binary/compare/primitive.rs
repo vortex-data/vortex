@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Native comparison of primitive arrays with specialized bitmap packing for 8-bit inputs.
+//! Native comparison of primitive arrays with packed bitmap output.
 
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferAllocatorRef;
@@ -30,8 +30,8 @@ use crate::scalar_fn::fns::operators::CompareOperator;
 
 /// Compare two primitive arrays of the same [`PType`].
 ///
-/// Floats compare with Vortex's total ordering: `NaN` is the largest value, `-0.0 < +0.0`, and
-/// equality is bitwise.
+/// Floats use a total ordering over their bit patterns, including NaN signs and payloads.
+/// Equality is bitwise, so signed zeros and distinct NaN payloads remain distinct.
 pub(super) fn compare_primitive(
     lhs: &ArrayRef,
     rhs: &ArrayRef,
@@ -153,9 +153,9 @@ fn collect_bits_dispatch<T: NativePType>(
     f: impl Fn(T) -> bool,
     allocator: &BufferAllocatorRef,
 ) -> BitBuffer {
-    // This type check folds away during monomorphization. Wider masks keep the lane kernel:
-    // byte packing regresses 64-bit comparisons on AVX2.
-    if matches!(T::PTYPE, PType::I8 | PType::U8) {
+    // This type check folds away during monomorphization. Word packing improves float32
+    // comparisons; wider types retain the lane kernel to avoid AVX2 constant-case regressions.
+    if matches!(T::PTYPE, PType::I8 | PType::U8 | PType::F32) {
         collect_bits_narrow(values, f, allocator)
     } else {
         collect_bits(values, f, allocator)
@@ -168,7 +168,13 @@ fn collect_zip_bits_dispatch<T: NativePType>(
     f: impl Fn(T, T) -> bool,
     allocator: &BufferAllocatorRef,
 ) -> BitBuffer {
-    if matches!(T::PTYPE, PType::I8 | PType::U8) {
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+    if matches!(T::PTYPE, PType::I64 | PType::U64 | PType::F64) {
+        // Fill-and-pack improves wide array pairs on NEON. Constants keep their existing loop.
+        return collect_zip_bits_wide(lhs, rhs, f, allocator);
+    }
+
+    if matches!(T::PTYPE, PType::I8 | PType::U8 | PType::F32) {
         collect_zip_bits_narrow(lhs, rhs, f, allocator)
     } else {
         collect_zip_bits(lhs, rhs, f, allocator)
@@ -210,4 +216,24 @@ fn collect_zip_bits_narrow<T: Copy>(
             collect_bool_word(left_tail.len(), |i| f(left_tail[i], right_tail[i]));
     }
     bit_buffer_from_words(words, lhs.len())
+}
+
+/// Keep the predicate free of bounds checks so NEON can fuse comparison and bitmap packing.
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+fn collect_zip_bits_wide<T: Copy>(
+    lhs: &[T],
+    rhs: &[T],
+    f: impl Fn(T, T) -> bool,
+    allocator: &BufferAllocatorRef,
+) -> BitBuffer {
+    assert_eq!(lhs.len(), rhs.len());
+    BitBuffer::collect_bool_multiversioned_in(
+        lhs.len(),
+        |index| {
+            // SAFETY: the collector calls with `index < lhs.len()`, and the slice lengths match.
+            let (lhs, rhs) = unsafe { (*lhs.get_unchecked(index), *rhs.get_unchecked(index)) };
+            f(lhs, rhs)
+        },
+        allocator.clone(),
+    )
 }

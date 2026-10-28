@@ -754,7 +754,7 @@ logical_opt [
                                                         "(p_partkey IS NOT DISTINCT FROM p_partkey)",
                                                         "(ps_supplycost = SUBQUERY)"
                                                     ],
-                                                    "Estimated Cardinality": "256"
+                                                    "Estimated Cardinality": "64"
                                                 }
                                             }
                                         ],
@@ -769,7 +769,7 @@ logical_opt [
                                                 "#6",
                                                 "#7"
                                             ],
-                                            "Estimated Cardinality": "256"
+                                            "Estimated Cardinality": "64"
                                         }
                                     }
                                 ],
@@ -784,14 +784,14 @@ logical_opt [
                                         "#6",
                                         "#7"
                                     ],
-                                    "Estimated Cardinality": "256"
+                                    "Estimated Cardinality": "64"
                                 }
                             }
                         ],
                         "extra_info": {
                             "CTE Name": "__duckdb_delim_79",
                             "Table Index": "79",
-                            "Estimated Cardinality": "256"
+                            "Estimated Cardinality": "64"
                         }
                     }
                 ],
@@ -806,13 +806,13 @@ logical_opt [
                         "s_phone",
                         "s_comment"
                     ],
-                    "Estimated Cardinality": "256"
+                    "Estimated Cardinality": "64"
                 }
             }
         ],
         "extra_info": {
             "Expressions": "",
-            "Estimated Cardinality": "100"
+            "Estimated Cardinality": "64"
         }
     }
 ]
@@ -1163,7 +1163,7 @@ physical_plan [
                                                 "p_partkey IS NOT DISTINCT FROM p_partkey",
                                                 "ps_supplycost = SUBQUERY"
                                             ],
-                                            "Estimated Cardinality": "256"
+                                            "Estimated Cardinality": "64"
                                         }
                                     }
                                 ],
@@ -1178,7 +1178,7 @@ physical_plan [
                                         "#6",
                                         "#7"
                                     ],
-                                    "Estimated Cardinality": "256"
+                                    "Estimated Cardinality": "64"
                                 }
                             }
                         ],
@@ -1186,7 +1186,7 @@ physical_plan [
                             "CTE Name": "__duckdb_delim_79",
                             "Table Index": "79",
                             "Execution Mode": "PIPELINE_DEPENDENT",
-                            "Estimated Cardinality": "256"
+                            "Estimated Cardinality": "64"
                         }
                     }
                 ],
@@ -1201,7 +1201,7 @@ physical_plan [
                         "s_phone",
                         "s_comment"
                     ],
-                    "Estimated Cardinality": "256"
+                    "Estimated Cardinality": "64"
                 }
             }
         ],
@@ -1213,7 +1213,7 @@ physical_plan [
                 "s_name ASC",
                 "p_partkey ASC"
             ],
-            "Estimated Cardinality": "100"
+            "Estimated Cardinality": "64"
         }
     }
 ]

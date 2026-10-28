@@ -347,11 +347,14 @@ fn apply_patches_primitive<V: NativePType>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
     use vortex_buffer::buffer_mut;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
     use crate::Array;
@@ -360,7 +363,6 @@ mod tests {
     use crate::ArraySlots;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Patched;
     use crate::arrays::PatchedArray;
     use crate::arrays::PrimitiveArray;
@@ -377,9 +379,11 @@ mod tests {
     use crate::session::ArraySessionExt;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_execute() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = buffer![0u16; 1024].into_array();
         let patches = Patches::new(
             1024,
@@ -391,8 +395,7 @@ mod tests {
         )
         .unwrap();
 
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -408,7 +411,7 @@ mod tests {
 
     #[test]
     fn test_execute_sliced() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = buffer![0u16; 1024].into_array();
         let patches = Patches::new(
             1024,
@@ -420,8 +423,7 @@ mod tests {
         )
         .unwrap();
 
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -437,7 +439,7 @@ mod tests {
 
     #[test]
     fn test_append_to_builder_non_nullable() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = PrimitiveArray::new(buffer![0u16; 1024], Validity::NonNullable).into_array();
         let patches = Patches::new(
             1024,
@@ -449,8 +451,7 @@ mod tests {
         )
         .unwrap();
 
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -476,7 +477,7 @@ mod tests {
 
     #[test]
     fn test_append_to_builder_sliced() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = PrimitiveArray::new(buffer![0u16; 1024], Validity::NonNullable).into_array();
         let patches = Patches::new(
             1024,
@@ -488,8 +489,7 @@ mod tests {
         )
         .unwrap();
 
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -515,7 +515,7 @@ mod tests {
 
     #[test]
     fn test_append_to_builder_with_validity() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Create inner array with nulls at indices 0 and 5.
         let validity = Validity::from_iter((0..10).map(|i| i != 0 && i != 5));
         let values = PrimitiveArray::new(buffer![0u16; 10], validity).into_array();
@@ -531,8 +531,7 @@ mod tests {
         )
         .unwrap();
 
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -570,7 +569,7 @@ mod tests {
         patch_indices: &[u32],
         patch_values: &[u16],
     ) -> VortexResult<PatchedArray> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values: Vec<u16> = inner.into_iter().collect();
         let len = values.len();
         let array = PrimitiveArray::from_iter(values).into_array();
@@ -580,8 +579,7 @@ mod tests {
 
         let patches = Patches::new(len, 0, indices, patch_vals, None, &mut ctx)?;
 
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         Patched::from_array_and_patches(array, &patches, &mut ctx)
     }
@@ -603,7 +601,7 @@ mod tests {
         let dtype = array.dtype().clone();
         let len = array.len();
 
-        let session = array_session();
+        let session = VortexSession::empty();
         session.arrays().register(Patched);
 
         let ctx = ArrayContext::empty().with_allowed_ids(
@@ -661,7 +659,7 @@ mod tests {
         assert_eq!(array_ref.len(), new_array.len());
         assert_eq!(array_ref.dtype(), new_array.dtype());
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let expected = PrimitiveArray::from_iter((0..1024).map(|i| match i {
             1 => 10u16,
@@ -701,7 +699,7 @@ mod tests {
         .into_array();
 
         // Execute and verify the inner values changed (except at patch positions)
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         // Expected: all 5s except indices 1, 2, 3 which are patched to 10, 20, 30
         let expected = PrimitiveArray::from_iter([5u16, 10, 20, 30, 5, 5, 5, 5, 5, 5]);

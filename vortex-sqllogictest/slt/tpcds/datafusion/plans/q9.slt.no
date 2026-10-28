@@ -77,84 +77,84 @@ logical_plan
 03)----Projection: count(Int64(1)) AS count(*)
 04)------Aggregate: groupBy=[[]], aggr=[[count(Int64(1))]]
 05)--------Projection:
-06)----------Filter: store_sales.ss_quantity >= Int64(1) AND store_sales.ss_quantity <= Int64(20)
-07)------------TableScan: store_sales projection=[ss_quantity], partial_filters=[store_sales.ss_quantity >= Int64(1), store_sales.ss_quantity <= Int64(20)]
+06)----------Filter: store_sales.ss_quantity >= Int32(1) AND store_sales.ss_quantity <= Int32(20)
+07)------------TableScan: store_sales projection=[ss_quantity], partial_filters=[store_sales.ss_quantity >= Int32(1), store_sales.ss_quantity <= Int32(20)]
 08)--Subquery:
 09)----Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_ext_discount_amt)]]
 10)------Projection: store_sales.ss_ext_discount_amt
-11)--------Filter: store_sales.ss_quantity >= Int64(1) AND store_sales.ss_quantity <= Int64(20)
-12)----------TableScan: store_sales projection=[ss_quantity, ss_ext_discount_amt], partial_filters=[store_sales.ss_quantity >= Int64(1), store_sales.ss_quantity <= Int64(20)]
+11)--------Filter: store_sales.ss_quantity >= Int32(1) AND store_sales.ss_quantity <= Int32(20)
+12)----------TableScan: store_sales projection=[ss_quantity, ss_ext_discount_amt], partial_filters=[store_sales.ss_quantity >= Int32(1), store_sales.ss_quantity <= Int32(20)]
 13)--Subquery:
 14)----Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_net_paid)]]
 15)------Projection: store_sales.ss_net_paid
-16)--------Filter: store_sales.ss_quantity >= Int64(1) AND store_sales.ss_quantity <= Int64(20)
-17)----------TableScan: store_sales projection=[ss_quantity, ss_net_paid], partial_filters=[store_sales.ss_quantity >= Int64(1), store_sales.ss_quantity <= Int64(20)]
+16)--------Filter: store_sales.ss_quantity >= Int32(1) AND store_sales.ss_quantity <= Int32(20)
+17)----------TableScan: store_sales projection=[ss_quantity, ss_net_paid], partial_filters=[store_sales.ss_quantity >= Int32(1), store_sales.ss_quantity <= Int32(20)]
 18)--Subquery:
 19)----Projection: count(Int64(1)) AS count(*)
 20)------Aggregate: groupBy=[[]], aggr=[[count(Int64(1))]]
 21)--------Projection:
-22)----------Filter: store_sales.ss_quantity >= Int64(21) AND store_sales.ss_quantity <= Int64(40)
-23)------------TableScan: store_sales projection=[ss_quantity], partial_filters=[store_sales.ss_quantity >= Int64(21), store_sales.ss_quantity <= Int64(40)]
+22)----------Filter: store_sales.ss_quantity >= Int32(21) AND store_sales.ss_quantity <= Int32(40)
+23)------------TableScan: store_sales projection=[ss_quantity], partial_filters=[store_sales.ss_quantity >= Int32(21), store_sales.ss_quantity <= Int32(40)]
 24)--Subquery:
 25)----Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_ext_discount_amt)]]
 26)------Projection: store_sales.ss_ext_discount_amt
-27)--------Filter: store_sales.ss_quantity >= Int64(21) AND store_sales.ss_quantity <= Int64(40)
-28)----------TableScan: store_sales projection=[ss_quantity, ss_ext_discount_amt], partial_filters=[store_sales.ss_quantity >= Int64(21), store_sales.ss_quantity <= Int64(40)]
+27)--------Filter: store_sales.ss_quantity >= Int32(21) AND store_sales.ss_quantity <= Int32(40)
+28)----------TableScan: store_sales projection=[ss_quantity, ss_ext_discount_amt], partial_filters=[store_sales.ss_quantity >= Int32(21), store_sales.ss_quantity <= Int32(40)]
 29)--Subquery:
 30)----Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_net_paid)]]
 31)------Projection: store_sales.ss_net_paid
-32)--------Filter: store_sales.ss_quantity >= Int64(21) AND store_sales.ss_quantity <= Int64(40)
-33)----------TableScan: store_sales projection=[ss_quantity, ss_net_paid], partial_filters=[store_sales.ss_quantity >= Int64(21), store_sales.ss_quantity <= Int64(40)]
+32)--------Filter: store_sales.ss_quantity >= Int32(21) AND store_sales.ss_quantity <= Int32(40)
+33)----------TableScan: store_sales projection=[ss_quantity, ss_net_paid], partial_filters=[store_sales.ss_quantity >= Int32(21), store_sales.ss_quantity <= Int32(40)]
 34)--Subquery:
 35)----Projection: count(Int64(1)) AS count(*)
 36)------Aggregate: groupBy=[[]], aggr=[[count(Int64(1))]]
 37)--------Projection:
-38)----------Filter: store_sales.ss_quantity >= Int64(41) AND store_sales.ss_quantity <= Int64(60)
-39)------------TableScan: store_sales projection=[ss_quantity], partial_filters=[store_sales.ss_quantity >= Int64(41), store_sales.ss_quantity <= Int64(60)]
+38)----------Filter: store_sales.ss_quantity >= Int32(41) AND store_sales.ss_quantity <= Int32(60)
+39)------------TableScan: store_sales projection=[ss_quantity], partial_filters=[store_sales.ss_quantity >= Int32(41), store_sales.ss_quantity <= Int32(60)]
 40)--Subquery:
 41)----Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_ext_discount_amt)]]
 42)------Projection: store_sales.ss_ext_discount_amt
-43)--------Filter: store_sales.ss_quantity >= Int64(41) AND store_sales.ss_quantity <= Int64(60)
-44)----------TableScan: store_sales projection=[ss_quantity, ss_ext_discount_amt], partial_filters=[store_sales.ss_quantity >= Int64(41), store_sales.ss_quantity <= Int64(60)]
+43)--------Filter: store_sales.ss_quantity >= Int32(41) AND store_sales.ss_quantity <= Int32(60)
+44)----------TableScan: store_sales projection=[ss_quantity, ss_ext_discount_amt], partial_filters=[store_sales.ss_quantity >= Int32(41), store_sales.ss_quantity <= Int32(60)]
 45)--Subquery:
 46)----Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_net_paid)]]
 47)------Projection: store_sales.ss_net_paid
-48)--------Filter: store_sales.ss_quantity >= Int64(41) AND store_sales.ss_quantity <= Int64(60)
-49)----------TableScan: store_sales projection=[ss_quantity, ss_net_paid], partial_filters=[store_sales.ss_quantity >= Int64(41), store_sales.ss_quantity <= Int64(60)]
+48)--------Filter: store_sales.ss_quantity >= Int32(41) AND store_sales.ss_quantity <= Int32(60)
+49)----------TableScan: store_sales projection=[ss_quantity, ss_net_paid], partial_filters=[store_sales.ss_quantity >= Int32(41), store_sales.ss_quantity <= Int32(60)]
 50)--Subquery:
 51)----Projection: count(Int64(1)) AS count(*)
 52)------Aggregate: groupBy=[[]], aggr=[[count(Int64(1))]]
 53)--------Projection:
-54)----------Filter: store_sales.ss_quantity >= Int64(61) AND store_sales.ss_quantity <= Int64(80)
-55)------------TableScan: store_sales projection=[ss_quantity], partial_filters=[store_sales.ss_quantity >= Int64(61), store_sales.ss_quantity <= Int64(80)]
+54)----------Filter: store_sales.ss_quantity >= Int32(61) AND store_sales.ss_quantity <= Int32(80)
+55)------------TableScan: store_sales projection=[ss_quantity], partial_filters=[store_sales.ss_quantity >= Int32(61), store_sales.ss_quantity <= Int32(80)]
 56)--Subquery:
 57)----Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_ext_discount_amt)]]
 58)------Projection: store_sales.ss_ext_discount_amt
-59)--------Filter: store_sales.ss_quantity >= Int64(61) AND store_sales.ss_quantity <= Int64(80)
-60)----------TableScan: store_sales projection=[ss_quantity, ss_ext_discount_amt], partial_filters=[store_sales.ss_quantity >= Int64(61), store_sales.ss_quantity <= Int64(80)]
+59)--------Filter: store_sales.ss_quantity >= Int32(61) AND store_sales.ss_quantity <= Int32(80)
+60)----------TableScan: store_sales projection=[ss_quantity, ss_ext_discount_amt], partial_filters=[store_sales.ss_quantity >= Int32(61), store_sales.ss_quantity <= Int32(80)]
 61)--Subquery:
 62)----Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_net_paid)]]
 63)------Projection: store_sales.ss_net_paid
-64)--------Filter: store_sales.ss_quantity >= Int64(61) AND store_sales.ss_quantity <= Int64(80)
-65)----------TableScan: store_sales projection=[ss_quantity, ss_net_paid], partial_filters=[store_sales.ss_quantity >= Int64(61), store_sales.ss_quantity <= Int64(80)]
+64)--------Filter: store_sales.ss_quantity >= Int32(61) AND store_sales.ss_quantity <= Int32(80)
+65)----------TableScan: store_sales projection=[ss_quantity, ss_net_paid], partial_filters=[store_sales.ss_quantity >= Int32(61), store_sales.ss_quantity <= Int32(80)]
 66)--Subquery:
 67)----Projection: count(Int64(1)) AS count(*)
 68)------Aggregate: groupBy=[[]], aggr=[[count(Int64(1))]]
 69)--------Projection:
-70)----------Filter: store_sales.ss_quantity >= Int64(81) AND store_sales.ss_quantity <= Int64(100)
-71)------------TableScan: store_sales projection=[ss_quantity], partial_filters=[store_sales.ss_quantity >= Int64(81), store_sales.ss_quantity <= Int64(100)]
+70)----------Filter: store_sales.ss_quantity >= Int32(81) AND store_sales.ss_quantity <= Int32(100)
+71)------------TableScan: store_sales projection=[ss_quantity], partial_filters=[store_sales.ss_quantity >= Int32(81), store_sales.ss_quantity <= Int32(100)]
 72)--Subquery:
 73)----Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_ext_discount_amt)]]
 74)------Projection: store_sales.ss_ext_discount_amt
-75)--------Filter: store_sales.ss_quantity >= Int64(81) AND store_sales.ss_quantity <= Int64(100)
-76)----------TableScan: store_sales projection=[ss_quantity, ss_ext_discount_amt], partial_filters=[store_sales.ss_quantity >= Int64(81), store_sales.ss_quantity <= Int64(100)]
+75)--------Filter: store_sales.ss_quantity >= Int32(81) AND store_sales.ss_quantity <= Int32(100)
+76)----------TableScan: store_sales projection=[ss_quantity, ss_ext_discount_amt], partial_filters=[store_sales.ss_quantity >= Int32(81), store_sales.ss_quantity <= Int32(100)]
 77)--Subquery:
 78)----Aggregate: groupBy=[[]], aggr=[[avg(store_sales.ss_net_paid)]]
 79)------Projection: store_sales.ss_net_paid
-80)--------Filter: store_sales.ss_quantity >= Int64(81) AND store_sales.ss_quantity <= Int64(100)
-81)----------TableScan: store_sales projection=[ss_quantity, ss_net_paid], partial_filters=[store_sales.ss_quantity >= Int64(81), store_sales.ss_quantity <= Int64(100)]
-82)--Filter: reason.r_reason_sk = Int64(1)
-83)----TableScan: reason projection=[r_reason_sk], partial_filters=[reason.r_reason_sk = Int64(1)]
+80)--------Filter: store_sales.ss_quantity >= Int32(81) AND store_sales.ss_quantity <= Int32(100)
+81)----------TableScan: store_sales projection=[ss_quantity, ss_net_paid], partial_filters=[store_sales.ss_quantity >= Int32(81), store_sales.ss_quantity <= Int32(100)]
+82)--Filter: reason.r_reason_sk = Int32(1)
+83)----TableScan: reason projection=[r_reason_sk], partial_filters=[reason.r_reason_sk = Int32(1)]
 physical_plan
 01)ScalarSubqueryExec: subqueries=15
 02)--ProjectionExec: expr=[CASE WHEN scalar_subquery(<pending>) > 74129 THEN scalar_subquery(<pending>) ELSE scalar_subquery(<pending>) END as bucket1, CASE WHEN scalar_subquery(<pending>) > 122840 THEN scalar_subquery(<pending>) ELSE scalar_subquery(<pending>) END as bucket2, CASE WHEN scalar_subquery(<pending>) > 56580 THEN scalar_subquery(<pending>) ELSE scalar_subquery(<pending>) END as bucket3, CASE WHEN scalar_subquery(<pending>) > 10097 THEN scalar_subquery(<pending>) ELSE scalar_subquery(<pending>) END as bucket4, CASE WHEN scalar_subquery(<pending>) > 165306 THEN scalar_subquery(<pending>) ELSE scalar_subquery(<pending>) END as bucket5]

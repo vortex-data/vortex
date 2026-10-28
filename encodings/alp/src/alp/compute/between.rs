@@ -46,8 +46,8 @@ impl BetweenReduce for ALP {
         match_each_alp_float_ptype!(array.dtype().as_ptype(), |F| {
             between_impl::<F>(
                 array,
-                F::try_from(&lower)?,
-                F::try_from(&upper)?,
+                F::try_from(lower)?,
+                F::try_from(upper)?,
                 nullability,
                 options,
             )
@@ -155,7 +155,7 @@ mod tests {
     use crate::alp_encode;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });

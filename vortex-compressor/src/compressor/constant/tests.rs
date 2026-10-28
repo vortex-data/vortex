@@ -44,7 +44,7 @@ use crate::builtins::FloatDictScheme;
 use crate::builtins::IntDictScheme;
 use crate::builtins::StringDictScheme;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 /// Constant detection is built into the compressor, so it must work with no schemes at all.
 fn empty_compressor() -> CascadingCompressor {

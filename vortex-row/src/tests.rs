@@ -5,11 +5,11 @@
 
 use std::cmp::Ordering;
 use std::f64::consts::PI;
+use std::sync::LazyLock;
 
 use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::ExtensionArray;
@@ -33,6 +33,7 @@ use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::RowEncoder;
 use crate::RowEncodingOptions;
@@ -41,8 +42,10 @@ use crate::compute_row_sizes_with_options;
 use crate::convert_columns;
 use crate::convert_columns_with_options;
 
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
 fn collect_row_bytes(array: &ListViewArray) -> Vec<Vec<u8>> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     assert_eq!(
         array.dtype(),
         &DType::list(
@@ -70,7 +73,7 @@ fn assert_row_order(rows: &[Vec<u8>], len: usize, compare: impl Fn(usize, usize)
 }
 
 fn assert_sort_order_i64(values: Vec<i64>, descending: bool) -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let col = PrimitiveArray::from_iter(values.clone()).into_array();
     let field = RowSortField::new(descending, true);
     let encoded = convert_columns(&[col], &[field], &mut ctx)?;
@@ -96,7 +99,7 @@ fn primitive_i64_roundtrip(#[case] descending: bool) -> VortexResult<()> {
 
 #[test]
 fn primitive_u32_sort_order() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let values: Vec<u32> = vec![0, 1, 100, u32::MAX, 42, 17];
     let col = PrimitiveArray::from_iter(values.clone()).into_array();
     let encoded = convert_columns(&[col], &[RowSortField::default()], &mut ctx)?;
@@ -108,7 +111,7 @@ fn primitive_u32_sort_order() -> VortexResult<()> {
 
 #[test]
 fn reject_temporal_extension_dtype_early() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let storage = PrimitiveArray::from_iter([2i32, -1, 0, 7]).into_array();
     let ext_dtype = Date::new(TimeUnit::Days, Nullability::NonNullable).erased();
     let col = ExtensionArray::new(ext_dtype, storage).into_array();
@@ -124,7 +127,7 @@ fn reject_temporal_extension_dtype_early() -> VortexResult<()> {
 
 #[test]
 fn reject_nested_temporal_extension_dtype_early() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let storage = PrimitiveArray::from_iter([2i32, -1, 0, 7]).into_array();
     let ext_dtype = Date::new(TimeUnit::Days, Nullability::NonNullable).erased();
     let date_col = ExtensionArray::new(ext_dtype, storage).into_array();
@@ -143,7 +146,7 @@ fn reject_nested_temporal_extension_dtype_early() -> VortexResult<()> {
 
 #[test]
 fn primitive_f64_sort_order() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // We use IEEE total-ordering semantics: -0.0 < +0.0 in the byte encoding (matches
     // `arrow-row`). Avoid -0.0 in the natural-order baseline since partial_cmp says
     // -0.0 == 0.0.
@@ -160,7 +163,7 @@ fn primitive_f64_sort_order() -> VortexResult<()> {
 
 #[test]
 fn bool_sort_order() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let col = BoolArray::from_iter([true, false, true, false]).into_array();
     let encoded = convert_columns(&[col], &[RowSortField::default()], &mut ctx)?;
     let rows = collect_row_bytes(&encoded);
@@ -172,7 +175,7 @@ fn bool_sort_order() -> VortexResult<()> {
 
 #[test]
 fn utf8_sort_order() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let values = vec![
         "banana",
         "apple",
@@ -191,7 +194,7 @@ fn utf8_sort_order() -> VortexResult<()> {
 
 #[test]
 fn multi_column_sort() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let ints: Vec<i32> = vec![1, 2, 1, 2, 1, 3];
     let strs = vec!["b", "a", "a", "b", "c", "z"];
     let col0 = PrimitiveArray::from_iter(ints.clone()).into_array();
@@ -211,7 +214,7 @@ fn multi_column_sort() -> VortexResult<()> {
 
 #[test]
 fn nulls_first_and_last() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let values: Vec<Option<i32>> = vec![Some(5), None, Some(1), None, Some(3)];
     let col = PrimitiveArray::from_option_iter(values.clone()).into_array();
 
@@ -252,7 +255,7 @@ fn nulls_first_and_last() -> VortexResult<()> {
 
 #[test]
 fn reusable_options_helpers() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let options = RowEncodingOptions::new([RowSortField::descending().nulls_last()]);
     assert_eq!(options.len(), 1);
     assert!(!options.is_empty());
@@ -293,7 +296,7 @@ fn reusable_options_helpers() -> VortexResult<()> {
 
 #[test]
 fn row_encoder_new_accepts_sort_fields() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let encoder = RowEncoder::new([RowSortField::ascending()]);
     let col = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
 
@@ -311,7 +314,7 @@ fn row_encoder_new_accepts_sort_fields() -> VortexResult<()> {
 
 #[test]
 fn default_row_encoder_uses_default_fields() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let col0 = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
     let col1 = PrimitiveArray::from_iter([4i32, 5, 6]).into_array();
 
@@ -330,7 +333,7 @@ fn default_row_encoder_uses_default_fields() -> VortexResult<()> {
 #[test]
 fn struct_sort_order() -> VortexResult<()> {
     use vortex_array::arrays::StructArray;
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let ids: Vec<i64> = vec![3, 1, 3, 1, 2];
     let names = vec!["b", "a", "a", "b", "z"];
     let id_arr = PrimitiveArray::from_iter(ids.clone()).into_array();
@@ -354,7 +357,7 @@ fn row_size_struct_shape() -> VortexResult<()> {
 
     use crate::compute_row_sizes;
 
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let ints: Vec<i32> = vec![1, 2, 3, 4, 5];
     let strs = vec!["a", "bb", "ccc", "", "eeeee"];
     let col0 = PrimitiveArray::from_iter(ints).into_array();
@@ -402,7 +405,7 @@ fn row_size_struct_shape() -> VortexResult<()> {
 
 #[test]
 fn single_buffer_invariant() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // Encoded rows here are all > 12 bytes, forcing the Ref-view path that points back into
     // the shared data buffer.
     let nrows = 64usize;
@@ -446,7 +449,7 @@ fn single_buffer_invariant() -> VortexResult<()> {
 /// boundaries always align.
 #[test]
 fn multi_column_varlen_empty_vs_nul_byte_string() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // col1: empty vs single 0-byte. col2: same int for all rows.
     let col1 = VarBinViewArray::from_iter_str(["", "\0", "a", "ab"]).into_array();
     let col2 = PrimitiveArray::from_iter([1i32, 1, 1, 1]).into_array();
@@ -479,7 +482,7 @@ fn multi_column_varlen_empty_vs_nul_byte_string() -> VortexResult<()> {
 /// the 3-sentinel scheme null=0x00, empty=0x01 differ at byte 0.
 #[test]
 fn multi_column_varlen_null_vs_empty() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let col1 = VarBinViewArray::from_iter_nullable_str([
         None::<&str>,
         Some(""),
@@ -544,7 +547,7 @@ fn multi_column_varlen_null_vs_empty() -> VortexResult<()> {
 /// non-empty's first byte is smaller than empty's first byte.
 #[test]
 fn varlen_descending_empty_vs_non_empty() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let col = VarBinViewArray::from_iter_str(["a", "", "abc"]).into_array();
     let encoded = convert_columns(&[col], &[RowSortField::descending()], &mut ctx)?;
     let rows = collect_row_bytes(&encoded);
@@ -565,7 +568,7 @@ fn null_struct_rows_with_varying_child_lengths_are_byte_equal() -> VortexResult<
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
 
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // Build a nullable struct{name: utf8} where rows 0 and 2 are null but the underlying
     // child has different length data ("short" vs "much longer text data").
     let names =
@@ -590,7 +593,7 @@ fn null_struct_rows_with_varying_child_lengths_are_byte_equal() -> VortexResult<
 
 #[test]
 fn primitive_f32_sort_order() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let values: Vec<f32> = vec![-1.5, 0.0, 1.5, f32::INFINITY, f32::NEG_INFINITY];
     let col = PrimitiveArray::from_iter(values.clone()).into_array();
     let encoded = convert_columns(&[col], &[RowSortField::default()], &mut ctx)?;
@@ -604,7 +607,7 @@ fn primitive_f32_sort_order() -> VortexResult<()> {
 #[test]
 fn primitive_f16_sort_order() -> VortexResult<()> {
     use vortex_array::dtype::half::f16;
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let values: Vec<f16> = vec![
         f16::from_f32(-1.5),
         f16::from_f32(0.0),
@@ -631,7 +634,7 @@ fn variable_list_sort_order(
     #[case] field: RowSortField,
     #[case] expected_indices: Vec<usize>,
 ) -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // [[1, 2], [1], [], [2], null, [1, 3]]
     let elements = PrimitiveArray::from_iter([1i32, 2, 2, 1, 3]).into_array();
     let offsets = buffer![0u32, 0, 0, 2, 0, 3].into_array();
@@ -656,7 +659,7 @@ fn variable_list_sort_order(
 
 #[test]
 fn variable_list_prefix_order_precedes_following_column() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // The second column deliberately has the opposite order. The list terminator must decide
     // [1] < [1, 2] before comparison can observe that following column.
     let lists = ListViewArray::new(
@@ -681,7 +684,7 @@ fn variable_list_prefix_order_precedes_following_column() -> VortexResult<()> {
 
 #[test]
 fn variable_list_null_element_prefix_precedes_following_column() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // The child null sentinel and ascending list terminator are both zero.
     // The element marker must decide the list prefix before the following column.
     let mut lists = ListViewArray::new(
@@ -729,7 +732,7 @@ fn variable_list_null_element_prefix_precedes_following_column() -> VortexResult
 
 #[test]
 fn map_sort_order() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let map_dtype = MapDType::try_new(
         DType::Primitive(PType::I32, Nullability::NonNullable),
         DType::Primitive(PType::I32, Nullability::NonNullable),
@@ -769,7 +772,7 @@ fn map_sort_order() -> VortexResult<()> {
 #[case::ascending(false)]
 #[case::descending(true)]
 fn decimal_keys_comparable_across_chunk_widths(#[case] descending: bool) -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let dtype = DecimalDType::new(7, 5);
     let field = RowSortField::new(descending, true);
 
@@ -802,7 +805,7 @@ fn decimal_keys_comparable_across_chunk_widths(#[case] descending: bool) -> Vort
 /// encoding must ignore it rather than report a spurious overflow.
 #[test]
 fn decimal_null_slot_garbage_does_not_error() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let dtype = DecimalDType::new(7, 5);
     let field = RowSortField::new(false, true);
 
@@ -824,7 +827,7 @@ fn decimal_null_slot_garbage_does_not_error() -> VortexResult<()> {
 /// silently encoding a corrupt key.
 #[test]
 fn decimal_value_not_fitting_key_width_errors() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let dtype = DecimalDType::new(7, 5);
     let field = RowSortField::new(false, true);
 
@@ -841,7 +844,7 @@ fn decimal_value_not_fitting_key_width_errors() {
 
 #[test]
 fn decimal256_keys_preserve_order_and_physical_width_independence() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let dtype = DecimalDType::new(76, 4);
     let large = i256::from_parts(0, 1 << 100);
     let values = [

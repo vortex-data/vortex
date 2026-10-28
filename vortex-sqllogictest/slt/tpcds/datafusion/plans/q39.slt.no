@@ -84,8 +84,8 @@ logical_plan
 19)----------------------------------TableScan: item projection=[i_item_sk]
 20)------------------------------TableScan: warehouse projection=[w_warehouse_sk, w_warehouse_name]
 21)--------------------------Projection: date_dim.d_date_sk, date_dim.d_moy
-22)----------------------------Filter: date_dim.d_year = Int64(2001) AND date_dim.d_moy = Int64(1)
-23)------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(2001), date_dim.d_moy = Int64(1)]
+22)----------------------------Filter: date_dim.d_year = Int32(2001) AND date_dim.d_moy = Int32(1)
+23)------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int32(2001), date_dim.d_moy = Int32(1)]
 24)------SubqueryAlias: inv2
 25)--------SubqueryAlias: inv
 26)----------Projection: foo.w_warehouse_sk, foo.i_item_sk, foo.d_moy, foo.mean, CASE foo.mean WHEN Float64(0) THEN Float64(NULL) ELSE foo.stdev / foo.mean END AS cov
@@ -104,8 +104,8 @@ logical_plan
 39)----------------------------------TableScan: item projection=[i_item_sk]
 40)------------------------------TableScan: warehouse projection=[w_warehouse_sk, w_warehouse_name]
 41)--------------------------Projection: date_dim.d_date_sk, date_dim.d_moy
-42)----------------------------Filter: date_dim.d_year = Int64(2001) AND date_dim.d_moy = Int64(2)
-43)------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(2001), date_dim.d_moy = Int64(2)]
+42)----------------------------Filter: date_dim.d_year = Int32(2001) AND date_dim.d_moy = Int32(2)
+43)------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int32(2001), date_dim.d_moy = Int32(2)]
 physical_plan
 01)SortPreservingMergeExec: [wsk1@0 ASC, isk1@1 ASC, dmoy1@2 ASC, mean1@3 ASC, cov1@4 ASC, d_moy@7 ASC, mean@8 ASC, cov@9 ASC]
 02)--ProjectionExec: expr=[w_warehouse_sk@0 as wsk1, i_item_sk@1 as isk1, d_moy@2 as dmoy1, mean@3 as mean1, cov@4 as cov1, w_warehouse_sk@5 as w_warehouse_sk, i_item_sk@6 as i_item_sk, d_moy@7 as d_moy, mean@8 as mean, cov@9 as cov]

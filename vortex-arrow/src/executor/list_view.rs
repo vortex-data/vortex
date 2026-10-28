@@ -147,7 +147,7 @@ mod tests {
     use crate::executor::list_view::PrimitiveArray;
 
     /// A shared session for these list-view-executor tests, used to create execution contexts.
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn trims_zero_copy_with_significant_trailing_waste() -> VortexResult<()> {

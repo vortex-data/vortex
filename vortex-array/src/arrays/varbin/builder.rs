@@ -208,7 +208,9 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
                 Some(value) => self.append_n_values(value, n)?,
                 None => self.push_nulls(n),
             },
-            dtype => vortex_bail!("VarBinBuilder cannot append scalar of dtype {dtype}"),
+            dtype => {
+                vortex_bail!("VarBinBuilder cannot append scalar of dtype {dtype}")
+            }
         }
         Ok(())
     }
@@ -717,14 +719,15 @@ fn prefix_sums<P: AsPrimitive<usize>>(lengths: &[P]) -> impl Iterator<Item = usi
 #[cfg(test)]
 mod tests {
     use std::mem::MaybeUninit;
+    use std::sync::LazyLock;
 
     use rstest::rstest;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
@@ -738,6 +741,8 @@ mod tests {
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProviderExt;
     use crate::scalar::Scalar;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_builder() {
@@ -755,20 +760,20 @@ mod tests {
         assert_eq!(array.dtype().nullability(), Nullable);
         assert_eq!(
             array
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(0, &mut SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::utf8("hello".to_string(), Nullable)
         );
         assert!(
             array
-                .execute_scalar(1, &mut array_session().create_execution_ctx())
+                .execute_scalar(1, &mut SESSION.create_execution_ctx())
                 .unwrap()
                 .is_null()
         );
         assert_arrays_eq!(
             array,
             VarBinViewArray::from_iter_nullable_str([Some("hello"), None, Some("world")]),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -788,7 +793,7 @@ mod tests {
         )
         .into_array()
         .slice(1..4)?;
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let actual = with_offsets(large_offsets, source.dtype().clone(), |builder| {
             source.append_to_builder(builder, &mut ctx)
@@ -847,7 +852,7 @@ mod tests {
 
     #[test]
     fn append_decoded_writes_into_the_builder_storage() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut builder = VarBinBuilder::<i32>::new_in(
             DType::Utf8(Nullable),
             vortex_buffer::BufferAllocatorRef::static_ref(),
@@ -979,7 +984,7 @@ mod tests {
     #[case(false)]
     #[case(true)]
     fn test_array_builder_methods(#[case] large_offsets: bool) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let result = with_offsets(large_offsets, DType::Utf8(Nullable), |builder| {
             builder.reserve_exact(3);
             builder.append_zero();
@@ -1013,7 +1018,7 @@ mod tests {
             [None, None, Some("hello"), None, Some(long)],
             DType::Utf8(Nullable),
         );
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let actual = with_offsets(large_offsets, expected.dtype().clone(), |builder| {
             all_null
@@ -1040,7 +1045,7 @@ mod tests {
     #[case::i32(VarBinBuilder::<i32>::new_in(DType::Utf8(Nullable), vortex_buffer::BufferAllocatorRef::static_ref()))]
     #[case::i64(VarBinBuilder::<i64>::new_in(DType::Utf8(Nullable), vortex_buffer::BufferAllocatorRef::static_ref()))]
     fn append_to_every_offset_width(#[case] mut builder: impl ArrayBuilder) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let long = "a string that is far too long to be inlined in a view";
         let values = [Some("hello"), None, Some(long), Some("")];
 

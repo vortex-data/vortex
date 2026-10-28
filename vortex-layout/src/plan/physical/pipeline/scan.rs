@@ -23,7 +23,6 @@ use vortex_session::VortexSession;
 
 use super::DEFAULT_CAPACITY;
 use super::compile::Chain;
-use super::compile::Shares;
 use super::port::Arena;
 use super::port::PipelineId;
 use super::port::PortId;
@@ -288,16 +287,14 @@ pub(crate) struct Core {
     /// queued once.
     dirty: Vec<usize>,
     dirty_flags: Vec<bool>,
-    pub(crate) shares: Shares,
-    /// The split being compiled, whose shared ports a compile claims. `usize::MAX` when no
-    /// split is, as while the pipeline a share decodes with is built: it reads for no split.
-    pub(crate) split: usize,
+    /// The segment of every scan source compiled so far, in compile order.
+    pub(crate) segments: Vec<SegmentId>,
     /// Whole values kept for later scans of the same split.
     pub(crate) values: ValueCache,
 }
 
 impl Core {
-    fn new(session: VortexSession, row_offset: u64, splits: Vec<Range<u64>>) -> Self {
+    fn new(session: VortexSession, row_offset: u64) -> Self {
         Self {
             exec: session.create_execution_ctx(),
             session,
@@ -311,8 +308,7 @@ impl Core {
             new_reads: VecDeque::new(),
             dirty: Vec::new(),
             dirty_flags: Vec::new(),
-            shares: Shares::new(splits),
-            split: usize::MAX,
+            segments: Vec::new(),
             values: ValueCache::default(),
         }
     }
@@ -363,12 +359,9 @@ impl Core {
         plan: &PlanRef,
         rows: Range<u64>,
         mask: &Mask,
-        (slot, split): (usize, usize),
+        slot: usize,
     ) -> VortexResult<Option<PortId>> {
-        self.split = split;
-        let chain = self.compile(plan, rows, mask);
-        self.split = usize::MAX;
-        let Some(chain) = chain? else {
+        let Some(chain) = self.compile(plan, rows, mask)? else {
             return Ok(None);
         };
         let port = self
@@ -496,29 +489,6 @@ impl Core {
                 .outlets
                 .iter()
                 .all(|&outlet| self.arena.has_room(outlet))
-    }
-
-    /// Finishes split `index`: its unclaimed share ports are detached from the pipelines
-    /// sharing them, which then push to the claimants alone, and freed.
-    pub(crate) fn finish_split(&mut self, index: usize) {
-        for port in self.shares.finish(index) {
-            // A sink that has finished already closed the port, and so left it.
-            if let Some(sink) = self.arena.get(port).sink {
-                let pipe = self.pipeline_mut(sink);
-                pipe.outlets.retain(|outlet| *outlet != port);
-                // The claimant that built the shared pipeline reads its own port to the end,
-                // so no split's leaving takes a shared pipeline's last outlet.
-                debug_assert!(
-                    !pipe.outlets.is_empty(),
-                    "pipeline {sink} shares its output with no split"
-                );
-                self.arena.get_mut(port).sink = None;
-                if self.sink_has_room(sink) {
-                    self.make_runnable(sink);
-                }
-            }
-            self.arena.discard(port);
-        }
     }
 
     /// Drops a finished pipeline. Its outlets are closed; its inlets lose their source; the reads
@@ -670,22 +640,7 @@ impl Scan {
             );
         }
         let root = Root::Plan(plan);
-        let mut core = Core::new(
-            session,
-            0,
-            splits.iter().map(|split| split.rows.clone()).collect(),
-        );
-        // Only the rows some split reads can share a segment between readers.
-        let start = splits
-            .iter()
-            .map(|split| split.rows.start)
-            .min()
-            .unwrap_or(0);
-        let end = splits.iter().map(|split| split.rows.end).max().unwrap_or(0);
-        match &root {
-            Root::Plan(plan) => core.shares.add(plan, start..end)?,
-        }
-        core.shares.retain_shared();
+        let mut core = Core::new(session, 0);
         core.dirty_flags = vec![false; 1];
         Ok(Self {
             core,
@@ -696,6 +651,22 @@ impl Scan {
             live: 0,
             outputs: VecDeque::new(),
         })
+    }
+
+    /// The segments compiling `plan` over `rows` under `mask` reads, each once, in id order.
+    /// Compiling does no IO, so the segments a stage will read are known before it starts.
+    pub fn segments(
+        session: &VortexSession,
+        plan: &PlanRef,
+        rows: Range<u64>,
+        mask: &Mask,
+    ) -> VortexResult<Vec<SegmentId>> {
+        let mut core = Core::new(session.clone(), 0);
+        core.compile(plan, rows, mask)?;
+        let mut segments = core.segments;
+        segments.sort_unstable();
+        segments.dedup();
+        Ok(segments)
     }
 
     /// Runs up to `max_active` splits at once.
@@ -777,7 +748,7 @@ impl Scan {
         {
             Root::Plan(plan) => {
                 self.core
-                    .compile_stage(plan, split.rows.clone(), &split.mask, (slot, index))?
+                    .compile_stage(plan, split.rows.clone(), &split.mask, slot)?
             }
         };
         if self.next == self.splits.len() {
@@ -785,9 +756,7 @@ impl Scan {
             // lowering tree or the source layouts retained by its lazy children.
             self.root = None;
         }
-        if output.is_none() {
-            self.core.finish_split(index);
-        } else {
+        if output.is_some() {
             self.active[slot] = Some(Active { index, output });
             self.live += 1;
         }
@@ -811,7 +780,6 @@ impl Scan {
             self.core.arena.drop_source(port);
             active.output = None;
         }
-        self.core.finish_split(active.index);
         self.active[slot] = None;
         self.live -= 1;
         Ok(())
@@ -831,11 +799,5 @@ impl Scan {
             .values()
             .filter(|(owner, _)| owner.is_some())
             .count()
-    }
-
-    /// Shared ports not yet claimed or dropped.
-    #[cfg(test)]
-    pub(crate) fn pending_shares(&self) -> usize {
-        self.core.shares.pending()
     }
 }

@@ -93,7 +93,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn try_cast_bool_success() {

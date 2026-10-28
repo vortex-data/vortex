@@ -424,7 +424,6 @@ mod tests {
 
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::assert_arrays_eq;
     use vortex_session::VortexSession;
 
@@ -434,7 +433,7 @@ mod tests {
     use crate::FoRData;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });

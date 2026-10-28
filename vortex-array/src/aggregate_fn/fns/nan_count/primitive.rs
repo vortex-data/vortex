@@ -38,15 +38,19 @@ fn compute_nan_count_with_validity<T: NativePType>(values: &[T], validity: Mask)
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::fns::nan_count::nan_count;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn primitive_nan_count() -> VortexResult<()> {
@@ -62,7 +66,7 @@ mod tests {
             ],
             Validity::NonNullable,
         );
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(nan_count(&p.into_array(), &mut ctx)?, 2);
         Ok(())
     }
@@ -73,7 +77,7 @@ mod tests {
             buffer![f64::NAN, f64::NAN, f64::NAN, 1.0],
             Validity::from_iter([true, false, true, true]),
         );
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(nan_count(&p.into_array(), &mut ctx)?, 2);
         Ok(())
     }
@@ -81,7 +85,7 @@ mod tests {
     #[test]
     fn primitive_nan_count_all_valid_no_nans() -> VortexResult<()> {
         let p = PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0], Validity::NonNullable);
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(nan_count(&p.into_array(), &mut ctx)?, 0);
         Ok(())
     }

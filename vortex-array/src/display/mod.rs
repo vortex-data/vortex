@@ -31,8 +31,9 @@ pub enum DisplayOptions {
     /// Only the top-level encoding id and limited metadata: `vortex.primitive(i16, len=5)`.
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
     /// # use vortex_array::VortexSessionExecute;
-    /// # let ctx = vortex_array::array_session().create_execution_ctx();
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::display::DisplayOptions;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
@@ -46,8 +47,9 @@ pub enum DisplayOptions {
     /// Only the logical values of the array: `[0i16, 1i16, 2i16, 3i16, 4i16]`.
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
     /// # use vortex_array::VortexSessionExecute;
-    /// # let ctx = vortex_array::array_session().create_execution_ctx();
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::display::DisplayOptions;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
@@ -67,8 +69,9 @@ pub enum DisplayOptions {
     /// With buffers, metadata, and stats:
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
     /// # use vortex_array::VortexSessionExecute;
-    /// # let ctx = vortex_array::array_session().create_execution_ctx();
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::display::DisplayOptions;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
@@ -99,8 +102,9 @@ pub enum DisplayOptions {
     /// With metadata and stats but no buffers:
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
     /// # use vortex_array::VortexSessionExecute;
-    /// # let ctx = vortex_array::array_session().create_execution_ctx();
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::display::DisplayOptions;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
@@ -128,8 +132,9 @@ pub enum DisplayOptions {
     /// With metadata and buffers but no stats:
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
     /// # use vortex_array::VortexSessionExecute;
-    /// # let ctx = vortex_array::array_session().create_execution_ctx();
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::display::DisplayOptions;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
@@ -160,8 +165,9 @@ pub enum DisplayOptions {
     /// With buffers and stats but no metadata:
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
     /// # use vortex_array::VortexSessionExecute;
-    /// # let ctx = vortex_array::array_session().create_execution_ctx();
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::display::DisplayOptions;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
@@ -188,8 +194,9 @@ pub enum DisplayOptions {
     /// With just buffers:
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
     /// # use vortex_array::VortexSessionExecute;
-    /// # let ctx = vortex_array::array_session().create_execution_ctx();
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::display::DisplayOptions;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
@@ -216,8 +223,9 @@ pub enum DisplayOptions {
     /// With just metadata:
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
     /// # use vortex_array::VortexSessionExecute;
-    /// # let ctx = vortex_array::array_session().create_execution_ctx();
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::display::DisplayOptions;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
@@ -245,8 +253,9 @@ pub enum DisplayOptions {
     /// With just stats:
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
     /// # use vortex_array::VortexSessionExecute;
-    /// # let ctx = vortex_array::array_session().create_execution_ctx();
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::display::DisplayOptions;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
@@ -270,8 +279,9 @@ pub enum DisplayOptions {
     /// With neither buffers, metadata, stats, nor values:
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
     /// # use vortex_array::VortexSessionExecute;
-    /// # let ctx = vortex_array::array_session().create_execution_ctx();
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::display::DisplayOptions;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
@@ -301,8 +311,9 @@ pub enum DisplayOptions {
     /// For regular arrays, displays a single column with values.
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
     /// # use vortex_array::VortexSessionExecute;
-    /// # let ctx = vortex_array::array_session().create_execution_ctx();
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::display::DisplayOptions;
     /// # use vortex_array::arrays::StructArray;
     /// # use vortex_array::IntoArray;
@@ -391,8 +402,9 @@ impl ArrayRef {
     /// # Examples
     ///
     /// ```
+    /// # use vortex_session::VortexSession;
     /// # use vortex_array::VortexSessionExecute;
-    /// # let ctx = vortex_array::array_session().create_execution_ctx();
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
     /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
@@ -542,8 +554,9 @@ impl ArrayRef {
     ///
     /// # Examples
     /// ```
+    /// # use vortex_session::VortexSession;
     /// # use vortex_array::VortexSessionExecute;
-    /// # let ctx = vortex_array::array_session().create_execution_ctx();
+    /// # let ctx = VortexSession::empty().create_execution_ctx();
     /// # #[cfg(feature = "table-display")]
     /// # {
     /// # use vortex_array::arrays::StructArray;
@@ -712,12 +725,14 @@ impl ArrayRef {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray as _;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
@@ -726,9 +741,11 @@ mod test {
     use crate::dtype::FieldNames;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_primitive() {
-        let ctx = array_session().create_execution_ctx();
+        let ctx = SESSION.create_execution_ctx();
         let x = Buffer::<u32>::empty().into_array();
         assert_eq!(x.display_values(&ctx).to_string(), "[]");
 
@@ -751,7 +768,7 @@ mod test {
 
     #[test]
     fn test_empty_struct() {
-        let ctx = array_session().create_execution_ctx();
+        let ctx = SESSION.create_execution_ctx();
         let s = StructArray::try_new(
             FieldNames::empty(),
             vec![],
@@ -765,7 +782,7 @@ mod test {
 
     #[test]
     fn test_simple_struct() {
-        let ctx = array_session().create_execution_ctx();
+        let ctx = SESSION.create_execution_ctx();
         let s = StructArray::from_fields(&[
             ("x", buffer![1, 2, 3, 4].into_array()),
             ("y", buffer![-1, -2, -3, -4].into_array()),
@@ -780,7 +797,7 @@ mod test {
 
     #[test]
     fn test_list() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let x = ListArray::try_new(
             buffer![1, 2, 3, 4].into_array(),
             buffer![0, 0, 1, 1, 2, 4].into_array(),
@@ -805,7 +822,7 @@ mod test {
 
     #[test]
     fn test_table_display_primitive() {
-        let ctx = array_session().create_execution_ctx();
+        let ctx = SESSION.create_execution_ctx();
         use crate::display::DisplayOptions;
 
         let array = buffer![1, 2, 3, 4].into_array();
@@ -828,7 +845,7 @@ mod test {
 
     #[test]
     fn test_table_display() {
-        let ctx = array_session().create_execution_ctx();
+        let ctx = SESSION.create_execution_ctx();
         use crate::display::DisplayOptions;
 
         let array =

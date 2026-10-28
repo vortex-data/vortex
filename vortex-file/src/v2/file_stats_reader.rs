@@ -13,9 +13,9 @@ use std::sync::Arc;
 use vortex_array::MaskFuture;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
-use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
+use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_error::VortexResult;
 use vortex_layout::ArrayFuture;
 use vortex_layout::LayoutReader;
@@ -25,10 +25,10 @@ use vortex_layout::SplitRange;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
-use vortex_utils::aliases::dash_map::Entry;
 
 use crate::FileStatistics;
-use crate::pruning::can_prune_file_stats;
+use crate::pruning::is_falsified_by_file_stats;
+use crate::pruning::is_satisfied_by_file_stats;
 
 /// A [`LayoutReader`] decorator that prunes entire files based on file-level statistics.
 ///
@@ -36,51 +36,30 @@ use crate::pruning::can_prune_file_stats;
 /// When file-level stats prove that a filter expression is false for the entire file,
 /// it returns an all-false mask immediately — avoiding all downstream I/O.
 ///
-/// Pruning results are cached per-expression since file-level stats are global
-/// (the result is the same regardless of which row range is requested).
+/// File-level proofs are cached per expression until the dynamic producer changes. Falsification
+/// is checked when pruning is polled; satisfaction is checked after the input mask resolves and
+/// bypasses downstream filter evaluation.
 pub struct FileStatsLayoutReader {
     child: LayoutReaderRef,
     file_stats: FileStatistics,
-    struct_fields: StructFields,
     session: VortexSession,
-    prune_cache: DashMap<ExactBoundExpr, bool>,
+    prune_cache: Arc<DashMap<ExactBoundExpr, CachedProof>>,
+    satisfaction_cache: Arc<DashMap<ExactBoundExpr, CachedProof>>,
 }
 
 impl FileStatsLayoutReader {
     /// Creates a new `FileStatsLayoutReader` wrapping the given child reader.
-    ///
-    /// The `struct_fields` are derived from the child reader's dtype. If the dtype is not a
-    /// struct, the available stats will be empty and no pruning will occur.
-    ///
-    /// Pre-computes the set of available stat field paths from the struct fields and file stats.
     pub fn new(child: LayoutReaderRef, file_stats: FileStatistics, session: VortexSession) -> Self {
-        let struct_fields = child
-            .dtype()
-            .as_struct_fields_opt()
-            .cloned()
-            .unwrap_or_default();
-
         Self {
             child,
             file_stats,
-            struct_fields,
             session,
-            prune_cache: DashMap::with_hasher_and_shard_amount(Default::default(), 8),
+            prune_cache: Arc::new(DashMap::with_hasher_and_shard_amount(Default::default(), 8)),
+            satisfaction_cache: Arc::new(DashMap::with_hasher_and_shard_amount(
+                Default::default(),
+                8,
+            )),
         }
-    }
-
-    /// Evaluates whether file-level statistics prove `expr` cannot match.
-    ///
-    /// Row-count placeholders are resolved against the full file row count,
-    /// independent of the requested row range.
-    fn evaluate_file_stats(&self, expr: &BoundExpression) -> VortexResult<bool> {
-        can_prune_file_stats(
-            expr,
-            self.child.row_count(),
-            &self.file_stats,
-            &self.struct_fields,
-            &self.session,
-        )
     }
 
     /// Returns the file-level statistics used by this reader.
@@ -117,25 +96,27 @@ impl LayoutReader for FileStatsLayoutReader {
         expr: &BoundExpression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
-        let key = ExactBoundExpr(expr.clone());
-
-        // Check cache first with read-only lock.
-        let cached = self.prune_cache.get(&key).map(|pruned| *pruned);
-        let pruned = match cached {
-            Some(pruned) => pruned,
-            // Evaluate under the entry lock, so that splits which start together evaluate the
-            // expression once rather than each falsifying it again.
-            None => match self.prune_cache.entry(key) {
-                Entry::Occupied(entry) => *entry.get(),
-                Entry::Vacant(entry) => *entry.insert(self.evaluate_file_stats(expr)?),
-            },
-        };
-
-        if pruned {
-            Ok(MaskFuture::ready(Mask::new_false(mask.len())))
-        } else {
-            self.child.pruning_evaluation(row_range, expr, mask)
-        }
+        let child = Arc::clone(&self.child);
+        let file_stats = self.file_stats.clone();
+        let session = self.session.clone();
+        let cache = Arc::clone(&self.prune_cache);
+        let expr = expr.clone();
+        let row_range = row_range.clone();
+        Ok(MaskFuture::new(mask.len(), async move {
+            let pruned = {
+                let mut entry = cache
+                    .entry(ExactBoundExpr(expr.clone()))
+                    .or_insert_with(|| CachedProof::new(&expr));
+                entry.evaluate(|| {
+                    is_falsified_by_file_stats(&expr, child.row_count(), &file_stats, &session)
+                })?
+            };
+            if pruned {
+                Ok(Mask::new_false(mask.len()))
+            } else {
+                child.pruning_evaluation(&row_range, &expr, mask)?.await
+            }
+        }))
     }
 
     fn filter_evaluation(
@@ -144,7 +125,35 @@ impl LayoutReader for FileStatsLayoutReader {
         expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
-        self.child.filter_evaluation(row_range, expr, mask)
+        let child = Arc::clone(&self.child);
+        let file_stats = self.file_stats.clone();
+        let session = self.session.clone();
+        let cache = Arc::clone(&self.satisfaction_cache);
+        let expr = expr.clone();
+        let row_range = row_range.clone();
+        Ok(MaskFuture::new(mask.len(), async move {
+            let mask = mask.await?;
+            if mask.all_false() {
+                return Ok(mask);
+            }
+            let satisfied = {
+                let mut entry = cache
+                    .entry(ExactBoundExpr(expr.clone()))
+                    .or_insert_with(|| CachedProof::new(&expr));
+                entry
+                    .evaluate(|| {
+                        is_satisfied_by_file_stats(&expr, child.row_count(), &file_stats, &session)
+                    })
+                    .unwrap_or(false)
+            };
+            if satisfied {
+                Ok(mask)
+            } else {
+                child
+                    .filter_evaluation(&row_range, &expr, MaskFuture::ready(mask))?
+                    .await
+            }
+        }))
     }
 
     fn projection_evaluation(
@@ -161,20 +170,63 @@ impl LayoutReader for FileStatsLayoutReader {
     }
 }
 
+struct CachedProof {
+    updates: Option<DynamicExprUpdates>,
+    latest: Option<(u64, bool)>,
+}
+
+impl CachedProof {
+    fn new(expr: &BoundExpression) -> Self {
+        Self {
+            updates: DynamicExprUpdates::new(expr),
+            latest: None,
+        }
+    }
+
+    fn evaluate(&mut self, proof: impl FnOnce() -> VortexResult<bool>) -> VortexResult<bool> {
+        let version = self.updates.as_ref().map_or(0, DynamicExprUpdates::version);
+        if let Some((previous, proven)) = self.latest
+            && previous == version
+        {
+            return Ok(proven);
+        }
+        let proven = proof()?;
+        // A proof evaluated across a producer update must not suppress the current filter.
+        if self.updates.as_ref().map_or(0, DynamicExprUpdates::version) != version {
+            return Ok(false);
+        }
+        self.latest = Some((version, proven));
+        Ok(proven)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::fmt::Display;
+    use std::fmt::Formatter;
     use std::sync::Arc;
     use std::sync::LazyLock;
+    use std::sync::atomic::AtomicU64;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray as _;
+    use vortex_array::aggregate_fn::AggregateFnVTableExt;
+    use vortex_array::aggregate_fn::EmptyOptions;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
+    use vortex_array::aggregate_fn::fns::max::Max;
+    use vortex_array::aggregate_fn::fns::min::Min;
+    use vortex_array::aggregate_fn::fns::null_count::NullCount;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::datetime::TemporalData;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldPath;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::expr::checked_add;
+    use vortex_array::expr::dynamic_expression;
     use vortex_array::expr::get_item;
     use vortex_array::expr::gt;
     use vortex_array::expr::is_not_null;
@@ -182,10 +234,10 @@ mod tests {
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
     use vortex_array::expr::stats::Precision;
-    use vortex_array::expr::stats::Stat;
     use vortex_array::extension::datetime::TimeUnit;
-    use vortex_array::scalar::ScalarValue;
-    use vortex_array::stats::StatsSet;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
+    use vortex_array::scalar_fn::fns::dynamic_expression::input_field_name;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
@@ -193,9 +245,14 @@ mod tests {
     use vortex_io::session::RuntimeSessionExt;
     use vortex_layout::LayoutReader;
     use vortex_layout::LayoutStrategy;
+    use vortex_layout::layouts::file_stats::AggregateStat;
+    use vortex_layout::layouts::file_stats::AggregateStats;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_layout::layouts::table::TableStrategy;
+    use vortex_layout::segments::SegmentFuture;
+    use vortex_layout::segments::SegmentId;
     use vortex_layout::segments::SegmentSink;
+    use vortex_layout::segments::SegmentSource;
     use vortex_layout::segments::TestSegments;
     use vortex_layout::sequence::SequenceId;
     use vortex_layout::sequence::SequentialArrayStreamExt;
@@ -206,30 +263,72 @@ mod tests {
     use super::*;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        vortex_array::array_session()
+        VortexSession::empty()
             .with::<LayoutSession>()
             .with::<RuntimeSession>()
     });
 
+    struct CountingSegments(Arc<TestSegments>, AtomicUsize);
+
+    impl SegmentSource for CountingSegments {
+        fn request(&self, id: SegmentId) -> SegmentFuture {
+            self.1.fetch_add(1, Ordering::Relaxed);
+            self.0.request(id)
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct LivePredicate(AtomicU64);
+
+    impl Display for LivePredicate {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            f.write_str("live predicate")
+        }
+    }
+
+    impl DynamicExpressionSource for LivePredicate {
+        fn generation(&self) -> u64 {
+            self.0.load(Ordering::SeqCst)
+        }
+
+        fn current(&self, scope: &DType) -> VortexResult<BoundExpression> {
+            match self.generation() {
+                0 | 2 | 5 | 8 => lit(true),
+                3 | 7 => gt(get_item(input_field_name(0), root()), lit(200i32)),
+                4 => lit(Scalar::null(DType::Bool(Nullability::Nullable))),
+                _ => gt(get_item(input_field_name(0), root()), lit(2i32)),
+            }
+            .bind(scope)
+        }
+    }
+
     fn test_file_stats(min: i32, max: i32) -> FileStatistics {
-        let mut stats = StatsSet::default();
-        stats.set(Stat::Min, Precision::exact(ScalarValue::from(min)));
-        stats.set(Stat::Max, Precision::exact(ScalarValue::from(max)));
+        let stats = AggregateStats::new(vec![
+            AggregateStat::from_value(
+                Min.bind(NumericalAggregateOpts::skip_nans()),
+                Precision::exact(Scalar::from(min)),
+            ),
+            AggregateStat::from_value(
+                Max.bind(NumericalAggregateOpts::skip_nans()),
+                Precision::exact(Scalar::from(max)),
+            ),
+        ]);
         FileStatistics::new(
             Arc::from([stats]),
             Arc::from([DType::Primitive(PType::I32, Nullability::NonNullable)]),
+            Arc::from([FieldPath::from_name("col")]),
         )
     }
 
     fn test_file_null_count_stats(null_count: u64) -> FileStatistics {
-        let mut stats = StatsSet::default();
-        stats.set(
-            Stat::NullCount,
-            Precision::exact(ScalarValue::from(null_count)),
-        );
+        let stats = AggregateStats::new(vec![AggregateStat::from_value(
+            NullCount.bind(EmptyOptions),
+            Precision::exact(Scalar::from(null_count)),
+        )]);
         FileStatistics::new(
             Arc::from([stats]),
             Arc::from([DType::Primitive(PType::I32, Nullability::Nullable)]),
+            Arc::from([FieldPath::from_name("col")]),
         )
     }
 
@@ -273,7 +372,7 @@ mod tests {
     }
 
     #[test]
-    fn no_pruning_when_filter_in_range() -> VortexResult<()> {
+    fn dynamic_proofs_refresh_before_reads() -> VortexResult<()> {
         block_on(|handle| async {
             let session = SESSION.clone().with_handle(handle);
             let ctx = ArrayContext::empty();
@@ -296,7 +395,13 @@ mod tests {
                 )
                 .await?;
 
-            let child = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
+            let counted = Arc::new(CountingSegments(segments, AtomicUsize::new(0)));
+            let child = layout.new_reader(
+                "".into(),
+                Arc::clone(&counted) as Arc<dyn SegmentSource>,
+                &SESSION,
+                &Default::default(),
+            )?;
 
             let reader =
                 FileStatsLayoutReader::new(child, test_file_stats(0, 100), SESSION.clone());
@@ -307,6 +412,65 @@ mod tests {
             let result = reader.pruning_evaluation(&(0..5), &expr, mask)?.await?;
             // Should delegate to child, which returns the mask unchanged (struct reader doesn't prune).
             assert_eq!(result, Mask::new_true(5));
+
+            let producer = Arc::new(LivePredicate::default());
+            let dynamic = dynamic_expression(
+                Arc::clone(&producer) as Arc<dyn DynamicExpressionSource>,
+                [get_item("col", root())],
+            )
+            .bind(reader.dtype())?;
+            for (generation, expected) in [
+                (0, [true; 5]),
+                (1, [false, false, true, true, true]),
+                (2, [true; 5]),
+                (3, [false; 5]),
+                (4, [false; 5]),
+            ] {
+                producer.0.store(generation, Ordering::SeqCst);
+                assert_eq!(
+                    reader
+                        .pruning_evaluation(&(0..5), &dynamic, Mask::new_true(5))?
+                        .await?,
+                    if generation == 3 {
+                        Mask::new_false(5)
+                    } else {
+                        Mask::new_true(5)
+                    }
+                );
+                let result = reader
+                    .filter_evaluation(&(0..5), &dynamic, MaskFuture::new_true(5))?
+                    .await?;
+                assert_eq!(result, Mask::from_iter(expected));
+                if generation == 0 {
+                    assert_eq!(counted.1.load(Ordering::Relaxed), 0);
+                }
+            }
+            producer.0.store(5, Ordering::SeqCst);
+            let selected = Mask::from_iter([true, false, true, false, true]);
+            assert_eq!(
+                reader
+                    .filter_evaluation(&(0..5), &dynamic, MaskFuture::ready(selected.clone()))?
+                    .await?,
+                selected
+            );
+            let pending = reader.filter_evaluation(&(0..5), &dynamic, MaskFuture::new_true(5))?;
+            producer.0.store(6, Ordering::SeqCst);
+            assert_eq!(
+                pending.await?,
+                Mask::from_iter([false, false, true, true, true])
+            );
+            assert!(counted.1.load(Ordering::Relaxed) > 0);
+
+            producer.0.store(7, Ordering::SeqCst);
+            assert_eq!(
+                reader
+                    .pruning_evaluation(&(0..5), &dynamic, Mask::new_true(5))?
+                    .await?,
+                Mask::new_false(5)
+            );
+            let pending = reader.pruning_evaluation(&(0..5), &dynamic, Mask::new_true(5))?;
+            producer.0.store(8, Ordering::SeqCst);
+            assert_eq!(pending.await?, Mask::new_true(5));
 
             Ok(())
         })
@@ -388,9 +552,15 @@ mod tests {
             let child = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
 
             // File-level stats: 1 null in deleted_at.
-            let mut stats = StatsSet::default();
-            stats.set(Stat::NullCount, Precision::exact(ScalarValue::from(1u64)));
-            let file_stats = FileStatistics::new(Arc::from([stats]), Arc::from([ts_dtype]));
+            let stats = AggregateStats::new(vec![AggregateStat::from_value(
+                NullCount.bind(EmptyOptions),
+                Precision::exact(Scalar::from(1u64)),
+            )]);
+            let file_stats = FileStatistics::new(
+                Arc::from([stats]),
+                Arc::from([ts_dtype]),
+                Arc::from([FieldPath::from_name("deleted_at")]),
+            );
 
             let reader = FileStatsLayoutReader::new(child, file_stats, SESSION.clone());
 

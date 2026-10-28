@@ -456,7 +456,7 @@ mod tests {
     }
 
     fn fresh_session() -> VortexSession {
-        crate::array_session()
+        VortexSession::empty()
     }
 
     fn dict_of_seven() -> ArrayRef {

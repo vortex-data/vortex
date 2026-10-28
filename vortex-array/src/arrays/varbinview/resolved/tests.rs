@@ -2,19 +2,22 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use rstest::rstest;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
 use crate::dtype::DType;
 use crate::dtype::Nullability::NonNullable;
 use crate::validity::Validity;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 const LONG: &str = "a value far too long to live inside its own view";
 
@@ -37,7 +40,7 @@ fn ref_view(value: &[u8], buffer_index: u32, offset: u32) -> VortexResult<Binary
 
 /// Values over two data buffers, one at a non-zero offset, interleaved with an inlined value.
 fn two_buffer_array() -> VortexResult<VarBinViewArray> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let views = Buffer::from_iter([
         ref_view(ALPHA, 0, 0)?,
         BinaryView::new_inlined(SHORT),
@@ -100,7 +103,7 @@ fn view_bytes_matches_bytes() -> VortexResult<()> {
 /// Slicing narrows the views, not the buffers.
 #[test]
 fn resolves_through_a_slice() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let array = two_buffer_array()?
         .slice(2..4)?
         .execute::<VarBinViewArray>(&mut ctx)?;

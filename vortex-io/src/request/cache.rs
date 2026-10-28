@@ -74,8 +74,13 @@ impl Source {
 
     fn complete(&self, completion: Completion) -> Option<Completion> {
         let mut state = self.state.lock();
-        let target = state.pending.remove(&(completion.owner, completion.request))?;
-        let len = match target { IoTarget::Size => 0, IoTarget::Range { len, .. } => len };
+        let target = state
+            .pending
+            .remove(&(completion.owner, completion.request))?;
+        let len = match target {
+            IoTarget::Size => 0,
+            IoTarget::Range { len, .. } => len,
+        };
         if let Ok(result) = &completion.result
             && result.matches(&target)
             && len <= self.budget.saturating_sub(state.bytes)
@@ -94,36 +99,56 @@ impl IoSource for Source {
         let mut reads = Vec::with_capacity(batch.len());
         for request in batch {
             if request.intent == IoIntent::Fetch {
-                state.pending.insert((owner, request.request), request.target);
+                state
+                    .pending
+                    .insert((owner, request.request), request.target);
                 if let Some(result) = state.cached.get(&request.target).cloned() {
-                    state.ready.push_back(Completion { owner, request: request.request, result: Ok(result) });
+                    state.ready.push_back(Completion {
+                        owner,
+                        request: request.request,
+                        result: Ok(result),
+                    });
                     continue;
                 }
             }
             reads.push(request);
         }
         self.inner.submit(owner, reads)?;
-        let waker = if state.ready.is_empty() { None } else { state.waker.take() };
+        let waker = if state.ready.is_empty() {
+            None
+        } else {
+            state.waker.take()
+        };
         drop(state);
-        if let Some(waker) = waker { waker.wake(); }
+        if let Some(waker) = waker {
+            waker.wake();
+        }
         Ok(())
     }
 
     fn poll(&self) -> VortexResult<Option<Completion>> {
-        if let Some(completion) = self.cached() { return Ok(Some(completion)); }
+        if let Some(completion) = self.cached() {
+            return Ok(Some(completion));
+        }
         while let Some(completion) = self.inner.poll()? {
-            if let Some(completion) = self.complete(completion) { return Ok(Some(completion)); }
+            if let Some(completion) = self.complete(completion) {
+                return Ok(Some(completion));
+            }
         }
         Ok(None)
     }
 
     fn poll_completion(&self, cx: &mut Context<'_>) -> Poll<VortexResult<Completion>> {
         self.state.lock().waker = Some(cx.waker().clone());
-        if let Some(completion) = self.cached() { return Poll::Ready(Ok(completion)); }
+        if let Some(completion) = self.cached() {
+            return Poll::Ready(Ok(completion));
+        }
         loop {
             match self.inner.poll_completion(cx) {
                 Poll::Ready(result) => {
-                    if let Some(completion) = self.complete(result?) { return Poll::Ready(Ok(completion)); }
+                    if let Some(completion) = self.complete(result?) {
+                        return Poll::Ready(Ok(completion));
+                    }
                 }
                 Poll::Pending => return Poll::Pending,
             }
@@ -131,9 +156,13 @@ impl IoSource for Source {
     }
 
     fn wait(&self) -> VortexResult<Completion> {
-        if let Some(completion) = self.cached() { return Ok(completion); }
+        if let Some(completion) = self.cached() {
+            return Ok(completion);
+        }
         loop {
-            if let Some(completion) = self.complete(self.inner.wait()?) { return Ok(completion); }
+            if let Some(completion) = self.complete(self.inner.wait()?) {
+                return Ok(completion);
+            }
         }
     }
 

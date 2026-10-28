@@ -134,7 +134,9 @@ impl TryToDataFusion<ScalarValue> for Scalar {
             dtype @ DType::Union(..) => vortex_bail!(
                 "cannot convert Vortex scalar dtype {dtype} to DataFusion ScalarValue: unsupported scalar type"
             ),
-            DType::Variant(_) => vortex_bail!("Variant scalars aren't supported with DF"),
+            DType::Variant(_) => {
+                vortex_bail!("Variant scalars aren't supported with DF")
+            }
             DType::Extension(ext) => {
                 let storage_scalar = self.as_extension().to_storage_scalar();
 
@@ -385,7 +387,7 @@ fn struct_from_df(array: &StructArray, session: &VortexSession) -> Scalar {
                     .from_arrow_array(ArrowArrayRef::clone(column), field)
                     .and_then(|column| column.execute_scalar(0, &mut ctx))
                     .unwrap_or_else(|e| {
-                        vortex_panic!("cannot convert struct field to a Vortex scalar: {e}")
+                        vortex_panic!(e, "cannot convert struct field to a Vortex scalar")
                     })
             })
             .collect::<Vec<_>>();

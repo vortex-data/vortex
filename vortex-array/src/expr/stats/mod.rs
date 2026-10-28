@@ -270,18 +270,22 @@ impl Display for Stat {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use enum_iterator::all;
+    use vortex_session::VortexSession;
 
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::expr::stats::Stat;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn min_of_nulls_is_not_panic() {
         let min = PrimitiveArray::from_option_iter::<i32, _>([None, None, None, None])
             .statistics()
-            .compute_as::<i64>(Stat::Min, &mut array_session().create_execution_ctx());
+            .compute_as::<i64>(Stat::Min, &mut SESSION.create_execution_ctx());
 
         assert_eq!(min, None);
     }

@@ -3,7 +3,6 @@
 
 use std::fmt::Formatter;
 use std::sync::Arc;
-use std::sync::OnceLock;
 use std::sync::Weak;
 
 use arrow_schema::SchemaRef;
@@ -12,10 +11,12 @@ use datafusion_common::config::ConfigOptions;
 use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file::FileSource;
+use datafusion_datasource::file_groups::FileGroupPartitioner;
 use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::EquivalenceProperties;
+use datafusion_physical_expr::LexOrdering;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::PhysicalSortExpr;
 use datafusion_physical_expr::conjunction;
@@ -33,7 +34,8 @@ use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
-use vortex::layout::scan::v2::ScanCache;
+use vortex::layout::scan::v2::WeakScanCache;
+use vortex::layout::segments::SegmentSource;
 use vortex::metrics::DefaultMetricsRegistry;
 use vortex::metrics::MetricsRegistry;
 use vortex::session::VortexSession;
@@ -200,8 +202,9 @@ pub struct VortexSource {
     ///
     /// Sharing the readers allows us to only read every layout once from the file, even across partitions.
     layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
-    /// V2 plans and dictionary values shared by partitions of this scan, per immutable file.
-    scan_caches: Arc<OnceLock<DashMap<Path, ScanCache>>>,
+    /// Shared V2 segment sources, keyed by path and alive only while a scan reads the file.
+    segment_sources: Arc<DashMap<Path, Weak<dyn SegmentSource>>>,
+    scan_caches: Arc<DashMap<Path, WeakScanCache>>,
     /// Shared full-file natural splits keyed by path.
     natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by path.
@@ -211,7 +214,7 @@ pub struct VortexSource {
     pub(crate) ordered: bool,
     vx_metrics_registry: Arc<dyn MetricsRegistry>,
     file_metadata_cache: Option<Arc<FileMetadataCache>>,
-    /// DataFusion's requested size for batches used by residual expressions.
+    /// DataFusion's batch size for evaluating residual expressions.
     batch_size: Option<usize>,
     /// Options controlling scan planning and execution behavior.
     options: VortexTableOptions,
@@ -240,7 +243,8 @@ impl VortexSource {
             vortex_predicate: None,
             df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
-            scan_caches: Arc::default(),
+            segment_sources: Arc::new(DashMap::default()),
+            scan_caches: Arc::new(DashMap::default()),
             natural_splits: Arc::new(DashMap::default()),
             file_schemas: Arc::new(DashMap::default()),
             expression_converter,
@@ -367,8 +371,8 @@ impl VortexSource {
             metrics_registry: Arc::clone(&self.vx_metrics_registry),
             df_metrics: self.df_metrics.clone(),
             layout_readers: Arc::clone(&self.layout_readers),
-            scan_caches: (self.options.scan_v2 && self.options.scan_v2_share_plans)
-                .then(|| Arc::clone(&self.scan_caches)),
+            segment_sources: Arc::clone(&self.segment_sources),
+            scan_caches: Arc::clone(&self.scan_caches),
             natural_splits: Arc::clone(&self.natural_splits),
             file_schemas: Arc::clone(&self.file_schemas),
             has_output_ordering: !base_config.output_ordering.is_empty() || self.ordered,
@@ -377,11 +381,15 @@ impl VortexSource {
             projection_pushdown: self.options.projection_pushdown,
             scan_concurrency: self.options.scan_concurrency,
             scan_v2: self.options.scan_v2,
+            scan_v2_share_plans: self.options.scan_v2_share_plans,
             scan_v2_io_cache_bytes: self.options.scan_v2_io_cache_bytes,
             scan_v2_chunk_rows: self.options.scan_v2_chunk_rows,
             scan_v2_consumer_mapping: self.options.scan_v2_consumer_mapping,
-            scan_v2_consumer_mapping_fixed_width_only: self.options.scan_v2_consumer_mapping_fixed_width_only,
+            scan_v2_consumer_mapping_fixed_width_only: self
+                .options
+                .scan_v2_consumer_mapping_fixed_width_only,
             batch_size: self.batch_size,
+            partitions: base_config.file_groups.len(),
         };
 
         Ok(opener)
@@ -461,6 +469,29 @@ impl FileSource for VortexSource {
 
     fn supports_repartitioning(&self) -> bool {
         true
+    }
+
+    fn repartitioned(
+        &self,
+        target_partitions: usize,
+        repartition_file_min_size: usize,
+        output_ordering: Option<LexOrdering>,
+        config: &FileScanConfig,
+    ) -> DFResult<Option<FileScanConfig>> {
+        if config.file_compression_type.is_compressed() {
+            return Ok(None);
+        }
+        let Some(file_groups) = FileGroupPartitioner::new()
+            .with_target_partitions(target_partitions)
+            .with_repartition_file_min_size(repartition_file_min_size)
+            .with_preserve_order_within_groups(output_ordering.is_some())
+            .repartition_file_groups(&config.file_groups)
+        else {
+            return Ok(None);
+        };
+        let mut repartitioned = config.clone();
+        repartitioned.file_groups = file_groups;
+        Ok(Some(repartitioned))
     }
 
     fn try_pushdown_filters(

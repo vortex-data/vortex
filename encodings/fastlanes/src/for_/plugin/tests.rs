@@ -24,7 +24,7 @@ use crate::for_::tests::blocked;
 use crate::for_::tests::global;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty();
     crate::initialize(&session);
     session
 });
@@ -137,8 +137,8 @@ fn vtable_serde_requires_plugin() -> VortexResult<()> {
         PrimitiveArray::from_iter([1u8, 2, 3]),
         &mut SESSION.create_execution_ctx(),
     )?;
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty();
     session.arrays().register(FoR);
-    assert!(session.array_serialize(&array.into_array()).is_err());
+    assert!(session.array_serialize(&array.into_array())?.is_none());
     Ok(())
 }

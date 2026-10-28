@@ -35,7 +35,6 @@ use futures::executor::block_on;
 use vortex::array::ArrayRef as VortexArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
-use vortex::array::array_session;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::DictArray as VortexDictArray;
@@ -70,7 +69,7 @@ use vortex_cuda::arrow::DeviceArrayStreamExt;
 const PRIMITIVE_DTYPE_ENV: &str = "VORTEX_CUDF_PRIMITIVE_DTYPE";
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    array_session()
+    VortexSession::empty()
         .with::<LayoutSession>()
         .with::<RuntimeSession>()
         .with::<CudaSession>()
@@ -146,7 +145,7 @@ fn list_array() -> VortexArrayRef {
         PrimitiveArray::from_iter([10i32, 11, 12, 13, 14]).into_array(),
         PrimitiveArray::from_iter([0i32, 2, 2, 5, 5, 5]).into_array(),
         Validity::from_iter([true, false, true, true, false]),
-        &mut array_session().create_execution_ctx(),
+        &mut VortexSession::empty().create_execution_ctx(),
     )
     .expect("list array")
     .into_array()
@@ -167,7 +166,7 @@ fn fixed_size_list_as_list_array() -> VortexArrayRef {
         PrimitiveArray::from_iter(20i32..30).into_array(),
         PrimitiveArray::from_iter([0i32, 2, 4, 6, 8, 10]).into_array(),
         Validity::from_iter([true, false, true, true, false]),
-        &mut array_session().create_execution_ctx(),
+        &mut VortexSession::empty().create_execution_ctx(),
     )
     .expect("fixed-size-list as list array")
     .into_array()
@@ -204,7 +203,7 @@ fn multi_buffer_varbinview(dtype: DType) -> VortexArrayRef {
         Arc::from([first, second]),
         dtype,
         Validity::NonNullable,
-        &mut array_session().create_execution_ctx(),
+        &mut VortexSession::empty().create_execution_ctx(),
     )
     .expect("multi-buffer VarBinViewArray")
     .into_array()

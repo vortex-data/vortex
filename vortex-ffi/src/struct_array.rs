@@ -128,16 +128,17 @@ pub extern "C-unwind" fn vx_struct_column_builder_finalize(
 mod tests {
     use std::ffi::c_void;
     use std::ptr;
+    use std::sync::LazyLock;
 
     use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
-    use vortex::array::array_session;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity;
     use vortex::buffer::buffer;
+    use vortex::session::VortexSession;
 
     use crate::array::vx_array;
     use crate::array::vx_array_free;
@@ -152,6 +153,8 @@ mod tests {
     use crate::struct_array::vx_struct_column_builder_finalize;
     use crate::struct_array::vx_struct_column_builder_free;
     use crate::struct_array::vx_struct_column_builder_new;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_empty() {
@@ -169,7 +172,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_many() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let names = ["age", "name"];
         let age_field = PrimitiveArray::new(buffer![30u8, 25u8, 35u8], Validity::NonNullable);
         let name_field = VarBinViewArray::from_iter_str(["Alice", "Bob", "Charlie"]);

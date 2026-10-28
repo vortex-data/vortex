@@ -28,8 +28,6 @@ use crate::plan::physical::PlanVTable;
 use crate::plan::physical::display::PlanTreeDisplay;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
-use crate::plan::physical::pipeline::Reach;
-use crate::segments::SegmentId;
 
 /// The combined allocation behind [`PlanRef`].
 ///
@@ -154,20 +152,6 @@ impl PlanRef {
             mask.len()
         );
         self.dyn_plan().dyn_compile(self, rows, mask, compiler)
-    }
-
-    /// Visits the segments compiling this plan over `rows` could read. See
-    /// [`PlanVTable::reach`].
-    pub fn reach(
-        &self,
-        rows: Range<u64>,
-        at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
-    ) -> VortexResult<()> {
-        if rows.start >= rows.end {
-            return Ok(());
-        }
-        self.dyn_plan().dyn_reach(self, rows, at, visit)
     }
 
     /// Displays this plan and its descendants with the default plan extractors.
@@ -412,15 +396,6 @@ pub trait DynPlan: 'static + Send + Sync + Debug {
         mask: &Mask,
         compiler: &mut Compiler<'_>,
     ) -> VortexResult<Option<Chain>>;
-
-    /// Visits this operator's segments. See [`PlanVTable::reach`].
-    fn dyn_reach(
-        &self,
-        plan: &PlanRef,
-        rows: Range<u64>,
-        at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
-    ) -> VortexResult<()>;
 }
 
 impl<V: PlanVTable> DynPlan for PlanData<V> {
@@ -461,15 +436,5 @@ impl<V: PlanVTable> DynPlan for PlanData<V> {
         compiler: &mut Compiler<'_>,
     ) -> VortexResult<Option<Chain>> {
         V::compile(plan.as_::<V>(), rows, mask, compiler)
-    }
-
-    fn dyn_reach(
-        &self,
-        plan: &PlanRef,
-        rows: Range<u64>,
-        at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
-    ) -> VortexResult<()> {
-        V::reach(plan.as_::<V>(), rows, at, visit)
     }
 }

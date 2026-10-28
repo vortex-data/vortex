@@ -10,9 +10,13 @@ use rand::prelude::StdRng;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::PrimitiveBuilder;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::session::ArraySession;
 use vortex_error::VortexExpect;
 use vortex_fastlanes::bitpack_compress::test_harness::make_array;
 use vortex_session::VortexSession;
@@ -21,6 +25,7 @@ use vortex_session::VortexSession;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
@@ -35,16 +40,19 @@ const BENCH_ARGS: &[(usize, usize, f64)] = &[
     (10000, 100, 0.10),
     (10000, 100, 0.01),
     (10000, 100, 0.00),
-    (10000, 1000, 0.00),
+    (1000, 1000, 0.00),
 ];
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>();
     vortex_fastlanes::initialize(&session);
     session
 });
 
-#[cfg(not(codspeed))]
 #[divan::bench(args = BENCH_ARGS)]
 fn into_canonical_non_nullable(
     bencher: Bencher,
@@ -75,7 +83,6 @@ fn into_canonical_non_nullable(
         .bench_refs(|(chunked, ctx)| chunked.clone().execute::<Canonical>(ctx));
 }
 
-#[cfg(not(codspeed))]
 #[divan::bench(args = BENCH_ARGS)]
 fn canonical_into_non_nullable(
     bencher: Bencher,
@@ -125,7 +132,6 @@ const NULLABLE_BENCH_ARGS: &[(usize, usize, f64)] = &[
     (10000, 100, 0.00),
 ];
 
-#[cfg(not(codspeed))]
 #[divan::bench(args = NULLABLE_BENCH_ARGS)]
 fn into_canonical_nullable(
     bencher: Bencher,
@@ -156,7 +162,6 @@ fn into_canonical_nullable(
         .bench_values(|(chunked, mut ctx)| chunked.execute::<Canonical>(&mut ctx));
 }
 
-#[cfg(not(codspeed))]
 #[divan::bench(args = NULLABLE_BENCH_ARGS)]
 fn canonical_into_nullable(
     bencher: Bencher,

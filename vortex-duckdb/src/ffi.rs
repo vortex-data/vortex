@@ -33,6 +33,7 @@ use crate::duckdb::Expression;
 use crate::duckdb::LogicalType;
 use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::TableInitInput;
+use crate::duckdb::Value;
 use crate::duckdb::try_or;
 use crate::duckdb::try_or_null;
 use crate::file_reader::OpenFileReader;
@@ -256,11 +257,15 @@ pub unsafe extern "C-unwind" fn duckdb_footer_get_cached(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn duckdb_footer_get_statistics(
     footer: *const c_void,
-    column_index: usize,
+    column_name: *const c_char,
+    column_name_len: usize,
     stats_out: *mut cpp::duckdb_column_statistics,
 ) -> bool {
     let footer = unsafe { footer.cast::<Footer>().as_ref() }.vortex_expect("null pointer");
-    let Some(stats) = footer_get_statistics(footer, column_index) else {
+    let name_bytes =
+        unsafe { std::slice::from_raw_parts(column_name.cast::<u8>(), column_name_len) };
+    let name = String::from_utf8_lossy(name_bytes);
+    let Some(stats) = footer_get_statistics(footer, &name) else {
         return false;
     };
     let stats_out = unsafe { &mut *stats_out };
@@ -496,6 +501,7 @@ pub unsafe extern "C-unwind" fn duckdb_copy_function_get_written_column_statisti
             return Ok(false);
         };
         let out = unsafe { &mut *out };
+        out.column_key = Value::from(stats.column_key.as_str()).into_ptr();
         out.min = stats.min.map_or(ptr::null_mut(), |v| v.into_ptr());
         out.max = stats.max.map_or(ptr::null_mut(), |v| v.into_ptr());
         out.has_null_count = stats.null_count.is_some();

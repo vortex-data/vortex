@@ -19,19 +19,32 @@ mod benchmarks {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::session::AggregateFnSession;
     use vortex_array::arrays::ListViewArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::dtype::FieldNames;
+    use vortex_array::expr::stats::Stat;
+    use vortex_array::memory::MemorySession;
+    use vortex_array::optimizer::kernels::KernelSession;
+    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressorBuilder;
+    use vortex_btrblocks::CompressionSession;
     use vortex_buffer::buffer_mut;
     use vortex_session::VortexSession;
 
     const NUM_ROWS: usize = 8192;
     const SEED: u64 = 42;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    pub(super) static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        VortexSession::empty()
+            .with::<ArraySession>()
+            .with::<KernelSession>()
+            .with::<AggregateFnSession>()
+            .with::<MemorySession>()
+            .with::<CompressionSession>()
+    });
 
     const SHORT_STRINGS: &[&str] = &[
         "alpha_one",
@@ -181,6 +194,15 @@ mod benchmarks {
         Overlapping,
     }
 
+    fn clear_stats(array: &ArrayRef) {
+        for stat in enum_iterator::all::<Stat>() {
+            array.statistics().clear(stat);
+        }
+        for child in array.children_iter() {
+            clear_stats(child);
+        }
+    }
+
     #[divan::bench(args = [OffsetLayout::Zctl, OffsetLayout::Overlapping])]
     fn compress_listview(bencher: Bencher, layout: OffsetLayout) {
         let array = build_nested_listview(NUM_ROWS, layout);
@@ -189,7 +211,10 @@ mod benchmarks {
             .unrestricted()
             .build();
         bencher
-            .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+            .with_inputs(|| {
+                clear_stats(&array);
+                (&array, SESSION.create_execution_ctx())
+            })
             .input_counter(|_| ItemsCount::new(NUM_ROWS))
             .input_counter(move |_| BytesCount::new(nbytes as usize))
             .bench_refs(|(array, ctx)| compressor.compress(array, ctx).unwrap());
@@ -200,5 +225,7 @@ mod benchmarks {
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    #[cfg(not(codspeed))]
+    std::sync::LazyLock::force(&benchmarks::SESSION);
     divan::main()
 }

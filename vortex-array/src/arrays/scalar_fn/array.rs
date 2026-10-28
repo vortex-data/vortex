@@ -110,6 +110,7 @@ impl Array<ScalarFn> {
         Self::validate_children_len(&slots, len)?;
 
         let arg_dtypes = Self::arg_dtypes(&slots);
+        let scalar_fn = scalar_fn.bind_options(&arg_dtypes)?;
         let dtype = scalar_fn.return_dtype(&arg_dtypes)?;
 
         Ok(unsafe { Self::new_from_validated_slots(scalar_fn, dtype, slots, len) })
@@ -118,7 +119,9 @@ impl Array<ScalarFn> {
     /// # Safety
     /// The caller must ensure arity and child lengths were validated and
     /// "dtype" is scalar function's return dtype.
-    #[inline]
+    ///
+    /// This function is not inlined, so crates that construct scalar function arrays do not each
+    /// compile the `ScalarFn` array vtable.
     unsafe fn new_from_validated_slots(
         scalar_fn: ScalarFnRef,
         dtype: DType,

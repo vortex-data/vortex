@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
+use rstest::rstest;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
@@ -12,9 +14,9 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use super::*;
+use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::FilterArray;
 use crate::arrays::List;
 use crate::arrays::PrimitiveArray;
@@ -28,7 +30,7 @@ use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 /// A shared session for `List` tests, used to create execution contexts.
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 #[test]
 fn test_empty_list_array() {
@@ -423,7 +425,7 @@ fn test_list_filter_variable_sizes() {
 
 #[test]
 fn test_offset_to_0() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let mut builder = ListBuilder::<u32>::with_capacity_in(
         Arc::new(I32.into()),
         Nullability::NonNullable,
@@ -773,7 +775,7 @@ fn test_list_of_lists_nullable_outer() {
 
 #[test]
 fn test_list_of_lists_nullable_inner() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // Create list of lists with non-nullable outer, nullable inner.
     // Structure: [[[1, 2], null, [3]], [[4, 5, 6]], [], [[null, 7]]]
     let data = vec![
@@ -963,7 +965,7 @@ fn test_non_integer_offsets() {
 
 #[test]
 fn test_offsets_constant() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = buffer![5u32, 5, 5, 5].into_array();
     let validity = Validity::AllValid;
@@ -1057,5 +1059,135 @@ fn test_filter_sliced_list_array() -> VortexResult<()> {
         &mut ctx,
     );
     assert_arrays_eq!(result, expected, &mut ctx);
+    Ok(())
+}
+
+#[rstest]
+#[case::nothing_to_drop(&[1, 2, 3], &[0, 1, 1, 3], &[true, false, true], &[1, 2, 3], &[0, 1, 1, 3])]
+#[case::exact(&[1, 2, 3], &[0, 1, 3], &[true, true], &[1, 2, 3], &[0, 1, 3])]
+#[case::leftovers_at_the_ends(&[9, 1, 2, 9], &[1, 2, 3], &[true, true], &[1, 2], &[0, 1, 2])]
+#[case::leftover_at_the_end(&[1, 2, 9], &[0, 1, 2], &[true, true], &[1, 2], &[0, 1, 2])]
+#[case::null_lists_holding_elements(
+    &[9, 9, 9, 1, 9, 9, 2, 3, 9, 9],
+    &[1, 3, 4, 6, 8, 9],
+    &[false, true, false, true, false],
+    &[1, 2, 3],
+    &[0, 0, 1, 1, 3, 3]
+)]
+#[case::only_the_last_null_list_holds_elements(
+    &[1, 2, 9],
+    &[0, 1, 1, 2, 3],
+    &[true, false, true, false],
+    &[1, 2],
+    &[0, 1, 1, 2, 2]
+)]
+#[case::an_empty_valid_list_between_null_lists(
+    &[9, 9, 1],
+    &[0, 1, 1, 2, 3],
+    &[false, true, false, true],
+    &[1],
+    &[0, 0, 0, 0, 1]
+)]
+#[case::every_list_null(&[9, 9], &[0, 1, 2], &[false, false], &[], &[0, 0, 0])]
+#[case::empty_null_list_with_leftovers_at_the_ends(
+    &[9, 1, 2, 9],
+    &[1, 2, 2, 3],
+    &[true, false, true],
+    &[1, 2],
+    &[0, 1, 1, 2]
+)]
+#[case::every_list_null_and_empty_with_leftovers(
+    &[9, 9],
+    &[1, 1, 1],
+    &[false, false],
+    &[],
+    &[0, 0, 0]
+)]
+#[case::no_lists_with_a_leftover(&[9], &[1], &[], &[], &[0])]
+fn test_compact(
+    #[case] elements: &[i32],
+    #[case] offsets: &[u32],
+    #[case] validity: &[bool],
+    #[case] expected_elements: &[i32],
+    #[case] expected_offsets: &[u32],
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let list = ListArray::try_new(
+        PrimitiveArray::from_iter(elements.iter().copied()).into_array(),
+        PrimitiveArray::from_iter(offsets.iter().copied()).into_array(),
+        if validity.iter().all(|valid| *valid) {
+            Validity::NonNullable
+        } else {
+            Validity::from_iter(validity.iter().copied())
+        },
+        &mut ctx,
+    )?;
+    let rebuilt = list.compact(&mut ctx)?;
+    assert_arrays_eq!(
+        rebuilt.elements().clone(),
+        PrimitiveArray::from_iter(expected_elements.iter().copied()),
+        &mut ctx
+    );
+    assert_arrays_eq!(
+        rebuilt.offsets().clone(),
+        PrimitiveArray::from_iter(expected_offsets.iter().copied()),
+        &mut ctx
+    );
+    assert_arrays_eq!(rebuilt, list, &mut ctx);
+    Ok(())
+}
+
+#[rstest]
+#[case::non_nullable(Validity::NonNullable)]
+#[case::all_valid(Validity::AllValid)]
+#[case::empty_null_list(Validity::from_iter([true, false, true]))]
+fn test_compact_returns_an_exact_list_as_is(#[case] validity: Validity) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let list = ListArray::try_new(
+        buffer![1i32, 2, 3].into_array(),
+        buffer![0u32, 1, 1, 3].into_array(),
+        validity,
+        &mut ctx,
+    )?;
+    let rebuilt = list.compact(&mut ctx)?;
+    assert!(ArrayRef::ptr_eq(rebuilt.elements(), list.elements()));
+    assert!(ArrayRef::ptr_eq(rebuilt.offsets(), list.offsets()));
+    Ok(())
+}
+
+/// A slice keeps all of its parent's elements, and its validity can start mid-byte.
+#[rstest]
+#[case::no_null_list(2..4, &[3, 4, 5, 6], &[0, 2, 4])]
+#[case::a_null_list_holding_elements_first(1..4, &[3, 4, 5, 6], &[0, 0, 2, 4])]
+#[case::a_null_list_holding_elements_last(3..5, &[5, 6], &[0, 2, 2])]
+fn test_compact_sliced(
+    #[case] range: Range<usize>,
+    #[case] expected_elements: &[i32],
+    #[case] expected_offsets: &[u32],
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    // [[0, 1], null over [2], [3, 4], [5, 6], null over [7, 8, 9]]
+    let list = ListArray::try_new(
+        PrimitiveArray::from_iter(0i32..10).into_array(),
+        buffer![0u32, 2, 3, 5, 7, 10].into_array(),
+        Validity::from_iter([true, false, true, true, false]),
+        &mut ctx,
+    )?
+    .into_array()
+    .slice(range)?
+    .as_::<List>()
+    .into_owned();
+    let rebuilt = list.compact(&mut ctx)?;
+    assert_arrays_eq!(
+        rebuilt.elements().clone(),
+        PrimitiveArray::from_iter(expected_elements.iter().copied()),
+        &mut ctx
+    );
+    assert_arrays_eq!(
+        rebuilt.offsets().clone(),
+        PrimitiveArray::from_iter(expected_offsets.iter().copied()),
+        &mut ctx
+    );
+    assert_arrays_eq!(rebuilt, list, &mut ctx);
     Ok(())
 }

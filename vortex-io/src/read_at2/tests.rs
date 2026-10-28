@@ -21,7 +21,11 @@ use crate::VortexReadAt;
 fn range(id: u64, offset: u64, length: usize) -> ReadRequest {
     ReadRequest {
         id: ReadId(id),
-        target: ReadTarget::Range { offset, length, alignment: Alignment::new(64) },
+        target: ReadTarget::Range {
+            offset,
+            length,
+            alignment: Alignment::new(64),
+        },
     }
 }
 
@@ -29,9 +33,19 @@ fn range(id: u64, offset: u64, length: usize) -> ReadRequest {
 async fn adapter_preserves_identity_errors_alignment_and_suffix() -> VortexResult<()> {
     let reader = FutureReadAt2::new(Arc::new(ByteBuffer::from(vec![1, 2, 3, 4, 5])));
     reader.submit(&[
-        range(0, 1, 3), range(1, 100, 2),
-        ReadRequest { id: ReadId(2), target: ReadTarget::Size },
-        ReadRequest { id: ReadId(3), target: ReadTarget::Suffix { length: 2, alignment: Alignment::new(64) } },
+        range(0, 1, 3),
+        range(1, 100, 2),
+        ReadRequest {
+            id: ReadId(2),
+            target: ReadTarget::Size,
+        },
+        ReadRequest {
+            id: ReadId(3),
+            target: ReadTarget::Suffix {
+                length: 2,
+                alignment: Alignment::new(64),
+            },
+        },
     ])?;
     let mut seen = Vec::new();
     for _ in 0..4 {
@@ -73,13 +87,25 @@ async fn cancellation_and_rejected_batches_do_not_submit_reads() -> VortexResult
 struct Delayed;
 
 impl VortexReadAt for Delayed {
-    fn concurrency(&self) -> usize { 2 }
-    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> { async { Ok(2) }.boxed() }
-    fn read_at(&self, offset: u64, _: usize, _: Alignment) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+    fn concurrency(&self) -> usize {
+        2
+    }
+    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        async { Ok(2) }.boxed()
+    }
+    fn read_at(
+        &self,
+        offset: u64,
+        _: usize,
+        _: Alignment,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         async move {
-            if offset == 0 { tokio::time::sleep(std::time::Duration::from_millis(30)).await; }
+            if offset == 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+            }
             Ok(BufferHandle::new_host(ByteBuffer::from(vec![offset as u8])))
-        }.boxed()
+        }
+        .boxed()
     }
 }
 

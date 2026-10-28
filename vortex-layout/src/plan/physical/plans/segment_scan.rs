@@ -19,7 +19,6 @@ use crate::plan::physical::PlanVTable;
 use crate::plan::physical::check_child_count;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
-use crate::plan::physical::pipeline::Reach;
 use crate::segments::SegmentId;
 
 /// Reads one serialized array segment.
@@ -107,15 +106,5 @@ impl PlanVTable for SegmentScan {
     ) -> VortexResult<Option<Chain>> {
         // A scan keeps the selected rows itself, as every plan produces only those.
         compiler.scan(plan, rows, Some(mask.clone()))
-    }
-
-    fn reach(
-        plan: &Plan<Self>,
-        rows: Range<u64>,
-        at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
-    ) -> VortexResult<()> {
-        visit(plan.segment_id(), at.root(&rows));
-        Ok(())
     }
 }

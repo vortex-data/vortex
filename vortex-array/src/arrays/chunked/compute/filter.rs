@@ -201,10 +201,10 @@ pub(crate) fn find_chunk_idx(idx: usize, chunk_ends: &[usize]) -> VortexResult<(
 mod test {
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -256,11 +256,15 @@ mod test {
                 f16::from_f32(0.22497559),
                 f16::from_f32(3174.0),
             ]),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
+    use std::sync::LazyLock;
+
     use rstest::rstest;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     #[case(ChunkedArray::try_new(
@@ -292,9 +296,6 @@ mod test {
         DType::Primitive(PType::I64, Nullability::NonNullable),
     ).unwrap())]
     fn test_filter_chunked_conformance(#[case] chunked: ChunkedArray) {
-        test_filter_conformance(
-            &chunked.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_filter_conformance(&chunked.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

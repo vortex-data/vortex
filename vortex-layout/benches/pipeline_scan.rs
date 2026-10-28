@@ -6,6 +6,7 @@
 #![expect(clippy::unwrap_used)]
 
 use std::hint::black_box;
+use std::sync::LazyLock;
 
 use divan::Bencher;
 use mimalloc::MiMalloc;
@@ -15,7 +16,9 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::serde::SerializeOptions;
+use vortex_array::session::ArraySession;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBufferMut;
 use vortex_layout::plan::physical::PackPlan;
@@ -25,9 +28,14 @@ use vortex_layout::plan::physical::pipeline::Scan;
 use vortex_layout::plan::physical::pipeline::Split;
 use vortex_layout::plan::physical::pipeline::Turn;
 use vortex_layout::segments::SegmentId;
-use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+});
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -35,6 +43,7 @@ static GLOBAL: MiMalloc = MiMalloc;
 const ROWS: u64 = 1024;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
@@ -46,13 +55,12 @@ struct Fixture {
 
 impl Fixture {
     fn new(columns: u32) -> Self {
-        let session = vortex_array::array_session().with::<LayoutSession>();
         let array = PrimitiveArray::from_iter(0_i32..1024).into_array();
         let context = ArrayContext::empty();
         let buffers = array
             .serialize(
                 &context,
-                &session,
+                &SESSION,
                 &SerializeOptions {
                     offset: 0,
                     include_padding: true,
@@ -79,7 +87,7 @@ impl Fixture {
             })
             .collect();
         Self {
-            session,
+            session: SESSION.clone(),
             plan: PackPlan::try_new(fields, Nullability::NonNullable, ROWS, children, None)
                 .unwrap()
                 .into_plan(),

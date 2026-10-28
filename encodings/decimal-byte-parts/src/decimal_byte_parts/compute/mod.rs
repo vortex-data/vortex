@@ -13,10 +13,11 @@ mod take;
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
@@ -24,11 +25,18 @@ mod tests {
     use vortex_array::dtype::i256;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::DecimalByteParts;
     use crate::DecimalBytePartsArray;
     use crate::decimal_byte_parts::testing::i128_parts;
     use crate::decimal_byte_parts::testing::i256_parts;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     /// Values needing more than 64 bits, so the encoding carries lower parts.
     fn wide_i128() -> Vec<i128> {
@@ -104,9 +112,7 @@ mod tests {
     #[case::decimal_i256_nullable(i256_parts(wide_i256(), Validity::from_iter([false, true, true, false, true])))]
 
     fn test_decimal_byte_parts_consistency(#[case] array: DecimalBytePartsArray) {
-        let session = array_session();
-        crate::initialize(&session);
-        let ctx = &mut session.create_execution_ctx();
+        let ctx = &mut SESSION.create_execution_ctx();
         test_array_consistency(&array.into_array(), ctx);
     }
 
@@ -126,9 +132,7 @@ mod tests {
     #[case::decimal_i128_one_lower_part(i128_parts(wide_i128(), Validity::NonNullable))]
     #[case::decimal_i256_three_lower_parts(i256_parts(wide_i256(), Validity::NonNullable))]
     fn test_decimal_byte_parts_binary_numeric(#[case] array: DecimalBytePartsArray) {
-        let session = array_session();
-        crate::initialize(&session);
-        let ctx = &mut session.create_execution_ctx();
+        let ctx = &mut SESSION.create_execution_ctx();
         test_binary_numeric_array(&array.into_array(), ctx);
     }
 }

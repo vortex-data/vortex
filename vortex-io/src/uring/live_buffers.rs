@@ -28,7 +28,9 @@ struct Lease(ByteBuffer);
 struct Owner(Arc<Lease>);
 
 impl AsRef<[u8]> for Owner {
-    fn as_ref(&self) -> &[u8] { self.0.0.as_slice() }
+    fn as_ref(&self) -> &[u8] {
+        self.0.0.as_slice()
+    }
 }
 
 impl LiveBuffers {
@@ -36,7 +38,12 @@ impl LiveBuffers {
         &self.shards[self.hash.hash_one(key) as usize % SHARDS]
     }
 
-    pub(super) fn get(&self, offset: u64, length: usize, alignment: Alignment) -> Option<ByteBuffer> {
+    pub(super) fn get(
+        &self,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+    ) -> Option<ByteBuffer> {
         let key = (offset, length);
         let lease = self.shard(key).lock().get(&key)?.upgrade()?;
         Some(Self::buffer(lease, alignment))
@@ -52,7 +59,9 @@ impl LiveBuffers {
         }
         if entries.len() >= ENTRIES_PER_SHARD {
             entries.retain(|_, lease| lease.strong_count() != 0);
-            if entries.len() >= ENTRIES_PER_SHARD { return bytes; }
+            if entries.len() >= ENTRIES_PER_SHARD {
+                return bytes;
+            }
         }
         let lease = Arc::new(Lease(bytes));
         entries.insert(key, Arc::downgrade(&lease));
@@ -75,7 +84,9 @@ mod tests {
         let original = registry.insert(8, ByteBuffer::from(vec![1, 2, 3, 4]));
         let slice = original.slice_unaligned(1..3);
         drop(original);
-        let reused = registry.get(8, 4, Alignment::none()).expect("live slice retains the range");
+        let reused = registry
+            .get(8, 4, Alignment::none())
+            .expect("live slice retains the range");
         assert_eq!(reused.as_slice(), &[1, 2, 3, 4]);
         drop(slice);
         assert!(registry.get(8, 4, Alignment::none()).is_some());
@@ -91,7 +102,9 @@ mod tests {
         assert!(registry.get(9, 64, Alignment::none()).is_none());
         assert!(registry.get(8, 63, Alignment::none()).is_none());
         assert!(other.get(8, 64, Alignment::none()).is_none());
-        let aligned = registry.get(8, 64, Alignment::new(64)).expect("live buffer");
+        let aligned = registry
+            .get(8, 64, Alignment::new(64))
+            .expect("live buffer");
         assert!(aligned.is_aligned(Alignment::new(64)));
         assert_eq!(aligned.as_slice(), bytes.as_slice());
     }
@@ -102,12 +115,24 @@ mod tests {
         let buffers: Vec<_> = (0..SHARDS * ENTRIES_PER_SHARD * 2)
             .map(|offset| registry.insert(offset as u64, ByteBuffer::from(vec![7])))
             .collect();
-        assert!(registry.shards.iter().all(|shard| shard.lock().len() <= ENTRIES_PER_SHARD));
+        assert!(
+            registry
+                .shards
+                .iter()
+                .all(|shard| shard.lock().len() <= ENTRIES_PER_SHARD)
+        );
         assert!(buffers.iter().all(|bytes| bytes.as_slice() == [7]));
         drop(buffers);
-        assert!(registry.shards.iter().all(|shard|
-            shard.lock().values().all(|lease| lease.upgrade().is_none())));
+        assert!(
+            registry
+                .shards
+                .iter()
+                .all(|shard| shard.lock().values().all(|lease| lease.upgrade().is_none()))
+        );
         let replacement = registry.insert(0, ByteBuffer::from(vec![8]));
-        assert_eq!(registry.get(0, 1, Alignment::none()).expect("new lease"), replacement);
+        assert_eq!(
+            registry.get(0, 1, Alignment::none()).expect("new lease"),
+            replacement
+        );
     }
 }

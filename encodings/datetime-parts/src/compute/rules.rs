@@ -62,12 +62,20 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPFilterPushDownRule {
             child.dtype().clone(),
             child.days().clone().filter(parent.filter_mask().clone())?,
             ConstantArray::new(
-                child.seconds().as_constant().vortex_expect("constant"),
+                child
+                    .seconds()
+                    .as_constant()
+                    .vortex_expect("constant")
+                    .clone(),
                 parent.filter_mask().true_count(),
             )
             .into_array(),
             ConstantArray::new(
-                child.subseconds().as_constant().vortex_expect("constant"),
+                child
+                    .subseconds()
+                    .as_constant()
+                    .vortex_expect("constant")
+                    .clone(),
                 parent.filter_mask().true_count(),
             )
             .into_array(),
@@ -180,9 +188,10 @@ fn is_constant_zero(array: &ArrayRef) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::ArrayRef;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
@@ -196,10 +205,13 @@ mod tests {
     use vortex_array::scalar_fn::fns::operators::Operator;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::DateTimeParts;
     use crate::DateTimePartsArray;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     const SECONDS_PER_DAY: i64 = 86400;
 
@@ -222,7 +234,7 @@ mod tests {
             time_unit,
             None,
         );
-        DateTimeParts::try_from_temporal(temporal, &mut array_session().create_execution_ctx())
+        DateTimeParts::try_from_temporal(temporal, &mut SESSION.create_execution_ctx())
             .vortex_expect("TemporalArray must produce valid DateTimeParts")
     }
 
@@ -282,7 +294,7 @@ mod tests {
         let optimized = comparison.optimize().unwrap();
 
         // Verify correctness: days [0, 1, 2] <= 1 should give [true, true, false]
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(
             optimized,
             BoolArray::from_iter([true, true, false]),
@@ -316,7 +328,7 @@ mod tests {
         let optimized = between.optimize().unwrap();
 
         // Verify correctness: days [0, 1, 2, 3, 4] between 1 and 3 should give [false, true, true, true, false]
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(
             optimized,
             BoolArray::from_iter([false, true, true, true, false]),
@@ -346,6 +358,7 @@ mod tests {
         let scalar = midnight_constant(1, TimeUnit::Seconds, 1)
             .as_constant()
             .vortex_expect("midnight_constant must be constant")
+            .clone()
             .into_nullable();
         let constant = ConstantArray::new(scalar, dtp.len()).into_array();
         let comparison = Binary::try_new(dtp, constant, Operator::Lte)?.into_array();
@@ -353,7 +366,7 @@ mod tests {
         let optimized = comparison.optimize()?;
         assert_eq!(optimized.dtype(), comparison.dtype());
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(
             optimized,
             BoolArray::from_iter([Some(true), Some(true), Some(false)]),
@@ -378,7 +391,7 @@ mod tests {
         let optimized = comparison.optimize().unwrap();
 
         // days [0, 1, 2] at midnight <= day 1 at noon: [true, true, false]
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(
             optimized,
             BoolArray::from_iter([true, true, false]),
@@ -400,7 +413,7 @@ mod tests {
             TimeUnit::Seconds,
             None,
         );
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtp = DateTimeParts::try_from_temporal(temporal, &mut ctx).unwrap();
         let len = dtp.len();
 

@@ -202,8 +202,8 @@ struct Run {
     /// The arrays of each split, in order.
     splits: Vec<Vec<ArrayRef>>,
     events: Vec<Event>,
-    /// Ports and shared readers still held once the scan finished.
-    leftover: (usize, usize),
+    /// Ports still held once the scan finished.
+    leftover: usize,
 }
 
 /// Drives a scan the way an owner does, completing reads only while the scan waits.
@@ -256,7 +256,7 @@ fn drive(
         0,
         "scan finished with a pipeline waiting for a read"
     );
-    let leftover = (scan.live_ports(), scan.pending_shares());
+    let leftover = scan.live_ports();
     Ok(Run {
         arrays,
         splits,
@@ -288,7 +288,7 @@ fn run_with_values(
     let scan = Scan::try_new(SESSION.clone(), plan.clone(), vec![Split { rows, mask }])?
         .with_value_cache(values);
     let run = drive(store, scan, pick)?;
-    assert_eq!(run.leftover, (0, 0), "a finished scan holds no port");
+    assert_eq!(run.leftover, 0, "a finished scan holds no port");
     Ok(run)
 }
 
@@ -409,9 +409,9 @@ fn views_of_one_plan(
 }
 
 /// Splits cutting every column at different places, run as one scan, each produce their own
-/// rows, and a segment several splits read is read and decoded once, then dropped.
+/// rows, and between them read every segment.
 #[rstest]
-fn splits_of_one_scan_read_each_segment_once(
+fn splits_of_one_scan_read_the_segments_they_overlap(
     #[values([0, 4, 11, 20], [0, 9, 13, 20], [0, 1, 2, 20])] cuts: [u64; 4],
     #[values(1, 3)] active: usize,
     #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
@@ -427,11 +427,10 @@ fn splits_of_one_scan_read_each_segment_once(
         .collect();
     let scan = Scan::try_new(SESSION.clone(), plan, splits.clone())?.with_max_active(active);
     let run = drive(&store, scan, delivery(order))?;
-    assert_eq!(run.leftover, (0, 0), "every shared segment was dropped");
-    assert_eq!(
-        segments_read(&run.events),
-        (0..store.segments.len() as u32).collect::<Vec<_>>()
-    );
+    assert_eq!(run.leftover, 0, "a finished scan holds no port");
+    let mut read = segments_read(&run.events);
+    read.dedup();
+    assert_eq!(read, (0..store.segments.len() as u32).collect::<Vec<_>>());
     for (index, split) in splits.iter().enumerate() {
         assert_view(
             &expected,
@@ -695,7 +694,7 @@ fn take_waits_for_whole_values_and_keeps_them(
         let expression = gt(root(), lit("a"))
             .bind(plan.dtype())?
             .optimize_recursive()?;
-        plan = optimize(EvalPlan::try_new(expression, plan)?.into_plan())?;
+        plan = optimize(EvalPlan::try_new(expression, plan)?.into_plan(), &SESSION)?;
     }
     assert!(plan.is::<Take>());
 
@@ -756,8 +755,8 @@ fn selective_dictionary_predicate_shares_values_with_projection(
     #[values(0, 1, 2)] selected: u64,
 ) -> VortexResult<()> {
     let mut store = Store::default();
-    let values = VarBinViewArray::from_iter_nullable_str([Some("a"), None, Some("cat")])
-        .into_array();
+    let values =
+        VarBinViewArray::from_iter_nullable_str([Some("a"), None, Some("cat")]).into_array();
     let codes = PrimitiveArray::from_option_iter([None, Some(1_u8), Some(2)]).into_array();
     let layout = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).into_layout();
     let projection = lower(&layout)?;
@@ -812,7 +811,13 @@ fn selective_take_preserves_errors_from_fallible_values() -> VortexResult<()> {
     let expression = gt(checked_add(root(), lit(1_i32)), lit(0_i32)).bind(values.dtype())?;
     let values = EvalPlan::try_new(expression, lower(&store.flat(&values)?)?)?.into_plan();
     let plan = TakePlan::new(lower(&store.flat(&codes)?)?, values).into_plan();
-    let output = run(&store, &plan, 0..1, Mask::new_true(1), delivery(Delivery::Fifo))?;
+    let output = run(
+        &store,
+        &plan,
+        0..1,
+        Mask::new_true(1),
+        delivery(Delivery::Fifo),
+    )?;
     let error = ChunkedArray::try_new(output.arrays, plan.dtype().clone())?
         .into_array()
         .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
@@ -835,7 +840,7 @@ fn eval_applies_expression_to_selected_rows() -> VortexResult<()> {
 
     let rows = 2..18;
     let mask = Sel::EveryOther.mask(16);
-    for plan in [plan.clone(), optimize(plan)?] {
+    for plan in [plan.clone(), optimize(plan, &SESSION)?] {
         let run = run(
             &store,
             &plan,
@@ -848,9 +853,9 @@ fn eval_applies_expression_to_selected_rows() -> VortexResult<()> {
     Ok(())
 }
 
-/// A column read by two fields of one struct is read and decoded once, and both fields get it.
+/// A column read by two fields of one struct is read by each field, and both get it.
 #[test]
-fn a_segment_two_readers_need_is_read_once() -> VortexResult<()> {
+fn a_segment_two_readers_need_is_read_by_each() -> VortexResult<()> {
     let mut store = Store::default();
     let a = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
     let column = lower(&store.chunked(&a, &[7, 13])?)?;
@@ -878,7 +883,7 @@ fn a_segment_two_readers_need_is_read_once() -> VortexResult<()> {
         mask.clone(),
         delivery(Delivery::Lifo),
     )?;
-    assert_eq!(segments_read(&run.events), [0, 1]);
+    assert_eq!(segments_read(&run.events), [0, 0, 1, 1]);
     assert_view(&expected, &rows, &mask, run.arrays)
 }
 

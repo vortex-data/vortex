@@ -22,11 +22,13 @@ impl CastReduce for Constant {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ConstantArray;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
@@ -36,6 +38,8 @@ mod tests {
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[rstest]
     #[case(ConstantArray::new(Scalar::from(42u32), 5).into_array())]
     #[case(ConstantArray::new(Scalar::from(-100i32), 10).into_array())]
@@ -44,7 +48,7 @@ mod tests {
     #[case(ConstantArray::new(Scalar::null_native::<i32>(), 4).into_array())]
     #[case(ConstantArray::new(Scalar::from(255u8), 1).into_array())]
     fn test_cast_constant_conformance(#[case] array: crate::ArrayRef) {
-        test_cast_conformance(&array, &mut array_session().create_execution_ctx());
+        test_cast_conformance(&array, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -58,7 +62,7 @@ mod tests {
 
         assert_eq!(casted.dtype(), &target_dtype);
         let scalar = casted
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(0, &mut SESSION.create_execution_ctx())
             .unwrap();
         assert_eq!(
             scalar.as_decimal().decimal_value(),

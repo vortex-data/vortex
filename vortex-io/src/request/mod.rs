@@ -17,8 +17,8 @@ use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
-mod source;
 mod cache;
+mod source;
 
 pub use cache::ScopedIoCache;
 pub use source::ReadAtIoSource;

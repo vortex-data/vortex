@@ -35,32 +35,24 @@ use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 
 /// Byte ranges of a file's segments, keyed by `(offset, length)`, back to their segment ids.
-pub(super) struct SegmentRangeIndex {
-    exact: HashMap<(u64, usize), SegmentId>,
-    ordered: Vec<(u64, usize, SegmentId)>,
-}
-
-pub(super) type SegmentRanges = Arc<SegmentRangeIndex>;
+pub(crate) type SegmentRanges = Arc<HashMap<(u64, usize), SegmentId>>;
 
 pub(super) fn segment_ranges(locations: &[SegmentLocation]) -> SegmentRanges {
     let ranges = locations.iter().enumerate().map(|(id, location)| {
         let id = SegmentId::from(u32::try_from(id).unwrap_or(u32::MAX));
         ((location.offset, location.length as usize), id)
     });
-    let exact: HashMap<_, _> = ranges.collect();
-    let mut ordered: Vec<_> = exact.iter().map(|(&(offset, len), &id)| (offset, len, id)).collect();
-    ordered.sort_unstable_by_key(|&(offset, _, _)| offset);
-    Arc::new(SegmentRangeIndex { exact, ordered })
+    Arc::new(ranges.collect())
 }
 
 /// Serves splits from any [`SegmentSource`], by segment id.
-pub(super) struct SegmentScanIo {
+pub(crate) struct SegmentScanIo {
     segments: Arc<dyn SegmentSource>,
     ranges: SegmentRanges,
 }
 
 impl SegmentScanIo {
-    pub(super) fn new(segments: Arc<dyn SegmentSource>, ranges: SegmentRanges) -> Self {
+    pub(crate) fn new(segments: Arc<dyn SegmentSource>, ranges: SegmentRanges) -> Self {
         Self { segments, ranges }
     }
 }
@@ -88,7 +80,8 @@ pub(super) struct SegmentIoSource {
     ranges: SegmentRanges,
     reads: Mutex<FuturesUnordered<BoxFuture<'static, Completion>>>,
     ready: Mutex<VecDeque<Completion>>,
-    /// Reads started by prefetches, consumed by the next fetch of their segment.
+    /// Every read the session has started, by segment, shared by later fetches of the segment
+    /// until the session is cleared.
     prefetched: Mutex<HashMap<SegmentId, Prefetched>>,
     /// Announced segments, requested and never polled.
     announced: Mutex<HashMap<SegmentId, VecDeque<SegmentFuture>>>,
@@ -122,26 +115,8 @@ impl IoSource for SegmentIoSource {
                     request.target
                 );
             };
-            if !self.ranges.exact.contains_key(&(offset, len)) {
-                let index = self.ranges.ordered.partition_point(|&(start, _, _)| start <= offset);
-                let &(start, length, segment) = index.checked_sub(1)
-                    .and_then(|index| self.ranges.ordered.get(index))
-                    .ok_or_else(|| vortex_err!("No segment containing bytes {offset}+{len}"))?;
-                let relative = usize::try_from(offset - start)?;
-                let end = relative.checked_add(len)
-                    .filter(|end| *end <= length)
-                    .ok_or_else(|| vortex_err!("Subsegment range out of bounds"))?;
-                if request.intent != IoIntent::Fetch {
-                    vortex_bail!("Subsegment reads must be fetched directly");
-                }
-                let read = self.segments.request_range(segment, relative..end);
-                reads.push(async move {
-                    Completion { owner, request: request.request, result: read.await.map(IoResult::Bytes) }
-                }.boxed());
-                continue;
-            }
             let segment = *self
-                .ranges.exact
+                .ranges
                 .get(&(offset, len))
                 .ok_or_else(|| vortex_err!("No segment at bytes {offset}+{len}"))?;
             if request.intent == IoIntent::Announce {
@@ -172,19 +147,24 @@ impl IoSource for SegmentIoSource {
                 });
                 continue;
             }
-            let mut bytes = match prefetched.remove(&segment) {
-                Some(read) => read
-                    .map_err(move |err| {
-                        vortex_err!("prefetched read of segment {segment} failed: {err}")
-                    })
-                    .boxed(),
-                None => self
-                    .announced
-                    .lock()
-                    .get_mut(&segment)
-                    .and_then(VecDeque::pop_front)
-                    .unwrap_or_else(|| self.segments.request(segment)),
-            };
+            // A segment stays with the session once read, so a later stage or morsel of the
+            // split that reads it again shares the read instead of starting another once the
+            // first has completed.
+            let mut bytes = prefetched
+                .entry(segment)
+                .or_insert_with(|| {
+                    self.announced
+                        .lock()
+                        .get_mut(&segment)
+                        .and_then(VecDeque::pop_front)
+                        .unwrap_or_else(|| self.segments.request(segment))
+                        .map_err(Arc::new)
+                        .boxed()
+                        .shared()
+                })
+                .clone()
+                .map_err(move |err| vortex_err!("read of segment {segment} failed: {err}"))
+                .boxed();
             let id = request.request;
             // In-memory and cached segments need no allocated asynchronous task. A pending
             // read is polled again by FuturesUnordered before the driver can go to sleep.
@@ -351,7 +331,7 @@ mod tests {
     }
 
     /// A fetch of a prefetched segment waits on the prefetch's read rather than reading again,
-    /// and only the fetch is delivered.
+    /// only the fetch is delivered, and a later fetch of the segment shares the same read.
     #[tokio::test]
     async fn fetch_reuses_a_prefetched_read() -> VortexResult<()> {
         let segments = Arc::new(CountingSegments::default());
@@ -376,6 +356,16 @@ mod tests {
         let completion = std::future::poll_fn(|cx| io.poll_completion(cx)).await?;
         assert_eq!(completion.request, IoRequestId(2));
         assert!(completion.result.is_ok());
+        assert_eq!(segments.0.load(Ordering::Relaxed), 1);
+
+        io.clear();
+        io.submit(IoOwnerId(0), vec![request(IoIntent::Fetch, 3)])?;
+        assert!(
+            std::future::poll_fn(|cx| io.poll_completion(cx))
+                .await?
+                .result
+                .is_ok()
+        );
         assert_eq!(segments.0.load(Ordering::Relaxed), 2);
         Ok(())
     }
@@ -405,10 +395,9 @@ mod tests {
                     .result
                     .is_ok()
             );
-            assert_eq!(
-                segments.0.load(Ordering::Relaxed),
-                if id < 4 { 2 } else { 3 }
-            );
+            // The first fetch takes one announcement and the session keeps its read, so the
+            // later fetches share it and the other announcement is never consumed.
+            assert_eq!(segments.0.load(Ordering::Relaxed), 2);
         }
         Ok(())
     }

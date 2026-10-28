@@ -14,6 +14,7 @@
 use fastlanes::BitPacking;
 use fastlanes::BitPackingCompare;
 use fastlanes::FastLanesComparable;
+use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -73,7 +74,7 @@ impl CompareKernel for BitPacked {
 /// Compare every value against the constant via the fused FastLanes `unpack_cmp` kernel.
 ///
 /// `NativePType::is_eq` / `is_lt` etc. provide total comparison (matching the primitive between
-/// kernel's dispatch shape). `NotEq` has no direct method, so use `!is_eq`.
+/// kernel's dispatch shape).
 fn compare_constant_typed<T>(
     lhs: ArrayView<'_, BitPacked>,
     bit_width: u8,
@@ -85,88 +86,89 @@ fn compare_constant_typed<T>(
 where
     T: NativePType
         + BitPackedIter
+        + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>
+        + AsPrimitive<<T as PhysicalPType>::Physical>,
+    <T as PhysicalPType>::Physical: BitPacking
+        + NativePType
+        + BitPackingCompare
         + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
-    <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
 {
-    match operator {
-        CompareOperator::Eq => compare_with(
+    // `NotEq`, `Gte` and `Lte` invert the result of `Eq`, `Lt` and `Gt`, so each pair shares one
+    // set of fused kernels.
+    let (base, negate) = match operator {
+        CompareOperator::Eq => (BaseCompare::Eq, false),
+        CompareOperator::NotEq => (BaseCompare::Eq, true),
+        CompareOperator::Lt => (BaseCompare::Lt, false),
+        CompareOperator::Gte => (BaseCompare::Lt, true),
+        CompareOperator::Gt => (BaseCompare::Gt, false),
+        CompareOperator::Lte => (BaseCompare::Gt, true),
+    };
+    let cmp = move |value: T, other: T| base.apply(value, other);
+    let exact = move |value: T| cmp(value, rhs) != negate;
+
+    // The encoder rejects negative integers, so packed values are never negative. A negative
+    // constant then compares the same against every packed value as against zero.
+    if rhs.is_lt(T::zero()) {
+        return constant_result(lhs, exact(T::zero()), nullability, &exact, ctx);
+    }
+    if let Some(value) = decided_by_bit_width(bit_width, rhs, operator, cmp) {
+        return constant_result(lhs, value != negate, nullability, &exact, ctx);
+    }
+
+    // Both sides are now non-negative, so the unsigned physical values compare the same as the
+    // values of `T`. The fused kernels take function items of the physical type, so signed and
+    // unsigned arrays of one width share them.
+    let rhs = rhs.as_();
+    match base {
+        BaseCompare::Eq => stream_compare_fused::<T, _, _>(
             lhs,
             bit_width,
             rhs,
-            operator,
             nullability,
-            |a, b| a.is_eq(b),
+            <T as PhysicalPType>::Physical::is_eq,
+            negate,
+            &exact,
             ctx,
         ),
-        CompareOperator::NotEq => compare_with(
+        BaseCompare::Lt => stream_compare_fused::<T, _, _>(
             lhs,
             bit_width,
             rhs,
-            operator,
             nullability,
-            |a, b| !a.is_eq(b),
+            <T as PhysicalPType>::Physical::is_lt,
+            negate,
+            &exact,
             ctx,
         ),
-        CompareOperator::Lt => compare_with(
+        BaseCompare::Gt => stream_compare_fused::<T, _, _>(
             lhs,
             bit_width,
             rhs,
-            operator,
             nullability,
-            |a, b| a.is_lt(b),
-            ctx,
-        ),
-        CompareOperator::Lte => compare_with(
-            lhs,
-            bit_width,
-            rhs,
-            operator,
-            nullability,
-            |a, b| a.is_le(b),
-            ctx,
-        ),
-        CompareOperator::Gt => compare_with(
-            lhs,
-            bit_width,
-            rhs,
-            operator,
-            nullability,
-            |a, b| a.is_gt(b),
-            ctx,
-        ),
-        CompareOperator::Gte => compare_with(
-            lhs,
-            bit_width,
-            rhs,
-            operator,
-            nullability,
-            |a, b| a.is_ge(b),
+            <T as PhysicalPType>::Physical::is_gt,
+            negate,
+            &exact,
             ctx,
         ),
     }
 }
 
-fn compare_with<T, F>(
-    lhs: ArrayView<'_, BitPacked>,
-    bit_width: u8,
-    rhs: T,
-    operator: CompareOperator,
-    nullability: Nullability,
-    cmp: F,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef>
-where
-    T: NativePType
-        + BitPackedIter
-        + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
-    <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
-    F: Fn(T, T) -> bool + Copy,
-{
-    let exact = move |value| cmp(value, rhs);
-    if let Some(value) = decided_by_bit_width(bit_width, rhs, operator, cmp) {
-        return constant_result(lhs, value, nullability, &exact, ctx);
+/// The comparison that the fused kernel runs. The other operators are its negations.
+#[derive(Clone, Copy)]
+enum BaseCompare {
+    Eq,
+    Lt,
+    Gt,
+}
+
+impl BaseCompare {
+    fn apply<T: NativePType>(self, value: T, other: T) -> bool {
+        match self {
+            Self::Eq => value.is_eq(other),
+            Self::Lt => value.is_lt(other),
+            Self::Gt => value.is_gt(other),
+        }
     }
-    stream_compare_fused(lhs, bit_width, rhs, nullability, cmp, &exact, ctx)
 }
 
 /// The result for every packed value, if the bit width alone decides it.
@@ -214,7 +216,7 @@ mod tests {
     use crate::BitPackedData;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -253,7 +255,14 @@ mod tests {
                     let packed = BitPackedData::encode(&prim.clone().into_array(), bw, &mut ctx)?;
                     let rhs_val = (cap.min(2048) / 2) as $T;
                     let rhs = ConstantArray::new(rhs_val, prim.len()).into_array();
-                    for op in [CompareOperator::Eq, CompareOperator::Lt, CompareOperator::Gte] {
+                    for op in [
+                        CompareOperator::Eq,
+                        CompareOperator::NotEq,
+                        CompareOperator::Lt,
+                        CompareOperator::Lte,
+                        CompareOperator::Gt,
+                        CompareOperator::Gte,
+                    ] {
                         let got = <BitPacked as CompareKernel>::compare(
                             packed.as_view(), &rhs, op, &mut ctx,
                         )?
@@ -278,6 +287,44 @@ mod tests {
     sweep!(sweep_i16, i16, 1, 8, 15);
     sweep!(sweep_i32, i32, 1, 16, 31);
     sweep!(sweep_i64, i64, 1, 32, 63);
+
+    /// Signed arrays use the unsigned physical kernels. A negative constant compares the same
+    /// against every packed value, and at the widest packing the packed values still never set
+    /// the sign bit.
+    #[rstest]
+    #[case::negative_constant(7, -3)]
+    #[case::negative_constant_widest(31, -3)]
+    #[case::positive_constant_widest(31, 1_000_000)]
+    #[case::min_constant(7, i32::MIN)]
+    fn signed_compare_matches_primitive(
+        #[case] bit_width: u8,
+        #[case] rhs_value: i32,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values: Vec<i32> = (0..2048)
+            .map(|i| if i % 7 == 0 { i32::MAX - i } else { i % 100 })
+            .collect();
+        let prim = PrimitiveArray::from_iter(values);
+        let packed = BitPackedData::encode(&prim.clone().into_array(), bit_width, &mut ctx)?;
+        let rhs = ConstantArray::new(rhs_value, prim.len()).into_array();
+        for op in [
+            CompareOperator::Eq,
+            CompareOperator::NotEq,
+            CompareOperator::Lt,
+            CompareOperator::Lte,
+            CompareOperator::Gt,
+            CompareOperator::Gte,
+        ] {
+            let got = <BitPacked as CompareKernel>::compare(packed.as_view(), &rhs, op, &mut ctx)?
+                .expect("bit-packed compare kernel must engage");
+            let want = prim
+                .clone()
+                .into_array()
+                .binary(rhs.clone(), Operator::from(op))?;
+            assert_arrays_eq!(got, want, &mut SESSION.create_execution_ctx());
+        }
+        Ok(())
+    }
 
     /// Inline-patch path: encode signed i32 values that exceed the bit-width range so they
     /// end up in `Patches`. The streaming kernel must splice the patches in before the

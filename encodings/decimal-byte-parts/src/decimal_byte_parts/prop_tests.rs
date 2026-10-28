@@ -9,7 +9,6 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
@@ -18,6 +17,7 @@ use vortex_array::dtype::i256;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
+use vortex_session::VortexSession;
 
 use super::DecimalByteParts;
 use super::DecimalBytePartsArray;
@@ -34,7 +34,7 @@ const MAX_I256_HIGH: i128 = 10i128.pow(37);
 const MAX_LEN: usize = 48;
 
 fn ctx() -> ExecutionCtx {
-    let session = array_session();
+    let session = VortexSession::empty();
     crate::initialize(&session);
     session.create_execution_ctx()
 }

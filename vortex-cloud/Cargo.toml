@@ -37,6 +37,7 @@ vortex-error = { workspace = true, features = ["object_store"] }
 vortex-file = { workspace = true, features = ["object_store", "tokio"] }
 vortex-io = { workspace = true, features = ["object_store", "tokio"] }
 vortex-layout = { workspace = true }
+vortex-session = { workspace = true }
 
 [features]
 default = []

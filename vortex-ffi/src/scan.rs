@@ -446,6 +446,7 @@ pub unsafe extern "C-unwind" fn vx_partition_next(
 #[cfg(test)]
 mod tests {
     use std::ptr;
+    use std::sync::LazyLock;
 
     use vortex::VortexSessionDefault;
     use vortex::array::IntoArray;
@@ -456,7 +457,6 @@ mod tests {
     use vortex::array::validity::Validity;
     use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::assert_arrays_eq;
 
@@ -490,6 +490,8 @@ mod tests {
     use crate::tests::SAMPLE_ROWS;
     use crate::tests::assert_no_error;
     use crate::tests::write_sample;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     /// Perform a scan with options over a sample file, return owned read array and
     /// original generated array for the sample file.
@@ -561,7 +563,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_no_options() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let (array, struct_array) = scan(ptr::null());
         assert_arrays_eq!(vx_array::as_ref(array), struct_array, &mut ctx);
         unsafe { vx_array_free(array) };
@@ -570,7 +572,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_project_all() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let opts = vx_scan_options::default();
         let (array, struct_array) = scan(&raw const opts);
         assert_arrays_eq!(vx_array::as_ref(array), struct_array, &mut ctx);
@@ -581,7 +583,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn test_project_single_field() {
         unsafe {
-            let mut ctx = array_session().create_execution_ctx();
+            let mut ctx = SESSION.create_execution_ctx();
             let root = vx_expression_root();
             let mut opts = vx_scan_options::default();
 
@@ -659,7 +661,7 @@ mod tests {
                 ..Default::default()
             };
             let (array, source) = scan(&raw const opts);
-            let mut ctx = array_session().create_execution_ctx();
+            let mut ctx = SESSION.create_execution_ctx();
             let expected = expected_rows(&source, &(100..200).collect::<Vec<_>>());
             assert_arrays_eq!(vx_array::as_ref(array), expected, &mut ctx);
 
@@ -692,7 +694,7 @@ mod tests {
                 ..Default::default()
             };
             let (array, _) = scan(&raw const opts);
-            let mut ctx = array_session().create_execution_ctx();
+            let mut ctx = SESSION.create_execution_ctx();
             let expected = PrimitiveArray::from_option_iter((100u64..200).map(Some));
             assert_arrays_eq!(vx_array::as_ref(array), expected, &mut ctx);
 
@@ -714,7 +716,7 @@ mod tests {
             ..Default::default()
         };
         let (array, source) = scan(&raw const opts);
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expected = expected_rows(&source, &(50..100).collect::<Vec<_>>());
         assert_arrays_eq!(vx_array::as_ref(array), expected, &mut ctx);
         unsafe { vx_array_free(array) };
@@ -733,7 +735,7 @@ mod tests {
             ..Default::default()
         };
         let (array, source) = scan(&raw const opts);
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expected = expected_rows(&source, &[0, 50, 100, 150, 199]);
         assert_arrays_eq!(vx_array::as_ref(array), expected, &mut ctx);
         unsafe { vx_array_free(array) };
@@ -754,7 +756,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_ordered() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let opts = vx_scan_options {
             ordered: true,
             ..Default::default()

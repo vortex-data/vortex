@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use rstest::rstest;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::EqMode;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::datetime::TemporalData;
@@ -25,9 +27,11 @@ use crate::hash::ArrayEq;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
 macro_rules! test_temporal_roundtrip {
     ($prim:ty, $constructor:expr, $unit:expr) => {{
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = buffer![100 as $prim].into_array();
         let temporal: TemporalData = $constructor(array, $unit);
 
@@ -148,7 +152,7 @@ test_fail_case!(
 // We test Timestamp explicitly to avoid the macro getting too complex.
 #[test]
 fn test_timestamp() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let ts = buffer![100i64].into_array();
     let ts_array = ts.into_array();
 
@@ -204,7 +208,7 @@ fn test_validity_preservation(#[case] validity: Validity) {
     let prim = temporal_array
         .temporal_values()
         .clone()
-        .execute::<PrimitiveArray>(&mut array_session().create_execution_ctx())
+        .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(
         prim.validity()
@@ -233,7 +237,7 @@ fn comparison_rejects_mismatched_timestamp_units() -> VortexResult<()> {
     let error = temporal
         .into_array()
         .apply(&filter_expr)?
-        .execute::<BoolArray>(&mut array_session().create_execution_ctx())
+        .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
         .unwrap_err();
     assert!(
         error

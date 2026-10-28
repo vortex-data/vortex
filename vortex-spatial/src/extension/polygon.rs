@@ -324,7 +324,7 @@ impl ArrowImportVTable for Polygon {
                 vortex_ensure!(
                     polygon_meta.coord_type() == CoordType::Separated,
                     "geoarrow.polygon with interleaved coordinates is not supported; \
-                 re-encode with separated (struct) coordinates"
+             re-encode with separated (struct) coordinates"
                 );
                 (
                     polygon_meta.dimension().into(),

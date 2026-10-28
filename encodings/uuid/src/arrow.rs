@@ -227,7 +227,6 @@ mod tests {
     use arrow_schema::Schema;
     use rstest::rstest;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::ListArray;
     use vortex_array::arrays::Struct;
     use vortex_array::arrays::StructArray;
@@ -244,7 +243,7 @@ mod tests {
 
     /// A session with the UUID extension dtype and its Arrow plugins registered.
     fn uuid_session() -> VortexSession {
-        let session = array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     }

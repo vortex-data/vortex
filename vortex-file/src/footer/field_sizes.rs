@@ -122,7 +122,6 @@ mod tests {
     use std::sync::LazyLock;
 
     use vortex_array::IntoArray;
-    use vortex_array::array_session;
     use vortex_array::arrays::StructArray;
     use vortex_array::dtype::FieldPath;
     use vortex_array::field_path;
@@ -137,7 +136,7 @@ mod tests {
     use crate::writer::WriteSummary;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = array_session()
+        let session = VortexSession::empty()
             .with::<LayoutSession>()
             .with::<RuntimeSession>();
         crate::register_default_encodings(&session);

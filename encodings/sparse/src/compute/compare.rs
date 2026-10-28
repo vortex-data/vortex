@@ -35,7 +35,7 @@ impl CompareKernel for Sparse {
             return Ok(None);
         };
 
-        let fill_bool = scalar_cmp(lhs.fill_scalar(), &rhs_scalar, operator)?;
+        let fill_bool = scalar_cmp(lhs.fill_scalar(), rhs_scalar, operator)?;
         let patches = lhs.patches();
 
         let new_patches = patches.map_values(|values| {
@@ -73,7 +73,7 @@ mod tests {
     use crate::initialize;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         initialize(&session);
         session
     });

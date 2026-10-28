@@ -3,6 +3,8 @@
 
 #![expect(clippy::unwrap_used)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use rand::RngExt;
@@ -15,13 +17,31 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
+use vortex_session::VortexSession;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<MemorySession>()
+});
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
+
+    // The first regex that a process compiles reads the CPU quota from the file system and seeds
+    // a hash. Without this, those system calls land in the single measured iteration of the first
+    // regex benchmark under the CodSpeed simulation.
+    like(strings(), "%HELLO%", ILIKE)
+        .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
+        .unwrap();
+
     divan::main();
 }
 
@@ -45,20 +65,30 @@ fn strings() -> ArrayRef {
     .into_array()
 }
 
+/// Case-insensitive, non-negated matching.
+const ILIKE: LikeOptions = LikeOptions {
+    negated: false,
+    case_insensitive: true,
+};
+
+/// `array LIKE pattern`, with a constant pattern.
+fn like(array: ArrayRef, pattern: &str, options: LikeOptions) -> ArrayRef {
+    Like::try_new(
+        array,
+        ConstantArray::new(pattern, ARRAY_SIZE).into_array(),
+        options,
+    )
+    .unwrap()
+    .into_array()
+}
+
 fn bench_like(bencher: Bencher, pattern: &str, options: LikeOptions) {
-    let session = vortex_array::array_session();
     let array = strings();
     bencher
         .with_inputs(|| {
             (
-                Like::try_new(
-                    array.clone(),
-                    ConstantArray::new(pattern, ARRAY_SIZE).into_array(),
-                    options,
-                )
-                .unwrap()
-                .into_array(),
-                session.create_execution_ctx(),
+                like(array.clone(), pattern, options),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_values(|(array, mut ctx)| array.execute::<BoolArray>(&mut ctx).unwrap());
@@ -91,7 +121,6 @@ fn like_regex(bencher: Bencher) {
 
 #[divan::bench]
 fn like_per_row_patterns(bencher: Bencher) {
-    let session = vortex_array::array_session();
     let array = strings();
     // A non-constant pattern child takes the per-row path; repeated patterns hit the
     // compile cache.
@@ -102,7 +131,7 @@ fn like_per_row_patterns(bencher: Bencher) {
                 Like::try_new(array.clone(), patterns.clone(), LikeOptions::default())
                     .unwrap()
                     .into_array(),
-                session.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_values(|(array, mut ctx)| array.execute::<BoolArray>(&mut ctx).unwrap());
@@ -110,12 +139,5 @@ fn like_per_row_patterns(bencher: Bencher) {
 
 #[divan::bench]
 fn ilike_contains(bencher: Bencher) {
-    bench_like(
-        bencher,
-        "%HELLO%",
-        LikeOptions {
-            negated: false,
-            case_insensitive: true,
-        },
-    );
+    bench_like(bencher, "%HELLO%", ILIKE);
 }

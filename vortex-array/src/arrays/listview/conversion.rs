@@ -312,7 +312,6 @@ mod tests {
     use crate::EqMode;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::FixedSizeList;
     use crate::arrays::FixedSizeListArray;
@@ -410,7 +409,7 @@ mod tests {
 
     #[test]
     fn test_empty_array_conversions() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Empty ListArray to ListViewArray.
         let empty_elements = PrimitiveArray::from_iter::<[i32; 0]>([]).into_array();
         let empty_offsets = buffer![0u32].into_array();
@@ -837,7 +836,7 @@ mod tests {
     /// zero-copyable.
     #[test]
     fn test_empty_listview_to_list_without_zctl_flag() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let elements = VarBinViewArray::from_iter_str(Vec::<&str>::new()).into_array();
         let offsets = PrimitiveArray::from_iter(Vec::<i16>::new()).into_array();
         let sizes = PrimitiveArray::from_iter(Vec::<i16>::new()).into_array();

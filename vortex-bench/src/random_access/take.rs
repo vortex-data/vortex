@@ -10,8 +10,6 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use arrow_array::PrimitiveArray;
-use arrow_array::RecordBatch;
-use arrow_array::cast::AsArray;
 use arrow_array::types::Int64Type;
 use arrow_ipc::reader::FileReader;
 use arrow_select::concat::concat_batches;
@@ -19,7 +17,6 @@ use arrow_select::take::take_record_batch;
 use async_trait::async_trait;
 use futures::TryStreamExt;
 use itertools::Itertools;
-use object_store::ObjectStoreExt;
 use object_store::local::LocalFileSystem;
 use object_store::path::Path as ObjectStorePath;
 use parking_lot::Mutex;
@@ -35,10 +32,11 @@ use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::array::stream::ArrayStreamExt;
-use vortex::arrow::ArrowSessionExt;
 use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
+use vortex::file::v2::ScanDriver;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::scan::v2::ScanBuilder;
 use vortex::scan::strict_sorted_buffer::StrictSortedBuffer;
 
@@ -137,12 +135,10 @@ impl RandomAccessor for ArrowIpcRandomAccessor {
 /// The file handle is opened at construction time and reused across `take()` calls, sharing its
 /// V2 [`ScanCache`](vortex::layout::scan::v2::ScanCache). Rows are read with the V2 scan, which
 /// requires files without list layouts.
-/// Set `VORTEX_BENCH_SCAN=v1` to compare with V1 using the same open options.
 pub struct VortexRandomAccessor {
     name: String,
     format: Format,
     file: VortexFile,
-    v2: bool,
 }
 
 impl VortexRandomAccessor {
@@ -160,7 +156,6 @@ impl VortexRandomAccessor {
         Ok(Self {
             name: name.into(),
             format,
-            v2: !std::env::var("VORTEX_BENCH_SCAN").is_ok_and(|scan| scan == "v1"),
             file,
         })
     }
@@ -172,19 +167,14 @@ impl VortexRandomAccessor {
         name: impl Into<String>,
         format: Format,
     ) -> anyhow::Result<Self> {
-        let mut options = SESSION
+        let file = SESSION
             .open_options()
-            .with_layout_reader_cache();
-        let key = remote.key(path)?;
-        // Reproduce the former HEAD + bounded footer GET for paired transport measurements.
-        if std::env::var("VORTEX_BENCH_SIZE_THEN_READ").is_ok_and(|value| value == "1") {
-            options = options.with_file_size(remote.store().head(&key).await?.size);
-        }
-        let file = options.open_object_store(remote.store(), key).await?;
+            .with_layout_reader_cache()
+            .open_object_store(remote.store(), remote.key(path)?)
+            .await?;
         Ok(Self {
             name: name.into(),
             format,
-            v2: !std::env::var("VORTEX_BENCH_SCAN").is_ok_and(|scan| scan == "v1"),
             file,
         })
     }
@@ -202,43 +192,16 @@ impl RandomAccessor for VortexRandomAccessor {
 
     async fn take(&self, indices: &[u64]) -> anyhow::Result<RandomAccessorRet> {
         let indices = StrictSortedBuffer::try_new(Buffer::from(indices.to_vec()))?;
-        let array = if self.v2 {
-            let stream = ScanBuilder::new(SESSION.clone(), self.file.scan_file())
-                .with_row_indices(indices.clone())
-                .with_subsegment_reads(!std::env::var("VORTEX_BENCH_SUBSEGMENTS").is_ok_and(|value| value == "0"))
-                .into_stream()?;
-            ArrayStreamAdapter::new(self.file.dtype().clone(), stream)
-                .read_all()
-                .await?
-        } else {
-            self.file
-                .scan()?
-                .with_row_indices(indices.clone())
-                .into_array_stream()?
-                .read_all()
-                .await?
-        };
+        let scan =
+            ScanBuilder::new(SESSION.clone(), self.file.scan_file()).with_row_indices(indices);
+        let stream = ScanDriver::new(SESSION.handle(), 4, true).run(scan);
+        let array = ArrayStreamAdapter::new(self.file.dtype().clone(), stream)
+            .read_all()
+            .await?;
 
-        let reference = if std::env::var("VORTEX_BENCH_VERIFY").is_ok_and(|value| value == "1") {
-            let stream = ScanBuilder::new(SESSION.clone(), self.file.scan_file())
-                .with_row_indices(indices)
-                .with_subsegment_reads(false)
-                .into_stream()?;
-            Some(ArrayStreamAdapter::new(self.file.dtype().clone(), stream).read_all().await?)
-        } else {
-            None
-        };
+        // Keep the historical benchmark contract: canonicalize the outer array, leaving nested
+        // values lazy.
         let mut ctx = SESSION.create_execution_ctx();
-        if reference.is_some() || std::env::var("VORTEX_BENCH_MATERIALIZE").is_ok_and(|value| value == "arrow") {
-            let arrow = SESSION.arrow().execute_arrow(array, None, &mut ctx)?;
-            let batch = RecordBatch::from(arrow.as_struct().clone());
-            if let Some(reference) = reference {
-                let expected = SESSION.arrow().execute_arrow(reference, None, &mut ctx)?;
-                anyhow::ensure!(batch == RecordBatch::from(expected.as_struct().clone()), "Sparse read differs from whole-segment reference");
-            }
-            return Ok(RandomAccessorRet::RecordBatch(batch));
-        }
-        // Keep the historical default: canonicalize the outer array, leaving nested values lazy.
         let canonical = array.execute::<Canonical>(&mut ctx)?.into_array();
         Ok(RandomAccessorRet::ArrayRef(canonical))
     }

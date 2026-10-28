@@ -122,6 +122,12 @@ impl ScalarFnRef {
         self.0.return_dtype(arg_types)
     }
 
+    /// Bind whatever in the options depends on the argument types, or keep this function if
+    /// nothing does. See [`ScalarFnVTable::bind_options`].
+    pub(crate) fn bind_options(self, arg_types: &[DType]) -> VortexResult<ScalarFnRef> {
+        Ok(self.0.bind_options(arg_types)?.unwrap_or(self))
+    }
+
     /// Symbolic validity of this node in an expression tree
     pub(crate) fn validity_expression<'a>(
         &self,

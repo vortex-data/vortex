@@ -5,6 +5,7 @@
 
 #include "data.hpp"
 #include "duckdb.h"
+#include "duckdb/common/multi_file/multi_file_data.hpp"
 #include "duckdb/function/function.hpp"
 #include "duckdb/function/partition_stats.hpp"
 #include "duckdb/function/table_function.hpp"
@@ -39,10 +40,12 @@ bool aggregate_pushdown(ClientContext &context, const TableFunctionUngroupedAggr
  * a "row group".
  */
 struct VortexRowGroup final : PartitionRowGroup {
-    explicit VortexRowGroup(unique_ptr<CData> ffi_footer) : ffi_footer(std::move(ffi_footer)) {
+    VortexRowGroup(unique_ptr<CData> ffi_footer, const vector<MultiFileColumnDefinition> &columns)
+        : ffi_footer(std::move(ffi_footer)), columns(columns) {
     }
 
     unique_ptr<CData> ffi_footer;
+    const vector<MultiFileColumnDefinition> &columns;
 
     unique_ptr<BaseStatistics> GetColumnStatistics(const StorageIndex &storage_index) override;
 

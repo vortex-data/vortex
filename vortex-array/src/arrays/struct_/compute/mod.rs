@@ -10,18 +10,20 @@ mod zip;
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use Nullability::NonNullable;
     use Nullability::Nullable;
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
+    use vortex_session::VortexSession;
 
     use crate::Canonical;
     use crate::IntoArray as _;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::fns::is_constant::is_constant;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
@@ -38,9 +40,11 @@ mod tests {
     use crate::dtype::StructFields;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn take_empty_struct() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let struct_arr =
             StructArray::try_new(FieldNames::empty(), vec![], 10, Validity::NonNullable).unwrap();
         let indices = PrimitiveArray::from_option_iter([Some(1), None]);
@@ -69,13 +73,13 @@ mod tests {
         let taken = struct_arr
             .take(indices.into_array())
             .unwrap()
-            .execute::<Canonical>(&mut array_session().create_execution_ctx())
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())
             .unwrap();
         assert_eq!(taken.len(), 1);
         assert!(
             taken
                 .into_array()
-                .all_invalid(&mut array_session().create_execution_ctx())
+                .all_invalid(&mut SESSION.create_execution_ctx())
                 .unwrap()
         );
     }
@@ -89,13 +93,13 @@ mod tests {
         assert_arrays_eq!(
             taken,
             PrimitiveArray::from_option_iter([None::<u64>]),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
     #[test]
     fn take_field_struct() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let struct_arr =
             StructArray::from_fields(&[("a", PrimitiveArray::from_iter(0..10).into_array())])
                 .unwrap();
@@ -118,7 +122,7 @@ mod tests {
             &StructArray::try_new(FieldNames::empty(), vec![], 5, Validity::NonNullable)
                 .unwrap()
                 .into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         );
     }
 
@@ -153,7 +157,7 @@ mod tests {
             )
             .unwrap()
             .into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         );
     }
 
@@ -168,18 +172,14 @@ mod tests {
         );
         let casted = array.cast(non_nullable_dtype.clone()).unwrap();
         assert_eq!(casted.dtype(), &non_nullable_dtype);
-        assert_arrays_eq!(casted, array, &mut array_session().create_execution_ctx());
+        assert_arrays_eq!(casted, array, &mut SESSION.create_execution_ctx());
 
         let nullable_dtype =
             DType::Struct(StructFields::new(FieldNames::default(), vec![]), Nullable);
         let casted = array.cast(nullable_dtype.clone()).unwrap();
         assert_eq!(casted.dtype(), &nullable_dtype);
         let expected = StructArray::new(FieldNames::empty(), vec![], 5, Validity::AllValid);
-        assert_arrays_eq!(
-            casted,
-            expected,
-            &mut array_session().create_execution_ctx()
-        );
+        assert_arrays_eq!(casted, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -251,7 +251,7 @@ mod tests {
                 outer_validity,
             )
         };
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let top_level_non_nullable = fully_nullable_array.dtype().as_nonnullable();
         let casted = fully_nullable_array
             .cast(top_level_non_nullable.clone())
@@ -325,7 +325,7 @@ mod tests {
     #[test]
     fn test_empty_struct_is_constant() {
         let array = StructArray::new_fieldless_with_len(2);
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let result = is_constant(&array.into_array(), &mut ctx)
             .vortex_expect("operation should succeed in test");
         assert!(result);
@@ -337,7 +337,7 @@ mod tests {
             &StructArray::try_new(FieldNames::empty(), vec![], 5, Validity::NonNullable)
                 .unwrap()
                 .into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         );
     }
 
@@ -354,7 +354,7 @@ mod tests {
             &StructArray::try_new(["xs", "ys"].into(), vec![xs, ys], 5, Validity::NonNullable)
                 .unwrap()
                 .into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         );
     }
 
@@ -376,7 +376,7 @@ mod tests {
             )
             .unwrap()
             .into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         );
     }
 
@@ -405,7 +405,7 @@ mod tests {
             )
             .unwrap()
             .into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         );
     }
 
@@ -418,7 +418,7 @@ mod tests {
             &StructArray::try_new(["xs", "ys"].into(), vec![xs, ys], 1, Validity::NonNullable)
                 .unwrap()
                 .into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         );
     }
 
@@ -442,7 +442,7 @@ mod tests {
             )
             .unwrap()
             .into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         );
     }
 
@@ -492,9 +492,6 @@ mod tests {
         StructArray::try_new(["xs", "ys"].into(), vec![xs, ys], 100, Validity::NonNullable).unwrap()
     })]
     fn test_struct_consistency(#[case] array: StructArray) {
-        test_array_consistency(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_array_consistency(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

@@ -8,6 +8,7 @@
 
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::task::Context;
 use std::task::Poll;
 
@@ -16,7 +17,6 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::ByteBuffer;
@@ -32,6 +32,7 @@ use vortex_io::request::IoRequestId;
 use vortex_io::request::IoResult;
 use vortex_io::request::IoSource;
 use vortex_io::request::IoTarget;
+use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::planning::morsel::Morsel;
@@ -40,6 +41,8 @@ use crate::planning::planner::Planner;
 use crate::planning::planner::PlannerOutput;
 use crate::planning::planner::State;
 use crate::planning::planner::WorkScope;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 /// Shared record of the calls the driver made, as readable one-line events.
 #[derive(Clone, Default)]
@@ -407,7 +410,7 @@ pub fn array_of(n: u64) -> ArrayRef {
 
 /// An execution context over a bare array session, for `assert_arrays_eq!`.
 pub fn ctx() -> ExecutionCtx {
-    array_session().create_execution_ctx()
+    SESSION.create_execution_ctx()
 }
 
 pub fn scope(rows: Range<u64>) -> WorkScope {

@@ -10,7 +10,7 @@
 #
 # Datasets:
 #   tpch        TPC-H at scale factor 0.1.
-#   tpcds       TPC-DS at scale factor 0.1 from DuckDB's tpcds extension.
+#   tpcds       TPC-DS at scale factor 0.1.
 #   clickbench  One shard (~1M rows) of the partitioned ClickBench `hits` table.
 #
 # With no arguments every dataset is generated.

@@ -28,7 +28,6 @@ arcref = { workspace = true }
 arrow-buffer = { workspace = true }
 bytes = { workspace = true }
 cfg-if = { workspace = true }
-cudarc = { workspace = true, optional = true }
 enum-iterator = { workspace = true }
 fearless_simd = { workspace = true }
 fearless_simd_macros = { workspace = true }
@@ -76,7 +75,6 @@ vortex-utils = { workspace = true, features = ["dyn-traits"] }
 [features]
 arbitrary = ["dep:arbitrary", "dep:primitive-types"]
 canonical_counter = []
-cudarc = ["dep:cudarc"]
 table-display = ["dep:tabled"]
 _test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
 serde = ["dep:serde", "vortex-buffer/serde", "vortex-mask/serde"]
@@ -333,4 +331,32 @@ harness = false
 
 [[bench]]
 name = "probe"
+harness = false
+
+[[bench]]
+name = "run_end_null_count"
+harness = false
+
+[[bench]]
+name = "run_end_compress"
+harness = false
+
+[[bench]]
+name = "run_end_decode"
+harness = false
+
+[[bench]]
+name = "run_end_take"
+harness = false
+
+[[bench]]
+name = "run_end_filter"
+harness = false
+
+[[bench]]
+name = "run_end_sum"
+harness = false
+
+[[bench]]
+name = "run_end_decode_primitive"
 harness = false

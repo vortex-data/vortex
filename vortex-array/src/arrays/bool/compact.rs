@@ -27,18 +27,22 @@ impl BoolArray {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::ByteBuffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::Canonical;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
     use crate::buffer::BufferHandle;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     #[case(0, 16, Validity::NonNullable)]
@@ -51,7 +55,7 @@ mod tests {
         #[case] len: usize,
         #[case] validity: Validity,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let bytes: ByteBuffer = (0..64u8).collect();
         let handle = BufferHandle::new_host(bytes.clone());
 
@@ -66,7 +70,7 @@ mod tests {
 
     #[test]
     fn canonical_compact_trims_bits() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let handle = BufferHandle::new_host((0..64u8).collect());
         let array = BoolArray::try_new_from_handle(handle, 0, 20, Validity::NonNullable)?;
 

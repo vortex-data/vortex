@@ -8,6 +8,7 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::expr::Expression;
+use crate::expr::expression::unbound_variable;
 use crate::proto::expr as pb;
 use crate::scalar_fn::ForeignScalarFnVTable;
 use crate::scalar_fn::ScalarFnId;
@@ -24,6 +25,9 @@ pub(crate) const ROOT_ID: &str = "vortex.root";
 
 impl ExprSerializeProtoExt for Expression {
     fn serialize_proto(&self) -> VortexResult<pb::Expr> {
+        if let Expression::Variable(name) = self {
+            return Err(unbound_variable(name));
+        }
         let Some(scalar_fn) = self.as_scalar() else {
             return Ok(pb::Expr {
                 id: ROOT_ID.to_string(),
@@ -97,11 +101,12 @@ pub fn deserialize_expr_proto(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use prost::Message;
     use vortex_session::VortexSession;
 
     use super::ExprSerializeProtoExt;
-    use crate::array_session;
     use crate::expr::Expression;
     use crate::expr::and;
     use crate::expr::between;
@@ -114,6 +119,12 @@ mod tests {
     use crate::scalar_fn::fns::between::BetweenOptions;
     use crate::scalar_fn::fns::between::StrictComparison;
     use crate::scalar_fn::session::ScalarFnSession;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty().with::<ScalarFnSession>();
+        session.allow_unknown();
+        session
+    });
 
     #[test]
     fn expression_serde() {
@@ -136,23 +147,20 @@ mod tests {
         let s_expr = expr.serialize_proto().unwrap();
         let buf = s_expr.encode_to_vec();
         let s_expr = pb::Expr::decode(buf.as_slice()).unwrap();
-        let deser_expr = Expression::from_proto(&s_expr, &array_session()).unwrap();
+        let deser_expr = Expression::from_proto(&s_expr, &VortexSession::empty()).unwrap();
 
         assert_eq!(&deser_expr, &expr);
     }
 
     #[test]
     fn unknown_expression_id_allow_unknown() {
-        let session = VortexSession::empty().with::<ScalarFnSession>();
-        session.allow_unknown();
-
         let expr_proto = pb::Expr {
             id: "vortex.test.foreign_scalar_fn".to_string(),
             metadata: Some(vec![1, 2, 3, 4]),
             children: vec![root().serialize_proto().unwrap()],
         };
 
-        let expr = Expression::from_proto(&expr_proto, &session).unwrap();
+        let expr = Expression::from_proto(&expr_proto, &SESSION).unwrap();
         assert_eq!(
             expr.as_scalar().map(|f| f.id().as_ref().to_string()),
             Some("vortex.test.foreign_scalar_fn".to_string())

@@ -11,6 +11,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 
 use crate::ArrayRef;
@@ -30,7 +31,7 @@ use crate::match_each_integer_ptype;
 pub struct DictMetadata {
     #[prost(uint32, tag = "1")]
     pub(super) values_len: u32,
-    #[prost(enumeration = "PType", tag = "2")]
+    #[prost(int32, tag = "2")]
     pub(super) codes_ptype: i32,
     // nullable codes are optional since they were added after stabilisation.
     #[prost(optional, bool, tag = "3")]
@@ -40,6 +41,17 @@ pub struct DictMetadata {
     // false/None = unknown whether all values are referenced (conservative default).
     #[prost(optional, bool, tag = "4")]
     pub(super) all_values_referenced: Option<bool>,
+}
+
+impl DictMetadata {
+    pub(super) fn get_codes_ptype(&self) -> VortexResult<PType> {
+        PType::try_from(self.codes_ptype).map_err(|_| {
+            vortex_err!(
+                "DictMetadata codes_ptype must be a known PType, got {}",
+                self.codes_ptype
+            )
+        })
+    }
 }
 
 #[array_slots(Dict)]
@@ -116,7 +128,7 @@ impl DictData {
     /// It is an error to provide a nullable `codes` with non-nullable `values`.
     pub(crate) fn try_new(codes_dtype: &DType) -> VortexResult<Self> {
         if !codes_dtype.is_int() {
-            vortex_bail!(MismatchedTypes: "int", codes_dtype);
+            vortex_bail!("expected type: int but instead got {}", codes_dtype);
         }
 
         Ok(unsafe { Self::new_unchecked() })
@@ -356,6 +368,9 @@ impl Array<Dict> {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
+    use prost::Message;
     use rand::RngExt;
     use rand::SeedableRng;
     use rand::distr::Distribution;
@@ -367,12 +382,15 @@ mod test {
     use vortex_error::VortexResult;
     use vortex_error::vortex_panic;
     use vortex_mask::AllOr;
+    use vortex_session::VortexSession;
 
+    use super::DictMetadata;
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
+    use crate::array::VTable;
     use crate::arrays::ChunkedArray;
+    use crate::arrays::Dict;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
@@ -386,6 +404,8 @@ mod test {
     use crate::dtype::PType;
     use crate::dtype::UnsignedPType;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn nullable_codes_validity() {
@@ -402,10 +422,7 @@ mod test {
             .as_ref()
             .validity()
             .unwrap()
-            .execute_mask(
-                dict.as_ref().len(),
-                &mut array_session().create_execution_ctx(),
-            )
+            .execute_mask(dict.as_ref().len(), &mut SESSION.create_execution_ctx())
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
@@ -428,10 +445,7 @@ mod test {
             .as_ref()
             .validity()
             .unwrap()
-            .execute_mask(
-                dict.as_ref().len(),
-                &mut array_session().create_execution_ctx(),
-            )
+            .execute_mask(dict.as_ref().len(), &mut SESSION.create_execution_ctx())
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
@@ -458,10 +472,7 @@ mod test {
             .as_ref()
             .validity()
             .unwrap()
-            .execute_mask(
-                dict.as_ref().len(),
-                &mut array_session().create_execution_ctx(),
-            )
+            .execute_mask(dict.as_ref().len(), &mut SESSION.create_execution_ctx())
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
@@ -484,10 +495,7 @@ mod test {
             .as_ref()
             .validity()
             .unwrap()
-            .execute_mask(
-                dict.as_ref().len(),
-                &mut array_session().create_execution_ctx(),
-            )
+            .execute_mask(dict.as_ref().len(), &mut SESSION.create_execution_ctx())
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
@@ -534,7 +542,7 @@ mod test {
         let values = VarBinViewArray::from_iter_str(["zero", "one", "two"]);
         let dict = DictArray::try_new(buffer![2u8, 0, 2, 1].into_array(), values.into_array())?;
         let expected = VarBinViewArray::from_iter_str(["two", "zero", "two", "one"]);
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut builder = VarBinBuilder::<i32>::with_capacity_in(
             dict.dtype().clone(),
             dict.len(),
@@ -550,7 +558,7 @@ mod test {
 
     #[test]
     fn test_dict_array_from_primitive_chunks() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let len = 2;
         let chunk_count = 2;
         let (array, expected) = make_dict_primitive_chunks::<u64, u64>(len, 2, chunk_count);
@@ -560,10 +568,7 @@ mod test {
             len * chunk_count,
             ctx.allocator(),
         );
-        array.append_to_builder(
-            builder.as_mut(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        array.append_to_builder(builder.as_mut(), &mut SESSION.create_execution_ctx())?;
 
         let prim_into = builder.finish_into_canonical(&mut ctx).into_primitive();
 
@@ -591,6 +596,36 @@ mod test {
             }
             .encode_to_vec(),
         );
+    }
+
+    #[test]
+    fn test_deserialize_rejects_unknown_codes_ptype() -> VortexResult<()> {
+        let metadata = DictMetadata {
+            codes_ptype: 11,
+            ..Default::default()
+        }
+        .encode_to_vec();
+        let children: Vec<ArrayRef> = Vec::new();
+        let result = Dict.deserialize(
+            &DType::Primitive(PType::I32, NonNullable),
+            0,
+            &metadata,
+            &[],
+            &children,
+            &SESSION,
+        );
+        assert!(result.is_err_and(|err| {
+            err.to_string()
+                .contains("DictMetadata codes_ptype must be a known PType, got 11")
+        }));
+
+        let known = DictMetadata {
+            codes_ptype: PType::U32 as i32,
+            ..Default::default()
+        };
+        assert_eq!(known.get_codes_ptype()?, PType::U32);
+
+        Ok(())
     }
 
     /// Covers the early exit taken once every value is referenced, including when that happens
@@ -631,7 +666,7 @@ mod test {
         };
         let dict =
             DictArray::try_new(codes, PrimitiveArray::from_iter(0..num_values).into_array())?;
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mask = dict.compute_referenced_values_mask(referenced, &mut ctx)?;
 
         assert_eq!(mask, BitBuffer::from(expected));

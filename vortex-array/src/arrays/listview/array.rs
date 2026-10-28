@@ -92,6 +92,7 @@ pub struct ListViewSlots {
 /// # use vortex_array::arrays::{ListViewArray, PrimitiveArray};
 /// # use vortex_array::arrays::listview::ListViewArrayExt;
 /// # use vortex_array::validity::Validity;
+/// # use vortex_session::VortexSession;
 /// # use vortex_array::{IntoArray, VortexSessionExecute};
 /// # use vortex_buffer::buffer;
 /// # use std::sync::Arc;
@@ -103,7 +104,7 @@ pub struct ListViewSlots {
 /// let offsets = buffer![2u32, 0, 1].into_array();  // Out-of-order offsets
 /// let sizes = buffer![2u32, 1, 2].into_array();  // The sizes cause overlaps
 ///
-/// let mut ctx = vortex_array::array_session().create_execution_ctx();
+/// let mut ctx = VortexSession::empty().create_execution_ctx();
 /// let list_view = ListViewArray::new(
 ///     elements.into_array(),
 ///     offsets.into_array(),

@@ -49,14 +49,21 @@ struct State {
 impl FutureReadAt2 {
     /// Creates an independent completion scope over `reader`.
     pub fn new(reader: Arc<dyn VortexReadAt>) -> Self {
-        Self { reader, state: Mutex::default() }
+        Self {
+            reader,
+            state: Mutex::default(),
+        }
     }
 
     fn poll(&self, cx: &mut Context<'_>) -> Poll<VortexResult<ReadCompletion>> {
         let mut state = self.state.lock();
         state.waker = Some(cx.waker().clone());
         loop {
-            let available = self.reader.concurrency().max(1).saturating_sub(state.active);
+            let available = self
+                .reader
+                .concurrency()
+                .max(1)
+                .saturating_sub(state.active);
             let count = available.min(state.queued.len());
             if count != 0 {
                 let batch: Vec<_> = state.queued.drain(..count).collect();
@@ -64,29 +71,47 @@ impl FutureReadAt2 {
                 let mut ranges = Vec::new();
                 for request in batch {
                     match request.target {
-                        ReadTarget::Range { offset, length, alignment } => {
-                            ranges.push((request.id, ReadAtRequest::new(offset, length, alignment)));
+                        ReadTarget::Range {
+                            offset,
+                            length,
+                            alignment,
+                        } => {
+                            ranges
+                                .push((request.id, ReadAtRequest::new(offset, length, alignment)));
                         }
                         ReadTarget::Size => {
                             let read = self.reader.size();
-                            state.reads.push(stream::once(async move {
-                                ReadCompletion { id: request.id, result: read.await.map(ReadResult::Size) }
-                            }).boxed());
+                            state.reads.push(
+                                stream::once(async move {
+                                    ReadCompletion {
+                                        id: request.id,
+                                        result: read.await.map(ReadResult::Size),
+                                    }
+                                })
+                                .boxed(),
+                            );
                         }
                         ReadTarget::Suffix { length, alignment } => {
                             let reader = Arc::clone(&self.reader);
-                            state.reads.push(stream::once(async move {
-                                ReadCompletion {
-                                    id: request.id,
-                                    result: reader.read_suffix(length, alignment).await
-                                        .map(|(size, bytes)| ReadResult::Suffix { size, bytes }),
-                                }
-                            }).boxed());
+                            state.reads.push(
+                                stream::once(async move {
+                                    ReadCompletion {
+                                        id: request.id,
+                                        result: reader.read_suffix(length, alignment).await.map(
+                                            |(size, bytes)| ReadResult::Suffix { size, bytes },
+                                        ),
+                                    }
+                                })
+                                .boxed(),
+                            );
                         }
                     }
                 }
                 if !ranges.is_empty() {
-                    let requests = ranges.iter().map(|(_, request)| *request).collect::<Vec<_>>();
+                    let requests = ranges
+                        .iter()
+                        .map(|(_, request)| *request)
+                        .collect::<Vec<_>>();
                     let mut results = self.reader.read_ranges(requests.into());
                     state.reads.push(async_stream::stream! {
                         let mut remaining: Vec<_> = ranges.into_iter().map(Some).collect();
@@ -135,7 +160,8 @@ impl VortexReadAt2 for FutureReadAt2 {
                 vortex_bail!("Duplicate read identity {:?}", request.id);
             }
             if let ReadTarget::Range { offset, length, .. } = request.target
-                && offset.checked_add(length as u64).is_none() {
+                && offset.checked_add(length as u64).is_none()
+            {
                 vortex_bail!("Read range overflows u64");
             }
         }

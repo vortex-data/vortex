@@ -292,6 +292,7 @@ pub(crate) fn infer_nearest_arrow_field(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use arrow_array::Array;
     use arrow_array::ArrayRef as ArrowArrayRef;
@@ -309,12 +310,14 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_session::VortexSession;
 
     use crate::ArrowSessionExt;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn utf8() -> ArrayRef {
         VarBinViewArray::from_iter_str(["a", "bb"]).into_array()
@@ -353,11 +356,10 @@ mod tests {
     #[case::byte_from_primitive(primitive(), DataType::Utf8)]
     #[case::byte_from_bool(boolean(), DataType::Binary)]
     fn incompatible_target_returns_error(#[case] array: ArrayRef, #[case] target: DataType) {
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let field = Field::new("f", target.clone(), array.dtype().is_nullable());
 
-        let result = session.arrow().execute_arrow(array, Some(&field), &mut ctx);
+        let result = SESSION.arrow().execute_arrow(array, Some(&field), &mut ctx);
 
         assert!(
             result.is_err(),
@@ -379,11 +381,10 @@ mod tests {
         #[case] target: DataType,
         #[case] expected: ArrowArrayRef,
     ) {
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let field = Field::new("f", target, array.dtype().is_nullable());
 
-        let result = session.arrow().execute_arrow(array, Some(&field), &mut ctx);
+        let result = SESSION.arrow().execute_arrow(array, Some(&field), &mut ctx);
 
         assert_eq!(result.unwrap().to_data(), expected.to_data());
     }

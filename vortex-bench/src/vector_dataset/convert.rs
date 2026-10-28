@@ -225,7 +225,6 @@ mod tests {
     use vortex::array::EmptyMetadata;
     use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
-    use vortex::array::array_session;
     use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::ChunkedArray;
     use vortex::array::arrays::ExtensionArray;
@@ -262,7 +261,7 @@ mod tests {
         dim: usize,
         element_validity: Validity,
     ) -> ArrayRef {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(
             values.len() % dim,
             0,
@@ -284,7 +283,7 @@ mod tests {
     }
 
     fn list_f32(rows: &[&[f32]]) -> ArrayRef {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut elements = BufferMut::<f32>::with_capacity(rows.iter().map(|r| r.len()).sum());
         let mut offsets = BufferMut::<i32>::with_capacity(rows.len() + 1);
         offsets.push(0);
@@ -359,7 +358,7 @@ mod tests {
     /// `list_to_vector_ext` fast-path that collapses `ListView` → `List` before
     /// validating offsets.
     fn list_view_f32(dim: usize, rows: &[&[f32]]) -> ArrayRef {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut values = BufferMut::<f32>::with_capacity(rows.len() * dim);
         for row in rows {
             assert_eq!(row.len(), dim);
@@ -409,7 +408,7 @@ mod tests {
 
     #[test]
     fn all_invalid_list_validity_is_rejected() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // A list with `Validity::AllInvalid` means every row is null. The Vector
         // extension type requires non-nullable elements at the FSL level, so we
         // must reject this input rather than silently dropping the validity mask.
@@ -435,7 +434,7 @@ mod tests {
 
     #[test]
     fn non_float_element_type_is_rejected() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Build a List<i32>.
         let elements = PrimitiveArray::new::<i32>(
             BufferMut::<i32>::from_iter([1i32, 2, 3, 4]).freeze(),

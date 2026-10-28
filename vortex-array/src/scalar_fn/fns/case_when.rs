@@ -518,7 +518,7 @@ mod tests {
     use crate::scalar_fn::fns::operators::Operator;
     use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn compact_and_run_merges_agree_for_nested_and_nullable_values() -> VortexResult<()> {
@@ -811,10 +811,7 @@ mod tests {
             pb::CaseWhenOpts::decode(serialized.as_slice())?.num_children,
             num_children
         );
-        assert_eq!(
-            CaseWhen.deserialize(&serialized, &VortexSession::empty())?,
-            options
-        );
+        assert_eq!(CaseWhen.deserialize(&serialized, &SESSION)?, options);
         Ok(())
     }
 
@@ -840,11 +837,7 @@ mod tests {
     #[case::one_child(&[0x08, 1])]
     #[case::truncated(&[0x08, 0x80])]
     fn test_deserialization_invalid_metadata(#[case] metadata: &[u8]) {
-        assert!(
-            CaseWhen
-                .deserialize(metadata, &VortexSession::empty())
-                .is_err()
-        );
+        assert!(CaseWhen.deserialize(metadata, &SESSION).is_err());
     }
 
     #[rstest]

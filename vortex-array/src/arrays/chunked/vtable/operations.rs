@@ -41,14 +41,15 @@ impl OperationsVTable<Chunked> for Chunked {
 #[cfg(test)]
 mod tests {
     use std::ops::Range;
+    use std::sync::LazyLock;
 
     use rstest::rstest;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -56,6 +57,8 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::scalar::Scalar;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(
@@ -77,7 +80,7 @@ mod tests {
     #[case::end(7..8, &[8u64])]
     #[case::exactly_end(6..9, &[7u64, 8, 9])]
     fn slice(#[case] range: Range<usize>, #[case] expected: &[u64]) {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(
             chunked_array().slice(range).unwrap(),
             PrimitiveArray::from_iter(expected.iter().copied()),
@@ -93,13 +96,13 @@ mod tests {
         assert_arrays_eq!(
             sliced,
             PrimitiveArray::empty::<u32>(Nullability::NonNullable),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
     #[test]
     fn scalar_at_empty_children_both_sides() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = ChunkedArray::try_new(
             vec![
                 Buffer::<u64>::empty().into_array(),
@@ -122,7 +125,7 @@ mod tests {
 
     #[test]
     fn scalar_at_empty_children_trailing() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = ChunkedArray::try_new(
             vec![
                 buffer![1u64, 2].into_array(),
@@ -144,7 +147,7 @@ mod tests {
 
     #[test]
     fn scalar_at_empty_children_leading() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = ChunkedArray::try_new(
             vec![
                 Buffer::<u64>::empty().into_array(),

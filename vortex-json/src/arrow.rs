@@ -150,6 +150,7 @@ impl ArrowImportVTable for Json {
 mod tests {
 
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use arrow_array::Array;
     use arrow_array::ArrayRef as ArrowArrayRef;
@@ -173,16 +174,20 @@ mod tests {
     use vortex_arrow::CompactBuffers;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::Json;
     use crate::initialize;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        initialize(&session);
+        session
+    });
+
     /// Export a JSON extension array to Arrow's canonical JSON extension.
     #[test]
     fn exports_json_extension_array_as_arrow_json() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        initialize(&session);
-
         let storage = VarBinArray::from_iter(
             [Some("{\"id\":1}"), Some("{\"id\":2}")],
             vortex_array::dtype::DType::Utf8(Nullability::NonNullable),
@@ -192,16 +197,16 @@ mod tests {
 
         let array = ExtensionArray::new(ext_dtype, storage).into_array();
 
-        let field = session.arrow().to_arrow_field("data", array.dtype())?;
+        let field = SESSION.arrow().to_arrow_field("data", array.dtype())?;
         assert_eq!(field.extension_type_name(), Some(ArrowJson::NAME));
         assert_eq!(field.name(), "data");
         assert!(!field.is_nullable());
         ArrowJson::try_new_from_field_metadata(field.data_type(), field.metadata())?;
 
-        let exported = session.arrow().execute_arrow(
+        let exported = SESSION.arrow().execute_arrow(
             array,
             Some(&field),
-            &mut session.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )?;
 
         assert!(exported.data_type().is_string());
@@ -217,14 +222,11 @@ mod tests {
     /// Import Arrow's canonical JSON extension as a Vortex JSON extension array.
     #[test]
     fn imports_arrow_json_extension_array_as_vortex_json() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        initialize(&session);
-
         let mut field = Field::new("data", DataType::Utf8, false);
         field.try_with_extension_type(ArrowJson::default())?;
         let array = Arc::new(StringArray::from(vec!["{\"id\":1}", "{\"id\":2}"])) as ArrowArrayRef;
 
-        let imported = session.arrow().from_arrow_array(array, &field)?;
+        let imported = SESSION.arrow().from_arrow_array(array, &field)?;
         let ext_dtype = imported
             .dtype()
             .as_extension_opt()
@@ -235,10 +237,10 @@ mod tests {
             &vortex_array::dtype::DType::Utf8(Nullability::NonNullable)
         );
 
-        let exported = session.arrow().execute_arrow(
+        let exported = SESSION.arrow().execute_arrow(
             imported,
             Some(&field),
-            &mut session.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )?;
         let strings = exported.as_string::<i32>();
         assert_eq!(
@@ -251,9 +253,7 @@ mod tests {
     /// The plugin must forward export options to its storage export.
     #[test]
     fn export_options_reach_json_storage() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        initialize(&session);
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let views = VarBinViewArray::from_iter_str((0..64).map(|i| format!("{{\"id\":{i:>32}}}")));
         let backing = views.data_buffers()[0].as_host().as_ptr();
@@ -263,12 +263,12 @@ mod tests {
             .take(PrimitiveArray::from_iter([0u32, 48]).into_array())?;
         let ext_dtype = ExtDType::<Json>::try_new(EmptyMetadata, storage.dtype().clone())?.erased();
         let array = ExtensionArray::new(ext_dtype, storage).into_array();
-        let field = session.arrow().to_arrow_field("data", array.dtype())?;
+        let field = SESSION.arrow().to_arrow_field("data", array.dtype())?;
 
         let retains_backing = |options: &ArrowExportOptions,
                                ctx: &mut vortex_array::ExecutionCtx|
          -> VortexResult<bool> {
-            let exported = session.arrow().exporter(options).execute_arrow(
+            let exported = SESSION.arrow().exporter(options).execute_arrow(
                 array.clone(),
                 Some(&field),
                 ctx,

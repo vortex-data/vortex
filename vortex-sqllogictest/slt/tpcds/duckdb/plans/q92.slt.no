@@ -333,7 +333,7 @@ logical_plan [
                                         ],
                                         "extra_info": {
                                             "Expressions": [
-                                                "(i_manufact_id = CAST(350 AS BIGINT))",
+                                                "(i_manufact_id = CAST(350 AS INTEGER))",
                                                 "(i_item_sk = ws_item_sk)",
                                                 "(d_date >= CAST('2000-01-27' AS DATE))",
                                                 "(d_date_sk = ws_sold_date_sk)",
@@ -402,9 +402,9 @@ logical_opt [
                                                                         "name": "READ_VORTEX",
                                                                         "children": [],
                                                                         "extra_info": {
-                                                                            "Filters": "($.i_manufact_id = 350i64)",
+                                                                            "Filters": "($.i_manufact_id = 350i32)",
                                                                             "Function": "Vortex Scan",
-                                                                            "Estimated Cardinality": "360"
+                                                                            "Estimated Cardinality": "400"
                                                                         }
                                                                     }
                                                                 ],
@@ -420,7 +420,7 @@ logical_opt [
                                                                 "extra_info": {
                                                                     "Filters": [
                                                                         "(2000-01-27 <= $.d_date <= 2000-04-26)",
-                                                                        "(2450816i64 <= $.d_date_sk <= 2452642i64)"
+                                                                        "(2450816i32 <= $.d_date_sk <= 2452642i32)"
                                                                     ],
                                                                     "Function": "Vortex Scan",
                                                                     "Estimated Cardinality": "14609"
@@ -533,7 +533,7 @@ logical_opt [
                                                                                                                             }
                                                                                                                         ],
                                                                                                                         "extra_info": {
-                                                                                                                            "Expressions": "CAST(#0 AS BIGINT)",
+                                                                                                                            "Expressions": "CAST(#0 AS INTEGER)",
                                                                                                                             "Estimated Cardinality": "7163"
                                                                                                                         }
                                                                                                                     }
@@ -556,7 +556,7 @@ logical_opt [
                                                                                                         "extra_info": {
                                                                                                             "Filters": [
                                                                                                                 "(2000-01-27 <= $.d_date <= 2000-04-26)",
-                                                                                                                "(2450816i64 <= $.d_date_sk <= 2452642i64)"
+                                                                                                                "(2450816i32 <= $.d_date_sk <= 2452642i32)"
                                                                                                             ],
                                                                                                             "Function": "Vortex Scan",
                                                                                                             "Estimated Cardinality": "14609"
@@ -589,7 +589,7 @@ logical_opt [
                                                                         ],
                                                                         "extra_info": {
                                                                             "Expressions": [
-                                                                                "CAST(#0 AS BIGINT)",
+                                                                                "CAST(#0 AS INTEGER)",
                                                                                 "#1"
                                                                             ],
                                                                             "Estimated Cardinality": "7163"
@@ -693,9 +693,9 @@ physical_plan [
                                                                 "children": [],
                                                                 "extra_info": {
                                                                     "Function": "Vortex Scan",
-                                                                    "Filters": "($.i_manufact_id = 350i64)",
+                                                                    "Filters": "($.i_manufact_id = 350i32)",
                                                                     "Projections": "i_item_sk",
-                                                                    "Estimated Cardinality": "360"
+                                                                    "Estimated Cardinality": "400"
                                                                 }
                                                             }
                                                         ],
@@ -712,7 +712,7 @@ physical_plan [
                                                             "Function": "Vortex Scan",
                                                             "Filters": [
                                                                 "(2000-01-27 <= $.d_date <= 2000-04-26)",
-                                                                "(2450816i64 <= $.d_date_sk <= 2452642i64)"
+                                                                "(2450816i32 <= $.d_date_sk <= 2452642i32)"
                                                             ],
                                                             "Projections": "d_date_sk",
                                                             "Estimated Cardinality": "14609"
@@ -826,7 +826,7 @@ physical_plan [
                                                                                                                     }
                                                                                                                 ],
                                                                                                                 "extra_info": {
-                                                                                                                    "Projections": "CAST(#0 AS BIGINT)",
+                                                                                                                    "Projections": "CAST(#0 AS INTEGER)",
                                                                                                                     "Estimated Cardinality": "7163"
                                                                                                                 }
                                                                                                             }
@@ -844,7 +844,7 @@ physical_plan [
                                                                                                             "Function": "Vortex Scan",
                                                                                                             "Filters": [
                                                                                                                 "(2000-01-27 <= $.d_date <= 2000-04-26)",
-                                                                                                                "(2450816i64 <= $.d_date_sk <= 2452642i64)"
+                                                                                                                "(2450816i32 <= $.d_date_sk <= 2452642i32)"
                                                                                                             ],
                                                                                                             "Projections": "d_date_sk",
                                                                                                             "Estimated Cardinality": "14609"
@@ -886,7 +886,7 @@ physical_plan [
                                                                 ],
                                                                 "extra_info": {
                                                                     "Projections": [
-                                                                        "CAST(#0 AS BIGINT)",
+                                                                        "CAST(#0 AS INTEGER)",
                                                                         "#1"
                                                                     ],
                                                                     "Estimated Cardinality": "7163"

@@ -220,8 +220,8 @@ TEST_CASE("Error with a code", "[array]") {
         (void)a.scalar_at(Session {}, 2);
         FAIL("expected exception");
     } catch (const VortexException &e) {
-        REQUIRE_FALSE(std::string(e.what()).empty());
-        REQUIRE(e.code() == ErrorCode::OutOfBounds);
+        REQUIRE(std::string(e.what()).find("out of bounds") != std::string::npos);
+        REQUIRE(e.code() == ErrorCode::Other);
     }
 }
 } // namespace

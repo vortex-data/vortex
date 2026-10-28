@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use rstest::rstest;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use super::*;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
@@ -21,9 +23,11 @@ use crate::dtype::Nullability;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
 #[test]
 fn test_repeated_probe_preserves_masked_nulls() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let array = MaskedArray::try_new(
         PrimitiveArray::from_iter([1i32, 2, 3]).into_array(),
         Validity::from_iter([true, false, true]),
@@ -49,7 +53,7 @@ fn test_repeated_probe_preserves_masked_nulls() -> VortexResult<()> {
 #[case(Validity::AllValid, Nullability::Nullable)]
 #[case(Validity::from_iter([true, false, true]), Nullability::Nullable)]
 fn test_dtype_nullability(#[case] validity: Validity, #[case] expected: Nullability) {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let child = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
     let array = MaskedArray::try_new(child, validity, &mut ctx).unwrap();
 
@@ -63,7 +67,7 @@ fn test_dtype_nullability(#[case] validity: Validity, #[case] expected: Nullabil
 fn test_dtype_nullability_with_nullable_child() -> VortexResult<()> {
     let child =
         PrimitiveArray::new(vortex_buffer::buffer![1i32, 2, 3], Validity::AllValid).into_array();
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let array = MaskedArray::try_new(child, Validity::from_iter([true, false, true]), &mut ctx)?;
     assert_arrays_eq!(
         array,
@@ -81,7 +85,7 @@ fn test_empty_child_with_array_validity() -> VortexResult<()> {
     let validity =
         Validity::Array(BoolArray::new(BitBuffer::new_set(0), Validity::NonNullable).into_array());
 
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     assert!(child.all_valid(&mut ctx)?);
     assert!(child.all_invalid(&mut ctx)?);
 
@@ -97,26 +101,26 @@ fn test_masked_child_with_validity() -> VortexResult<()> {
     let array = MaskedArray::try_new(
         child,
         Validity::from_iter([true, false, true, false, true]),
-        &mut array_session().create_execution_ctx(),
+        &mut SESSION.create_execution_ctx(),
     )?;
     assert_arrays_eq!(
         array,
         PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, Some(5)]),
-        &mut array_session().create_execution_ctx()
+        &mut SESSION.create_execution_ctx()
     );
     Ok(())
 }
 
 #[test]
 fn test_masked_child_all_valid() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let child = PrimitiveArray::from_iter([10i32, 20, 30]).into_array();
     let array = MaskedArray::try_new(child, Validity::AllValid, &mut ctx).unwrap();
 
     assert_eq!(array.len(), 3);
     assert_eq!(
         array
-            .valid_count(&mut array_session().create_execution_ctx())
+            .valid_count(&mut SESSION.create_execution_ctx())
             .unwrap(),
         3
     );
@@ -133,7 +137,7 @@ fn test_masked_child_all_valid() {
 #[case(Validity::from_iter([false, false, false]))]
 #[case(Validity::from_iter([true, false, true, false]))]
 fn test_masked_child_preserves_length(#[case] validity: Validity) {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let len = match &validity {
         Validity::Array(arr) => arr.len(),
         _ => 3,
@@ -145,7 +149,7 @@ fn test_masked_child_preserves_length(#[case] validity: Validity) {
 
     assert_eq!(array.len(), len);
 
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     assert!(
         array
             .validity()
@@ -157,7 +161,7 @@ fn test_masked_child_preserves_length(#[case] validity: Validity) {
 
 #[test]
 fn masked_listview_execute_preserves_zctl_true() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // Masking only intersects validity, so the zero-copy-to-list survives
     // execution.
     let elements = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
@@ -175,7 +179,7 @@ fn masked_listview_execute_preserves_zctl_true() -> VortexResult<()> {
     )?;
     let canonical = masked
         .into_array()
-        .execute::<Canonical>(&mut array_session().create_execution_ctx())?;
+        .execute::<Canonical>(&mut SESSION.create_execution_ctx())?;
     assert!(canonical.into_listview().is_zero_copy_to_list());
     Ok(())
 }

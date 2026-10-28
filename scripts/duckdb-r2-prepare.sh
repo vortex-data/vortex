@@ -12,9 +12,18 @@
 set -eu
 
 if [ "$RELEASE" = "true" ]; then
-    echo "Mirroring DuckDB release ${REF_DIR}/${ARCHIVE}"
-    curl -fSL --retry 3 -o "$ARCHIVE" \
-        "https://github.com/duckdb/duckdb/releases/download/${REF_DIR}/${ARCHIVE}"
+    suffix="${ARCHIVE#libduckdb-}"
+    suffix="${suffix%.zip}"
+    upstream="duckdb-shared-libs-${suffix}.tar.gz"
+
+    echo "Mirroring DuckDB release ${REF_DIR}/${upstream} as ${ARCHIVE}"
+    curl -fSL --retry 3 -o "$upstream" \
+        "https://github.com/duckdb/duckdb/releases/download/${REF_DIR}/${upstream}"
+
+    stage="stage"
+    mkdir -p "$stage"
+    tar -xzf "$upstream" -C "$stage"
+    ( cd "$stage" && zip -r "../${ARCHIVE}" . )
 else
     echo "Building DuckDB commit ${REF_DIR} from source"
 

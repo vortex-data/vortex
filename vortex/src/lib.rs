@@ -107,14 +107,24 @@ pub use vortex_array::compute;
 use vortex_array::dtype::session::DTypeSession;
 // vortex::expr is in the process of having its dependencies inverted, and will eventually be
 // pulled back out into a vortex_expr crate.
-pub use vortex_array::expr;
+pub mod expr {
+    //! Expression trees, their optimizer, and the analyses and rewrites built on them.
+    pub use vortex_array::expr::*;
+    pub use vortex_expr::*;
+
+    /// Statistics, stat expressions, and statistics-based pruning rewrites.
+    pub mod stats {
+        pub use vortex_array::expr::stats::*;
+        pub use vortex_expr::stats::*;
+    }
+}
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
 pub use vortex_array::scalar_fn;
 use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
-use vortex_array::stats::session::StatsSession;
 use vortex_btrblocks::CompressionSession;
+use vortex_expr::stats::session::StatsSession;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
@@ -285,7 +295,7 @@ pub mod encodings {
 
     /// Arrow-compatible run-end encoding.
     pub mod runend {
-        pub use vortex_runend::*;
+        pub use vortex_array::arrays::runend::*;
     }
 
     /// Fixed-step sequence encoding.

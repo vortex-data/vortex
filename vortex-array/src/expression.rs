@@ -11,6 +11,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArray;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
+use crate::expr::expression::unbound_variable;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::fns::literal::Literal;
 
@@ -47,6 +48,9 @@ impl ArrayRef {
         if expr.is_root() {
             return Ok(self);
         }
+        if let Expression::Variable(name) = expr {
+            return Err(unbound_variable(name));
+        }
 
         // Manually convert literals to ConstantArray.
         if let Some(scalar) = expr.as_opt::<Literal>() {
@@ -64,7 +68,7 @@ impl ArrayRef {
         // And wrap the scalar function up in an array.
         let scalar_fn = expr
             .as_scalar()
-            .vortex_expect("root and literal were handled above, so this is a scalar node");
+            .vortex_expect("leaves and literals were handled above, so this is a scalar node");
         let array = ScalarFnArray::try_new_with_len(scalar_fn.clone(), children, len)?.into_array();
 
         // Optimize the resulting array's root.

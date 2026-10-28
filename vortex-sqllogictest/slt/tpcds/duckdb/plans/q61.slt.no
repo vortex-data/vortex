@@ -172,7 +172,7 @@ logical_plan [
                                                                                                                         "s_zip",
                                                                                                                         "s_country",
                                                                                                                         "s_gmt_offset",
-                                                                                                                        "s_tax_percentage"
+                                                                                                                        "s_tax_precentage"
                                                                                                                     ]
                                                                                                                 }
                                                                                                             }
@@ -404,8 +404,8 @@ logical_plan [
                                                                 "(i_category = CAST('Jewelry' AS VARCHAR))",
                                                                 "((p_channel_dmail = CAST('Y' AS VARCHAR)) OR (p_channel_email = CAST('Y' AS VARCHAR)) OR (p_channel_tv = CAST('Y' AS VARCHAR)))",
                                                                 "(CAST(s_gmt_offset AS DECIMAL(12,2)) = CAST(-5 AS DECIMAL(12,2)))",
-                                                                "(d_year = CAST(1998 AS BIGINT))",
-                                                                "(d_moy = CAST(11 AS BIGINT))"
+                                                                "(d_year = CAST(1998 AS INTEGER))",
+                                                                "(d_moy = CAST(11 AS INTEGER))"
                                                             ]
                                                         }
                                                     }
@@ -526,7 +526,7 @@ logical_plan [
                                                                                                                 "s_zip",
                                                                                                                 "s_country",
                                                                                                                 "s_gmt_offset",
-                                                                                                                "s_tax_percentage"
+                                                                                                                "s_tax_precentage"
                                                                                                             ]
                                                                                                         }
                                                                                                     }
@@ -715,8 +715,8 @@ logical_plan [
                                                                 "(CAST(ca_gmt_offset AS DECIMAL(12,2)) = CAST(-5 AS DECIMAL(12,2)))",
                                                                 "(i_category = CAST('Jewelry' AS VARCHAR))",
                                                                 "(CAST(s_gmt_offset AS DECIMAL(12,2)) = CAST(-5 AS DECIMAL(12,2)))",
-                                                                "(d_year = CAST(1998 AS BIGINT))",
-                                                                "(d_moy = CAST(11 AS BIGINT))"
+                                                                "(d_year = CAST(1998 AS INTEGER))",
+                                                                "(d_moy = CAST(11 AS INTEGER))"
                                                             ]
                                                         }
                                                     }
@@ -783,9 +783,9 @@ logical_opt [
                                                         "children": [],
                                                         "extra_info": {
                                                             "Filters": [
-                                                                "($.d_year = 1998i64)",
-                                                                "($.d_moy = 11i64)",
-                                                                "(2450816i64 <= $.d_date_sk <= 2452642i64)"
+                                                                "($.d_year = 1998i32)",
+                                                                "($.d_moy = 11i32)",
+                                                                "(2450816i32 <= $.d_date_sk <= 2452642i32)"
                                                             ],
                                                             "Function": "Vortex Scan",
                                                             "Estimated Cardinality": "14609"
@@ -809,7 +809,7 @@ logical_opt [
                                                                                         "extra_info": {
                                                                                             "Filters": "",
                                                                                             "Function": "Vortex Scan",
-                                                                                            "Estimated Cardinality": "288464"
+                                                                                            "Estimated Cardinality": "240485"
                                                                                         }
                                                                                     },
                                                                                     {
@@ -825,7 +825,7 @@ logical_opt [
                                                                                 "extra_info": {
                                                                                     "Join Type": "INNER",
                                                                                     "Conditions": "(ss_promo_sk = p_promo_sk)",
-                                                                                    "Estimated Cardinality": "57692"
+                                                                                    "Estimated Cardinality": "48097"
                                                                                 }
                                                                             },
                                                                             {
@@ -834,14 +834,14 @@ logical_opt [
                                                                                 "extra_info": {
                                                                                     "Filters": "($.i_category = \"Jewelry\")",
                                                                                     "Function": "Vortex Scan",
-                                                                                    "Estimated Cardinality": "360"
+                                                                                    "Estimated Cardinality": "400"
                                                                                 }
                                                                             }
                                                                         ],
                                                                         "extra_info": {
                                                                             "Join Type": "INNER",
                                                                             "Conditions": "(ss_item_sk = i_item_sk)",
-                                                                            "Estimated Cardinality": "11538"
+                                                                            "Estimated Cardinality": "9619"
                                                                         }
                                                                     },
                                                                     {
@@ -876,7 +876,7 @@ logical_opt [
                                                                 "extra_info": {
                                                                     "Join Type": "INNER",
                                                                     "Conditions": "(ss_customer_sk = c_customer_sk)",
-                                                                    "Estimated Cardinality": "2307"
+                                                                    "Estimated Cardinality": "1923"
                                                                 }
                                                             },
                                                             {
@@ -892,14 +892,14 @@ logical_opt [
                                                         "extra_info": {
                                                             "Join Type": "INNER",
                                                             "Conditions": "(ss_store_sk = s_store_sk)",
-                                                            "Estimated Cardinality": "2307"
+                                                            "Estimated Cardinality": "961"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
                                                     "Join Type": "INNER",
                                                     "Conditions": "(d_date_sk = ss_sold_date_sk)",
-                                                    "Estimated Cardinality": "2307"
+                                                    "Estimated Cardinality": "961"
                                                 }
                                             }
                                         ],
@@ -929,9 +929,9 @@ logical_opt [
                                                         "children": [],
                                                         "extra_info": {
                                                             "Filters": [
-                                                                "($.d_year = 1998i64)",
-                                                                "($.d_moy = 11i64)",
-                                                                "(2450816i64 <= $.d_date_sk <= 2452642i64)"
+                                                                "($.d_year = 1998i32)",
+                                                                "($.d_moy = 11i32)",
+                                                                "(2450816i32 <= $.d_date_sk <= 2452642i32)"
                                                             ],
                                                             "Function": "Vortex Scan",
                                                             "Estimated Cardinality": "14609"
@@ -952,7 +952,7 @@ logical_opt [
                                                                                 "extra_info": {
                                                                                     "Filters": "",
                                                                                     "Function": "Vortex Scan",
-                                                                                    "Estimated Cardinality": "288464"
+                                                                                    "Estimated Cardinality": "240485"
                                                                                 }
                                                                             },
                                                                             {
@@ -961,14 +961,14 @@ logical_opt [
                                                                                 "extra_info": {
                                                                                     "Filters": "($.i_category = \"Jewelry\")",
                                                                                     "Function": "Vortex Scan",
-                                                                                    "Estimated Cardinality": "360"
+                                                                                    "Estimated Cardinality": "400"
                                                                                 }
                                                                             }
                                                                         ],
                                                                         "extra_info": {
                                                                             "Join Type": "INNER",
                                                                             "Conditions": "(ss_item_sk = i_item_sk)",
-                                                                            "Estimated Cardinality": "57692"
+                                                                            "Estimated Cardinality": "48097"
                                                                         }
                                                                     },
                                                                     {
@@ -1003,7 +1003,7 @@ logical_opt [
                                                                 "extra_info": {
                                                                     "Join Type": "INNER",
                                                                     "Conditions": "(ss_customer_sk = c_customer_sk)",
-                                                                    "Estimated Cardinality": "11538"
+                                                                    "Estimated Cardinality": "9619"
                                                                 }
                                                             },
                                                             {
@@ -1019,14 +1019,14 @@ logical_opt [
                                                         "extra_info": {
                                                             "Join Type": "INNER",
                                                             "Conditions": "(ss_store_sk = s_store_sk)",
-                                                            "Estimated Cardinality": "11538"
+                                                            "Estimated Cardinality": "4809"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
                                                     "Join Type": "INNER",
                                                     "Conditions": "(d_date_sk = ss_sold_date_sk)",
-                                                    "Estimated Cardinality": "11538"
+                                                    "Estimated Cardinality": "4809"
                                                 }
                                             }
                                         ],
@@ -1090,9 +1090,9 @@ physical_plan [
                                                         "extra_info": {
                                                             "Function": "Vortex Scan",
                                                             "Filters": [
-                                                                "($.d_year = 1998i64)",
-                                                                "($.d_moy = 11i64)",
-                                                                "(2450816i64 <= $.d_date_sk <= 2452642i64)"
+                                                                "($.d_year = 1998i32)",
+                                                                "($.d_moy = 11i32)",
+                                                                "(2450816i32 <= $.d_date_sk <= 2452642i32)"
                                                             ],
                                                             "Projections": "d_date_sk",
                                                             "Estimated Cardinality": "14609"
@@ -1123,7 +1123,7 @@ physical_plan [
                                                                                                 "ss_promo_sk",
                                                                                                 "ss_ext_sales_price"
                                                                                             ],
-                                                                                            "Estimated Cardinality": "288464"
+                                                                                            "Estimated Cardinality": "240485"
                                                                                         }
                                                                                     },
                                                                                     {
@@ -1140,7 +1140,7 @@ physical_plan [
                                                                                 "extra_info": {
                                                                                     "Join Type": "INNER",
                                                                                     "Conditions": "ss_promo_sk = p_promo_sk",
-                                                                                    "Estimated Cardinality": "57692"
+                                                                                    "Estimated Cardinality": "48097"
                                                                                 }
                                                                             },
                                                                             {
@@ -1150,14 +1150,14 @@ physical_plan [
                                                                                     "Function": "Vortex Scan",
                                                                                     "Filters": "($.i_category = \"Jewelry\")",
                                                                                     "Projections": "i_item_sk",
-                                                                                    "Estimated Cardinality": "360"
+                                                                                    "Estimated Cardinality": "400"
                                                                                 }
                                                                             }
                                                                         ],
                                                                         "extra_info": {
                                                                             "Join Type": "INNER",
                                                                             "Conditions": "ss_item_sk = i_item_sk",
-                                                                            "Estimated Cardinality": "11538"
+                                                                            "Estimated Cardinality": "9619"
                                                                         }
                                                                     },
                                                                     {
@@ -1196,7 +1196,7 @@ physical_plan [
                                                                 "extra_info": {
                                                                     "Join Type": "INNER",
                                                                     "Conditions": "ss_customer_sk = c_customer_sk",
-                                                                    "Estimated Cardinality": "2307"
+                                                                    "Estimated Cardinality": "1923"
                                                                 }
                                                             },
                                                             {
@@ -1213,20 +1213,20 @@ physical_plan [
                                                         "extra_info": {
                                                             "Join Type": "INNER",
                                                             "Conditions": "ss_store_sk = s_store_sk",
-                                                            "Estimated Cardinality": "2307"
+                                                            "Estimated Cardinality": "961"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
                                                     "Join Type": "INNER",
                                                     "Conditions": "d_date_sk = ss_sold_date_sk",
-                                                    "Estimated Cardinality": "2307"
+                                                    "Estimated Cardinality": "961"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "Projections": "ss_ext_sales_price",
-                                            "Estimated Cardinality": "2307"
+                                            "Estimated Cardinality": "961"
                                         }
                                     }
                                 ],
@@ -1250,9 +1250,9 @@ physical_plan [
                                                         "extra_info": {
                                                             "Function": "Vortex Scan",
                                                             "Filters": [
-                                                                "($.d_year = 1998i64)",
-                                                                "($.d_moy = 11i64)",
-                                                                "(2450816i64 <= $.d_date_sk <= 2452642i64)"
+                                                                "($.d_year = 1998i32)",
+                                                                "($.d_moy = 11i32)",
+                                                                "(2450816i32 <= $.d_date_sk <= 2452642i32)"
                                                             ],
                                                             "Projections": "d_date_sk",
                                                             "Estimated Cardinality": "14609"
@@ -1279,7 +1279,7 @@ physical_plan [
                                                                                         "ss_store_sk",
                                                                                         "ss_ext_sales_price"
                                                                                     ],
-                                                                                    "Estimated Cardinality": "288464"
+                                                                                    "Estimated Cardinality": "240485"
                                                                                 }
                                                                             },
                                                                             {
@@ -1289,14 +1289,14 @@ physical_plan [
                                                                                     "Function": "Vortex Scan",
                                                                                     "Filters": "($.i_category = \"Jewelry\")",
                                                                                     "Projections": "i_item_sk",
-                                                                                    "Estimated Cardinality": "360"
+                                                                                    "Estimated Cardinality": "400"
                                                                                 }
                                                                             }
                                                                         ],
                                                                         "extra_info": {
                                                                             "Join Type": "INNER",
                                                                             "Conditions": "ss_item_sk = i_item_sk",
-                                                                            "Estimated Cardinality": "57692"
+                                                                            "Estimated Cardinality": "48097"
                                                                         }
                                                                     },
                                                                     {
@@ -1335,7 +1335,7 @@ physical_plan [
                                                                 "extra_info": {
                                                                     "Join Type": "INNER",
                                                                     "Conditions": "ss_customer_sk = c_customer_sk",
-                                                                    "Estimated Cardinality": "11538"
+                                                                    "Estimated Cardinality": "9619"
                                                                 }
                                                             },
                                                             {
@@ -1352,20 +1352,20 @@ physical_plan [
                                                         "extra_info": {
                                                             "Join Type": "INNER",
                                                             "Conditions": "ss_store_sk = s_store_sk",
-                                                            "Estimated Cardinality": "11538"
+                                                            "Estimated Cardinality": "4809"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
                                                     "Join Type": "INNER",
                                                     "Conditions": "d_date_sk = ss_sold_date_sk",
-                                                    "Estimated Cardinality": "11538"
+                                                    "Estimated Cardinality": "4809"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "Projections": "ss_ext_sales_price",
-                                            "Estimated Cardinality": "11538"
+                                            "Estimated Cardinality": "4809"
                                         }
                                     }
                                 ],

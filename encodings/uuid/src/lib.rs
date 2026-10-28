@@ -64,7 +64,6 @@ mod tests {
     use vortex_array::aggregate_fn::fns::min_max::MinMax;
     use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
     use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
-    use vortex_array::array_session;
     use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -81,7 +80,7 @@ mod tests {
     use super::*;
 
     fn uuid_session() -> VortexSession {
-        let session = array_session();
+        let session = VortexSession::empty();
         initialize(&session);
         session
     }

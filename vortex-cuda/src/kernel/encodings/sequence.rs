@@ -4,8 +4,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use cudarc::driver::DeviceRepr;
-use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
@@ -18,6 +16,8 @@ use vortex::dtype::PType;
 use vortex::encodings::sequence::Sequence;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex_cuda_driver::DeviceRepr;
+use vortex_cuda_driver::PushKernelArg;
 
 use crate::CudaDeviceBuffer;
 use crate::CudaExecutionCtx;
@@ -94,6 +94,8 @@ async fn execute_typed<T: NativePType + DeviceRepr>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use futures::executor::block_on;
     use rstest::rstest;
     use vortex::array::IntoArray;
@@ -107,12 +109,15 @@ mod tests {
     use vortex::encodings::sequence::Sequence;
     use vortex::error::VortexResult;
     use vortex::scalar::PValue;
+    use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
 
     use crate::CanonicalCudaExt;
     use crate::CudaSession;
     use crate::executor::CudaExecute;
     use crate::kernel::encodings::sequence::SequenceExecutor;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     #[case::u8(10u8, 2u8, 10)]
@@ -140,7 +145,7 @@ mod tests {
         len: usize,
         nullability: Nullability,
     ) {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session()).unwrap();
 
         let array = Sequence::try_new_typed(base, multiplier, nullability, len)
@@ -161,7 +166,7 @@ mod tests {
 
     #[crate::test]
     async fn test_sequence_arithmetic_ptype_differs_from_output() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session()).unwrap();
 
         let array = Sequence::try_new_typed(100i32, -10i32, Nullability::NonNullable, 5)?

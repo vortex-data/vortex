@@ -421,7 +421,7 @@ mod tests {
     use crate::bitpacking::compute::take::unpack_chunk_threshold;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });

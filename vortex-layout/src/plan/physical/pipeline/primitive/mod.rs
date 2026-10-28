@@ -30,7 +30,13 @@ impl PrimitiveRead {
         offset: usize,
         selection: Mask,
     ) -> Self {
-        Self { array_ctx, buffer_len, width, offset, selection }
+        Self {
+            array_ctx,
+            buffer_len,
+            width,
+            offset,
+            selection,
+        }
     }
 
     /// Builds sorted byte ranges covering the selected rows, or declines an expensive read.
@@ -39,7 +45,10 @@ impl PrimitiveRead {
     /// This walks only as far as needed to exceed 32 ranges or one eighth of the value buffer.
     pub fn ranges(&self) -> Option<Vec<Range<usize>>> {
         if self.width == 0
-            || self.offset.checked_add(self.selection.len())?.checked_mul(self.width)?
+            || self
+                .offset
+                .checked_add(self.selection.len())?
+                .checked_mul(self.width)?
                 > self.buffer_len
         {
             return None;

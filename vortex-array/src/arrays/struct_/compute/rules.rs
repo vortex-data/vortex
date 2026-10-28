@@ -151,7 +151,7 @@ mod tests {
     use crate::optimizer::kernels::KernelSession;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_struct_cast_field_reorder() {

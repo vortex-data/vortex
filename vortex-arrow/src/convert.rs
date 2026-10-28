@@ -733,7 +733,9 @@ pub fn from_arrow_dyn(array: &dyn ArrowArray, nullable: bool) -> VortexResult<Ar
             .into_array()),
             key_dt => vortex_bail!("Unsupported dictionary key type: {key_dt}"),
         },
-        dt => vortex_bail!("Array encoding not implemented for Arrow data type {dt}"),
+        dt => {
+            vortex_bail!("Array encoding not implemented for Arrow data type {dt}")
+        }
     }
 }
 
@@ -746,6 +748,7 @@ pub fn from_arrow_batch(batch: &RecordBatch, nullable: bool) -> VortexResult<Arr
 mod tests {
     use std::ops::Range;
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use arrow_array::Array as ArrowArray;
     use arrow_array::BinaryArray;
@@ -802,7 +805,6 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute as _;
-    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Decimal;
     use vortex_array::arrays::DecimalArray;
@@ -837,10 +839,13 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoVortexArray as _;
     use crate::convert::from_arrow_batch;
     use crate::convert::from_arrow_dyn;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     #[case::i8(
@@ -950,12 +955,12 @@ mod tests {
         assert_arrays_eq!(
             v_null,
             expected_nullable,
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
         assert_arrays_eq!(
             v_non_null,
             expected_non_nullable,
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -993,7 +998,7 @@ mod tests {
                 None,
                 Some(<Float16Type as ArrowPrimitiveType>::Native::from_f32(3.5))
             ]),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
         assert_arrays_eq!(
             vortex_array_non_null,
@@ -1001,7 +1006,7 @@ mod tests {
                 <Float16Type as ArrowPrimitiveType>::Native::from_f32(1.5),
                 <Float16Type as ArrowPrimitiveType>::Native::from_f32(2.5)
             ]),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -1047,12 +1052,12 @@ mod tests {
                 [Some(12345i128), None, Some(67890i128), Some(11111i128)],
                 DecimalDType::new(10, 2)
             ),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
         assert_arrays_eq!(
             vortex_array_non_null,
             DecimalArray::from_iter([12345i128, 67890i128, 11111i128], DecimalDType::new(10, 2)),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -1102,7 +1107,7 @@ mod tests {
                 ],
                 DecimalDType::new(38, 10)
             ),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
         assert_arrays_eq!(
             vortex_array_non_null,
@@ -1114,7 +1119,7 @@ mod tests {
                 ],
                 DecimalDType::new(38, 10)
             ),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -1243,15 +1248,11 @@ mod tests {
                 _ => unreachable!(),
             }
         };
-        assert_arrays_eq!(
-            v_null,
-            expected(true),
-            &mut array_session().create_execution_ctx()
-        );
+        assert_arrays_eq!(v_null, expected(true), &mut SESSION.create_execution_ctx());
         assert_arrays_eq!(
             v_non_null,
             expected(false),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -1298,7 +1299,7 @@ mod tests {
                 TimeUnit::Microseconds,
                 Some("UTC".into())
             ),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
         assert_arrays_eq!(
             vortex_array_non_null,
@@ -1307,7 +1308,7 @@ mod tests {
                 TimeUnit::Microseconds,
                 Some("UTC".into())
             ),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -1358,7 +1359,7 @@ mod tests {
                 [Some("hello"), None, Some("world"), Some("test")],
                 expected_non_nullable_dtype.as_nullable()
             ),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
         assert_arrays_eq!(
             v_non_null,
@@ -1366,7 +1367,7 @@ mod tests {
                 ["hello", "world", "test", "vortex"],
                 expected_non_nullable_dtype
             ),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -1414,7 +1415,7 @@ mod tests {
                 [Some("hello"), None, Some("world"), Some("test")],
                 DType::Utf8(Nullability::NonNullable).as_nullable()
             ),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
         assert_arrays_eq!(
             vortex_array_non_null,
@@ -1422,7 +1423,7 @@ mod tests {
                 ["hello", "world", "test", "vortex"],
                 DType::Utf8(Nullability::NonNullable)
             ),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -1470,7 +1471,7 @@ mod tests {
                 [Some("hello"), None, Some("world"), Some("test")],
                 DType::Binary(Nullability::NonNullable).as_nullable()
             ),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
         assert_arrays_eq!(
             vortex_array_non_null,
@@ -1478,7 +1479,7 @@ mod tests {
                 ["hello", "world", "test", "vortex"],
                 DType::Binary(Nullability::NonNullable)
             ),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -1496,12 +1497,12 @@ mod tests {
         assert_arrays_eq!(
             vortex_array,
             BoolArray::from_iter([Some(true), None, Some(false), Some(true)]),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
         assert_arrays_eq!(
             vortex_array_non_null,
             BoolArray::from_iter([true, false, true, false]),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -1570,19 +1571,19 @@ mod tests {
         assert_arrays_eq!(
             vortex_array,
             expected(Validity::NonNullable),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
         assert_arrays_eq!(
             vortex_nullable_array,
             expected(Validity::from_iter([true, false, true])),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
     // Test list array conversions
     #[test]
     fn test_list_array_conversion() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut builder = ListBuilder::new(Int32Builder::new());
         builder.append_value([Some(1), None, Some(3)]);
         builder.append_null();
@@ -1622,11 +1623,7 @@ mod tests {
             Validity::from_iter([true, false, true]),
             &mut ctx,
         );
-        assert_arrays_eq!(
-            vortex_array,
-            expected,
-            &mut array_session().create_execution_ctx()
-        );
+        assert_arrays_eq!(vortex_array, expected, &mut SESSION.create_execution_ctx());
         let expected = ListArray::new(
             expected_elements,
             buffer![0u32, 3, 5].into_array(),
@@ -1636,7 +1633,7 @@ mod tests {
         assert_arrays_eq!(
             vortex_array_non_null,
             expected,
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -1652,7 +1649,7 @@ mod tests {
             }
             builder.finish()
         };
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         // A slice keeps its parent's whole child; the import must not.
         let sliced = from_arrow_dyn(&strings(0..1000).slice(500, 2), false)?;
@@ -1682,7 +1679,7 @@ mod tests {
 
     #[test]
     fn test_large_list_array_conversion() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut builder = LargeListBuilder::new(Int32Builder::new());
         builder.append_value([Some(1), None, Some(3)]);
         builder.append_null();
@@ -1722,11 +1719,7 @@ mod tests {
             Validity::from_iter([true, false, true]),
             &mut ctx,
         );
-        assert_arrays_eq!(
-            vortex_array,
-            expected,
-            &mut array_session().create_execution_ctx()
-        );
+        assert_arrays_eq!(vortex_array, expected, &mut SESSION.create_execution_ctx());
         let expected = ListArray::new(
             expected_elements,
             buffer![0u32, 3, 5].into_array(),
@@ -1736,7 +1729,7 @@ mod tests {
         assert_arrays_eq!(
             vortex_array_non_null,
             expected,
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -1826,7 +1819,7 @@ mod tests {
                 Validity::NonNullable,
                 4
             ),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
         assert_arrays_eq!(
             vortex_array_nullable,
@@ -1847,13 +1840,13 @@ mod tests {
                 Validity::from_iter([true, false, true]),
                 3
             ),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
     #[test]
     fn test_list_view_array_conversion() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Create values array for the lists
         let values = Int32Array::from(vec![
             Some(1),
@@ -1948,17 +1941,17 @@ mod tests {
         assert_arrays_eq!(
             vortex_array,
             expected(Validity::NonNullable),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
         assert_arrays_eq!(
             vortex_array_nullable,
             expected(Validity::from_iter([true, false, true, true])),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
         assert_arrays_eq!(
             large_vortex_array,
             expected(Validity::NonNullable),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -1971,7 +1964,7 @@ mod tests {
         assert_arrays_eq!(
             vortex_array,
             VortexNullArray::new(5),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -1985,7 +1978,7 @@ mod tests {
         assert_arrays_eq!(
             vortex_array,
             buffer![1u8, 2, 3, 4, 5].into_array(),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -1998,7 +1991,7 @@ mod tests {
         assert_arrays_eq!(
             vortex_array,
             BoolArray::from_iter([true, false, true, false, true]),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -2011,7 +2004,7 @@ mod tests {
         assert_arrays_eq!(
             vortex_array,
             buffer![1i32, 2, 3, 4, 5].into_array(),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -2024,7 +2017,7 @@ mod tests {
         assert_arrays_eq!(
             vortex_array,
             buffer![0i32, 2, 5, 8, 10].into_array(),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -2055,11 +2048,7 @@ mod tests {
             4,
             Validity::NonNullable,
         );
-        assert_arrays_eq!(
-            vortex_array,
-            expected,
-            &mut array_session().create_execution_ctx()
-        );
+        assert_arrays_eq!(vortex_array, expected, &mut SESSION.create_execution_ctx());
 
         // Test with reference
         let schema = Arc::new(Schema::new(vec![
@@ -2086,11 +2075,7 @@ mod tests {
             4,
             Validity::NonNullable,
         );
-        assert_arrays_eq!(
-            vortex_array,
-            expected,
-            &mut array_session().create_execution_ctx()
-        );
+        assert_arrays_eq!(vortex_array, expected, &mut SESSION.create_execution_ctx());
     }
 
     // Test dynamic dispatch conversion
@@ -2102,7 +2087,7 @@ mod tests {
         assert_arrays_eq!(
             vortex_array,
             buffer![1i32, 2, 3, 4].into_array(),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
 
         let string_array = StringArray::from(vec!["a", "b", "c"]);
@@ -2111,7 +2096,7 @@ mod tests {
         assert_arrays_eq!(
             vortex_array,
             VarBinArray::from_iter_nonnull(["a", "b", "c"], DType::Utf8(Nullability::NonNullable)),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
 
         let bool_array = BooleanArray::from(vec![true, false, true]);
@@ -2120,7 +2105,7 @@ mod tests {
         assert_arrays_eq!(
             vortex_array,
             BoolArray::from_iter([true, false, true]),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -2145,7 +2130,7 @@ mod tests {
                 1,
                 Validity::AllInvalid
             ),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -2181,7 +2166,7 @@ mod tests {
                 1,
                 Validity::AllInvalid
             ),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -2224,7 +2209,7 @@ mod tests {
                 Scalar::primitive(1i32, Nullability::Nullable),
             )],
         )?;
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         for actual in [&direct, imported.as_::<Struct>().unmasked_field(0)] {
             assert_eq!(actual.len(), 2);
             assert_eq!(actual.execute_scalar(0, &mut ctx)?, row);

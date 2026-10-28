@@ -55,7 +55,7 @@ vortex-metrics = { workspace = true }
 custom-labels = { workspace = true }
 
 [features]
-io-uring = ["vortex/io-uring"]
+io-uring = ["vortex/io-uring", "vortex-datafusion/io-uring"]
 
 [lints]
 workspace = true

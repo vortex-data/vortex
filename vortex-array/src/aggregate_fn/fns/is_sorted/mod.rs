@@ -82,14 +82,15 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
         Stat::IsSorted
     };
 
+    // Arrays with 0 or 1 elements are (strict) sorted. Check this before the cached
+    // statistics so that a stale hint cannot contradict it.
+    if array.len() <= 1 {
+        return Ok(true);
+    }
+
     // Short-circuit using cached array statistics.
     if let Precision::Exact(value) = array.statistics().get_as::<bool>(stat) {
         return Ok(value);
-    }
-
-    // Arrays with 0 or 1 elements are (strict) sorted.
-    if array.len() <= 1 {
-        return Ok(true);
     }
 
     // Constant and null arrays are always sorted, but not strict sorted.
@@ -517,6 +518,7 @@ impl AggregateFnVTable for IsSorted {
 
                 // Check within-batch sortedness.
                 let batch_is_sorted = match c {
+                    _ if c.len() == 1 => true,
                     Canonical::Primitive(p) => check_primitive_sorted(p, args.options.strict, ctx)?,
                     Canonical::Bool(b) => check_bool_sorted(b, args.options.strict, ctx)?,
                     Canonical::VarBinView(v) => {
@@ -594,12 +596,16 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
+    use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
@@ -611,20 +617,45 @@ mod tests {
     use crate::aggregate_fn::fns::is_sorted::IsSortedPartial;
     use crate::aggregate_fn::fns::is_sorted::is_sorted;
     use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
-    use crate::array_session;
     use crate::arrays::BoolArray;
+    use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
+    use crate::arrays::DecimalArray;
+    use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::VarBinViewArray;
+    use crate::arrays::runend::RunEnd;
     use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::expr::stats::Precision;
+    use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[test]
+    fn singleton_ignores_stale_sortedness_stats() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = buffer![7i32].into_array();
+        array
+            .statistics()
+            .set(Stat::IsSorted, Precision::Exact(false.into()));
+        array
+            .statistics()
+            .set(Stat::IsStrictSorted, Precision::Exact(false.into()));
+
+        assert!(is_sorted(&array, &mut ctx)?);
+        assert!(is_strict_sorted(&array, &mut ctx)?);
+        Ok(())
+    }
 
     // Tests migrated from compute/is_sorted.rs
     #[test]
     fn test_is_sorted() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let arr = PrimitiveArray::new(buffer!(0, 1, 2, 3), Validity::AllValid).into_array();
         assert!(is_sorted(&arr, &mut ctx)?);
@@ -658,7 +689,7 @@ mod tests {
 
     #[test]
     fn test_is_strict_sorted() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let arr = PrimitiveArray::new(buffer!(0, 1, 2, 3), Validity::AllValid).into_array();
         assert!(is_strict_sorted(&arr, &mut ctx)?);
@@ -695,7 +726,7 @@ mod tests {
     #[case(PrimitiveArray::from_option_iter([None, None, Some(1i32), Some(1)]), true)]
     #[case(PrimitiveArray::from_option_iter([None, Some(5_u8), None]), false)]
     fn test_primitive_is_sorted(#[case] array: PrimitiveArray, #[case] expected: bool) {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(
             is_sorted(&array.into_array(), &mut ctx)
                 .vortex_expect("operation should succeed in test"),
@@ -710,7 +741,7 @@ mod tests {
     #[case(PrimitiveArray::from_option_iter([None, None, Some(1i32), Some(1), None]), false)]
     #[case(PrimitiveArray::from_option_iter([None, Some(5_u8), None]), false)]
     fn test_primitive_is_strict_sorted(#[case] array: PrimitiveArray, #[case] expected: bool) {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(
             is_strict_sorted(&array.into_array(), &mut ctx)
                 .vortex_expect("operation should succeed in test"),
@@ -721,10 +752,7 @@ mod tests {
     // Tests migrated from arrays/decimal/compute/is_sorted.rs
     #[test]
     fn test_decimal_is_sorted() -> VortexResult<()> {
-        use crate::arrays::DecimalArray;
-        use crate::dtype::DecimalDType;
-
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DecimalDType::new(19, 2);
         // "100.00" and "200.00" at scale 2.
         let i100 = 10_000i128;
@@ -744,10 +772,7 @@ mod tests {
 
     #[test]
     fn test_decimal_is_strict_sorted() -> VortexResult<()> {
-        use crate::arrays::DecimalArray;
-        use crate::dtype::DecimalDType;
-
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // "100.00", "200.00" and "300.00" at scale 2.
         let i100 = 10_000i128;
         let i200 = 20_000i128;
@@ -772,7 +797,7 @@ mod tests {
 
     #[test]
     fn empty_constant_leaves_partial_empty() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = ConstantArray::new(Scalar::from(99i32), 0).into_array();
         let options = IsSortedOptions { strict: false };
         let mut acc = Accumulator::try_new(IsSorted, options, array.dtype().clone())?;
@@ -787,7 +812,7 @@ mod tests {
     /// both the finalized result and the partial scalar.
     #[test]
     fn unsorted_merged_into_empty_keeps_verdict() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let options = IsSortedOptions { strict: false };
         let mut empty = Accumulator::try_new(IsSorted, options.clone(), dtype.clone())?;
@@ -829,6 +854,80 @@ mod tests {
             IsSorted.finalize_scalar(args, &parsed)?,
             Scalar::bool(false, Nullability::NonNullable)
         );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::primitive(PrimitiveArray::from_option_iter([None::<i32>]).into_array())]
+    #[case::bool(BoolArray::from_iter([None::<bool>]).into_array())]
+    #[case::decimal(
+        DecimalArray::new(buffer![0i128], DecimalDType::new(19, 2), Validity::AllInvalid).into_array()
+    )]
+    #[case::string(VarBinViewArray::from_iter_nullable_str([None::<&str>]).into_array())]
+    #[case::constant(ConstantArray::new(Scalar::null_native::<i32>(), 1).into_array())]
+    fn singleton_null_is_strict_sorted(#[case] array: ArrayRef) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dict = DictArray::try_new(buffer![0u32].into_array(), array.clone())?.into_array();
+        let runend =
+            RunEnd::try_new(buffer![1u32].into_array(), array.clone(), &mut ctx)?.into_array();
+
+        for array in [array, dict, runend] {
+            let mut acc = Accumulator::try_new(
+                IsSorted,
+                IsSortedOptions { strict: true },
+                array.dtype().clone(),
+            )?;
+            acc.accumulate(&array, &mut ctx)?;
+
+            assert_eq!(acc.finish()?, Scalar::bool(true, Nullability::NonNullable));
+            assert!(is_strict_sorted(&array, &mut ctx)?);
+        }
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::empty(vec![], true)]
+    #[case::null_then_valid(vec![None, Some(1)], true)]
+    #[case::valid_then_null(vec![Some(1), None], false)]
+    #[case::duplicate_nulls(vec![None, None], false)]
+    #[case::duplicate_values(vec![Some(1), Some(1)], false)]
+    #[case::increasing_values(vec![Some(1), Some(2)], true)]
+    fn strict_sorted_batch_boundaries(
+        #[case] values: Vec<Option<i32>>,
+        #[case] expected: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let flat = PrimitiveArray::from_option_iter(values.iter().copied()).into_array();
+        let chunks = values
+            .into_iter()
+            .map(|value| PrimitiveArray::from_option_iter([value]).into_array())
+            .collect::<Vec<_>>();
+        let mut split = Accumulator::try_new(
+            IsSorted,
+            IsSortedOptions { strict: true },
+            flat.dtype().clone(),
+        )?;
+        for chunk in &chunks {
+            split.accumulate(chunk, &mut ctx)?;
+        }
+
+        let expected_scalar = Scalar::bool(expected, Nullability::NonNullable);
+        assert_eq!(split.finish()?, expected_scalar);
+
+        let chunked = ChunkedArray::try_new(chunks, flat.dtype().clone())?.into_array();
+        for array in [flat, chunked] {
+            let mut acc = Accumulator::try_new(
+                IsSorted,
+                IsSortedOptions { strict: true },
+                array.dtype().clone(),
+            )?;
+            acc.accumulate(&array, &mut ctx)?;
+
+            assert_eq!(acc.finish()?, expected_scalar);
+            assert_eq!(is_strict_sorted(&array, &mut ctx)?, expected);
+        }
+
         Ok(())
     }
 }

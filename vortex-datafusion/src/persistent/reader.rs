@@ -11,11 +11,12 @@ use datafusion_datasource::PartitionedFile;
 use object_store::ObjectStore;
 use vortex::array::memory::MemorySessionExt;
 use vortex::io::VortexReadAt;
-use vortex::array::ArrayRef;
-use vortex::layout::scan::v2::ScanBuilder;
 use vortex::io::object_store::ObjectStoreReadAt;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::layout::scan::v2::ScanBuilder;
 use vortex::session::VortexSession;
+
+pub use crate::persistent::scan_v2::ScanDriver;
 
 /// Factory to create [`VortexReadAt`] instances for a `PartitionedFile`.
 ///
@@ -34,9 +35,14 @@ pub trait VortexReaderFactory: Debug + Send + Sync + 'static {
         &self,
         _file: &PartitionedFile,
         _session: &VortexSession,
-        scan: ScanBuilder<ArrayRef>,
-    ) -> DFResult<ScanBuilder<ArrayRef>> {
+        scan: ScanBuilder,
+    ) -> DFResult<ScanBuilder> {
         Ok(scan)
+    }
+
+    /// Configures where a V2 scan's compute and completion scopes are driven.
+    fn configure_v2_driver(&self, driver: ScanDriver) -> ScanDriver {
+        driver
     }
 
     /// Create a reader for a target object.

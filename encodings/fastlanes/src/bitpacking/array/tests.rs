@@ -41,7 +41,7 @@ use crate::FoR;
 use crate::bitpacking::bitpack_compress::bitpack_to_best_bit_width;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty();
     crate::initialize(&session);
     session
 });

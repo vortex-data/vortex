@@ -64,7 +64,7 @@ use crate::scheme::SchemeExt;
 use crate::stats::ArrayAndStats;
 use crate::stats::GenerateStatsOptions;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 fn compressor() -> CascadingCompressor {
     CascadingCompressor::new(vec![&IntDictScheme, &FloatDictScheme, &StringDictScheme])

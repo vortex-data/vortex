@@ -23,7 +23,10 @@ pub(super) struct MappedFile {
 
 impl MappedFile {
     pub(super) fn new(random_access: bool) -> Self {
-        Self { current: Mutex::new(None), random_access }
+        Self {
+            current: Mutex::new(None),
+            random_access,
+        }
     }
 
     pub(super) fn get(&self, file: &File, size: u64) -> VortexResult<Option<Arc<MappedRegion>>> {
@@ -66,13 +69,23 @@ pub(super) struct MappedRegion {
 impl Deref for MappedRegion {
     type Target = Mmap;
 
-    fn deref(&self) -> &Self::Target { &self.mapping }
+    fn deref(&self) -> &Self::Target {
+        &self.mapping
+    }
 }
 
 impl MappedRegion {
-    fn page_masks(&self, offset: usize, length: usize) -> Option<impl Iterator<Item = (usize, u64)>> {
-        let end = offset.checked_add(length).filter(|&end| end <= self.len())?;
-        if length == 0 { return None; }
+    fn page_masks(
+        &self,
+        offset: usize,
+        length: usize,
+    ) -> Option<impl Iterator<Item = (usize, u64)>> {
+        let end = offset
+            .checked_add(length)
+            .filter(|&end| end <= self.len())?;
+        if length == 0 {
+            return None;
+        }
         let page_size = rustix::param::page_size();
         let first = offset / page_size;
         let end = end.div_ceil(page_size);
@@ -89,7 +102,8 @@ impl MappedRegion {
         // history hint, not a residency cache: a hit still requires a fresh mincore check.
         let populated = self.populated.get_or_init(|| {
             (0..self.len().div_ceil(rustix::param::page_size()).div_ceil(64))
-                .map(|_| AtomicU64::new(0)).collect()
+                .map(|_| AtomicU64::new(0))
+                .collect()
         });
         self.page_masks(offset, length).is_some_and(|mut masks| {
             masks.all(|(word, mask)| populated[word].load(Ordering::Relaxed) & mask == mask)
@@ -97,7 +111,9 @@ impl MappedRegion {
     }
 
     pub(super) fn mark_populated(&self, offset: usize, length: usize) {
-        let Some(populated) = self.populated.get() else { return; };
+        let Some(populated) = self.populated.get() else {
+            return;
+        };
         // The kernel population operation rounds its last page beyond a partial file tail.
         let length = length.min(self.len().saturating_sub(offset));
         if let Some(masks) = self.page_masks(offset, length) {
@@ -123,10 +139,15 @@ pub(super) fn buffer(mapping: Arc<MappedRegion>) -> ByteBuffer {
 /// Checks current OS residency without faulting in missing pages or retaining their contents.
 /// Residency is a snapshot; pages can still be reclaimed before the caller uses the buffer.
 pub(super) fn is_resident(mapping: &Mmap, offset: usize, length: usize) -> bool {
-    let Some(end) = offset.checked_add(length).filter(|&end| end <= mapping.len()) else {
+    let Some(end) = offset
+        .checked_add(length)
+        .filter(|&end| end <= mapping.len())
+    else {
         return false;
     };
-    if length == 0 { return true; }
+    if length == 0 {
+        return true;
+    }
     let page_size = rustix::param::page_size();
     let mut start = offset - offset % page_size;
     let mut residency = [0u8; 1024];
@@ -136,8 +157,11 @@ pub(super) fn is_resident(mapping: &Mmap, offset: usize, length: usize) -> bool 
         // SAFETY: start is page-aligned and the nonempty range lies in this live mapping.
         // The output has one byte for each page, including a partial final page.
         let result = unsafe {
-            libc::mincore(mapping.as_ptr().add(start).cast_mut().cast(), length,
-                residency.as_mut_ptr())
+            libc::mincore(
+                mapping.as_ptr().add(start).cast_mut().cast(),
+                length,
+                residency.as_mut_ptr(),
+            )
         };
         if result != 0 || residency[..pages].iter().any(|&page| page & 1 == 0) {
             return false;

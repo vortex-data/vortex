@@ -122,7 +122,9 @@ pub(super) fn dynamic_filter_expr(
         DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_GREATERTHANOREQUALTO => {
             CompareOperator::Gte
         }
-        _ => vortex_bail!("unsupported dynamic filter operator {:?}", dynamic.operator),
+        _ => {
+            vortex_bail!("unsupported dynamic filter operator {:?}", dynamic.operator)
+        }
     };
     let data = dynamic.data;
 

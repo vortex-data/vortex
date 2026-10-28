@@ -51,7 +51,7 @@ pub struct Variant;
 #[derive(Clone, prost::Message)]
 struct VariantMetadataProto {
     #[prost(message, optional, tag = "1")]
-    pub shredded_dtype: Option<pb::DType>,
+    pub(crate) shredded_dtype: Option<pb::DType>,
 }
 
 impl VTable for Variant {

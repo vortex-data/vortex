@@ -9,6 +9,7 @@ mod bench_config;
 mod timed_launch_strategy;
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -19,14 +20,21 @@ use futures::executor::block_on;
 use mimalloc::MiMalloc;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
+use vortex::array::aggregate_fn::session::AggregateFnSession;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::dtype::session::DTypeSession;
 use vortex::array::match_each_integer_ptype;
+use vortex::array::memory::MemorySession;
+use vortex::array::optimizer::kernels::KernelSession;
+use vortex::array::scalar_fn::session::ScalarFnSession;
+use vortex::array::session::ArraySession;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::encodings::fsst::FSST;
 use vortex::encodings::fsst::FSSTArrayExt;
 use vortex::encodings::fsst::FSSTArraySlotsExt;
 use vortex::error::VortexExpect;
+use vortex::session::VortexSession;
 use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::VarBinExportLayout;
@@ -48,12 +56,31 @@ static GLOBAL: MiMalloc = MiMalloc;
 // other kernels benchmark.
 const BENCH_SIZES: &[(usize, &str)] = &[(10_000_000, "10M")];
 
-fn session_with_varbin_layout(layout: VarBinExportLayout) -> vortex::session::VortexSession {
-    vortex::array::array_session().with_some(
-        CudaSession::try_default()
-            .vortex_expect("failed to create CUDA session")
-            .with_varbin_export_layout(layout),
-    )
+fn session_with_varbin_layout(layout: VarBinExportLayout) -> VortexSession {
+    VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<DTypeSession>()
+        .with::<ScalarFnSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>()
+        .with_some(
+            CudaSession::try_default()
+                .vortex_expect("failed to create CUDA session")
+                .with_varbin_export_layout(layout),
+        )
+}
+
+static VARBIN_SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| session_with_varbin_layout(VarBinExportLayout::VarBin));
+static VARBINVIEW_SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| session_with_varbin_layout(VarBinExportLayout::VarBinView));
+
+fn session_for(layout: VarBinExportLayout) -> &'static VortexSession {
+    match layout {
+        VarBinExportLayout::VarBin => &VARBIN_SESSION,
+        VarBinExportLayout::VarBinView => &VARBINVIEW_SESSION,
+    }
 }
 
 struct FSSTBenchFixture {
@@ -157,8 +184,7 @@ fn benchmark_fsst_cuda_decompress(c: &mut Criterion) {
                     let timed = TimedLaunchStrategy::default();
                     let timer = timed.timer();
 
-                    let session = session_with_varbin_layout(layout);
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(&session)
+                    let mut cuda_ctx = CudaSession::create_execution_ctx(session_for(layout))
                         .vortex_expect("failed to create execution context")
                         .with_dispatch_mode(CudaDispatchMode::StandaloneOnly)
                         .with_launch_strategy(Arc::new(timed));
@@ -186,7 +212,12 @@ criterion::criterion_group! {
 }
 
 #[cuda_available]
-criterion::criterion_main!(benches);
+fn main() {
+    LazyLock::force(&VARBIN_SESSION);
+    LazyLock::force(&VARBINVIEW_SESSION);
+    benches();
+    Criterion::default().configure_from_args().final_summary();
+}
 
 #[cuda_not_available]
 fn main() {}

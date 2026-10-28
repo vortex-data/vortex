@@ -9,13 +9,14 @@ use vortex_array::EmptyMetadata;
 use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::BoundLabels;
 use vortex_array::expr::ExactBoundExpr;
-use vortex_array::expr::label_bound_tree;
 use vortex_array::scalar_fn::fns::dynamic::DynamicComparison;
 use vortex_array::scalar_fn::is_negative_cost;
 use vortex_error::VortexResult;
+use vortex_expr::BoundLabels;
+use vortex_expr::label_bound_tree;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::plan::physical::Eval;
@@ -34,8 +35,6 @@ use crate::plan::physical::operators::TakeSource;
 use crate::plan::physical::optimizer::PlanParentReduceRule;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
-use crate::plan::physical::pipeline::Reach;
-use crate::segments::SegmentId;
 
 const CODES: usize = 0;
 const VALUES: usize = 1;
@@ -182,18 +181,6 @@ impl PlanVTable for Take {
             source,
         )))
     }
-
-    fn reach(
-        plan: &Plan<Self>,
-        rows: Range<u64>,
-        at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
-    ) -> VortexResult<()> {
-        let values = plan.values()?;
-        let len = values.row_count();
-        values.reach(0..len, &at.fixed(&rows), visit)?;
-        plan.codes()?.reach(rows, at, visit)
-    }
 }
 
 /// Pushes an expression, or the part of it that reads the values, onto the dictionary values of
@@ -278,6 +265,7 @@ impl PlanParentReduceRule<Take> for ExpressionTakeRule {
         child: &Plan<Take>,
         parent: &Plan<Eval>,
         _child_idx: usize,
+        _session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
         let expression = parent.expression();
         // A dynamic comparison stays above the take: evaluated per batch it reads the latest

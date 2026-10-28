@@ -239,6 +239,8 @@ pub(crate) fn default_bounded_stat_max_bytes() -> std::num::NonZeroUsize {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
     use vortex_array::aggregate_fn::fns::max::Max;
@@ -252,16 +254,17 @@ mod tests {
 
     use super::*;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn unknown_aggregate_errors_without_allow_unknown() {
-        let session = vortex_array::array_session();
         let specs = [AggregateSpecProto::new_unknown("vortex.test.unknown")];
-        assert!(try_aggregate_fns_from_specs(&specs, &session).is_err());
+        assert!(try_aggregate_fns_from_specs(&specs, &SESSION).is_err());
     }
 
     #[test]
     fn unknown_aggregate_is_none_with_allow_unknown() -> VortexResult<()> {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         session.allow_unknown();
         let specs = [AggregateSpecProto::new_unknown("vortex.test.unknown")];
         assert!(try_aggregate_fns_from_specs(&specs, &session)?.is_none());

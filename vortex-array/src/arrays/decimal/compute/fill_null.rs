@@ -86,12 +86,14 @@ fn fill_buffer<T: NativeDecimalType>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::DecimalArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
@@ -102,9 +104,11 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn fill_null_leading_none() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(19, 2);
         let arr = DecimalArray::from_option_iter(
             [None, Some(800i128), None, Some(1000i128), None],
@@ -133,10 +137,7 @@ mod tests {
             p.as_ref()
                 .validity()
                 .unwrap()
-                .execute_mask(
-                    p.as_ref().len(),
-                    &mut array_session().create_execution_ctx()
-                )
+                .execute_mask(p.as_ref().len(), &mut SESSION.create_execution_ctx())
                 .unwrap()
                 .all_true()
         );
@@ -144,7 +145,7 @@ mod tests {
 
     #[test]
     fn fill_null_all_none() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(19, 2);
 
         let arr = DecimalArray::from_option_iter(
@@ -172,7 +173,7 @@ mod tests {
     #[case(DecimalValue::I16(200), DecimalType::I16)]
     #[case(DecimalValue::I128(200), DecimalType::I128)]
     fn fill_null_overflow_upcasts(#[case] fill: DecimalValue, #[case] expected_type: DecimalType) {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(3, 0);
         let arr = DecimalArray::from_option_iter([None, Some(10i8), None], decimal_dtype);
         // i8 max is 127, so 200 requires widening to the fill value's storage type.
@@ -196,7 +197,7 @@ mod tests {
 
     #[test]
     fn fill_null_non_nullable() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(19, 2);
 
         let arr = DecimalArray::new(

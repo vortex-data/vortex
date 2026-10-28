@@ -247,6 +247,8 @@ impl BtrBlocksCompressorBuilder {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::ArrayId;
     use vortex_array::VTable;
@@ -256,12 +258,16 @@ mod tests {
     use vortex_decimal_byte_parts::decimal_byte_parts_v1_id;
     use vortex_fastlanes::bitpacked_v1_id;
     use vortex_fastlanes::bitpacked_v2_id;
+    use vortex_fastlanes::for_v1_id;
     use vortex_fsst::FSST;
 
     use super::*;
     use crate::CompressionSession;
     use crate::schemes::decimal::DECIMAL_V1;
     use crate::schemes::decimal::DECIMAL_V2;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<CompressionSession>());
 
     #[rstest]
     #[case::fsst_missing_codes(&string::FSSTScheme, vec![FSST.id()], false)]
@@ -283,6 +289,12 @@ mod tests {
         vec![bitpacked_v2_id(), Patched.id()],
         false
     )]
+    #[case::for_without_bitpacked(&integer::FOR_V1, vec![for_v1_id()], false)]
+    #[case::for_with_bitpacked(
+        &integer::FOR_V1,
+        vec![for_v1_id(), bitpacked_v1_id(), Patched.id()],
+        true
+    )]
     fn test_allowed_schemes(
         #[case] scheme: &'static dyn Scheme,
         #[case] allowed: Vec<ArrayId>,
@@ -296,8 +308,7 @@ mod tests {
 
     #[test]
     fn delta_is_excluded_only_by_cuda() {
-        let session = VortexSession::empty().with::<CompressionSession>();
-        let builder = BtrBlocksCompressorBuilder::from_session(&session).unrestricted();
+        let builder = BtrBlocksCompressorBuilder::from_session(&SESSION).unrestricted();
         let has_delta = |builder: BtrBlocksCompressorBuilder| {
             builder
                 .allowed_schemes()

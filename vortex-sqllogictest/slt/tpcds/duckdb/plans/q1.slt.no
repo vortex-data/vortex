@@ -134,7 +134,7 @@ logical_plan [
                                 "extra_info": {
                                     "Expressions": [
                                         "(sr_returned_date_sk = d_date_sk)",
-                                        "(d_year = CAST(2000 AS BIGINT))"
+                                        "(d_year = CAST(2000 AS INTEGER))"
                                     ]
                                 }
                             }
@@ -226,7 +226,7 @@ logical_plan [
                                                                                 "s_zip",
                                                                                 "s_country",
                                                                                 "s_gmt_offset",
-                                                                                "s_tax_percentage"
+                                                                                "s_tax_precentage"
                                                                             ]
                                                                         }
                                                                     }
@@ -369,7 +369,7 @@ logical_opt [
                                                         "extra_info": {
                                                             "Filters": "",
                                                             "Function": "Vortex Scan",
-                                                            "Estimated Cardinality": "28576"
+                                                            "Estimated Cardinality": "23925"
                                                         }
                                                     },
                                                     {
@@ -377,8 +377,8 @@ logical_opt [
                                                         "children": [],
                                                         "extra_info": {
                                                             "Filters": [
-                                                                "($.d_year = 2000i64)",
-                                                                "(2450821i64 <= $.d_date_sk <= 2452820i64)"
+                                                                "($.d_year = 2000i32)",
+                                                                "(2450822i32 <= $.d_date_sk <= 2452817i32)"
                                                             ],
                                                             "Function": "Vortex Scan",
                                                             "Estimated Cardinality": "14609"
@@ -388,7 +388,7 @@ logical_opt [
                                                 "extra_info": {
                                                     "Join Type": "INNER",
                                                     "Conditions": "(sr_returned_date_sk = d_date_sk)",
-                                                    "Estimated Cardinality": "28576"
+                                                    "Estimated Cardinality": "23925"
                                                 }
                                             }
                                         ],
@@ -399,7 +399,7 @@ logical_opt [
                                                 "#2",
                                                 "#3"
                                             ],
-                                            "Estimated Cardinality": "28576"
+                                            "Estimated Cardinality": "23925"
                                         }
                                     }
                                 ],
@@ -409,17 +409,17 @@ logical_opt [
                                         "sr_store_sk"
                                     ],
                                     "Expressions": "sum(sr_return_amt)",
-                                    "Estimated Cardinality": "9030"
+                                    "Estimated Cardinality": "13606"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Expressions": [
-                                "CAST(#0 AS BIGINT)",
-                                "CAST(#1 AS BIGINT)",
+                                "CAST(#0 AS INTEGER)",
+                                "CAST(#1 AS INTEGER)",
                                 "#2"
                             ],
-                            "Estimated Cardinality": "9030"
+                            "Estimated Cardinality": "13606"
                         }
                     }
                 ],
@@ -429,7 +429,7 @@ logical_opt [
                         "ctr_store_sk",
                         "ctr_total_return"
                     ],
-                    "Estimated Cardinality": "9030"
+                    "Estimated Cardinality": "13606"
                 }
             },
             {
@@ -470,7 +470,7 @@ logical_opt [
                                                                                 "children": [],
                                                                                 "extra_info": {
                                                                                     "CTE Index": "0",
-                                                                                    "Estimated Cardinality": "9030"
+                                                                                    "Estimated Cardinality": "13606"
                                                                                 }
                                                                             },
                                                                             {
@@ -486,14 +486,14 @@ logical_opt [
                                                                         "extra_info": {
                                                                             "Join Type": "INNER",
                                                                             "Conditions": "(ctr_store_sk = s_store_sk)",
-                                                                            "Estimated Cardinality": "9030"
+                                                                            "Estimated Cardinality": "6803"
                                                                         }
                                                                     }
                                                                 ],
                                                                 "extra_info": {
                                                                     "Join Type": "INNER",
                                                                     "Conditions": "(c_customer_sk = ctr_customer_sk)",
-                                                                    "Estimated Cardinality": "9030"
+                                                                    "Estimated Cardinality": "6803"
                                                                 }
                                                             }
                                                         ],
@@ -503,7 +503,7 @@ logical_opt [
                                                                 "#2",
                                                                 "#0"
                                                             ],
-                                                            "Estimated Cardinality": "9030"
+                                                            "Estimated Cardinality": "6803"
                                                         }
                                                     }
                                                 ],
@@ -513,7 +513,7 @@ logical_opt [
                                                         "#1",
                                                         "#2"
                                                     ],
-                                                    "Estimated Cardinality": "9030"
+                                                    "Estimated Cardinality": "6803"
                                                 }
                                             },
                                             {
@@ -530,7 +530,7 @@ logical_opt [
                                                                         "children": [],
                                                                         "extra_info": {
                                                                             "CTE Index": "53",
-                                                                            "Estimated Cardinality": "9030"
+                                                                            "Estimated Cardinality": "6803"
                                                                         }
                                                                     },
                                                                     {
@@ -547,7 +547,7 @@ logical_opt [
                                                                                                 "children": [],
                                                                                                 "extra_info": {
                                                                                                     "CTE Index": "0",
-                                                                                                    "Estimated Cardinality": "9030"
+                                                                                                    "Estimated Cardinality": "13606"
                                                                                                 }
                                                                                             },
                                                                                             {
@@ -561,34 +561,34 @@ logical_opt [
                                                                                                                 "children": [],
                                                                                                                 "extra_info": {
                                                                                                                     "CTE Index": "53",
-                                                                                                                    "Estimated Cardinality": "9030"
+                                                                                                                    "Estimated Cardinality": "6803"
                                                                                                                 }
                                                                                                             }
                                                                                                         ],
                                                                                                         "extra_info": {
                                                                                                             "Groups": "#[21.1]",
                                                                                                             "Expressions": "",
-                                                                                                            "Estimated Cardinality": "4515"
+                                                                                                            "Estimated Cardinality": "3401"
                                                                                                         }
                                                                                                     }
                                                                                                 ],
                                                                                                 "extra_info": {
                                                                                                     "Expressions": "#0",
-                                                                                                    "Estimated Cardinality": "4515"
+                                                                                                    "Estimated Cardinality": "3401"
                                                                                                 }
                                                                                             }
                                                                                         ],
                                                                                         "extra_info": {
                                                                                             "Join Type": "SEMI",
                                                                                             "Conditions": "(ctr_store_sk = ctr_store_sk)",
-                                                                                            "Estimated Cardinality": "1806"
+                                                                                            "Estimated Cardinality": "2721"
                                                                                         }
                                                                                     }
                                                                                 ],
                                                                                 "extra_info": {
                                                                                     "Groups": "ctr_store_sk",
                                                                                     "Expressions": "avg(ctr_total_return)",
-                                                                                    "Estimated Cardinality": "903"
+                                                                                    "Estimated Cardinality": "1360"
                                                                                 }
                                                                             }
                                                                         ],
@@ -597,7 +597,7 @@ logical_opt [
                                                                                 "(avg(ctr_total_return) * 1.2)",
                                                                                 "ctr_store_sk"
                                                                             ],
-                                                                            "Estimated Cardinality": "903"
+                                                                            "Estimated Cardinality": "1360"
                                                                         }
                                                                     }
                                                                 ],
@@ -607,32 +607,32 @@ logical_opt [
                                                                         "(ctr_store_sk IS NOT DISTINCT FROM ctr_store_sk)",
                                                                         "(CAST(ctr_total_return AS DOUBLE) > SUBQUERY)"
                                                                     ],
-                                                                    "Estimated Cardinality": "9030"
+                                                                    "Estimated Cardinality": "6803"
                                                                 }
                                                             }
                                                         ],
                                                         "extra_info": {
                                                             "Expressions": "#0",
-                                                            "Estimated Cardinality": "9030"
+                                                            "Estimated Cardinality": "6803"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
                                                     "Expressions": "#0",
-                                                    "Estimated Cardinality": "9030"
+                                                    "Estimated Cardinality": "6803"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "CTE Name": "__duckdb_delim_53",
                                             "Table Index": "53",
-                                            "Estimated Cardinality": "9030"
+                                            "Estimated Cardinality": "6803"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Expressions": "c_customer_id",
-                                    "Estimated Cardinality": "9030"
+                                    "Estimated Cardinality": "6803"
                                 }
                             }
                         ],
@@ -685,7 +685,7 @@ physical_plan [
                                                                 "sr_store_sk",
                                                                 "sr_return_amt"
                                                             ],
-                                                            "Estimated Cardinality": "28576"
+                                                            "Estimated Cardinality": "23925"
                                                         }
                                                     },
                                                     {
@@ -694,8 +694,8 @@ physical_plan [
                                                         "extra_info": {
                                                             "Function": "Vortex Scan",
                                                             "Filters": [
-                                                                "($.d_year = 2000i64)",
-                                                                "(2450821i64 <= $.d_date_sk <= 2452820i64)"
+                                                                "($.d_year = 2000i32)",
+                                                                "(2450822i32 <= $.d_date_sk <= 2452817i32)"
                                                             ],
                                                             "Projections": "d_date_sk",
                                                             "Estimated Cardinality": "14609"
@@ -705,7 +705,7 @@ physical_plan [
                                                 "extra_info": {
                                                     "Join Type": "INNER",
                                                     "Conditions": "sr_returned_date_sk = d_date_sk",
-                                                    "Estimated Cardinality": "28576"
+                                                    "Estimated Cardinality": "23925"
                                                 }
                                             }
                                         ],
@@ -716,7 +716,7 @@ physical_plan [
                                                 "#2",
                                                 "#3"
                                             ],
-                                            "Estimated Cardinality": "28576"
+                                            "Estimated Cardinality": "23925"
                                         }
                                     }
                                 ],
@@ -726,7 +726,7 @@ physical_plan [
                                         "sr_store_sk",
                                         "sr_return_amt"
                                     ],
-                                    "Estimated Cardinality": "28576"
+                                    "Estimated Cardinality": "23925"
                                 }
                             }
                         ],
@@ -736,17 +736,17 @@ physical_plan [
                                 "#1"
                             ],
                             "Aggregates": "sum(#2)",
-                            "Estimated Cardinality": "9030"
+                            "Estimated Cardinality": "13606"
                         }
                     }
                 ],
                 "extra_info": {
                     "Projections": [
-                        "CAST(#0 AS BIGINT)",
-                        "CAST(#1 AS BIGINT)",
+                        "CAST(#0 AS INTEGER)",
+                        "CAST(#1 AS INTEGER)",
                         "#2"
                     ],
-                    "Estimated Cardinality": "9030"
+                    "Estimated Cardinality": "13606"
                 }
             },
             {
@@ -781,7 +781,7 @@ physical_plan [
                                                         "children": [],
                                                         "extra_info": {
                                                             "CTE Index": "0",
-                                                            "Estimated Cardinality": "9030"
+                                                            "Estimated Cardinality": "13606"
                                                         }
                                                     },
                                                     {
@@ -798,14 +798,14 @@ physical_plan [
                                                 "extra_info": {
                                                     "Join Type": "INNER",
                                                     "Conditions": "ctr_store_sk = s_store_sk",
-                                                    "Estimated Cardinality": "9030"
+                                                    "Estimated Cardinality": "6803"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "Join Type": "INNER",
                                             "Conditions": "c_customer_sk = ctr_customer_sk",
-                                            "Estimated Cardinality": "9030"
+                                            "Estimated Cardinality": "6803"
                                         }
                                     }
                                 ],
@@ -815,7 +815,7 @@ physical_plan [
                                         "#2",
                                         "#0"
                                     ],
-                                    "Estimated Cardinality": "9030"
+                                    "Estimated Cardinality": "6803"
                                 }
                             },
                             {
@@ -829,7 +829,7 @@ physical_plan [
                                                 "children": [],
                                                 "extra_info": {
                                                     "CTE Index": "53",
-                                                    "Estimated Cardinality": "9030"
+                                                    "Estimated Cardinality": "6803"
                                                 }
                                             },
                                             {
@@ -849,7 +849,7 @@ physical_plan [
                                                                                 "children": [],
                                                                                 "extra_info": {
                                                                                     "CTE Index": "0",
-                                                                                    "Estimated Cardinality": "9030"
+                                                                                    "Estimated Cardinality": "13606"
                                                                                 }
                                                                             },
                                                                             {
@@ -863,27 +863,27 @@ physical_plan [
                                                                                                 "children": [],
                                                                                                 "extra_info": {
                                                                                                     "CTE Index": "53",
-                                                                                                    "Estimated Cardinality": "9030"
+                                                                                                    "Estimated Cardinality": "6803"
                                                                                                 }
                                                                                             }
                                                                                         ],
                                                                                         "extra_info": {
                                                                                             "Projections": "#[21.1]",
-                                                                                            "Estimated Cardinality": "9030"
+                                                                                            "Estimated Cardinality": "6803"
                                                                                         }
                                                                                     }
                                                                                 ],
                                                                                 "extra_info": {
                                                                                     "Groups": "#0",
                                                                                     "Aggregates": "",
-                                                                                    "Estimated Cardinality": "4515"
+                                                                                    "Estimated Cardinality": "3401"
                                                                                 }
                                                                             }
                                                                         ],
                                                                         "extra_info": {
                                                                             "Join Type": "SEMI",
                                                                             "Conditions": "ctr_store_sk = ctr_store_sk",
-                                                                            "Estimated Cardinality": "1806"
+                                                                            "Estimated Cardinality": "2721"
                                                                         }
                                                                     }
                                                                 ],
@@ -892,14 +892,14 @@ physical_plan [
                                                                         "ctr_store_sk",
                                                                         "ctr_total_return"
                                                                     ],
-                                                                    "Estimated Cardinality": "1806"
+                                                                    "Estimated Cardinality": "2721"
                                                                 }
                                                             }
                                                         ],
                                                         "extra_info": {
                                                             "Groups": "#0",
                                                             "Aggregates": "avg(#1)",
-                                                            "Estimated Cardinality": "903"
+                                                            "Estimated Cardinality": "1360"
                                                         }
                                                     }
                                                 ],
@@ -908,7 +908,7 @@ physical_plan [
                                                         "(avg(ctr_total_return) * 1.2)",
                                                         "ctr_store_sk"
                                                     ],
-                                                    "Estimated Cardinality": "903"
+                                                    "Estimated Cardinality": "1360"
                                                 }
                                             }
                                         ],
@@ -918,13 +918,13 @@ physical_plan [
                                                 "ctr_store_sk IS NOT DISTINCT FROM ctr_store_sk",
                                                 "CAST(ctr_total_return AS DOUBLE) > SUBQUERY"
                                             ],
-                                            "Estimated Cardinality": "9030"
+                                            "Estimated Cardinality": "6803"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Projections": "#0",
-                                    "Estimated Cardinality": "9030"
+                                    "Estimated Cardinality": "6803"
                                 }
                             }
                         ],
@@ -932,7 +932,7 @@ physical_plan [
                             "CTE Name": "__duckdb_delim_53",
                             "Table Index": "53",
                             "Execution Mode": "PIPELINE_DEPENDENT",
-                            "Estimated Cardinality": "9030"
+                            "Estimated Cardinality": "6803"
                         }
                     }
                 ],

@@ -228,9 +228,9 @@ logical_opt [
                                                         "name": "READ_VORTEX",
                                                         "children": [],
                                                         "extra_info": {
-                                                            "Filters": "",
+                                                            "Filters": "($.ss_ticket_number <= 19998i64)",
                                                             "Function": "Vortex Scan",
-                                                            "Estimated Cardinality": "288464"
+                                                            "Estimated Cardinality": "240485"
                                                         }
                                                     },
                                                     {
@@ -242,7 +242,7 @@ logical_opt [
                                                                 "extra_info": {
                                                                     "Filters": "",
                                                                     "Function": "Vortex Scan",
-                                                                    "Estimated Cardinality": "28576"
+                                                                    "Estimated Cardinality": "23925"
                                                                 }
                                                             },
                                                             {
@@ -251,14 +251,14 @@ logical_opt [
                                                                 "extra_info": {
                                                                     "Filters": "($.r_reason_desc = \"reason 28\")",
                                                                     "Function": "Vortex Scan",
-                                                                    "Estimated Cardinality": "1"
+                                                                    "Estimated Cardinality": "15"
                                                                 }
                                                             }
                                                         ],
                                                         "extra_info": {
                                                             "Join Type": "INNER",
                                                             "Conditions": "(sr_reason_sk = r_reason_sk)",
-                                                            "Estimated Cardinality": "9525"
+                                                            "Estimated Cardinality": "4785"
                                                         }
                                                     }
                                                 ],
@@ -268,7 +268,7 @@ logical_opt [
                                                         "(ss_item_sk = sr_item_sk)",
                                                         "(ss_ticket_number = sr_ticket_number)"
                                                     ],
-                                                    "Estimated Cardinality": "96154"
+                                                    "Estimated Cardinality": "48097"
                                                 }
                                             }
                                         ],
@@ -279,23 +279,23 @@ logical_opt [
                                                 "#2",
                                                 "#3"
                                             ],
-                                            "Estimated Cardinality": "96154"
+                                            "Estimated Cardinality": "48097"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Groups": "ss_customer_sk",
-                                    "Expressions": "sum(CASE  WHEN ((sr_return_quantity IS NOT NULL)) THEN ((CAST((ss_quantity - sr_return_quantity) AS DECIMAL(26,0)) * CAST(ss_sales_price AS DECIMAL(26,2)))) ELSE (CAST(ss_quantity AS DECIMAL(26,0)) * CAST(ss_sales_price AS DECIMAL(26,2))) END)",
-                                    "Estimated Cardinality": "9999"
+                                    "Expressions": "sum(CASE  WHEN ((sr_return_quantity IS NOT NULL)) THEN ((CAST((ss_quantity - sr_return_quantity) AS DECIMAL(17,0)) * CAST(ss_sales_price AS DECIMAL(17,2)))) ELSE (CAST(ss_quantity AS DECIMAL(17,0)) * CAST(ss_sales_price AS DECIMAL(17,2))) END)",
+                                    "Estimated Cardinality": "9918"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Expressions": [
-                                "CAST(#0 AS BIGINT)",
+                                "CAST(#0 AS INTEGER)",
                                 "#1"
                             ],
-                            "Estimated Cardinality": "9999"
+                            "Estimated Cardinality": "9918"
                         }
                     }
                 ],
@@ -304,7 +304,7 @@ logical_opt [
                         "ss_customer_sk",
                         "sumsales"
                     ],
-                    "Estimated Cardinality": "9999"
+                    "Estimated Cardinality": "9918"
                 }
             }
         ],
@@ -338,6 +338,7 @@ physical_plan [
                                                         "children": [],
                                                         "extra_info": {
                                                             "Function": "Vortex Scan",
+                                                            "Filters": "($.ss_ticket_number <= 19998i64)",
                                                             "Projections": [
                                                                 "ss_item_sk",
                                                                 "ss_customer_sk",
@@ -345,7 +346,7 @@ physical_plan [
                                                                 "ss_quantity",
                                                                 "ss_sales_price"
                                                             ],
-                                                            "Estimated Cardinality": "288464"
+                                                            "Estimated Cardinality": "240485"
                                                         }
                                                     },
                                                     {
@@ -362,7 +363,7 @@ physical_plan [
                                                                         "sr_ticket_number",
                                                                         "sr_return_quantity"
                                                                     ],
-                                                                    "Estimated Cardinality": "28576"
+                                                                    "Estimated Cardinality": "23925"
                                                                 }
                                                             },
                                                             {
@@ -372,14 +373,14 @@ physical_plan [
                                                                     "Function": "Vortex Scan",
                                                                     "Filters": "($.r_reason_desc = \"reason 28\")",
                                                                     "Projections": "r_reason_sk",
-                                                                    "Estimated Cardinality": "1"
+                                                                    "Estimated Cardinality": "15"
                                                                 }
                                                             }
                                                         ],
                                                         "extra_info": {
                                                             "Join Type": "INNER",
                                                             "Conditions": "sr_reason_sk = r_reason_sk",
-                                                            "Estimated Cardinality": "9525"
+                                                            "Estimated Cardinality": "4785"
                                                         }
                                                     }
                                                 ],
@@ -389,7 +390,7 @@ physical_plan [
                                                         "ss_item_sk = sr_item_sk",
                                                         "ss_ticket_number = sr_ticket_number"
                                                     ],
-                                                    "Estimated Cardinality": "96154"
+                                                    "Estimated Cardinality": "48097"
                                                 }
                                             }
                                         ],
@@ -400,7 +401,7 @@ physical_plan [
                                                 "#2",
                                                 "#3"
                                             ],
-                                            "Estimated Cardinality": "96154"
+                                            "Estimated Cardinality": "48097"
                                         }
                                     }
                                 ],
@@ -409,23 +410,23 @@ physical_plan [
                                         "ss_customer_sk",
                                         "act_sales"
                                     ],
-                                    "Estimated Cardinality": "96154"
+                                    "Estimated Cardinality": "48097"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Groups": "#0",
                             "Aggregates": "sum(#1)",
-                            "Estimated Cardinality": "9999"
+                            "Estimated Cardinality": "9918"
                         }
                     }
                 ],
                 "extra_info": {
                     "Projections": [
-                        "CAST(#0 AS BIGINT)",
+                        "CAST(#0 AS INTEGER)",
                         "#1"
                     ],
-                    "Estimated Cardinality": "9999"
+                    "Estimated Cardinality": "9918"
                 }
             }
         ],

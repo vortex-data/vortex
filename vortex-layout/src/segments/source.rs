@@ -32,7 +32,10 @@ pub trait SegmentSource: 'static + Send + Sync {
         let read = self.request(id);
         async move {
             let bytes = read.await?;
-            vortex_ensure!(range.start <= range.end && range.end <= bytes.len(), "Segment range out of bounds");
+            vortex_ensure!(
+                range.start <= range.end && range.end <= bytes.len(),
+                "Segment range out of bounds"
+            );
             Ok(bytes.slice(range))
         }
         .boxed()

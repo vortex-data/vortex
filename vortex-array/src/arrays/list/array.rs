@@ -81,6 +81,7 @@ pub struct ListSlots {
 /// use vortex_array::arrays::{ListArray, PrimitiveArray};
 /// use vortex_array::arrays::list::ListArrayExt;
 /// use vortex_array::validity::Validity;
+/// use vortex_session::VortexSession;
 /// use vortex_array::{IntoArray, VortexSessionExecute};
 /// use vortex_buffer::buffer;
 /// use std::sync::Arc;
@@ -89,7 +90,7 @@ pub struct ListSlots {
 /// let elements = buffer![1i32, 2, 3, 4, 5].into_array();
 /// let offsets = buffer![0u32, 2, 5, 5].into_array(); // 3 lists
 ///
-/// let mut ctx = vortex_array::array_session().create_execution_ctx();
+/// let mut ctx = VortexSession::empty().create_execution_ctx();
 /// let list_array = ListArray::try_new(
 ///     elements.into_array(),
 ///     offsets.into_array(),
@@ -204,13 +205,13 @@ impl ListData {
         // Offsets must have at least one element
         vortex_ensure!(
             !offsets.is_empty(),
-            InvalidArgument: "Offsets must have at least one element, [0] for an empty list"
+            "Offsets must have at least one element, [0] for an empty list"
         );
 
         // Offsets must be of integer type, and cannot go lower than 0.
         vortex_ensure!(
             offsets.dtype().is_int() && !offsets.dtype().is_nullable(),
-            InvalidArgument: "offsets have invalid type {}",
+            "offsets have invalid type {}",
             offsets.dtype()
         );
 
@@ -219,9 +220,9 @@ impl ListData {
 
         // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed)
         if let Some(is_sorted) = offsets.statistics().compute_is_sorted(ctx) {
-            vortex_ensure!(is_sorted, InvalidArgument: "offsets must be sorted");
+            vortex_ensure!(is_sorted, "offsets must be sorted");
         } else {
-            vortex_bail!(InvalidArgument: "offsets must report is_sorted statistic");
+            vortex_bail!("offsets must report is_sorted statistic");
         }
 
         // Validate that offsets min is non-negative, and max does not exceed the length of
@@ -243,7 +244,7 @@ impl ListData {
 
                     vortex_ensure!(
                         min >= 0,
-                        InvalidArgument: "offsets minimum {min} outside valid range [0, {max}]"
+                        "offsets minimum {min} outside valid range [0, {max}]"
                     );
 
                     vortex_ensure!(
@@ -252,7 +253,7 @@ impl ListData {
                             <P as NativePType>::PTYPE,
                             elements.len()
                         )),
-                        InvalidArgument: "Max offset {max} is beyond the length of the elements array {}",
+                        "Max offset {max} is beyond the length of the elements array {}",
                         elements.len()
                     );
                 }
@@ -260,7 +261,7 @@ impl ListData {
         } else {
             // TODO(aduffy): fallback to slower validation pathway?
             vortex_bail!(
-                InvalidArgument: "offsets array with encoding {} must support min_max compute function",
+                "offsets array with encoding {} must support min_max compute function",
                 offsets.encoding_id()
             );
         };
@@ -270,7 +271,7 @@ impl ListData {
             vortex_ensure_eq!(
                 validity_len,
                 offsets.len() - 1,
-                InvalidArgument: "validity length does not match array size",
+                "validity length does not match array size",
             );
         }
 

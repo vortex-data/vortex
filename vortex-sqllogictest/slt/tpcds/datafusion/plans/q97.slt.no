@@ -51,8 +51,8 @@ logical_plan
 10)------------------LeftSemi Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
 11)--------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_customer_sk]
 12)--------------------Projection: date_dim.d_date_sk
-13)----------------------Filter: date_dim.d_month_seq >= Int64(1200) AND date_dim.d_month_seq <= Int64(1211)
-14)------------------------TableScan: date_dim projection=[d_date_sk, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int64(1200), date_dim.d_month_seq <= Int64(1211)]
+13)----------------------Filter: date_dim.d_month_seq >= Int32(1200) AND date_dim.d_month_seq <= Int32(1211)
+14)------------------------TableScan: date_dim projection=[d_date_sk, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int32(1200), date_dim.d_month_seq <= Int32(1211)]
 15)----------SubqueryAlias: csci
 16)------------Projection: catalog_sales.cs_bill_customer_sk AS customer_sk, catalog_sales.cs_item_sk AS item_sk
 17)--------------Aggregate: groupBy=[[catalog_sales.cs_bill_customer_sk, catalog_sales.cs_item_sk]], aggr=[[]]
@@ -60,8 +60,8 @@ logical_plan
 19)------------------LeftSemi Join: catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
 20)--------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_bill_customer_sk, cs_item_sk]
 21)--------------------Projection: date_dim.d_date_sk
-22)----------------------Filter: date_dim.d_month_seq >= Int64(1200) AND date_dim.d_month_seq <= Int64(1211)
-23)------------------------TableScan: date_dim projection=[d_date_sk, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int64(1200), date_dim.d_month_seq <= Int64(1211)]
+22)----------------------Filter: date_dim.d_month_seq >= Int32(1200) AND date_dim.d_month_seq <= Int32(1211)
+23)------------------------TableScan: date_dim projection=[d_date_sk, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int32(1200), date_dim.d_month_seq <= Int32(1211)]
 physical_plan
 01)ProjectionExec: expr=[sum(CASE WHEN ssci.customer_sk IS NOT NULL AND csci.customer_sk IS NULL THEN Int64(1) ELSE Int64(0) END)@0 as store_only, sum(CASE WHEN ssci.customer_sk IS NULL AND csci.customer_sk IS NOT NULL THEN Int64(1) ELSE Int64(0) END)@1 as catalog_only, sum(CASE WHEN ssci.customer_sk IS NOT NULL AND csci.customer_sk IS NOT NULL THEN Int64(1) ELSE Int64(0) END)@2 as store_and_catalog]
 02)--GlobalLimitExec: skip=0, fetch=100

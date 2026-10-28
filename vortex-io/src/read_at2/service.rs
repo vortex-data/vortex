@@ -45,7 +45,10 @@ impl ReadAt2IoService {
 
 impl IoService for ReadAt2IoService {
     fn session(&self) -> Arc<dyn IoSource> {
-        Arc::new(Source { reader: (self.factory)(), state: Mutex::default() })
+        Arc::new(Source {
+            reader: (self.factory)(),
+            state: Mutex::default(),
+        })
     }
 }
 
@@ -62,7 +65,9 @@ struct State {
 
 impl Source {
     fn reader(&self) -> VortexResult<&dyn VortexReadAt2> {
-        self.reader.as_deref().map_err(|error| vortex_err!("Opening read scope: {error}"))
+        self.reader
+            .as_deref()
+            .map_err(|error| vortex_err!("Opening read scope: {error}"))
     }
 
     fn deliver(&self, completion: ReadCompletion) -> VortexResult<Option<Completion>> {
@@ -74,7 +79,11 @@ impl Source {
             ReadResult::Bytes(bytes) => Ok(IoResult::Bytes(bytes)),
             ReadResult::Suffix { .. } => Err(vortex_err!("Unexpected suffix result in scan")),
         });
-        Ok(Some(Completion { owner, request, result }))
+        Ok(Some(Completion {
+            owner,
+            request,
+            result,
+        }))
     }
 }
 
@@ -84,12 +93,25 @@ impl IoSource for Source {
         let mut reads = Vec::new();
         let mut pending = Vec::new();
         for request in batch {
-            if request.intent != IoIntent::Fetch { continue; }
+            if request.intent != IoIntent::Fetch {
+                continue;
+            }
             let id = ReadId(state.next);
-            state.next = state.next.checked_add(1).ok_or_else(|| vortex_err!("Read identity overflow"))?;
+            state.next = state
+                .next
+                .checked_add(1)
+                .ok_or_else(|| vortex_err!("Read identity overflow"))?;
             let target = match request.target {
                 IoTarget::Size => ReadTarget::Size,
-                IoTarget::Range { offset, len, alignment } => ReadTarget::Range { offset, length: len, alignment },
+                IoTarget::Range {
+                    offset,
+                    len,
+                    alignment,
+                } => ReadTarget::Range {
+                    offset,
+                    length: len,
+                    alignment,
+                },
             };
             reads.push(ReadRequest { id, target });
             pending.push((id, (owner, request.request)));
@@ -101,7 +123,9 @@ impl IoSource for Source {
 
     fn poll(&self) -> VortexResult<Option<Completion>> {
         while let Some(completion) = self.reader()?.try_complete()? {
-            if let Some(completion) = self.deliver(completion)? { return Ok(Some(completion)); }
+            if let Some(completion) = self.deliver(completion)? {
+                return Ok(Some(completion));
+            }
         }
         Ok(None)
     }
@@ -114,7 +138,9 @@ impl IoSource for Source {
             }
             match reader.poll_complete(cx) {
                 Poll::Ready(result) => {
-                    if let Some(completion) = self.deliver(result?)? { return Poll::Ready(Ok(completion)); }
+                    if let Some(completion) = self.deliver(result?)? {
+                        return Poll::Ready(Ok(completion));
+                    }
                 }
                 Poll::Pending => return Poll::Pending,
             }
@@ -123,27 +149,39 @@ impl IoSource for Source {
 
     fn wait(&self) -> VortexResult<Completion> {
         loop {
-            if self.state.lock().pending.is_empty() { vortex_bail!("Waiting with no fetch outstanding"); }
-            if let Some(completion) = self.deliver(self.reader()?.wait()?)? { return Ok(completion); }
+            if self.state.lock().pending.is_empty() {
+                vortex_bail!("Waiting with no fetch outstanding");
+            }
+            if let Some(completion) = self.deliver(self.reader()?.wait()?)? {
+                return Ok(completion);
+            }
         }
     }
 
     fn release(&self, owner: IoOwnerId) {
         let mut state = self.state.lock();
         state.pending.retain(|id, (pending_owner, _)| {
-            if *pending_owner != owner { return true; }
-            if let Ok(reader) = self.reader() { reader.cancel(*id); }
+            if *pending_owner != owner {
+                return true;
+            }
+            if let Ok(reader) = self.reader() {
+                reader.cancel(*id);
+            }
             false
         });
     }
 
     fn clear(&self) {
         for (id, _) in self.state.lock().pending.drain() {
-            if let Ok(reader) = self.reader() { reader.cancel(id); }
+            if let Ok(reader) = self.reader() {
+                reader.cancel(id);
+            }
         }
     }
 }
 
 impl Drop for Source {
-    fn drop(&mut self) { self.clear(); }
+    fn drop(&mut self) {
+        self.clear();
+    }
 }

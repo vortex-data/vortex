@@ -24,7 +24,6 @@ arrow-buffer = { workspace = true }
 arrow-cast = { workspace = true }
 arrow-data = { workspace = true }
 arrow-schema = { workspace = true, features = ["canonical_extension_types"] }
-arrow-select = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
 simdutf8 = { workspace = true }
@@ -33,7 +32,6 @@ vortex-array = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
-vortex-runend = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]
@@ -41,6 +39,7 @@ divan = { workspace = true }
 mimalloc = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-decimal-byte-parts = { workspace = true }
 vortex-fsst = { workspace = true }
 vortex-onpair = { workspace = true }
 vortex-zstd = { workspace = true }

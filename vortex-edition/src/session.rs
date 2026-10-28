@@ -240,6 +240,13 @@ impl EditionSession {
                     edition.id.family,
                 );
             }
+            if !edition.immutable && !edition.is_draft() {
+                vortex_bail!(
+                    "edition {} never freezes, so it cannot record a min_library_version; \
+                     promote members into a new edition",
+                    edition.id
+                );
+            }
             if let Some(version) = edition.min_library_version
                 && parse_release(version).is_none()
             {

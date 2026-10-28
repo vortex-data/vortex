@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools as _;
+use num_traits::AsPrimitive;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -27,6 +29,7 @@ use crate::arrays::piecewise_sequence::constant_unsigned_usize;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::dtype::IntegerPType;
+use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_unsigned_integer_ptype;
@@ -162,152 +165,54 @@ fn take_slices(
     let offsets = offsets.reinterpret_cast(offsets.ptype().to_unsigned());
     let output_len = indices_ref.len();
 
+    // The piece starts and lengths are read once per piece, so they are widened to `u64` instead
+    // of compiling the gather kernels for each of their widths.
+    let starts = pieces_as_u64(&starts);
     let taken = match lengths {
         Columnar::Constant(lengths) => {
             let length = constant_unsigned_usize(&lengths);
-            take_slices_constant_start_dispatch(
-                array,
-                &starts,
-                length,
-                &offsets,
-                indices_ref,
-                output_len,
-                &data_validity,
-            )?
+            match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
+                take_slices_constant_length::<u64, O>(
+                    array,
+                    &starts,
+                    length,
+                    offsets.as_slice::<O>(),
+                    indices_ref,
+                    output_len,
+                    &data_validity,
+                )
+            })?
         }
         Columnar::Canonical(lengths) => {
-            let lengths = lengths.into_primitive();
-            take_slices_start_dispatch(
-                array,
-                &starts,
-                &lengths,
-                &offsets,
-                indices_ref,
-                output_len,
-                &data_validity,
-            )?
+            let lengths = pieces_as_u64(&lengths.into_primitive());
+            match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
+                take_slices_typed::<u64, u64, O>(
+                    array,
+                    &starts,
+                    &lengths,
+                    offsets.as_slice::<O>(),
+                    indices_ref,
+                    output_len,
+                    &data_validity,
+                )
+            })?
         }
     };
     Ok(Some(taken))
 }
 
-fn take_slices_constant_start_dispatch(
-    array: ArrayView<'_, List>,
-    starts: &PrimitiveArray,
-    length: usize,
-    offsets: &PrimitiveArray,
-    indices_ref: &ArrayRef,
-    output_len: usize,
-    data_validity: &Mask,
-) -> VortexResult<ArrayRef> {
-    match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-        take_slices_constant_offset_dispatch::<S>(
-            array,
-            starts,
-            length,
-            offsets,
-            indices_ref,
-            output_len,
-            data_validity,
-        )
-    })
-}
+/// Returns the unsigned piece values as `u64`. This does not copy when they are already `u64`.
+fn pieces_as_u64(pieces: &PrimitiveArray) -> Buffer<u64> {
+    if pieces.ptype() == PType::U64 {
+        return pieces.to_buffer::<u64>();
+    }
 
-fn take_slices_constant_offset_dispatch<S>(
-    array: ArrayView<'_, List>,
-    starts: &PrimitiveArray,
-    length: usize,
-    offsets: &PrimitiveArray,
-    indices_ref: &ArrayRef,
-    output_len: usize,
-    data_validity: &Mask,
-) -> VortexResult<ArrayRef>
-where
-    S: UnsignedPType,
-{
-    match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
-        take_slices_constant_length::<S, O>(
-            array,
-            starts.as_slice::<S>(),
-            length,
-            offsets.as_slice::<O>(),
-            indices_ref,
-            output_len,
-            data_validity,
-        )
-    })
-}
-
-fn take_slices_start_dispatch(
-    array: ArrayView<'_, List>,
-    starts: &PrimitiveArray,
-    lengths: &PrimitiveArray,
-    offsets: &PrimitiveArray,
-    indices_ref: &ArrayRef,
-    output_len: usize,
-    data_validity: &Mask,
-) -> VortexResult<ArrayRef> {
-    match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-        take_slices_length_dispatch::<S>(
-            array,
-            starts,
-            lengths,
-            offsets,
-            indices_ref,
-            output_len,
-            data_validity,
-        )
-    })
-}
-
-fn take_slices_length_dispatch<S>(
-    array: ArrayView<'_, List>,
-    starts: &PrimitiveArray,
-    lengths: &PrimitiveArray,
-    offsets: &PrimitiveArray,
-    indices_ref: &ArrayRef,
-    output_len: usize,
-    data_validity: &Mask,
-) -> VortexResult<ArrayRef>
-where
-    S: UnsignedPType,
-{
-    match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
-        take_slices_offset_dispatch::<S, L>(
-            array,
-            starts,
-            lengths,
-            offsets,
-            indices_ref,
-            output_len,
-            data_validity,
-        )
-    })
-}
-
-fn take_slices_offset_dispatch<S, L>(
-    array: ArrayView<'_, List>,
-    starts: &PrimitiveArray,
-    lengths: &PrimitiveArray,
-    offsets: &PrimitiveArray,
-    indices_ref: &ArrayRef,
-    output_len: usize,
-    data_validity: &Mask,
-) -> VortexResult<ArrayRef>
-where
-    S: UnsignedPType,
-    L: UnsignedPType,
-{
-    match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
-        take_slices_typed::<S, L, O>(
-            array,
-            starts.as_slice::<S>(),
-            lengths.as_slice::<L>(),
-            offsets.as_slice::<O>(),
-            indices_ref,
-            output_len,
-            data_validity,
-        )
+    match_each_unsigned_integer_ptype!(pieces.ptype(), |P| {
+        pieces
+            .as_slice::<P>()
+            .iter()
+            .map(|&piece| piece.as_())
+            .collect()
     })
 }
 
@@ -847,14 +752,17 @@ fn new_offset_value<T: IntegerPType>(value: usize) -> T {
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
+    use crate::ArrayRef;
     use crate::IntoArray as _;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::ListArray;
@@ -870,9 +778,11 @@ mod test {
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn nullable_take() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let list = ListArray::try_new(
             buffer![0i32, 5, 3, 4].into_array(),
             buffer![0, 2, 3, 4, 4].into_array(),
@@ -903,12 +813,12 @@ mod test {
 
         assert!(
             result
-                .is_valid(0, &mut array_session().create_execution_ctx())
+                .is_valid(0, &mut SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert_eq!(
             result
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(0, &mut SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::list(
                 Arc::clone(&element_dtype),
@@ -919,18 +829,18 @@ mod test {
 
         assert!(
             result
-                .is_invalid(1, &mut array_session().create_execution_ctx())
+                .is_invalid(1, &mut SESSION.create_execution_ctx())
                 .unwrap()
         );
 
         assert!(
             result
-                .is_valid(2, &mut array_session().create_execution_ctx())
+                .is_valid(2, &mut SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert_eq!(
             result
-                .execute_scalar(2, &mut array_session().create_execution_ctx())
+                .execute_scalar(2, &mut SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::list(
                 Arc::clone(&element_dtype),
@@ -941,12 +851,12 @@ mod test {
 
         assert!(
             result
-                .is_valid(3, &mut array_session().create_execution_ctx())
+                .is_valid(3, &mut SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert_eq!(
             result
-                .execute_scalar(3, &mut array_session().create_execution_ctx())
+                .execute_scalar(3, &mut SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::list(element_dtype, vec![], Nullability::Nullable)
         );
@@ -954,7 +864,7 @@ mod test {
 
     #[test]
     fn null_index_ignores_out_of_bounds_payload() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let list = ListArray::try_new(
             buffer![1i32, 2, 3, 4].into_array(),
             buffer![0u32, 2, 4].into_array(),
@@ -982,7 +892,7 @@ mod test {
 
     #[test]
     fn null_source_row_uses_valid_empty_output_range() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let list = ListArray::new(
             buffer![1i32, 2, 7, 8].into_array(),
             buffer![0u32, 2, 4].into_array(),
@@ -1005,7 +915,7 @@ mod test {
 
     #[test]
     fn change_validity() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let list = ListArray::try_new(
             buffer![0i32, 5, 3, 4].into_array(),
             buffer![0, 2, 3].into_array(),
@@ -1032,16 +942,12 @@ mod test {
             Validity::from_iter([true, true, false]),
             &mut ctx,
         );
-        assert_arrays_eq!(
-            result,
-            expected,
-            &mut array_session().create_execution_ctx()
-        );
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
     fn non_nullable_take() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let list = ListArray::try_new(
             buffer![0i32, 5, 3, 4].into_array(),
             buffer![0, 2, 3, 3, 4].into_array(),
@@ -1071,12 +977,12 @@ mod test {
 
         assert!(
             result
-                .is_valid(0, &mut array_session().create_execution_ctx())
+                .is_valid(0, &mut SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert_eq!(
             result
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(0, &mut SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::list(
                 Arc::clone(&element_dtype),
@@ -1087,12 +993,12 @@ mod test {
 
         assert!(
             result
-                .is_valid(1, &mut array_session().create_execution_ctx())
+                .is_valid(1, &mut SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert_eq!(
             result
-                .execute_scalar(1, &mut array_session().create_execution_ctx())
+                .execute_scalar(1, &mut SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::list(
                 Arc::clone(&element_dtype),
@@ -1103,20 +1009,72 @@ mod test {
 
         assert!(
             result
-                .is_valid(2, &mut array_session().create_execution_ctx())
+                .is_valid(2, &mut SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert_eq!(
             result
-                .execute_scalar(2, &mut array_session().create_execution_ctx())
+                .execute_scalar(2, &mut SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::list(element_dtype, vec![], Nullability::NonNullable)
         );
     }
 
+    /// The take widens narrow piece starts and lengths to `u64`.
+    #[rstest]
+    #[case::u8_pieces(
+        buffer![1u8, 0].into_array(),
+        buffer![2u8, 1].into_array(),
+        buffer![2i32, 3, 4, 0, 1],
+        buffer![0u32, 3, 3, 5]
+    )]
+    #[case::mixed_pieces(
+        buffer![1u16, 0].into_array(),
+        buffer![2u32, 1].into_array(),
+        buffer![2i32, 3, 4, 0, 1],
+        buffer![0u32, 3, 3, 5]
+    )]
+    #[case::constant_length(
+        buffer![3u16, 0].into_array(),
+        ConstantArray::new(1u8, 2).into_array(),
+        buffer![5i32, 6, 0, 1],
+        buffer![0u32, 2, 4]
+    )]
+    fn piecewise_sequence_take_narrow_pieces(
+        #[case] starts: ArrayRef,
+        #[case] lengths: ArrayRef,
+        #[case] expected_elements: Buffer<i32>,
+        #[case] expected_offsets: Buffer<u32>,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let list = ListArray::try_new(
+            buffer![0i32, 1, 2, 3, 4, 5, 6].into_array(),
+            buffer![0u32, 2, 5, 5, 7].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?
+        .into_array();
+        let output_len = expected_offsets.len() - 1;
+        let indices = PiecewiseSequenceArray::try_new(
+            starts,
+            lengths,
+            ConstantArray::new(1u64, 2).into_array(),
+            output_len,
+        )?;
+        let expected = ListArray::try_new(
+            expected_elements.into_array(),
+            expected_offsets.into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?;
+
+        assert_arrays_eq!(list.take(indices.into_array())?, expected, &mut ctx);
+        Ok(())
+    }
+
     #[test]
     fn piecewise_sequence_take() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let list = ListArray::try_new(
             buffer![0i32, 1, 2, 3, 4, 5, 6].into_array(),
             buffer![0u32, 2, 5, 5, 7].into_array(),
@@ -1165,7 +1123,7 @@ mod test {
 
     #[test]
     fn piecewise_sequence_take_nullable_list_constant_lengths() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let list = ListArray::try_new(
             buffer![0i32, 1, 99, 100, 2, 3, 4, 5].into_array(),
             buffer![0u32, 2, 4, 7, 8].into_array(),
@@ -1218,7 +1176,7 @@ mod test {
 
     #[test]
     fn piecewise_sequence_take_nullable_list_array_lengths() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let list = ListArray::try_new(
             buffer![0i32, 1, 99, 100, 2, 3, 4, 5].into_array(),
             buffer![0u32, 2, 4, 7, 8].into_array(),
@@ -1265,7 +1223,7 @@ mod test {
 
     #[test]
     fn test_take_empty_array() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let list = ListArray::try_new(
             buffer![0i32, 5, 3, 4].into_array(),
             buffer![0].into_array(),
@@ -1293,25 +1251,25 @@ mod test {
         buffer![0i32, 1, 2, 3, 4, 5].into_array(),
         buffer![0, 2, 3, 5, 5, 6].into_array(),
         Validity::NonNullable,
-        &mut array_session().create_execution_ctx(),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     #[case(ListArray::try_new(
         buffer![10i32, 20, 30, 40, 50].into_array(),
         buffer![0, 2, 3, 4, 5].into_array(),
         Validity::Array(BoolArray::from_iter(vec![true, false, true, true]).into_array()),
-        &mut array_session().create_execution_ctx(),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     #[case(ListArray::try_new(
         buffer![1i32, 2, 3].into_array(),
         buffer![0, 0, 2, 2, 3].into_array(), // First and third are empty
         Validity::NonNullable,
-        &mut array_session().create_execution_ctx(),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     #[case(ListArray::try_new(
         buffer![42i32, 43].into_array(),
         buffer![0, 2].into_array(),
         Validity::NonNullable,
-        &mut array_session().create_execution_ctx(),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     #[case({
         let elements = buffer![0i32..200].into_array();
@@ -1323,25 +1281,22 @@ mod test {
             elements,
             PrimitiveArray::from_iter(offsets).into_array(),
             Validity::NonNullable,
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         ).unwrap()
     })]
     #[case(ListArray::try_new(
         PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None]).into_array(),
         buffer![0, 2, 3, 5].into_array(),
         Validity::NonNullable,
-        &mut array_session().create_execution_ctx(),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     fn test_take_list_conformance(#[case] list: ListArray) {
-        test_take_conformance(
-            &list.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_take_conformance(&list.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     #[test]
     fn test_u64_offset_accumulation_non_nullable() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let elements = buffer![0i32; 200].into_array();
         let offsets = buffer![0u8, 200].into_array();
         let list = ListArray::try_new(elements, offsets, Validity::NonNullable, &mut ctx)
@@ -1358,12 +1313,12 @@ mod test {
         assert_eq!(result_view.len(), 2);
         assert!(
             result_view
-                .is_valid(0, &mut array_session().create_execution_ctx())
+                .is_valid(0, &mut SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert!(
             result_view
-                .is_valid(1, &mut array_session().create_execution_ctx())
+                .is_valid(1, &mut SESSION.create_execution_ctx())
                 .unwrap()
         );
         let expected = ListArray::new(
@@ -1377,7 +1332,7 @@ mod test {
 
     #[test]
     fn test_u64_offset_accumulation_nullable() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let elements = buffer![0i32; 150].into_array();
         let offsets = buffer![0u8, 150, 150].into_array();
         let validity = BoolArray::from_iter(vec![true, false]).into_array();
@@ -1395,17 +1350,17 @@ mod test {
         assert_eq!(result_view.len(), 3);
         assert!(
             result_view
-                .is_valid(0, &mut array_session().create_execution_ctx())
+                .is_valid(0, &mut SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert!(
             result_view
-                .is_invalid(1, &mut array_session().create_execution_ctx())
+                .is_invalid(1, &mut SESSION.create_execution_ctx())
                 .unwrap()
         );
         assert!(
             result_view
-                .is_valid(2, &mut array_session().create_execution_ctx())
+                .is_valid(2, &mut SESSION.create_execution_ctx())
                 .unwrap()
         );
         let expected = ListArray::new(
@@ -1423,7 +1378,7 @@ mod test {
     /// the result validity must have length equal to indices.len(), not source.len().
     #[test]
     fn test_take_validity_length_mismatch_regression() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Source array with explicit validity array (length 2).
         let list = ListArray::try_new(
             buffer![1i32, 2, 3, 4].into_array(),
@@ -1446,10 +1401,6 @@ mod test {
             Validity::AllValid,
             &mut ctx,
         );
-        assert_arrays_eq!(
-            result,
-            expected,
-            &mut array_session().create_execution_ctx()
-        );
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
     }
 }

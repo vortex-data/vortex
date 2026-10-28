@@ -185,7 +185,7 @@ impl Scalar {
 
                 for (i, element) in elements.iter().enumerate() {
                     Self::validate_detailed(elem_dtype.as_ref(), element.as_ref())
-                        .map_err(|e| vortex_error::vortex_err!("list element at index {i}: {e}"))?;
+                        .map_err(|e| e.with_context(format!("list element at index {i}")))?;
                 }
             }
             DType::FixedSizeList(elem_dtype, size, _) => {
@@ -202,7 +202,7 @@ impl Scalar {
 
                 for (i, element) in elements.iter().enumerate() {
                     Self::validate_detailed(elem_dtype.as_ref(), element.as_ref()).map_err(
-                        |e| vortex_error::vortex_err!("fixed-size list element at index {i}: {e}",),
+                        |e| e.with_context(format!("fixed-size list element at index {i}")),
                     )?;
                 }
             }
@@ -228,11 +228,10 @@ impl Scalar {
                         "map entry at index {index} has the wrong number of values",
                     );
 
-                    Self::validate_detailed(&key_dtype, values[0].as_ref()).map_err(|error| {
-                        vortex_error::vortex_err!("map key at entry {index}: {error}")
-                    })?;
+                    Self::validate_detailed(&key_dtype, values[0].as_ref())
+                        .map_err(|error| error.with_context(format!("map key at entry {index}")))?;
                     Self::validate_detailed(&value_dtype, values[1].as_ref()).map_err(|error| {
-                        vortex_error::vortex_err!("map value at entry {index}: {error}")
+                        error.with_context(format!("map value at entry {index}"))
                     })?;
                 }
             }
@@ -272,10 +271,9 @@ impl Scalar {
 
                 Self::validate_detailed(&child_dtype, union_value.child_value()).map_err(
                     |error| {
-                        vortex_error::vortex_err!(
-                            "union value for type ID {type_id} is invalid for dtype {child_dtype}: \
-                         {error}"
-                        )
+                        error.with_context(format!(
+                            "union value for type ID {type_id} is invalid for dtype {child_dtype}"
+                        ))
                     },
                 )?;
             }

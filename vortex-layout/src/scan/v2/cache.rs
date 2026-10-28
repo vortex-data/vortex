@@ -4,6 +4,7 @@
 //! State derived from a [`ScanFile`](super::ScanFile) that repeated V2 scans can share.
 
 use std::sync::Arc;
+use std::sync::Weak;
 
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
@@ -13,7 +14,7 @@ use vortex_array::expr::ExactBoundExpr;
 use super::io::SegmentRanges;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::pipeline::ValueCache;
-use crate::segments::SegmentSource;
+use crate::scan::execution::FilterPlans;
 
 /// Reusable state for repeated V2 scans of one file, the V2 counterpart of a cached
 /// [`LayoutReader`](crate::LayoutReader) tree.
@@ -22,13 +23,13 @@ use crate::segments::SegmentSource;
 /// over it, indexes every segment's byte range, and decodes the dictionary values it needs. A scan
 /// that finds an entry here reuses it, and one that misses builds the entry and keeps it for later
 /// scans. The lowered plan keeps the children it has initialized, each distinct projection keeps
-/// its optimized plan, and dictionary values stay keyed by the cached plan that produced them.
-/// Scans using the default I/O service also share the first segment source, so their requests can
-/// be coalesced across partitions. An explicit I/O service continues to override that source.
+/// its optimized plan, each distinct filter keeps its conjunct and pruning plans along with the
+/// zones those plans have already excluded, and dictionary values stay keyed by the cached plan
+/// that produced them.
 ///
-/// A cache describes one immutable file's layout, segment locations, and compatible segment
-/// sources. Use a new cache when the file or its read configuration changes. Cached plans, values,
-/// and the default segment source live as long as the cache, with one plan per distinct projection.
+/// A cache describes one file's layout, segment locations, and segment source. Use a new cache
+/// when any of them changes. Cached plans and values live as long as the cache, one set per
+/// distinct projection.
 #[derive(Clone, Default)]
 pub struct ScanCache(Arc<Inner>);
 
@@ -39,7 +40,9 @@ struct Inner {
     /// them, so a projection must reuse its plan for its values to be found again.
     projections: Mutex<FxHashMap<ExactBoundExpr, PlanRef>>,
     ranges: Mutex<Option<SegmentRanges>>,
-    segments: Mutex<Option<Arc<dyn SegmentSource>>>,
+    /// Plans of filters, keyed by the exact filter expression. A pruning plan remembers the zones it
+    /// excluded, so sharing the plans prunes a file's zones once for every scan of that filter.
+    filters: Mutex<FxHashMap<ExactBoundExpr, Arc<FilterPlans>>>,
     values: ValueCache,
 }
 
@@ -84,12 +87,50 @@ impl ScanCache {
         Arc::clone(self.0.ranges.lock().get_or_insert(ranges))
     }
 
-    /// Keeps the first default source so independently opened partitions share its coalescer.
-    pub(super) fn insert_segments(&self, segments: Arc<dyn SegmentSource>) -> Arc<dyn SegmentSource> {
-        Arc::clone(self.0.segments.lock().get_or_insert(segments))
+    /// The plans of `filter` an earlier scan kept.
+    pub(super) fn filter_plans(&self, filter: &BoundExpression) -> Option<Arc<FilterPlans>> {
+        self.0
+            .filters
+            .lock()
+            .get(&ExactBoundExpr(filter.clone()))
+            .cloned()
+    }
+
+    /// Keeps the plans of `filter`, returning the plans already kept if another scan got there
+    /// first.
+    pub(super) fn insert_filter_plans(
+        &self,
+        filter: BoundExpression,
+        plans: Arc<FilterPlans>,
+    ) -> Arc<FilterPlans> {
+        Arc::clone(
+            self.0
+                .filters
+                .lock()
+                .entry(ExactBoundExpr(filter))
+                .or_insert(plans),
+        )
     }
 
     pub(super) fn values(&self) -> ValueCache {
         self.0.values.clone()
+    }
+
+    /// A handle that finds this cache while a scan holds it, without keeping it alive itself.
+    pub fn downgrade(&self) -> WeakScanCache {
+        WeakScanCache(Arc::downgrade(&self.0))
+    }
+}
+
+/// A [`ScanCache`] handle that does not keep the cache alive. Engines that open a file once per
+/// partition keep one per file, so concurrent partitions share a cache that is freed with the
+/// last scan holding it.
+#[derive(Clone)]
+pub struct WeakScanCache(Weak<Inner>);
+
+impl WeakScanCache {
+    /// The cache, while a scan still holds it.
+    pub fn upgrade(&self) -> Option<ScanCache> {
+        self.0.upgrade().map(ScanCache)
     }
 }

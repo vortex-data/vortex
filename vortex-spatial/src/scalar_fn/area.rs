@@ -66,6 +66,8 @@ impl RowFn for SpatialArea {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
@@ -79,6 +81,7 @@ mod tests {
     use vortex_array::scalar_fn::ScalarFnVTable;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::SpatialArea;
     use crate::test_harness::linestring_column;
@@ -89,6 +92,8 @@ mod tests {
     use crate::test_harness::point_column;
     use crate::test_harness::polygon_column;
     use crate::test_harness::rect_column;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     #[case::point(point_column(vec![1.0], vec![2.0]), &[0.0])]
@@ -141,8 +146,7 @@ mod tests {
         #[case] geometry: VortexResult<ArrayRef>,
         #[case] expected: &[f64],
     ) -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let areas = SpatialArea::try_new(geometry?)?.into_array();
         let expected = PrimitiveArray::from_iter(expected.iter().copied()).into_array();
         assert_arrays_eq!(areas, expected, &mut ctx);
@@ -151,8 +155,7 @@ mod tests {
 
     #[test]
     fn propagates_nulls() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let multipolygons = nullable_multipolygon_column(vec![
             Some(vec![vec![vec![
                 (0.0, 0.0),

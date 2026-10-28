@@ -148,7 +148,40 @@ pub fn duckdb_validator(
         }
     }
 
-    Iterator::eq(actual.iter(), expected.iter())
+    actual.len() == expected.len()
+        && actual
+            .iter()
+            .zip(expected.iter())
+            .all(|(actual, expected)| line_matches(actual, expected))
+}
+
+/// Compares one output line value by value, see [`value_matches`].
+fn line_matches(actual: &str, expected: &str) -> bool {
+    let actual = actual.split(' ').collect::<Vec<_>>();
+    let expected = expected.split(' ').collect::<Vec<_>>();
+
+    actual.len() == expected.len()
+        && actual
+            .iter()
+            .zip(expected.iter())
+            .all(|(actual, expected)| value_matches(actual, expected))
+}
+
+/// Whether `actual` is equal to `expected`, or is the same number with more fractional digits.
+///
+/// TPC-H and TPC-DS share their expected results between DataFusion and DuckDB. DataFusion
+/// truncates decimal division and `avg` to the scale of the result type. DuckDB calculates them
+/// as `DOUBLE`. Thus a DuckDB value matches when it truncates to the expected value.
+fn value_matches(actual: &str, expected: &str) -> bool {
+    if actual == expected {
+        return true;
+    }
+
+    expected.contains('.')
+        && BigDecimal::from_str(expected).is_ok()
+        && actual
+            .strip_prefix(expected)
+            .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
 }
 
 #[async_trait]
@@ -422,6 +455,28 @@ mod tests {
             &actual,
             &["5".to_string(), "2".to_string()]
         ));
+    }
+
+    #[rstest]
+    #[case("25.537587116855", "25.537587", true)]
+    #[case("-31.91907079646", "-31.91907", true)]
+    #[case("104.161099446459", "104.161", true)]
+    #[case("A F 0.050144597063 147790", "A F 0.050144 147790", true)]
+    #[case("4.593670124475", "4.593669", false)]
+    #[case("1.9", "1", false)]
+    #[case("12", "1", false)]
+    #[case("0.5x", "0.5", false)]
+    #[case("A F 0.05", "A F 0.05 1", false)]
+    fn validator_allows_extra_fractional_digits(
+        #[case] actual: &str,
+        #[case] expected: &str,
+        #[case] matches: bool,
+    ) {
+        let actual = vec![vec![actual.to_string()]];
+        assert_eq!(
+            duckdb_validator(identity, &actual, &[expected.to_string()]),
+            matches
+        );
     }
 
     #[test]

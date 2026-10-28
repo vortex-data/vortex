@@ -659,16 +659,17 @@ fn extend_converted_sizes<S: OffsetBuilderPType, A: IntegerPType>(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use vortex_buffer::BufferAllocatorRef;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::ListViewBuilder;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ConstantArray;
     use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
@@ -683,6 +684,8 @@ mod tests {
     use crate::dtype::PType::I32;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_empty() {
@@ -704,7 +707,7 @@ mod tests {
 
     #[test]
     fn test_basic_append_and_nulls() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder = ListViewBuilder::<u32, u32>::with_capacity_in(
             Arc::clone(&dtype),
@@ -780,7 +783,7 @@ mod tests {
 
     #[test]
     fn test_different_offset_size_types() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Test u64 offsets with u32 sizes.
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder = ListViewBuilder::<u64, u32>::with_capacity_in(
@@ -863,7 +866,7 @@ mod tests {
 
     #[test]
     fn test_builder_trait_methods() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder = ListViewBuilder::<u32, u32>::with_capacity_in(
             Arc::clone(&dtype),
@@ -928,7 +931,7 @@ mod tests {
 
     #[test]
     fn test_extend_from_array() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
 
         // Create a source ListArray.
@@ -1018,7 +1021,7 @@ mod tests {
 
     #[test]
     fn test_append_list_array_grows_builder() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
 
         // Enough lists to exceed the offsets/sizes capacity of a zero-capacity builder, so
@@ -1054,7 +1057,7 @@ mod tests {
     /// builder would materialize a copy per row.
     #[test]
     fn test_constant_list_append_keeps_one_copy_of_the_value() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let element_dtype: Arc<DType> = Arc::new(I32.into());
 
         const ROWS: usize = 10_000;
@@ -1091,7 +1094,7 @@ mod tests {
     /// middle of a list array leaves the elements on either side of it behind.
     #[test]
     fn test_append_listview_array_trims_unreferenced_elements() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
 
         // Five lists of two elements each, of which we append only the middle three.
@@ -1136,7 +1139,7 @@ mod tests {
 
     #[test]
     fn test_extend_from_array_overlapping_listview() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
 
         // Non-ZCTL source:
@@ -1226,7 +1229,7 @@ mod tests {
     #[test]
     fn test_append_array_as_list() {
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut builder = ListViewBuilder::<u32, u32>::with_capacity_in(
             Arc::clone(&dtype),
             NonNullable,

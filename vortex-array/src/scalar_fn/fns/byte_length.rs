@@ -98,7 +98,9 @@ impl ScalarFnVTable for ByteLength {
             DType::Utf8(nullable) | DType::Binary(nullable) => {
                 Ok(DType::Primitive(PType::U64, *nullable))
             }
-            other => vortex_bail!("byte_length() requires Utf8 or Binary, got {other}"),
+            other => {
+                vortex_bail!("byte_length() requires Utf8 or Binary, got {other}")
+            }
         }
     }
 
@@ -112,13 +114,15 @@ impl ScalarFnVTable for ByteLength {
         let nullability = input.dtype().nullability();
 
         if let Some(scalar) = input.as_constant() {
-            let len_scalar = scalar_byte_length(&scalar, nullability)?;
+            let len_scalar = scalar_byte_length(scalar, nullability)?;
             return Ok(ConstantArray::new(len_scalar, args.row_count()).into_array());
         }
 
         match input.dtype() {
             DType::Utf8(_) | DType::Binary(_) => byte_length(&input, nullability, ctx),
-            other => vortex_bail!("byte_length() requires Utf8 or Binary, got {other}"),
+            other => {
+                vortex_bail!("byte_length() requires Utf8 or Binary, got {other}")
+            }
         }
     }
 
@@ -147,7 +151,9 @@ fn scalar_byte_length(scalar: &Scalar, nullability: Nullability) -> VortexResult
             .value()
             .vortex_expect("null binary scalar")
             .len(),
-        other => vortex_bail!("byte_length() requires Utf8 or Binary, got {other}"),
+        other => {
+            vortex_bail!("byte_length() requires Utf8 or Binary, got {other}")
+        }
     };
     let len: u64 = len.as_();
     Ok(Scalar::primitive(len, nullability))
@@ -166,13 +172,15 @@ pub(crate) fn byte_length(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
@@ -184,6 +192,8 @@ mod tests {
     use crate::expr::root;
     use crate::scalar::Scalar;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[rstest]
     #[case(VarBinArray::from_strs(vec!["hello", "world", ""]).into_array(), vec![5u64, 5, 0])]
     #[case(VarBinArray::from_bytes(vec![b"ab".as_ref(), b"cde"]).into_array(), vec![2u64, 3])]
@@ -193,7 +203,7 @@ mod tests {
         #[case] array: ArrayRef,
         #[case] expected_lens: Vec<u64>,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let result = array.apply(&byte_length(root()))?;
         let expected = PrimitiveArray::from_iter(expected_lens);
         assert_arrays_eq!(result, expected, &mut ctx);
@@ -202,7 +212,7 @@ mod tests {
 
     #[test]
     fn test_varbinview_byte_length() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = VarBinViewArray::from_iter_str(["short", "a longer string here"]).into_array();
         let result = array.apply(&byte_length(root()))?;
         let expected = PrimitiveArray::from_iter(vec![5u64, 20]);
@@ -216,16 +226,16 @@ mod tests {
             .into_array();
         let result = array.apply(&byte_length(root()))?;
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert!(result.is_valid(0, &mut ctx)?);
         assert!(!result.is_valid(1, &mut ctx)?);
         assert!(result.is_valid(2, &mut ctx)?);
         assert_eq!(
-            result.execute_scalar(0, &mut array_session().create_execution_ctx())?,
+            result.execute_scalar(0, &mut SESSION.create_execution_ctx())?,
             Scalar::primitive(5u64, Nullability::Nullable),
         );
         assert_eq!(
-            result.execute_scalar(2, &mut array_session().create_execution_ctx())?,
+            result.execute_scalar(2, &mut SESSION.create_execution_ctx())?,
             Scalar::primitive(18u64, Nullability::Nullable),
         );
         assert_arrays_eq!(
@@ -241,7 +251,7 @@ mod tests {
         let null_scalar = Scalar::null(DType::Utf8(Nullability::Nullable));
         let array = ConstantArray::new(null_scalar, 2).into_array();
         let result = array.apply(&byte_length(root()))?;
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert!(!result.is_valid(0, &mut ctx)?);
         assert!(!result.is_valid(1, &mut ctx)?);
         assert_arrays_eq!(

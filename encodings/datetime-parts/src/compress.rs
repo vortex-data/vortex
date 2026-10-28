@@ -170,19 +170,23 @@ fn split_slice_seconds(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
+    use vortex_session::VortexSession;
 
     use crate::TemporalParts;
     use crate::split_temporal;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     #[case(Validity::NonNullable)]
@@ -190,7 +194,7 @@ mod tests {
     #[case(Validity::AllInvalid)]
     #[case(Validity::from_iter([true, false, true]))]
     fn test_split_temporal(#[case] validity: Validity) {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let milliseconds = PrimitiveArray::new(
             buffer![
                 86_400i64,            // element with only day component

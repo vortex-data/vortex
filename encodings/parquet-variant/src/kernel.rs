@@ -343,7 +343,7 @@ mod tests {
     use crate::ParquetVariantArraySlotsExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         vortex_uuid::initialize(&session);
         session

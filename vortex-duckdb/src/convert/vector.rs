@@ -274,7 +274,7 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
                 vector_as_string_blob(vector, len, DType::Binary(Nullability::Nullable));
             let crs = logical_type.geometry_crs().map(|crs| crs.to_string());
             let wkb_type = ExtDType::<WellKnownBinary>::try_new(
-                SpatialMetadata { crs },
+                SpatialMetadata::new(crs),
                 DType::Binary(Nullability::Nullable),
             )?
             .erased();
@@ -406,7 +406,9 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             StructArray::try_new(names, children, len, vector.validity_ref(len).to_validity())
                 .map(|a| a.into_array())
         }
-        type_id => vortex_bail!("{type_id:?} flat Vector to Vortex array not supported"),
+        type_id => {
+            vortex_bail!("{type_id:?} flat Vector to Vortex array not supported")
+        }
     }
 }
 
@@ -435,6 +437,7 @@ pub fn data_chunk_to_vortex(
 #[cfg(test)]
 mod tests {
     use std::ffi::CString;
+    use std::sync::LazyLock;
 
     use geo_types::point;
     use vortex::array::VortexSessionExecute;
@@ -448,7 +451,7 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::error::VortexExpect;
     use vortex::mask::Mask;
-    use vortex_array::array_session;
+    use vortex::session::VortexSession;
     use vortex_spatial::extension::WellKnownBinaryData;
     use wkb::writer::WriteOptions;
     use wkb::writer::write_point;
@@ -459,9 +462,11 @@ mod tests {
     use crate::duckdb::LogicalType;
     use crate::duckdb::Vector;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_integer_vector_conversion() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = vec![1i32, 2, 3, 4, 5];
         let len = values.len();
 
@@ -483,7 +488,7 @@ mod tests {
 
     #[test]
     fn test_timestamp_vector_conversion() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = vec![1_703_980_800_000_000_i64, 0i64, -86_400_000_000_i64]; // microseconds
         let len = values.len();
 
@@ -508,7 +513,7 @@ mod tests {
 
     #[test]
     fn test_timestamp_seconds_vector_conversion() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = vec![1_703_980_800_i64, 0i64, -86_400_i64]; // seconds
         let len = values.len();
 
@@ -533,7 +538,7 @@ mod tests {
 
     #[test]
     fn test_timestamp_milliseconds_vector_conversion() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = vec![1_703_980_800_000_i64, 0i64, -86_400_000_i64]; // milliseconds
         let len = values.len();
 
@@ -558,7 +563,7 @@ mod tests {
 
     #[test]
     fn test_timestamp_with_nulls_conversion() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = vec![1_703_980_800_000_000_i64, 0i64, -86_400_000_000_i64];
         let len = values.len();
 
@@ -614,7 +619,7 @@ mod tests {
 
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expected = TemporalArray::new_timestamp(
             PrimitiveArray::from_option_iter(values.into_iter().map(Some)).into_array(),
             TimeUnit::Microseconds,
@@ -625,7 +630,7 @@ mod tests {
 
     #[test]
     fn test_timestamp_single_value() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = vec![1_703_980_800_000_000_i64]; // Single microsecond timestamp
         let len = values.len();
 
@@ -650,7 +655,7 @@ mod tests {
 
     #[test]
     fn test_boolean_vector_conversion() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = vec![true, false, true, false];
         let len = values.len();
 
@@ -671,7 +676,7 @@ mod tests {
 
     #[test]
     fn test_vector_with_nulls() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = vec![1i32, 2, 3];
         let len = values.len();
 
@@ -719,7 +724,7 @@ mod tests {
 
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let vortex_array = result.execute::<ListViewArray>(&mut ctx).unwrap();
 
         assert_eq!(vortex_array.len(), len);
@@ -741,7 +746,7 @@ mod tests {
 
     #[test]
     fn test_fixed_sized_list() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = vec![1i32, 2, 3, 4];
         let len = 1;
 
@@ -780,7 +785,7 @@ mod tests {
 
     #[test]
     fn test_empty_struct() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let len = 4;
         let logical_type = LogicalType::struct_type([], [])
             .vortex_expect("LogicalTypeRef creation should succeed for test data");
@@ -805,7 +810,7 @@ mod tests {
 
     #[test]
     fn test_struct() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values1 = vec![1i32, 2, 3, 4];
         let values2 = vec![5i32, 6, 7, 8];
         let len = values1.len();
@@ -869,7 +874,7 @@ mod tests {
 
     #[test]
     fn test_list_with_trailing_null() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Regression test: when the last list entry is null, its offset/length may be 0/0,
         // so we can't use the last entry to compute child vector length.
         let child_values = vec![1i32, 2, 3, 4];
@@ -924,7 +929,7 @@ mod tests {
 
     #[test]
     fn test_list_out_of_order() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Regression test: list views can be out of order in DuckDB. The child vector length
         // must be computed as the maximum end offset, not just the last entry's end offset.
         let child_values = vec![1i32, 2, 3, 4];
@@ -972,7 +977,7 @@ mod tests {
 
     #[test]
     fn test_list_null_garbage_data() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Test that null list entries with garbage offset/size values don't cause issues.
         // DuckDB doesn't guarantee valid offset/size for null list views, so we must check
         // validity before reading the offset/size values.
@@ -1056,7 +1061,7 @@ mod tests {
 
     #[test]
     fn test_geometry_vector_conversion() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let mut wkb_a: Vec<u8> = Vec::new();
         write_point(
@@ -1104,10 +1109,7 @@ mod tests {
             .into_owned();
         let wkb_data = WellKnownBinaryData::try_from(extension)?;
 
-        assert_eq!(
-            wkb_data.spatial_metadata().crs.as_deref(),
-            Some("EPSG:4326")
-        );
+        assert_eq!(wkb_data.spatial_metadata().get_crs(), Some("EPSG:4326"));
 
         let storage = wkb_data.wkb_values();
         let expected = VarBinViewArray::from_iter_nullable_bin([

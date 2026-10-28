@@ -40,6 +40,11 @@ fn cast_and_execute(
 /// - Casting with nullability changes
 /// - Casting between string types (Utf8/Binary)
 /// - Edge cases like overflow behavior
+///
+/// An encoding that supports nullable dtypes **must** also pass a partially valid array, which
+/// checks the nullability contract of [`CastReduce`].
+///
+/// [`CastReduce`]: crate::scalar_fn::fns::cast::CastReduce
 pub fn test_cast_conformance(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let dtype = array.dtype();
 
@@ -288,7 +293,8 @@ fn test_cast_to_primitive(
     let target_dtype = DType::Primitive(target_ptype, array.dtype().nullability());
     let casted = cast_and_execute(array, target_dtype.clone(), ctx).unwrap_or_else(|e| {
         vortex_panic!(
-            "Cast must succeed because all values are within bounds. {} {}: {e}",
+            e,
+            "Cast must succeed because all values are within bounds. {} {}",
             target_ptype,
             array.display_values(ctx),
         )
@@ -343,7 +349,6 @@ mod tests {
     use super::*;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
     use crate::arrays::NullArray;
@@ -354,7 +359,7 @@ mod tests {
     use crate::dtype::FieldNames;
     use crate::dtype::Nullability;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_cast_conformance_u32() {

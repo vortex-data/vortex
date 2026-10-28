@@ -39,7 +39,7 @@ use crate::OnPairMetadata;
 use crate::compress::onpair_compress;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty();
     crate::initialize(&session);
     session
 });
@@ -635,9 +635,7 @@ fn test_onpair_take_shares_dict() -> vortex_error::VortexResult<()> {
 /// A dictionary whose values are OnPair takes through the kernel instead of decoding every value.
 #[test]
 fn test_dict_over_onpair_uses_take_kernel() -> vortex_error::VortexResult<()> {
-    let session = vortex_array::array_session();
-    crate::initialize(&session);
-    let mut ctx = session.create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
 
     let values = take_input();
     let onpair = compress_onpair(&values.clone().into_array(), &mut ctx)?;

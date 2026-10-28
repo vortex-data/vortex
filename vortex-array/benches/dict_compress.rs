@@ -12,13 +12,15 @@ use rand::distr::StandardUniform;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::dict_test::gen_primitive_for_dict;
 use vortex_array::arrays::dict_test::gen_varbin_words;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::dtype::NativePType;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -44,7 +46,14 @@ const BENCH_ARGS: &[(usize, usize)] = &[
     (2_000, 512),
 ];
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+const DECODE_BENCH_ARGS: &[(usize, usize)] = &[(1_000, 2), (1_000, 512), (2_000, 2), (2_000, 512)];
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>()
+});
 
 #[divan::bench(types = [u8, f32, i64], args = BENCH_ARGS)]
 fn encode_primitives<T>(bencher: Bencher, (len, unique_values): (usize, usize))
@@ -78,7 +87,7 @@ fn encode_varbinview(bencher: Bencher, (len, unique_values): (usize, usize)) {
         .bench_refs(|(arr, ctx)| dict_encode(arr, ctx));
 }
 
-#[divan::bench(types = [u8, f32, i64], args = BENCH_ARGS)]
+#[divan::bench(types = [u8, f32, i64], args = DECODE_BENCH_ARGS)]
 fn decode_primitives<T>(bencher: Bencher, (len, unique_values): (usize, usize))
 where
     T: NativePType,
@@ -94,7 +103,7 @@ where
         .bench_refs(|(dict, ctx)| (**dict).clone().execute::<Canonical>(ctx));
 }
 
-#[divan::bench(args = BENCH_ARGS)]
+#[divan::bench(args = DECODE_BENCH_ARGS)]
 fn decode_varbin(bencher: Bencher, (len, unique_values): (usize, usize)) {
     let varbin_arr = VarBinArray::from(gen_varbin_words(len, unique_values)).into_array();
     let dict = dict_encode(&varbin_arr, &mut SESSION.create_execution_ctx())
@@ -106,7 +115,7 @@ fn decode_varbin(bencher: Bencher, (len, unique_values): (usize, usize)) {
         .bench_refs(|(dict, ctx)| (**dict).clone().execute::<Canonical>(ctx));
 }
 
-#[divan::bench(args = BENCH_ARGS)]
+#[divan::bench(args = DECODE_BENCH_ARGS)]
 fn decode_varbinview(bencher: Bencher, (len, unique_values): (usize, usize)) {
     let varbinview_arr =
         VarBinViewArray::from_iter_str(gen_varbin_words(len, unique_values)).into_array();

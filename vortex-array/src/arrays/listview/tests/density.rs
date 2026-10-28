@@ -4,9 +4,12 @@
 //! Tests for `compute_referenced_elements_mask`, `compute_density`, and
 //! `estimate_density` on `ListViewArray`.
 
+use std::sync::LazyLock;
+
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 use super::common::create_basic_listview;
 use super::common::create_empty_lists_listview;
@@ -25,11 +28,12 @@ use crate::expr::stats::Stat;
 use crate::scalar::ScalarValue;
 use crate::validity::Validity;
 
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
 const EPS: f32 = 1e-6;
 
 fn test_execution_ctx() -> ExecutionCtx {
-    let session = crate::array_session();
-    session.create_execution_ctx()
+    SESSION.create_execution_ctx()
 }
 
 #[test]

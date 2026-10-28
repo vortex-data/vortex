@@ -192,6 +192,8 @@ fn utf8_from_bytes(bytes: &[u8]) -> Result<&str, simdutf8::compat::Utf8Error> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use arrow_array::Array;
     use arrow_array::cast::AsArray;
     use arrow_schema::DataType;
@@ -199,7 +201,6 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinArray;
@@ -212,13 +213,15 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use crate::ArrowSessionExt;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn mask_wrapped_varbin_exports() -> VortexResult<()> {
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let varbin = VarBinArray::from_vec(
             vec!["hello", "world", "vortex"],
@@ -228,7 +231,7 @@ mod tests {
         let masked = MaskFn::try_new(varbin.into_array(), mask.into_array())?.into_array();
 
         let field = Field::new("s", DataType::Utf8, true);
-        let arrow = session
+        let arrow = SESSION
             .arrow()
             .execute_arrow(masked, Some(&field), &mut ctx)?;
 
@@ -275,10 +278,9 @@ mod tests {
         #[case] vortex_array: VarBinViewArray,
         #[case] target_dtype: DataType,
     ) {
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let field = Field::new("test_field", target_dtype.clone(), true);
-        let arrow = session
+        let arrow = SESSION
             .arrow()
             .execute_arrow(vortex_array.into_array(), Some(&field), &mut ctx)
             .unwrap();
@@ -324,10 +326,9 @@ mod tests {
             vortex_dtype,
         );
 
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let field = Field::new("test_field", target_dtype.clone(), true);
-        let arrow = session
+        let arrow = SESSION
             .arrow()
             .execute_arrow(vortex_array.into_array(), Some(&field), &mut ctx)
             .unwrap();
@@ -361,11 +362,10 @@ mod tests {
             b"\xff\xfe invalid utf8".as_slice(),
         ]);
 
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let field = Field::new("test_field", target_dtype, true);
         let result =
-            session
+            SESSION
                 .arrow()
                 .execute_arrow(vortex_array.into_array(), Some(&field), &mut ctx);
 
@@ -379,8 +379,7 @@ mod tests {
     #[case(DataType::Utf8)]
     #[case(DataType::LargeUtf8)]
     fn binary_to_string_rejects_offsets_splitting_a_character(#[case] target_dtype: DataType) {
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = VarBinArray::new(
             buffer![0i32, 1, 2].into_array(),
             ByteBuffer::copy_from("é".as_bytes()),
@@ -389,7 +388,7 @@ mod tests {
             &mut ctx,
         );
         let field = Field::new("test_field", target_dtype, false);
-        let result = session
+        let result = SESSION
             .arrow()
             .execute_arrow(array.into_array(), Some(&field), &mut ctx);
 
@@ -403,8 +402,7 @@ mod tests {
     fn binary_to_string_accepts_multibyte_characters(
         #[case] target_dtype: DataType,
     ) -> VortexResult<()> {
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = VarBinArray::new(
             buffer![0i32, 2, 5].into_array(),
             ByteBuffer::copy_from("é☃".as_bytes()),
@@ -413,7 +411,7 @@ mod tests {
             &mut ctx,
         );
         let field = Field::new("test_field", target_dtype.clone(), false);
-        let arrow = session
+        let arrow = SESSION
             .arrow()
             .execute_arrow(array.into_array(), Some(&field), &mut ctx)?;
 
@@ -436,8 +434,7 @@ mod tests {
         #[case] target_dtype: DataType,
     ) -> VortexResult<()> {
         // Slot 1 is null and its offsets still span two bytes that are not valid UTF-8.
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = VarBinArray::new(
             buffer![0i32, 5, 7, 12].into_array(),
             ByteBuffer::copy_from(b"hello\xff\xfeworld".as_slice()),
@@ -446,7 +443,7 @@ mod tests {
             &mut ctx,
         );
         let field = Field::new("test_field", target_dtype, true);
-        let arrow = session
+        let arrow = SESSION
             .arrow()
             .execute_arrow(array.into_array(), Some(&field), &mut ctx)?;
 
@@ -466,10 +463,9 @@ mod tests {
     #[case(DataType::Binary)]
     #[case(DataType::LargeBinary)]
     fn incompatible_vortex_dtype_returns_error(#[case] target_dtype: DataType) {
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let field = Field::new("test_field", target_dtype, true);
-        let result = session.arrow().execute_arrow(
+        let result = SESSION.arrow().execute_arrow(
             PrimitiveArray::from_iter([1i32, 2, 3]).into_array(),
             Some(&field),
             &mut ctx,
@@ -487,9 +483,8 @@ mod tests {
             .into_array()
             .filter(Mask::from_iter([true, false, false]))?;
 
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
-        let arrow = session
+        let mut ctx = SESSION.create_execution_ctx();
+        let arrow = SESSION
             .arrow()
             .execute_arrow(filtered.into_array(), None, &mut ctx)?;
 

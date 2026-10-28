@@ -89,8 +89,8 @@ logical_plan
 15)----------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
 16)------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_addr_sk, ss_ext_sales_price]
 17)------------------------------Projection: date_dim.d_date_sk
-18)--------------------------------Filter: date_dim.d_year = Int64(1998) AND date_dim.d_moy = Int64(9)
-19)----------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(1998), date_dim.d_moy = Int64(9)]
+18)--------------------------------Filter: date_dim.d_year = Int32(1998) AND date_dim.d_moy = Int32(9)
+19)----------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int32(1998), date_dim.d_moy = Int32(9)]
 20)--------------------------Projection: customer_address.ca_address_sk
 21)----------------------------Filter: customer_address.ca_gmt_offset = Decimal128(-5.00,5,2)
 22)------------------------------TableScan: customer_address projection=[ca_address_sk, ca_gmt_offset], partial_filters=[customer_address.ca_gmt_offset = Decimal128(-5.00,5,2)]
@@ -111,8 +111,8 @@ logical_plan
 37)----------------------------Inner Join: catalog_sales.cs_sold_date_sk = date_dim.d_date_sk
 38)------------------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_bill_addr_sk, cs_item_sk, cs_ext_sales_price]
 39)------------------------------Projection: date_dim.d_date_sk
-40)--------------------------------Filter: date_dim.d_year = Int64(1998) AND date_dim.d_moy = Int64(9)
-41)----------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(1998), date_dim.d_moy = Int64(9)]
+40)--------------------------------Filter: date_dim.d_year = Int32(1998) AND date_dim.d_moy = Int32(9)
+41)----------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int32(1998), date_dim.d_moy = Int32(9)]
 42)--------------------------Projection: customer_address.ca_address_sk
 43)----------------------------Filter: customer_address.ca_gmt_offset = Decimal128(-5.00,5,2)
 44)------------------------------TableScan: customer_address projection=[ca_address_sk, ca_gmt_offset], partial_filters=[customer_address.ca_gmt_offset = Decimal128(-5.00,5,2)]
@@ -133,8 +133,8 @@ logical_plan
 59)----------------------------Inner Join: web_sales.ws_sold_date_sk = date_dim.d_date_sk
 60)------------------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_item_sk, ws_bill_addr_sk, ws_ext_sales_price]
 61)------------------------------Projection: date_dim.d_date_sk
-62)--------------------------------Filter: date_dim.d_year = Int64(1998) AND date_dim.d_moy = Int64(9)
-63)----------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int64(1998), date_dim.d_moy = Int64(9)]
+62)--------------------------------Filter: date_dim.d_year = Int32(1998) AND date_dim.d_moy = Int32(9)
+63)----------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_year = Int32(1998), date_dim.d_moy = Int32(9)]
 64)--------------------------Projection: customer_address.ca_address_sk
 65)----------------------------Filter: customer_address.ca_gmt_offset = Decimal128(-5.00,5,2)
 66)------------------------------TableScan: customer_address projection=[ca_address_sk, ca_gmt_offset], partial_filters=[customer_address.ca_gmt_offset = Decimal128(-5.00,5,2)]

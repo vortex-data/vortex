@@ -254,14 +254,16 @@ impl Display for DuplicateHandling {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
@@ -280,8 +282,10 @@ mod tests {
     use crate::scalar_fn::fns::merge::StructArray;
     use crate::scalar_fn::fns::pack::Pack;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     fn field_array(array: &ArrayRef, field_path: &[&str]) -> VortexResult<ArrayRef> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut field_path = field_path.iter();
 
         let Some(field) = field_path.next() else {
@@ -306,7 +310,7 @@ mod tests {
 
     #[test]
     pub fn test_merge_right_most() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expr = merge_opts(
             vec![
                 get_item("0", root()),
@@ -443,11 +447,7 @@ mod tests {
             crate::validity::Validity::NonNullable,
         )
         .unwrap();
-        assert_arrays_eq!(
-            actual_array,
-            expected,
-            &mut array_session().create_execution_ctx()
-        );
+        assert_arrays_eq!(actual_array, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -488,7 +488,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let actual_array = test_array
             .apply(&expr)
             .unwrap()
@@ -515,7 +515,7 @@ mod tests {
 
     #[test]
     pub fn test_merge_order() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expr = merge(vec![get_item("0", root()), get_item("1", root())]);
 
         let test_array = StructArray::from_fields(&[

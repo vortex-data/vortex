@@ -23,7 +23,10 @@ impl OperationsVTable<Constant> for Constant {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
@@ -33,6 +36,8 @@ mod tests {
     use crate::dtype::PType;
     use crate::dtype::UnionVariants;
     use crate::scalar::Scalar;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn scalar_at_preserves_union_scalar() -> VortexResult<()> {
@@ -52,7 +57,7 @@ mod tests {
             Nullability::Nullable,
         )?;
         let array = ConstantArray::new(scalar.clone(), 3).into_array();
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let actual = array.execute_scalar(1, &mut ctx)?;
         assert_eq!(actual.dtype(), scalar.dtype());

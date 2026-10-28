@@ -13,13 +13,17 @@ mod zip;
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::compute::conformance::consistency::test_array_consistency;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     // Basic bool arrays
@@ -43,9 +47,6 @@ mod tests {
         None, None, Some(true), None, None, None, Some(false), None, None
     ]))]
     fn test_bool_consistency(#[case] array: BoolArray) {
-        test_array_consistency(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_array_consistency(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

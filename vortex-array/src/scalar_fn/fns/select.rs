@@ -346,13 +346,15 @@ impl Display for FieldSelection {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::ScalarFnArray;
@@ -374,6 +376,8 @@ mod tests {
     use crate::scalar_fn::fns::select::Select;
     use crate::scalar_fn::fns::select::StructArray;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
             ("a", buffer![0, 1, 2].into_array()),
@@ -384,7 +388,7 @@ mod tests {
 
     #[test]
     pub fn include_columns() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let st = test_array();
         let select = select(vec![FieldName::from("a")], root());
         let selected = st.into_array().apply(&select).unwrap();
@@ -399,7 +403,7 @@ mod tests {
 
     #[test]
     pub fn exclude_columns() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let st = test_array();
         let select = select_exclude(vec![FieldName::from("a")], root());
         let selected = st.into_array().apply(&select).unwrap();
@@ -484,7 +488,7 @@ mod tests {
             (0..128).map(Scalar::from),
         );
         let array = ConstantArray::new(scalar, 1_000_000).into_array();
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let item: ArrayRef = ScalarFnArray::try_new(
             Select.bind(FieldSelection::Include(FieldNames::from(["f97", "f3"]))),

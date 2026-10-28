@@ -20,7 +20,6 @@ use datafusion_common::exec_datafusion_err;
 use object_store::path::Path;
 use parking_lot::Mutex;
 use url::Url;
-use vortex::array::ArrayRef;
 use vortex::array::buffer::BufferHandle;
 use vortex::buffer::Alignment;
 use vortex::buffer::ByteBuffer;
@@ -43,6 +42,7 @@ use vortex::session::VortexSession;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex::utils::aliases::hash_set::HashSet;
 use vortex_bench::Format;
+use vortex_datafusion::reader::ScanDriver;
 use vortex_datafusion::reader::VortexReaderFactory;
 
 static FACTORY: OnceLock<Arc<MemoryFactory>> = OnceLock::new();
@@ -53,26 +53,40 @@ pub fn prepare(base: &Url, formats: &[Format], cold: bool) -> anyhow::Result<()>
     if backend != "memory" && backend != "memory-per-core" {
         return Ok(());
     }
-    anyhow::ensure!(!cold, "Preloaded memory cannot be labelled a cold-storage run");
-    let base = base.to_file_path().map_err(|_| anyhow::anyhow!("Memory input requires local files"))?;
+    anyhow::ensure!(
+        !cold,
+        "Preloaded memory cannot be labelled a cold-storage run"
+    );
+    let base = base
+        .to_file_path()
+        .map_err(|_| anyhow::anyhow!("Memory input requires local files"))?;
     let started = Instant::now();
     let mut files = HashMap::default();
     for format in formats {
-        anyhow::ensure!(*format == Format::OnDiskVortex, "Memory input requires --formats vortex");
+        anyhow::ensure!(
+            *format == Format::OnDiskVortex,
+            "Memory input requires --formats vortex"
+        );
         preload(&base.join(format.name()), &mut files)?;
     }
     anyhow::ensure!(!files.is_empty(), "No Vortex files found to preload");
     let bytes: usize = files.values().map(ByteBuffer::len).sum();
-    eprintln!("memory_preload {}", serde_json::json!({
-        "files": files.len(), "bytes": bytes, "seconds": started.elapsed().as_secs_f64(),
-    }));
+    eprintln!(
+        "memory_preload {}",
+        serde_json::json!({
+            "files": files.len(), "bytes": bytes, "seconds": started.elapsed().as_secs_f64(),
+        })
+    );
     let workers = if backend == "memory-per-core" {
-        let count = std::env::var("VORTEX_IO_WORKERS").unwrap_or_else(|_| "32".into()).parse()?;
+        let count = std::env::var("VORTEX_IO_WORKERS")
+            .unwrap_or_else(|_| "32".into())
+            .parse()?;
         Some(UringWorkerPool::new(count, UringOptions::default())?)
     } else {
         None
     };
-    FACTORY.set(Arc::new(MemoryFactory { files, workers }))
+    FACTORY
+        .set(Arc::new(MemoryFactory { files, workers }))
         .map_err(|_| anyhow::anyhow!("Memory input already initialized"))?;
     Ok(())
 }
@@ -95,7 +109,9 @@ fn preload(directory: &FsPath, files: &mut HashMap<Path, ByteBuffer>) -> anyhow:
 
 /// Returns the prepared memory reader shared by every table in this process.
 pub fn factory() -> anyhow::Result<Arc<dyn VortexReaderFactory>> {
-    let factory = FACTORY.get().ok_or_else(|| anyhow::anyhow!("Memory input was not preloaded"))?;
+    let factory = FACTORY
+        .get()
+        .ok_or_else(|| anyhow::anyhow!("Memory input was not preloaded"))?;
     Ok(Arc::clone(factory) as _)
 }
 
@@ -106,33 +122,50 @@ struct MemoryFactory {
 
 impl std::fmt::Debug for MemoryFactory {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MemoryFactory").field("files", &self.files.len()).finish_non_exhaustive()
+        f.debug_struct("MemoryFactory")
+            .field("files", &self.files.len())
+            .finish_non_exhaustive()
     }
 }
 
 impl MemoryFactory {
     fn bytes(&self, file: &PartitionedFile) -> DFResult<ByteBuffer> {
-        self.files.get(file.path()).cloned()
+        self.files
+            .get(file.path())
+            .cloned()
             .ok_or_else(|| exec_datafusion_err!("File was not preloaded: {}", file.path()))
     }
 }
 
 impl VortexReaderFactory for MemoryFactory {
-    fn create_reader(&self, file: &PartitionedFile, _session: &VortexSession)
-        -> DFResult<Arc<dyn VortexReadAt>> {
+    fn configure_v2_driver(&self, driver: ScanDriver) -> ScanDriver {
+        match &self.workers {
+            Some(workers) => driver.with_uring_workers(workers.clone()),
+            None => driver,
+        }
+    }
+
+    fn create_reader(
+        &self,
+        file: &PartitionedFile,
+        _session: &VortexSession,
+    ) -> DFResult<Arc<dyn VortexReadAt>> {
         Ok(Arc::new(self.bytes(file)?))
     }
 
-    fn configure_v2_scan(&self, file: &PartitionedFile, _session: &VortexSession,
-        scan: ScanBuilder<ArrayRef>) -> DFResult<ScanBuilder<ArrayRef>> {
+    fn configure_v2_scan(
+        &self,
+        file: &PartitionedFile,
+        _session: &VortexSession,
+        scan: ScanBuilder,
+    ) -> DFResult<ScanBuilder> {
         let bytes = self.bytes(file)?;
         let factory = Arc::new(move || {
-            Ok(Arc::new(MemoryReadAt2 { bytes: bytes.clone(), state: Mutex::default() }) as _)
+            Ok(Arc::new(MemoryReadAt2 {
+                bytes: bytes.clone(),
+                state: Mutex::default(),
+            }) as _)
         });
-        let scan = match &self.workers {
-            Some(workers) => scan.with_uring_workers(workers.clone()),
-            None => scan,
-        };
         Ok(scan.with_io_service(Arc::new(ReadAt2IoService::new(factory))))
     }
 }
@@ -152,9 +185,15 @@ impl MemoryReadAt2 {
     fn read(&self, target: ReadTarget) -> VortexResult<ReadResult> {
         match target {
             ReadTarget::Size => Ok(ReadResult::Size(self.bytes.len() as u64)),
-            ReadTarget::Range { offset, length, alignment } => {
+            ReadTarget::Range {
+                offset,
+                length,
+                alignment,
+            } => {
                 let start = usize::try_from(offset)?;
-                let end = start.checked_add(length).ok_or_else(|| vortex_err!("Read range overflow"))?;
+                let end = start
+                    .checked_add(length)
+                    .ok_or_else(|| vortex_err!("Read range overflow"))?;
                 if end > self.bytes.len() {
                     vortex_bail!("Read range exceeds preloaded file");
                 }
@@ -166,7 +205,9 @@ impl MemoryReadAt2 {
                 let start = self.bytes.len().saturating_sub(length);
                 Ok(ReadResult::Suffix {
                     size: self.bytes.len() as u64,
-                    bytes: BufferHandle::new_host(self.bytes.slice_unaligned(start..).aligned(alignment)),
+                    bytes: BufferHandle::new_host(
+                        self.bytes.slice_unaligned(start..).aligned(alignment),
+                    ),
                 })
             }
         }
@@ -185,13 +226,18 @@ impl VortexReadAt2 for MemoryReadAt2 {
         state.queued.extend(requests.iter().copied());
         let waker = state.waker.take();
         drop(state);
-        if let Some(waker) = waker { waker.wake(); }
+        if let Some(waker) = waker {
+            waker.wake();
+        }
         Ok(())
     }
 
     fn try_complete(&self) -> VortexResult<Option<ReadCompletion>> {
         let request = self.state.lock().queued.pop_front();
-        Ok(request.map(|request| ReadCompletion { id: request.id, result: self.read(request.target) }))
+        Ok(request.map(|request| ReadCompletion {
+            id: request.id,
+            result: self.read(request.target),
+        }))
     }
 
     fn poll_complete(&self, cx: &mut Context<'_>) -> Poll<VortexResult<ReadCompletion>> {
@@ -199,7 +245,10 @@ impl VortexReadAt2 for MemoryReadAt2 {
         match state.queued.pop_front() {
             Some(request) => {
                 drop(state);
-                Poll::Ready(Ok(ReadCompletion { id: request.id, result: self.read(request.target) }))
+                Poll::Ready(Ok(ReadCompletion {
+                    id: request.id,
+                    result: self.read(request.target),
+                }))
             }
             None => {
                 state.waker = Some(cx.waker().clone());
@@ -209,7 +258,8 @@ impl VortexReadAt2 for MemoryReadAt2 {
     }
 
     fn wait(&self) -> VortexResult<ReadCompletion> {
-        self.try_complete()?.ok_or_else(|| vortex_err!("Waiting with no memory read outstanding"))
+        self.try_complete()?
+            .ok_or_else(|| vortex_err!("Waiting with no memory read outstanding"))
     }
 
     fn cancel(&self, id: ReadId) {

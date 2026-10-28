@@ -133,17 +133,21 @@ impl ValidityBuilder {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::BufferAllocatorRef;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use super::ValidityBuilder;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Chunked;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::Nullability::Nullable;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     /// An arbitrary run length. `ValidityBuilder` treats no length specially, so the tests only
     /// need a length long enough to tell runs apart.
@@ -171,7 +175,7 @@ mod tests {
         );
         assert_eq!(
             Validity::Array(array)
-                .execute_mask(2 * RUN_LEN, &mut array_session().create_execution_ctx())
+                .execute_mask(2 * RUN_LEN, &mut SESSION.create_execution_ctx())
                 .unwrap(),
             Mask::from_iter((0..2 * RUN_LEN).map(|i| i % 2 == 0)),
         );
@@ -211,7 +215,7 @@ mod tests {
     /// Bits and runs interleave, and have to come back out in the order they went in.
     #[test]
     fn test_bits_and_runs_keep_their_order() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut builder = ValidityBuilder::new(0, BufferAllocatorRef::static_ref());
 
         builder.append_n_nulls(1);

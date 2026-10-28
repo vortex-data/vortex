@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
 
@@ -22,11 +23,11 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::RunEnd;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::dtype::DType;
@@ -34,7 +35,7 @@ use vortex_array::dtype::FieldNames;
 use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
-use vortex_runend::RunEnd;
+use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
 
@@ -43,6 +44,8 @@ use crate::ArrowExport;
 use crate::ArrowExportVTable;
 use crate::ArrowSession;
 use crate::ArrowSessionExt;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 #[test]
 fn typed_options_are_independent() {
@@ -123,7 +126,7 @@ impl ArrowExportVTable for Plugin {
 
 #[test]
 fn external_options_reach_nested_exporters() -> VortexResult<()> {
-    let session = array_session();
+    let session = VortexSession::empty();
     session.arrow().register_exporter(Arc::new(Plugin));
     let mut ctx = session.create_execution_ctx();
     let child = Field::new("item", DataType::Int32, false).with_metadata(
@@ -309,8 +312,7 @@ fn compaction_option_reaches_nested_views(
     #[values(false, true)] binary: bool,
     #[values(None, Some(false), Some(true))] compact: Option<bool>,
 ) -> VortexResult<()> {
-    let session = array_session();
-    let mut ctx = session.create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let options = compact.map_or_else(ArrowExportOptions::default, |compact| {
         ArrowExportOptions::default().with(CompactBuffers(compact))
     });
@@ -320,7 +322,7 @@ fn compaction_option_reaches_nested_views(
     let expected = expected_sparse_views(binary);
 
     let (array, target) = shape.wrap(view.into_array(), expected.data_type().clone(), &mut ctx)?;
-    let arrow = session.arrow().exporter(&options).execute_arrow(
+    let arrow = SESSION.arrow().exporter(&options).execute_arrow(
         array,
         Some(&Field::new("", target, true)),
         &mut ctx,
@@ -337,12 +339,11 @@ fn compaction_option_reaches_nested_views(
 
 #[rstest]
 fn execute_arrow_compacts_by_default(#[values(false, true)] binary: bool) -> VortexResult<()> {
-    let session = array_session();
-    let mut ctx = session.create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let view = sparse_views(binary, &mut ctx)?;
     let backing = view.data_buffers()[0].as_host().as_ptr();
 
-    let arrow = session
+    let arrow = SESSION
         .arrow()
         .execute_arrow(view.into_array(), None, &mut ctx)?;
 

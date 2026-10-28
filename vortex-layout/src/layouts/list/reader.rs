@@ -622,7 +622,6 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ListArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -637,6 +636,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::LayoutRef;
@@ -852,7 +852,7 @@ mod tests {
     }
 
     fn layout_test_session() -> VortexSession {
-        array_session()
+        VortexSession::empty()
             .with::<LayoutSession>()
             .with::<RuntimeSession>()
     }
@@ -888,7 +888,7 @@ mod tests {
     }
 
     fn create_basic_list_array(nullable: bool) -> ArrayRef {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let validity = if nullable {
             Validity::Array(BoolArray::from_iter([true, false, true]).into_array())
         } else {
@@ -906,7 +906,7 @@ mod tests {
     }
 
     fn create_six_list_array() -> ArrayRef {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let validity = Validity::Array(
             BoolArray::from_iter([true, false, true, false, true, true]).into_array(),
         );
@@ -991,7 +991,7 @@ mod tests {
 
     /// Build a list with 5 rows and lengths [2, 3, 0, 3, 2].
     fn create_wider_list_array(nullable: bool) -> ArrayRef {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let validity = if nullable {
             Validity::Array(BoolArray::from_iter([true, true, false, true, true]).into_array())
         } else {
@@ -1093,7 +1093,7 @@ mod tests {
 
     #[tokio::test]
     async fn nested_list_propagates_element_splits() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let inner = ListArray::try_new(
             PrimitiveArray::from_iter(0..128_i32).into_array(),
             PrimitiveArray::from_iter((0..=8_u32).map(|idx| idx * 16)).into_array(),

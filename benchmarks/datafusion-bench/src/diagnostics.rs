@@ -43,24 +43,44 @@ pub struct ColdPreparation {
 }
 
 impl Diagnostics {
-    pub fn new(output: Option<&Path>, results: Option<PathBuf>, cold: bool,
-        cold_delay: Duration, base: &Url, formats: &[Format]) -> anyhow::Result<Self> {
+    pub fn new(
+        output: Option<&Path>,
+        results: Option<PathBuf>,
+        cold: bool,
+        cold_delay: Duration,
+        base: &Url,
+        formats: &[Format],
+    ) -> anyhow::Result<Self> {
         let mut files = Vec::new();
         if cold {
-            anyhow::ensure!(cfg!(target_os = "linux"), "Cold-cache eviction requires Linux");
-            let base = base.to_file_path().map_err(|_| anyhow::anyhow!("Cold runs require local data"))?;
+            anyhow::ensure!(
+                cfg!(target_os = "linux"),
+                "Cold-cache eviction requires Linux"
+            );
+            let base = base
+                .to_file_path()
+                .map_err(|_| anyhow::anyhow!("Cold runs require local data"))?;
             for format in formats {
                 collect_files(&base.join(format.name()), format.ext(), &mut files)?;
             }
             anyhow::ensure!(!files.is_empty(), "No data files found to evict");
         }
-        if let Some(path) = &results { std::fs::create_dir_all(path)?; }
-        Ok(Self { output: Mutex::new(output.map(File::create).transpose()?), results, files, cold_delay,
-            iterations: Mutex::default() })
+        if let Some(path) = &results {
+            std::fs::create_dir_all(path)?;
+        }
+        Ok(Self {
+            output: Mutex::new(output.map(File::create).transpose()?),
+            results,
+            files,
+            cold_delay,
+            iterations: Mutex::default(),
+        })
     }
 
     pub fn prepare(&self) -> anyhow::Result<Option<ColdPreparation>> {
-        if self.files.is_empty() { return Ok(None); }
+        if self.files.is_empty() {
+            return Ok(None);
+        }
         #[cfg(target_os = "linux")]
         {
             let pacing = if self.cold_delay.is_zero() {
@@ -77,9 +97,15 @@ impl Diagnostics {
             let mappings_released = 0;
             let mapping_release = started.elapsed();
             let mut pages = 0;
-            for path in &self.files { pages += evict_file(path)?; }
+            for path in &self.files {
+                pages += evict_file(path)?;
+            }
             Ok(Some(ColdPreparation {
-                pages, pacing, elapsed: started.elapsed(), mapping_release, mappings_released,
+                pages,
+                pacing,
+                elapsed: started.elapsed(),
+                mapping_release,
+                mappings_released,
             }))
         }
         #[cfg(not(target_os = "linux"))]
@@ -87,9 +113,17 @@ impl Diagnostics {
     }
 
     #[expect(clippy::too_many_arguments)]
-    pub fn record(&self, query: usize, format: Format, time: Duration, before: Snapshot,
-        after: Snapshot, cold: Option<ColdPreparation>, batches: &[RecordBatch], schema: &SchemaRef)
-        -> anyhow::Result<()> {
+    pub fn record(
+        &self,
+        query: usize,
+        format: Format,
+        time: Duration,
+        before: Snapshot,
+        after: Snapshot,
+        cold: Option<ColdPreparation>,
+        batches: &[RecordBatch],
+        schema: &SchemaRef,
+    ) -> anyhow::Result<()> {
         let key = format!("{}-q{query}", format.name());
         let iteration = {
             let mut iterations = self.iterations.lock();
@@ -125,21 +159,36 @@ impl Diagnostics {
             writeln!(output)?;
             output.flush()?;
         }
-        if iteration == 0 && let Some(directory) = &self.results {
-            let mut writer = FileWriter::try_new(File::create(directory.join(format!("{key}.arrow")))?, schema)?;
-            for batch in batches { writer.write(batch)?; }
+        if iteration == 0
+            && let Some(directory) = &self.results
+        {
+            let mut writer = FileWriter::try_new(
+                File::create(directory.join(format!("{key}.arrow")))?,
+                schema,
+            )?;
+            for batch in batches {
+                writer.write(batch)?;
+            }
             writer.finish()?;
         }
         Ok(())
     }
 }
 
-fn collect_files(directory: &Path, extension: &str, files: &mut Vec<PathBuf>) -> anyhow::Result<()> {
+fn collect_files(
+    directory: &Path,
+    extension: &str,
+    files: &mut Vec<PathBuf>,
+) -> anyhow::Result<()> {
     for entry in std::fs::read_dir(directory)? {
         let entry = entry?;
         if entry.file_type()?.is_dir() {
             collect_files(&entry.path(), extension, files)?;
-        } else if entry.path().extension().is_some_and(|value| value == extension) {
+        } else if entry
+            .path()
+            .extension()
+            .is_some_and(|value| value == extension)
+        {
             files.push(entry.path());
         }
     }
@@ -174,9 +223,8 @@ struct ProcessStats {
 impl ProcessStats {
     #[cfg(target_os = "linux")]
     fn take() -> Option<Self> {
-        static ENABLED: LazyLock<bool> = LazyLock::new(|| {
-            std::env::var("VORTEX_BENCH_PROCESS_STATS").as_deref() == Ok("1")
-        });
+        static ENABLED: LazyLock<bool> =
+            LazyLock::new(|| std::env::var("VORTEX_BENCH_PROCESS_STATS").as_deref() == Ok("1"));
         if !*ENABLED {
             return None;
         }
@@ -188,7 +236,9 @@ impl ProcessStats {
         // SAFETY: the successful call above initialized the entire structure.
         let usage = unsafe { usage.assume_init() };
         let micros = |time: libc::timeval| -> Option<u64> {
-            u64::try_from(time.tv_sec).ok()?.checked_mul(1_000_000)?
+            u64::try_from(time.tv_sec)
+                .ok()?
+                .checked_mul(1_000_000)?
                 .checked_add(u64::try_from(time.tv_usec).ok()?)
         };
         Some(Self {
@@ -220,21 +270,40 @@ impl ProcessStats {
 
 impl Snapshot {
     pub fn take() -> Self {
-        let unix_ns = SystemTime::now().duration_since(UNIX_EPOCH).ok()
+        let unix_ns = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .ok()
             .and_then(|duration| u64::try_from(duration.as_nanos()).ok());
         let process = ProcessStats::take();
-        let read_bytes = std::fs::read_to_string("/proc/self/io").ok().and_then(|value| {
-            value.lines().find_map(|line| line.strip_prefix("read_bytes: ")?.trim().parse().ok())
-        });
+        let read_bytes = std::fs::read_to_string("/proc/self/io")
+            .ok()
+            .and_then(|value| {
+                value
+                    .lines()
+                    .find_map(|line| line.strip_prefix("read_bytes: ")?.trim().parse().ok())
+            });
         #[cfg(all(target_os = "linux", feature = "io-uring"))]
         {
             let stats = datafusion_bench::uring::snapshot();
-            Self { unix_ns, process, read_bytes, logical_reads: stats.logical_reads, logical_bytes: stats.logical_bytes,
-                physical_reads: stats.physical_reads, physical_bytes: stats.physical_bytes,
-                resident_reads: stats.resident_reads, resident_bytes: stats.resident_bytes }
+            Self {
+                unix_ns,
+                process,
+                read_bytes,
+                logical_reads: stats.logical_reads,
+                logical_bytes: stats.logical_bytes,
+                physical_reads: stats.physical_reads,
+                physical_bytes: stats.physical_bytes,
+                resident_reads: stats.resident_reads,
+                resident_bytes: stats.resident_bytes,
+            }
         }
         #[cfg(not(all(target_os = "linux", feature = "io-uring")))]
-        Self { unix_ns, process, read_bytes, ..Self::default() }
+        Self {
+            unix_ns,
+            process,
+            read_bytes,
+            ..Self::default()
+        }
     }
 }
 
@@ -242,16 +311,28 @@ impl Snapshot {
 fn evict_file(path: &Path) -> anyhow::Result<usize> {
     let file = File::open(path)?;
     let length = usize::try_from(file.metadata()?.len())?;
-    if length == 0 { return Ok(0); }
+    if length == 0 {
+        return Ok(0);
+    }
     // SAFETY: sysconf has no pointer arguments.
     let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
     anyhow::ensure!(page_size > 0, "Could not determine page size");
     let pages = length.div_ceil(page_size as usize);
     // SAFETY: mapping a valid file with PROT_NONE does not access or fault in data. We never
     // dereference the mapping; it is used only to query residency and is then unmapped.
-    let mapping = unsafe { libc::mmap(std::ptr::null_mut(), length, libc::PROT_NONE,
-        libc::MAP_SHARED, file.as_raw_fd(), 0) };
-    if mapping == libc::MAP_FAILED { return Err(std::io::Error::last_os_error().into()); }
+    let mapping = unsafe {
+        libc::mmap(
+            std::ptr::null_mut(),
+            length,
+            libc::PROT_NONE,
+            libc::MAP_SHARED,
+            file.as_raw_fd(),
+            0,
+        )
+    };
+    if mapping == libc::MAP_FAILED {
+        return Err(std::io::Error::last_os_error().into());
+    }
     let mut residency = vec![0u8; pages];
     // DONTNEED is advisory and does not guarantee immediate eviction. Retry outside the
     // timed region, requiring the same zero-residency condition on every run.
@@ -259,22 +340,32 @@ fn evict_file(path: &Path) -> anyhow::Result<usize> {
         let mut resident = pages;
         for _ in 0..100 {
             // SAFETY: the descriptor remains open; this only advises on its cache pages.
-            let error = unsafe {
-                libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED)
-            };
-            if error != 0 { return Err(std::io::Error::from_raw_os_error(error).into()); }
+            let error =
+                unsafe { libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED) };
+            if error != 0 {
+                return Err(std::io::Error::from_raw_os_error(error).into());
+            }
             // SAFETY: the mapping is page-aligned and alive, and residency has one byte per page.
             let result = unsafe { libc::mincore(mapping, length, residency.as_mut_ptr()) };
-            if result != 0 { return Err(std::io::Error::last_os_error().into()); }
+            if result != 0 {
+                return Err(std::io::Error::last_os_error().into());
+            }
             resident = residency.iter().filter(|value| **value & 1 != 0).count();
-            if resident == 0 { return Ok(()); }
+            if resident == 0 {
+                return Ok(());
+            }
             std::thread::sleep(Duration::from_millis(1));
         }
-        anyhow::bail!("{} still has {resident}/{pages} resident pages after eviction", path.display())
+        anyhow::bail!(
+            "{} still has {resident}/{pages} resident pages after eviction",
+            path.display()
+        )
     })();
     // SAFETY: this is exactly the mapping and length returned above, with no remaining users.
     let unmap = unsafe { libc::munmap(mapping, length) };
     evicted?;
-    if unmap != 0 { return Err(std::io::Error::last_os_error().into()); }
+    if unmap != 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
     Ok(pages)
 }

@@ -156,7 +156,7 @@ mod tests {
     use crate::scalar_fn::fns::cast::Cast;
     use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn null_struct_cast_execute_parent(
         child: &ArrayRef,

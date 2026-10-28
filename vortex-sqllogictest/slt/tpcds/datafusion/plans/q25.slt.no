@@ -67,16 +67,16 @@ logical_plan
 20)------------------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_bill_customer_sk, cs_item_sk, cs_net_profit]
 21)--------------------------SubqueryAlias: d1
 22)----------------------------Projection: date_dim.d_date_sk
-23)------------------------------Filter: date_dim.d_moy = Int64(4) AND date_dim.d_year = Int64(2001)
-24)--------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy = Int64(4), date_dim.d_year = Int64(2001)]
+23)------------------------------Filter: date_dim.d_moy = Int32(4) AND date_dim.d_year = Int32(2001)
+24)--------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy = Int32(4), date_dim.d_year = Int32(2001)]
 25)----------------------SubqueryAlias: d2
 26)------------------------Projection: date_dim.d_date_sk
-27)--------------------------Filter: date_dim.d_moy >= Int64(4) AND date_dim.d_moy <= Int64(10) AND date_dim.d_year = Int64(2001)
-28)----------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy >= Int64(4), date_dim.d_moy <= Int64(10), date_dim.d_year = Int64(2001)]
+27)--------------------------Filter: date_dim.d_moy >= Int32(4) AND date_dim.d_moy <= Int32(10) AND date_dim.d_year = Int32(2001)
+28)----------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy >= Int32(4), date_dim.d_moy <= Int32(10), date_dim.d_year = Int32(2001)]
 29)------------------SubqueryAlias: d3
 30)--------------------Projection: date_dim.d_date_sk
-31)----------------------Filter: date_dim.d_moy >= Int64(4) AND date_dim.d_moy <= Int64(10) AND date_dim.d_year = Int64(2001)
-32)------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy >= Int64(4), date_dim.d_moy <= Int64(10), date_dim.d_year = Int64(2001)]
+31)----------------------Filter: date_dim.d_moy >= Int32(4) AND date_dim.d_moy <= Int32(10) AND date_dim.d_year = Int32(2001)
+32)------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy >= Int32(4), date_dim.d_moy <= Int32(10), date_dim.d_year = Int32(2001)]
 33)--------------TableScan: store projection=[s_store_sk, s_store_id, s_store_name]
 34)----------TableScan: item projection=[i_item_sk, i_item_id, i_item_desc]
 physical_plan
@@ -101,9 +101,7 @@ physical_plan
 19)----------------------------RepartitionExec: partitioning=Hash([cs_bill_customer_sk@1, cs_item_sk@2], 4), input_partitions=4
 20)------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_bill_customer_sk, cs_item_sk, cs_net_profit], file_type=vortex
 21)----------------------------RepartitionExec: partitioning=Hash([sr_customer_sk@6, sr_item_sk@5], 4), input_partitions=4
-22)------------------------------HashJoinExec: mode=Partitioned, join_type=Inner, on=[(sr_customer_sk@2, ss_customer_sk@2), (sr_item_sk@1, ss_item_sk@1), (sr_ticket_number@3, ss_ticket_number@4)], projection=[ss_sold_date_sk@5, ss_item_sk@6, ss_store_sk@8, ss_net_profit@10, sr_returned_date_sk@0, sr_item_sk@1, sr_customer_sk@2, sr_net_loss@4]
-23)--------------------------------RepartitionExec: partitioning=Hash([sr_customer_sk@2, sr_item_sk@1, sr_ticket_number@3], 4), input_partitions=4
-24)----------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_returned_date_sk, sr_item_sk, sr_customer_sk, sr_ticket_number, sr_net_loss], file_type=vortex
-25)--------------------------------RepartitionExec: partitioning=Hash([ss_customer_sk@2, ss_item_sk@1, ss_ticket_number@4], 4), input_partitions=4
-26)----------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_customer_sk, ss_store_sk, ss_ticket_number, ss_net_profit], file_type=vortex
-27)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_item_id, i_item_desc], file_type=vortex
+22)------------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(sr_customer_sk@2, ss_customer_sk@2), (sr_item_sk@1, ss_item_sk@1), (sr_ticket_number@3, ss_ticket_number@4)], projection=[ss_sold_date_sk@5, ss_item_sk@6, ss_store_sk@8, ss_net_profit@10, sr_returned_date_sk@0, sr_item_sk@1, sr_customer_sk@2, sr_net_loss@4]
+23)--------------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store_returns.vortex]]}, projection=[sr_returned_date_sk, sr_item_sk, sr_customer_sk, sr_ticket_number, sr_net_loss], file_type=vortex
+24)--------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_customer_sk, ss_store_sk, ss_ticket_number, ss_net_profit], file_type=vortex
+25)----------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/item.vortex]]}, projection=[i_item_sk, i_item_id, i_item_desc], file_type=vortex

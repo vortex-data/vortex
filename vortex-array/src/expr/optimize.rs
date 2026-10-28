@@ -122,14 +122,16 @@ impl BoundExpression {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
@@ -150,10 +152,11 @@ mod tests {
     use crate::expr::pack;
     use crate::expr::root;
     use crate::expr::select;
-    use crate::expr::transform::replace;
     use crate::expr::zip_expr;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::literal::Literal;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn optimize_or_chain_correctness() -> VortexResult<()> {
@@ -176,7 +179,7 @@ mod tests {
         assert_arrays_eq!(
             actual,
             BoolArray::from_iter([false, true, true, false]),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }
@@ -253,6 +256,13 @@ mod tests {
         );
         let scope = DType::Struct(fields, Nullability::NonNullable);
 
+        let root_pack = pack(
+            field_names
+                .iter()
+                .map(|name| (name.clone(), get_item(name.clone(), root())))
+                .collect::<Vec<_>>(),
+            Nullability::NonNullable,
+        );
         let expr = select(
             field_names
                 .iter()
@@ -260,7 +270,7 @@ mod tests {
                 .chain(["input_row_idx".into(), "input_file_idx".into()])
                 .collect::<Vec<_>>(),
             merge([
-                root(),
+                root_pack,
                 pack(
                     [
                         ("input_row_idx", lit(0_u64)),
@@ -270,14 +280,6 @@ mod tests {
                 ),
             ]),
         );
-        let root_pack = pack(
-            field_names
-                .iter()
-                .map(|name| (name.clone(), get_item(name.clone(), root())))
-                .collect::<Vec<_>>(),
-            Nullability::NonNullable,
-        );
-        let expr = replace(expr, &root(), root_pack);
 
         let expected = pack(
             field_names

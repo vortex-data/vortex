@@ -65,6 +65,9 @@ pub enum Progress {
     Batch(Batch),
     /// Every item descended from the root has retired, and its IO session was cleared.
     RootDone(RootId),
+    /// A planner declared this child independent. The run has not queued it: the owner runs it,
+    /// on this run as another root through [`Run::admit`] or on a run of its own elsewhere.
+    Spawn(WorkScope, Box<dyn Planner>),
     /// Every live item waits for IO. Await [`Run::poll_completion`], or pass the next completion
     /// to [`Run::complete`].
     Waiting,
@@ -462,6 +465,10 @@ impl Run {
                 self.spawn(work.root, scope, Item::Morsel(morsel), path);
                 self.queue.insert(work);
             }
+            Output::Planner(PlannerOutput::Spawn(scope, child)) => {
+                self.events.push_back(Progress::Spawn(scope, child));
+                self.queue.insert(work);
+            }
             Output::Morsel(MorselOutput::Batch(array)) => {
                 if array.is_empty() {
                     vortex_bail!("morsel for scope {:?} returned an empty batch", work.scope);
@@ -527,7 +534,8 @@ impl Driver {
         }
     }
 
-    /// Runs `root` and everything it spawns, returning batches in emission order.
+    /// Runs `root` and everything it spawns, returning batches in emission order. A planner
+    /// spawned as independent runs as another root of the same run.
     pub fn run(&self, root: Box<dyn Planner>) -> VortexResult<Vec<Batch>> {
         let mut run = Run::new();
         run.step_limit = self.step_limit;
@@ -540,6 +548,10 @@ impl Driver {
         loop {
             match run.advance()? {
                 Progress::Batch(batch) => batches.push(batch),
+                Progress::Spawn(scope, child) => {
+                    run.admit(child, scope, Arc::clone(&self.io));
+                }
+                Progress::RootDone(_) if run.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => return Ok(batches),
                 Progress::Waiting => run.complete(self.io.wait()?)?,
             }

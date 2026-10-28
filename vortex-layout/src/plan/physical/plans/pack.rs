@@ -12,9 +12,6 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
-use vortex_array::expr::descendent_bound_annotations;
-use vortex_array::expr::make_bound_free_field_annotator;
-use vortex_array::expr::transform::partition_bound;
 use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
 use vortex_array::expr::traversal::TraversalOrder;
@@ -28,7 +25,11 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_expr::descendent_bound_annotations;
+use vortex_expr::make_bound_free_field_annotator;
+use vortex_expr::transform::partition_bound;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::plan::physical::Eval;
@@ -46,8 +47,6 @@ use crate::plan::physical::operators::empty_struct;
 use crate::plan::physical::optimizer::PlanParentReduceRule;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
-use crate::plan::physical::pipeline::Reach;
-use crate::segments::SegmentId;
 
 /// Assembles a struct from one child per field, plus an optional trailing validity child.
 #[derive(Clone, Debug)]
@@ -251,18 +250,6 @@ impl PlanVTable for Pack {
         let source = PackSource::new(plan.fields().clone(), nullable, count);
         Ok(Some(compiler.join(chains, source)))
     }
-
-    fn reach(
-        plan: &Plan<Self>,
-        rows: Range<u64>,
-        at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
-    ) -> VortexResult<()> {
-        for child in plan.children().iter_refs() {
-            child?.reach(rows.clone(), at, visit)?;
-        }
-        Ok(())
-    }
 }
 
 fn validate_field_child(
@@ -344,6 +331,7 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
         child: &Plan<Pack>,
         parent: &Plan<Eval>,
         _child_idx: usize,
+        _session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
         if child.dtype().is_nullable() {
             return Ok(None);
@@ -382,9 +370,7 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
                 })
                 .collect::<VortexResult<Vec<_>>>()?;
             let rewritten = child.with_pruned_fields(pruned_fields)?.into_plan();
-            return Ok(Some(
-                EvalPlan::try_new(expanded, rewritten)?.into_plan(),
-            ));
+            return Ok(Some(EvalPlan::try_new(expanded, rewritten)?.into_plan()));
         }
 
         if partitioned.partition_names.len() == 1 {

@@ -283,7 +283,9 @@ impl AggregateFnVTable for Sum {
                 }
                 Canonical::Bool(b) => accumulate_bool(&mut inner, b, ctx),
                 Canonical::Decimal(d) => accumulate_decimal(&mut inner, args.return_dtype, d, ctx),
-                _ => vortex_bail!("Unsupported canonical type for sum: {}", batch.dtype()),
+                _ => {
+                    vortex_bail!("Unsupported canonical type for sum: {}", batch.dtype())
+                }
             },
             Columnar::Constant(_) => unreachable!(),
         };
@@ -442,9 +444,12 @@ fn checked_add_i64(acc: &mut i64, val: i64) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
@@ -460,7 +465,6 @@ mod tests {
     use crate::aggregate_fn::fns::sum::SumPartial;
     use crate::aggregate_fn::fns::sum::SumState;
     use crate::aggregate_fn::fns::sum::sum;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
@@ -482,11 +486,13 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     // Multi-batch and reset tests
 
     #[test]
     fn sum_multi_batch() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(Sum, NumericalAggregateOpts::default(), dtype)?;
 
@@ -503,7 +509,7 @@ mod tests {
 
     #[test]
     fn sum_finish_resets_state() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(Sum, NumericalAggregateOpts::default(), dtype)?;
 
@@ -568,7 +574,7 @@ mod tests {
         )
         .vortex_expect("operation should succeed in test");
         let array = array.into_array();
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut acc = Accumulator::try_new(
             Sum,
             NumericalAggregateOpts::default(),
@@ -579,7 +585,7 @@ mod tests {
         assert_eq!(acc.finish()?, Scalar::primitive(11i64, Nullable));
         assert_eq!(array.statistics().get(Stat::Sum), Precision::exact(9i64));
 
-        let sum_without_acc = sum(&array, &mut array_session().create_execution_ctx())?;
+        let sum_without_acc = sum(&array, &mut SESSION.create_execution_ctx())?;
         assert_eq!(sum_without_acc, Scalar::primitive(9i64, Nullable));
         Ok(())
     }
@@ -597,7 +603,7 @@ mod tests {
             array.dtype().clone(),
         )?;
         accumulator.combine_partials(&Scalar::primitive(acc, Nullable))?;
-        accumulator.accumulate(&array, &mut array_session().create_execution_ctx())?;
+        accumulator.accumulate(&array, &mut SESSION.create_execution_ctx())?;
         let result = accumulator.finish()?;
         assert_eq!(
             f64::try_from(&result).vortex_expect("operation should succeed in test"),
@@ -614,13 +620,13 @@ mod tests {
             NumericalAggregateOpts::default(),
             elem_dtype.clone(),
         )?;
-        acc.accumulate_list(groups, &mut array_session().create_execution_ctx())?;
+        acc.accumulate_list(groups, &mut SESSION.create_execution_ctx())?;
         acc.finish()
     }
 
     #[test]
     fn grouped_sum_fixed_size_list() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let elements =
             PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5, 6], Validity::NonNullable).into_array();
         let groups = FixedSizeListArray::try_new(elements, 3, Validity::NonNullable, 2)?;
@@ -635,7 +641,7 @@ mod tests {
 
     #[test]
     fn grouped_sum_with_null_elements() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let elements =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, Some(5), Some(6)])
                 .into_array();
@@ -651,7 +657,7 @@ mod tests {
 
     #[test]
     fn grouped_sum_with_null_group() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let elements =
             PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9], Validity::NonNullable)
                 .into_array();
@@ -669,7 +675,7 @@ mod tests {
 
     #[test]
     fn grouped_sum_all_null_elements_in_group() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let elements =
             PrimitiveArray::from_option_iter([None::<i32>, None, Some(3), Some(4)]).into_array();
         let groups = FixedSizeListArray::try_new(elements, 2, Validity::NonNullable, 2)?;
@@ -684,7 +690,7 @@ mod tests {
 
     #[test]
     fn grouped_sum_bool() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let elements: BoolArray = [true, false, true, true, true, true].into_iter().collect();
         let groups =
             FixedSizeListArray::try_new(elements.into_array(), 3, Validity::NonNullable, 2)?;
@@ -699,7 +705,7 @@ mod tests {
 
     #[test]
     fn grouped_sum_finish_resets() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let elem_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let mut acc =
             GroupedAccumulator::try_new(Sum, NumericalAggregateOpts::default(), elem_dtype)?;
@@ -725,7 +731,7 @@ mod tests {
 
     #[test]
     fn grouped_sum_listview_out_of_order_offsets_with_null_group() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let elements =
             PrimitiveArray::new(buffer![100i32, 200, 300], Validity::NonNullable).into_array();
         let offsets = PrimitiveArray::new(buffer![2i32, 0, 1], Validity::NonNullable).into_array();
@@ -762,10 +768,7 @@ mod tests {
             dtype,
         )?;
 
-        let result = sum(
-            &chunked.into_array(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        let result = sum(&chunked.into_array(), &mut SESSION.create_execution_ctx())?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(20.8));
         Ok(())
     }
@@ -776,10 +779,7 @@ mod tests {
         let chunk2 = PrimitiveArray::from_option_iter::<f32, _>(vec![None, None]);
         let dtype = chunk1.dtype().clone();
         let chunked = ChunkedArray::try_new(vec![chunk1.into_array(), chunk2.into_array()], dtype)?;
-        let result = sum(
-            &chunked.into_array(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        let result = sum(&chunked.into_array(), &mut SESSION.create_execution_ctx())?;
         assert_eq!(result, Scalar::primitive(0f64, Nullable));
         Ok(())
     }
@@ -799,10 +799,7 @@ mod tests {
             dtype,
         )?;
 
-        let result = sum(
-            &chunked.into_array(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        let result = sum(&chunked.into_array(), &mut SESSION.create_execution_ctx())?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(36.0));
         Ok(())
     }
@@ -814,10 +811,7 @@ mod tests {
         let dtype = chunk1.dtype().clone();
         let chunked = ChunkedArray::try_new(vec![chunk1.into_array(), chunk2.into_array()], dtype)?;
 
-        let result = sum(
-            &chunked.into_array(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        let result = sum(&chunked.into_array(), &mut SESSION.create_execution_ctx())?;
         assert_eq!(result.as_primitive().as_::<u64>(), Some(1));
         Ok(())
     }
@@ -846,10 +840,7 @@ mod tests {
             dtype,
         )?;
 
-        let result = sum(
-            &chunked.into_array(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        let result = sum(&chunked.into_array(), &mut SESSION.create_execution_ctx())?;
         let decimal_result = result.as_decimal();
         assert_eq!(
             decimal_result.decimal_value(),
@@ -882,10 +873,7 @@ mod tests {
             dtype,
         )?;
 
-        let result = sum(
-            &chunked.into_array(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        let result = sum(&chunked.into_array(), &mut SESSION.create_execution_ctx())?;
         let decimal_result = result.as_decimal();
         assert_eq!(
             decimal_result.decimal_value(),
@@ -916,10 +904,7 @@ mod tests {
         let dtype = chunk1.dtype().clone();
         let chunked = ChunkedArray::try_new(vec![chunk1.into_array(), chunk2.into_array()], dtype)?;
 
-        let result = sum(
-            &chunked.into_array(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        let result = sum(&chunked.into_array(), &mut SESSION.create_execution_ctx())?;
         let decimal_result = result.as_decimal();
         assert_eq!(
             decimal_result.decimal_value(),

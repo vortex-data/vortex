@@ -40,11 +40,6 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use cudarc::driver::CudaSlice;
-use cudarc::driver::DevicePtr;
-use cudarc::driver::DeviceRepr;
-use cudarc::driver::LaunchConfig;
-use cudarc::driver::PushKernelArg;
 use num_traits::AsPrimitive;
 use tracing::instrument;
 use vortex::array::ArrayRef;
@@ -71,6 +66,11 @@ use vortex::error::vortex_ensure;
 use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex_array::ArrayView;
+use vortex_cuda_driver::CudaSlice;
+use vortex_cuda_driver::DevicePtr;
+use vortex_cuda_driver::DeviceRepr;
+use vortex_cuda_driver::LaunchConfig;
+use vortex_cuda_driver::PushKernelArg;
 use vortex_onpair::DictionaryView;
 use vortex_onpair::MAX_TOKEN_SIZE;
 use vortex_onpair::OnPair;
@@ -309,7 +309,9 @@ async fn decode_onpair_bytes(
     match codes.ptype() {
         PType::U8 => decode_window::<u8>(codes, codes_offsets, lengths, dict, ctx).await,
         PType::U16 => decode_window::<u16>(codes, codes_offsets, lengths, dict, ctx).await,
-        other => vortex_bail!("OnPair codes must decompress to u8 or u16, got {other}"),
+        other => {
+            vortex_bail!("OnPair codes must decompress to u8 or u16, got {other}")
+        }
     }
 }
 
@@ -662,6 +664,8 @@ fn sum_lengths(lengths: &PrimitiveArray) -> VortexResult<u64> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use rstest::rstest;
@@ -671,6 +675,7 @@ mod tests {
     use vortex::buffer::Buffer;
     use vortex::dtype::Nullability;
     use vortex::error::VortexExpect;
+    use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
     use vortex_onpair::DEFAULT_CONFIG;
     use vortex_onpair::onpair_compress;
@@ -684,8 +689,10 @@ mod tests {
     use crate::session::CudaSession;
     use crate::session::VarBinExportLayout;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     fn cuda_ctx_with_varbin_layout(layout: VarBinExportLayout) -> VortexResult<CudaExecutionCtx> {
-        let session = vortex::array::array_session()
+        let session = VortexSession::empty()
             .with_some(CudaSession::try_default()?.with_varbin_export_layout(layout));
         CudaSession::create_execution_ctx(&session)
     }
@@ -751,7 +758,7 @@ mod tests {
         #[case] strings: Vec<Option<&'static [u8]>>,
         #[case] dtype: DType,
     ) -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -777,7 +784,7 @@ mod tests {
     /// which is what panicked with "expected host buffer" on `taxi` and TPC-H `l_comment`.
     #[crate::test]
     async fn test_cuda_onpair_device_resident_dictionary() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -825,7 +832,7 @@ mod tests {
     /// so this exercises the nonzero `code_start` window.
     #[crate::test]
     async fn test_cuda_onpair_decompression_sliced() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
         let values = vec![
@@ -854,7 +861,7 @@ mod tests {
     /// empty-views path.
     #[crate::test]
     async fn test_cuda_onpair_decompression_null_slice() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
         let values = vec![Some(&b"alpha"[..]), None, None, Some(&b"omega"[..])];
@@ -876,7 +883,7 @@ mod tests {
     /// Exercises many 128-token batches and the multi-block decode grid.
     #[crate::test]
     async fn test_cuda_onpair_decompression_roundtrip_large() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -910,7 +917,7 @@ mod tests {
     /// exact-sized decoded window allocation.
     #[crate::test]
     async fn test_cuda_onpair_decompression_sliced_large() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -950,7 +957,7 @@ mod tests {
     /// exactly the byte `b` and every row is coded byte per byte.
     #[crate::test]
     async fn test_cuda_onpair_decompression_u8_codes() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 

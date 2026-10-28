@@ -94,7 +94,7 @@ pub fn bitpack_encode_blocked(
     let num_blocks = array.len().div_ceil(FL_CHUNK_SIZE);
     vortex_ensure!(
         bit_widths.len() == num_blocks,
-        InvalidArgument: "Expected {num_blocks} bit widths, got {}",
+        "Expected {num_blocks} bit widths, got {}",
         bit_widths.len()
     );
     validate_bit_widths(bit_widths, array.ptype())?;
@@ -133,13 +133,13 @@ fn validate_bit_widths(bit_widths: &[u8], ptype: PType) -> VortexResult<()> {
         let bit_width = usize::from(bit_width);
         vortex_ensure!(
             bit_width <= max_bit_width,
-            InvalidArgument: "Bit widths must be at most {max_bit_width} for {ptype}"
+            "Bit widths must be at most {max_bit_width} for {ptype}"
         );
         has_packed_block |= bit_width < max_bit_width;
     }
     vortex_ensure!(
         bit_widths.is_empty() || has_packed_block,
-        InvalidArgument: "Cannot pack: all blocks use the native bit width {max_bit_width}"
+        "Cannot pack: all blocks use the native bit width {max_bit_width}"
     );
     Ok(())
 }
@@ -343,7 +343,6 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
-    use vortex_error::VortexError;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
@@ -355,7 +354,7 @@ mod tests {
     use crate::bitpacking::array::BitPackedArrayExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -542,33 +541,43 @@ mod tests {
     }
 
     #[rstest]
-    #[case::negative(PrimitiveArray::from_iter(-5i64..5))]
-    #[case::float(PrimitiveArray::from_iter([1.0f32, 2.0]))]
-    fn encode_blocked_rejects_invalid_values(#[case] array: PrimitiveArray) {
+    #[case::negative(
+        PrimitiveArray::from_iter(-5i64..5),
+        "cannot bitpack array containing negative integers"
+    )]
+    #[case::float(PrimitiveArray::from_iter([1.0f32, 2.0]), "cannot bitpack f32 array")]
+    fn encode_blocked_rejects_invalid_values(
+        #[case] array: PrimitiveArray,
+        #[case] expected: &str,
+    ) {
         let mut ctx = SESSION.create_execution_ctx();
-        assert!(matches!(
-            bitpack_blocked_to_best_bit_widths(&array, &mut ctx).unwrap_err(),
-            VortexError::InvalidArgument(_, _)
-        ));
-        assert!(matches!(
-            BitPackedData::encode_blocked(&array.into_array(), &[1], &mut ctx).unwrap_err(),
-            VortexError::InvalidArgument(_, _)
-        ));
+        let err = bitpack_blocked_to_best_bit_widths(&array, &mut ctx)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains(expected), "{err}");
+        let err = BitPackedData::encode_blocked(&array.into_array(), &[1], &mut ctx)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains(expected), "{err}");
     }
 
     #[rstest]
-    #[case::too_few(vec![3])]
-    #[case::too_many(vec![3, 3, 3])]
-    #[case::wider_than_type(vec![3, 33])]
-    fn encode_blocked_rejects_invalid_bit_widths(#[case] bit_widths: Vec<u8>) {
+    #[case::too_few(vec![3], "Expected 2 bit widths, got 1")]
+    #[case::too_many(vec![3, 3, 3], "Expected 2 bit widths, got 3")]
+    #[case::wider_than_type(vec![3, 33], "Bit widths must be at most 32 for u32")]
+    fn encode_blocked_rejects_invalid_bit_widths(
+        #[case] bit_widths: Vec<u8>,
+        #[case] expected: &str,
+    ) {
         let array = PrimitiveArray::from_iter((0..2048u32).map(|i| i % 8));
         let err = BitPackedData::encode_blocked(
             &array.into_array(),
             &bit_widths,
             &mut SESSION.create_execution_ctx(),
         )
-        .unwrap_err();
-        assert!(matches!(err, VortexError::InvalidArgument(_, _)));
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains(expected), "{err}");
     }
 
     #[test]

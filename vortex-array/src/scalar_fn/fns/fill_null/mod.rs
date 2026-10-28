@@ -13,6 +13,7 @@ use vortex_session::registry::CachedId;
 
 use crate::AnyColumnar;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::CanonicalView;
 use crate::ColumnarView;
 use crate::ExecutionCtx;
@@ -131,9 +132,18 @@ impl ScalarFnVTable for FillNull {
             fill_value
         };
 
-        let fill_scalar = fill_value
-            .as_constant()
-            .ok_or_else(|| vortex_err!("fill_null fill_value must be a constant/scalar"))?;
+        let Some(fill_scalar) = fill_value.as_constant() else {
+            // Slicing a constant fill to an empty range yields an empty canonical array rather
+            // than a constant. An empty input has no nulls to fill, so there is nothing to do.
+            vortex_ensure!(
+                input.is_empty(),
+                "fill_null fill_value must be a constant/scalar"
+            );
+            let dtype = input
+                .dtype()
+                .with_nullability(fill_value.dtype().nullability());
+            return Ok(Canonical::empty(&dtype).into_array());
+        };
 
         vortex_ensure!(
             !fill_scalar.is_null(),
@@ -153,8 +163,8 @@ impl ScalarFnVTable for FillNull {
         };
 
         match columnar {
-            ColumnarView::Canonical(canonical) => fill_null_canonical(canonical, &fill_scalar, ctx),
-            ColumnarView::Constant(constant) => fill_null_constant(constant, &fill_scalar),
+            ColumnarView::Canonical(canonical) => fill_null_canonical(canonical, fill_scalar, ctx),
+            ColumnarView::Constant(constant) => fill_null_constant(constant, fill_scalar),
         }
     }
 
@@ -227,15 +237,16 @@ fn fill_null_canonical(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
     use crate::arrays::Constant;
@@ -266,6 +277,8 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::binary::Binary;
     use crate::scalar_fn::fns::operators::Operator;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     /// A fill of `40 + 2` that is not a [`ConstantArray`] until it executes.
     fn lazy_fill_42(len: usize) -> VortexResult<ArrayRef> {
@@ -299,7 +312,7 @@ mod tests {
 
     #[test]
     fn evaluate() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let test_array =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, Some(5)])
                 .into_array();
@@ -320,7 +333,7 @@ mod tests {
 
     #[test]
     fn evaluate_lazy_constant_fill() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let input = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array();
         let fill = lazy_fill_42(input.len())?;
         assert!(fill.as_constant().is_none());
@@ -339,7 +352,7 @@ mod tests {
 
     #[test]
     fn evaluate_lazy_fill_preserves_chunked_input() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let input = ChunkedArray::try_new(
             vec![
                 PrimitiveArray::from_option_iter([Some(1i32), None]).into_array(),
@@ -365,7 +378,7 @@ mod tests {
 
     #[test]
     fn non_constant_fill_declines_and_errors() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let varying = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
 
         let constant_input = ConstantArray::new(Scalar::null_native::<i32>(), 3).into_array();
@@ -403,9 +416,31 @@ mod tests {
         Ok(())
     }
 
+    /// Filling a chunked array slices the constant fill per chunk, and an empty slice is a
+    /// canonical array rather than a constant. Stacked fills over an empty chunk must still run.
+    #[test]
+    fn repeated_fill_over_empty_chunk() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = ChunkedArray::try_new(
+            vec![
+                PrimitiveArray::from_option_iter(Vec::<Option<u16>>::new()).into_array(),
+                PrimitiveArray::from_option_iter([Some(7u16), None]).into_array(),
+            ],
+            DType::Primitive(PType::U16, Nullability::Nullable),
+        )?
+        .into_array();
+
+        let result = input
+            .fill_null(Scalar::primitive(1u16, Nullability::Nullable))?
+            .fill_null(Scalar::primitive(2u16, Nullability::NonNullable))?;
+
+        assert_arrays_eq!(result, PrimitiveArray::from_iter([7u16, 1]), &mut ctx);
+        Ok(())
+    }
+
     #[test]
     fn evaluate_struct_field() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let test_array = StructArray::from_fields(&[(
             "a",
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array(),
@@ -425,7 +460,7 @@ mod tests {
 
     #[test]
     fn evaluate_non_nullable_input() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let test_array = buffer![1i32, 2, 3].into_array();
         let expr = fill_null(root(), lit(0i32));
         let result = test_array.apply(&expr).unwrap();
@@ -436,7 +471,7 @@ mod tests {
     /// accepts, so adding a kernel without updating `supports_dtype` fails here.
     #[test]
     fn supports_dtype_matches_kernels() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let i32_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let dtypes = [
             DType::Bool(Nullability::Nullable),

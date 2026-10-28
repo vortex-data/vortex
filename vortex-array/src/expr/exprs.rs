@@ -18,6 +18,7 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::expr::BoundExpression;
 use crate::expr::Expression;
+use crate::expr::Lambda;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar_fn::EmptyOptions;
@@ -33,6 +34,9 @@ use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::dynamic::DynamicComparison;
 use crate::scalar_fn::fns::dynamic::DynamicComparisonExpr;
 use crate::scalar_fn::fns::dynamic::Rhs;
+use crate::scalar_fn::fns::dynamic_expression::DynamicExpression;
+use crate::scalar_fn::fns::dynamic_expression::DynamicExpressionOptions;
+use crate::scalar_fn::fns::dynamic_expression::DynamicExpressionSource;
 use crate::scalar_fn::fns::ext_storage::ExtStorage;
 use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::get_item::GetItem;
@@ -45,6 +49,8 @@ use crate::scalar_fn::fns::list_contains::ListContains;
 use crate::scalar_fn::fns::list_contains::ListContainsOptions;
 use crate::scalar_fn::fns::list_length::ListLength;
 use crate::scalar_fn::fns::list_sum::ListSum;
+use crate::scalar_fn::fns::list_transform::ListTransform;
+use crate::scalar_fn::fns::list_transform::ListTransformOptions;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::merge::DuplicateHandling;
@@ -147,6 +153,24 @@ pub fn bound_get_item(field: impl Into<FieldName>, child: BoundExpression) -> Bo
     GetItem
         .try_new_bound_expr(field.into(), [child])
         .vortex_expect("get-item expressions must reference a field in the child dtype")
+}
+
+// ---- Variable ----
+
+/// Creates an expression that reads the parameter `name` of the enclosing lambda.
+///
+/// It is only meaningful in the body of a [`Lambda`]. Anywhere else it fails to bind.
+///
+/// ```rust
+/// # use vortex_array::dtype::{DType, Nullability, PType};
+/// # use vortex_array::expr::{checked_add, lit, var};
+/// let expr = checked_add(var("x"), lit(1_i32));
+/// assert_eq!(expr.to_string(), "(@x + 1i32)");
+/// // Outside a lambda body, nothing gives `x` a value.
+/// assert!(expr.bind(&DType::Primitive(PType::I32, Nullability::NonNullable)).is_err());
+/// ```
+pub fn var(name: impl Into<FieldName>) -> Expression {
+    Expression::Variable(name.into())
 }
 
 // ---- VariantGet ----
@@ -317,13 +341,14 @@ pub fn bound_binary(
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray};
 /// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::IntoArray;
-/// # use vortex_array::{VortexSessionExecute, array_session};
+/// # use vortex_array::{VortexSessionExecute};
+/// # use vortex_session::VortexSession;
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{eq, root, lit};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = xs.into_array().apply(&eq(root(), lit(3))).unwrap();
-/// let mut ctx = array_session().create_execution_ctx();
+/// let mut ctx = VortexSession::empty().create_execution_ctx();
 ///
 /// assert_eq!(
 ///     result.execute::<BoolArray>(&mut ctx).unwrap().to_bit_buffer(),
@@ -349,13 +374,14 @@ pub fn bound_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray};
 /// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::IntoArray;
-/// # use vortex_array::{VortexSessionExecute, array_session};
+/// # use vortex_array::{VortexSessionExecute};
+/// # use vortex_session::VortexSession;
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{root, lit, not_eq};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = xs.into_array().apply(&not_eq(root(), lit(3))).unwrap();
-/// let mut ctx = array_session().create_execution_ctx();
+/// let mut ctx = VortexSession::empty().create_execution_ctx();
 ///
 /// assert_eq!(
 ///     result.execute::<BoolArray>(&mut ctx).unwrap().to_bit_buffer(),
@@ -381,13 +407,14 @@ pub fn bound_not_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpressi
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
 /// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::IntoArray;
-/// # use vortex_array::{VortexSessionExecute, array_session};
+/// # use vortex_array::{VortexSessionExecute};
+/// # use vortex_session::VortexSession;
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{gt_eq, root, lit};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = xs.into_array().apply(&gt_eq(root(), lit(3))).unwrap();
-/// let mut ctx = array_session().create_execution_ctx();
+/// let mut ctx = VortexSession::empty().create_execution_ctx();
 ///
 /// assert_eq!(
 ///     result.execute::<BoolArray>(&mut ctx).unwrap().to_bit_buffer(),
@@ -413,13 +440,14 @@ pub fn bound_gt_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpressio
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
 /// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::IntoArray;
-/// # use vortex_array::{VortexSessionExecute, array_session};
+/// # use vortex_array::{VortexSessionExecute};
+/// # use vortex_session::VortexSession;
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{gt, root, lit};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = xs.into_array().apply(&gt(root(), lit(2))).unwrap();
-/// let mut ctx = array_session().create_execution_ctx();
+/// let mut ctx = VortexSession::empty().create_execution_ctx();
 ///
 /// assert_eq!(
 ///     result.execute::<BoolArray>(&mut ctx).unwrap().to_bit_buffer(),
@@ -445,13 +473,14 @@ pub fn bound_gt(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
 /// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::IntoArray;
-/// # use vortex_array::{VortexSessionExecute, array_session};
+/// # use vortex_array::{VortexSessionExecute};
+/// # use vortex_session::VortexSession;
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{root, lit, lt_eq};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = xs.into_array().apply(&lt_eq(root(), lit(2))).unwrap();
-/// let mut ctx = array_session().create_execution_ctx();
+/// let mut ctx = VortexSession::empty().create_execution_ctx();
 ///
 /// assert_eq!(
 ///     result.execute::<BoolArray>(&mut ctx).unwrap().to_bit_buffer(),
@@ -477,13 +506,14 @@ pub fn bound_lt_eq(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpressio
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
 /// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::IntoArray;
-/// # use vortex_array::{VortexSessionExecute, array_session};
+/// # use vortex_array::{VortexSessionExecute};
+/// # use vortex_session::VortexSession;
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{root, lit, lt};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
 /// let result = xs.into_array().apply(&lt(root(), lit(3))).unwrap();
-/// let mut ctx = array_session().create_execution_ctx();
+/// let mut ctx = VortexSession::empty().create_execution_ctx();
 ///
 /// assert_eq!(
 ///     result.execute::<BoolArray>(&mut ctx).unwrap().to_bit_buffer(),
@@ -509,11 +539,12 @@ pub fn bound_lt(lhs: BoundExpression, rhs: BoundExpression) -> BoundExpression {
 /// # use vortex_array::arrays::BoolArray;
 /// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::IntoArray;
-/// # use vortex_array::{VortexSessionExecute, array_session};
+/// # use vortex_array::{VortexSessionExecute};
+/// # use vortex_session::VortexSession;
 /// # use vortex_array::expr::{root, lit, or};
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
 /// let result = xs.into_array().apply(&or(root(), lit(false))).unwrap();
-/// let mut ctx = array_session().create_execution_ctx();
+/// let mut ctx = VortexSession::empty().create_execution_ctx();
 ///
 /// assert_eq!(
 ///     result.execute::<BoolArray>(&mut ctx).unwrap().to_bit_buffer(),
@@ -560,11 +591,12 @@ where
 /// # use vortex_array::arrays::BoolArray;
 /// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::IntoArray;
-/// # use vortex_array::{VortexSessionExecute, array_session};
+/// # use vortex_array::{VortexSessionExecute};
+/// # use vortex_session::VortexSession;
 /// # use vortex_array::expr::{and, root, lit};
 /// let xs = BoolArray::from_iter(vec![true, false, true]).into_array();
 /// let result = xs.apply(&and(root(), lit(true))).unwrap();
-/// let mut ctx = array_session().create_execution_ctx();
+/// let mut ctx = VortexSession::empty().create_execution_ctx();
 ///
 /// assert_eq!(
 ///     result.execute::<BoolArray>(&mut ctx).unwrap().to_bit_buffer(),
@@ -611,13 +643,14 @@ where
 /// # use vortex_array::IntoArray;
 /// # use vortex_array::arrays::PrimitiveArray;
 /// # use vortex_array::builtins::ArrayBuiltins;
-/// # use vortex_array::{VortexSessionExecute, array_session};
+/// # use vortex_array::{VortexSessionExecute};
+/// # use vortex_session::VortexSession;
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{checked_add, lit, root};
 /// let xs = buffer![1, 2, 3].into_array();
 /// let result = xs.apply(&checked_add(root(), lit(5))).unwrap();
 ///
-/// let mut ctx = array_session().create_execution_ctx();
+/// let mut ctx = VortexSession::empty().create_execution_ctx();
 /// let result = result.execute::<PrimitiveArray>(&mut ctx).unwrap();
 /// assert_eq!(result.as_slice::<i32>(), [6, 7, 8]);
 /// ```
@@ -1107,6 +1140,29 @@ pub fn bound_dynamic(
     )
 }
 
+/// Creates a dynamic expression that evaluates the current predicate of `source`.
+///
+/// The `inputs` are the expressions that every predicate of the source can read. A predicate
+/// reads input `i` as the field named by
+/// [`input_field_name(i)`](crate::scalar_fn::fns::dynamic_expression::input_field_name) of its
+/// scope.
+pub fn dynamic_expression(
+    source: Arc<dyn DynamicExpressionSource>,
+    inputs: impl IntoIterator<Item = Expression>,
+) -> Expression {
+    DynamicExpression.new_expr(DynamicExpressionOptions::new(source), inputs)
+}
+
+/// Creates a bound dynamic expression that evaluates the current predicate of `source`.
+pub fn bound_dynamic_expression(
+    source: Arc<dyn DynamicExpressionSource>,
+    inputs: impl IntoIterator<Item = BoundExpression>,
+) -> BoundExpression {
+    DynamicExpression
+        .try_new_bound_expr(DynamicExpressionOptions::new(source), inputs)
+        .vortex_expect("dynamic expressions accept any inputs")
+}
+
 // ---- ListContains ----
 
 /// Creates an expression that checks whether a list contains a value.
@@ -1363,6 +1419,22 @@ pub fn bound_list_sum_opts(
         .vortex_expect("list-sum expressions require a numeric list child")
 }
 
+// ---- ListTransform ----
+
+/// Creates an expression that applies a lambda to every element of each list.
+///
+/// The lambda takes one parameter, the element.
+///
+/// ```rust
+/// # use vortex_array::expr::{Lambda, checked_add, col, list_transform, lit, var};
+/// let lambda = Lambda::new(["x"], checked_add(var("x"), lit(1_i32))).unwrap();
+/// let expr = list_transform(col("l"), lambda);
+/// assert_eq!(expr.to_string(), "vortex.list.transform($.l, (x) -> (@x + 1i32))");
+/// ```
+pub fn list_transform(list: Expression, lambda: Lambda) -> Expression {
+    ListTransform.new_expr(ListTransformOptions::Lambda(lambda), [list])
+}
+
 /// Reinterpret timestamp wall times in `options.time_zone`, preserving the time unit.
 ///
 /// `ambiguous` is a UTF-8 expression containing `raise`, `earliest`, `latest`, or `null`.
@@ -1403,6 +1475,7 @@ pub mod bound {
     pub use super::bound_checked_add as checked_add;
     pub use super::bound_col as col;
     pub use super::bound_dynamic as dynamic;
+    pub use super::bound_dynamic_expression as dynamic_expression;
     pub use super::bound_dynamic_with_options as dynamic_with_options;
     pub use super::bound_eq as eq;
     pub use super::bound_ext_storage as ext_storage;

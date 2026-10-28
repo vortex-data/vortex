@@ -63,7 +63,7 @@ use vortex_edition::declarations::core::CORE_2026_08_3;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 /// Number of values in each numeric corpus entry: comfortably above the 1024-value sampling
 /// threshold so scheme selection runs on sampled estimates, as it does for real file chunks.
@@ -440,7 +440,7 @@ fn without_onpair(builder: BtrBlocksCompressorBuilder) -> BtrBlocksCompressorBui
 }
 
 fn edition_session(editions: &[EditionId]) -> VortexResult<VortexSession> {
-    let session = vortex_array::array_session().with::<EditionSession>();
+    let session = VortexSession::empty().with::<EditionSession>();
     // The compressor only produces encodings registered on the session.
     vortex_alp::initialize(&session);
     vortex_datetime_parts::initialize(&session);
@@ -448,7 +448,6 @@ fn edition_session(editions: &[EditionId]) -> VortexResult<VortexSession> {
     vortex_fastlanes::initialize(&session);
     vortex_fsst::initialize(&session);
     vortex_onpair::initialize(&session);
-    vortex_runend::initialize(&session);
     vortex_sequence::initialize(&session);
     vortex_sparse::initialize(&session);
     vortex_zigzag::initialize(&session);

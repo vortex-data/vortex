@@ -73,6 +73,8 @@ impl RowFn for SpatialContains {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use geo_types::Geometry;
     use geo_types::LineString;
     use geo_types::Point;
@@ -96,12 +98,15 @@ mod tests {
     use vortex_buffer::BitBuffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
     use wkb::writer::WriteOptions;
 
     use super::SpatialContains;
     use crate::test_harness::linestring_column;
     use crate::test_harness::nullable_point_column;
     use crate::test_harness::point_column;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     /// A rectangle polygon with corners `(x0, y0)` and `(x1, y1)`, no holes.
     fn rect_polygon(x0: f64, y0: f64, x1: f64, y1: f64) -> Polygon {
@@ -116,7 +121,7 @@ mod tests {
         let mut buf = Vec::new();
         wkb::writer::write_geometry(&mut buf, geometry, &WriteOptions::default())
             .map_err(|e| vortex_err!("writing WKB failed: {e}"))?;
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         let scalar = crate::extension::native_geometry_scalar_from_wkb(&buf, &session)?
             .ok_or_else(|| vortex_err!("unsupported geometry type"))?;
         Ok(ConstantArray::new(scalar, len).into_array())
@@ -134,8 +139,7 @@ mod tests {
         b: ArrayRef,
         expected: impl IntoIterator<Item = bool>,
     ) -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let contains = SpatialContains::try_new(a, b)?.into_array();
         assert_arrays_eq!(contains, BoolArray::from_iter(expected), &mut ctx);
         Ok(())
@@ -187,8 +191,7 @@ mod tests {
     /// Polygon column vs constant point: only the polygon around the point contains it.
     #[test]
     fn polygon_column_vs_constant_point() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let around = materialize(
             geometry_constant(&Geometry::Polygon(rect_polygon(0.0, 0.0, 4.0, 4.0)), 2)?,
@@ -222,8 +225,7 @@ mod tests {
     /// same position.
     #[test]
     fn polygon_column_vs_point_column() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let polygons = materialize(
             geometry_constant(&Geometry::Polygon(rect_polygon(0.0, 0.0, 4.0, 4.0)), 2)?,
@@ -251,8 +253,7 @@ mod tests {
     /// (a strictly interior point is contained, an outside point is not).
     #[test]
     fn contains_propagates_null_rows() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let container = geometry_constant(&Geometry::Polygon(rect_polygon(0.0, 0.0, 4.0, 4.0)), 3)?;
         let points = nullable_point_column(vec![Some((2.0, 2.0)), None, Some((10.0, 10.0))])?;
@@ -270,8 +271,7 @@ mod tests {
     /// A constant-null operand produces an all-null output.
     #[test]
     fn contains_constant_null_is_all_null() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let point_dtype = point_column(vec![0.0], vec![0.0])?.dtype().as_nullable();
         let null_const = ConstantArray::new(Scalar::null(point_dtype), 2).into_array();
@@ -288,8 +288,7 @@ mod tests {
     /// container or the contained row is null, and computed on the rows valid in both.
     #[test]
     fn contains_propagates_column_pair_nulls() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         // A point contains another point only when they are equal.
         let container = nullable_point_column(vec![
@@ -318,8 +317,7 @@ mod tests {
     /// An entirely-null geometry column yields an all-null output.
     #[test]
     fn contains_all_null_column_is_all_null() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let container = geometry_constant(&Geometry::Polygon(rect_polygon(0.0, 0.0, 4.0, 4.0)), 2)?;
         let points = nullable_point_column(vec![None, None])?;
@@ -335,8 +333,7 @@ mod tests {
     /// is all null.
     #[test]
     fn contains_column_pair_all_null() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let container = nullable_point_column(vec![Some((1.0, 1.0)), None])?;
         let contained = nullable_point_column(vec![None, Some((2.0, 2.0))])?;

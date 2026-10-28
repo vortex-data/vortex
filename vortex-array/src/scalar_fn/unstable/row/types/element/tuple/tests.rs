@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
@@ -8,6 +9,7 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 use super::ElementTuple;
 use super::element_tuple::batch_const;
@@ -15,7 +17,6 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
@@ -29,6 +30,8 @@ use crate::scalar::Scalar;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::unstable::row::InputElement;
 use crate::validity::Validity;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 static DECODE_CALLS: AtomicUsize = AtomicUsize::new(0);
 static CONSTANT_DECODE_LEN: AtomicUsize = AtomicUsize::new(0);
@@ -119,7 +122,7 @@ fn test_null_tolerant_decline_precedes_decoding() -> VortexResult<()> {
     let first = PrimitiveArray::from_iter([1_i64, 2]).into_array();
     let second = PrimitiveArray::from_iter([3_i64, 4]).into_array();
     let args = VecExecutionArgs::new(vec![first, second], 2);
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
 
     let columns = <(DecodeProbe, DenseFallible)>::decode_null_tolerant(&args, &mut ctx)?;
 
@@ -133,7 +136,7 @@ fn test_batch_constant_uses_constant_decoder() -> VortexResult<()> {
     DECODE_CALLS.store(0, Ordering::Relaxed);
     CONSTANT_DECODE_LEN.store(0, Ordering::Relaxed);
     let args = VecExecutionArgs::new(vec![ConstantArray::new(7_i64, 3).into_array()], 3);
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
 
     let columns = <(DecodeProbe,)>::decode(&args, &mut ctx)?;
 
@@ -145,7 +148,7 @@ fn test_batch_constant_uses_constant_decoder() -> VortexResult<()> {
 
 #[test]
 fn test_batch_const_unwraps_filtered_masked_constant() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let child = ConstantArray::new(7_i64, 3).into_array();
     let masked = MaskedArray::try_new(child, Validity::from_iter([true, false, true]), &mut ctx)?
         .into_array();
@@ -172,7 +175,7 @@ fn test_batch_const_preserves_filtered_extension() -> VortexResult<()> {
     };
 
     assert_eq!(const_array.dtype(), extension.dtype());
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let scalar = const_array.execute_scalar(0, &mut ctx)?;
     assert_eq!(
         scalar.as_extension().to_storage_scalar(),

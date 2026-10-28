@@ -200,9 +200,9 @@ logical_plan [
                                         ],
                                         "extra_info": {
                                             "Expressions": [
-                                                "(i_manufact_id >= CAST(738 AS BIGINT))",
+                                                "(i_manufact_id >= CAST(738 AS INTEGER))",
                                                 "(SUBQUERY > CAST(0 AS BIGINT))",
-                                                "(i_manufact_id <= CAST((738 + 40) AS BIGINT))"
+                                                "(i_manufact_id <= (738 + 40))"
                                             ]
                                         }
                                     }
@@ -254,9 +254,9 @@ logical_opt [
                                                                 "name": "READ_VORTEX",
                                                                 "children": [],
                                                                 "extra_info": {
-                                                                    "Filters": "(738i64 <= $.i_manufact_id <= 778i64)",
+                                                                    "Filters": "(738i32 <= $.i_manufact_id <= 778i32)",
                                                                     "Function": "Vortex Scan",
-                                                                    "Estimated Cardinality": "360"
+                                                                    "Estimated Cardinality": "400"
                                                                 }
                                                             }
                                                         ],
@@ -265,7 +265,7 @@ logical_opt [
                                                                 "i_manufact",
                                                                 "i_product_name"
                                                             ],
-                                                            "Estimated Cardinality": "360"
+                                                            "Estimated Cardinality": "400"
                                                         }
                                                     }
                                                 ],
@@ -274,7 +274,7 @@ logical_opt [
                                                         "#0",
                                                         "#1"
                                                     ],
-                                                    "Estimated Cardinality": "360"
+                                                    "Estimated Cardinality": "400"
                                                 }
                                             }
                                         ],
@@ -283,7 +283,7 @@ logical_opt [
                                                 "#0",
                                                 "#1"
                                             ],
-                                            "Estimated Cardinality": "360"
+                                            "Estimated Cardinality": "400"
                                         }
                                     },
                                     {
@@ -303,20 +303,20 @@ logical_opt [
                                                                         "children": [],
                                                                         "extra_info": {
                                                                             "CTE Index": "33",
-                                                                            "Estimated Cardinality": "360"
+                                                                            "Estimated Cardinality": "400"
                                                                         }
                                                                     }
                                                                 ],
                                                                 "extra_info": {
                                                                     "Groups": "#[1.14]",
                                                                     "Expressions": "",
-                                                                    "Estimated Cardinality": "180"
+                                                                    "Estimated Cardinality": "200"
                                                                 }
                                                             }
                                                         ],
                                                         "extra_info": {
                                                             "Expressions": "#0",
-                                                            "Estimated Cardinality": "180"
+                                                            "Estimated Cardinality": "200"
                                                         }
                                                     },
                                                     {
@@ -333,7 +333,7 @@ logical_opt [
                                                                                 "children": [],
                                                                                 "extra_info": {
                                                                                     "CTE Index": "33",
-                                                                                    "Estimated Cardinality": "360"
+                                                                                    "Estimated Cardinality": "400"
                                                                                 }
                                                                             },
                                                                             {
@@ -350,7 +350,7 @@ logical_opt [
                                                                                                         "children": [],
                                                                                                         "extra_info": {
                                                                                                             "CTE Index": "31",
-                                                                                                            "Estimated Cardinality": "180"
+                                                                                                            "Estimated Cardinality": "200"
                                                                                                         }
                                                                                                     },
                                                                                                     {
@@ -371,7 +371,7 @@ logical_opt [
                                                                                                                                 "((((((((($.i_units = \"Ounce\") or ($.i_units = \"Oz\")) or (($.i_units = \"Bunch\") or ($.i_units = \"Ton\"))) or (($.i_units = \"N/A\") or ($.i_units = \"Dozen\"))) or (($.i_units = \"Box\") or ($.i_units = \"Pound\"))) or (($.i_units = \"Pallet\") or ($.i_units = \"Gross\"))) or (($.i_units = \"Cup\") or ($.i_units = \"Dram\"))) or (($.i_units = \"Each\") or ($.i_units = \"Tbl\"))) or (($.i_units = \"Lb\") or ($.i_units = \"Bundle\")))"
                                                                                                                             ],
                                                                                                                             "Function": "Vortex Scan",
-                                                                                                                            "Estimated Cardinality": "360"
+                                                                                                                            "Estimated Cardinality": "400"
                                                                                                                         }
                                                                                                                     },
                                                                                                                     {
@@ -379,28 +379,28 @@ logical_opt [
                                                                                                                         "children": [],
                                                                                                                         "extra_info": {
                                                                                                                             "CTE Index": "31",
-                                                                                                                            "Estimated Cardinality": "180"
+                                                                                                                            "Estimated Cardinality": "200"
                                                                                                                         }
                                                                                                                     }
                                                                                                                 ],
                                                                                                                 "extra_info": {
                                                                                                                     "Join Type": "INNER",
                                                                                                                     "Conditions": "(i_manufact = i_manufact)",
-                                                                                                                    "Estimated Cardinality": "180"
+                                                                                                                    "Estimated Cardinality": "200"
                                                                                                                 }
                                                                                                             }
                                                                                                         ],
                                                                                                         "extra_info": {
                                                                                                             "Groups": "i_manufact",
                                                                                                             "Expressions": "count_star()",
-                                                                                                            "Estimated Cardinality": "90"
+                                                                                                            "Estimated Cardinality": "100"
                                                                                                         }
                                                                                                     }
                                                                                                 ],
                                                                                                 "extra_info": {
                                                                                                     "Join Type": "LEFT",
                                                                                                     "Conditions": "(i_manufact IS NOT DISTINCT FROM #0)",
-                                                                                                    "Estimated Cardinality": "180"
+                                                                                                    "Estimated Cardinality": "200"
                                                                                                 }
                                                                                             },
                                                                                             {
@@ -425,7 +425,7 @@ logical_opt [
                                                                                         "extra_info": {
                                                                                             "Join Type": "LEFT",
                                                                                             "Conditions": "",
-                                                                                            "Estimated Cardinality": "180"
+                                                                                            "Estimated Cardinality": "200"
                                                                                         }
                                                                                     }
                                                                                 ],
@@ -434,65 +434,65 @@ logical_opt [
                                                                                         "CASE  WHEN ((#2 IS NULL)) THEN (#3) ELSE item_cnt END",
                                                                                         "i_manufact"
                                                                                     ],
-                                                                                    "Estimated Cardinality": "180"
+                                                                                    "Estimated Cardinality": "200"
                                                                                 }
                                                                             }
                                                                         ],
                                                                         "extra_info": {
                                                                             "Join Type": "SINGLE",
                                                                             "Conditions": "(i_manufact IS NOT DISTINCT FROM i_manufact)",
-                                                                            "Estimated Cardinality": "360"
+                                                                            "Estimated Cardinality": "400"
                                                                         }
                                                                     }
                                                                 ],
                                                                 "extra_info": {
                                                                     "Expressions": "(SUBQUERY > 0)",
-                                                                    "Estimated Cardinality": "72"
+                                                                    "Estimated Cardinality": "80"
                                                                 }
                                                             }
                                                         ],
                                                         "extra_info": {
                                                             "Expressions": "#0",
-                                                            "Estimated Cardinality": "72"
+                                                            "Estimated Cardinality": "80"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
                                                     "CTE Name": "__duckdb_delim_dedup_31",
                                                     "Table Index": "31",
-                                                    "Estimated Cardinality": "72"
+                                                    "Estimated Cardinality": "80"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "Expressions": "#0",
-                                            "Estimated Cardinality": "72"
+                                            "Estimated Cardinality": "80"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "CTE Name": "__duckdb_delim_33",
                                     "Table Index": "33",
-                                    "Estimated Cardinality": "72"
+                                    "Estimated Cardinality": "80"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Expressions": "i_product_name",
-                            "Estimated Cardinality": "72"
+                            "Estimated Cardinality": "80"
                         }
                     }
                 ],
                 "extra_info": {
                     "Expressions": "",
-                    "Estimated Cardinality": "72",
+                    "Estimated Cardinality": "80",
                     "Distinct Targets": "i_product_name"
                 }
             }
         ],
         "extra_info": {
             "Expressions": "",
-            "Estimated Cardinality": "72"
+            "Estimated Cardinality": "80"
         }
     }
 ]
@@ -514,12 +514,12 @@ physical_plan [
                                         "children": [],
                                         "extra_info": {
                                             "Function": "Vortex Scan",
-                                            "Filters": "(738i64 <= $.i_manufact_id <= 778i64)",
+                                            "Filters": "(738i32 <= $.i_manufact_id <= 778i32)",
                                             "Projections": [
                                                 "i_manufact",
                                                 "i_product_name"
                                             ],
-                                            "Estimated Cardinality": "360"
+                                            "Estimated Cardinality": "400"
                                         }
                                     },
                                     {
@@ -536,20 +536,20 @@ physical_plan [
                                                                 "children": [],
                                                                 "extra_info": {
                                                                     "CTE Index": "33",
-                                                                    "Estimated Cardinality": "360"
+                                                                    "Estimated Cardinality": "400"
                                                                 }
                                                             }
                                                         ],
                                                         "extra_info": {
                                                             "Projections": "#[1.14]",
-                                                            "Estimated Cardinality": "360"
+                                                            "Estimated Cardinality": "400"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
                                                     "Groups": "#0",
                                                     "Aggregates": "",
-                                                    "Estimated Cardinality": "180"
+                                                    "Estimated Cardinality": "200"
                                                 }
                                             },
                                             {
@@ -566,7 +566,7 @@ physical_plan [
                                                                         "children": [],
                                                                         "extra_info": {
                                                                             "CTE Index": "33",
-                                                                            "Estimated Cardinality": "360"
+                                                                            "Estimated Cardinality": "400"
                                                                         }
                                                                     },
                                                                     {
@@ -583,7 +583,7 @@ physical_plan [
                                                                                                 "children": [],
                                                                                                 "extra_info": {
                                                                                                     "CTE Index": "31",
-                                                                                                    "Estimated Cardinality": "180"
+                                                                                                    "Estimated Cardinality": "200"
                                                                                                 }
                                                                                             },
                                                                                             {
@@ -608,7 +608,7 @@ physical_plan [
                                                                                                                                 "((((((((($.i_units = \"Ounce\") or ($.i_units = \"Oz\")) or (($.i_units = \"Bunch\") or ($.i_units = \"Ton\"))) or (($.i_units = \"N/A\") or ($.i_units = \"Dozen\"))) or (($.i_units = \"Box\") or ($.i_units = \"Pound\"))) or (($.i_units = \"Pallet\") or ($.i_units = \"Gross\"))) or (($.i_units = \"Cup\") or ($.i_units = \"Dram\"))) or (($.i_units = \"Each\") or ($.i_units = \"Tbl\"))) or (($.i_units = \"Lb\") or ($.i_units = \"Bundle\")))"
                                                                                                                             ],
                                                                                                                             "Projections": "i_manufact",
-                                                                                                                            "Estimated Cardinality": "360"
+                                                                                                                            "Estimated Cardinality": "400"
                                                                                                                         }
                                                                                                                     },
                                                                                                                     {
@@ -616,34 +616,34 @@ physical_plan [
                                                                                                                         "children": [],
                                                                                                                         "extra_info": {
                                                                                                                             "CTE Index": "31",
-                                                                                                                            "Estimated Cardinality": "180"
+                                                                                                                            "Estimated Cardinality": "200"
                                                                                                                         }
                                                                                                                     }
                                                                                                                 ],
                                                                                                                 "extra_info": {
                                                                                                                     "Join Type": "INNER",
                                                                                                                     "Conditions": "i_manufact = i_manufact",
-                                                                                                                    "Estimated Cardinality": "180"
+                                                                                                                    "Estimated Cardinality": "200"
                                                                                                                 }
                                                                                                             }
                                                                                                         ],
                                                                                                         "extra_info": {
                                                                                                             "Projections": "i_manufact",
-                                                                                                            "Estimated Cardinality": "180"
+                                                                                                            "Estimated Cardinality": "200"
                                                                                                         }
                                                                                                     }
                                                                                                 ],
                                                                                                 "extra_info": {
                                                                                                     "Groups": "#0",
                                                                                                     "Aggregates": "count_star()",
-                                                                                                    "Estimated Cardinality": "90"
+                                                                                                    "Estimated Cardinality": "100"
                                                                                                 }
                                                                                             }
                                                                                         ],
                                                                                         "extra_info": {
                                                                                             "Join Type": "LEFT",
                                                                                             "Conditions": "i_manufact IS NOT DISTINCT FROM #0",
-                                                                                            "Estimated Cardinality": "180"
+                                                                                            "Estimated Cardinality": "200"
                                                                                         }
                                                                                     },
                                                                                     {
@@ -669,26 +669,26 @@ physical_plan [
                                                                                 "CASE  WHEN ((#2 IS NULL)) THEN (#3) ELSE item_cnt END",
                                                                                 "i_manufact"
                                                                             ],
-                                                                            "Estimated Cardinality": "180"
+                                                                            "Estimated Cardinality": "200"
                                                                         }
                                                                     }
                                                                 ],
                                                                 "extra_info": {
                                                                     "Join Type": "SINGLE",
                                                                     "Conditions": "i_manufact IS NOT DISTINCT FROM i_manufact",
-                                                                    "Estimated Cardinality": "360"
+                                                                    "Estimated Cardinality": "400"
                                                                 }
                                                             }
                                                         ],
                                                         "extra_info": {
                                                             "Expression": "(SUBQUERY > 0)",
-                                                            "Estimated Cardinality": "72"
+                                                            "Estimated Cardinality": "80"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
                                                     "Projections": "#0",
-                                                    "Estimated Cardinality": "72"
+                                                    "Estimated Cardinality": "80"
                                                 }
                                             }
                                         ],
@@ -696,7 +696,7 @@ physical_plan [
                                             "CTE Name": "__duckdb_delim_dedup_31",
                                             "Table Index": "31",
                                             "Execution Mode": "PIPELINE_DEPENDENT",
-                                            "Estimated Cardinality": "72"
+                                            "Estimated Cardinality": "80"
                                         }
                                     }
                                 ],
@@ -704,27 +704,27 @@ physical_plan [
                                     "CTE Name": "__duckdb_delim_33",
                                     "Table Index": "33",
                                     "Execution Mode": "PIPELINE_DEPENDENT",
-                                    "Estimated Cardinality": "72"
+                                    "Estimated Cardinality": "80"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Projections": "i_product_name",
-                            "Estimated Cardinality": "72"
+                            "Estimated Cardinality": "80"
                         }
                     }
                 ],
                 "extra_info": {
                     "Groups": "#0",
                     "Aggregates": "",
-                    "Estimated Cardinality": "72"
+                    "Estimated Cardinality": "80"
                 }
             }
         ],
         "extra_info": {
             "Top": "100",
             "Order By": "i_product_name ASC",
-            "Estimated Cardinality": "72"
+            "Estimated Cardinality": "80"
         }
     }
 ]

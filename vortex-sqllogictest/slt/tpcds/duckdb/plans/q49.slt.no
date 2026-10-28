@@ -305,10 +305,10 @@ logical_plan [
                                                                                                         "(CAST(wr_return_amt AS DECIMAL(12,2)) > CAST(10000 AS DECIMAL(12,2)))",
                                                                                                         "(CAST(ws_net_profit AS DECIMAL(12,2)) > CAST(1 AS DECIMAL(12,2)))",
                                                                                                         "(CAST(ws_net_paid AS DECIMAL(12,2)) > CAST(0 AS DECIMAL(12,2)))",
-                                                                                                        "(ws_quantity > CAST(0 AS BIGINT))",
+                                                                                                        "(ws_quantity > CAST(0 AS INTEGER))",
                                                                                                         "(ws_sold_date_sk = d_date_sk)",
-                                                                                                        "(d_year = CAST(2001 AS BIGINT))",
-                                                                                                        "(d_moy = CAST(12 AS BIGINT))"
+                                                                                                        "(d_year = CAST(2001 AS INTEGER))",
+                                                                                                        "(d_moy = CAST(12 AS INTEGER))"
                                                                                                     ]
                                                                                                 }
                                                                                             }
@@ -316,8 +316,8 @@ logical_plan [
                                                                                         "extra_info": {
                                                                                             "Groups": "ws_item_sk",
                                                                                             "Expressions": [
-                                                                                                "sum(COALESCE(wr_return_quantity, CAST(0 AS BIGINT)))",
-                                                                                                "sum(COALESCE(ws_quantity, CAST(0 AS BIGINT)))",
+                                                                                                "sum(COALESCE(wr_return_quantity, CAST(0 AS INTEGER)))",
+                                                                                                "sum(COALESCE(ws_quantity, CAST(0 AS INTEGER)))",
                                                                                                 "sum(COALESCE(CAST(wr_return_amt AS DECIMAL(12,2)), CAST(0 AS DECIMAL(12,2))))",
                                                                                                 "sum(COALESCE(CAST(ws_net_paid AS DECIMAL(12,2)), CAST(0 AS DECIMAL(12,2))))"
                                                                                             ]
@@ -554,10 +554,10 @@ logical_plan [
                                                                                                         "(CAST(cr_return_amount AS DECIMAL(12,2)) > CAST(10000 AS DECIMAL(12,2)))",
                                                                                                         "(CAST(cs_net_profit AS DECIMAL(12,2)) > CAST(1 AS DECIMAL(12,2)))",
                                                                                                         "(CAST(cs_net_paid AS DECIMAL(12,2)) > CAST(0 AS DECIMAL(12,2)))",
-                                                                                                        "(cs_quantity > CAST(0 AS BIGINT))",
+                                                                                                        "(cs_quantity > CAST(0 AS INTEGER))",
                                                                                                         "(cs_sold_date_sk = d_date_sk)",
-                                                                                                        "(d_year = CAST(2001 AS BIGINT))",
-                                                                                                        "(d_moy = CAST(12 AS BIGINT))"
+                                                                                                        "(d_year = CAST(2001 AS INTEGER))",
+                                                                                                        "(d_moy = CAST(12 AS INTEGER))"
                                                                                                     ]
                                                                                                 }
                                                                                             }
@@ -565,8 +565,8 @@ logical_plan [
                                                                                         "extra_info": {
                                                                                             "Groups": "cs_item_sk",
                                                                                             "Expressions": [
-                                                                                                "sum(COALESCE(cr_return_quantity, CAST(0 AS BIGINT)))",
-                                                                                                "sum(COALESCE(cs_quantity, CAST(0 AS BIGINT)))",
+                                                                                                "sum(COALESCE(cr_return_quantity, CAST(0 AS INTEGER)))",
+                                                                                                "sum(COALESCE(cs_quantity, CAST(0 AS INTEGER)))",
                                                                                                 "sum(COALESCE(CAST(cr_return_amount AS DECIMAL(12,2)), CAST(0 AS DECIMAL(12,2))))",
                                                                                                 "sum(COALESCE(CAST(cs_net_paid AS DECIMAL(12,2)), CAST(0 AS DECIMAL(12,2))))"
                                                                                             ]
@@ -785,10 +785,10 @@ logical_plan [
                                                                                                         "(CAST(sr_return_amt AS DECIMAL(12,2)) > CAST(10000 AS DECIMAL(12,2)))",
                                                                                                         "(CAST(ss_net_profit AS DECIMAL(12,2)) > CAST(1 AS DECIMAL(12,2)))",
                                                                                                         "(CAST(ss_net_paid AS DECIMAL(12,2)) > CAST(0 AS DECIMAL(12,2)))",
-                                                                                                        "(ss_quantity > CAST(0 AS BIGINT))",
+                                                                                                        "(ss_quantity > CAST(0 AS INTEGER))",
                                                                                                         "(ss_sold_date_sk = d_date_sk)",
-                                                                                                        "(d_year = CAST(2001 AS BIGINT))",
-                                                                                                        "(d_moy = CAST(12 AS BIGINT))"
+                                                                                                        "(d_year = CAST(2001 AS INTEGER))",
+                                                                                                        "(d_moy = CAST(12 AS INTEGER))"
                                                                                                     ]
                                                                                                 }
                                                                                             }
@@ -796,8 +796,8 @@ logical_plan [
                                                                                         "extra_info": {
                                                                                             "Groups": "ss_item_sk",
                                                                                             "Expressions": [
-                                                                                                "sum(COALESCE(sr_return_quantity, CAST(0 AS BIGINT)))",
-                                                                                                "sum(COALESCE(ss_quantity, CAST(0 AS BIGINT)))",
+                                                                                                "sum(COALESCE(sr_return_quantity, CAST(0 AS INTEGER)))",
+                                                                                                "sum(COALESCE(ss_quantity, CAST(0 AS INTEGER)))",
                                                                                                 "sum(COALESCE(CAST(sr_return_amt AS DECIMAL(12,2)), CAST(0 AS DECIMAL(12,2))))",
                                                                                                 "sum(COALESCE(CAST(ss_net_paid AS DECIMAL(12,2)), CAST(0 AS DECIMAL(12,2))))"
                                                                                             ]
@@ -945,9 +945,9 @@ logical_opt [
                                                                                                                                         "children": [],
                                                                                                                                         "extra_info": {
                                                                                                                                             "Filters": [
-                                                                                                                                                "($.d_year = 2001i64)",
-                                                                                                                                                "($.d_moy = 12i64)",
-                                                                                                                                                "(2450816i64 <= $.d_date_sk <= 2452642i64)"
+                                                                                                                                                "($.d_year = 2001i32)",
+                                                                                                                                                "($.d_moy = 12i32)",
+                                                                                                                                                "(2450816i32 <= $.d_date_sk <= 2452642i32)"
                                                                                                                                             ],
                                                                                                                                             "Function": "Vortex Scan",
                                                                                                                                             "Estimated Cardinality": "14609"
@@ -963,7 +963,7 @@ logical_opt [
                                                                                                                                                     "Filters": [
                                                                                                                                                         "($.ws_net_profit > decimal128(100, precision=7, scale=2))",
                                                                                                                                                         "($.ws_net_paid > decimal128(0, precision=7, scale=2))",
-                                                                                                                                                        "($.ws_quantity > 0i64)"
+                                                                                                                                                        "($.ws_quantity > 0i32)"
                                                                                                                                                     ],
                                                                                                                                                     "Function": "Vortex Scan",
                                                                                                                                                     "Estimated Cardinality": "14326"
@@ -975,7 +975,7 @@ logical_opt [
                                                                                                                                                 "extra_info": {
                                                                                                                                                     "Filters": "($.wr_return_amt > decimal128(1000000, precision=7, scale=2))",
                                                                                                                                                     "Function": "Vortex Scan",
-                                                                                                                                                    "Estimated Cardinality": "1407"
+                                                                                                                                                    "Estimated Cardinality": "1412"
                                                                                                                                                 }
                                                                                                                                             }
                                                                                                                                         ],
@@ -985,14 +985,14 @@ logical_opt [
                                                                                                                                                 "(ws_order_number = wr_order_number)",
                                                                                                                                                 "(ws_item_sk = wr_item_sk)"
                                                                                                                                             ],
-                                                                                                                                            "Estimated Cardinality": "3359"
+                                                                                                                                            "Estimated Cardinality": "3371"
                                                                                                                                         }
                                                                                                                                     }
                                                                                                                                 ],
                                                                                                                                 "extra_info": {
                                                                                                                                     "Join Type": "INNER",
                                                                                                                                     "Conditions": "(d_date_sk = ws_sold_date_sk)",
-                                                                                                                                    "Estimated Cardinality": "3359"
+                                                                                                                                    "Estimated Cardinality": "3371"
                                                                                                                                 }
                                                                                                                             }
                                                                                                                         ],
@@ -1005,7 +1005,7 @@ logical_opt [
                                                                                                                                 "#4",
                                                                                                                                 "#5"
                                                                                                                             ],
-                                                                                                                            "Estimated Cardinality": "3359"
+                                                                                                                            "Estimated Cardinality": "3371"
                                                                                                                         }
                                                                                                                     }
                                                                                                                 ],
@@ -1017,19 +1017,19 @@ logical_opt [
                                                                                                                         "sum(COALESCE(CAST(wr_return_amt AS DECIMAL(12,2)), 0.00))",
                                                                                                                         "sum(COALESCE(CAST(ws_net_paid AS DECIMAL(12,2)), 0.00))"
                                                                                                                     ],
-                                                                                                                    "Estimated Cardinality": "1521"
+                                                                                                                    "Estimated Cardinality": "1629"
                                                                                                                 }
                                                                                                             }
                                                                                                         ],
                                                                                                         "extra_info": {
                                                                                                             "Expressions": [
-                                                                                                                "CAST(#0 AS BIGINT)",
+                                                                                                                "CAST(#0 AS INTEGER)",
                                                                                                                 "#1",
                                                                                                                 "#2",
                                                                                                                 "#3",
                                                                                                                 "#4"
                                                                                                             ],
-                                                                                                            "Estimated Cardinality": "1521"
+                                                                                                            "Estimated Cardinality": "1629"
                                                                                                         }
                                                                                                     }
                                                                                                 ],
@@ -1039,7 +1039,7 @@ logical_opt [
                                                                                                         "return_ratio",
                                                                                                         "currency_ratio"
                                                                                                     ],
-                                                                                                    "Estimated Cardinality": "1521"
+                                                                                                    "Estimated Cardinality": "1629"
                                                                                                 }
                                                                                             }
                                                                                         ],
@@ -1048,13 +1048,13 @@ logical_opt [
                                                                                                 "rank() OVER (ORDER BY return_ratio ASC NULLS LAST)",
                                                                                                 "rank() OVER (ORDER BY currency_ratio ASC NULLS LAST)"
                                                                                             ],
-                                                                                            "Estimated Cardinality": "1521"
+                                                                                            "Estimated Cardinality": "1629"
                                                                                         }
                                                                                     }
                                                                                 ],
                                                                                 "extra_info": {
                                                                                     "Expressions": "((return_rank <= 10) OR (currency_rank <= 10))",
-                                                                                    "Estimated Cardinality": "304"
+                                                                                    "Estimated Cardinality": "325"
                                                                                 }
                                                                             }
                                                                         ],
@@ -1065,7 +1065,7 @@ logical_opt [
                                                                                 "return_rank",
                                                                                 "currency_rank"
                                                                             ],
-                                                                            "Estimated Cardinality": "304"
+                                                                            "Estimated Cardinality": "325"
                                                                         }
                                                                     }
                                                                 ],
@@ -1077,7 +1077,7 @@ logical_opt [
                                                                         "return_rank",
                                                                         "currency_rank"
                                                                     ],
-                                                                    "Estimated Cardinality": "304"
+                                                                    "Estimated Cardinality": "325"
                                                                 }
                                                             },
                                                             {
@@ -1112,9 +1112,9 @@ logical_opt [
                                                                                                                                         "children": [],
                                                                                                                                         "extra_info": {
                                                                                                                                             "Filters": [
-                                                                                                                                                "($.d_year = 2001i64)",
-                                                                                                                                                "($.d_moy = 12i64)",
-                                                                                                                                                "(2450815i64 <= $.d_date_sk <= 2452652i64)"
+                                                                                                                                                "($.d_year = 2001i32)",
+                                                                                                                                                "($.d_moy = 12i32)",
+                                                                                                                                                "(2450815i32 <= $.d_date_sk <= 2452737i32)"
                                                                                                                                             ],
                                                                                                                                             "Function": "Vortex Scan",
                                                                                                                                             "Estimated Cardinality": "14609"
@@ -1130,11 +1130,11 @@ logical_opt [
                                                                                                                                                     "Filters": [
                                                                                                                                                         "($.cs_net_profit > decimal128(100, precision=7, scale=2))",
                                                                                                                                                         "($.cs_net_paid > decimal128(0, precision=7, scale=2))",
-                                                                                                                                                        "($.cs_quantity > 0i64)",
-                                                                                                                                                        "(2i64 <= $.cs_order_number <= 15999i64)"
+                                                                                                                                                        "($.cs_quantity > 0i32)",
+                                                                                                                                                        "(2i64 <= $.cs_order_number <= 19998i64)"
                                                                                                                                                     ],
                                                                                                                                                     "Function": "Vortex Scan",
-                                                                                                                                                    "Estimated Cardinality": "28731"
+                                                                                                                                                    "Estimated Cardinality": "35904"
                                                                                                                                                 }
                                                                                                                                             },
                                                                                                                                             {
@@ -1143,7 +1143,7 @@ logical_opt [
                                                                                                                                                 "extra_info": {
                                                                                                                                                     "Filters": "($.cr_return_amount > decimal128(1000000, precision=7, scale=2))",
                                                                                                                                                     "Function": "Vortex Scan",
-                                                                                                                                                    "Estimated Cardinality": "2855"
+                                                                                                                                                    "Estimated Cardinality": "3595"
                                                                                                                                                 }
                                                                                                                                             }
                                                                                                                                         ],
@@ -1153,14 +1153,14 @@ logical_opt [
                                                                                                                                                 "(cs_order_number = cr_order_number)",
                                                                                                                                                 "(cs_item_sk = cr_item_sk)"
                                                                                                                                             ],
-                                                                                                                                            "Estimated Cardinality": "5126"
+                                                                                                                                            "Estimated Cardinality": "6453"
                                                                                                                                         }
                                                                                                                                     }
                                                                                                                                 ],
                                                                                                                                 "extra_info": {
                                                                                                                                     "Join Type": "INNER",
                                                                                                                                     "Conditions": "(d_date_sk = cs_sold_date_sk)",
-                                                                                                                                    "Estimated Cardinality": "5126"
+                                                                                                                                    "Estimated Cardinality": "6453"
                                                                                                                                 }
                                                                                                                             }
                                                                                                                         ],
@@ -1173,7 +1173,7 @@ logical_opt [
                                                                                                                                 "#4",
                                                                                                                                 "#5"
                                                                                                                             ],
-                                                                                                                            "Estimated Cardinality": "5126"
+                                                                                                                            "Estimated Cardinality": "6453"
                                                                                                                         }
                                                                                                                     }
                                                                                                                 ],
@@ -1185,19 +1185,19 @@ logical_opt [
                                                                                                                         "sum(COALESCE(CAST(cr_return_amount AS DECIMAL(12,2)), 0.00))",
                                                                                                                         "sum(COALESCE(CAST(cs_net_paid AS DECIMAL(12,2)), 0.00))"
                                                                                                                     ],
-                                                                                                                    "Estimated Cardinality": "1695"
+                                                                                                                    "Estimated Cardinality": "1920"
                                                                                                                 }
                                                                                                             }
                                                                                                         ],
                                                                                                         "extra_info": {
                                                                                                             "Expressions": [
-                                                                                                                "CAST(#0 AS BIGINT)",
+                                                                                                                "CAST(#0 AS INTEGER)",
                                                                                                                 "#1",
                                                                                                                 "#2",
                                                                                                                 "#3",
                                                                                                                 "#4"
                                                                                                             ],
-                                                                                                            "Estimated Cardinality": "1695"
+                                                                                                            "Estimated Cardinality": "1920"
                                                                                                         }
                                                                                                     }
                                                                                                 ],
@@ -1207,7 +1207,7 @@ logical_opt [
                                                                                                         "return_ratio",
                                                                                                         "currency_ratio"
                                                                                                     ],
-                                                                                                    "Estimated Cardinality": "1695"
+                                                                                                    "Estimated Cardinality": "1920"
                                                                                                 }
                                                                                             }
                                                                                         ],
@@ -1216,13 +1216,13 @@ logical_opt [
                                                                                                 "rank() OVER (ORDER BY return_ratio ASC NULLS LAST)",
                                                                                                 "rank() OVER (ORDER BY currency_ratio ASC NULLS LAST)"
                                                                                             ],
-                                                                                            "Estimated Cardinality": "1695"
+                                                                                            "Estimated Cardinality": "1920"
                                                                                         }
                                                                                     }
                                                                                 ],
                                                                                 "extra_info": {
                                                                                     "Expressions": "((return_rank <= 10) OR (currency_rank <= 10))",
-                                                                                    "Estimated Cardinality": "339"
+                                                                                    "Estimated Cardinality": "384"
                                                                                 }
                                                                             }
                                                                         ],
@@ -1233,7 +1233,7 @@ logical_opt [
                                                                                 "return_rank",
                                                                                 "currency_rank"
                                                                             ],
-                                                                            "Estimated Cardinality": "339"
+                                                                            "Estimated Cardinality": "384"
                                                                         }
                                                                     }
                                                                 ],
@@ -1245,7 +1245,7 @@ logical_opt [
                                                                         "return_rank",
                                                                         "currency_rank"
                                                                     ],
-                                                                    "Estimated Cardinality": "339"
+                                                                    "Estimated Cardinality": "384"
                                                                 }
                                                             },
                                                             {
@@ -1285,10 +1285,11 @@ logical_opt [
                                                                                                                                                     "Filters": [
                                                                                                                                                         "($.ss_net_profit > decimal128(100, precision=7, scale=2))",
                                                                                                                                                         "($.ss_net_paid > decimal128(0, precision=7, scale=2))",
-                                                                                                                                                        "($.ss_quantity > 0i64)"
+                                                                                                                                                        "($.ss_quantity > 0i32)",
+                                                                                                                                                        "($.ss_ticket_number <= 19998i64)"
                                                                                                                                                     ],
                                                                                                                                                     "Function": "Vortex Scan",
-                                                                                                                                                    "Estimated Cardinality": "57692"
+                                                                                                                                                    "Estimated Cardinality": "48097"
                                                                                                                                                 }
                                                                                                                                             },
                                                                                                                                             {
@@ -1297,7 +1298,7 @@ logical_opt [
                                                                                                                                                 "extra_info": {
                                                                                                                                                     "Filters": "($.sr_return_amt > decimal128(1000000, precision=7, scale=2))",
                                                                                                                                                     "Function": "Vortex Scan",
-                                                                                                                                                    "Estimated Cardinality": "5715"
+                                                                                                                                                    "Estimated Cardinality": "4785"
                                                                                                                                                 }
                                                                                                                                             }
                                                                                                                                         ],
@@ -1307,7 +1308,7 @@ logical_opt [
                                                                                                                                                 "(ss_ticket_number = sr_ticket_number)",
                                                                                                                                                 "(ss_item_sk = sr_item_sk)"
                                                                                                                                             ],
-                                                                                                                                            "Estimated Cardinality": "13737"
+                                                                                                                                            "Estimated Cardinality": "11507"
                                                                                                                                         }
                                                                                                                                     },
                                                                                                                                     {
@@ -1315,9 +1316,9 @@ logical_opt [
                                                                                                                                         "children": [],
                                                                                                                                         "extra_info": {
                                                                                                                                             "Filters": [
-                                                                                                                                                "($.d_year = 2001i64)",
-                                                                                                                                                "($.d_moy = 12i64)",
-                                                                                                                                                "(2450816i64 <= $.d_date_sk <= 2452642i64)"
+                                                                                                                                                "($.d_year = 2001i32)",
+                                                                                                                                                "($.d_moy = 12i32)",
+                                                                                                                                                "(2450816i32 <= $.d_date_sk <= 2452642i32)"
                                                                                                                                             ],
                                                                                                                                             "Function": "Vortex Scan",
                                                                                                                                             "Estimated Cardinality": "14609"
@@ -1327,7 +1328,7 @@ logical_opt [
                                                                                                                                 "extra_info": {
                                                                                                                                     "Join Type": "INNER",
                                                                                                                                     "Conditions": "(ss_sold_date_sk = d_date_sk)",
-                                                                                                                                    "Estimated Cardinality": "13737"
+                                                                                                                                    "Estimated Cardinality": "11507"
                                                                                                                                 }
                                                                                                                             }
                                                                                                                         ],
@@ -1340,7 +1341,7 @@ logical_opt [
                                                                                                                                 "#4",
                                                                                                                                 "#5"
                                                                                                                             ],
-                                                                                                                            "Estimated Cardinality": "13737"
+                                                                                                                            "Estimated Cardinality": "11507"
                                                                                                                         }
                                                                                                                     }
                                                                                                                 ],
@@ -1352,19 +1353,19 @@ logical_opt [
                                                                                                                         "sum(COALESCE(CAST(sr_return_amt AS DECIMAL(12,2)), 0.00))",
                                                                                                                         "sum(COALESCE(CAST(ss_net_paid AS DECIMAL(12,2)), 0.00))"
                                                                                                                     ],
-                                                                                                                    "Estimated Cardinality": "1799"
+                                                                                                                    "Estimated Cardinality": "1993"
                                                                                                                 }
                                                                                                             }
                                                                                                         ],
                                                                                                         "extra_info": {
                                                                                                             "Expressions": [
-                                                                                                                "CAST(#0 AS BIGINT)",
+                                                                                                                "CAST(#0 AS INTEGER)",
                                                                                                                 "#1",
                                                                                                                 "#2",
                                                                                                                 "#3",
                                                                                                                 "#4"
                                                                                                             ],
-                                                                                                            "Estimated Cardinality": "1799"
+                                                                                                            "Estimated Cardinality": "1993"
                                                                                                         }
                                                                                                     }
                                                                                                 ],
@@ -1374,7 +1375,7 @@ logical_opt [
                                                                                                         "return_ratio",
                                                                                                         "currency_ratio"
                                                                                                     ],
-                                                                                                    "Estimated Cardinality": "1799"
+                                                                                                    "Estimated Cardinality": "1993"
                                                                                                 }
                                                                                             }
                                                                                         ],
@@ -1383,13 +1384,13 @@ logical_opt [
                                                                                                 "rank() OVER (ORDER BY return_ratio ASC NULLS LAST)",
                                                                                                 "rank() OVER (ORDER BY currency_ratio ASC NULLS LAST)"
                                                                                             ],
-                                                                                            "Estimated Cardinality": "1799"
+                                                                                            "Estimated Cardinality": "1993"
                                                                                         }
                                                                                     }
                                                                                 ],
                                                                                 "extra_info": {
                                                                                     "Expressions": "((return_rank <= 10) OR (currency_rank <= 10))",
-                                                                                    "Estimated Cardinality": "359"
+                                                                                    "Estimated Cardinality": "398"
                                                                                 }
                                                                             }
                                                                         ],
@@ -1400,7 +1401,7 @@ logical_opt [
                                                                                 "return_rank",
                                                                                 "currency_rank"
                                                                             ],
-                                                                            "Estimated Cardinality": "359"
+                                                                            "Estimated Cardinality": "398"
                                                                         }
                                                                     }
                                                                 ],
@@ -1412,13 +1413,13 @@ logical_opt [
                                                                         "return_rank",
                                                                         "currency_rank"
                                                                     ],
-                                                                    "Estimated Cardinality": "359"
+                                                                    "Estimated Cardinality": "398"
                                                                 }
                                                             }
                                                         ],
                                                         "extra_info": {
                                                             "Expressions": "",
-                                                            "Estimated Cardinality": "1002"
+                                                            "Estimated Cardinality": "1107"
                                                         }
                                                     }
                                                 ],
@@ -1430,7 +1431,7 @@ logical_opt [
                                                         "#3",
                                                         "#4"
                                                     ],
-                                                    "Estimated Cardinality": "1002"
+                                                    "Estimated Cardinality": "1107"
                                                 }
                                             }
                                         ],
@@ -1442,13 +1443,13 @@ logical_opt [
                                                 "#3",
                                                 "#4"
                                             ],
-                                            "Estimated Cardinality": "1002"
+                                            "Estimated Cardinality": "1107"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Expressions": "",
-                                    "Estimated Cardinality": "1002",
+                                    "Estimated Cardinality": "1107",
                                     "Distinct Targets": [
                                         "channel",
                                         "item",
@@ -1462,12 +1463,12 @@ logical_opt [
                         "extra_info": {
                             "Expressions": [
                                 "__internal_decompress_string(#0)",
-                                "CAST(#1 AS BIGINT)",
+                                "CAST(#1 AS INTEGER)",
                                 "#2",
                                 "#3",
                                 "#4"
                             ],
-                            "Estimated Cardinality": "1002"
+                            "Estimated Cardinality": "1107"
                         }
                     }
                 ],
@@ -1479,7 +1480,7 @@ logical_opt [
                         "return_rank",
                         "currency_rank"
                     ],
-                    "Estimated Cardinality": "1002"
+                    "Estimated Cardinality": "1107"
                 }
             }
         ],
@@ -1550,9 +1551,9 @@ physical_plan [
                                                                                                                                                         "extra_info": {
                                                                                                                                                             "Function": "Vortex Scan",
                                                                                                                                                             "Filters": [
-                                                                                                                                                                "($.d_year = 2001i64)",
-                                                                                                                                                                "($.d_moy = 12i64)",
-                                                                                                                                                                "(2450816i64 <= $.d_date_sk <= 2452642i64)"
+                                                                                                                                                                "($.d_year = 2001i32)",
+                                                                                                                                                                "($.d_moy = 12i32)",
+                                                                                                                                                                "(2450816i32 <= $.d_date_sk <= 2452642i32)"
                                                                                                                                                             ],
                                                                                                                                                             "Projections": "d_date_sk",
                                                                                                                                                             "Estimated Cardinality": "14609"
@@ -1569,7 +1570,7 @@ physical_plan [
                                                                                                                                                                     "Filters": [
                                                                                                                                                                         "($.ws_net_profit > decimal128(100, precision=7, scale=2))",
                                                                                                                                                                         "($.ws_net_paid > decimal128(0, precision=7, scale=2))",
-                                                                                                                                                                        "($.ws_quantity > 0i64)"
+                                                                                                                                                                        "($.ws_quantity > 0i32)"
                                                                                                                                                                     ],
                                                                                                                                                                     "Projections": [
                                                                                                                                                                         "ws_sold_date_sk",
@@ -1593,7 +1594,7 @@ physical_plan [
                                                                                                                                                                         "wr_return_quantity",
                                                                                                                                                                         "wr_return_amt"
                                                                                                                                                                     ],
-                                                                                                                                                                    "Estimated Cardinality": "1407"
+                                                                                                                                                                    "Estimated Cardinality": "1412"
                                                                                                                                                                 }
                                                                                                                                                             }
                                                                                                                                                         ],
@@ -1603,14 +1604,14 @@ physical_plan [
                                                                                                                                                                 "ws_order_number = wr_order_number",
                                                                                                                                                                 "ws_item_sk = wr_item_sk"
                                                                                                                                                             ],
-                                                                                                                                                            "Estimated Cardinality": "3359"
+                                                                                                                                                            "Estimated Cardinality": "3371"
                                                                                                                                                         }
                                                                                                                                                     }
                                                                                                                                                 ],
                                                                                                                                                 "extra_info": {
                                                                                                                                                     "Join Type": "INNER",
                                                                                                                                                     "Conditions": "d_date_sk = ws_sold_date_sk",
-                                                                                                                                                    "Estimated Cardinality": "3359"
+                                                                                                                                                    "Estimated Cardinality": "3371"
                                                                                                                                                 }
                                                                                                                                             }
                                                                                                                                         ],
@@ -1623,7 +1624,7 @@ physical_plan [
                                                                                                                                                 "#4",
                                                                                                                                                 "#5"
                                                                                                                                             ],
-                                                                                                                                            "Estimated Cardinality": "3359"
+                                                                                                                                            "Estimated Cardinality": "3371"
                                                                                                                                         }
                                                                                                                                     }
                                                                                                                                 ],
@@ -1635,7 +1636,7 @@ physical_plan [
                                                                                                                                         "COALESCE(CAST(wr_return_amt AS DECIMAL(12,2)), 0.00)",
                                                                                                                                         "COALESCE(CAST(ws_net_paid AS DECIMAL(12,2)), 0.00)"
                                                                                                                                     ],
-                                                                                                                                    "Estimated Cardinality": "3359"
+                                                                                                                                    "Estimated Cardinality": "3371"
                                                                                                                                 }
                                                                                                                             }
                                                                                                                         ],
@@ -1647,19 +1648,19 @@ physical_plan [
                                                                                                                                 "sum(#3)",
                                                                                                                                 "sum(#4)"
                                                                                                                             ],
-                                                                                                                            "Estimated Cardinality": "1521"
+                                                                                                                            "Estimated Cardinality": "1629"
                                                                                                                         }
                                                                                                                     }
                                                                                                                 ],
                                                                                                                 "extra_info": {
                                                                                                                     "Projections": [
-                                                                                                                        "CAST(#0 AS BIGINT)",
+                                                                                                                        "CAST(#0 AS INTEGER)",
                                                                                                                         "#1",
                                                                                                                         "#2",
                                                                                                                         "#3",
                                                                                                                         "#4"
                                                                                                                     ],
-                                                                                                                    "Estimated Cardinality": "1521"
+                                                                                                                    "Estimated Cardinality": "1629"
                                                                                                                 }
                                                                                                             }
                                                                                                         ],
@@ -1669,19 +1670,19 @@ physical_plan [
                                                                                                                 "return_ratio",
                                                                                                                 "currency_ratio"
                                                                                                             ],
-                                                                                                            "Estimated Cardinality": "1521"
+                                                                                                            "Estimated Cardinality": "1629"
                                                                                                         }
                                                                                                     }
                                                                                                 ],
                                                                                                 "extra_info": {
                                                                                                     "Projections": "rank() OVER (ORDER BY return_ratio ASC NULLS LAST)",
-                                                                                                    "Estimated Cardinality": "1521"
+                                                                                                    "Estimated Cardinality": "1629"
                                                                                                 }
                                                                                             }
                                                                                         ],
                                                                                         "extra_info": {
                                                                                             "Projections": "rank() OVER (ORDER BY currency_ratio ASC NULLS LAST)",
-                                                                                            "Estimated Cardinality": "1521"
+                                                                                            "Estimated Cardinality": "1629"
                                                                                         }
                                                                                     }
                                                                                 ],
@@ -1693,13 +1694,13 @@ physical_plan [
                                                                                         "#3",
                                                                                         "#4"
                                                                                     ],
-                                                                                    "Estimated Cardinality": "1521"
+                                                                                    "Estimated Cardinality": "1629"
                                                                                 }
                                                                             }
                                                                         ],
                                                                         "extra_info": {
                                                                             "Expression": "((return_rank <= 10) OR (currency_rank <= 10))",
-                                                                            "Estimated Cardinality": "304"
+                                                                            "Estimated Cardinality": "325"
                                                                         }
                                                                     }
                                                                 ],
@@ -1710,7 +1711,7 @@ physical_plan [
                                                                         "#3",
                                                                         "#4"
                                                                     ],
-                                                                    "Estimated Cardinality": "304"
+                                                                    "Estimated Cardinality": "325"
                                                                 }
                                                             }
                                                         ],
@@ -1722,7 +1723,7 @@ physical_plan [
                                                                 "return_rank",
                                                                 "currency_rank"
                                                             ],
-                                                            "Estimated Cardinality": "304"
+                                                            "Estimated Cardinality": "325"
                                                         }
                                                     },
                                                     {
@@ -1767,9 +1768,9 @@ physical_plan [
                                                                                                                                                         "extra_info": {
                                                                                                                                                             "Function": "Vortex Scan",
                                                                                                                                                             "Filters": [
-                                                                                                                                                                "($.d_year = 2001i64)",
-                                                                                                                                                                "($.d_moy = 12i64)",
-                                                                                                                                                                "(2450815i64 <= $.d_date_sk <= 2452652i64)"
+                                                                                                                                                                "($.d_year = 2001i32)",
+                                                                                                                                                                "($.d_moy = 12i32)",
+                                                                                                                                                                "(2450815i32 <= $.d_date_sk <= 2452737i32)"
                                                                                                                                                             ],
                                                                                                                                                             "Projections": "d_date_sk",
                                                                                                                                                             "Estimated Cardinality": "14609"
@@ -1786,8 +1787,8 @@ physical_plan [
                                                                                                                                                                     "Filters": [
                                                                                                                                                                         "($.cs_net_profit > decimal128(100, precision=7, scale=2))",
                                                                                                                                                                         "($.cs_net_paid > decimal128(0, precision=7, scale=2))",
-                                                                                                                                                                        "($.cs_quantity > 0i64)",
-                                                                                                                                                                        "(2i64 <= $.cs_order_number <= 15999i64)"
+                                                                                                                                                                        "($.cs_quantity > 0i32)",
+                                                                                                                                                                        "(2i64 <= $.cs_order_number <= 19998i64)"
                                                                                                                                                                     ],
                                                                                                                                                                     "Projections": [
                                                                                                                                                                         "cs_sold_date_sk",
@@ -1796,7 +1797,7 @@ physical_plan [
                                                                                                                                                                         "cs_quantity",
                                                                                                                                                                         "cs_net_paid"
                                                                                                                                                                     ],
-                                                                                                                                                                    "Estimated Cardinality": "28731"
+                                                                                                                                                                    "Estimated Cardinality": "35904"
                                                                                                                                                                 }
                                                                                                                                                             },
                                                                                                                                                             {
@@ -1811,7 +1812,7 @@ physical_plan [
                                                                                                                                                                         "cr_return_quantity",
                                                                                                                                                                         "cr_return_amount"
                                                                                                                                                                     ],
-                                                                                                                                                                    "Estimated Cardinality": "2855"
+                                                                                                                                                                    "Estimated Cardinality": "3595"
                                                                                                                                                                 }
                                                                                                                                                             }
                                                                                                                                                         ],
@@ -1821,14 +1822,14 @@ physical_plan [
                                                                                                                                                                 "cs_order_number = cr_order_number",
                                                                                                                                                                 "cs_item_sk = cr_item_sk"
                                                                                                                                                             ],
-                                                                                                                                                            "Estimated Cardinality": "5126"
+                                                                                                                                                            "Estimated Cardinality": "6453"
                                                                                                                                                         }
                                                                                                                                                     }
                                                                                                                                                 ],
                                                                                                                                                 "extra_info": {
                                                                                                                                                     "Join Type": "INNER",
                                                                                                                                                     "Conditions": "d_date_sk = cs_sold_date_sk",
-                                                                                                                                                    "Estimated Cardinality": "5126"
+                                                                                                                                                    "Estimated Cardinality": "6453"
                                                                                                                                                 }
                                                                                                                                             }
                                                                                                                                         ],
@@ -1841,7 +1842,7 @@ physical_plan [
                                                                                                                                                 "#4",
                                                                                                                                                 "#5"
                                                                                                                                             ],
-                                                                                                                                            "Estimated Cardinality": "5126"
+                                                                                                                                            "Estimated Cardinality": "6453"
                                                                                                                                         }
                                                                                                                                     }
                                                                                                                                 ],
@@ -1853,7 +1854,7 @@ physical_plan [
                                                                                                                                         "COALESCE(CAST(cr_return_amount AS DECIMAL(12,2)), 0.00)",
                                                                                                                                         "COALESCE(CAST(cs_net_paid AS DECIMAL(12,2)), 0.00)"
                                                                                                                                     ],
-                                                                                                                                    "Estimated Cardinality": "5126"
+                                                                                                                                    "Estimated Cardinality": "6453"
                                                                                                                                 }
                                                                                                                             }
                                                                                                                         ],
@@ -1865,19 +1866,19 @@ physical_plan [
                                                                                                                                 "sum(#3)",
                                                                                                                                 "sum(#4)"
                                                                                                                             ],
-                                                                                                                            "Estimated Cardinality": "1695"
+                                                                                                                            "Estimated Cardinality": "1920"
                                                                                                                         }
                                                                                                                     }
                                                                                                                 ],
                                                                                                                 "extra_info": {
                                                                                                                     "Projections": [
-                                                                                                                        "CAST(#0 AS BIGINT)",
+                                                                                                                        "CAST(#0 AS INTEGER)",
                                                                                                                         "#1",
                                                                                                                         "#2",
                                                                                                                         "#3",
                                                                                                                         "#4"
                                                                                                                     ],
-                                                                                                                    "Estimated Cardinality": "1695"
+                                                                                                                    "Estimated Cardinality": "1920"
                                                                                                                 }
                                                                                                             }
                                                                                                         ],
@@ -1887,19 +1888,19 @@ physical_plan [
                                                                                                                 "return_ratio",
                                                                                                                 "currency_ratio"
                                                                                                             ],
-                                                                                                            "Estimated Cardinality": "1695"
+                                                                                                            "Estimated Cardinality": "1920"
                                                                                                         }
                                                                                                     }
                                                                                                 ],
                                                                                                 "extra_info": {
                                                                                                     "Projections": "rank() OVER (ORDER BY return_ratio ASC NULLS LAST)",
-                                                                                                    "Estimated Cardinality": "1695"
+                                                                                                    "Estimated Cardinality": "1920"
                                                                                                 }
                                                                                             }
                                                                                         ],
                                                                                         "extra_info": {
                                                                                             "Projections": "rank() OVER (ORDER BY currency_ratio ASC NULLS LAST)",
-                                                                                            "Estimated Cardinality": "1695"
+                                                                                            "Estimated Cardinality": "1920"
                                                                                         }
                                                                                     }
                                                                                 ],
@@ -1911,13 +1912,13 @@ physical_plan [
                                                                                         "#3",
                                                                                         "#4"
                                                                                     ],
-                                                                                    "Estimated Cardinality": "1695"
+                                                                                    "Estimated Cardinality": "1920"
                                                                                 }
                                                                             }
                                                                         ],
                                                                         "extra_info": {
                                                                             "Expression": "((return_rank <= 10) OR (currency_rank <= 10))",
-                                                                            "Estimated Cardinality": "339"
+                                                                            "Estimated Cardinality": "384"
                                                                         }
                                                                     }
                                                                 ],
@@ -1928,7 +1929,7 @@ physical_plan [
                                                                         "#3",
                                                                         "#4"
                                                                     ],
-                                                                    "Estimated Cardinality": "339"
+                                                                    "Estimated Cardinality": "384"
                                                                 }
                                                             }
                                                         ],
@@ -1940,7 +1941,7 @@ physical_plan [
                                                                 "return_rank",
                                                                 "currency_rank"
                                                             ],
-                                                            "Estimated Cardinality": "339"
+                                                            "Estimated Cardinality": "384"
                                                         }
                                                     },
                                                     {
@@ -1990,7 +1991,8 @@ physical_plan [
                                                                                                                                                                     "Filters": [
                                                                                                                                                                         "($.ss_net_profit > decimal128(100, precision=7, scale=2))",
                                                                                                                                                                         "($.ss_net_paid > decimal128(0, precision=7, scale=2))",
-                                                                                                                                                                        "($.ss_quantity > 0i64)"
+                                                                                                                                                                        "($.ss_quantity > 0i32)",
+                                                                                                                                                                        "($.ss_ticket_number <= 19998i64)"
                                                                                                                                                                     ],
                                                                                                                                                                     "Projections": [
                                                                                                                                                                         "ss_sold_date_sk",
@@ -1999,7 +2001,7 @@ physical_plan [
                                                                                                                                                                         "ss_quantity",
                                                                                                                                                                         "ss_net_paid"
                                                                                                                                                                     ],
-                                                                                                                                                                    "Estimated Cardinality": "57692"
+                                                                                                                                                                    "Estimated Cardinality": "48097"
                                                                                                                                                                 }
                                                                                                                                                             },
                                                                                                                                                             {
@@ -2014,7 +2016,7 @@ physical_plan [
                                                                                                                                                                         "sr_return_quantity",
                                                                                                                                                                         "sr_return_amt"
                                                                                                                                                                     ],
-                                                                                                                                                                    "Estimated Cardinality": "5715"
+                                                                                                                                                                    "Estimated Cardinality": "4785"
                                                                                                                                                                 }
                                                                                                                                                             }
                                                                                                                                                         ],
@@ -2024,7 +2026,7 @@ physical_plan [
                                                                                                                                                                 "ss_ticket_number = sr_ticket_number",
                                                                                                                                                                 "ss_item_sk = sr_item_sk"
                                                                                                                                                             ],
-                                                                                                                                                            "Estimated Cardinality": "13737"
+                                                                                                                                                            "Estimated Cardinality": "11507"
                                                                                                                                                         }
                                                                                                                                                     },
                                                                                                                                                     {
@@ -2033,9 +2035,9 @@ physical_plan [
                                                                                                                                                         "extra_info": {
                                                                                                                                                             "Function": "Vortex Scan",
                                                                                                                                                             "Filters": [
-                                                                                                                                                                "($.d_year = 2001i64)",
-                                                                                                                                                                "($.d_moy = 12i64)",
-                                                                                                                                                                "(2450816i64 <= $.d_date_sk <= 2452642i64)"
+                                                                                                                                                                "($.d_year = 2001i32)",
+                                                                                                                                                                "($.d_moy = 12i32)",
+                                                                                                                                                                "(2450816i32 <= $.d_date_sk <= 2452642i32)"
                                                                                                                                                             ],
                                                                                                                                                             "Projections": "d_date_sk",
                                                                                                                                                             "Estimated Cardinality": "14609"
@@ -2045,7 +2047,7 @@ physical_plan [
                                                                                                                                                 "extra_info": {
                                                                                                                                                     "Join Type": "INNER",
                                                                                                                                                     "Conditions": "ss_sold_date_sk = d_date_sk",
-                                                                                                                                                    "Estimated Cardinality": "13737"
+                                                                                                                                                    "Estimated Cardinality": "11507"
                                                                                                                                                 }
                                                                                                                                             }
                                                                                                                                         ],
@@ -2058,7 +2060,7 @@ physical_plan [
                                                                                                                                                 "#4",
                                                                                                                                                 "#5"
                                                                                                                                             ],
-                                                                                                                                            "Estimated Cardinality": "13737"
+                                                                                                                                            "Estimated Cardinality": "11507"
                                                                                                                                         }
                                                                                                                                     }
                                                                                                                                 ],
@@ -2070,7 +2072,7 @@ physical_plan [
                                                                                                                                         "COALESCE(CAST(sr_return_amt AS DECIMAL(12,2)), 0.00)",
                                                                                                                                         "COALESCE(CAST(ss_net_paid AS DECIMAL(12,2)), 0.00)"
                                                                                                                                     ],
-                                                                                                                                    "Estimated Cardinality": "13737"
+                                                                                                                                    "Estimated Cardinality": "11507"
                                                                                                                                 }
                                                                                                                             }
                                                                                                                         ],
@@ -2082,19 +2084,19 @@ physical_plan [
                                                                                                                                 "sum(#3)",
                                                                                                                                 "sum(#4)"
                                                                                                                             ],
-                                                                                                                            "Estimated Cardinality": "1799"
+                                                                                                                            "Estimated Cardinality": "1993"
                                                                                                                         }
                                                                                                                     }
                                                                                                                 ],
                                                                                                                 "extra_info": {
                                                                                                                     "Projections": [
-                                                                                                                        "CAST(#0 AS BIGINT)",
+                                                                                                                        "CAST(#0 AS INTEGER)",
                                                                                                                         "#1",
                                                                                                                         "#2",
                                                                                                                         "#3",
                                                                                                                         "#4"
                                                                                                                     ],
-                                                                                                                    "Estimated Cardinality": "1799"
+                                                                                                                    "Estimated Cardinality": "1993"
                                                                                                                 }
                                                                                                             }
                                                                                                         ],
@@ -2104,19 +2106,19 @@ physical_plan [
                                                                                                                 "return_ratio",
                                                                                                                 "currency_ratio"
                                                                                                             ],
-                                                                                                            "Estimated Cardinality": "1799"
+                                                                                                            "Estimated Cardinality": "1993"
                                                                                                         }
                                                                                                     }
                                                                                                 ],
                                                                                                 "extra_info": {
                                                                                                     "Projections": "rank() OVER (ORDER BY return_ratio ASC NULLS LAST)",
-                                                                                                    "Estimated Cardinality": "1799"
+                                                                                                    "Estimated Cardinality": "1993"
                                                                                                 }
                                                                                             }
                                                                                         ],
                                                                                         "extra_info": {
                                                                                             "Projections": "rank() OVER (ORDER BY currency_ratio ASC NULLS LAST)",
-                                                                                            "Estimated Cardinality": "1799"
+                                                                                            "Estimated Cardinality": "1993"
                                                                                         }
                                                                                     }
                                                                                 ],
@@ -2128,13 +2130,13 @@ physical_plan [
                                                                                         "#3",
                                                                                         "#4"
                                                                                     ],
-                                                                                    "Estimated Cardinality": "1799"
+                                                                                    "Estimated Cardinality": "1993"
                                                                                 }
                                                                             }
                                                                         ],
                                                                         "extra_info": {
                                                                             "Expression": "((return_rank <= 10) OR (currency_rank <= 10))",
-                                                                            "Estimated Cardinality": "359"
+                                                                            "Estimated Cardinality": "398"
                                                                         }
                                                                     }
                                                                 ],
@@ -2145,7 +2147,7 @@ physical_plan [
                                                                         "#3",
                                                                         "#4"
                                                                     ],
-                                                                    "Estimated Cardinality": "359"
+                                                                    "Estimated Cardinality": "398"
                                                                 }
                                                             }
                                                         ],
@@ -2157,7 +2159,7 @@ physical_plan [
                                                                 "return_rank",
                                                                 "currency_rank"
                                                             ],
-                                                            "Estimated Cardinality": "359"
+                                                            "Estimated Cardinality": "398"
                                                         }
                                                     }
                                                 ],
@@ -2172,7 +2174,7 @@ physical_plan [
                                                 "#3",
                                                 "#4"
                                             ],
-                                            "Estimated Cardinality": "1002"
+                                            "Estimated Cardinality": "1107"
                                         }
                                     }
                                 ],
@@ -2184,7 +2186,7 @@ physical_plan [
                                         "return_rank",
                                         "currency_rank"
                                     ],
-                                    "Estimated Cardinality": "1002"
+                                    "Estimated Cardinality": "1107"
                                 }
                             }
                         ],
@@ -2197,19 +2199,19 @@ physical_plan [
                                 "#4"
                             ],
                             "Aggregates": "",
-                            "Estimated Cardinality": "1002"
+                            "Estimated Cardinality": "1107"
                         }
                     }
                 ],
                 "extra_info": {
                     "Projections": [
                         "__internal_decompress_string(#0)",
-                        "CAST(#1 AS BIGINT)",
+                        "CAST(#1 AS INTEGER)",
                         "#2",
                         "#3",
                         "#4"
                     ],
-                    "Estimated Cardinality": "1002"
+                    "Estimated Cardinality": "1107"
                 }
             }
         ],

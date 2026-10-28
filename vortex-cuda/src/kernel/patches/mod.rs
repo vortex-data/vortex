@@ -10,10 +10,10 @@ pub mod gpu {
     include!(concat!(env!("OUT_DIR"), "/patches.rs"));
 }
 
-use cudarc::driver::DeviceRepr;
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex_cuda_driver::DeviceRepr;
 
 use crate::CudaBufferExt;
 use crate::kernel::patches::gpu::ChunkOffsetType;

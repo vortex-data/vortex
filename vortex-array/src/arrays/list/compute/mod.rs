@@ -15,12 +15,14 @@ pub(crate) fn initialize(session: &vortex_session::VortexSession) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
@@ -29,9 +31,11 @@ mod tests {
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_mask_list() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let elements = buffer![0..35].into_array();
         let offsets = buffer![0, 5, 11, 18, 26, 35].into_array();
         let validity = Validity::AllValid;
@@ -43,15 +47,12 @@ mod tests {
         )
         .unwrap();
 
-        test_mask_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_mask_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     #[test]
     fn test_filter_list() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let elements = buffer![0..35].into_array();
         let offsets = buffer![0, 5, 11, 18, 26, 35].into_array();
         let validity = Validity::AllValid;
@@ -63,10 +64,7 @@ mod tests {
         )
         .unwrap();
 
-        test_filter_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_filter_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     #[rstest]
@@ -75,37 +73,34 @@ mod tests {
         buffer![0i32, 1, 2, 3, 4, 5].into_array(),
         buffer![0, 2, 3, 5, 5, 6].into_array(),
         Validity::NonNullable,
-        &mut array_session().create_execution_ctx(),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     #[case::list_nullable(ListArray::try_new(
         buffer![10i32, 20, 30, 40, 50].into_array(),
         buffer![0, 2, 3, 4, 5].into_array(),
         Validity::Array(BoolArray::from_iter(vec![true, false, true, true]).into_array()),
-        &mut array_session().create_execution_ctx(),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     // Additional test cases
     #[case::list_empty_lists(ListArray::try_new(
         buffer![100i32, 200, 300].into_array(),
         buffer![0, 0, 2, 2, 3, 3].into_array(),
         Validity::NonNullable,
-        &mut array_session().create_execution_ctx(),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     #[case::list_single_element(ListArray::try_new(
         buffer![42i32].into_array(),
         buffer![0, 1].into_array(),
         Validity::NonNullable,
-        &mut array_session().create_execution_ctx(),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     #[case::list_large(ListArray::try_new(
         buffer![0..1000i32].into_array(),
         PrimitiveArray::from_iter((0..=100).map(|i| i * 10)).into_array(),
         Validity::NonNullable,
-        &mut array_session().create_execution_ctx(),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     fn test_list_consistency(#[case] array: ListArray) {
-        test_array_consistency(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_array_consistency(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

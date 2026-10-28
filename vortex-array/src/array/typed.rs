@@ -28,6 +28,7 @@ use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::dtype::DType;
+use crate::scalar::Scalar;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSet;
 use crate::stats::StatsSetRef;
@@ -412,11 +413,7 @@ impl<V: VTable> Array<V> {
     }
 
     /// Execute the array to extract a scalar at the given index.
-    pub fn execute_scalar(
-        &self,
-        index: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<crate::scalar::Scalar> {
+    pub fn execute_scalar(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
         self.inner.execute_scalar(index, ctx)
     }
 
@@ -466,7 +463,7 @@ impl<V: VTable> Array<V> {
     }
 
     /// Returns the scalar value when this array is known to be constant.
-    pub fn as_constant(&self) -> Option<crate::scalar::Scalar> {
+    pub fn as_constant(&self) -> Option<&Scalar> {
         self.inner.as_constant()
     }
 
@@ -548,19 +545,23 @@ impl<V: VTable> From<Array<V>> for ArrayRef {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use super::Array;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn typed_array_into_parts_roundtrips() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable);
         let expected = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable);
 
@@ -572,7 +573,7 @@ mod tests {
 
     #[test]
     fn typed_array_try_into_parts_requires_unique_owner() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable);
         let alias = array.clone();
 

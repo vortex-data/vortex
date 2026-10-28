@@ -27,6 +27,7 @@ pub(crate) use builder::aggregate_partials;
 use prost::Message;
 pub use schema::MAX_IS_TRUNCATED;
 pub use schema::MIN_IS_TRUNCATED;
+pub(crate) use schema::default_bounded_stat_max_bytes;
 pub(crate) use schema::legacy_stats_to_aggregates;
 use vortex_array::DeserializeMetadata;
 use vortex_array::SerializeMetadata;
@@ -507,6 +508,8 @@ impl SerializeMetadata for LegacyStatsMetadata {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::aggregate_fn::AggregateFnRef;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
@@ -530,6 +533,8 @@ mod tests {
     use crate::layouts::zoned::aggregates::bloom_filter::BloomFilter;
     use crate::layouts::zoned::aggregates::bloom_filter::BloomOptions;
     use crate::segments::SegmentId;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn aggregate_spec(aggregate_fn: AggregateFnRef) -> AggregateSpecProto {
         AggregateSpecProto::try_from_aggregate_fn(&aggregate_fn).unwrap()
@@ -634,10 +639,9 @@ mod tests {
             )
             .into_layout(),
         ]);
-        let session = vortex_array::array_session();
         let build_read_ctx = ReadContext::new([]);
         let build_ctx = LayoutBuildContext {
-            session: &session,
+            session: &SESSION,
             array_read_ctx: &build_read_ctx,
         };
 
@@ -665,10 +669,9 @@ mod tests {
             aggregate_specs: Arc::new([]),
         };
         let children = OwnedLayoutChildren::layout_children(vec![]);
-        let session = vortex_array::array_session();
         let build_read_ctx = ReadContext::new([]);
         let build_ctx = LayoutBuildContext {
-            session: &session,
+            session: &SESSION,
             array_read_ctx: &build_read_ctx,
         };
 
@@ -693,7 +696,7 @@ mod tests {
             FlatLayout::new(0, dtype.clone(), SegmentId::from(0), read_ctx.clone()).into_layout(),
             FlatLayout::new(0, dtype.clone(), SegmentId::from(1), read_ctx).into_layout(),
         ]);
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         session.allow_unknown();
         let build_read_ctx = ReadContext::new([]);
         let build_ctx = LayoutBuildContext {
@@ -730,10 +733,9 @@ mod tests {
             FlatLayout::new(0, dtype.clone(), SegmentId::from(0), read_ctx.clone()).into_layout(),
             FlatLayout::new(0, dtype.clone(), SegmentId::from(1), read_ctx).into_layout(),
         ]);
-        let session = vortex_array::array_session();
         let build_read_ctx = ReadContext::new([]);
         let build_ctx = LayoutBuildContext {
-            session: &session,
+            session: &SESSION,
             array_read_ctx: &build_read_ctx,
         };
 

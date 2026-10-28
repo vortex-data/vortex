@@ -23,10 +23,11 @@ use vortex_fastlanes::FoR;
 use vortex_fastlanes::FoRArrayExt;
 use vortex_fastlanes::FoRArraySlotsExt;
 use vortex_fastlanes::FoRReferences;
+use vortex_fastlanes::bitpacked_v2_id;
 use vortex_fastlanes::for_v1_id;
 use vortex_fastlanes::for_v2_id;
 
-use super::BITPACKING_V1;
+use super::BitPackingScheme;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
@@ -45,6 +46,18 @@ pub(crate) static FOR_V1: FoRScheme = FoRScheme::v1();
 /// The FoR scheme that may produce one reference per 1024-element chunk.
 pub(crate) static FOR_V2: FoRScheme = FoRScheme::v2();
 
+/// [`FOR_V1`] with a child that may give each 1024-element block its own bit width.
+static FOR_V1_BLOCKED: FoRScheme = FoRScheme {
+    mode: FoRSchemeMode::V1,
+    bitpacking: BitPackingScheme::v2(),
+};
+
+/// [`FOR_V2`] with a child that may give each 1024-element block its own bit width.
+static FOR_V2_BLOCKED: FoRScheme = FoRScheme {
+    mode: FoRSchemeMode::V2,
+    bitpacking: BitPackingScheme::v2(),
+};
+
 /// Frame of Reference encoding.
 ///
 /// The v1 mode subtracts one reference, the array's minimum. The v2 mode subtracts one reference
@@ -52,11 +65,16 @@ pub(crate) static FOR_V2: FoRScheme = FoRScheme::v2();
 /// arrays whose references compress to a constant, serialize as `fastlanes.for`, while per-chunk
 /// references serialize as `fastlanes.for.v2`.
 ///
-/// The default uses v1. [`refine`](Scheme::refine) picks v2 when the v2 ID is allowed and v1
-/// otherwise.
+/// The encoded child is always bit-packed by a [`BitPackingScheme`] called directly, not chosen by
+/// the compressor, so this scheme declares the child's serialized IDs as its own. Excluding the
+/// BitPacking scheme does not stop FoR from bit-packing; disallowing `fastlanes.bitpacked` does.
+///
+/// The default uses v1 for both. [`refine`](Scheme::refine) picks v2 references when
+/// `fastlanes.for.v2` is allowed, and a v2 child when `fastlanes.bitpacked.v2` is allowed.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct FoRScheme {
     mode: FoRSchemeMode,
+    bitpacking: BitPackingScheme,
 }
 
 impl FoRScheme {
@@ -64,6 +82,7 @@ impl FoRScheme {
     pub const fn v1() -> Self {
         Self {
             mode: FoRSchemeMode::V1,
+            bitpacking: BitPackingScheme::v1(),
         }
     }
 
@@ -71,6 +90,7 @@ impl FoRScheme {
     pub const fn v2() -> Self {
         Self {
             mode: FoRSchemeMode::V2,
+            bitpacking: BitPackingScheme::v1(),
         }
     }
 }
@@ -91,17 +111,20 @@ impl Scheme for FoRScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
-        match self.mode {
+        let mut encodings = match self.mode {
             FoRSchemeMode::V1 => vec![for_v1_id()],
             FoRSchemeMode::V2 => vec![for_v1_id(), for_v2_id()],
-        }
+        };
+        encodings.extend(self.bitpacking.produced_encodings());
+        encodings
     }
 
     fn refine(&self, allowed: &dyn Fn(&ArrayId) -> bool) -> &dyn Scheme {
-        if allowed(&for_v2_id()) {
-            &FOR_V2
-        } else {
-            &FOR_V1
+        match (allowed(&for_v2_id()), allowed(&bitpacked_v2_id())) {
+            (false, false) => &FOR_V1,
+            (false, true) => &FOR_V1_BLOCKED,
+            (true, false) => &FOR_V2,
+            (true, true) => &FOR_V2_BLOCKED,
         }
     }
 
@@ -214,10 +237,12 @@ impl Scheme for FoRScheme {
         // of bitpacking.
         // NOTE: we could delegate in the future if we had another downstream codec that performs
         //  as well.
-        let leaf_ctx = compress_ctx.clone().as_leaf();
         let biased_data =
             ArrayAndStats::new(biased.into_array(), compress_ctx.merged_stats_options());
-        let compressed = BITPACKING_V1.compress(compressor, &biased_data, leaf_ctx, exec_ctx)?;
+        // Our own context, not a leaf one, so a v2 child's block offsets can cascade.
+        let compressed =
+            self.bitpacking
+                .compress(compressor, &biased_data, compress_ctx.clone(), exec_ctx)?;
 
         // TODO(connor): This should really be `new_unchecked`.
         let for_compressed = match for_array.references() {
@@ -241,9 +266,11 @@ impl Scheme for FoRScheme {
 mod tests {
     use rstest::rstest;
     use vortex_array::ArrayId;
+    use vortex_fastlanes::bitpacked_v2_id;
     use vortex_fastlanes::for_v1_id;
     use vortex_fastlanes::for_v2_id;
 
+    use super::BitPackingScheme;
     use super::FOR_V1;
     use super::FOR_V2;
     use crate::Scheme;
@@ -265,11 +292,26 @@ mod tests {
             |id: &ArrayId| (allow_v1 && *id == for_v1_id()) || (allow_v2 && *id == for_v2_id());
         let refined = scheme.refine(&allowed);
         assert_eq!(refined.id(), scheme.id());
-        let expected = if expect_v2 {
+        let mut expected = if expect_v2 {
             vec![for_v1_id(), for_v2_id()]
         } else {
             vec![for_v1_id()]
         };
+        expected.extend(BitPackingScheme::v1().produced_encodings());
         assert_eq!(refined.produced_encodings(), expected);
+    }
+
+    /// Both variants give the child per-block bit widths exactly when `fastlanes.bitpacked.v2` is
+    /// allowed.
+    #[rstest]
+    fn refine_picks_blocked_child_when_bitpacked_v2_is_allowed(
+        #[values(false, true)] allow_v2: bool,
+        #[values(&FOR_V1, &FOR_V2)] scheme: &'static dyn Scheme,
+    ) {
+        let refined = scheme.refine(&|id: &ArrayId| allow_v2 && *id == bitpacked_v2_id());
+        assert_eq!(
+            refined.produced_encodings().contains(&bitpacked_v2_id()),
+            allow_v2
+        );
     }
 }

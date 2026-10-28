@@ -18,7 +18,6 @@ use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
-use vortex::error::vortex_err;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
@@ -76,6 +75,17 @@ pub struct vx_cuda_scan_options {
     /// Nonzero counts ignore layout boundaries and may require unsupported CUDA `Chunked`
     /// concatenation.
     pub batch_rows: usize,
+}
+
+/// Release Vortex's cached file mappings that no open scan uses.
+///
+/// Scans keep their files mapped so later scans of the same file reuse filled page tables. The
+/// operating system cannot evict mapped pages from the page cache, so call this before evicting
+/// files, for example before a cold-cache measurement. Mappings still used by open streams stay
+/// mapped until those streams are released.
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn vx_cuda_release_file_mappings() {
+    vortex_cuda::release_file_mappings();
 }
 
 fn session_with_cuda(session: &VortexSession) -> &VortexSession {
@@ -327,7 +337,7 @@ unsafe fn scan_columns(columns: *const vx_view, ncolumns: usize) -> VortexResult
         );
         // SAFETY: The caller guarantees readable name bytes. as_str checks null and UTF-8.
         let name = unsafe { column.as_str() }
-            .map_err(|error| vortex_err!("invalid CUDA scan column {index}: {error}"))?;
+            .map_err(|error| error.with_context(format!("invalid CUDA scan column {index}")))?;
         vortex_ensure!(seen.insert(name), "duplicate CUDA scan column: {name:?}");
         names.push(FieldName::from(name));
     }
@@ -494,9 +504,6 @@ mod tests {
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::Schema;
-    use cudarc::driver::CudaContext;
-    use cudarc::driver::result;
-    use cudarc::driver::sys::CUevent;
     use futures::TryStreamExt;
     use tempfile::NamedTempFile;
     use vortex::VortexSessionDefault;
@@ -520,6 +527,7 @@ mod tests {
     use vortex::dtype::Nullability;
     use vortex::error::VortexResult;
     use vortex::error::vortex_ensure_eq;
+    use vortex::error::vortex_err;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::session::RuntimeSessionExt;
     use vortex::layout::LayoutStrategy;
@@ -532,6 +540,9 @@ mod tests {
     use vortex_cuda::arrow::ArrowArray;
     use vortex_cuda::arrow::release_device_array;
     use vortex_cuda::arrow::release_schema;
+    use vortex_cuda_driver::CudaContext;
+    use vortex_cuda_driver::result;
+    use vortex_cuda_driver::sys::CUevent;
     use vortex_cuda_macros::cuda_not_available;
     use vortex_cuda_macros::test as cuda_test;
     use vortex_ffi::vx_array_free as free_test_array;

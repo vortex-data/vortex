@@ -337,7 +337,7 @@ mod tests {
     use super::*;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -379,7 +379,7 @@ mod tests {
         let array = ByteBool::from_option_vec(vec![Some(true), None, Some(false), None]);
         let dtype = array.dtype().clone();
         let len = array.len();
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         session.arrays().register(ByteBool);
 
         let ctx = ArrayContext::empty();

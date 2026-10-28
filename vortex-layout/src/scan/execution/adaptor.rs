@@ -11,9 +11,9 @@ use vortex_array::ArrayRef;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBufferMut;
-use vortex_error::vortex_ensure_eq;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_io::request;
@@ -87,18 +87,12 @@ struct SparseRead {
 }
 
 impl ScanAdaptor {
-    /// Keeps protocol identities unique when one planner executes consecutive scans.
-    pub(super) fn with_request_start(mut self, next_id: u32) -> Self {
-        self.next_id = next_id;
-        self
-    }
-
-    pub(super) fn next_request_id(&self) -> u32 {
-        self.next_id
-    }
-
     /// Wraps a scan, numbering requests uniquely within this adaptor's lifetime.
-    pub(super) fn new(scan: Scan, locations: Arc<[SegmentLocation]>, subsegment_reads: bool) -> Self {
+    pub(super) fn new(
+        scan: Scan,
+        locations: Arc<[SegmentLocation]>,
+        subsegment_reads: bool,
+    ) -> Self {
         Self {
             scan,
             pending: None,
@@ -188,19 +182,33 @@ impl ScanAdaptor {
         {
             let start = len - 4096;
             return self.publish(
-                IoTarget::Range { offset: location.offset + start as u64, len: 4096, alignment: Alignment::none() },
+                IoTarget::Range {
+                    offset: location.offset + start as u64,
+                    len: 4096,
+                    alignment: Alignment::none(),
+                },
                 Delivery::Probe(read, start, ranges),
             );
         }
         self.publish(location.target(), Delivery::Whole(read.id, read.segment_id))
     }
 
-    fn publish(&mut self, target: IoTarget, delivery: Delivery) -> VortexResult<request::IoRequest> {
+    fn publish(
+        &mut self,
+        target: IoTarget,
+        delivery: Delivery,
+    ) -> VortexResult<request::IoRequest> {
         let id = self.next_id;
-        self.next_id = self.next_id.checked_add(1)
+        self.next_id = self
+            .next_id
+            .checked_add(1)
             .ok_or_else(|| vortex_err!("ScanAdaptor ran out of request ids"))?;
         self.outstanding.insert(id, delivery);
-        Ok(request::IoRequest { intent: IoIntent::Fetch, request: request::IoRequestId(id), target })
+        Ok(request::IoRequest {
+            intent: IoIntent::Fetch,
+            request: request::IoRequestId(id),
+            target,
+        })
     }
 
     pub(super) fn set_io_result(&mut self, id: request::IoRequestId, result: IoResult) {
@@ -212,8 +220,9 @@ impl ScanAdaptor {
     }
 
     fn receive(&mut self, id: request::IoRequestId, result: IoResult) -> VortexResult<()> {
-        let delivery = self.outstanding.remove(&id.0)
-            .ok_or_else(|| vortex_err!("ScanAdaptor: delivery of {id:?}, which is not outstanding"))?;
+        let delivery = self.outstanding.remove(&id.0).ok_or_else(|| {
+            vortex_err!("ScanAdaptor: delivery of {id:?}, which is not outstanding")
+        })?;
         let IoResult::Bytes(bytes) = result else {
             vortex_panic!("ScanAdaptor: range answered with a size");
         };
@@ -223,27 +232,49 @@ impl ScanAdaptor {
                 let location = self.location(read.segment_id)?;
                 let tail = bytes.try_into_host_sync()?;
                 vortex_ensure_eq!(tail.len(), location.length as usize - start);
-                let offset = read.primitive.as_ref().and_then(|demand| value_offset(&tail, location.length as usize, demand, &ranges));
+                let offset = read.primitive.as_ref().and_then(|demand| {
+                    value_offset(&tail, location.length as usize, demand, &ranges)
+                });
                 let Some(offset) = offset else {
-                    let request = self.publish(location.target(), Delivery::Whole(read.id, read.segment_id))?;
+                    let request =
+                        self.publish(location.target(), Delivery::Whole(read.id, read.segment_id))?;
                     self.queued.push(request);
                     return Ok(());
                 };
                 // The scan source filters these bytes before any row leaves it. Missing values
                 // remain initialized, and this private reconstruction is never put in a cache.
-                let mut buffer = ByteBufferMut::zeroed_aligned(location.length as usize, location.alignment);
+                let mut buffer =
+                    ByteBufferMut::zeroed_aligned(location.length as usize, location.alignment);
                 buffer.as_mut_slice()[start..].copy_from_slice(&tail);
-                let ranges: Vec<_> = ranges.into_iter().filter_map(|range| {
-                    let begin = offset + range.start;
-                    let end = (offset + range.end).min(start);
-                    (begin < end).then_some(begin..end)
-                }).collect();
+                let ranges: Vec<_> = ranges
+                    .into_iter()
+                    .filter_map(|range| {
+                        let begin = offset + range.start;
+                        let end = (offset + range.end).min(start);
+                        (begin < end).then_some(begin..end)
+                    })
+                    .collect();
                 if ranges.is_empty() {
-                    return self.deliver(read.id, read.segment_id, BufferHandle::new_host(buffer.freeze()));
+                    return self.deliver(
+                        read.id,
+                        read.segment_id,
+                        BufferHandle::new_host(buffer.freeze()),
+                    );
                 }
-                self.sparse.insert(read.id, SparseRead { segment: read.segment_id, buffer, remaining: ranges.len() });
+                self.sparse.insert(
+                    read.id,
+                    SparseRead {
+                        segment: read.segment_id,
+                        buffer,
+                        remaining: ranges.len(),
+                    },
+                );
                 for range in ranges {
-                    let target = IoTarget::Range { offset: location.offset + range.start as u64, len: range.len(), alignment: Alignment::none() };
+                    let target = IoTarget::Range {
+                        offset: location.offset + range.start as u64,
+                        len: range.len(),
+                        alignment: Alignment::none(),
+                    };
                     let request = self.publish(target, Delivery::Part(read.id, range))?;
                     self.queued.push(request);
                 }
@@ -252,12 +283,22 @@ impl ScanAdaptor {
             Delivery::Part(read, range) => {
                 let bytes = bytes.try_into_host_sync()?;
                 vortex_ensure_eq!(bytes.len(), range.len());
-                let pending = self.sparse.get_mut(&read).ok_or_else(|| vortex_err!("Unknown sparse read"))?;
+                let pending = self
+                    .sparse
+                    .get_mut(&read)
+                    .ok_or_else(|| vortex_err!("Unknown sparse read"))?;
                 pending.buffer.as_mut_slice()[range].copy_from_slice(&bytes);
                 pending.remaining -= 1;
                 if pending.remaining == 0 {
-                    let pending = self.sparse.remove(&read).ok_or_else(|| vortex_err!("Unknown sparse read"))?;
-                    self.deliver(read, pending.segment, BufferHandle::new_host(pending.buffer.freeze()))?;
+                    let pending = self
+                        .sparse
+                        .remove(&read)
+                        .ok_or_else(|| vortex_err!("Unknown sparse read"))?;
+                    self.deliver(
+                        read,
+                        pending.segment,
+                        BufferHandle::new_host(pending.buffer.freeze()),
+                    )?;
                 }
                 Ok(())
             }

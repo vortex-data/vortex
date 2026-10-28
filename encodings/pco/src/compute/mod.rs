@@ -5,15 +5,19 @@ mod cast;
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_session::VortexSession;
 
     use crate::Pco;
     use crate::PcoArray;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn pco_f32() -> PcoArray {
         let values = PrimitiveArray::from_iter([1.23f32, 4.56, 7.89, 10.11, 12.13]);
@@ -21,7 +25,7 @@ mod tests {
             values.as_view(),
             0,
             128,
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
     }
@@ -32,7 +36,7 @@ mod tests {
             values.as_view(),
             0,
             128,
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
     }
@@ -43,7 +47,7 @@ mod tests {
             values.as_view(),
             0,
             128,
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
     }
@@ -54,7 +58,7 @@ mod tests {
             values.as_view(),
             0,
             128,
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
     }
@@ -65,7 +69,7 @@ mod tests {
             values.as_view(),
             0,
             128,
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
     }
@@ -76,7 +80,7 @@ mod tests {
             values.as_view(),
             0,
             128,
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
     }
@@ -87,7 +91,7 @@ mod tests {
             values.as_view(),
             0,
             128,
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
     }
@@ -98,7 +102,7 @@ mod tests {
             values.as_view(),
             3,
             128,
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
     }
@@ -113,9 +117,6 @@ mod tests {
     #[case::single(pco_single())]
     #[case::large(pco_large())]
     fn test_pco_consistency(#[case] array: PcoArray) {
-        test_array_consistency(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_array_consistency(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

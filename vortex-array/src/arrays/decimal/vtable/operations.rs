@@ -31,11 +31,13 @@ impl OperationsVTable<Decimal> for Decimal {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Decimal;
     use crate::arrays::DecimalArray;
     use crate::assert_arrays_eq;
@@ -44,6 +46,8 @@ mod tests {
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_slice() {
@@ -75,7 +79,7 @@ mod tests {
         assert_arrays_eq!(
             sliced,
             DecimalArray::from_option_iter([Some(200i128), None], DecimalDType::new(3, 2)),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -89,7 +93,7 @@ mod tests {
 
         assert_eq!(
             array
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(0, &mut SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::decimal(
                 DecimalValue::I128(100),

@@ -193,19 +193,23 @@ impl CanonicalCudaExt for Canonical {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex::array::VortexSessionExecute;
-    use vortex::array::array_session;
     use vortex::dtype::PType;
+    use vortex::session::VortexSession;
 
     use super::*;
     use crate::CudaSession;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[crate::test]
     async fn test_into_host_rejects_out_of_bounds_device_list_view() -> VortexResult<()> {
         let cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
         let offsets = cuda_ctx.stream().copy_to_device(vec![0u32, 2])?.await?;
         let sizes = cuda_ctx.stream().copy_to_device(vec![2u32, 5])?.await?;
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // The second list reads elements 2..7 of 3. The range check is skipped while the offsets
         // and sizes are on the device, so it must run once they are copied to the host.
         let list = ListViewArray::try_new(

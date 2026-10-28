@@ -160,7 +160,7 @@ fn uncompressed_size_in_bytes_u64(
     };
     if let Some(size_scalar) = cached {
         return u64::try_from(&size_scalar)
-            .map_err(|e| vortex_err!("Failed to convert uncompressed size stat to u64: {e}"));
+            .map_err(|e| e.with_context("Failed to convert uncompressed size stat to u64"));
     }
 
     // The accumulator caches an exact size on `array` through the stat slot.
@@ -468,6 +468,7 @@ pub(crate) fn packed_bit_buffer_size_in_bytes(len: usize) -> VortexResult<u64> {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
@@ -475,6 +476,7 @@ mod tests {
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
@@ -488,7 +490,6 @@ mod tests {
     use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
     use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
     use crate::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
@@ -520,6 +521,8 @@ mod tests {
     use crate::scalar::ScalarValue;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     /// The size the array occupies once rebuilt through the canonical builders, which is the
     /// layout [`UncompressedSizeInBytes`] is defined against: the builders normalize physical
     /// widths that the input array is free to choose differently, picking the smallest decimal
@@ -528,7 +531,7 @@ mod tests {
     /// Builders no longer canonicalize their children, so the finished array is only canonical at
     /// the top level - recursively canonicalize it before measuring.
     fn materialized_uncompressed_size_in_bytes(array: &ArrayRef) -> u64 {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut builder = builder_with_capacity_in(
             array.dtype(),
             array.len(),
@@ -551,7 +554,7 @@ mod tests {
     }
 
     fn aggregate_with(array: &ArrayRef, opts: UncompressedSizeOpts) -> VortexResult<u64> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut acc = Accumulator::try_new(UncompressedSizeInBytes, opts, array.dtype().clone())?;
         acc.accumulate(array, &mut ctx)?;
         acc.finish()?
@@ -700,7 +703,7 @@ mod tests {
 
     #[test]
     fn list_matches_materialized_size() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let elements =
             PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();
         let offsets = buffer![2u32, 0].into_array();
@@ -710,7 +713,7 @@ mod tests {
 
         // The lists are out of order and leave element 1 unreferenced, so compare against the
         // exact layout rather than a builder round-trip.
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let exact = array
             .clone()
             .execute::<ListViewArray>(&mut ctx)?
@@ -829,7 +832,7 @@ mod tests {
     #[test]
     fn exact_result_is_cached_as_exact_stat() -> VortexResult<()> {
         let sliced = views_into_shared_page(0..10)?;
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let size = uncompressed_size_in_bytes(&sliced, UncompressedSizeOpts::exact(), &mut ctx)?;
 
@@ -844,7 +847,7 @@ mod tests {
     #[test]
     fn inexact_result_is_cached_as_upper_bound() -> VortexResult<()> {
         let sliced = views_into_shared_page(0..10)?;
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let inexact =
             uncompressed_size_in_bytes(&sliced, UncompressedSizeOpts::inexact(), &mut ctx)?;
@@ -970,7 +973,7 @@ mod tests {
     fn variant_stat_is_unsupported() -> VortexResult<()> {
         let child = ConstantArray::new(Scalar::variant(Scalar::from(42i32)), 3).into_array();
         let array = VariantArray::try_new(child, None)?.into_array();
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         assert_eq!(
             array
@@ -1025,7 +1028,7 @@ mod tests {
     #[test]
     fn helper_caches_result() -> VortexResult<()> {
         let array = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable).into_array();
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let size = uncompressed_size_in_bytes(&array, UncompressedSizeOpts::exact(), &mut ctx)?;
 

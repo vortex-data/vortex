@@ -159,13 +159,15 @@ impl<V: NativePType> ApplyPatches<'_, V> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::Patched;
@@ -177,9 +179,11 @@ mod tests {
     use crate::scalar_fn::fns::operators::CompareOperator;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_basic() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let lhs = PrimitiveArray::from_iter(0u32..512).into_array();
         let patches = Patches::new(
             512,
@@ -191,7 +195,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)
             .unwrap()
@@ -214,7 +218,7 @@ mod tests {
 
     #[test]
     fn test_with_offset() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let lhs = PrimitiveArray::from_iter(0u32..512).into_array();
         let patches = Patches::new(
             512,
@@ -226,7 +230,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx).unwrap();
         // Slice the array so that the first patch should be skipped.
@@ -249,7 +253,7 @@ mod tests {
 
     #[test]
     fn test_subnormal_f32() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Subnormal f32 values are smaller than f32::MIN_POSITIVE but greater than 0
         let subnormal: f32 = f32::MIN_POSITIVE / 2.0;
         assert!(subnormal > 0.0 && subnormal < f32::MIN_POSITIVE);
@@ -265,7 +269,7 @@ mod tests {
             &mut ctx,
         )?;
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)?
             .into_array()
             .try_downcast::<Patched>()
@@ -289,7 +293,7 @@ mod tests {
 
     #[test]
     fn test_pos_neg_zero() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let lhs = PrimitiveArray::from_iter([-0.0f32; 10]).into_array();
 
         let patches = Patches::new(
@@ -301,7 +305,7 @@ mod tests {
             &mut ctx,
         )?;
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)?
             .into_array()
             .try_downcast::<Patched>()

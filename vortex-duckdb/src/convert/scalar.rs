@@ -86,10 +86,14 @@ impl ToDuckDBScalar for Scalar {
             DType::Binary(_) => self.as_binary().try_to_duckdb_scalar(),
             DType::List(..) | DType::FixedSizeList(..) => self.as_list().try_to_duckdb_scalar(),
             DType::Map(..) => self.as_map().try_to_duckdb_scalar(),
-            DType::Variant(_) => vortex_bail!("Vortex Variant scalars aren't supported"),
+            DType::Variant(_) => {
+                vortex_bail!("Vortex Variant scalars aren't supported")
+            }
             DType::Struct(..) => self.as_struct().try_to_duckdb_scalar(),
             // TODO(connor): Union
-            DType::Union(..) => vortex_bail!("Vortex Union scalars aren't supported"),
+            DType::Union(..) => {
+                vortex_bail!("Vortex Union scalars aren't supported")
+            }
             DType::Extension(..) => self.as_extension().try_to_duckdb_scalar(),
         }
     }
@@ -139,7 +143,9 @@ impl ToDuckDBScalar for DecimalScalar<'_> {
             DecimalValue::I32(v) => v as i128,
             DecimalValue::I64(v) => v as i128,
             DecimalValue::I128(v) => v,
-            DecimalValue::I256(_) => vortex_bail!("cannot handle a i256 decimal in duckdb"),
+            DecimalValue::I256(_) => {
+                vortex_bail!("cannot handle a i256 decimal in duckdb")
+            }
         };
 
         Ok(Value::new_decimal(
@@ -242,7 +248,7 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                 .as_binary_opt()
                 .ok_or_else(|| vortex_err!("WellKnownBinary storage must be a binary scalar"))?;
             return Ok(match binary.value() {
-                Some(bytes) => Value::new_geometry(bytes.as_slice(), wkb.crs.as_deref())?,
+                Some(bytes) => Value::new_geometry(bytes.as_slice(), wkb.get_crs())?,
                 None => Value::null(&*ext_logical_type(self)?),
             });
         }
@@ -283,7 +289,9 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                     Some(days) => Value::new_date(days),
                     None => Value::null(&*ext_logical_type(self)?),
                 },
-                _ => vortex_bail!("cannot have TimeUnit {unit}, so represent a day"),
+                _ => {
+                    vortex_bail!("cannot have TimeUnit {unit}, so represent a day")
+                }
             },
             TemporalMetadata::Time(unit) => match unit {
                 TimeUnit::Microseconds => Value::new_time(value()?),
@@ -374,7 +382,9 @@ impl<'a> TryFrom<&'a ValueRef> for Scalar {
                     );
                     Ok(Scalar::extension_ref(ext.clone(), storage))
                 }
-                _ => vortex_bail!("Cannot convert DuckDB blob to Vortex scalar of dtype {dtype}"),
+                _ => {
+                    vortex_bail!("Cannot convert DuckDB blob to Vortex scalar of dtype {dtype}")
+                }
             },
             ExtractedValue::Date(days) => Ok(Scalar::extension::<Date>(
                 TimeUnit::Days,
@@ -626,9 +636,7 @@ mod tests {
 
     fn wkb_scalar(crs: Option<&str>, bytes: &[u8]) -> Scalar {
         Scalar::extension::<WellKnownBinary>(
-            SpatialMetadata {
-                crs: crs.map(str::to_string),
-            },
+            SpatialMetadata::new(crs.map(str::to_string)),
             Scalar::binary(bytes.to_vec(), Nullability::Nullable),
         )
     }
@@ -658,8 +666,8 @@ mod tests {
         // with the documented quirk that `Some("")` collapses to `None` through DuckDB.
         let metadata = ext.ext_dtype().metadata::<WellKnownBinary>();
         match crs {
-            Some("") | None => assert_eq!(metadata.crs, None),
-            Some(s) => assert_eq!(metadata.crs.as_deref(), Some(s)),
+            Some("") | None => assert_eq!(metadata.get_crs(), None),
+            Some(s) => assert_eq!(metadata.get_crs(), Some(s)),
         }
     }
 
@@ -678,9 +686,7 @@ mod tests {
     #[test]
     fn test_null_geometry_to_duckdb_scalar() {
         let dtype = ExtDType::<WellKnownBinary>::try_new(
-            SpatialMetadata {
-                crs: Some("EPSG:4326".to_string()),
-            },
+            SpatialMetadata::new(Some("EPSG:4326".to_string())),
             DType::Binary(Nullability::Nullable),
         )
         .unwrap()

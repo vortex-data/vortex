@@ -250,29 +250,31 @@ historical writing implementation.
 ## New formats
 
 A new format starts in a draft edition so it can be tested before its origin commits to reading it
-indefinitely. Drafts have no recorded minimum version or frozen guarantee. A format intended for
-`core` can progress from its own family to `preview` for broader testing, then to `core` for default
-use. Promotion preserves its wire ID and interpretation. The
+indefinitely. Drafts have no recorded minimum version or frozen guarantee, and their members can
+change or be removed. A format intended for `core` can progress to `preview` for broader testing,
+then to `core` for default use. Promotion preserves its wire ID and interpretation. The
 [registry instructions](editions.md#format-testing-and-promotion) cover promotion, freezing, and
 recording the minimum version.
 
 ## Compression
 
-The default BtrBlocks compressor excludes a scheme if any of its declared output wire IDs is
-forbidden. This filtering also applies to schemes used for child compression.
+The default BtrBlocks compressor uses only the schemes whose output it can write. A wire ID is
+allowed when the session registers it, the enabled editions permit it, and the compressor's preset
+does not exclude it. For example, the CUDA preset excludes some v2 IDs. The compressor excludes a
+scheme if any wire ID that the scheme declares is not allowed. Child arrays go through the same
+compressor. The writer still checks every serialized ID, so a forbidden ID in any child fails the
+write.
 
-The current decimal scheme produces only single-child arrays and declares the v1 wire ID, so values
-too wide for it remain in the standard uncompressed decimal representation. The multi-child
-serializer exists, but the default scheme does not construct those arrays and no declared edition
-permits their v2 ID.
-
-### Planned scheme configuration
-
-The planned improvement is to configure a scheme's behavior for the selected editions, allowing it
-to retain an older mode when its newer mode requires a forbidden format. That configuration needs to
-apply consistently to estimation, sampling, full compression, children, and fallbacks. General
-per-writer scheme configuration is not implemented, and its API is unsettled.
+A scheme can have variants that write different wire IDs. The compressor picks the variant from the
+allowed wire IDs, so callers do not choose it directly. For example, the decimal scheme uses its v2
+variant, which splits values too wide for one 64-bit child into several children, only when
+`vortex.decimal_byte_parts.v2` is allowed. Otherwise its v1 variant constructs only single-child
+arrays, and values too wide for one child remain in the standard uncompressed decimal
+representation. The v2 variant also writes the v1 ID for arrays that fit the v1 format, so allowing
+only the v2 ID excludes the scheme. No frozen edition permits `vortex.decimal_byte_parts.v2`, so a
+writer that enforces editions writes multi-child decimal arrays only when a selected draft edition
+permits it.
 
 [^decimal-availability]:
-    No declared edition currently permits the multi-child format. The
+    No frozen edition currently permits the multi-child format. The
     [compression section](#compression) describes what the default compressor produces today.

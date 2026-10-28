@@ -12,6 +12,9 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
+[features]
+io-uring = ["vortex/io-uring"]
+
 [dependencies]
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }

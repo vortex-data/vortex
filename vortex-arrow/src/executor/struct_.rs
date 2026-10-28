@@ -213,6 +213,7 @@ fn create_from_fields(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use arrays::varbinview::VarBinViewArray;
     use arrow_array::Array;
@@ -227,7 +228,6 @@ mod tests {
     use arrow_schema::Field;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -238,14 +238,17 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::ArrowArrayExecutor;
     use crate::convert::from_arrow_dyn;
     use crate::dtype::to_data_type_naive;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn struct_nullable_non_null_to_arrow() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::AllValid);
 
         let struct_a = StructArray::try_new(
@@ -272,7 +275,7 @@ mod tests {
 
     #[test]
     fn struct_nullable_with_nulls_to_arrow() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let xs =
             PrimitiveArray::from_option_iter(vec![Some(0_i64), Some(1), Some(2), None, Some(3)]);
 
@@ -300,7 +303,7 @@ mod tests {
 
     #[test]
     fn struct_to_arrow_with_schema_mismatch() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::AllValid);
 
         let struct_a = StructArray::try_new(
@@ -330,7 +333,7 @@ mod tests {
 
     #[test]
     fn test_to_arrow() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = StructArray::from_fields(
             vec![
                 (
@@ -373,7 +376,7 @@ mod tests {
 
     #[test]
     fn mask_wrapped_struct_exports_via_struct_fast_path() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // A struct behind a lazy `mask` scalar-fn nulling out row 1 — the shape a scan
         // produces when a row mask is applied to a top-level struct batch.
         let xs = PrimitiveArray::new(buffer![1i64, 2, 3], Validity::NonNullable);
@@ -407,7 +410,7 @@ mod tests {
 
     #[test]
     fn to_arrow_with_non_nullable_fields() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = StructArray::from_fields(
             vec![
                 (

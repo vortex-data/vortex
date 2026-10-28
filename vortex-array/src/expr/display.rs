@@ -69,6 +69,7 @@ impl DisplayTreeNode for Expression {
         match self {
             Expression::Scalar { scalar_fn, .. } => scalar_fn.signature().child_name(index),
             Expression::Root => unreachable!("the scope root has no children"),
+            Expression::Variable(_) => unreachable!("a variable has no children"),
         }
     }
 
@@ -76,6 +77,7 @@ impl DisplayTreeNode for Expression {
         match self {
             Expression::Scalar { scalar_fn, .. } => Display::fmt(scalar_fn, f),
             Expression::Root => write!(f, "{ROOT_DISPLAY}"),
+            Expression::Variable(name) => write!(f, "@{name}"),
         }
     }
 }

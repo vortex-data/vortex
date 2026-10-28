@@ -563,9 +563,18 @@ mod tests {
         first.allow_gaps = false;
         let (second, _second_result) = create_request(2, 15, 10);
         let outputs = collect_outputs(
-            vec![ReadEvent::Request(first), ReadEvent::Request(second), ReadEvent::Polled(1), ReadEvent::Polled(2)],
-            Some(CoalesceConfig { distance: 1024, max_size: 4096 }),
-        ).await;
+            vec![
+                ReadEvent::Request(first),
+                ReadEvent::Request(second),
+                ReadEvent::Polled(1),
+                ReadEvent::Polled(2),
+            ],
+            Some(CoalesceConfig {
+                distance: 1024,
+                max_size: 4096,
+            }),
+        )
+        .await;
         assert_eq!(outputs.len(), 2);
         assert_eq!(outputs[0].range(), 0..10);
         assert_eq!(outputs[1].range(), 15..25);
@@ -581,7 +590,7 @@ mod tests {
             offset: 6,
             length: 5,
             alignment: Alignment::new(2),
-                allow_gaps: true,
+            allow_gaps: true,
             callback: tx1,
         };
         let req2 = ReadRequest {
@@ -589,7 +598,7 @@ mod tests {
             offset: 12,
             length: 1,
             alignment: Alignment::new(4),
-                allow_gaps: true,
+            allow_gaps: true,
             callback: tx2,
         };
 
@@ -659,7 +668,7 @@ mod tests {
             offset: 0,
             length: 10,
             alignment: Alignment::none(),
-                allow_gaps: true,
+            allow_gaps: true,
             callback: tx1,
         };
         let req2 = ReadRequest {
@@ -667,7 +676,7 @@ mod tests {
             offset: 100,
             length: 10,
             alignment: Alignment::none(),
-                allow_gaps: true,
+            allow_gaps: true,
             callback: tx2,
         };
 
@@ -697,7 +706,7 @@ mod tests {
             offset: 10,
             length: 4,
             alignment: Alignment::none(),
-                allow_gaps: true,
+            allow_gaps: true,
             callback: tx1,
         };
         state.on_event(ReadEvent::Request(req1));
@@ -712,7 +721,7 @@ mod tests {
             offset: 20,
             length: 8,
             alignment: Alignment::none(),
-                allow_gaps: true,
+            allow_gaps: true,
             callback: tx2,
         };
         state.on_event(ReadEvent::Request(req2));

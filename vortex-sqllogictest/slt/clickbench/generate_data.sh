@@ -7,7 +7,7 @@
 # `hits` table) to slt/clickbench/data/, converts it to Vortex, and checks that
 # the Parquet and Vortex files hold identical data before the Vortex file is
 # used by the SLT suite. Set VORTEX_SLT_PROFILE to reuse an existing cargo
-# profile for the parity test (CI uses `ci`).
+# profile for conversion and the parity test (CI uses `ci`).
 
 set -e -o pipefail
 
@@ -28,7 +28,7 @@ fi
 
 echo "Converting hits.parquet to Vortex..."
 rm -f "${VORTEX_FILE}"
-(cd "${CRATE_DIR}" && cargo run --release --package vortex-tui --bin vx -- convert "${PARQUET_FILE}")
+(cd "${CRATE_DIR}" && cargo run --profile "${VORTEX_SLT_PROFILE:-release}" --package vortex-tui --bin vx -- convert "${PARQUET_FILE}")
 
 # The parity test reads both files through DuckDB and fails if any row differs,
 # so a bad conversion is caught before the query result files are trusted. The

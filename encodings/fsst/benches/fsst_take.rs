@@ -15,11 +15,14 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
-use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::session::ArraySession;
 use vortex_fsst::FSSTArray;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
@@ -29,11 +32,16 @@ use vortex_session::VortexSession;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>();
     vortex_fsst::initialize(&session);
     session
 });
@@ -43,46 +51,22 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 // between gathering the taken rows and decoding every row.
 const BENCH_ARGS: &[(usize, usize, usize)] = &[
     (16, 1, 1),
-    (16, 2, 1),
-    (16, 4, 1),
     (16, 8, 1),
-    (16, 16, 1),
-    (16, 32, 1),
     (16, 64, 1),
     (16, 1, 3),
-    (16, 2, 3),
-    (16, 4, 3),
     (16, 8, 3),
-    (16, 16, 3),
-    (16, 32, 3),
     (16, 64, 3),
     (256, 1, 1),
-    (256, 2, 1),
-    (256, 4, 1),
     (256, 8, 1),
-    (256, 16, 1),
-    (256, 32, 1),
     (256, 64, 1),
     (256, 1, 63),
-    (256, 2, 63),
-    (256, 4, 63),
     (256, 8, 63),
-    (256, 16, 63),
-    (256, 32, 63),
     (256, 64, 63),
     (1000, 1, 1),
-    (1000, 2, 1),
-    (1000, 4, 1),
     (1000, 8, 1),
-    (1000, 16, 1),
-    (1000, 32, 1),
     (1000, 64, 1),
     (1000, 1, 249),
-    (1000, 2, 249),
-    (1000, 4, 249),
     (1000, 8, 249),
-    (1000, 16, 249),
-    (1000, 32, 249),
     (1000, 64, 249),
 ];
 
@@ -136,17 +120,6 @@ fn take(bencher: Bencher, args: (usize, usize, usize)) {
 }
 
 fn bench_take(bencher: Bencher, array: ArrayRef, indices: ArrayRef) {
-    let mut ctx = SESSION.create_execution_ctx();
-    let canonical = array
-        .clone()
-        .execute::<Canonical>(&mut ctx)
-        .unwrap()
-        .into_array();
-    assert_arrays_eq!(
-        array.take(indices.clone()).unwrap(),
-        canonical.take(indices.clone()).unwrap(),
-        &mut ctx
-    );
     bencher
         .with_inputs(|| (&array, &indices, SESSION.create_execution_ctx()))
         .bench_refs(|(array, indices, ctx)| {
@@ -164,35 +137,16 @@ enum Selection {
     AllLong,
     RepeatLong,
     HalfLong,
-    MajorityLong,
-    RepeatHalfLong,
-    RepeatMajorityLong,
 }
 
 // (long rows among 256, long string length, selection). Short strings contain 8 bytes.
 const UNEVEN_ARGS: &[(usize, usize, Selection)] = &[
     (1, 1024, Selection::Short),
-    (1, 1024, Selection::AllLong),
-    (1, 1024, Selection::RepeatLong),
-    (1, 16384, Selection::Short),
-    (1, 16384, Selection::AllLong),
-    (1, 16384, Selection::RepeatLong),
     (1, 32768, Selection::Short),
     (1, 32768, Selection::AllLong),
-    (1, 32768, Selection::RepeatLong),
-    (16, 1024, Selection::Short),
-    (16, 1024, Selection::AllLong),
-    (16, 1024, Selection::RepeatLong),
-    (16, 4096, Selection::Short),
-    (16, 4096, Selection::AllLong),
-    (16, 4096, Selection::RepeatLong),
-    (16, 16384, Selection::Short),
     (16, 16384, Selection::AllLong),
     (16, 16384, Selection::RepeatLong),
     (16, 16384, Selection::HalfLong),
-    (16, 16384, Selection::MajorityLong),
-    (16, 16384, Selection::RepeatHalfLong),
-    (16, 16384, Selection::RepeatMajorityLong),
 ];
 
 #[divan::bench(args = UNEVEN_ARGS)]
@@ -221,9 +175,6 @@ fn uneven_take(bencher: Bencher, args: (usize, usize, Selection)) {
         Selection::AllLong => (0..long_rows as u32).collect(),
         Selection::RepeatLong => vec![0; 63],
         Selection::HalfLong => (0..(long_rows / 2) as u32).collect(),
-        Selection::MajorityLong => (0..(long_rows / 2 + 1) as u32).collect(),
-        Selection::RepeatHalfLong => vec![0; long_rows / 2],
-        Selection::RepeatMajorityLong => vec![0; long_rows / 2 + 1],
     };
     bench_take(
         bencher,

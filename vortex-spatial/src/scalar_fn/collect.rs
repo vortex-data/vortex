@@ -315,12 +315,13 @@ impl ScalarFnVTable for SpatialCollect {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::Columnar;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::ListArray;
@@ -338,6 +339,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
 
     use super::SpatialCollect;
     use crate::test_harness::linestring_column;
@@ -348,12 +350,14 @@ mod tests {
     use crate::test_harness::point_column;
     use crate::test_harness::polygon_column;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     fn list_with_validity(
         elements: ArrayRef,
         offsets: &[u32],
         validity: Validity,
     ) -> VortexResult<ArrayRef> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         Ok(ListArray::try_new(
             elements,
             PrimitiveArray::from_iter(offsets.iter().copied()).into_array(),
@@ -369,7 +373,7 @@ mod tests {
 
     /// Assert that `ST_Collect` of `input` equals `expected`.
     fn assert_collects(input: ArrayRef, expected: ArrayRef) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let result = SpatialCollect::try_new(input)?.into_array();
 
         assert_arrays_eq!(result, expected, &mut ctx);
@@ -389,7 +393,7 @@ mod tests {
     /// alone, which only holds after `MakeExact` reorders the elements.
     #[test]
     fn collects_out_of_order_list_views() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let points = nullable_point_column(vec![
             Some((0.0, 4.0)),
             None,
@@ -415,7 +419,7 @@ mod tests {
     #[test]
     fn all_valid_collect_reuses_geometry_storage() -> VortexResult<()> {
         let points = point_column(vec![0.0, 1.0, 2.0], vec![3.0, 4.0, 5.0])?;
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let point_storage = points
             .clone()
             .execute::<ExtensionArray>(&mut ctx)?
@@ -446,7 +450,7 @@ mod tests {
         } else {
             point_column(vec![0.0, 1.0, 2.0], vec![3.0, 4.0, 5.0])?
         };
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let input = list(points, &[0, 2, 3])?;
         assert!(
             input
@@ -505,7 +509,7 @@ mod tests {
             nullable_point_column(vec![Some((0.0, 2.0)), None, Some((1.0, 3.0))])?,
             &[0, 3],
         )?;
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let scalar = input.execute_scalar(0, &mut ctx)?;
         let input = ConstantArray::new(scalar, 3).into_array();
 
@@ -544,7 +548,7 @@ mod tests {
 
     #[test]
     fn propagates_null_list_rows() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let input = list_with_validity(
             point_column(vec![0.0, 1.0], vec![2.0, 3.0])?,
             &[0, 1, 2],

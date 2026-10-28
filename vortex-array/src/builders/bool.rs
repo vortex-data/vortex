@@ -155,16 +155,18 @@ impl ArrayBuilder for BoolBuilder {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rand::RngExt;
     use rand::SeedableRng;
     use rand::prelude::StdRng;
     use vortex_buffer::BufferAllocatorRef;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::bool::BoolArrayExt;
     use crate::assert_arrays_eq;
@@ -175,6 +177,8 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> (ArrayRef, Vec<Option<bool>>) {
         let mut rng = StdRng::seed_from_u64(0);
@@ -204,7 +208,7 @@ mod tests {
         let chunk_count = 10;
         let (chunk, expected) = make_opt_bool_chunks(len, chunk_count);
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut builder = builder_with_capacity_in(
             chunk.dtype(),
             len * chunk_count,
@@ -231,7 +235,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut builder = BoolBuilder::with_capacity_in(
             Nullability::Nullable,
             10,

@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
 use crate::ArrayContext;
@@ -15,7 +18,6 @@ use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
-use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
@@ -31,6 +33,8 @@ use crate::scalar::Scalar;
 use crate::serde::SerializeOptions;
 use crate::serde::SerializedArray;
 use crate::validity::Validity;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 mod take;
 
@@ -81,7 +85,7 @@ fn nullable_union_array() -> VortexResult<UnionArray> {
 #[test]
 fn scalar_at_uses_type_id_indirection() -> VortexResult<()> {
     let array = union_array()?;
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
 
     assert_eq!(
         array.child_by_name("flag")?.dtype(),
@@ -151,7 +155,7 @@ fn invalid_type_id_panics_when_accessed() {
         ],
     )
     .vortex_expect("structurally valid UnionArray");
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
 
     let _scalar = array
         .execute_scalar(1, &mut ctx)
@@ -162,7 +166,7 @@ fn invalid_type_id_panics_when_accessed() {
 fn outer_nulls_are_independent_from_inner_nulls() -> VortexResult<()> {
     let variants = nullable_variants()?;
     let array = nullable_union_array()?;
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
 
     assert_eq!(
         array.dtype(),
@@ -198,7 +202,7 @@ fn masking_adds_outer_nulls_only() -> VortexResult<()> {
     let masked = union_array()?
         .into_array()
         .mask(BoolArray::from_iter([true, false, true]).into_array())?;
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let masked = masked.execute::<UnionArray>(&mut ctx)?;
 
     assert_eq!(
@@ -224,7 +228,7 @@ fn masking_adds_outer_nulls_only() -> VortexResult<()> {
 #[test]
 fn slice_and_filter_preserve_sparse_alignment() -> VortexResult<()> {
     let array = union_array()?.into_array();
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
 
     let sliced = array.slice(1..3)?;
     let filtered = array.filter(Mask::from_iter([true, false, true]))?;
@@ -257,7 +261,7 @@ fn slice_and_filter_preserve_sparse_alignment() -> VortexResult<()> {
 /// value and whose unselected children hold placeholders.
 #[test]
 fn constant_union_canonicalizes_to_sparse_union() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let i32_variant = DType::Primitive(PType::I32, Nullability::NonNullable);
     let i64_variant = DType::Primitive(PType::I64, Nullability::Nullable);
 
@@ -305,7 +309,7 @@ fn constant_union_canonicalizes_to_sparse_union() -> VortexResult<()> {
 
 #[test]
 fn constant_union_reports_uncompressed_size() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let scalar = Scalar::union(variants()?, 5, 10i32.into(), Nullability::NonNullable)?;
 
     // Four `u8` type IDs, four `i32` rows, and four `bool` placeholder bits rounded up to a byte.
@@ -322,7 +326,7 @@ fn constant_union_reports_uncompressed_size() -> VortexResult<()> {
 
 #[test]
 fn serde_roundtrip() -> VortexResult<()> {
-    let session = array_session();
+    let session = VortexSession::empty();
     let mut execution_ctx = session.create_execution_ctx();
     for array in [union_array()?, nullable_union_array()?] {
         let dtype = array.dtype().clone();

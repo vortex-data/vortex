@@ -163,16 +163,18 @@ impl ScalarFnVTable for Pack {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
+    use vortex_session::VortexSession;
 
     use super::Pack;
     use super::PackOptions;
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
@@ -182,6 +184,8 @@ mod tests {
     use crate::scalar_fn::ScalarFnVTableExt;
     use crate::scalar_fn::fns::pack::StructArray;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn test_array() -> ArrayRef {
         StructArray::from_fields(&[
@@ -193,7 +197,7 @@ mod tests {
     }
 
     fn field_array(array: &ArrayRef, field_path: &[&str]) -> VortexResult<ArrayRef> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut field_path = field_path.iter();
 
         let Some(field) = field_path.next() else {
@@ -218,7 +222,7 @@ mod tests {
 
     #[test]
     pub fn test_empty_pack() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expr = Pack.new_expr(
             PackOptions {
                 names: Default::default(),
@@ -240,7 +244,7 @@ mod tests {
 
     #[test]
     pub fn test_simple_pack() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expr = Pack.new_expr(
             PackOptions {
                 names: ["one", "two", "three"].into(),
@@ -277,7 +281,7 @@ mod tests {
 
     #[test]
     pub fn test_nested_pack() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expr = Pack.new_expr(
             PackOptions {
                 names: ["one", "two", "three"].into(),
@@ -328,7 +332,7 @@ mod tests {
 
     #[test]
     pub fn test_pack_nullable() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expr = Pack.new_expr(
             PackOptions {
                 names: ["one", "two", "three"].into(),

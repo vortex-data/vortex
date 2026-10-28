@@ -137,17 +137,19 @@ impl ArrayParentReduceRule<ScalarFn> for ScalarFilterPushdownRule {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use super::ScalarFilterPushdownRule;
     use crate::VortexSessionExecute;
     use crate::array::IntoArray;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::Constant;
@@ -174,6 +176,8 @@ mod tests {
     use crate::scalar_fn::fns::list_contains::PreparedSet;
     use crate::scalar_fn::fns::operators::Operator;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     #[case(0, [14, 14, 14, 14, 14])]
@@ -219,11 +223,7 @@ mod tests {
             }
         }
         let expected = PrimitiveArray::from_iter(expected);
-        assert_arrays_eq!(
-            result,
-            expected,
-            &mut array_session().create_execution_ctx()
-        );
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
         Ok(())
     }
 
@@ -246,7 +246,7 @@ mod tests {
         assert_arrays_eq!(
             result,
             ConstantArray::new(list, 2),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }
@@ -274,14 +274,13 @@ mod tests {
         assert_arrays_eq!(
             result,
             BoolArray::from_iter([false]),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
     #[test]
     fn test_reduce_isnull() -> VortexResult<()> {
-        let session = array_session();
-        let ctx = &mut session.create_execution_ctx();
+        let ctx = &mut SESSION.create_execution_ctx();
         let validity = BoolArray::from_iter([true, false, true]).into_array();
 
         assert_arrays_eq!(

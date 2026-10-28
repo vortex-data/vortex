@@ -11,6 +11,10 @@ using namespace duckdb;
 // Convert Vortex statistics to DuckDB statistics
 unique_ptr<BaseStatistics> to_duckdb_statistics(duckdb_column_statistics &statistics);
 
+bool SkipMultiFileReaderColumn(size_t i,
+                               optional_idx filename_idx,
+                               const std::vector<HivePartitioningIndex> &hive_indices);
+
 struct VortexBindData final : TableFunctionData {
     VortexBindData() = default;
     unique_ptr<FunctionData> Copy() const override;

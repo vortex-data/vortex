@@ -122,11 +122,13 @@ impl ScalarFnVTable for Not {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -136,6 +138,8 @@ mod tests {
     use crate::expr::root;
     use crate::expr::test_harness;
     use crate::scalar_fn::fns::not::BoolArray;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn is_strict() {
@@ -148,7 +152,7 @@ mod tests {
 
     #[test]
     fn preserves_nulls() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let input = BoolArray::from_iter([Some(false), None, Some(true)]).into_array();
 
         let result = input.apply(&not(root()))?;
@@ -163,7 +167,7 @@ mod tests {
 
     #[test]
     fn invert_booleans() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let not_expr = not(root());
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         let result = bools.into_array().apply(&not_expr).unwrap();

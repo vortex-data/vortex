@@ -9,7 +9,10 @@ use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::plan::physical::Eval;
@@ -24,10 +27,8 @@ use crate::plan::physical::operators::ConcatSource;
 use crate::plan::physical::optimizer::PlanParentReduceRule;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
-use crate::plan::physical::pipeline::Reach;
 use crate::plan::physical::pipeline::overlapping;
 use crate::plan::physical::selection::selected_slice;
-use crate::segments::SegmentId;
 
 /// Concatenates its children row-wise.
 #[derive(Clone, Debug)]
@@ -92,6 +93,34 @@ impl ConcatPlan {
     /// Returns the first row of each child within this plan's row domain.
     pub fn row_offsets(&self) -> &[u64] {
         &self.data().row_offsets
+    }
+
+    /// Defers independent child rewrites until a scan reaches the child. Row offsets remain
+    /// valid because each materialized result must preserve its child's row count.
+    pub(crate) fn map_chunks(
+        &self,
+        dtype: DType,
+        map: impl Fn(PlanRef) -> VortexResult<PlanRef> + Send + Sync + 'static,
+    ) -> Self {
+        let children = self.children().clone();
+        let child_dtype = dtype.clone();
+        PlanParts {
+            vtable: Concat,
+            dtype,
+            row_count: self.row_count(),
+            data: self.data().clone(),
+            children: PlanChildren::lazy(self.children().len(), move |index| {
+                let child = children
+                    .get(index)?
+                    .ok_or_else(|| vortex_err!("Missing chunk {index}"))?;
+                let rows = child.row_count();
+                let mapped = map(child)?;
+                vortex_ensure_eq!(mapped.dtype(), &child_dtype);
+                vortex_ensure_eq!(mapped.row_count(), rows);
+                Ok(mapped)
+            }),
+        }
+        .into_typed()
     }
 }
 
@@ -188,22 +217,6 @@ impl PlanVTable for Concat {
             count => Some(compiler.join(chains, ConcatSource::new(count))),
         })
     }
-
-    fn reach(
-        plan: &Plan<Self>,
-        rows: Range<u64>,
-        at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
-    ) -> VortexResult<()> {
-        for (index, start, local) in overlapping(plan, &rows) {
-            plan.child_required(index)?.reach(
-                local.start - start..local.end - start,
-                &at.shift(start),
-                visit,
-            )?;
-        }
-        Ok(())
-    }
 }
 
 /// Pushes an expression into every chunk of a [`Concat`].
@@ -218,15 +231,15 @@ impl PlanParentReduceRule<Concat> for ExpressionConcatRule {
         child: &Plan<Concat>,
         parent: &Plan<Eval>,
         _child_idx: usize,
+        _session: &VortexSession,
     ) -> VortexResult<Option<PlanRef>> {
-        let expression = parent.expression();
-        let chunks = child
-            .children()
-            .iter()
-            .map(|chunk| Ok(EvalPlan::try_new(expression.clone(), chunk?)?.into_plan()))
-            .collect::<VortexResult<Vec<_>>>()?;
+        let expression = parent.expression().clone();
         Ok(Some(
-            ConcatPlan::try_new(expression.dtype().clone(), chunks)?.into_plan(),
+            child
+                .map_chunks(expression.dtype().clone(), move |chunk| {
+                    Ok(EvalPlan::try_new(expression.clone(), chunk)?.into_plan())
+                })
+                .into_plan(),
         ))
     }
 }

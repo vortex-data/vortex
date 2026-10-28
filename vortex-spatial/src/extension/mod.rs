@@ -282,7 +282,19 @@ fn spatial_ext_scalar<V: ExtVTable<Metadata = SpatialMetadata>>(
 #[derive(Clone, PartialEq, Eq, Hash, prost::Message)]
 pub struct SpatialMetadata {
     #[prost(optional, string, tag = "1")]
-    pub crs: Option<String>,
+    pub(crate) crs: Option<String>,
+}
+
+impl SpatialMetadata {
+    /// Creates metadata with an optional coordinate reference system (CRS).
+    pub fn new(crs: Option<String>) -> Self {
+        Self { crs }
+    }
+
+    /// Returns the coordinate reference system, or `None` for unreferenced geometry.
+    pub fn get_crs(&self) -> Option<&str> {
+        self.crs.as_deref()
+    }
 }
 
 impl Display for SpatialMetadata {
@@ -335,11 +347,14 @@ pub(crate) fn spatial_metadata_from_arrow(metadata: &Metadata) -> SpatialMetadat
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use prost::Message;
     use vortex_array::VortexSessionExecute;
     use vortex_array::dtype::DType;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
 
     use super::LineString;
     use super::MultiLineString;
@@ -348,11 +363,13 @@ mod tests {
     use super::Polygon;
     use crate::extension::SpatialMetadata;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     /// Test shim: decode with an explicitly constructed session.
     fn native_geometry_scalar_from_wkb(
         bytes: &[u8],
     ) -> VortexResult<Option<vortex_array::scalar::Scalar>> {
-        super::native_geometry_scalar_from_wkb(bytes, &vortex_array::array_session())
+        super::native_geometry_scalar_from_wkb(bytes, &VortexSession::empty())
     }
 
     #[test]
@@ -382,7 +399,7 @@ mod tests {
         };
         assert!(ext.is::<Point>());
         assert_eq!(ext.metadata::<Point>(), &SpatialMetadata::default());
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expected =
             crate::test_harness::point_column(vec![1.0], vec![2.0])?.execute_scalar(0, &mut ctx)?;
         let actual_storage = scalar.as_extension().to_storage_scalar();
@@ -412,7 +429,7 @@ mod tests {
         };
         assert!(ext.is::<Polygon>());
         assert_eq!(ext.metadata::<Polygon>(), &SpatialMetadata::default());
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expected = crate::test_harness::polygon_column(vec![vec![vec![
             (0.0, 0.0),
             (1.0, 0.0),
@@ -446,7 +463,7 @@ mod tests {
         };
         assert!(ext.is::<LineString>());
         assert_eq!(ext.metadata::<LineString>(), &SpatialMetadata::default());
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expected = crate::test_harness::linestring_column(vec![vec![(0.0, 0.0), (1.0, 1.0)]])?
             .execute_scalar(0, &mut ctx)?;
         let actual_storage = scalar.as_extension().to_storage_scalar();
@@ -478,7 +495,7 @@ mod tests {
         };
         assert!(ext.is::<MultiPoint>());
         assert_eq!(ext.metadata::<MultiPoint>(), &SpatialMetadata::default());
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expected = crate::test_harness::multipoint_column(vec![vec![(0.0, 0.0), (1.0, 1.0)]])?
             .execute_scalar(0, &mut ctx)?;
         let actual_storage = scalar.as_extension().to_storage_scalar();
@@ -517,7 +534,7 @@ mod tests {
             ext.metadata::<MultiLineString>(),
             &SpatialMetadata::default()
         );
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expected = crate::test_harness::multilinestring_column(vec![vec![
             vec![(0.0, 0.0), (1.0, 1.0)],
             vec![(2.0, 2.0), (3.0, 3.0)],

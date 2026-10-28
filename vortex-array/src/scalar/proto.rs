@@ -199,14 +199,14 @@ impl Scalar {
             value
                 .dtype
                 .as_ref()
-                .ok_or_else(|| vortex_err!(Serde: "Scalar missing dtype"))?,
+                .ok_or_else(|| vortex_err!("Scalar missing dtype"))?,
             session,
         )?;
 
         let pb_scalar_value: &pb::ScalarValue = value
             .value
             .as_ref()
-            .ok_or_else(|| vortex_err!(Serde: "Scalar missing value"))?;
+            .ok_or_else(|| vortex_err!("Scalar missing value"))?;
 
         let value: Option<ScalarValue> = ScalarValue::from_proto(pb_scalar_value, &dtype, session)?;
 
@@ -248,7 +248,7 @@ impl ScalarValue {
         let kind = value
             .kind
             .as_ref()
-            .ok_or_else(|| vortex_err!(Serde: "Scalar value missing kind"))?;
+            .ok_or_else(|| vortex_err!("Scalar value missing kind"))?;
 
         // `DType::Extension` store their serialized values using the storage `DType`.
         let dtype = match dtype {
@@ -272,7 +272,7 @@ impl ScalarValue {
                 DType::Variant(_) => Some(ScalarValue::Variant(Box::new(Scalar::from_proto(
                     v, session,
                 )?))),
-                _ => vortex_bail!(Serde: "expected non-Variant scalar proto for dtype {dtype}"),
+                _ => vortex_bail!("expected non-Variant scalar proto for dtype {dtype}"),
             },
         })
     }
@@ -282,7 +282,7 @@ impl ScalarValue {
 fn bool_from_proto(v: bool, dtype: &DType) -> VortexResult<ScalarValue> {
     vortex_ensure!(
         dtype.is_boolean(),
-        Serde: "expected Bool dtype for BoolValue, got {dtype}"
+        "expected Bool dtype for BoolValue, got {dtype}"
     );
 
     Ok(ScalarValue::Bool(v))
@@ -295,7 +295,7 @@ fn bool_from_proto(v: bool, dtype: &DType) -> VortexResult<ScalarValue> {
 fn int64_from_proto(v: i64, dtype: &DType) -> VortexResult<ScalarValue> {
     vortex_ensure!(
         dtype.is_primitive(),
-        Serde: "expected Primitive dtype for Int64Value, got {dtype}"
+        "expected Primitive dtype for Int64Value, got {dtype}"
     );
 
     let pvalue = match dtype.as_ptype() {
@@ -310,10 +310,10 @@ fn int64_from_proto(v: i64, dtype: &DType) -> VortexResult<ScalarValue> {
         PType::U32 => v.to_u32().map(PValue::U32),
         PType::U64 => v.to_u64().map(PValue::U64),
         ftype @ (PType::F16 | PType::F32 | PType::F64) => vortex_bail!(
-            Serde: "expected signed integer ptype for serialized Int64Value, got float {ftype}"
+            "expected signed integer ptype for serialized Int64Value, got float {ftype}"
         ),
     }
-    .ok_or_else(|| vortex_err!(Serde: "Int64 value {v} out of range for dtype {dtype}"))?;
+    .ok_or_else(|| vortex_err!("Int64 value {v} out of range for dtype {dtype}"))?;
 
     Ok(ScalarValue::Primitive(pvalue))
 }
@@ -326,7 +326,7 @@ fn int64_from_proto(v: i64, dtype: &DType) -> VortexResult<ScalarValue> {
 fn uint64_from_proto(v: u64, dtype: &DType) -> VortexResult<ScalarValue> {
     vortex_ensure!(
         dtype.is_primitive(),
-        Serde: "expected Primitive dtype for Uint64Value, got {dtype}"
+        "expected Primitive dtype for Uint64Value, got {dtype}"
     );
 
     let pvalue = match dtype.as_ptype() {
@@ -342,11 +342,11 @@ fn uint64_from_proto(v: u64, dtype: &DType) -> VortexResult<ScalarValue> {
         PType::I64 => v.to_i64().map(PValue::I64),
         // f16 values used to be serialized as u64, so we need to be able to read an f16 from a u64.
         PType::F16 => v.to_u16().map(f16::from_bits).map(PValue::F16),
-        ftype @ (PType::F32 | PType::F64) => vortex_bail!(
-            Serde: "expected unsigned integer ptype for serialized Uint64Value, got {ftype}"
-        ),
+        ftype @ (PType::F32 | PType::F64) => {
+            vortex_bail!("expected unsigned integer ptype for serialized Uint64Value, got {ftype}")
+        }
     }
-    .ok_or_else(|| vortex_err!(Serde: "Uint64 value {v} out of range for dtype {dtype}"))?;
+    .ok_or_else(|| vortex_err!("Uint64 value {v} out of range for dtype {dtype}"))?;
 
     Ok(ScalarValue::Primitive(pvalue))
 }
@@ -355,11 +355,11 @@ fn uint64_from_proto(v: u64, dtype: &DType) -> VortexResult<ScalarValue> {
 fn f16_from_proto(v: u64, dtype: &DType) -> VortexResult<ScalarValue> {
     vortex_ensure!(
         matches!(dtype, DType::Primitive(PType::F16, _)),
-        Serde: "expected F16 dtype for F16Value, got {dtype}"
+        "expected F16 dtype for F16Value, got {dtype}"
     );
 
     let bits = u16::try_from(v)
-        .map_err(|_| vortex_err!(Serde: "f16 bitwise representation has more than 16 bits: {v}"))?;
+        .map_err(|_| vortex_err!("f16 bitwise representation has more than 16 bits: {v}"))?;
 
     Ok(ScalarValue::Primitive(PValue::F16(f16::from_bits(bits))))
 }
@@ -368,7 +368,7 @@ fn f16_from_proto(v: u64, dtype: &DType) -> VortexResult<ScalarValue> {
 fn f32_from_proto(v: f32, dtype: &DType) -> VortexResult<ScalarValue> {
     vortex_ensure!(
         matches!(dtype, DType::Primitive(PType::F32, _)),
-        Serde: "expected F32 dtype for F32Value, got {dtype}"
+        "expected F32 dtype for F32Value, got {dtype}"
     );
 
     Ok(ScalarValue::Primitive(PValue::F32(v)))
@@ -378,7 +378,7 @@ fn f32_from_proto(v: f32, dtype: &DType) -> VortexResult<ScalarValue> {
 fn f64_from_proto(v: f64, dtype: &DType) -> VortexResult<ScalarValue> {
     vortex_ensure!(
         matches!(dtype, DType::Primitive(PType::F64, _)),
-        Serde: "expected F64 dtype for F64Value, got {dtype}"
+        "expected F64 dtype for F64Value, got {dtype}"
     );
 
     Ok(ScalarValue::Primitive(PValue::F64(v)))
@@ -390,9 +390,7 @@ fn string_from_proto(s: &str, dtype: &DType) -> VortexResult<ScalarValue> {
     match dtype {
         DType::Utf8(_) => Ok(ScalarValue::Utf8(BufferString::from(s))),
         DType::Binary(_) => Ok(ScalarValue::Binary(ByteBuffer::copy_from(s.as_bytes()))),
-        _ => vortex_bail!(
-            Serde: "expected Utf8 or Binary dtype for StringValue, got {dtype}"
-        ),
+        _ => vortex_bail!("expected Utf8 or Binary dtype for StringValue, got {dtype}"),
     }
 }
 
@@ -437,11 +435,9 @@ fn bytes_from_proto(bytes: &[u8], dtype: &DType) -> VortexResult<ScalarValue> {
                     .ok()
                     .vortex_expect("Buffer has invalid number of bytes"),
             )),
-            l => vortex_bail!(Serde: "invalid decimal byte length: {l}"),
+            l => vortex_bail!("invalid decimal byte length: {l}"),
         })),
-        _ => vortex_bail!(
-            Serde: "expected Utf8, Binary, or Decimal dtype for BytesValue, got {dtype}"
-        ),
+        _ => vortex_bail!("expected Utf8, Binary, or Decimal dtype for BytesValue, got {dtype}"),
     }
 }
 
@@ -461,7 +457,7 @@ fn list_from_proto(
             vortex_ensure_eq!(
                 v.values.len(),
                 fields.nfields(),
-                Serde: "ListValue has the wrong number of struct fields"
+                "ListValue has the wrong number of struct fields"
             );
 
             v.values
@@ -477,9 +473,7 @@ fn list_from_proto(
                 .map(|entry| ScalarValue::from_proto(entry, &entry_dtype, session))
                 .collect::<VortexResult<Vec<_>>>()?
         }
-        _ => vortex_bail!(
-            Serde: "expected a tuple-backed dtype for ListValue, got {dtype}"
-        ),
+        _ => vortex_bail!("expected a tuple-backed dtype for ListValue, got {dtype}"),
     };
     Ok(ScalarValue::Tuple(values))
 }
@@ -491,34 +485,33 @@ fn union_from_proto(
     session: &VortexSession,
 ) -> VortexResult<ScalarValue> {
     let DType::Union(variants, _) = dtype else {
-        vortex_bail!(Serde: "expected Union dtype for UnionValue, got {dtype}");
+        vortex_bail!("expected Union dtype for UnionValue, got {dtype}");
     };
 
-    let type_id = u8::try_from(value.type_id).map_err(
-        |_| vortex_err!(Serde: "union type ID {} is outside the u8 range", value.type_id),
-    )?;
+    let type_id = u8::try_from(value.type_id)
+        .map_err(|_| vortex_err!("union type ID {} is outside the u8 range", value.type_id))?;
 
     let child_index = variants.tag_to_child_index(type_id).ok_or_else(|| {
         vortex_err!(
-            Serde: "union type ID {type_id} is not present in {:?}",
+            "union type ID {type_id} is not present in {:?}",
             variants.type_ids()
         )
     })?;
 
     let child_dtype = variants
         .variant_by_index(child_index)
-        .ok_or_else(|| vortex_err!(Serde: "union type ID {type_id} resolved out of bounds"))?;
+        .ok_or_else(|| vortex_err!("union type ID {type_id} resolved out of bounds"))?;
 
     let child_proto = value
         .value
         .as_deref()
-        .ok_or_else(|| vortex_err!(Serde: "UnionValue missing child value"))?;
+        .ok_or_else(|| vortex_err!("UnionValue missing child value"))?;
 
     let child_value = ScalarValue::from_proto(child_proto, &child_dtype, session)?;
     Scalar::validate(&child_dtype, child_value.as_ref()).map_err(|error| {
-        vortex_err!(
-            Serde: "union type ID {type_id} has invalid child for dtype {child_dtype}: {error}"
-        )
+        error.with_context(format!(
+            "union type ID {type_id} has invalid child for dtype {child_dtype}"
+        ))
     })?;
 
     Ok(ScalarValue::Union(UnionValue::new(type_id, child_value)))
@@ -531,7 +524,6 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_buffer::BufferString;
-    use vortex_error::VortexError;
     use vortex_error::vortex_panic;
     use vortex_session::VortexSession;
 
@@ -865,10 +857,10 @@ mod tests {
             }))),
         };
 
-        assert!(matches!(
-            ScalarValue::from_proto(&missing_child, &dtype, &session()),
-            Err(VortexError::Serde(..))
-        ));
+        let err = ScalarValue::from_proto(&missing_child, &dtype, &session())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("UnionValue missing child value"), "{err}");
 
         let wrong_child_value = pb::ScalarValue {
             kind: Some(Kind::UnionValue(Box::new(PbUnionValue {
@@ -879,10 +871,13 @@ mod tests {
             }))),
         };
 
-        assert!(matches!(
-            ScalarValue::from_proto(&wrong_child_value, &dtype, &session()),
-            Err(VortexError::Serde(..))
-        ));
+        let err = ScalarValue::from_proto(&wrong_child_value, &dtype, &session())
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("expected Utf8 or Binary dtype for StringValue, got i32?"),
+            "{err}"
+        );
 
         Ok(())
     }
@@ -1087,14 +1082,18 @@ mod tests {
                         PValue::U16(v) => *v as u64,
                         PValue::U32(v) => *v as u64,
                         PValue::U64(v) => *v,
-                        _ => vortex_panic!("Unexpected primitive type for {name}: {pv:?}"),
+                        _ => {
+                            vortex_panic!("Unexpected primitive type for {name}: {pv:?}")
+                        }
                     };
                     assert_eq!(
                         v, expected,
                         "ScalarValue {name} value not preserved: expected {expected}, got {v}"
                     );
                 }
-                _ => vortex_panic!("Unexpected type after roundtrip for {name}: {read_back:?}"),
+                _ => {
+                    vortex_panic!("Unexpected type after roundtrip for {name}: {read_back:?}")
+                }
             }
         }
 
@@ -1132,14 +1131,18 @@ mod tests {
                         PValue::I16(v) => *v as i64,
                         PValue::I32(v) => *v as i64,
                         PValue::I64(v) => *v,
-                        _ => vortex_panic!("Unexpected primitive type for {name}: {pv:?}"),
+                        _ => {
+                            vortex_panic!("Unexpected primitive type for {name}: {pv:?}")
+                        }
                     };
                     assert_eq!(
                         v, expected,
                         "ScalarValue {name} value not preserved: expected {expected}, got {v}"
                     );
                 }
-                _ => vortex_panic!("Unexpected type after roundtrip for {name}: {read_back:?}"),
+                _ => {
+                    vortex_panic!("Unexpected type after roundtrip for {name}: {read_back:?}")
+                }
             }
         }
     }

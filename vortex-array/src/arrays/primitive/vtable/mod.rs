@@ -217,15 +217,17 @@ pub struct Primitive;
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
     use crate::ArrayContext;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::buffer::BufferHandle;
@@ -233,9 +235,11 @@ mod tests {
     use crate::serde::SerializedArray;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_nullable_primitive_serde_roundtrip() {
-        let session = array_session();
+        let session = VortexSession::empty();
         let mut ctx = session.create_execution_ctx();
         let array = PrimitiveArray::new(
             buffer![1i32, 2, 3, 4],
@@ -265,8 +269,7 @@ mod tests {
 
     #[test]
     fn test_with_buffers_replaces_primitive_buffer_with_equivalent_contents() -> VortexResult<()> {
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let array = PrimitiveArray::from_iter([1i32, 2, 3, 4]).into_array();
         let replacement = BufferHandle::new_host(buffer![1i32, 2, 3, 4].into_byte_buffer());

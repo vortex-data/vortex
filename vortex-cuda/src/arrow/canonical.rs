@@ -7,10 +7,6 @@ use std::ptr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use cudarc::driver::CudaSlice;
-use cudarc::driver::DeviceRepr;
-use cudarc::driver::LaunchConfig;
-use cudarc::driver::PushKernelArg;
 use futures::future::BoxFuture;
 use futures::future::join;
 use vortex::array::ArrayRef;
@@ -63,6 +59,10 @@ use vortex::error::vortex_ensure;
 use vortex::error::vortex_ensure_eq;
 use vortex::error::vortex_err;
 use vortex::extension::datetime::AnyTemporal;
+use vortex_cuda_driver::CudaSlice;
+use vortex_cuda_driver::DeviceRepr;
+use vortex_cuda_driver::LaunchConfig;
+use vortex_cuda_driver::PushKernelArg;
 use vortex_onpair::OnPair;
 
 use crate::CudaBufferExt;
@@ -336,7 +336,9 @@ fn export_canonical(
                 }
                 export_varbinview(varbinview, ctx).await
             }
-            c => vortex_bail!("unsupported Arrow Device export for {} array", c.dtype()),
+            c => {
+                vortex_bail!("unsupported Arrow Device export for {} array", c.dtype())
+            }
         }
     })
 }
@@ -1453,6 +1455,7 @@ unsafe fn release_array_ptr(array: *mut ArrowArray) {
 mod tests {
     use std::mem::size_of;
     use std::sync::Arc;
+    use std::sync::LazyLock;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
@@ -1464,7 +1467,6 @@ mod tests {
     use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
-    use vortex::array::array_session;
     use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::ChunkedArray;
     use vortex::array::arrays::DecimalArray;
@@ -1504,6 +1506,7 @@ mod tests {
     use vortex::error::vortex_bail;
     use vortex::error::vortex_err;
     use vortex::extension::datetime::TimeUnit;
+    use vortex::session::VortexSession;
 
     use crate::CudaBufferExt;
     use crate::CudaDeviceBuffer;
@@ -1529,6 +1532,8 @@ mod tests {
     use crate::session::CudaSession;
     use crate::session::VarBinExportLayout;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     fn device_bool(
         bits: BitBuffer,
         validity: Validity,
@@ -1547,7 +1552,7 @@ mod tests {
     }
 
     fn cuda_ctx_with_varbin_layout(layout: VarBinExportLayout) -> VortexResult<CudaExecutionCtx> {
-        let session = array_session()
+        let session = VortexSession::empty()
             .with_some(CudaSession::try_default()?.with_varbin_export_layout(layout));
         CudaSession::create_execution_ctx(&session)
     }
@@ -1729,7 +1734,7 @@ mod tests {
             Arc::from([first, second]),
             dtype,
             Validity::NonNullable,
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .vortex_expect("valid multi-buffer VarBinViewArray")
         .into_array();
@@ -1773,7 +1778,9 @@ mod tests {
             PType::I16 => primitive_on_device(values.iter().map(|&value| value as i16), ctx).await,
             PType::I32 => primitive_on_device(values.iter().map(|&value| value as i32), ctx).await,
             PType::I64 => primitive_on_device(values.iter().copied(), ctx).await,
-            ptype => vortex_bail!("test helper only supports integer PTypes, got {ptype}"),
+            ptype => {
+                vortex_bail!("test helper only supports integer PTypes, got {ptype}")
+            }
         }
     }
 

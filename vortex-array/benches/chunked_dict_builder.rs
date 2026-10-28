@@ -12,6 +12,8 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::dict_test::gen_dict_primitive_chunks;
 use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::dtype::NativePType;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 
@@ -23,7 +25,11 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<MemorySession>()
+});
 
 // Chunk counts sized to keep CodSpeed simulation under 1ms per benchmark.
 const BENCH_ARGS: &[(usize, usize, usize)] = &[
@@ -35,7 +41,7 @@ const BENCH_ARGS: &[(usize, usize, usize)] = &[
     (1000, 1000, 20),
 ];
 
-#[divan::bench(types = [u32, u64, f32, f64], args = BENCH_ARGS)]
+#[divan::bench(types = [u32, f64], args = BENCH_ARGS)]
 fn chunked_dict_primitive_canonical_into<T: NativePType>(
     bencher: Bencher,
     (len, unique_values, chunk_count): (usize, usize, usize),
@@ -56,7 +62,7 @@ fn chunked_dict_primitive_canonical_into<T: NativePType>(
         })
 }
 
-#[divan::bench(types = [u32, u64, f32, f64], args = BENCH_ARGS)]
+#[divan::bench(types = [u32, f64], args = BENCH_ARGS)]
 fn chunked_dict_primitive_into_canonical<T: NativePType>(
     bencher: Bencher,
     (len, unique_values, chunk_count): (usize, usize, usize),

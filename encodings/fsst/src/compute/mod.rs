@@ -6,6 +6,7 @@ mod cast;
 mod compare;
 mod filter;
 mod like;
+pub(crate) mod uncompressed_size_in_bytes;
 
 use num_traits::ToPrimitive;
 use vortex_array::ArrayRef;
@@ -155,6 +156,8 @@ fn compressed_byte_span(offsets: &ArrayRef) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use fsst::Compressor;
     use fsst::Symbol;
     use rstest::rstest;
@@ -162,7 +165,6 @@ mod tests {
     use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::DictArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinArray;
@@ -177,6 +179,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::compressed_byte_span;
     use crate::FSST;
@@ -184,9 +187,11 @@ mod tests {
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_take_null() -> VortexResult<()> {
-        let session = array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         let mut ctx = session.create_execution_ctx();
         let arr =
@@ -222,7 +227,7 @@ mod tests {
         DType::Utf8(Nullability::NonNullable),
     ))]
     fn test_take_fsst_conformance(#[case] varbin: VarBinArray) -> VortexResult<()> {
-        let session = array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         let mut ctx = session.create_execution_ctx();
         let varbin = varbin.into_array();
@@ -243,7 +248,7 @@ mod tests {
         #[case] nullable: bool,
         #[case] gathers: bool,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let input = VarBinArray::from_iter(
             (0..16).map(|row| {
                 (!(nullable && row == 0)).then(|| format!("{}{row}", "caption ".repeat(repeats)))
@@ -272,7 +277,7 @@ mod tests {
 
     #[test]
     fn test_take_small_slice_uses_logical_byte_span() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let input = VarBinArray::from_iter(
             (0..16).map(|row| Some("caption ".repeat(if row < 4 { 4096 } else { 2 }))),
             DType::Utf8(Nullability::NonNullable),
@@ -310,7 +315,7 @@ mod tests {
         #[case] indices: ArrayRef,
         #[case] gathers: bool,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let input = VarBinArray::from_iter(
             (0..256).map(|row| Some("caption ".repeat(if row < long_rows { 8192 } else { 1 }))),
             DType::Utf8(Nullability::NonNullable),
@@ -420,7 +425,7 @@ mod tests {
     })]
 
     fn test_fsst_consistency(#[case] build: FsstBuilder) {
-        let session = array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         let mut ctx = session.create_execution_ctx();
         let array = build(&mut ctx);

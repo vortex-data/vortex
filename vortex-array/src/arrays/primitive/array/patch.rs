@@ -3,6 +3,8 @@
 
 use std::ops::Range;
 
+use vortex_buffer::Buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
@@ -12,7 +14,7 @@ use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
 use crate::dtype::UnsignedPType;
 use crate::match_each_integer_ptype;
-use crate::match_each_native_ptype;
+use crate::match_each_ptype_width;
 use crate::patches::PATCH_CHUNK_SIZE;
 use crate::patches::Patches;
 use crate::validity::Validity;
@@ -22,6 +24,8 @@ impl PrimitiveArray {
         let patch_indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
         let patch_values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
 
+        assert_eq!(self.ptype(), patch_values.ptype());
+
         let patch_validity = patch_values.validity()?;
         let patched_validity = self.validity()?.patch(
             self.len(),
@@ -30,19 +34,24 @@ impl PrimitiveArray {
             &patch_validity,
             ctx,
         )?;
+
         Ok(match_each_integer_ptype!(patch_indices.ptype(), |I| {
-            match_each_native_ptype!(self.ptype(), |T| {
-                self.patch_typed::<T, I>(
-                    patch_indices,
-                    patches.offset(),
-                    patch_values,
-                    patched_validity,
-                )
-            })
+            match_each_ptype_width!(
+                self.ptype(),
+                |W| {
+                    self.patch_typed::<W, I>(
+                        patch_indices,
+                        patches.offset(),
+                        patch_values,
+                        patched_validity,
+                    )
+                },
+                _ => { unreachable!("primitive widths are specialized") },
+            )
         }))
     }
 
-    fn patch_typed<T, I>(
+    fn patch_typed<const W: usize, I>(
         self,
         patch_indices: PrimitiveArray,
         patch_indices_offset: usize,
@@ -50,17 +59,32 @@ impl PrimitiveArray {
         patched_validity: Validity,
     ) -> Self
     where
-        T: NativePType,
         I: IntegerPType,
     {
-        let mut own_values = self.into_buffer_mut::<T>();
+        let ptype = self.ptype();
+        let values = self.into_data_parts().buffer.into_host_sync();
+        let alignment = values.alignment();
+        let mut own_values =
+            Buffer::<[u8; W]>::from_byte_buffer_aligned(values, alignment).into_mut();
 
         let patch_indices = patch_indices.as_slice::<I>();
-        let patch_values = patch_values.as_slice::<T>();
+        let patch_values = patch_values
+            .buffer_handle()
+            .as_host_opt()
+            .vortex_expect("patch values require host storage")
+            .as_slice()
+            .as_chunks::<W>()
+            .0;
+
         for (idx, value) in itertools::zip_eq(patch_indices, patch_values) {
             own_values[idx.as_() - patch_indices_offset] = *value;
         }
-        Self::new(own_values, patched_validity)
+
+        Self::from_byte_buffer(
+            own_values.freeze().into_byte_buffer(),
+            ptype,
+            patched_validity,
+        )
     }
 }
 
@@ -132,13 +156,17 @@ pub fn patch_chunk<T, I, C>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::assert_arrays_eq;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     /// Regression: patch_chunk must not OOB when chunk_offsets (chunk granularity)
     /// reference more patches than patches_indices (element granularity) contains.
@@ -180,7 +208,7 @@ mod tests {
 
     #[test]
     fn patch_sliced() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let input = PrimitiveArray::new(buffer![2u32; 10], Validity::AllValid);
         let sliced = input.slice(2..8).unwrap();
         assert_arrays_eq!(

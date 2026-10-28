@@ -108,3 +108,41 @@ SELECT count(*) FROM '${WORK_DIR}/agg_partition_stats.vortex'
 WHERE i > 50000;
 ----
 50000
+
+statement ok
+COPY (
+    SELECT ((i - 2500) / 100)::DECIMAL(4, 2) AS d,
+           (i * 10000000000000000000)::DECIMAL(38, 0) AS h
+    FROM generate_series(1, 5000) t(i))
+TO '${WORK_DIR}/agg_partition_stats-decimal.vortex';
+
+query TT
+EXPLAIN SELECT min(d), max(d), min(h), max(h)
+FROM '${WORK_DIR}/agg_partition_stats-decimal.vortex';
+----
+<REGEX>:.*Column Data Scan.*
+
+query RRRR
+SELECT min(d), max(d), min(h), max(h)
+FROM '${WORK_DIR}/agg_partition_stats-decimal.vortex';
+----
+-24.99 25 10000000000000000000 50000000000000000000000
+
+statement ok
+COPY (
+    SELECT * FROM (VALUES
+        ('12:00:00'::TIME_NS),
+        ('01:02:03.123456789'::TIME_NS),
+        ('23:59:59.999999999'::TIME_NS)) t(tn))
+TO '${WORK_DIR}/agg_partition_stats-time_ns.vortex';
+
+query TT
+EXPLAIN SELECT min(tn), max(tn)
+FROM '${WORK_DIR}/agg_partition_stats-time_ns.vortex';
+----
+<REGEX>:.*Column Data Scan.*
+
+query ??
+SELECT min(tn), max(tn) FROM '${WORK_DIR}/agg_partition_stats-time_ns.vortex';
+----
+01:02:03.123456789 23:59:59.999999999

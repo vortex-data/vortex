@@ -105,6 +105,8 @@ impl RowFn for SpatialConvexHull {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::Columnar;
@@ -120,6 +122,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
 
     use super::SpatialConvexHull;
     use crate::scalar_fn::area::SpatialArea;
@@ -127,6 +130,8 @@ mod tests {
     use crate::test_harness::multipoint_column;
     use crate::test_harness::point_column;
     use crate::test_harness::polygon_column;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn computes_polygon_hulls() -> VortexResult<()> {
@@ -145,7 +150,7 @@ mod tests {
             (2.0, 0.0),
         ]]])?;
         let result = SpatialConvexHull::try_new(input)?.into_array();
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
@@ -168,7 +173,7 @@ mod tests {
         let input = multipoint_column(vec![points])?;
         let expected = polygon_column(vec![expected_rings])?;
         let result = SpatialConvexHull::try_new(input)?.into_array();
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
@@ -176,7 +181,7 @@ mod tests {
 
     #[test]
     fn propagates_nulls() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let input = MaskedArray::try_new(
             multipoint_column(vec![
                 vec![(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)],
@@ -203,7 +208,7 @@ mod tests {
 
     #[test]
     fn constant_remains_constant() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let scalar = multipoint_column(vec![vec![(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)]])?
             .execute_scalar(0, &mut ctx)?;
         let input = ConstantArray::new(scalar, 3).into_array();
@@ -223,7 +228,7 @@ mod tests {
 
     #[test]
     fn collect_hull_area_pipeline() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let points = point_column(
             vec![0.0, 2.0, 2.0, 0.0, 1.0, 0.0, 1.0, 2.0],
             vec![0.0, 0.0, 2.0, 2.0, 1.0, 0.0, 1.0, 2.0],

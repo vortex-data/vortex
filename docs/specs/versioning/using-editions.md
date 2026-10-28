@@ -102,6 +102,8 @@ array and a layout can share the same ID string while describing different forma
   required optional module.
 - For a draft edition, obtain a build that implements the component from the producer. A draft does
   not promise support in a published release.
+- For an unstable format, obtain the matching implementation from the producer. The same ID in
+  another build may describe a different contract.
 - For a component absent from the registry, obtain its implementation from the producer and register
   it with the session.
 

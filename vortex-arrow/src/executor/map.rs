@@ -69,6 +69,7 @@ pub(super) fn to_arrow_map(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use arrow_array::Array as ArrowArray;
     use arrow_array::ArrayRef as ArrowArrayRef;
@@ -88,7 +89,6 @@ mod tests {
     use arrow_schema::Fields;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::ListView;
     use vortex_array::arrays::Map as VortexMap;
     use vortex_array::arrays::listview::ListViewArrayExt;
@@ -103,9 +103,12 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use crate::convert::from_arrow_map;
     use crate::session::ArrowSessionExt as _;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn i32_utf8_map_field(keys_sorted: bool, nullable: bool) -> Field {
         let fields = Fields::from(vec![
@@ -153,7 +156,7 @@ mod tests {
 
     #[test]
     fn map_roundtrip_preserves_null_empty_duplicate_and_sorted_rows() -> VortexResult<()> {
-        let vortex_session = array_session();
+        let vortex_session = VortexSession::empty();
         let mut ctx = vortex_session.create_execution_ctx();
         let session = vortex_session.arrow();
         let field = i32_utf8_map_field(true, true);
@@ -222,7 +225,7 @@ mod tests {
             )?
         );
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         for (row, key, value) in [(0, 1i32, "one"), (1, 2, "two")] {
             let scalar = vortex.execute_scalar(row, &mut ctx)?;
             assert_eq!(
@@ -239,7 +242,7 @@ mod tests {
 
     #[test]
     fn arrow_rs_map_builder_default_field_names_import() -> VortexResult<()> {
-        let vortex_session = array_session();
+        let vortex_session = VortexSession::empty();
         let mut ctx = vortex_session.create_execution_ctx();
         let session = vortex_session.arrow();
         let mut builder = ArrowMapBuilder::new(None, StringBuilder::new(), Int32Builder::new());
@@ -322,7 +325,7 @@ mod tests {
 
     #[test]
     fn arrow_map_import_sets_zero_copy_to_list() -> VortexResult<()> {
-        let vortex_session = array_session();
+        let vortex_session = VortexSession::empty();
         let session = vortex_session.arrow();
         let field = i32_utf8_map_field(false, false);
         let arrow = i32_utf8_map_array(
@@ -359,7 +362,7 @@ mod tests {
 
     #[test]
     fn sliced_arrow_map_import_preserves_nonzero_offsets() -> VortexResult<()> {
-        let vortex_session = array_session();
+        let vortex_session = VortexSession::empty();
         let mut ctx = vortex_session.create_execution_ctx();
         let session = vortex_session.arrow();
         let field = i32_utf8_map_field(true, false);
@@ -406,7 +409,7 @@ mod tests {
 
     #[test]
     fn filtered_map_with_entry_gap_exports_correct_rows() -> VortexResult<()> {
-        let vortex_session = array_session();
+        let vortex_session = VortexSession::empty();
         let mut ctx = vortex_session.create_execution_ctx();
         let session = vortex_session.arrow();
         let map_dtype = MapDType::try_new(
@@ -473,7 +476,7 @@ mod tests {
 
     #[test]
     fn unsorted_map_rejects_sorted_arrow_target() -> VortexResult<()> {
-        let vortex_session = array_session();
+        let vortex_session = VortexSession::empty();
         let mut ctx = vortex_session.create_execution_ctx();
         let session = vortex_session.arrow();
         let source_field = i32_utf8_map_field(false, false);
@@ -497,7 +500,7 @@ mod tests {
 
     #[test]
     fn malformed_map_field_errors_without_panic() -> VortexResult<()> {
-        let session = array_session();
+        let session = VortexSession::empty();
         let arrow_session = session.arrow();
         let arrow = i32_utf8_map_array(vec![0, 1], vec![1], vec![Some("one")], None, false)?;
         let fields = Fields::from(vec![

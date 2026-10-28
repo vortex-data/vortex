@@ -258,6 +258,8 @@ impl AggregateFnVTable for GeometryAabb {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use geo::Rect as SpatialRect;
     use vortex_array::ArrayRef;
     use vortex_array::VortexSessionExecute;
@@ -272,6 +274,7 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::scalar::Scalar;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::AabbPartial;
     use super::GeometryAabb;
@@ -284,6 +287,8 @@ mod tests {
     use crate::test_harness::point_column;
     use crate::test_harness::polygon_column;
     use crate::test_harness::spatial_session;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     /// One column of every native geometry type over the same `(x, y)` vertex set.
     fn every_native_column(vertices: &[(f64, f64)]) -> VortexResult<Vec<ArrayRef>> {
@@ -302,7 +307,7 @@ mod tests {
     /// The aggregate must be serializable so the zoned writer can persist its zone-stat descriptor.
     #[test]
     fn serializes_for_zone_storage() -> VortexResult<()> {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         let metadata = GeometryAabb
             .serialize(&EmptyOptions)?
             .expect("GeometryAabb must be serializable to be stored as a zone statistic");
@@ -319,8 +324,7 @@ mod tests {
     /// The AABB of a Point column is the min/max of its coordinates, accumulated across batches.
     #[test]
     fn point_aabb_across_batches() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
         let mut acc = Accumulator::try_new(GeometryAabb, EmptyOptions, dtype)?;
@@ -336,8 +340,7 @@ mod tests {
     /// the origin (matching min/max, which skip nulls).
     #[test]
     fn null_rows_do_not_widen_aabb() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         // The valid points sit far from the origin; the null row's storage placeholder is (0, 0).
         let column = nullable_point_column(vec![Some((5.0, 6.0)), None, Some((7.0, 8.0))])?;
@@ -353,8 +356,7 @@ mod tests {
     /// unwrap, not just the bare Point struct.
     #[test]
     fn polygon_aabb_union_all_vertices() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         // Two rectangles: (0,0)-(2,3) and (5,5)-(7,8). The chunk AABB is their union: (0,0)-(7,8).
         let polygons = polygon_column(vec![
@@ -373,8 +375,7 @@ mod tests {
     /// covers the whole type family.
     #[test]
     fn aabb_covers_every_native_geometry_type() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         for column in every_native_column(&[(1.0, 2.0), (-1.0, 5.0), (3.0, 4.0)])? {
             let mut acc = Accumulator::try_new(GeometryAabb, EmptyOptions, column.dtype().clone())?;
@@ -393,8 +394,7 @@ mod tests {
     /// the triple-`List` unwrap.
     #[test]
     fn multipolygon_aabb_union_all_vertices() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         // Multipolygon 0: squares (0,0)-(1,1) and (4,4)-(5,5); multipolygon 1: square (-3,7)-(-2,9).
         let multipolygons = multipolygon_column(vec![
@@ -460,8 +460,7 @@ mod tests {
     /// never satisfy `distance <= r` anyway.
     #[test]
     fn all_nan_coordinates_kept() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let column = point_column(vec![f64::NAN, f64::NAN], vec![f64::NAN, f64::NAN])?;
         let mut acc = Accumulator::try_new(GeometryAabb, EmptyOptions, column.dtype().clone())?;

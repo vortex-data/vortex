@@ -7,6 +7,8 @@ use std::ffi::c_char;
 use std::ffi::c_void;
 use std::sync::LazyLock;
 use std::sync::OnceLock;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use vortex::VortexSessionDefault;
 use vortex::cloud::Registry;
@@ -14,7 +16,6 @@ use vortex::editions::CORE_2026_08_3;
 use vortex::editions::EditionSessionExt;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
-use vortex::error::vortex_err;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::session::RuntimeSessionExt;
@@ -30,6 +31,7 @@ mod exporter;
 mod ffi;
 mod file_reader;
 mod projection;
+mod scan_v2;
 mod table_function;
 
 #[rustfmt::skip]
@@ -43,6 +45,13 @@ mod copy;
 #[cfg(test)]
 mod e2e_test;
 
+/// The exporter internals that the benchmarks in `benches/` build on. This is not a stable API.
+#[doc(hidden)]
+pub mod _benchmarking {
+    pub use crate::exporter::ArrayExporter;
+    pub use crate::exporter::ConversionCache;
+}
+
 // A global runtime for Vortex operations within DuckDB.
 static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
 /// Process-wide registry, so repeated scans against the same bucket share one client.
@@ -51,11 +60,24 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::default().with_handle(RUNTIME.handle());
     session
         .enable_edition(CORE_2026_08_3)
-        .map_err(|error| vortex_err!("{error}"))
         .vortex_expect("DuckDB-supported draft core edition is registered");
     vortex_spatial::initialize(&session);
     session
 });
+
+/// Whether scans run on the planner-driven V2 executor. Set `VORTEX_SCAN_V2=1` to enable it.
+static SCAN_V2: LazyLock<AtomicBool> =
+    LazyLock::new(|| AtomicBool::new(std::env::var("VORTEX_SCAN_V2").is_ok_and(|v| v == "1")));
+
+/// Selects the planner-driven V2 scan executor for scans initialized from now on.
+pub fn set_scan_v2(enabled: bool) {
+    SCAN_V2.store(enabled, Ordering::Relaxed);
+}
+
+/// Whether scans initialized now use the planner-driven V2 scan executor.
+pub fn scan_v2() -> bool {
+    SCAN_V2.load(Ordering::Relaxed)
+}
 
 // Duckdb's logger requires a *Context as first argument which
 // would be hard to integrate with tracing::. We use logging for

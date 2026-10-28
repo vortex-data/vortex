@@ -161,14 +161,14 @@ jobs:
           RUN_ID=$(echo "$ARTIFACT_URL" | grep -oP 'runs/\K[0-9]+')
           ARTIFACT_ID=$(echo "$ARTIFACT_URL" | grep -oP 'artifacts/\K[0-9]+')
 
-          # Artifact name matches run-fuzzer.yml upload: ${{ inputs.fuzz_target }}-crash-artifacts
-          TARGET="${{ steps.extract.outputs.target }}"
-          ARTIFACT_NAME="${TARGET}-crash-artifacts"
+          echo "Downloading artifact $ARTIFACT_ID from run $RUN_ID"
 
-          echo "Downloading artifact $ARTIFACT_NAME (ID: $ARTIFACT_ID) from run $RUN_ID"
-
-          # Download the artifact
-          gh run download "$RUN_ID" --name "$ARTIFACT_NAME" --repo ${{ github.repository }}
+          # Download by artifact ID, not by name. A re-run of the fuzz workflow uploads a
+          # second artifact with the same name, and `gh run download --name` then gets the
+          # artifact of the latest attempt, which does not contain this crash file.
+          gh api "repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip" > crash-artifact.zip
+          unzip -q crash-artifact.zip
+          rm crash-artifact.zip
 
           # Verify crash file exists
           CRASH_FILE_PATH="${{ steps.extract.outputs.target }}/${{ steps.extract.outputs.crash_file }}"
@@ -274,8 +274,10 @@ jobs:
           ARTIFACT_URL: ${{ steps.extract.outputs.artifact_url }}
         uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b  # v1.0.247
         with:
-          # Same `vortex-claude-ci` rule as the rest of the fuzz pipeline.
-          anthropic_federation_rule_id: ${{ vars.ANTHROPIC_FEDERATION_RULE_CI }}
+          # This job runs in the claude-automation environment, so the OIDC subject is
+          # `environment:claude-automation`. Only the `vortex-claude-write` rule matches
+          # that subject. The `vortex-claude-ci` rule fails the token exchange with 401.
+          anthropic_federation_rule_id: ${{ vars.ANTHROPIC_FEDERATION_RULE_WRITE }}
           anthropic_organization_id: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
           anthropic_service_account_id: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
           # Use the App token (not GITHUB_TOKEN) so the committed fix branch and

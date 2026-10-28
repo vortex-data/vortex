@@ -11,22 +11,13 @@ use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 use vortex_session::registry::CachedId;
 
-use super::Concat;
-use super::Eval;
-use super::LegacyStats;
-use super::Pack;
 use super::Plan;
 use super::PlanId;
 use super::PlanParts;
 use super::PlanRef;
 use super::PlanVTable;
-use super::Take;
-use super::Zoned;
 use super::pipeline::Chain;
 use super::pipeline::Compiler;
-use super::pipeline::Reach;
-use super::pipeline::overlapping;
-use crate::segments::SegmentId;
 
 #[derive(Clone, Debug)]
 struct Selected;
@@ -80,16 +71,6 @@ impl PlanVTable for Selected {
         }
         compiler.compile(&plan.child_required(0)?, rows, &mask)
     }
-
-    fn reach(
-        plan: &Plan<Self>,
-        rows: Range<u64>,
-        at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
-    ) -> VortexResult<()> {
-        let mask = plan.data().mask(&rows)?;
-        reach_selected(&plan.child_required(0)?, rows, &mask, at, visit)
-    }
 }
 
 impl SelectedData {
@@ -134,63 +115,4 @@ pub(crate) fn selected_slice(mask: &Mask, rows: Range<usize>) -> Option<(Range<u
             Some((rows.start + first..rows.start + end, selected))
         }
     }
-}
-
-fn reach_selected(
-    plan: &PlanRef,
-    rows: Range<u64>,
-    mask: &Mask,
-    at: &Reach,
-    visit: &mut dyn FnMut(SegmentId, Range<u64>),
-) -> VortexResult<()> {
-    if mask.all_false() || rows.is_empty() {
-        return Ok(());
-    }
-    if mask.all_true() {
-        return plan.reach(rows, at, visit);
-    }
-    if let Some(concat) = plan.as_opt::<Concat>() {
-        for (index, start, local) in overlapping(concat, &rows) {
-            let Some((span, mask)) = selected_slice(
-                mask,
-                usize::try_from(local.start - rows.start)?
-                    ..usize::try_from(local.end - rows.start)?,
-            ) else {
-                continue;
-            };
-            reach_selected(
-                &concat.child_required(index)?,
-                rows.start + span.start as u64 - start..rows.start + span.end as u64 - start,
-                &mask,
-                &at.shift(start),
-                visit,
-            )?;
-        }
-        return Ok(());
-    }
-    if plan.is::<Pack>() || plan.is::<Eval>() {
-        for child in plan.children().iter() {
-            reach_selected(&child?, rows.clone(), mask, at, visit)?;
-        }
-        return Ok(());
-    }
-    if let Some(take) = plan.as_opt::<Take>() {
-        let values = take.values()?;
-        values.reach(0..values.row_count(), &at.fixed(&rows), visit)?;
-        return reach_selected(&take.codes()?, rows, mask, at, visit);
-    }
-    if let Some(zoned) = plan.as_opt::<Zoned>()
-        && !zoned.is_pruning()
-    {
-        return match zoned.data_plan()? {
-            Some(data) => reach_selected(&data, rows, mask, at, visit),
-            None => Ok(()),
-        };
-    }
-    if let Some(stats) = plan.as_opt::<LegacyStats>() {
-        return reach_selected(&stats.data_plan()?, rows, mask, at, visit);
-    }
-    // Filters over non-segment children consume every input row. Share, pruning, and unknown
-    // operators may also read whole dependencies under a sparse mask.
-    plan.reach(rows, at, visit)
 }

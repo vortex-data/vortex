@@ -21,9 +21,6 @@ use std::borrow::Borrow;
 use std::mem::size_of;
 use std::sync::Arc;
 
-use cudarc::driver::DevicePtr;
-use cudarc::driver::LaunchConfig;
-use cudarc::driver::PushKernelArg;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ConstantArray;
@@ -41,6 +38,9 @@ use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
+use vortex_cuda_driver::DevicePtr;
+use vortex_cuda_driver::LaunchConfig;
+use vortex_cuda_driver::PushKernelArg;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -391,7 +391,9 @@ impl MaterializedPlan {
             PType::U16 | PType::I16 => PType::U16,
             PType::U32 | PType::I32 | PType::F32 => PType::U32,
             PType::U64 | PType::I64 | PType::F64 => PType::U64,
-            other => vortex_bail!("dynamic dispatch does not support PType {:?}", other),
+            other => {
+                vortex_bail!("dynamic dispatch does not support PType {:?}", other)
+            }
         };
         match_each_unsigned_integer_ptype!(unsigned_ptype, |T| {
             self.execute_typed::<T>(output_ptype, len, ctx)
@@ -405,7 +407,7 @@ impl MaterializedPlan {
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical>
     where
-        T: cudarc::driver::DeviceRepr + vortex::dtype::NativePType,
+        T: vortex_cuda_driver::DeviceRepr + vortex::dtype::NativePType,
     {
         let nullability = self.validity.nullability();
 
@@ -475,10 +477,8 @@ mod tests {
     use std::f32::consts::SQRT_2;
     use std::ops::Range;
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
-    use cudarc::driver::DevicePtr;
-    use cudarc::driver::LaunchConfig;
-    use cudarc::driver::PushKernelArg;
     use rstest::rstest;
     use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
@@ -514,12 +514,15 @@ mod tests {
     use vortex::error::VortexResult;
     use vortex::error::vortex_bail;
     use vortex::mask::Mask;
+    use vortex::session::VortexSession;
     use vortex_array::ExecutionCtx;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::FilterArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::patches::Patches;
+    use vortex_cuda_driver::DevicePtr;
+    use vortex_cuda_driver::LaunchConfig;
+    use vortex_cuda_driver::PushKernelArg;
 
     use super::*;
     use crate::CanonicalCudaExt;
@@ -531,11 +534,15 @@ mod tests {
     use crate::hybrid_dispatch::try_gpu_dispatch;
     use crate::session::CudaSession;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     /// The reference of a FoR array built by `FoR::encode`, which is always global.
     fn global_reference(array: &FoRArray) -> VortexResult<Scalar> {
         match array.references() {
             FoRReferences::Global(reference) => Ok(reference.clone()),
-            FoRReferences::Blocked(_) => vortex_bail!("FoR::encode uses a global reference"),
+            FoRReferences::Blocked(_) => {
+                vortex_bail!("FoR::encode uses a global reference")
+            }
         }
     }
 
@@ -582,7 +589,7 @@ mod tests {
 
     #[crate::test]
     fn test_max_scalar_ops() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let bit_width: u8 = 6;
         let len = 2050;
         let references: [u32; 4] = [1, 2, 4, 8];
@@ -626,7 +633,7 @@ mod tests {
     fn copy_raw_to_device(
         cuda_ctx: &CudaExecutionCtx,
         data: &[u32],
-    ) -> VortexResult<(u64, Arc<cudarc::driver::CudaSlice<u32>>)> {
+    ) -> VortexResult<(u64, Arc<vortex_cuda_driver::CudaSlice<u32>>)> {
         let device_buf = Arc::new(
             cuda_ctx
                 .stream()
@@ -747,7 +754,7 @@ mod tests {
 
     #[crate::test]
     async fn test_bitpacked() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let bit_width: u8 = 10;
         let len = 3000;
         let max_val = (1u64 << bit_width).saturating_sub(1);
@@ -768,7 +775,7 @@ mod tests {
 
     #[crate::test]
     async fn test_for_bitpacked() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let bit_width: u8 = 6;
         let len = 3000;
         let reference = 42u32;
@@ -820,7 +827,7 @@ mod tests {
 
     #[crate::test]
     async fn test_dict_for_bp_values_bp_codes() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Dict where both codes and values are BitPacked+FoR.
         let dict_reference = 1_000_000u32;
         let dict_residuals: Vec<u32> = (0..64).collect();
@@ -854,7 +861,7 @@ mod tests {
 
     #[crate::test]
     async fn test_alp_for_bitpacked() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // ALP(FoR(BitPacked)): encode each layer, then reassemble the tree
         // bottom-up because encode() methods produce flat outputs.
         let len = 3000;
@@ -890,7 +897,7 @@ mod tests {
 
     #[crate::test]
     async fn test_zigzag_bitpacked() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // ZigZag(BitPacked): unpack then zigzag-decode.
         let bit_width: u8 = 4;
         let len = 3000;
@@ -978,7 +985,7 @@ mod tests {
 
     #[crate::test]
     async fn test_dict_for_bp_codes() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Dict(codes=FoR(BitPacked), values=primitive)
         let dict_values: Vec<u32> = (0..8).map(|i| i * 1000 + 7).collect();
         let dict_size = dict_values.len();
@@ -1007,7 +1014,7 @@ mod tests {
 
     #[crate::test]
     async fn test_dict_primitive_values_bp_codes() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dict_values: Vec<u32> = vec![100, 200, 300, 400];
         let dict_size = dict_values.len();
         let len = 3000;
@@ -1033,7 +1040,7 @@ mod tests {
 
     #[crate::test]
     async fn test_dict_mixed_width_u8_codes_u32_values() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dict_values: Vec<u32> = vec![100, 200, 300, 400];
         let len = 3000;
         let codes: Vec<u8> = (0..len).map(|i| (i % dict_values.len()) as u8).collect();
@@ -1068,7 +1075,7 @@ mod tests {
 
     #[crate::test]
     async fn test_dict_mixed_width_u16_codes_u32_values() -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = SESSION.create_execution_ctx();
         let dict_values: Vec<u32> = vec![1000, 2000, 3000, 4000, 5000];
         let len = 2048;
         let codes: Vec<u16> = (0..len).map(|i| (i % dict_values.len()) as u16).collect();
@@ -1103,7 +1110,7 @@ mod tests {
 
     #[crate::test]
     async fn test_runend_mixed_width_u64_ends_u32_values() -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = SESSION.create_execution_ctx();
         let ends: Vec<u64> = vec![1000, 2000, 3000];
         let values: Vec<u32> = vec![10, 20, 30];
         let len = 3000;
@@ -1208,7 +1215,7 @@ mod tests {
         #[case] slice_start: usize,
         #[case] slice_end: usize,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let bit_width = 10u8;
         let max_val = (1u32 << bit_width) - 1;
         let len = 5000;
@@ -1310,7 +1317,7 @@ mod tests {
         #[case] slice_start: usize,
         #[case] slice_end: usize,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let bit_width = 10u8;
         let max_val = (1u32 << bit_width) - 1;
         let len = 5000;
@@ -1356,7 +1363,7 @@ mod tests {
         #[case] slice_start: usize,
         #[case] slice_end: usize,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let reference = 100u32;
         let bit_width = 10u8;
         let max_val = (1u32 << bit_width) - 1;
@@ -1406,7 +1413,7 @@ mod tests {
         #[case] slice_start: usize,
         #[case] slice_end: usize,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dict_reference = 1_000_000u32;
         let dict_residuals: Vec<u32> = (0..64).collect();
         let dict_expected: Vec<u32> = dict_residuals.iter().map(|&r| r + dict_reference).collect();
@@ -1512,7 +1519,7 @@ mod tests {
 
     #[crate::test]
     async fn test_for_bitpacked_u8() -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = SESSION.create_execution_ctx();
         let bit_width: u8 = 4;
         let len = 3000;
         let reference = 100u8;
@@ -1545,7 +1552,7 @@ mod tests {
 
     #[crate::test]
     async fn test_for_bitpacked_u16() -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = SESSION.create_execution_ctx();
         let bit_width: u8 = 10;
         let len = 3000;
         let reference = 1000u16;
@@ -1580,7 +1587,7 @@ mod tests {
 
     #[crate::test]
     async fn test_for_bitpacked_u64() -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = SESSION.create_execution_ctx();
         let bit_width: u8 = 20;
         let len = 3000;
         let reference = 100_000u64;
@@ -1630,7 +1637,7 @@ mod tests {
 
     #[crate::test]
     async fn test_single_element() -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = SESSION.create_execution_ctx();
         let values: Vec<u32> = vec![42];
         let primitive = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
         let bp =
@@ -1654,7 +1661,7 @@ mod tests {
 
     #[crate::test]
     async fn test_exactly_elements_per_block() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Exactly 2048 elements — one full block, no remainder
         let bit_width: u8 = 6;
         let len = 2048;
@@ -1691,7 +1698,7 @@ mod tests {
 
     #[test]
     fn test_has_standalone_kernel_true_cases() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // BitPacked — leaf encoding, no children.
         let bp = bitpacked_array_u32(6, 2048, &mut ctx);
         let bp_arr = bp.into_array();
@@ -1743,7 +1750,7 @@ mod tests {
     /// a kernel registered in the CUDA session.
     #[crate::test]
     fn test_has_standalone_kernel_implies_registered_kernel() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let session = CudaSession::create_execution_ctx(&cuda_session())?;
         let cuda_session = session.cuda_session();
 
@@ -1810,7 +1817,7 @@ mod tests {
 
     #[crate::test]
     async fn test_alp_f64_for_bitpacked() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // ALP(FoR(BitPacked)) with f64: same structure as the f32 test.
         let len = 3000;
         let exponents = Exponents { e: 2, f: 0 };
@@ -1854,7 +1861,7 @@ mod tests {
         #[case] len: usize,
         #[case] slice_range: Option<Range<usize>>,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut values: Vec<f64> = (0..len).map(|i| (i as f64) * 1.1).collect();
         // Insert exception values that ALP can't encode.
         values[0] = 99.9;
@@ -1904,7 +1911,7 @@ mod tests {
 
     #[crate::test]
     async fn alp_slice_device_patches() -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = SESSION.create_execution_ctx();
         // Regression test for https://github.com/vortex-data/vortex/issues/7838#issuecomment-4452796116.
         let mut cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
         let len = 4096;
@@ -1969,7 +1976,7 @@ mod tests {
 
     #[crate::test]
     async fn test_runend_u32_ends_u16_values() -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = SESSION.create_execution_ctx();
         // RunEnd with u32 ends, u16 values. Output type = u16.
         // Ends (u32) differ from output (u16) → pending subtree.
         let ends: Vec<u32> = vec![500, 1000, 1500, 2000];
@@ -2016,7 +2023,7 @@ mod tests {
 
     #[crate::test]
     async fn test_dict_bitpacked_u8_codes_u32_values() -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = SESSION.create_execution_ctx();
         // Dict with BitPacked u8 codes (narrower than u32 output) and u32 values.
         // The kernel's bitunpack_typed decodes at the source's native width and
         // widens to T, so this fuses into a single kernel launch.
@@ -2066,7 +2073,7 @@ mod tests {
         #[case] len: usize,
         #[case] dict_values: Vec<V>,
     ) -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = SESSION.create_execution_ctx();
         let dict_size = dict_values.len();
         let codes: Vec<u8> = (0..len).map(|i| (i % dict_size) as u8).collect();
 
@@ -2114,7 +2121,7 @@ mod tests {
         #[case] len: usize,
         #[case] dict_values: Vec<V>,
     ) -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = SESSION.create_execution_ctx();
         let dict_size = dict_values.len();
         let codes: Vec<u8> = (0..len).map(|i| (i % dict_size) as u8).collect();
 
@@ -2175,7 +2182,7 @@ mod tests {
         #[case] ends: Vec<E>,
         #[case] values: Vec<V>,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let ends_u64: Vec<u64> = ends.iter().map(|e| (*e).into()).collect();
         let len = *ends_u64.last().unwrap() as usize;
         let bit_width = 64 - ends_u64.iter().max().unwrap().leading_zeros() as u8;
@@ -2217,7 +2224,7 @@ mod tests {
     /// at native width and widens to T, fusing everything.
     #[crate::test]
     async fn test_runend_mixed_width_for_bp_u16_ends_u32_values() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let ends: Vec<u16> = vec![500, 1000, 1500, 2000];
         let values: Vec<u32> = vec![100, 200, 300, 400];
         let len = 2000usize;
@@ -2257,7 +2264,7 @@ mod tests {
 
     #[crate::test]
     async fn test_sliced_dict_mixed_width() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Sliced Dict with u8 codes and u32 values — combines PartiallyFused + slice handling.
         let dict_values: Vec<u32> = vec![100, 200, 300, 400];
         let full_len = 4096;
@@ -2370,7 +2377,7 @@ mod tests {
     /// Nullable Primitive array — LOAD source with validity propagated.
     #[crate::test]
     async fn test_nullable_primitive() -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
 
         let array = PrimitiveArray::from_option_iter(
@@ -2393,7 +2400,7 @@ mod tests {
     /// validity, so this produces a real nullable FoR(BitPacked) tree.
     #[crate::test]
     async fn test_nullable_for_bitpacked() -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
 
         let len = 2048;
@@ -2465,7 +2472,7 @@ mod tests {
     /// AllValid nullable array — should fuse and produce AllValid output.
     #[crate::test]
     async fn test_all_valid_nullable() -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
 
         let values: Vec<u32> = (0..2048).collect();
@@ -2501,7 +2508,7 @@ mod tests {
     /// Dict with non-nullable codes but nullable values should still fuse.
     #[crate::test]
     async fn test_dict_nullable_values_fuses() -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
 
         let codes = PrimitiveArray::new(buffer![0u32, 1, 2, 2, 1, 0], NonNullable);
@@ -2528,7 +2535,7 @@ mod tests {
     #[case::for_bitpacked(true)]
     #[crate::test]
     async fn test_nullable_fused_then_filter(#[case] compressed: bool) -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
 
         let len = 2048usize;
@@ -2590,7 +2597,7 @@ mod tests {
 
     #[crate::test]
     async fn test_bitpacked_with_patches() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let len = 3000;
         let bit_width: u8 = 4;
         let max_val = (1u32 << bit_width) - 1;
@@ -2631,7 +2638,7 @@ mod tests {
         #[case] len: usize,
         #[case] slice_range: Option<Range<usize>>,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let bit_width: u8 = 4;
         let max_val = (1u32 << bit_width) - 1;
         let values: Vec<u32> = (0..len)
@@ -2669,7 +2676,7 @@ mod tests {
 
     #[crate::test]
     async fn test_for_bitpacked_with_patches() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let len = 3000;
         let bit_width: u8 = 6;
         let reference = 42u32;
@@ -2706,7 +2713,7 @@ mod tests {
 
     #[crate::test]
     async fn test_for_bitpacked_with_patches_sliced() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let len = 5000;
         let bit_width: u8 = 6;
         let reference = 42u32;
@@ -2752,7 +2759,7 @@ mod tests {
         #[case] len: usize,
         #[case] slice_range: Option<Range<usize>>,
     ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut values: Vec<f32> = (0..len).map(|i| (i as f32) * 1.1).collect();
         // Insert exception values that ALP can't encode.
         values[0] = 99.9;
@@ -2805,7 +2812,7 @@ mod tests {
     /// u8 BitPacked with patches (bit_width=3, patch values > 7).
     #[crate::test]
     async fn test_bitpacked_with_patches_u8() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let bit_width: u8 = 3;
         let len = 3000usize;
         let max_val = (1u8 << bit_width) - 1;
@@ -2837,7 +2844,7 @@ mod tests {
     /// u16 BitPacked with patches (bit_width=6, patch values > 63).
     #[crate::test]
     async fn test_bitpacked_with_patches_u16() -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = SESSION.create_execution_ctx();
         let bit_width: u8 = 6;
         let len = 3000usize;
         let max_val = (1u16 << bit_width) - 1;
@@ -2869,7 +2876,7 @@ mod tests {
     /// u64 BitPacked with patches (bit_width=4, patch values > 15).
     #[crate::test]
     async fn test_bitpacked_with_patches_u64() -> VortexResult<()> {
-        let mut cpu_ctx = array_session().create_execution_ctx();
+        let mut cpu_ctx = SESSION.create_execution_ctx();
         let bit_width: u8 = 4;
         let len = 3000usize;
         let max_val = (1u64 << bit_width) - 1;
@@ -2901,7 +2908,7 @@ mod tests {
     /// Dict where codes are BitPacked u32 with patches exceeding the bit width.
     #[crate::test]
     async fn test_dict_bitpacked_codes_with_patches() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dict_values: Vec<u32> = (0..256).map(|i| i * 1000 + 42).collect();
         let len = 3000;
         let bit_width: u8 = 4;
@@ -2936,7 +2943,7 @@ mod tests {
     /// Patches placed exactly at FastLanes chunk boundaries (1024-element chunks).
     #[crate::test]
     async fn test_bitpacked_patches_at_chunk_boundaries() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let len = 4096usize;
         let bit_width: u8 = 4;
         let max_val = (1u32 << bit_width) - 1;
@@ -2962,7 +2969,7 @@ mod tests {
     /// Large array (100k elements) spanning many blocks with sparse patches.
     #[crate::test]
     async fn test_bitpacked_large_array_with_patches() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let len = 100_000usize;
         let bit_width: u8 = 6;
         let max_val = (1u32 << bit_width) - 1;
@@ -2992,7 +2999,7 @@ mod tests {
     /// dispatch alongside patch application.
     #[crate::test]
     async fn test_nullable_bitpacked_with_patches() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&cuda_session())?;
 
         let len = 3000usize;
@@ -3030,7 +3037,7 @@ mod tests {
     /// Extreme case: ALL values are patches (bit_width=1, every value > 1).
     #[crate::test]
     async fn test_bitpacked_all_patches() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let bit_width: u8 = 1;
         let len = 2000usize;
         // All values >= 2, so every single element exceeds max storable (1) and

@@ -597,13 +597,15 @@ impl MutTypedStatsSetRef<'_, '_> {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use enum_iterator::all;
     use itertools::Itertools;
     use rstest::rstest;
     use smallvec::smallvec;
+    use vortex_session::VortexSession;
 
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
@@ -621,6 +623,8 @@ mod test {
     use crate::scalar::ScalarValue;
     use crate::stats::StatsSet;
     use crate::stats::stats_set::Scalar;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_iter() {
@@ -1004,7 +1008,7 @@ mod test {
             .collect_vec();
         array
             .statistics()
-            .compute_all(&all_stats, &mut array_session().create_execution_ctx())
+            .compute_all(&all_stats, &mut SESSION.create_execution_ctx())
             .unwrap();
 
         let stats = array.statistics().to_owned();

@@ -6,12 +6,13 @@
 #![expect(clippy::unwrap_used)]
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::ListViewBuilder;
@@ -19,13 +20,24 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::dtype::Nullability::Nullable;
 use vortex_array::dtype::PType::I32;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_session::VortexSession;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>()
+});
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
@@ -48,7 +60,7 @@ fn make_listview(
     step: usize,
     with_nulls: bool,
 ) -> ListViewArray {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let element_count = step * num_lists + list_size;
     let elements = PrimitiveArray::from_iter(0..element_count as i32).into_array();
     let offsets: Buffer<u32> = (0..num_lists).map(|i| (i * step) as u32).collect();
@@ -78,7 +90,7 @@ fn extend_from_array_zctl(bencher: Bencher, (num_lists, list_size): (usize, usiz
     let source = source.into_array();
 
     bencher.with_inputs(|| &source).bench_refs(|source| {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut builder = ListViewBuilder::<u64, u64>::with_capacity_in(
             Arc::new(DType::Primitive(I32, NonNullable)),
             NonNullable,
@@ -102,7 +114,7 @@ fn extend_from_array_non_zctl_overlapping(
     let source = source.into_array();
 
     bencher.with_inputs(|| &source).bench_refs(|source| {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut builder = ListViewBuilder::<u64, u64>::with_capacity_in(
             Arc::new(DType::Primitive(I32, NonNullable)),
             Nullable,

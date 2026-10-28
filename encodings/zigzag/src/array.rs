@@ -218,7 +218,10 @@ impl ZigZagData {
 
     pub fn try_new(encoded_dtype: &DType) -> VortexResult<Self> {
         if !encoded_dtype.is_unsigned_int() {
-            vortex_bail!(MismatchedTypes: "unsigned int", encoded_dtype);
+            vortex_bail!(
+                "expected type: unsigned int but instead got {}",
+                encoded_dtype
+            );
         }
 
         Self::dtype_from_encoded_dtype(encoded_dtype)?;
@@ -280,19 +283,23 @@ impl ValidityChild<ZigZag> for ZigZag {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::zigzag_encode;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_compute_statistics() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10]
             .into_array()
             .execute::<PrimitiveArray>(&mut ctx)?;

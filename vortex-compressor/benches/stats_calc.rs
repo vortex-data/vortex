@@ -10,16 +10,23 @@ mod benchmarks {
 
     use divan::Bencher;
     use num_traits::AsPrimitive;
+    use rand::prelude::*;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::session::AggregateFnSession;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::NativePType;
+    use vortex_array::optimizer::kernels::KernelSession;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_compressor::stats::GenerateStatsOptions;
     use vortex_compressor::stats::IntegerStats;
     use vortex_session::VortexSession;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    pub(super) static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        VortexSession::empty()
+            .with::<KernelSession>()
+            .with::<AggregateFnSession>()
+    });
 
     const LEN: usize = 64_000;
 
@@ -41,13 +48,14 @@ mod benchmarks {
     ];
 
     fn generate_runs(max_run: u32, distinct: u32) -> Vec<u32> {
+        let mut rng = StdRng::seed_from_u64(0);
         let mut output = Vec::with_capacity(LEN);
         let mut run = 0;
         let mut value = 0;
         for _ in 0..LEN {
             if run == 0 {
-                value = rand::random::<u32>() % distinct;
-                run = std::cmp::max(rand::random::<u32>() % max_run, 1);
+                value = rng.random::<u32>() % distinct;
+                run = std::cmp::max(rng.random::<u32>() % max_run, 1);
             }
             output.push(value);
             run -= 1;
@@ -55,7 +63,7 @@ mod benchmarks {
         output
     }
 
-    fn generate<T>(distribution: Distribution) -> PrimitiveArray
+    fn generate<T>(distribution: Distribution) -> Buffer<T>
     where
         T: NativePType,
         u32: AsPrimitive<T>,
@@ -67,8 +75,7 @@ mod benchmarks {
             Distribution::LongRuns => generate_runs(64, 1024),
             Distribution::VeryLongRuns => generate_runs(512, 1024),
         };
-        let values: Buffer<T> = values.into_iter().map(|v| v.as_()).collect();
-        PrimitiveArray::new(values, Validity::NonNullable)
+        values.into_iter().map(|v| v.as_()).collect()
     }
 
     fn bench_stats<T>(bencher: Bencher, distribution: Distribution, count_distinct_values: bool)
@@ -78,7 +85,12 @@ mod benchmarks {
     {
         let values = generate::<T>(distribution);
         bencher
-            .with_inputs(|| (&values, SESSION.create_execution_ctx()))
+            .with_inputs(|| {
+                (
+                    PrimitiveArray::new(values.clone(), Validity::NonNullable),
+                    SESSION.create_execution_ctx(),
+                )
+            })
             .bench_refs(|(values, ctx)| {
                 IntegerStats::generate_opts(
                     values,
@@ -113,5 +125,7 @@ mod benchmarks {
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    #[cfg(not(codspeed))]
+    std::sync::LazyLock::force(&benchmarks::SESSION);
     divan::main();
 }

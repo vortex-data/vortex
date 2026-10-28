@@ -359,7 +359,7 @@ logical_opt [
                                                                                                 ],
                                                                                                 "extra_info": {
                                                                                                     "Groups": "l_orderkey",
-                                                                                                    "Expressions": "sum(l_quantity)",
+                                                                                                    "Expressions": "sum_no_overflow(l_quantity)",
                                                                                                     "Estimated Cardinality": "379482"
                                                                                                 }
                                                                                             }
@@ -564,7 +564,7 @@ physical_plan [
                                                                                                 ],
                                                                                                 "extra_info": {
                                                                                                     "Groups": "#0",
-                                                                                                    "Aggregates": "sum(#1)",
+                                                                                                    "Aggregates": "sum_no_overflow(#1)",
                                                                                                     "Estimated Cardinality": "379482"
                                                                                                 }
                                                                                             }

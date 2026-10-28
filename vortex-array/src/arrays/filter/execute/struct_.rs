@@ -48,11 +48,13 @@ pub fn filter_struct(array: &StructArray, mask: &MaskValuesRef) -> StructArray {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
@@ -64,6 +66,8 @@ mod tests {
     use crate::dtype::Nullability::Nullable;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_filter_struct_conformance() {
         let fields = vec![
@@ -72,10 +76,7 @@ mod tests {
         ];
         let array =
             StructArray::try_new(["a", "b"].into(), fields, 5, Validity::NonNullable).unwrap();
-        test_filter_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_filter_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -88,15 +89,12 @@ mod tests {
         ];
         let array =
             StructArray::try_new(["a", "b"].into(), fields, 5, Validity::NonNullable).unwrap();
-        test_filter_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_filter_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     #[test]
     fn filter_empty_struct_with_empty_filter() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let struct_arr =
             StructArray::try_new(FieldNames::empty(), vec![], 0, Validity::NonNullable).unwrap();
         let filtered = struct_arr.filter(Mask::from_iter::<[bool; 0]>([])).unwrap();
@@ -112,7 +110,7 @@ mod tests {
             &StructArray::try_new(FieldNames::empty(), vec![], 5, Validity::NonNullable)
                 .unwrap()
                 .into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         );
     }
 
@@ -147,7 +145,7 @@ mod tests {
             )
             .unwrap()
             .into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         );
     }
 }

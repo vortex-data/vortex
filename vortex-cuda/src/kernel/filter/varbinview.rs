@@ -38,6 +38,8 @@ pub(super) async fn filter_varbinview(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex::array::IntoArray;
     use vortex::array::arrays::FilterArray;
@@ -46,12 +48,15 @@ mod tests {
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::mask::Mask;
+    use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
 
     use crate::CanonicalCudaExt;
     use crate::FilterExecutor;
     use crate::executor::CudaExecute;
     use crate::session::CudaSession;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     #[case::nato(
@@ -69,7 +74,7 @@ mod tests {
         #[case] input: VarBinViewArray,
         #[case] mask: Mask,
     ) -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create CUDA execution context");
 

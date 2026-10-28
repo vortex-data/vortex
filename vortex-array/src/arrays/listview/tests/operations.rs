@@ -2,11 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use rstest::rstest;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 use super::common::create_basic_listview;
 use super::common::create_large_listview;
@@ -15,7 +17,6 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::is_constant::is_constant;
-use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListView;
@@ -31,13 +32,15 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::validity::Validity;
 
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Slice tests
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[test]
 fn test_slice_comprehensive() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // Comprehensive test for basic slicing, full array, and single element cases.
     // Logical lists: [[1,2,3], [4,5], [6,7,8], [9,10]]
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
@@ -81,10 +84,10 @@ fn test_slice_comprehensive() {
         assert_eq!(
             full_list
                 .array()
-                .execute_scalar(i, &mut array_session().create_execution_ctx())
+                .execute_scalar(i, &mut SESSION.create_execution_ctx())
                 .unwrap(),
             listview
-                .execute_scalar(i, &mut array_session().create_execution_ctx())
+                .execute_scalar(i, &mut SESSION.create_execution_ctx())
                 .unwrap(),
             "Mismatch at index {}",
             i
@@ -109,7 +112,7 @@ fn test_slice_comprehensive() {
 
 #[test]
 fn test_slice_out_of_order() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // ListView-specific: Test slicing with out-of-order offsets.
     // Logical lists: [[70,80], [10,20,30], [40,50,60], [90], [30]]
     let elements = buffer![10i32, 20, 30, 40, 50, 60, 70, 80, 90].into_array();
@@ -179,7 +182,7 @@ fn test_slice_out_of_order() {
 
 #[test]
 fn test_slice_with_nulls() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // Test slicing with nullable ListView.
     // Logical lists: [[1,2], null, [5,6], null]
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8].into_array();
@@ -202,13 +205,13 @@ fn test_slice_with_nulls() {
     assert!(
         sliced_list
             .array()
-            .is_invalid(0, &mut array_session().create_execution_ctx())
+            .is_invalid(0, &mut SESSION.create_execution_ctx())
             .unwrap()
     ); // Original index 1 was null.
     assert!(
         sliced_list
             .array()
-            .is_valid(1, &mut array_session().create_execution_ctx())
+            .is_valid(1, &mut SESSION.create_execution_ctx())
             .unwrap()
     ); // Original index 2 was valid.
 
@@ -268,7 +271,7 @@ fn test_slice_edge_cases(
 #[case::f32_to_f64(PType::F32, PType::F64)]
 #[case::u8_to_u16(PType::U8, PType::U16)]
 fn test_cast_numeric_types(#[case] from_ptype: PType, #[case] to_ptype: PType) {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let elements = match from_ptype {
         PType::I32 => buffer![1i32, 2, 3, 4, 5, 6].into_array(),
         PType::F32 => buffer![1.0f32, 2.0, 3.0, 4.0].into_array(),
@@ -304,7 +307,7 @@ fn test_cast_numeric_types(#[case] from_ptype: PType, #[case] to_ptype: PType) {
     assert_eq!(result.dtype(), &target_dtype);
 
     let result_list = result
-        .execute::<ListViewArray>(&mut array_session().create_execution_ctx())
+        .execute::<ListViewArray>(&mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(
         result_list.len() == if from_ptype == PType::F32 { 2 } else { 3 },
@@ -342,16 +345,12 @@ fn test_cast_numeric_types(#[case] from_ptype: PType, #[case] to_ptype: PType) {
         Validity::NonNullable,
         &mut ctx,
     );
-    assert_arrays_eq!(
-        result_list,
-        expected,
-        &mut array_session().create_execution_ctx()
-    );
+    assert_arrays_eq!(result_list, expected, &mut SESSION.create_execution_ctx());
 }
 
 #[test]
 fn test_cast_with_nulls() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // Logical lists: [[10,20], null]
     let elements = buffer![10i32, 20, 30, 40].into_array();
     let offsets = buffer![0u32, 2].into_array();
@@ -373,22 +372,22 @@ fn test_cast_with_nulls() {
     assert_eq!(result.dtype(), &target_dtype);
 
     let result_list = result
-        .execute::<ListViewArray>(&mut array_session().create_execution_ctx())
+        .execute::<ListViewArray>(&mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(
         result_list
-            .is_valid(0, &mut array_session().create_execution_ctx())
+            .is_valid(0, &mut SESSION.create_execution_ctx())
             .unwrap()
     );
     assert!(
         result_list
-            .is_invalid(1, &mut array_session().create_execution_ctx())
+            .is_invalid(1, &mut SESSION.create_execution_ctx())
             .unwrap()
     );
     assert_arrays_eq!(
         result_list.list_elements_at(0, &mut ctx).unwrap(),
         buffer![10i64, 20].into_array(),
-        &mut array_session().create_execution_ctx()
+        &mut SESSION.create_execution_ctx()
     );
 }
 
@@ -396,7 +395,7 @@ fn test_cast_with_nulls() {
 #[case::empty_lists(vec![0, 1, 0, 1], 4)]
 #[case::overlapping(vec![3, 3, 5], 3)]
 fn test_cast_special_patterns(#[case] expected_sizes: Vec<usize>, #[case] list_count: usize) {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let is_empty_case = list_count == 4;
 
     let (elements, offsets, sizes) = if is_empty_case {
@@ -432,7 +431,7 @@ fn test_cast_special_patterns(#[case] expected_sizes: Vec<usize>, #[case] list_c
 
     let result = listview.cast(target_dtype).unwrap();
     let result_list = result
-        .execute::<ListViewArray>(&mut array_session().create_execution_ctx())
+        .execute::<ListViewArray>(&mut SESSION.create_execution_ctx())
         .unwrap();
 
     assert_eq!(result_list.len(), list_count);
@@ -463,16 +462,12 @@ fn test_cast_special_patterns(#[case] expected_sizes: Vec<usize>, #[case] list_c
         Validity::NonNullable,
         &mut ctx,
     );
-    assert_arrays_eq!(
-        result_list,
-        expected,
-        &mut array_session().create_execution_ctx()
-    );
+    assert_arrays_eq!(result_list, expected, &mut SESSION.create_execution_ctx());
 }
 
 #[test]
 fn test_cast_large_dataset() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // Test with larger data.
     // Logical lists: [[0..4], [4..8], [8..12], ..., [76..80]] (20 lists of size 4)
     let elements = buffer![0u16..100].into_array();
@@ -495,7 +490,7 @@ fn test_cast_large_dataset() {
 
     let result = listview.cast(target_dtype).unwrap();
     let result_list = result
-        .execute::<ListViewArray>(&mut array_session().create_execution_ctx())
+        .execute::<ListViewArray>(&mut SESSION.create_execution_ctx())
         .unwrap();
 
     assert_eq!(result_list.len(), 20);
@@ -509,11 +504,7 @@ fn test_cast_large_dataset() {
         Validity::NonNullable,
         &mut ctx,
     );
-    assert_arrays_eq!(
-        result_list,
-        expected,
-        &mut array_session().create_execution_ctx()
-    );
+    assert_arrays_eq!(result_list, expected, &mut SESSION.create_execution_ctx());
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -522,7 +513,7 @@ fn test_cast_large_dataset() {
 
 #[test]
 fn test_zip_widens_false_element_nullability() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // [[1, 2], [3], [4]]
     let if_true = ListViewArray::new(
         buffer![1i32, 2, 3, 4].into_array(),
@@ -546,7 +537,7 @@ fn test_zip_widens_false_element_nullability() -> VortexResult<()> {
     let result = mask
         .into_array()
         .zip(if_true, if_false)?
-        .execute::<ArrayRef>(&mut array_session().create_execution_ctx())?;
+        .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())?;
     assert!(result.is::<ListView>());
     assert_eq!(
         result.dtype(),
@@ -571,7 +562,7 @@ fn test_zip_widens_false_element_nullability() -> VortexResult<()> {
 
 #[test]
 fn test_zip_widens_true_element_nullability() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // [[1, null], [3], [4]]
     let if_true = ListViewArray::new(
         PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4)]).into_array(),
@@ -595,7 +586,7 @@ fn test_zip_widens_true_element_nullability() -> VortexResult<()> {
     let result = mask
         .into_array()
         .zip(if_true, if_false)?
-        .execute::<ArrayRef>(&mut array_session().create_execution_ctx())?;
+        .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())?;
     assert!(result.is::<ListView>());
     assert_eq!(
         result.dtype(),
@@ -671,11 +662,11 @@ fn test_is_constant_basic(
         offsets.into_array(),
         sizes.into_array(),
         validity,
-        &mut array_session().create_execution_ctx(),
+        &mut SESSION.create_execution_ctx(),
     )
     .into_array();
 
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     assert_eq!(is_constant(&listview, &mut ctx).unwrap(), expected);
 }
 
@@ -694,7 +685,7 @@ fn test_constant_with_constant_elements() {
     .into_array();
 
     // All lists contain [42, 42] so should be constant.
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     assert!(is_constant(&listview, &mut ctx).unwrap());
 }
 
@@ -718,7 +709,7 @@ fn test_constant_with_nulls() {
         .with_zero_copy_to_list(true)
     }
     .into_array();
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     assert!(!is_constant(&listview_mixed, &mut ctx).unwrap());
 
     // Case 2: All nulls - should be constant.
@@ -728,13 +719,13 @@ fn test_constant_with_nulls() {
             .with_zero_copy_to_list(true)
     }
     .into_array();
-    let mut ctx2 = array_session().create_execution_ctx();
+    let mut ctx2 = SESSION.create_execution_ctx();
     assert!(is_constant(&listview_all_null, &mut ctx2).unwrap());
 }
 
 #[test]
 fn test_constant_repeated_same_lists() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // Test multiple lists that are identical (overlapping).
     // Logical lists: [[10,20,30], [10,20,30], [10,20,30], [10,20,30]]
     let elements = buffer![10i32, 20, 30].into_array();
@@ -745,7 +736,7 @@ fn test_constant_repeated_same_lists() {
         ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx).into_array();
 
     // All lists are [10, 20, 30] so should be constant.
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     assert!(is_constant(&listview, &mut ctx).unwrap());
 }
 
@@ -759,15 +750,12 @@ fn test_constant_repeated_same_lists() {
 #[case::nullable(create_nullable_listview())]
 #[case::large(create_large_listview())]
 fn test_mask_listview_conformance(#[case] listview: ListViewArray) {
-    test_mask_conformance(
-        &listview.into_array(),
-        &mut array_session().create_execution_ctx(),
-    );
+    test_mask_conformance(&listview.into_array(), &mut SESSION.create_execution_ctx());
 }
 
 #[test]
 fn test_mask_preserves_structure() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // ListView-specific: Verify mask preserves offsets and sizes.
     // Logical lists: [[1,2], [3,4], [5,6], [7,8]]
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8].into_array();
@@ -786,28 +774,28 @@ fn test_mask_preserves_structure() {
 
     assert_eq!(result.len(), 4); // Length is preserved.
     let result_list = result
-        .execute::<ListViewArray>(&mut array_session().create_execution_ctx())
+        .execute::<ListViewArray>(&mut SESSION.create_execution_ctx())
         .unwrap();
 
     // Check validity: true in selection means null.
     assert!(
         !result_list
-            .is_valid(0, &mut array_session().create_execution_ctx())
+            .is_valid(0, &mut SESSION.create_execution_ctx())
             .unwrap()
     ); // Masked.
     assert!(
         result_list
-            .is_valid(1, &mut array_session().create_execution_ctx())
+            .is_valid(1, &mut SESSION.create_execution_ctx())
             .unwrap()
     ); // Not masked.
     assert!(
         !result_list
-            .is_valid(2, &mut array_session().create_execution_ctx())
+            .is_valid(2, &mut SESSION.create_execution_ctx())
             .unwrap()
     ); // Masked.
     assert!(
         !result_list
-            .is_valid(3, &mut array_session().create_execution_ctx())
+            .is_valid(3, &mut SESSION.create_execution_ctx())
             .unwrap()
     ); // Masked.
 
@@ -841,30 +829,30 @@ fn test_mask_with_existing_nulls() {
     let selection = Mask::from_iter([false, false, true]);
     let result = listview.mask((!&selection).into_array()).unwrap();
     let result_list = result
-        .execute::<ListViewArray>(&mut array_session().create_execution_ctx())
+        .execute::<ListViewArray>(&mut SESSION.create_execution_ctx())
         .unwrap();
 
     // Check combined validity:
     assert!(
         result_list
-            .is_valid(0, &mut array_session().create_execution_ctx())
+            .is_valid(0, &mut SESSION.create_execution_ctx())
             .unwrap()
     ); // Was valid, mask is false -> valid.
     assert!(
         !result_list
-            .is_valid(1, &mut array_session().create_execution_ctx())
+            .is_valid(1, &mut SESSION.create_execution_ctx())
             .unwrap()
     ); // Existing null survives even where the mask retains the row.
     assert!(
         !result_list
-            .is_valid(2, &mut array_session().create_execution_ctx())
+            .is_valid(2, &mut SESSION.create_execution_ctx())
             .unwrap()
     ); // Was valid, mask is true -> invalid.
 }
 
 #[test]
 fn test_mask_with_gaps() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // ListView-specific: Mask with gaps in elements.
     // Logical lists: [[1,2], [5,6], [9,10]] (999 values are gaps)
     let elements = buffer![1i32, 2, 999, 999, 5, 6, 999, 999, 9, 10].into_array();
@@ -877,23 +865,23 @@ fn test_mask_with_gaps() {
     let selection = Mask::from_iter([true, false, false]);
     let result = listview.mask((!&selection).into_array()).unwrap();
     let result_list = result
-        .execute::<ListViewArray>(&mut array_session().create_execution_ctx())
+        .execute::<ListViewArray>(&mut SESSION.create_execution_ctx())
         .unwrap();
 
     assert_eq!(result_list.len(), 3);
     assert!(
         !result_list
-            .is_valid(0, &mut array_session().create_execution_ctx())
+            .is_valid(0, &mut SESSION.create_execution_ctx())
             .unwrap()
     ); // Masked
     assert!(
         result_list
-            .is_valid(1, &mut array_session().create_execution_ctx())
+            .is_valid(1, &mut SESSION.create_execution_ctx())
             .unwrap()
     ); // Not masked
     assert!(
         result_list
-            .is_valid(2, &mut array_session().create_execution_ctx())
+            .is_valid(2, &mut SESSION.create_execution_ctx())
             .unwrap()
     ); // Not masked
 
@@ -904,7 +892,7 @@ fn test_mask_with_gaps() {
 
 #[test]
 fn test_mask_constant_arrays() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // ListView-specific: Test mask with ConstantArray offsets/sizes.
     // Logical lists: [[200,300], [200,300], [200,300]]
     let elements = buffer![100i32, 200, 300, 400, 500, 600].into_array();
@@ -925,23 +913,23 @@ fn test_mask_constant_arrays() {
     let selection = Mask::from_iter([false, true, false]);
     let result = const_list.mask((!&selection).into_array()).unwrap();
     let result_list = result
-        .execute::<ListViewArray>(&mut array_session().create_execution_ctx())
+        .execute::<ListViewArray>(&mut SESSION.create_execution_ctx())
         .unwrap();
 
     assert_eq!(result_list.len(), 3);
     assert!(
         result_list
-            .is_valid(0, &mut array_session().create_execution_ctx())
+            .is_valid(0, &mut SESSION.create_execution_ctx())
             .unwrap()
     );
     assert!(
         !result_list
-            .is_valid(1, &mut array_session().create_execution_ctx())
+            .is_valid(1, &mut SESSION.create_execution_ctx())
             .unwrap()
     ); // Masked
     assert!(
         result_list
-            .is_valid(2, &mut array_session().create_execution_ctx())
+            .is_valid(2, &mut SESSION.create_execution_ctx())
             .unwrap()
     );
 

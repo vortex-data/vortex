@@ -32,16 +32,24 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::MaskedArray;
+use vortex_array::dtype::session::DTypeSession;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::validity::Validity;
+use vortex_arrow::ArrowSession;
+use vortex_edition::EditionSession;
+use vortex_edition::EnabledEditions;
 use vortex_error::VortexResult;
+use vortex_expr::stats::session::StatsSession;
 use vortex_session::VortexSession;
 use vortex_spatial::scalar_fn::contains::SpatialContains;
 use vortex_spatial::scalar_fn::intersects::SpatialIntersects;
 use vortex_spatial::test_harness::point_column;
 use vortex_spatial::test_harness::polygon_column;
-use vortex_spatial::test_harness::spatial_session;
 
 // Scalar function execution allocates its output inside the timed region, so use the vendored
 // allocator instead of measuring glibc differences between CodSpeed runner images.
@@ -49,10 +57,24 @@ use vortex_spatial::test_harness::spatial_session;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(spatial_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<DTypeSession>()
+        .with::<ScalarFnSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>()
+        .with::<ArrowSession>()
+        .with::<StatsSession>()
+        .with::<EditionSession>()
+        .with::<EnabledEditions>();
+    vortex_spatial::initialize(&session);
+    session
+});
 
 /// The ordinary arms use the same row count so results are comparable across shapes. A geometry
 /// predicate costs roughly a microsecond per row under CodSpeed's CPU simulation, which caps the

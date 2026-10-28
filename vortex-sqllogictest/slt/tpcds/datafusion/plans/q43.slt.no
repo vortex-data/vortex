@@ -62,8 +62,8 @@ logical_plan
 06)----------Projection: date_dim.d_day_name, store_sales.ss_store_sk, store_sales.ss_sales_price
 07)------------Inner Join: date_dim.d_date_sk = store_sales.ss_sold_date_sk
 08)--------------Projection: date_dim.d_date_sk, date_dim.d_day_name
-09)----------------Filter: date_dim.d_year = Int64(2000)
-10)------------------TableScan: date_dim projection=[d_date_sk, d_year, d_day_name], partial_filters=[date_dim.d_year = Int64(2000)]
+09)----------------Filter: date_dim.d_year = Int32(2000)
+10)------------------TableScan: date_dim projection=[d_date_sk, d_year, d_day_name], partial_filters=[date_dim.d_year = Int32(2000)]
 11)--------------TableScan: store_sales projection=[ss_sold_date_sk, ss_store_sk, ss_sales_price]
 12)----------Projection: store.s_store_sk, store.s_store_id, store.s_store_name
 13)------------Filter: store.s_gmt_offset = Decimal128(-5.00,5,2)

@@ -147,7 +147,7 @@ logical_plan [
                                                                         "s_zip",
                                                                         "s_country",
                                                                         "s_gmt_offset",
-                                                                        "s_tax_percentage"
+                                                                        "s_tax_precentage"
                                                                     ]
                                                                 }
                                                             }
@@ -277,7 +277,7 @@ logical_plan [
                             "Expressions": [
                                 "(s_store_sk = ss_store_sk)",
                                 "(ss_sold_date_sk = d_date_sk)",
-                                "(d_year = CAST(2000 AS BIGINT))",
+                                "(d_year = CAST(2000 AS INTEGER))",
                                 "(((cd_demo_sk = ss_cdemo_sk) AND (cd_marital_status = CAST('M' AS VARCHAR)) AND (cd_education_status = CAST('4 yr Degree' AS VARCHAR)) AND ((ss_sales_price >= CAST(100.00 AS DECIMAL(7,2))) AND (ss_sales_price <= CAST(150.00 AS DECIMAL(7,2))))) OR ((cd_demo_sk = ss_cdemo_sk) AND (cd_marital_status = CAST('D' AS VARCHAR)) AND (cd_education_status = CAST('2 yr Degree' AS VARCHAR)) AND ((ss_sales_price >= CAST(50.00 AS DECIMAL(7,2))) AND (ss_sales_price <= CAST(100.00 AS DECIMAL(7,2))))) OR ((cd_demo_sk = ss_cdemo_sk) AND (cd_marital_status = CAST('S' AS VARCHAR)) AND (cd_education_status = CAST('College' AS VARCHAR)) AND ((ss_sales_price >= CAST(150.00 AS DECIMAL(7,2))) AND (ss_sales_price <= CAST(200.00 AS DECIMAL(7,2))))))",
                                 "(((ss_addr_sk = ca_address_sk) AND (ca_country = CAST('United States' AS VARCHAR)) AND (ca_state IN (CAST('CO' AS VARCHAR), CAST('OH' AS VARCHAR), CAST('TX' AS VARCHAR))) AND ((CAST(ss_net_profit AS DECIMAL(12,2)) >= CAST(0 AS DECIMAL(12,2))) AND (CAST(ss_net_profit AS DECIMAL(12,2)) <= CAST(2000 AS DECIMAL(12,2))))) OR ((ss_addr_sk = ca_address_sk) AND (ca_country = CAST('United States' AS VARCHAR)) AND (ca_state IN (CAST('OR' AS VARCHAR), CAST('MN' AS VARCHAR), CAST('KY' AS VARCHAR))) AND ((CAST(ss_net_profit AS DECIMAL(12,2)) >= CAST(150 AS DECIMAL(12,2))) AND (CAST(ss_net_profit AS DECIMAL(12,2)) <= CAST(3000 AS DECIMAL(12,2))))) OR ((ss_addr_sk = ca_address_sk) AND (ca_country = CAST('United States' AS VARCHAR)) AND (ca_state IN (CAST('VA' AS VARCHAR), CAST('CA' AS VARCHAR), CAST('MS' AS VARCHAR))) AND ((CAST(ss_net_profit AS DECIMAL(12,2)) >= CAST(50 AS DECIMAL(12,2))) AND (CAST(ss_net_profit AS DECIMAL(12,2)) <= CAST(25000 AS DECIMAL(12,2))))))"
                             ]
@@ -310,8 +310,8 @@ logical_opt [
                                 "children": [],
                                 "extra_info": {
                                     "Filters": [
-                                        "($.d_year = 2000i64)",
-                                        "(2450816i64 <= $.d_date_sk <= 2452642i64)"
+                                        "($.d_year = 2000i32)",
+                                        "(2450816i32 <= $.d_date_sk <= 2452642i32)"
                                     ],
                                     "Function": "Vortex Scan",
                                     "Estimated Cardinality": "14609"
@@ -331,10 +331,10 @@ logical_opt [
                                                         "(((($.cd_marital_status = \"M\") and ($.cd_education_status = \"4 yr Degree\")) or (($.cd_marital_status = \"D\") and ($.cd_education_status = \"2 yr Degree\"))) or (($.cd_marital_status = \"S\") and ($.cd_education_status = \"College\")))",
                                                         "((($.cd_marital_status = \"M\") or ($.cd_marital_status = \"D\")) or ($.cd_marital_status = \"S\"))",
                                                         "((($.cd_education_status = \"4 yr Degree\") or ($.cd_education_status = \"2 yr Degree\")) or ($.cd_education_status = \"College\"))",
-                                                        "(2i64 <= $.cd_demo_sk <= 192076i64)"
+                                                        "(37i32 <= $.cd_demo_sk <= 1920695i32)"
                                                     ],
                                                     "Function": "Vortex Scan",
-                                                    "Estimated Cardinality": "38416"
+                                                    "Estimated Cardinality": "384160"
                                                 }
                                             },
                                             {
@@ -349,7 +349,7 @@ logical_opt [
                                                                 "(((($.ss_net_profit >= decimal128(0, precision=7, scale=2)) and ($.ss_net_profit <= decimal128(200000, precision=7, scale=2))) or (($.ss_net_profit >= decimal128(15000, precision=7, scale=2)) and ($.ss_net_profit <= decimal128(300000, precision=7, scale=2)))) or (($.ss_net_profit >= decimal128(5000, precision=7, scale=2)) and ($.ss_net_profit <= decimal128(2500000, precision=7, scale=2))))"
                                                             ],
                                                             "Function": "Vortex Scan",
-                                                            "Estimated Cardinality": "57692"
+                                                            "Estimated Cardinality": "48097"
                                                         }
                                                     },
                                                     {
@@ -369,9 +369,9 @@ logical_opt [
                                                     "Join Type": "INNER",
                                                     "Conditions": [
                                                         "(ss_addr_sk = ca_address_sk)",
-                                                        "((((ss_net_profit >= 0.00) AND (ss_net_profit <= 2000.00)) AND (ca_state IN ('CO', 'OH', 'TX'))) OR (((ss_net_profit >= 150.00) AND (ss_net_profit <= 3000.00)) AND (ca_state IN ('OR', 'MN', 'KY'))) OR (((ss_net_profit >= 50.00) AND (ss_net_profit <= 25000.00)) AND (ca_state IN ('VA', 'CA', 'MS'))))"
+                                                        "(((ss_net_profit >= 50.00) AND (ca_state IN ('VA', 'CA', 'MS'))) OR (((ss_net_profit >= 0.00) AND (ss_net_profit <= 2000.00)) AND (ca_state IN ('CO', 'OH', 'TX'))) OR (((ss_net_profit >= 150.00) AND (ss_net_profit <= 3000.00)) AND (ca_state IN ('OR', 'MN', 'KY'))))"
                                                     ],
-                                                    "Estimated Cardinality": "2307"
+                                                    "Estimated Cardinality": "1923"
                                                 }
                                             }
                                         ],
@@ -379,9 +379,9 @@ logical_opt [
                                             "Join Type": "INNER",
                                             "Conditions": [
                                                 "(cd_demo_sk = ss_cdemo_sk)",
-                                                "((((ss_sales_price >= 100.00) AND (ss_sales_price <= 150.00)) AND (cd_marital_status = 'M') AND (cd_education_status = '4 yr Degree')) OR (((ss_sales_price >= 50.00) AND (ss_sales_price <= 100.00)) AND (cd_marital_status = 'D') AND (cd_education_status = '2 yr Degree')) OR (((ss_sales_price >= 150.00) AND (ss_sales_price <= 200.00)) AND (cd_marital_status = 'S') AND (cd_education_status = 'College')))"
+                                                "(((ss_sales_price >= 150.00) AND (cd_marital_status = 'S') AND (cd_education_status = 'College')) OR (((ss_sales_price >= 100.00) AND (ss_sales_price <= 150.00)) AND (cd_marital_status = 'M') AND (cd_education_status = '4 yr Degree')) OR (((ss_sales_price >= 50.00) AND (ss_sales_price <= 100.00)) AND (cd_marital_status = 'D') AND (cd_education_status = '2 yr Degree')))"
                                             ],
-                                            "Estimated Cardinality": "307"
+                                            "Estimated Cardinality": "384"
                                         }
                                     },
                                     {
@@ -390,21 +390,21 @@ logical_opt [
                                         "extra_info": {
                                             "Filters": "",
                                             "Function": "Vortex Scan",
-                                            "Estimated Cardinality": "1"
+                                            "Estimated Cardinality": "2"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Join Type": "INNER",
                                     "Conditions": "(ss_store_sk = s_store_sk)",
-                                    "Estimated Cardinality": "307"
+                                    "Estimated Cardinality": "384"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Join Type": "INNER",
                             "Conditions": "(d_date_sk = ss_sold_date_sk)",
-                            "Estimated Cardinality": "307"
+                            "Estimated Cardinality": "384"
                         }
                     }
                 ],
@@ -437,8 +437,8 @@ physical_plan [
                                 "extra_info": {
                                     "Function": "Vortex Scan",
                                     "Filters": [
-                                        "($.d_year = 2000i64)",
-                                        "(2450816i64 <= $.d_date_sk <= 2452642i64)"
+                                        "($.d_year = 2000i32)",
+                                        "(2450816i32 <= $.d_date_sk <= 2452642i32)"
                                     ],
                                     "Projections": "d_date_sk",
                                     "Estimated Cardinality": "14609"
@@ -459,14 +459,14 @@ physical_plan [
                                                         "(((($.cd_marital_status = \"M\") and ($.cd_education_status = \"4 yr Degree\")) or (($.cd_marital_status = \"D\") and ($.cd_education_status = \"2 yr Degree\"))) or (($.cd_marital_status = \"S\") and ($.cd_education_status = \"College\")))",
                                                         "((($.cd_marital_status = \"M\") or ($.cd_marital_status = \"D\")) or ($.cd_marital_status = \"S\"))",
                                                         "((($.cd_education_status = \"4 yr Degree\") or ($.cd_education_status = \"2 yr Degree\")) or ($.cd_education_status = \"College\"))",
-                                                        "(2i64 <= $.cd_demo_sk <= 192076i64)"
+                                                        "(37i32 <= $.cd_demo_sk <= 1920695i32)"
                                                     ],
                                                     "Projections": [
                                                         "cd_demo_sk",
                                                         "cd_marital_status",
                                                         "cd_education_status"
                                                     ],
-                                                    "Estimated Cardinality": "38416"
+                                                    "Estimated Cardinality": "384160"
                                                 }
                                             },
                                             {
@@ -490,7 +490,7 @@ physical_plan [
                                                                 "ss_sales_price",
                                                                 "ss_net_profit"
                                                             ],
-                                                            "Estimated Cardinality": "57692"
+                                                            "Estimated Cardinality": "48097"
                                                         }
                                                     },
                                                     {
@@ -514,9 +514,9 @@ physical_plan [
                                                     "Join Type": "INNER",
                                                     "Conditions": [
                                                         "ss_addr_sk = ca_address_sk",
-                                                        "((((ss_net_profit >= 0.00) AND (ss_net_profit <= 2000.00)) AND (ca_state IN ('CO', 'OH', 'TX'))) OR (((ss_net_profit >= 150.00) AND (ss_net_profit <= 3000.00)) AND (ca_state IN ('OR', 'MN', 'KY'))) OR (((ss_net_profit >= 50.00) AND (ss_net_profit <= 25000.00)) AND (ca_state IN ('VA', 'CA', 'MS'))))"
+                                                        "(((ss_net_profit >= 50.00) AND (ca_state IN ('VA', 'CA', 'MS'))) OR (((ss_net_profit >= 0.00) AND (ss_net_profit <= 2000.00)) AND (ca_state IN ('CO', 'OH', 'TX'))) OR (((ss_net_profit >= 150.00) AND (ss_net_profit <= 3000.00)) AND (ca_state IN ('OR', 'MN', 'KY'))))"
                                                     ],
-                                                    "Estimated Cardinality": "2307"
+                                                    "Estimated Cardinality": "1923"
                                                 }
                                             }
                                         ],
@@ -524,9 +524,9 @@ physical_plan [
                                             "Join Type": "INNER",
                                             "Conditions": [
                                                 "cd_demo_sk = ss_cdemo_sk",
-                                                "((((ss_sales_price >= 100.00) AND (ss_sales_price <= 150.00)) AND (cd_marital_status = 'M') AND (cd_education_status = '4 yr Degree')) OR (((ss_sales_price >= 50.00) AND (ss_sales_price <= 100.00)) AND (cd_marital_status = 'D') AND (cd_education_status = '2 yr Degree')) OR (((ss_sales_price >= 150.00) AND (ss_sales_price <= 200.00)) AND (cd_marital_status = 'S') AND (cd_education_status = 'College')))"
+                                                "(((ss_sales_price >= 150.00) AND (cd_marital_status = 'S') AND (cd_education_status = 'College')) OR (((ss_sales_price >= 100.00) AND (ss_sales_price <= 150.00)) AND (cd_marital_status = 'M') AND (cd_education_status = '4 yr Degree')) OR (((ss_sales_price >= 50.00) AND (ss_sales_price <= 100.00)) AND (cd_marital_status = 'D') AND (cd_education_status = '2 yr Degree')))"
                                             ],
-                                            "Estimated Cardinality": "307"
+                                            "Estimated Cardinality": "384"
                                         }
                                     },
                                     {
@@ -535,27 +535,27 @@ physical_plan [
                                         "extra_info": {
                                             "Function": "Vortex Scan",
                                             "Projections": "s_store_sk",
-                                            "Estimated Cardinality": "1"
+                                            "Estimated Cardinality": "2"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Join Type": "INNER",
                                     "Conditions": "ss_store_sk = s_store_sk",
-                                    "Estimated Cardinality": "307"
+                                    "Estimated Cardinality": "384"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Join Type": "INNER",
                             "Conditions": "d_date_sk = ss_sold_date_sk",
-                            "Estimated Cardinality": "307"
+                            "Estimated Cardinality": "384"
                         }
                     }
                 ],
                 "extra_info": {
                     "Projections": "ss_quantity",
-                    "Estimated Cardinality": "307"
+                    "Estimated Cardinality": "384"
                 }
             }
         ],

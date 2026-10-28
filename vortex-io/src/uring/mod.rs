@@ -99,10 +99,18 @@ pub struct UringOptions {
 
 impl Default for UringOptions {
     fn default() -> Self {
-        Self { queue_depth: 64, coalesce: true, max_coalesced_bytes: 1 << 20,
-            reuse_inflight: false, reuse_live_buffers: false, check_resident_pages: false,
-            read_mapped_misses: false, force_async: false, eager_kernel_worker: false,
-            max_active_jobs: 1 }
+        Self {
+            queue_depth: 64,
+            coalesce: true,
+            max_coalesced_bytes: 1 << 20,
+            reuse_inflight: false,
+            reuse_live_buffers: false,
+            check_resident_pages: false,
+            read_mapped_misses: false,
+            force_async: false,
+            eager_kernel_worker: false,
+            max_active_jobs: 1,
+        }
     }
 }
 
@@ -202,34 +210,59 @@ impl UringFile {
     /// it does not itself evict the operating system's file cache. Buffered and direct files
     /// have no cached mapping and return `false`.
     pub fn release_mapping(&self) -> bool {
-        self.0.mapping.as_ref().is_some_and(mapped::MappedFile::release)
+        self.0
+            .mapping
+            .as_ref()
+            .is_some_and(mapped::MappedFile::release)
     }
 
-    fn open_impl(path: &Path, mode: FileMode, mapped: bool, random_access: bool) -> VortexResult<Self> {
+    fn open_impl(
+        path: &Path,
+        mode: FileMode,
+        mapped: bool,
+        random_access: bool,
+    ) -> VortexResult<Self> {
         let mut flags = OFlags::RDONLY | OFlags::CLOEXEC;
-        if mode == FileMode::Direct { flags |= OFlags::DIRECT; }
-        let file = File::from(rustix::fs::open(path, flags, Mode::empty()).map_err(io::Error::from)?);
+        if mode == FileMode::Direct {
+            flags |= OFlags::DIRECT;
+        }
+        let file =
+            File::from(rustix::fs::open(path, flags, Mode::empty()).map_err(io::Error::from)?);
         let (memory_alignment, offset_alignment) = if mode == FileMode::Direct {
             let stat = rustix::fs::statx(&file, c"", AtFlags::EMPTY_PATH, StatxFlags::DIOALIGN)
                 .map_err(io::Error::from)?;
-            vortex_ensure!(stat.stx_mask & StatxFlags::DIOALIGN.bits() != 0,
-                "Filesystem did not report direct-I/O alignment");
+            vortex_ensure!(
+                stat.stx_mask & StatxFlags::DIOALIGN.bits() != 0,
+                "Filesystem did not report direct-I/O alignment"
+            );
             let memory = stat.stx_dio_mem_align as usize;
             let offset = stat.stx_dio_offset_align as usize;
-            vortex_ensure!(memory.is_power_of_two() && offset.is_power_of_two(),
-                "Invalid direct-I/O alignment: memory={memory}, offset={offset}");
+            vortex_ensure!(
+                memory.is_power_of_two() && offset.is_power_of_two(),
+                "Invalid direct-I/O alignment: memory={memory}, offset={offset}"
+            );
             (memory, offset)
-        } else if mapped { (1, rustix::param::page_size()) } else { (1, 1) };
+        } else if mapped {
+            (1, rustix::param::page_size())
+        } else {
+            (1, 1)
+        };
         let metadata = file.metadata()?;
         let size = metadata.len();
         // Linux can return all-resident for files whose cache state the caller may not inspect.
         // Restrict this optimization to the ownership case, without changing file permissions.
         // SAFETY: geteuid takes no pointers and has no preconditions.
         let can_check_residency = mapped && metadata.uid() == unsafe { libc::geteuid() };
-        Ok(Self(Arc::new(FileState { file, size, memory_alignment, offset_alignment,
-            mapping: mapped.then(|| mapped::MappedFile::new(random_access)), can_check_residency,
+        Ok(Self(Arc::new(FileState {
+            file,
+            size,
+            memory_alignment,
+            offset_alignment,
+            mapping: mapped.then(|| mapped::MappedFile::new(random_access)),
+            can_check_residency,
             live_buffers: OnceLock::new(),
-            counters: Counters::default() })))
+            counters: Counters::default(),
+        })))
     }
 
     /// Creates a factory for independent scopes on the workers executing the scan.
@@ -241,7 +274,10 @@ impl UringFile {
     /// Attaches a new completion scope to the calling worker. Must run in [`UringWorkerPool`].
     pub fn session(&self) -> VortexResult<Arc<dyn VortexReadAt2>> {
         DRIVER.with(|driver| {
-            vortex_ensure!(driver.borrow().is_some(), "io_uring reads require an UringWorkerPool worker");
+            vortex_ensure!(
+                driver.borrow().is_some(),
+                "io_uring reads require an UringWorkerPool worker"
+            );
             Ok(Arc::new(Reader {
                 file: Arc::clone(&self.0),
                 mapping: self.mapping()?,
@@ -299,57 +335,98 @@ struct Work {
 }
 
 impl Work {
-    fn live(&self) -> bool { self.state.lock().live.contains(&self.id) }
+    fn live(&self) -> bool {
+        self.state.lock().live.contains(&self.id)
+    }
 
     fn resident_buffer(&self) -> Option<ByteBuffer> {
-        if !self.file.can_check_residency { return None; }
+        if !self.file.can_check_residency {
+            return None;
+        }
         let mapping = self.mapping.as_ref()?;
         let offset = usize::try_from(self.offset).ok()?;
-        if !mapping.was_populated(offset, self.length) { return None; }
-        if !mapped::is_resident(mapping, offset, self.length) { return None; }
+        if !mapping.was_populated(offset, self.length) {
+            return None;
+        }
+        if !mapped::is_resident(mapping, offset, self.length) {
+            return None;
+        }
         let bytes = mapped::buffer(Arc::clone(mapping))
-            .slice_unaligned(offset..offset + self.length).aligned(self.alignment);
-        self.file.counters.resident_reads.fetch_add(1, Ordering::Relaxed);
-        self.file.counters.resident_bytes.fetch_add(self.length as u64, Ordering::Relaxed);
+            .slice_unaligned(offset..offset + self.length)
+            .aligned(self.alignment);
+        self.file
+            .counters
+            .resident_reads
+            .fetch_add(1, Ordering::Relaxed);
+        self.file
+            .counters
+            .resident_bytes
+            .fetch_add(self.length as u64, Ordering::Relaxed);
         Some(bytes)
     }
 
     fn complete(self, result: VortexResult<ByteBuffer>) {
         let result = result.map(|bytes| {
             let bytes = BufferHandle::new_host(bytes);
-            if self.suffix { ReadResult::Suffix { size: self.file.size, bytes } }
-            else { ReadResult::Bytes(bytes) }
+            if self.suffix {
+                ReadResult::Suffix {
+                    size: self.file.size,
+                    bytes,
+                }
+            } else {
+                ReadResult::Bytes(bytes)
+            }
         });
-        deliver(&self.state, ReadCompletion { id: self.id, result });
+        deliver(
+            &self.state,
+            ReadCompletion {
+                id: self.id,
+                result,
+            },
+        );
     }
 }
 
 fn deliver(state: &Mutex<CompletionState>, completion: ReadCompletion) {
     let waker = {
         let mut state = state.lock();
-        if !state.live.contains(&completion.id) { return; }
+        if !state.live.contains(&completion.id) {
+            return;
+        }
         state.ready.push_back(completion);
         state.waker.take()
     };
-    if let Some(waker) = waker { waker.wake(); }
+    if let Some(waker) = waker {
+        waker.wake();
+    }
 }
 
 impl Reader {
     fn check_owner(&self) -> VortexResult<()> {
-        vortex_ensure!(self.owner == thread::current().id(), "io_uring scope moved away from its owning worker");
+        vortex_ensure!(
+            self.owner == thread::current().id(),
+            "io_uring scope moved away from its owning worker"
+        );
         Ok(())
     }
 
     fn pump(&self, wait: bool) -> VortexResult<()> {
         self.check_owner()?;
-        DRIVER.with(|driver| driver.borrow_mut().as_mut()
-            .ok_or_else(|| vortex_err!("io_uring worker has stopped"))?.pump(wait))
+        DRIVER.with(|driver| {
+            driver
+                .borrow_mut()
+                .as_mut()
+                .ok_or_else(|| vortex_err!("io_uring worker has stopped"))?
+                .pump(wait)
+        })
     }
 
     fn take(&self) -> Option<ReadCompletion> {
         let mut state = self.state.lock();
         while let Some(completion) = state.ready.pop_front() {
-            if state.live.remove(&completion.id) { return Some(completion); }
+            if state.live.remove(&completion.id) {
+                return Some(completion);
+            }
         }
         None
     }
@@ -362,34 +439,70 @@ impl VortexReadAt2 for Reader {
         {
             let mut state = self.state.lock();
             for request in requests {
-                vortex_ensure!(!state.live.contains(&request.id) && ids.insert(request.id), "Duplicate read identity");
+                vortex_ensure!(
+                    !state.live.contains(&request.id) && ids.insert(request.id),
+                    "Duplicate read identity"
+                );
                 if let ReadTarget::Range { offset, length, .. } = request.target {
-                    vortex_ensure!(offset.checked_add(length as u64).is_some(), "Read range overflow");
+                    vortex_ensure!(
+                        offset.checked_add(length as u64).is_some(),
+                        "Read range overflow"
+                    );
                 }
             }
             state.live.extend(ids);
         }
         DRIVER.with(|driver| -> VortexResult<()> {
             let mut driver = driver.borrow_mut();
-            let driver = driver.as_mut().ok_or_else(|| vortex_err!("io_uring worker stopped"))?;
+            let driver = driver
+                .as_mut()
+                .ok_or_else(|| vortex_err!("io_uring worker stopped"))?;
             for request in requests {
                 let (offset, length, alignment, suffix) = match request.target {
                     ReadTarget::Size => {
-                        deliver(&self.state, ReadCompletion { id: request.id, result: Ok(ReadResult::Size(self.file.size)) });
+                        deliver(
+                            &self.state,
+                            ReadCompletion {
+                                id: request.id,
+                                result: Ok(ReadResult::Size(self.file.size)),
+                            },
+                        );
                         continue;
                     }
-                    ReadTarget::Range { offset, length, alignment } => (offset, length, alignment, false),
+                    ReadTarget::Range {
+                        offset,
+                        length,
+                        alignment,
+                    } => (offset, length, alignment, false),
                     ReadTarget::Suffix { length, alignment } => {
                         let length = (length as u64).min(self.file.size) as usize;
                         (self.file.size - length as u64, length, alignment, true)
                     }
                 };
-                self.file.counters.logical_reads.fetch_add(1, Ordering::Relaxed);
-                self.file.counters.logical_bytes.fetch_add(length as u64, Ordering::Relaxed);
-                let work = Work { file: Arc::clone(&self.file), mapping: self.mapping.clone(), state: Arc::clone(&self.state), id: request.id,
-                    offset, length, alignment, suffix };
+                self.file
+                    .counters
+                    .logical_reads
+                    .fetch_add(1, Ordering::Relaxed);
+                self.file
+                    .counters
+                    .logical_bytes
+                    .fetch_add(length as u64, Ordering::Relaxed);
+                let work = Work {
+                    file: Arc::clone(&self.file),
+                    mapping: self.mapping.clone(),
+                    state: Arc::clone(&self.state),
+                    id: request.id,
+                    offset,
+                    length,
+                    alignment,
+                    suffix,
+                };
                 if offset + length as u64 > self.file.size {
-                    work.complete(Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Read extends beyond file").into()));
+                    work.complete(Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "Read extends beyond file",
+                    )
+                    .into()));
                 } else if length == 0 {
                     work.complete(Ok(ByteBuffer::empty_aligned(alignment)));
                 } else {
@@ -402,12 +515,18 @@ impl VortexReadAt2 for Reader {
 
     fn try_complete(&self) -> VortexResult<Option<ReadCompletion>> {
         self.check_owner()?;
-        if let Some(completion) = self.take() { return Ok(Some(completion)); }
+        if let Some(completion) = self.take() {
+            return Ok(Some(completion));
+        }
         DRIVER.with(|slot| -> VortexResult<()> {
             let mut slot = slot.borrow_mut();
-            let driver = slot.as_mut().ok_or_else(|| vortex_err!("io_uring worker has stopped"))?;
+            let driver = slot
+                .as_mut()
+                .ok_or_else(|| vortex_err!("io_uring worker has stopped"))?;
             // The worker batches requests from ready jobs before submitting them together.
-            if !driver.driven_by_worker_loop() { driver.pump(false)?; }
+            if !driver.driven_by_worker_loop() {
+                driver.pump(false)?;
+            }
             Ok(())
         })?;
         Ok(self.take())
@@ -430,8 +549,12 @@ impl VortexReadAt2 for Reader {
 
     fn wait(&self) -> VortexResult<ReadCompletion> {
         loop {
-            if let Some(completion) = self.try_complete()? { return Ok(completion); }
-            if self.state.lock().live.is_empty() { vortex_bail!("Waiting with no live reads"); }
+            if let Some(completion) = self.try_complete()? {
+                return Ok(completion);
+            }
+            if self.state.lock().live.is_empty() {
+                vortex_bail!("Waiting with no live reads");
+            }
             self.pump(true)?;
         }
     }

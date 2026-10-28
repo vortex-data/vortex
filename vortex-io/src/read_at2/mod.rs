@@ -108,5 +108,4 @@ pub trait VortexReadAt2: Send + Sync + 'static {
 }
 
 /// Creates an independent reader scope on the thread that will drive it.
-pub type ReadAt2Factory =
-    Arc<dyn Fn() -> VortexResult<Arc<dyn VortexReadAt2>> + Send + Sync>;
+pub type ReadAt2Factory = Arc<dyn Fn() -> VortexResult<Arc<dyn VortexReadAt2>> + Send + Sync>;

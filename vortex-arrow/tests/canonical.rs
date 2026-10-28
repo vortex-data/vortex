@@ -32,7 +32,7 @@ use vortex_buffer::buffer;
 use vortex_session::VortexSession;
 
 /// A shared session for these canonical tests, used to create execution contexts.
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 #[test]
 fn test_canonicalize_nested_struct() {

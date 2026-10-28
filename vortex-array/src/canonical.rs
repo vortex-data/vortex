@@ -256,7 +256,7 @@ impl Canonical {
                 Canonical::Union(UnionArray::empty(variants.clone(), *nullability))
             }
             DType::Variant(_) => {
-                vortex_panic!(InvalidArgument: "Canonical empty is not supported for Variant")
+                vortex_panic!("Canonical empty is not supported for Variant")
             }
             DType::Extension(ext_dtype) => Canonical::Extension(ExtensionArray::new(
                 ext_dtype.clone(),
@@ -1050,7 +1050,9 @@ impl Executable for VariantArray {
             Ok(variant_array) => Ok(variant_array),
             Err(array) => match Canonical::execute(array, ctx)? {
                 Canonical::Variant(variant_array) => Ok(variant_array),
-                canonical => vortex_panic!("Cannot unwrap VariantArray from {:?}", canonical),
+                canonical => {
+                    vortex_panic!("Cannot unwrap VariantArray from {:?}", canonical)
+                }
             },
         }
     }
@@ -1223,7 +1225,7 @@ mod tests {
     use crate::scalar::Scalar;
 
     /// A shared session for these canonical tests, used to create execution contexts.
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn variant_core_storage(len: usize) -> ArrayRef {
         ConstantArray::new(

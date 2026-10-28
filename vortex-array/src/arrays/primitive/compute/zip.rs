@@ -3,6 +3,7 @@
 
 use std::mem::MaybeUninit;
 
+use vortex_buffer::Alignment;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -16,8 +17,7 @@ use crate::array::ArrayView;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
-use crate::dtype::NativePType;
-use crate::match_each_native_ptype;
+use crate::match_each_ptype_width;
 use crate::scalar_fn::fns::zip::ZipKernel;
 use crate::scalar_fn::fns::zip::zip_validity;
 
@@ -55,27 +55,43 @@ impl ZipKernel for Primitive {
         }
 
         let validity = zip_validity(if_true.validity()?, if_false.validity()?, &mask)?;
+        let true_values = if_true
+            .buffer_handle()
+            .as_host_opt()
+            .vortex_expect("zip requires host values");
+        let false_values = if_false
+            .buffer_handle()
+            .as_host_opt()
+            .vortex_expect("zip requires host values");
 
-        // TODO(perf): inspect the mask's true_count (and validity) to special-case heavily-skewed
+        // TODO(connor): inspect the mask's true_count (and validity) to special-case heavily-skewed
         // masks. When one side dominates (true_count near 0 or near len), it is cheaper to bulk
-        // copy — or mutate in place, if the dominant side is uniquely owned — that side's values
+        // copy (or mutate in place, if the dominant side is uniquely owned) that side's values
         // and validity, then conditionally pull in only the minority rows from the other side,
         // rather than blending every row.
-        let array = match_each_native_ptype!(if_true.ptype(), |T| {
-            let values =
-                select_values::<T>(if_true.as_slice::<T>(), if_false.as_slice::<T>(), &mask);
-            PrimitiveArray::new(values.freeze(), validity).into_array()
-        });
+        let values = match_each_ptype_width!(
+            if_true.ptype(),
+            |W| {
+                select_values(
+                    true_values.as_slice().as_chunks::<W>().0,
+                    false_values.as_slice().as_chunks::<W>().0,
+                    &mask,
+                )
+                .freeze()
+                .into_byte_buffer()
+                .aligned(Alignment::new(W))
+            },
+            _ => { unreachable!("primitive widths are specialized") },
+        );
+        let array =
+            PrimitiveArray::from_byte_buffer(values, if_true.ptype(), validity).into_array();
+
         Ok(Some(array))
     }
 }
 
 /// Branchlessly blend `if_true` and `if_false` per row into a fresh value buffer.
-fn select_values<T: NativePType>(
-    true_values: &[T],
-    false_values: &[T],
-    mask: &Mask,
-) -> BufferMut<T> {
+fn select_values<T: Copy>(true_values: &[T], false_values: &[T], mask: &Mask) -> BufferMut<T> {
     let len = true_values.len();
     let mut out = BufferMut::<T>::with_capacity(len);
     {
@@ -122,7 +138,7 @@ fn select_values<T: NativePType>(
 /// bit keeps `false_values[j]`. Slices are trimmed to the output length up front so the compiler can
 /// elide bounds checks and lower the body to a vector blend / conditional move.
 #[inline]
-fn select_block<T: NativePType>(
+fn select_block<T: Copy>(
     word: u64,
     true_values: &[T],
     false_values: &[T],
@@ -148,17 +164,21 @@ mod tests {
         reason = "test fixtures use small indices that fit the target widths"
     )]
 
+    use std::sync::LazyLock;
+
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     /// The branchless kernel must agree with the scalar reference across the chunk boundary (index
     /// 63/64) and the trailing remainder, for non-nullable inputs.
@@ -171,7 +191,7 @@ mod tests {
         let bits: Vec<bool> = (0..len).map(|i| i.is_multiple_of(3) || i == 64).collect();
         let mask = Mask::from_iter(bits.iter().copied());
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?
@@ -202,7 +222,7 @@ mod tests {
         let bits: Vec<bool> = (0..len).map(|i| i.is_multiple_of(2)).collect();
         let mask = Mask::from_iter(bits.iter().copied());
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?

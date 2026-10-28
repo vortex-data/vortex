@@ -95,8 +95,11 @@ impl ScalarFnVTable for ExtStorage {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
@@ -114,6 +117,8 @@ mod tests {
     use crate::extension::datetime::Timestamp;
     use crate::scalar::Scalar;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     fn ext_dtype(nullability: Nullability) -> ExtDTypeRef {
         Timestamp::new(TimeUnit::Nanoseconds, nullability).erased()
     }
@@ -130,11 +135,7 @@ mod tests {
             result.dtype(),
             &DType::Primitive(PType::I64, Nullability::NonNullable)
         );
-        assert_arrays_eq!(
-            result,
-            storage,
-            &mut crate::array_session().create_execution_ctx()
-        );
+        assert_arrays_eq!(result, storage, &mut SESSION.create_execution_ctx());
         Ok(())
     }
 
@@ -150,11 +151,7 @@ mod tests {
             result.dtype(),
             &DType::Primitive(PType::I64, Nullability::Nullable)
         );
-        assert_arrays_eq!(
-            result,
-            storage,
-            &mut crate::array_session().create_execution_ctx()
-        );
+        assert_arrays_eq!(result, storage, &mut SESSION.create_execution_ctx());
         Ok(())
     }
 
@@ -174,7 +171,7 @@ mod tests {
         assert_arrays_eq!(
             result,
             ConstantArray::new(storage_scalar, 3),
-            &mut crate::array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }

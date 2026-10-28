@@ -254,7 +254,6 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::MaskedArray;
@@ -486,7 +485,7 @@ mod tests {
 
     #[test]
     fn test_return_dtype_has_nonnullable_fields() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let input = vector_array(2, &[3.0f64, 4.0])?;
         let input = MaskedArray::try_new(input, Validity::AllValid, &mut ctx)?.into_array();
         let output = L2Normalize::try_new(input)?.into_array();

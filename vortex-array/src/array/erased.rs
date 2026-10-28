@@ -277,11 +277,12 @@ impl ArrayRef {
     /// many reads of the same array use [`Self::repeated_probe`].
     ///
     /// ```
+    /// use vortex_session::VortexSession;
     /// use vortex_array::{IntoArray, VortexSessionExecute};
     /// use vortex_array::arrays::PrimitiveArray;
     ///
     /// let array = PrimitiveArray::from_iter([10i32, 20, 30]).into_array();
-    /// let mut ctx = vortex_array::array_session().create_execution_ctx();
+    /// let mut ctx = VortexSession::empty().create_execution_ctx();
     /// assert_eq!(array.probe().execute_scalar(2, &mut ctx)?, 30i32.into());
     /// # Ok::<(), vortex_error::VortexError>(())
     /// ```
@@ -294,11 +295,12 @@ impl ArrayRef {
     /// probe and child probes between reads.
     ///
     /// ```
+    /// use vortex_session::VortexSession;
     /// use vortex_array::{IntoArray, VortexSessionExecute};
     /// use vortex_array::arrays::PrimitiveArray;
     ///
     /// let array = PrimitiveArray::from_iter([10i32, 20, 30]).into_array();
-    /// let mut ctx = vortex_array::array_session().create_execution_ctx();
+    /// let mut ctx = VortexSession::empty().create_execution_ctx();
     /// let mut probe = array.repeated_probe();
     /// assert_eq!(probe.execute_scalar(2, &mut ctx)?, 30i32.into());
     /// assert_eq!(probe.execute_scalar(0, &mut ctx)?, 10i32.into());
@@ -455,8 +457,8 @@ impl ArrayRef {
     }
 
     /// Returns the constant scalar if this is a constant array.
-    pub fn as_constant(&self) -> Option<Scalar> {
-        self.as_opt::<Constant>().map(|a| a.scalar().clone())
+    pub fn as_constant(&self) -> Option<&Scalar> {
+        self.as_opt::<Constant>().map(|a| a.data().scalar())
     }
 
     /// Total size of the array in bytes, including all children and buffers.

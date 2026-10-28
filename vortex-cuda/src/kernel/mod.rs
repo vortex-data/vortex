@@ -6,18 +6,17 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use cudarc::driver::CudaContext;
-use cudarc::driver::CudaFunction;
-use cudarc::driver::CudaModule;
-use cudarc::driver::CudaStream;
-use cudarc::driver::LaunchArgs;
-use cudarc::driver::LaunchConfig;
-use cudarc::driver::sys::CUevent_flags;
-use cudarc::nvrtc::Ptx;
 use tracing::trace;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::utils::aliases::dash_map::DashMap;
+use vortex_cuda_driver::CudaContext;
+use vortex_cuda_driver::CudaFunction;
+use vortex_cuda_driver::CudaModule;
+use vortex_cuda_driver::CudaStream;
+use vortex_cuda_driver::LaunchArgs;
+use vortex_cuda_driver::LaunchConfig;
+use vortex_cuda_driver::sys::CUevent_flags;
 
 mod arrays;
 // Fatbins let the CUDA driver select among the configured real and virtual architectures.
@@ -259,7 +258,7 @@ impl KernelLoader {
         })?;
 
         cuda_context
-            .load_module(Ptx::from_binary(fatbin.to_vec()))
+            .load_module(fatbin)
             .map_err(|e| vortex_err!("Failed to load embedded CUDA module {module_name}: {e}"))
     }
 }

@@ -38,7 +38,7 @@
 //! For the same reason, gate on input size *before* [`get`](CpuKernel::get) when tiny
 //! inputs are common: call the portable kernel directly below the size where SIMD pays
 //! off, so those calls stay inlinable and skip the dispatch entirely (see
-//! `count_ones_aligned`).
+//! `count_ones`).
 
 use core::mem::transmute_copy;
 use core::ptr;

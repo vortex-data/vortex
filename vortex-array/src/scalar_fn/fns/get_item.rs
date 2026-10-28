@@ -225,14 +225,16 @@ impl ScalarFnVTable for GetItem {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::GetItem;
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::Filter;
@@ -258,6 +260,8 @@ mod tests {
     use crate::scalar_fn::fns::get_item::StructArray;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
             ("a", buffer![0i32, 1, 2].into_array()),
@@ -280,7 +284,7 @@ mod tests {
         assert_arrays_eq!(
             item,
             buffer![0i32, 1, 2].into_array(),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -312,7 +316,7 @@ mod tests {
         assert_arrays_eq!(
             item,
             PrimitiveArray::from_option_iter([None::<i32>]),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -334,7 +338,7 @@ mod tests {
         assert_arrays_eq!(
             item,
             PrimitiveArray::from_option_iter([Some(1i32)]),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }
@@ -353,7 +357,7 @@ mod tests {
             (0..128).map(|idx| Scalar::primitive(idx, NonNullable)),
         );
         let array = ConstantArray::new(scalar, 1_000_000).into_array();
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let item: ArrayRef = GetItem::try_new(array, "f97")?
             .into_array()
@@ -383,7 +387,7 @@ mod tests {
         assert_arrays_eq!(
             item,
             buffer![0i32, 2].into_array(),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }
@@ -400,7 +404,7 @@ mod tests {
         assert_arrays_eq!(
             item,
             buffer![1i32, 2].into_array(),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }
@@ -422,7 +426,7 @@ mod tests {
         assert_arrays_eq!(
             item,
             PrimitiveArray::from_option_iter([Some(0i32), None, Some(2)]),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }
@@ -502,7 +506,7 @@ mod tests {
 
     #[test]
     fn get_item_filter_list_field() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         use vortex_mask::Mask;
 
         use crate::arrays::BoolArray;
@@ -539,10 +543,6 @@ mod tests {
             &mut ctx,
         )
         .unwrap();
-        assert_arrays_eq!(
-            result,
-            expected,
-            &mut array_session().create_execution_ctx()
-        );
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
     }
 }

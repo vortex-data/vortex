@@ -69,6 +69,7 @@ use crate::scalar::Scalar;
 ///
 /// ```
 /// # use vortex_array::IntoArray;
+/// # use vortex_session::VortexSession;
 /// # use vortex_array::VortexSessionExecute;
 /// # use vortex_array::aggregate_fn::Accumulator;
 /// # use vortex_array::aggregate_fn::DynAccumulator;
@@ -83,7 +84,7 @@ use crate::scalar::Scalar;
 /// # use vortex_array::extension::datetime::TimeUnit;
 /// # use vortex_array::extension::datetime::Timestamp;
 /// # fn main() -> vortex_error::VortexResult<()> {
-/// let session = vortex_array::array_session();
+/// let session = VortexSession::empty();
 ///
 /// // Register `vortex.is_sorted[vortex.timestamp]`.
 /// let is_sorted = ExtensionStoragePushdown::new(IsSorted, Timestamp);
@@ -315,8 +316,11 @@ impl<A: AggregateFnVTable, E: ExtVTable> AggregateFnVTable for ExtensionStorageP
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::ExtensionStoragePushdown;
     use crate::IntoArray;
@@ -340,9 +344,11 @@ mod tests {
     use crate::extension::datetime::Timestamp;
     use crate::scalar::Scalar;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn pushes_down_into_storage() -> VortexResult<()> {
-        let session = crate::array_session();
+        let session = VortexSession::empty();
         let aggregate = ExtensionStoragePushdown::new(MinMax, Timestamp);
         session.aggregate_fns().register(aggregate.clone());
         assert!(
@@ -378,8 +384,7 @@ mod tests {
 
     #[test]
     fn combines_flushed_partials() -> VortexResult<()> {
-        let session = crate::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
         let batch = |values: [Option<i64>; 2]| {
             ExtensionArray::new(
@@ -412,8 +417,7 @@ mod tests {
 
     #[test]
     fn accumulates_constant_batches() -> VortexResult<()> {
-        let session = crate::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
         let constant = |value: i64| {
             ConstantArray::new(
@@ -460,7 +464,7 @@ mod tests {
 
     #[test]
     fn default_session_registers_temporal_order_aggregates() {
-        let session = crate::array_session();
+        let session = VortexSession::empty();
         let aggregate_fns = session.aggregate_fns();
         for id in [
             ExtensionStoragePushdown::new(IsSorted, Date).id(),
@@ -487,8 +491,7 @@ mod tests {
         #[case] strict: bool,
         #[case] expected: bool,
     ) -> VortexResult<()> {
-        let session = crate::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
         let array = ExtensionArray::new(
             ext_dtype.clone(),
@@ -509,8 +512,7 @@ mod tests {
 
     #[test]
     fn min_max_over_dates_matches_storage() -> VortexResult<()> {
-        let session = crate::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let ext_dtype = Date::new(TimeUnit::Days, Nullability::Nullable).erased();
         let storage =
             PrimitiveArray::from_option_iter([Some(20i32), None, Some(-3), Some(7)]).into_array();

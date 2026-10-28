@@ -6,8 +6,8 @@
 use vortex_array::expr::BoundExpression;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::stats::rewrite::StatsRewriteRule;
 use vortex_error::VortexResult;
+use vortex_expr::stats::rewrite::StatsRewriteRule;
 use vortex_session::VortexSession;
 
 use super::aabb_stat;
@@ -62,8 +62,9 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::ScalarFnVTableExt;
-    use vortex_array::stats::rewrite::StatsRewriteRule;
     use vortex_error::VortexResult;
+    use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
+    use vortex_expr::stats::rewrite::StatsRewriteRule;
 
     use super::SpatialIntersectsPrune;
     use crate::prune::test_harness::aabb_zone_map;

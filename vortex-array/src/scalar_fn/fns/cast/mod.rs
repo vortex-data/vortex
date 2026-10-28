@@ -241,14 +241,16 @@ fn cast_constant(array: ArrayView<Constant>, dtype: &DType) -> VortexResult<Opti
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
 
     use super::Cast;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
@@ -264,6 +266,8 @@ mod tests {
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::literal::Literal;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn dtype() {
@@ -307,7 +311,7 @@ mod tests {
         assert_arrays_eq!(
             result,
             buffer![0i64, 1, 2].into_array(),
-            &mut array_session().create_execution_ctx()
+            &mut SESSION.create_execution_ctx()
         );
     }
 

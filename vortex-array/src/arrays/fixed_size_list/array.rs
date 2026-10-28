@@ -188,7 +188,7 @@ impl FixedSizeListData {
             vortex_ensure_eq!(
                 len,
                 validity_len,
-                InvalidArgument: "validity length does not match fixed-size list array size",
+                "validity length does not match fixed-size list array size",
             );
         }
 
@@ -197,7 +197,7 @@ impl FixedSizeListData {
         if list_size == 0 {
             vortex_ensure!(
                 elements.is_empty(),
-                InvalidArgument: "a degenerate (`list_size == 0`) `FixedSizeList` should have no underlying elements"
+                "a degenerate (`list_size == 0`) `FixedSizeList` should have no underlying elements"
             );
             return Ok(());
         }
@@ -205,7 +205,7 @@ impl FixedSizeListData {
         vortex_ensure_eq!(
             len * list_size as usize,
             elements.len(),
-            InvalidArgument: "the `elements` array has the incorrect number of elements to construct a \
+            "the `elements` array has the incorrect number of elements to construct a \
                 `FixedSizeList[{list_size}] array of length {len}",
         );
 

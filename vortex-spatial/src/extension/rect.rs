@@ -341,6 +341,8 @@ impl ArrowImportVTable for Rect {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use geo_types::Geometry;
     use rstest::rstest;
     use vortex_array::VortexSessionExecute;
@@ -351,6 +353,7 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::dtype::extension::ExtDType;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::Rect;
     use super::box_dimension;
@@ -358,6 +361,8 @@ mod tests {
     use super::rect_geometries;
     use crate::extension::SpatialMetadata;
     use crate::extension::coordinate::Dimension;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn spatial_meta() -> SpatialMetadata {
         SpatialMetadata {
@@ -405,8 +410,7 @@ mod tests {
     /// A `Rect` column decodes to 2D `geo_types` rectangles.
     #[test]
     fn box_decodes_to_geo_types_rect() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let rects = crate::test_harness::rect_column(vec![(0.0, 0.0, 2.0, 3.0)])?;
         let storage = rects

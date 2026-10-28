@@ -66,10 +66,21 @@ pub struct ALPRDMetadata {
     dict_len: u32,
     #[prost(uint32, repeated, tag = "3")]
     dict: Vec<u32>,
-    #[prost(enumeration = "PType", tag = "4")]
+    #[prost(int32, tag = "4")]
     left_parts_ptype: i32,
     #[prost(message, tag = "5")]
     patches: Option<PatchesMetadata>,
+}
+
+impl ALPRDMetadata {
+    fn get_left_parts_ptype(&self) -> VortexResult<PType> {
+        PType::try_from(self.left_parts_ptype).map_err(|_| {
+            vortex_err!(
+                "ALPRDMetadata left_parts_ptype must be a known PType, got {}",
+                self.left_parts_ptype
+            )
+        })
+    }
 }
 
 impl ArrayHash for ALPRDData {
@@ -172,6 +183,7 @@ impl VTable for ALPRD {
         session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         let metadata = ALPRDMetadata::decode(metadata)?;
+        let left_parts_ptype = metadata.get_left_parts_ptype()?;
         if children.len() < 2 {
             vortex_bail!(
                 "Expected at least 2 children for ALPRD encoding, found {}",
@@ -179,7 +191,7 @@ impl VTable for ALPRD {
             );
         }
 
-        let left_parts_dtype = DType::Primitive(metadata.left_parts_ptype(), dtype.nullability());
+        let left_parts_dtype = DType::Primitive(left_parts_ptype, dtype.nullability());
         let left_parts = children.get(0, &left_parts_dtype, len)?;
         let left_parts_dictionary: Buffer<u16> = metadata.dict.as_slice()
             [0..metadata.dict_len as usize]
@@ -565,22 +577,28 @@ mod test {
 
     use prost::Message;
     use rstest::rstest;
+    use vortex_array::ArrayRef;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
     use vortex_array::dtype::NativePType;
+    use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
+    use vortex_array::vtable::VTable;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::ALPRD;
     use super::ALPRDMetadata;
     use crate::ALPRDFloat;
     use crate::RDEncoderExt;
     use crate::alp_rd;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -632,5 +650,35 @@ mod test {
             }
             .encode_to_vec(),
         );
+    }
+
+    #[test]
+    fn test_deserialize_rejects_unknown_left_parts_ptype() -> VortexResult<()> {
+        let metadata = ALPRDMetadata {
+            left_parts_ptype: 11,
+            ..Default::default()
+        }
+        .encode_to_vec();
+        let children: Vec<ArrayRef> = Vec::new();
+        let result = ALPRD.deserialize(
+            &DType::Primitive(PType::F64, Nullability::NonNullable),
+            0,
+            &metadata,
+            &[],
+            &children,
+            &SESSION,
+        );
+        assert!(result.is_err_and(|err| {
+            err.to_string()
+                .contains("ALPRDMetadata left_parts_ptype must be a known PType, got 11")
+        }));
+
+        let known = ALPRDMetadata {
+            left_parts_ptype: PType::U32 as i32,
+            ..Default::default()
+        };
+        assert_eq!(known.get_left_parts_ptype()?, PType::U32);
+
+        Ok(())
     }
 }

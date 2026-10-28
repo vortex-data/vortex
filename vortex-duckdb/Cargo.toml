@@ -58,12 +58,15 @@ mimalloc = { workspace = true }
 rstest = { workspace = true }
 tempfile = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
-vortex-runend = { workspace = true }
 vortex-sequence = { workspace = true }
 wkb = { workspace = true }
 
 [[bench]]
 name = "bool_export"
+harness = false
+
+[[bench]]
+name = "decimal_export"
 harness = false
 
 [lints]

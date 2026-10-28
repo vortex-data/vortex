@@ -30,6 +30,7 @@ vortex-datetime-parts = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
 vortex-edition = { workspace = true }
 vortex-error = { workspace = true }
+vortex-expr = { workspace = true }
 vortex-fastlanes = { workspace = true }
 futures = { workspace = true }
 vortex-file = { workspace = true, optional = true }
@@ -41,7 +42,6 @@ vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-parquet-variant = { workspace = true, optional = true }
 vortex-pco = { workspace = true }
-vortex-runend = { workspace = true }
 vortex-scan = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }

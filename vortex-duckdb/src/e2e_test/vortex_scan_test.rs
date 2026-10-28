@@ -22,7 +22,6 @@ use rstest::rstest;
 use tempfile::NamedTempFile;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
-use vortex::array::array_session;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::DictArray;
@@ -43,10 +42,10 @@ use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex::scalar::PValue;
 use vortex::scalar::Scalar;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::RunEnd;
 use vortex_array::arrays::varbin::builder::VarBinBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::extension::ExtDType;
-use vortex_runend::RunEnd;
 use vortex_sequence::Sequence;
 use vortex_spatial::extension::SpatialMetadata;
 use vortex_spatial::extension::WellKnownBinary;
@@ -1018,7 +1017,7 @@ async fn write_vortex_file_with_encodings() -> NamedTempFile {
     // 4. Run-End
     let run_ends = buffer![3u32, 5];
     let run_values = buffer![100i32, 200];
-    let mut rle_ctx = array_session().create_execution_ctx();
+    let mut rle_ctx = SESSION.create_execution_ctx();
     let rle_array =
         RunEnd::try_new(run_ends.into_array(), run_values.into_array(), &mut rle_ctx).unwrap();
 
@@ -1234,9 +1233,7 @@ fn test_geometry() {
 
         let geometry = ExtensionArray::new(
             ExtDType::<WellKnownBinary>::try_new(
-                SpatialMetadata {
-                    crs: Some("EPSG:32600".to_string()),
-                },
+                SpatialMetadata::new(Some("EPSG:32600".to_string())),
                 geometry.dtype().clone(),
             )
             .expect("making extension array")
@@ -1390,4 +1387,51 @@ fn test_duplicate_struct_fields() {
         conn.query(&format!("SELECT string_agg(s::VARCHAR, '') FROM '{path}'"))
             .is_err()
     );
+}
+
+/// Runs `query` on the file at `path` and collects its single BIGINT output column.
+fn query_i64_column(path: &str, query: &str) -> Result<Vec<i64>> {
+    let conn = database_connection();
+    let result = conn.query(&query.replace('?', &format!("'{path}'")))?;
+    let mut values = Vec::new();
+    for chunk in result {
+        let vec = chunk.get_vector(0);
+        values.extend_from_slice(vec.as_slice_with_len::<i64>(chunk.len().as_()));
+    }
+    Ok(values)
+}
+
+#[rstest]
+#[case::filtered_count("SELECT count(*) FROM ? WHERE b < 100")]
+#[case::filtered_max("SELECT max(a) FROM ? WHERE b BETWEEN 300 AND 310")]
+#[case::filtered_projection("SELECT a FROM ? WHERE b = 42 ORDER BY a")]
+#[case::expression("SELECT a + b FROM ? WHERE a >= 50000 ORDER BY 1")]
+#[case::full_scan("SELECT a FROM ? ORDER BY a")]
+#[case::empty("SELECT a FROM ? WHERE b > 5000")]
+fn test_vortex_scan_v2_matches_v1(#[case] query: &str) -> Result<()> {
+    // Many row blocks, so the file is cut into several V2 splits.
+    let rows = 100_000i64;
+    let file = RUNTIME.block_on(write_vortex_file(
+        [
+            ("a", (0..rows).collect::<PrimitiveArray>().into_array()),
+            (
+                "b",
+                (0..rows)
+                    .map(|i| (i * 37) % 1000)
+                    .collect::<PrimitiveArray>()
+                    .into_array(),
+            ),
+        ]
+        .into_iter(),
+    ));
+    let path = file.path().to_string_lossy();
+
+    crate::set_scan_v2(false);
+    let v1 = query_i64_column(&path, query)?;
+    crate::set_scan_v2(true);
+    let v2 = query_i64_column(&path, query);
+    crate::set_scan_v2(false);
+
+    assert_eq!(v2?, v1);
+    Ok(())
 }

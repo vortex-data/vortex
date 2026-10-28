@@ -278,7 +278,10 @@ impl SegmentSource for SegmentCacheSourceAdapter {
         let source = Arc::clone(&self.source);
         async move {
             if let Ok(Some(bytes)) = cache.get(id).await {
-                vortex_ensure!(range.start <= range.end && range.end <= bytes.len(), "Segment range out of bounds");
+                vortex_ensure!(
+                    range.start <= range.end && range.end <= bytes.len(),
+                    "Segment range out of bounds"
+                );
                 return Ok(BufferHandle::new_host(bytes.slice(range)));
             }
             source.request_range(id, range).await

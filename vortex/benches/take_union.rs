@@ -15,11 +15,6 @@
 //! writer produces before compression. The `compressed_children` cases keep the dominant integer
 //! child canonical and store each rare child as a `SparseArray` holding only the rows its variant
 //! selects, which is what a compressor produces.
-//!
-//! The `compressed_children` cases run over the sub-millisecond budget the other microbenchmarks
-//! hold to. What they measure is cache-missing binary searches in `Patches::take`, which only
-//! appears once a child's patch indices outgrow the cache. Shrinking the array to fit the budget
-//! closes the gap between the two shapes to noise and measures nothing.
 
 #![expect(clippy::unwrap_used)]
 
@@ -30,19 +25,23 @@ use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::RecursiveCanonical;
 use vortex::array::VortexSessionExecute;
+use vortex::array::aggregate_fn::session::AggregateFnSession;
 use vortex::array::arrays::ListViewArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::UnionArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::dtype::UnionVariants;
+use vortex::array::memory::MemorySession;
+use vortex::array::optimizer::kernels::KernelSession;
 use vortex::array::scalar::Scalar;
+use vortex::array::session::ArraySession;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
+use vortex::encodings::sparse;
 use vortex::encodings::sparse::Sparse;
 use vortex_session::VortexSession;
 
@@ -54,9 +53,17 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>();
+    sparse::initialize(&session);
+    session
+});
 
-const ARRAY_SIZE: usize = 100_000;
+const ARRAY_SIZE: usize = 10_000;
 
 const TAKE_SIZE: usize = 128;
 

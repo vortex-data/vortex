@@ -14,11 +14,11 @@ use divan::counter::BytesCount;
 use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
-use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
+use vortex::array::aggregate_fn::session::AggregateFnSession;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::TemporalArray;
@@ -26,21 +26,31 @@ use vortex::array::arrays::VarBinArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::varbin::VarBinArraySlotsExt;
 use vortex::array::builtins::ArrayBuiltins;
+use vortex::array::memory::MemorySession;
+use vortex::array::optimizer::kernels::KernelSession;
 use vortex::array::scalar::Scalar;
+use vortex::array::session::ArraySession;
 use vortex::dtype::DType;
+use vortex::dtype::DecimalDType;
 use vortex::dtype::PType;
+use vortex::encodings::alp;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPArrayExt;
 use vortex::encodings::alp::ALPArraySlotsExt;
 use vortex::encodings::alp::alp_encode;
+use vortex::encodings::datetime_parts;
 use vortex::encodings::datetime_parts::DateTimeParts;
 use vortex::encodings::datetime_parts::split_temporal;
+use vortex::encodings::decimal_byte_parts;
+use vortex::encodings::decimal_byte_parts::DecimalByteParts;
+use vortex::encodings::fastlanes;
 use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::fastlanes::FoRArray;
 use vortex::encodings::fastlanes::FoRArrayExt;
 use vortex::encodings::fastlanes::FoRArraySlotsExt;
 use vortex::encodings::fastlanes::FoRReferences;
+use vortex::encodings::fsst;
 use vortex::encodings::fsst::FSST;
 use vortex::encodings::fsst::FSSTArrayExt;
 use vortex::encodings::fsst::FSSTArraySlotsExt;
@@ -61,7 +71,19 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>();
+    alp::initialize(&session);
+    datetime_parts::initialize(&session);
+    decimal_byte_parts::initialize(&session);
+    fastlanes::initialize(&session);
+    fsst::initialize(&session);
+    session
+});
 
 // Sized so the slowest tree decompression stays well under 1ms on CodSpeed.
 const NUM_VALUES: u64 = 2048;
@@ -90,7 +112,9 @@ mod setup {
     fn global_reference(array: &FoRArray) -> Scalar {
         match array.references() {
             FoRReferences::Global(reference) => reference.clone(),
-            FoRReferences::Blocked(_) => vortex_panic!("FoR::encode uses a global reference"),
+            FoRReferences::Blocked(_) => {
+                vortex_panic!("FoR::encode uses a global reference")
+            }
         }
     }
 
@@ -411,6 +435,22 @@ mod setup {
         .unwrap()
         .into_array()
     }
+
+    /// Create DecimalByteParts <- BitPacked encoding tree, the tree that the compressor builds for
+    /// the golden `decimal_prices` column.
+    pub fn dbp_bp_i32() -> ArrayRef {
+        let mut rng = StdRng::seed_from_u64(115);
+        let msp =
+            PrimitiveArray::from_iter((0..NUM_VALUES).map(|_| rng.random_range(0..10_000_000i32)))
+                .into_array();
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let msp_bp = BitPacked::encode(&msp, 24, &mut ctx).unwrap();
+
+        DecimalByteParts::try_new(msp_bp.into_array(), DecimalDType::new(12, 2))
+            .unwrap()
+            .into_array()
+    }
 }
 
 // Complex encoding tree benchmarks
@@ -460,6 +500,7 @@ macro_rules! setup_fn {
         setup_fn!(setup::dict_fsst_varbin_string),
         setup_fn!(setup::dict_fsst_varbin_bp_string),
         setup_fn!(setup::datetime_for_bp),
+        setup_fn!(setup::dbp_bp_i32),
     ]
 )]
 fn decompress(bencher: Bencher, setup_fn: SetupFn) {

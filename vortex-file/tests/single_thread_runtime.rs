@@ -28,6 +28,7 @@ use vortex_io::runtime::single::SingleThreadRuntime;
 use vortex_io::session::RuntimeSession;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::session::LayoutSession;
+use vortex_session::VortexSession;
 
 mod common;
 
@@ -51,7 +52,7 @@ fn test_array() -> ArrayRef {
 fn roundtrip_on_single_thread_runtime() -> VortexResult<()> {
     let runtime = SingleThreadRuntime::default();
 
-    let session = vortex_array::array_session()
+    let session = VortexSession::empty()
         .with::<LayoutSession>()
         .with::<RuntimeSession>()
         .with_handle(runtime.handle());

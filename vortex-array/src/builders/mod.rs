@@ -18,7 +18,8 @@
 //! use vortex_array::builders::{ArrayBuilder, builder_with_capacity_in};
 //! use vortex_array::dtype::{DType, Nullability};
 //! use vortex_array::memory::BufferAllocatorRef;
-//! use vortex_array::{VortexSessionExecute, array_session};
+//! use vortex_array::{VortexSessionExecute};
+//! use vortex_session::VortexSession;
 //!
 //! // Create a new builder for string data.
 //! let mut builder = builder_with_capacity_in(&DType::Utf8(Nullability::NonNullable), 4, BufferAllocatorRef::static_ref());
@@ -29,7 +30,7 @@
 //! builder.append_scalar(&"d".into()).unwrap();
 //!
 //! let strings = builder.finish();
-//! let mut ctx = array_session().create_execution_ctx();
+//! let mut ctx = VortexSession::empty().create_execution_ctx();
 //!
 //! assert_eq!(strings.execute_scalar(0, &mut ctx).unwrap(), "a".into());
 //! assert_eq!(strings.execute_scalar(1, &mut ctx).unwrap(), "b".into());
@@ -376,7 +377,8 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
 /// use vortex_array::builders::{ArrayBuilder, builder_with_capacity_in};
 /// use vortex_array::dtype::{DType, Nullability};
 /// use vortex_array::memory::BufferAllocatorRef;
-/// use vortex_array::{VortexSessionExecute, array_session};
+/// use vortex_array::{VortexSessionExecute};
+/// use vortex_session::VortexSession;
 ///
 /// // Create a new builder for string data.
 /// let mut builder = builder_with_capacity_in(&DType::Utf8(Nullability::NonNullable), 4, BufferAllocatorRef::static_ref());
@@ -387,7 +389,7 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
 /// builder.append_scalar(&"d".into()).unwrap();
 ///
 /// let strings = builder.finish();
-/// let mut ctx = array_session().create_execution_ctx();
+/// let mut ctx = VortexSession::empty().create_execution_ctx();
 ///
 /// assert_eq!(strings.execute_scalar(0, &mut ctx).unwrap(), "a".into());
 /// assert_eq!(strings.execute_scalar(1, &mut ctx).unwrap(), "b".into());

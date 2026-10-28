@@ -144,6 +144,10 @@ struct Args {
     #[arg(long, value_delimiter = ',', value_parser = value_parser!(Format))]
     formats: Vec<Format>,
 
+    /// Use the planner-driven V2 Vortex scan (defaults to true for TPC-H).
+    #[arg(long, action = clap::ArgAction::Set)]
+    scan_v2: Option<bool>,
+
     #[arg(long = "opt", value_delimiter = ',', value_parser = value_parser!(Opt))]
     options: Vec<Opt>,
 }
@@ -155,7 +159,10 @@ fn main() -> anyhow::Result<()> {
     let mut runtime = tokio::runtime::Builder::new_multi_thread();
     if let Ok(value) = std::env::var("VORTEX_BENCH_BLOCKING_THREADS") {
         let threads: usize = value.parse()?;
-        anyhow::ensure!(threads > 0, "VORTEX_BENCH_BLOCKING_THREADS must be positive");
+        anyhow::ensure!(
+            threads > 0,
+            "VORTEX_BENCH_BLOCKING_THREADS must be positive"
+        );
         runtime.max_blocking_threads(threads);
     }
     runtime.enable_all().build()?.block_on(run())
@@ -165,6 +172,12 @@ async fn run() -> anyhow::Result<()> {
     vortex_bench::configure_allocator();
     let args = Args::parse();
     let opts = Opts::from(args.options);
+    let scan_v2 = args.scan_v2.unwrap_or_else(|| {
+        std::env::var("VORTEX_SCAN_V2")
+            .map_or(matches!(args.benchmark, BenchmarkArg::TpcH), |value| {
+                value == "1"
+            })
+    });
 
     set_join_set_tracer(get_static_tracer())?;
     setup_logging_and_tracing(args.verbose, args.tracing)?;
@@ -196,15 +209,26 @@ async fn run() -> anyhow::Result<()> {
     let completion_io = std::env::var("VORTEX_IO_BACKEND")
         .is_ok_and(|value| !value.is_empty() && value != "legacy");
     if completion_io {
-        anyhow::ensure!(cfg!(all(target_os = "linux", feature = "io-uring")),
-            "Completion I/O experiments require the Linux io-uring build feature");
-        anyhow::ensure!(benchmark.data_url().scheme() == "file", "Completion I/O experiments require local data");
-        anyhow::ensure!(!use_scan_api(), "VORTEX_USE_SCAN_API selects a different scan integration");
+        anyhow::ensure!(
+            cfg!(all(target_os = "linux", feature = "io-uring")),
+            "Completion I/O experiments require the Linux io-uring build feature"
+        );
+        anyhow::ensure!(
+            benchmark.data_url().scheme() == "file",
+            "Completion I/O experiments require local data"
+        );
+        anyhow::ensure!(
+            !use_scan_api(),
+            "VORTEX_USE_SCAN_API selects a different scan integration"
+        );
     }
     let diagnostics = Arc::new(diagnostics::Diagnostics::new(
-        args.io_jsonl.as_deref(), args.result_dir, args.cold_cache,
+        args.io_jsonl.as_deref(),
+        args.result_dir,
+        args.cold_cache,
         Duration::from_millis(args.cold_cache_delay_ms.unwrap_or(0)),
-        benchmark.data_url(), &args.formats,
+        benchmark.data_url(),
+        &args.formats,
     )?);
 
     let benchmark_name = benchmark.dataset().to_string();
@@ -245,7 +269,7 @@ async fn run() -> anyhow::Result<()> {
                         session.sql(&sql).await?.collect().await?;
                     }
                     datafusion_bench::make_object_store(&session, benchmark.data_url())?;
-                    register_benchmark_tables(&session, benchmark, format).await?;
+                    register_benchmark_tables(&session, benchmark, format, scan_v2).await?;
                     Ok((session, format))
                 }
             },
@@ -265,8 +289,16 @@ async fn run() -> anyhow::Result<()> {
                             .await?;
                         let time = timer.elapsed();
                         let after = diagnostics::Snapshot::take();
-                        diagnostics.record(query_idx, *format, time, before, after, cache,
-                            &batches, &plan.schema())?;
+                        diagnostics.record(
+                            query_idx,
+                            *format,
+                            time,
+                            before,
+                            after,
+                            cache,
+                            &batches,
+                            &plan.schema(),
+                        )?;
 
                         // Store plan for metrics (only store once per query/format combination)
                         if show_metrics {
@@ -315,12 +347,14 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     session: &SessionContext,
     benchmark: &B,
     format: Format,
+    scan_v2: bool,
 ) -> anyhow::Result<()> {
-    if use_scan_api() && matches!(format, Format::OnDiskVortex | Format::VortexCompact) {
+    if !scan_v2 && use_scan_api() && matches!(format, Format::OnDiskVortex | Format::VortexCompact)
+    {
         register_v2_tables(session, benchmark, format).await
     } else {
         let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
-        let file_format = format_to_df_format(format)?;
+        let file_format = format_to_df_format(format, scan_v2)?;
 
         for table in benchmark.table_specs().iter() {
             let pattern = benchmark.pattern(table.name, format);

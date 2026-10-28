@@ -231,19 +231,20 @@ fn prepare_batch<F: RowFn>(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
     use rstest::rstest;
     use vortex_error::VortexError;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
     use vortex_session::registry::CachedId;
 
     use super::execute_rows;
     use super::row_fn_return_dtype;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
@@ -253,6 +254,8 @@ mod tests {
     use crate::scalar_fn::unstable::row::RowFn;
     use crate::scalar_fn::unstable::row::RowVisitor;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[derive(Clone)]
     struct IndexingRowFn;
@@ -357,7 +360,7 @@ mod tests {
     #[test]
     fn test_execute_rejects_wrong_arity_before_dispatch() {
         let args = VecExecutionArgs::new(vec![], 0);
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let error = execute_rows(&IndexingRowFn, &EmptyOptions, &args, &mut ctx)
             .expect_err("wrong arity must fail before dispatch");
 
@@ -369,7 +372,7 @@ mod tests {
     #[case::nonempty(3)]
     fn test_execute_nullary_rows(#[case] row_count: usize) -> VortexResult<()> {
         let args = VecExecutionArgs::new(vec![], row_count);
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let actual = execute_rows(&NullarySeven, &EmptyOptions, &args, &mut ctx)?;
         let expected = PrimitiveArray::from_iter(vec![7_i64; row_count]).into_array();
@@ -386,11 +389,13 @@ mod tests {
         };
         let input = PrimitiveArray::new(vec![1_i64, 2], Validity::NonNullable).into_array();
         let args = VecExecutionArgs::new(vec![input], 2);
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let error = match execute_rows(&function, &EmptyOptions, &args, &mut ctx) {
             Err(error) => error,
-            Ok(_) => vortex_error::vortex_bail!("dispatch must not change after planning"),
+            Ok(_) => {
+                vortex_error::vortex_bail!("dispatch must not change after planning")
+            }
         };
         let message = error.to_string();
 
@@ -413,11 +418,13 @@ mod tests {
         };
         let input = PrimitiveArray::new(vec![1_i64, 2], Validity::NonNullable).into_array();
         let args = VecExecutionArgs::new(vec![input], 2);
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let error = match execute_rows(&function, &EmptyOptions, &args, &mut ctx) {
             Err(error) => error,
-            Ok(_) => vortex_error::vortex_bail!("dispatch must preserve its planned element types"),
+            Ok(_) => {
+                vortex_error::vortex_bail!("dispatch must preserve its planned element types")
+            }
         };
 
         assert!(

@@ -6,15 +6,15 @@ use std::io::Write;
 use std::panic::AssertUnwindSafe;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::task::Poll;
 use std::thread;
 use std::thread::ThreadId;
-use std::task::Poll;
 use std::time::Duration;
 
-use futures::channel::oneshot;
-use futures::channel::mpsc;
 use futures::FutureExt;
 use futures::StreamExt;
+use futures::channel::mpsc;
+use futures::channel::oneshot;
 use parking_lot::Mutex;
 use rstest::rstest;
 use tempfile::NamedTempFile;
@@ -36,9 +36,14 @@ async fn pending_jobs_overlap_and_coalesce_on_one_worker(
     let mut temporary = NamedTempFile::new()?;
     temporary.write_all(&[31; 4096])?;
     let file = mode.open(temporary.path())?;
-    let pool = UringWorkerPool::new(1, UringOptions {
-        max_active_jobs: 2, coalesce, ..Default::default()
-    })?;
+    let pool = UringWorkerPool::new(
+        1,
+        UringOptions {
+            max_active_jobs: 2,
+            coalesce,
+            ..Default::default()
+        },
+    )?;
     let (started, start) = oneshot::channel();
     let (release, released) = oneshot::channel();
     let release = Arc::new(Mutex::new(Some(release)));
@@ -51,8 +56,9 @@ async fn pending_jobs_overlap_and_coalesce_on_one_worker(
         reader.submit(&[request(0, 0, 64)])?;
         assert!(reader.try_complete()?.is_none());
         assert_eq!(first_file.stats().physical_reads, 0);
-        let ReadResult::Bytes(bytes) = poll_fn(|cx| reader.poll_complete(cx)).await?.result?
-            else { panic!("expected bytes") };
+        let ReadResult::Bytes(bytes) = poll_fn(|cx| reader.poll_complete(cx)).await?.result? else {
+            panic!("expected bytes")
+        };
         assert_eq!(thread::current().id(), *owner);
         assert_eq!(bytes.try_into_host_sync()?.as_ref(), &[31; 64]);
         Ok(*owner)
@@ -61,13 +67,16 @@ async fn pending_jobs_overlap_and_coalesce_on_one_worker(
     let second_file = file.clone();
     let second_release = Arc::clone(&release);
     let second = pool.spawn_async(move || async move {
-        if let Some(release) = second_release.lock().take() { let _ = release.send(()); }
+        if let Some(release) = second_release.lock().take() {
+            let _ = release.send(());
+        }
         let reader = second_file.session()?;
         reader.submit(&[request(0, 64, 64)])?;
         assert!(reader.try_complete()?.is_none());
         assert_eq!(second_file.stats().physical_reads, 0);
-        let ReadResult::Bytes(bytes) = poll_fn(|cx| reader.poll_complete(cx)).await?.result?
-            else { panic!("expected bytes") };
+        let ReadResult::Bytes(bytes) = poll_fn(|cx| reader.poll_complete(cx)).await?.result? else {
+            panic!("expected bytes")
+        };
         assert_eq!(bytes.try_into_host_sync()?.as_ref(), &[31; 64]);
         Ok(thread::current().id())
     });
@@ -75,7 +84,9 @@ async fn pending_jobs_overlap_and_coalesce_on_one_worker(
     let result = tokio::time::timeout(Duration::from_secs(1), &mut joined).await;
     let Ok(result) = result else {
         // Release the first job so a serial implementation can shut down before this test fails.
-        if let Some(release) = release.lock().take() { let _ = release.send(()); }
+        if let Some(release) = release.lock().take() {
+            let _ = release.send(());
+        }
         joined.await.expect("join jobs")?;
         vortex_bail!("The second job could not run while the first was waiting");
     };
@@ -94,19 +105,28 @@ struct DropSignal {
 impl Drop for DropSignal {
     fn drop(&mut self) {
         assert_eq!(thread::current().id(), *self.owner);
-        if let Some(sender) = self.dropped.take() { let _ = sender.send(*self.owner); }
+        if let Some(sender) = self.dropped.take() {
+            let _ = sender.send(*self.owner);
+        }
     }
 }
 
 #[tokio::test]
 async fn cancel_pending_job_drops_its_future_on_its_worker() -> VortexResult<()> {
-    let pool = UringWorkerPool::new(1, UringOptions { max_active_jobs: 2, ..Default::default() })?;
+    let pool = UringWorkerPool::new(
+        1,
+        UringOptions {
+            max_active_jobs: 2,
+            ..Default::default()
+        },
+    )?;
     let (started, start) = oneshot::channel();
     let (dropped, mut drop_signal) = oneshot::channel();
     let (rescue, rescued) = oneshot::channel();
     let job = pool.spawn_async(move || async move {
         let _guard = DropSignal {
-            owner: Rc::new(thread::current().id()), dropped: Some(dropped),
+            owner: Rc::new(thread::current().id()),
+            dropped: Some(dropped),
         };
         started.send(()).expect("start receiver");
         let _ = rescued.await;
@@ -128,11 +148,21 @@ async fn cancel_pending_job_drops_its_future_on_its_worker() -> VortexResult<()>
 
 #[rstest]
 #[tokio::test]
-async fn async_job_panics_do_not_stop_the_worker(#[values(false, true)] in_constructor: bool) -> VortexResult<()> {
-    let pool = UringWorkerPool::new(1, UringOptions { max_active_jobs: 2, ..Default::default() })?;
+async fn async_job_panics_do_not_stop_the_worker(
+    #[values(false, true)] in_constructor: bool,
+) -> VortexResult<()> {
+    let pool = UringWorkerPool::new(
+        1,
+        UringOptions {
+            max_active_jobs: 2,
+            ..Default::default()
+        },
+    )?;
     let job = pool.spawn_async(move || {
         assert!(!in_constructor, "constructor panic");
-        poll_fn(|_| -> Poll<VortexResult<()>> { panic!("poll panic"); })
+        poll_fn(|_| -> Poll<VortexResult<()>> {
+            panic!("poll panic");
+        })
     });
     assert!(AssertUnwindSafe(job).catch_unwind().await.is_err());
     assert_eq!(pool.spawn(|| Ok(7)).await?, 7);
@@ -141,9 +171,13 @@ async fn async_job_panics_do_not_stop_the_worker(#[values(false, true)] in_const
 
 #[tokio::test]
 async fn pending_jobs_leave_work_for_other_workers() -> VortexResult<()> {
-    let pool = UringWorkerPool::with_inherited_affinity(2, UringOptions {
-        max_active_jobs: 8, ..Default::default()
-    })?;
+    let pool = UringWorkerPool::with_inherited_affinity(
+        2,
+        UringOptions {
+            max_active_jobs: 8,
+            ..Default::default()
+        },
+    )?;
     let mut blockers = Vec::new();
     let mut gates = Vec::new();
     for _ in 0..2 {
@@ -155,7 +189,9 @@ async fn pending_jobs_leave_work_for_other_workers() -> VortexResult<()> {
             let _ = released.recv();
             Ok(())
         }));
-        tokio::time::timeout(Duration::from_secs(1), start).await.expect("worker starts")
+        tokio::time::timeout(Duration::from_secs(1), start)
+            .await
+            .expect("worker starts")
             .expect("worker reports start");
     }
     let (started, mut starts) = mpsc::unbounded();
@@ -166,26 +202,43 @@ async fn pending_jobs_leave_work_for_other_workers() -> VortexResult<()> {
         releases.push(release);
         let started = started.clone();
         jobs.push(pool.spawn_async(move || async move {
-            started.unbounded_send(thread::current().id()).expect("start receiver");
+            started
+                .unbounded_send(thread::current().id())
+                .expect("start receiver");
             let _ = released.await;
             Ok(())
         }));
     }
     gates.remove(0).send(()).expect("first worker waiting");
-    let first = tokio::time::timeout(Duration::from_secs(1), starts.next()).await.expect("first job starts");
-    let second = tokio::time::timeout(Duration::from_secs(1), starts.next()).await.expect("second job starts");
+    let first = tokio::time::timeout(Duration::from_secs(1), starts.next())
+        .await
+        .expect("first job starts");
+    let second = tokio::time::timeout(Duration::from_secs(1), starts.next())
+        .await
+        .expect("second job starts");
     assert_eq!(first, second);
     let third = tokio::time::timeout(Duration::from_millis(100), starts.next()).await;
     // Let every worker finish before reporting an admission failure.
     gates.remove(0).send(()).expect("second worker waiting");
     let remaining = if third.is_ok() { 3 } else { 4 };
     let admitted = tokio::time::timeout(Duration::from_secs(1), async {
-        for _ in 0..remaining { starts.next().await.expect("remaining job starts"); }
-    }).await;
-    for release in releases { let _ = release.send(()); }
+        for _ in 0..remaining {
+            starts.next().await.expect("remaining job starts");
+        }
+    })
+    .await;
+    for release in releases {
+        let _ = release.send(());
+    }
     futures::future::try_join_all(blockers).await?;
     futures::future::try_join_all(jobs).await?;
-    assert!(third.is_err(), "One worker reserved jobs while another worker was occupied");
-    assert!(admitted.is_ok(), "Queued jobs stalled after admission became possible");
+    assert!(
+        third.is_err(),
+        "One worker reserved jobs while another worker was occupied"
+    );
+    assert!(
+        admitted.is_ok(),
+        "Queued jobs stalled after admission became possible"
+    );
     Ok(())
 }

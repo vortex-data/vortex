@@ -322,7 +322,6 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::ListArray;
@@ -409,7 +408,7 @@ mod tests {
     /// `elements` are decomposed as a nested `ListLayout`.
     #[tokio::test]
     async fn dispatches_nested_list() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let inner = ListArray::try_new(
             buffer![1i32, 2, 3, 4, 5, 6].into_array(),
             buffer![0u32, 2, 5, 5, 6].into_array(),
@@ -440,7 +439,7 @@ mod tests {
     /// decomposition for the elements, and a nullable list writes a validity child.
     #[tokio::test]
     async fn dispatches_struct_list_struct() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let inner_struct = StructArray::from_fields(
             [
                 ("a", buffer![1i32, 2, 3, 4, 5].into_array()),
@@ -476,7 +475,7 @@ mod tests {
     /// This is the "list-of-chunkeds" topology top-level decomposition unlocks.
     #[tokio::test]
     async fn dispatches_chunked_list() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let chunk0 = ListArray::try_new(
             buffer![1i32, 2, 3].into_array(),
             buffer![0u32, 2, 3].into_array(),
@@ -516,7 +515,7 @@ mod tests {
     /// A wrapper can repartition and zone lists in outer-row space before decomposition.
     #[tokio::test]
     async fn wraps_list_strategy_before_decomposition() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let list = ListArray::try_new(
             PrimitiveArray::from_iter(0..9_i32).into_array(),
             PrimitiveArray::from_iter(0..=9_u32).into_array(),

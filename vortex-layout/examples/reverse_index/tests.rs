@@ -13,7 +13,6 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -87,6 +86,7 @@ const TEST_EDITION: EditionId = EditionId::new("vortex-reverse-index-test", 2026
 static TEST_EDITION_DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: TEST_EDITION,
+        immutable: true,
         min_library_version: None,
     },
     added: &[
@@ -111,7 +111,7 @@ static TEST_EDITION_DECLARATION: EditionDeclaration = EditionDeclaration {
 /// [`unregistered_index_kind_falls_back_to_the_data_child`] depends on two sessions with different
 /// index registries.
 fn session() -> VortexSession {
-    let session = array_session()
+    let session = VortexSession::empty()
         .with::<LayoutSession>()
         .with::<RuntimeSession>()
         .with::<EditionSession>();

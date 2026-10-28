@@ -293,7 +293,7 @@ logical_opt [
                                                         "extra_info": {
                                                             "Filters": "vortex.list.contains([\"Books\", \"Home\", \"Sports\"], $.i_category, opts=sql_null_semantics)",
                                                             "Function": "Vortex Scan",
-                                                            "Estimated Cardinality": "360"
+                                                            "Estimated Cardinality": "400"
                                                         }
                                                     }
                                                 ],
@@ -309,7 +309,7 @@ logical_opt [
                                                 "extra_info": {
                                                     "Filters": [
                                                         "(1999-02-22 <= $.d_date <= 1999-03-24)",
-                                                        "(2450816i64 <= $.d_date_sk <= 2452642i64)"
+                                                        "(2450816i32 <= $.d_date_sk <= 2452642i32)"
                                                     ],
                                                     "Function": "Vortex Scan",
                                                     "Estimated Cardinality": "14609"
@@ -332,13 +332,13 @@ logical_opt [
                                         "i_current_price"
                                     ],
                                     "Expressions": "sum(ws_ext_sales_price)",
-                                    "Estimated Cardinality": "14325"
+                                    "Estimated Cardinality": "14326"
                                 }
                             }
                         ],
                         "extra_info": {
                             "Expressions": "sum(sum(ws_ext_sales_price)) OVER (PARTITION BY i_class)",
-                            "Estimated Cardinality": "14325"
+                            "Estimated Cardinality": "14326"
                         }
                     }
                 ],
@@ -352,7 +352,7 @@ logical_opt [
                         "itemrevenue",
                         "revenueratio"
                     ],
-                    "Estimated Cardinality": "14325"
+                    "Estimated Cardinality": "14326"
                 }
             }
         ],
@@ -414,7 +414,7 @@ physical_plan [
                                                                                 "i_class",
                                                                                 "i_category"
                                                                             ],
-                                                                            "Estimated Cardinality": "360"
+                                                                            "Estimated Cardinality": "400"
                                                                         }
                                                                     }
                                                                 ],
@@ -431,7 +431,7 @@ physical_plan [
                                                                     "Function": "Vortex Scan",
                                                                     "Filters": [
                                                                         "(1999-02-22 <= $.d_date <= 1999-03-24)",
-                                                                        "(2450816i64 <= $.d_date_sk <= 2452642i64)"
+                                                                        "(2450816i32 <= $.d_date_sk <= 2452642i32)"
                                                                     ],
                                                                     "Projections": "d_date_sk",
                                                                     "Estimated Cardinality": "14609"
@@ -467,13 +467,13 @@ physical_plan [
                                                 "#4"
                                             ],
                                             "Aggregates": "sum(#5)",
-                                            "Estimated Cardinality": "14325"
+                                            "Estimated Cardinality": "14326"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Projections": "sum(sum(ws_ext_sales_price)) OVER (PARTITION BY i_class)",
-                                    "Estimated Cardinality": "14325"
+                                    "Estimated Cardinality": "14326"
                                 }
                             }
                         ],
@@ -487,7 +487,7 @@ physical_plan [
                                 "#5",
                                 "#6"
                             ],
-                            "Estimated Cardinality": "14325"
+                            "Estimated Cardinality": "14326"
                         }
                     }
                 ],
@@ -501,7 +501,7 @@ physical_plan [
                         "itemrevenue",
                         "revenueratio"
                     ],
-                    "Estimated Cardinality": "14325"
+                    "Estimated Cardinality": "14326"
                 }
             }
         ],

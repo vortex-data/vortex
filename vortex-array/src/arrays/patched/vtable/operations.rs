@@ -59,21 +59,24 @@ impl OperationsVTable<Patched> for Patched {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Patched;
     use crate::dtype::Nullability;
     use crate::optimizer::ArrayOptimizer;
     use crate::patches::Patches;
     use crate::scalar::Scalar;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_simple() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = buffer![0u16; 1024].into_array();
         let patches = Patches::new(
             1024,
@@ -85,8 +88,7 @@ mod tests {
         )
         .unwrap();
 
-        let session = VortexSession::empty();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -94,25 +96,25 @@ mod tests {
 
         assert_eq!(
             array
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(0, &mut SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::primitive(0u16, Nullability::NonNullable)
         );
         assert_eq!(
             array
-                .execute_scalar(1, &mut array_session().create_execution_ctx())
+                .execute_scalar(1, &mut SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::primitive(1u16, Nullability::NonNullable)
         );
         assert_eq!(
             array
-                .execute_scalar(2, &mut array_session().create_execution_ctx())
+                .execute_scalar(2, &mut SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::primitive(1u16, Nullability::NonNullable)
         );
         assert_eq!(
             array
-                .execute_scalar(3, &mut array_session().create_execution_ctx())
+                .execute_scalar(3, &mut SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::primitive(1u16, Nullability::NonNullable)
         );
@@ -120,7 +122,7 @@ mod tests {
 
     #[test]
     fn test_multi_chunk() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = buffer![0u16; 4096].into_array();
         let patches = Patches::new(
             4096,
@@ -132,8 +134,7 @@ mod tests {
         )
         .unwrap();
 
-        let session = VortexSession::empty();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -141,7 +142,7 @@ mod tests {
 
         for index in 0..array.len() {
             let value = array
-                .execute_scalar(index, &mut array_session().create_execution_ctx())
+                .execute_scalar(index, &mut SESSION.create_execution_ctx())
                 .unwrap();
 
             if [1, 2, 3].contains(&index) {
@@ -154,7 +155,7 @@ mod tests {
 
     #[test]
     fn test_multi_chunk_sliced() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = buffer![0u16; 4096].into_array();
         let patches = Patches::new(
             4096,
@@ -166,8 +167,7 @@ mod tests {
         )
         .unwrap();
 
-        let session = VortexSession::empty();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -181,14 +181,14 @@ mod tests {
 
         assert_eq!(
             array
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(0, &mut SESSION.create_execution_ctx())
                 .unwrap(),
             1u16.into()
         );
         for index in 1..array.len() {
             assert_eq!(
                 array
-                    .execute_scalar(index, &mut array_session().create_execution_ctx())
+                    .execute_scalar(index, &mut SESSION.create_execution_ctx())
                     .unwrap(),
                 0u16.into()
             );

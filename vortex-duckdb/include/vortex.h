@@ -76,7 +76,8 @@ duckdb_vx_data duckdb_footer_get_cached(void *bind,
 
 extern
 bool duckdb_footer_get_statistics(const void *footer,
-                                  size_t column_index,
+                                  const char *column_name,
+                                  size_t column_name_len,
                                   duckdb_column_statistics *stats_out);
 
 extern bool duckdb_reader_initialize(const void *global, void *file, duckdb_vx_error *error);

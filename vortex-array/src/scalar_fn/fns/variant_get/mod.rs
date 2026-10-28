@@ -409,6 +409,8 @@ impl From<u64> for VariantPathElement {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_ensure;
@@ -419,7 +421,6 @@ mod tests {
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
@@ -445,6 +446,8 @@ mod tests {
     use crate::scalar_fn::fns::variant_get::VariantGetOptions;
     use crate::scalar_fn::fns::variant_get::VariantPath;
     use crate::scalar_fn::fns::variant_get::VariantPathElement;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn variant_object(fields: impl IntoIterator<Item = (&'static str, Scalar)>) -> Scalar {
         let fields = fields.into_iter().collect::<Vec<_>>();
@@ -561,7 +564,7 @@ mod tests {
         let expr = variant_get(root(), parse_path(path)?, dtype);
         array
             .apply(&expr)?
-            .execute::<ArrayRef>(&mut array_session().create_execution_ctx())
+            .execute::<ArrayRef>(&mut SESSION.create_execution_ctx())
     }
 
     #[test]
@@ -634,9 +637,7 @@ mod tests {
             Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
         );
         let metadata = VariantGet.serialize(&options).unwrap().unwrap();
-        let actual = VariantGet
-            .deserialize(&metadata, &VortexSession::empty())
-            .unwrap();
+        let actual = VariantGet.deserialize(&metadata, &SESSION).unwrap();
 
         assert_eq!(actual, options);
     }
@@ -649,7 +650,7 @@ mod tests {
             Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
         );
         let proto = expr.serialize_proto().unwrap();
-        let actual = Expression::from_proto(&proto, &array_session()).unwrap();
+        let actual = Expression::from_proto(&proto, &SESSION).unwrap();
 
         assert_eq!(actual, expr);
     }
@@ -691,7 +692,7 @@ mod tests {
             "$.items[1]",
             Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
         )?;
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         assert_arrays_eq!(
             result,
@@ -725,7 +726,7 @@ mod tests {
             "$.a",
             Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
         )?;
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         assert_arrays_eq!(
             result,
@@ -759,7 +760,7 @@ mod tests {
         )?;
 
         assert!(!result.is::<Chunked>());
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(
             result,
             PrimitiveArray::from_option_iter([Some(10i32), Some(20), None]),
@@ -785,7 +786,7 @@ mod tests {
 
         let result = execute_variant_get(array, "$.a", None)?;
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let row0 = result.execute_scalar(0, &mut ctx)?;
         assert_eq!(
             row0.as_variant()
@@ -822,8 +823,8 @@ mod tests {
         let result = execute_variant_get(array, "$.a", None)?;
         let variant = result
             .clone()
-            .execute::<VariantArray>(&mut array_session().create_execution_ctx())?;
-        let canonical = result.execute::<Canonical>(&mut array_session().create_execution_ctx())?;
+            .execute::<VariantArray>(&mut SESSION.create_execution_ctx())?;
+        let canonical = result.execute::<Canonical>(&mut SESSION.create_execution_ctx())?;
         let Canonical::Variant(canonical_variant) = canonical else {
             vortex_bail!("expected Variant canonical array");
         };
@@ -833,7 +834,7 @@ mod tests {
         assert_eq!(variant.core_storage().dtype(), variant.dtype());
         assert_eq!(variant.core_storage().len(), variant.len());
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         for array in [variant, canonical_variant] {
             assert_eq!(array.dtype(), &DType::Variant(Nullability::Nullable));
             for (idx, expected) in [10i32, 20].into_iter().enumerate() {

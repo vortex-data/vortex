@@ -9,15 +9,15 @@
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
-    use vortex_error::VortexError;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::DecimalArray;
     use crate::arrays::FixedSizeListArray;
@@ -32,6 +32,8 @@ mod tests {
     use crate::dtype::PType;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_chunked_array_validation_failure_mismatched_dtypes() {
         // Invalid case: chunks have different dtypes.
@@ -39,7 +41,11 @@ mod tests {
         let chunk2 = buffer![4i64, 5, 6].into_array();
         let result = ChunkedArray::try_new(vec![chunk1, chunk2], PType::I32.into());
 
-        assert!(matches!(result, Err(VortexError::MismatchedTypes(_, _, _))));
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("expected type: i32 but instead got i64"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -50,7 +56,11 @@ mod tests {
         let decimal_dtype = crate::dtype::DecimalDType::new(10, 2);
         let result = DecimalArray::try_new(buffer, decimal_dtype, validity);
 
-        assert!(matches!(result, Err(VortexError::InvalidArgument(_, _))));
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("DecimalArray validity len does not match outer length"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -60,18 +70,26 @@ mod tests {
         let validity = Validity::from_iter([true, false]); // Length 2, buffer is length 3.
         let result = PrimitiveArray::try_new(buffer, validity);
 
-        assert!(matches!(result, Err(VortexError::InvalidArgument(_, _))));
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Buffer and validity length mismatch: buffer=3, validity=2"),
+            "{err}"
+        );
     }
 
     #[test]
     fn test_list_array_validation_failure_offsets_out_of_bounds() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Invalid case: last offset exceeds elements length.
         let elements = buffer![1i32, 2, 3].into_array();
         let offsets = buffer![0i64, 2, 5].into_array(); // 5 > 3.
         let result = ListArray::try_new(elements, offsets, Validity::NonNullable, &mut ctx);
 
-        assert!(matches!(result, Err(VortexError::InvalidArgument(_, _))));
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Max offset 5 is beyond the length of the elements array 3"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -80,7 +98,11 @@ mod tests {
         let elements = buffer![1i32, 2, 3, 4, 5].into_array(); // 5 elements.
         let result = FixedSizeListArray::try_new(elements, 2, Validity::NonNullable, 3); // Expects 2 * 3 = 6.
 
-        assert!(matches!(result, Err(VortexError::InvalidArgument(_, _))));
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("the `elements` array has the incorrect number of elements"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -96,7 +118,7 @@ mod tests {
             Arc::new([]),
             DType::Utf8(Nullability::NonNullable),
             Validity::NonNullable,
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         );
         assert!(result.is_ok());
     }
@@ -116,10 +138,14 @@ mod tests {
             buffers,
             DType::Binary(Nullability::NonNullable),
             Validity::NonNullable,
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         );
 
-        assert!(matches!(result, Err(VortexError::InvalidArgument(_, _))));
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("view at index 0 references invalid buffer: 1 out of bounds"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -131,7 +157,11 @@ mod tests {
         let names = ["a", "b"];
         let result = StructArray::try_new(names.into(), fields, 3, Validity::NonNullable);
 
-        assert!(matches!(result, Err(VortexError::InvalidArgument(_, _))));
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("StructArray field 1 has length 2 but expected 3"),
+            "{err}"
+        );
     }
 
     #[rstest::rstest]
@@ -152,7 +182,7 @@ mod tests {
         #[case] validity: Validity,
         #[case] ok: bool,
     ) {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let nullability = if matches!(validity, Validity::NonNullable) {
             Nullability::NonNullable
         } else {

@@ -43,8 +43,8 @@ logical_plan
 13)------------------------Inner Join: store_returns.sr_returned_date_sk = date_dim.d_date_sk
 14)--------------------------TableScan: store_returns projection=[sr_returned_date_sk, sr_customer_sk, sr_store_sk, sr_return_amt]
 15)--------------------------Projection: date_dim.d_date_sk
-16)----------------------------Filter: date_dim.d_year = Int64(2000)
-17)------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2000)]
+16)----------------------------Filter: date_dim.d_year = Int32(2000)
+17)------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int32(2000)]
 18)--------------Projection: store.s_store_sk
 19)----------------Filter: store.s_state = Utf8View("TN")
 20)------------------TableScan: store projection=[s_store_sk, s_state], partial_filters=[store.s_state = Utf8View("TN")]
@@ -60,8 +60,8 @@ logical_plan
 30)----------------------Inner Join: store_returns.sr_returned_date_sk = date_dim.d_date_sk
 31)------------------------TableScan: store_returns projection=[sr_returned_date_sk, sr_customer_sk, sr_store_sk, sr_return_amt]
 32)------------------------Projection: date_dim.d_date_sk
-33)--------------------------Filter: date_dim.d_year = Int64(2000)
-34)----------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2000)]
+33)--------------------------Filter: date_dim.d_year = Int32(2000)
+34)----------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int32(2000)]
 physical_plan
 01)SortPreservingMergeExec: [c_customer_id@0 ASC NULLS LAST], fetch=100
 02)--SortExec: TopK(fetch=100), expr=[c_customer_id@0 ASC NULLS LAST], preserve_partitioning=[true]
@@ -77,17 +77,19 @@ physical_plan
 12)--------------------AggregateExec: mode=Partial, gby=[sr_customer_sk@0 as sr_customer_sk, sr_store_sk@1 as sr_store_sk], aggr=[sum(store_returns.sr_return_amt)]
 13)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, sr_returned_date_sk@0)], projection=[sr_customer_sk@2, sr_store_sk@3, sr_return_amt@4]
 14)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2000
-15)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_returned_date_sk, sr_customer_sk, sr_store_sk, sr_return_amt], file_type=vortex
-16)----------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
-17)------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_customer_id], file_type=vortex
-18)------ProjectionExec: expr=[CAST(CAST(avg(ctr2.ctr_total_return)@1 AS Float64) * 1.2 AS Decimal128(30, 15)) as avg(ctr2.ctr_total_return) * Float64(1.2), ctr_store_sk@0 as ctr_store_sk]
-19)--------AggregateExec: mode=FinalPartitioned, gby=[ctr_store_sk@0 as ctr_store_sk], aggr=[avg(ctr2.ctr_total_return)]
-20)----------RepartitionExec: partitioning=Hash([ctr_store_sk@0], 4), input_partitions=4
-21)------------AggregateExec: mode=Partial, gby=[ctr_store_sk@0 as ctr_store_sk], aggr=[avg(ctr2.ctr_total_return)]
-22)--------------ProjectionExec: expr=[sr_store_sk@1 as ctr_store_sk, sum(store_returns.sr_return_amt)@2 as ctr_total_return]
-23)----------------AggregateExec: mode=FinalPartitioned, gby=[sr_customer_sk@0 as sr_customer_sk, sr_store_sk@1 as sr_store_sk], aggr=[sum(store_returns.sr_return_amt)]
-24)------------------RepartitionExec: partitioning=Hash([sr_customer_sk@0, sr_store_sk@1], 4), input_partitions=4
-25)--------------------AggregateExec: mode=Partial, gby=[sr_customer_sk@0 as sr_customer_sk, sr_store_sk@1 as sr_store_sk], aggr=[sum(store_returns.sr_return_amt)]
-26)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, sr_returned_date_sk@0)], projection=[sr_customer_sk@2, sr_store_sk@3, sr_return_amt@4]
-27)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2000
-28)------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_returned_date_sk, sr_customer_sk, sr_store_sk, sr_return_amt], file_type=vortex
+15)------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+16)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store_returns.vortex]]}, projection=[sr_returned_date_sk, sr_customer_sk, sr_store_sk, sr_return_amt], file_type=vortex
+17)----------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+18)------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/customer.vortex]]}, projection=[c_customer_sk, c_customer_id], file_type=vortex
+19)------ProjectionExec: expr=[CAST(CAST(avg(ctr2.ctr_total_return)@1 AS Float64) * 1.2 AS Decimal128(30, 15)) as avg(ctr2.ctr_total_return) * Float64(1.2), ctr_store_sk@0 as ctr_store_sk]
+20)--------AggregateExec: mode=FinalPartitioned, gby=[ctr_store_sk@0 as ctr_store_sk], aggr=[avg(ctr2.ctr_total_return)]
+21)----------RepartitionExec: partitioning=Hash([ctr_store_sk@0], 4), input_partitions=4
+22)------------AggregateExec: mode=Partial, gby=[ctr_store_sk@0 as ctr_store_sk], aggr=[avg(ctr2.ctr_total_return)]
+23)--------------ProjectionExec: expr=[sr_store_sk@1 as ctr_store_sk, sum(store_returns.sr_return_amt)@2 as ctr_total_return]
+24)----------------AggregateExec: mode=FinalPartitioned, gby=[sr_customer_sk@0 as sr_customer_sk, sr_store_sk@1 as sr_store_sk], aggr=[sum(store_returns.sr_return_amt)]
+25)------------------RepartitionExec: partitioning=Hash([sr_customer_sk@0, sr_store_sk@1], 4), input_partitions=4
+26)--------------------AggregateExec: mode=Partial, gby=[sr_customer_sk@0 as sr_customer_sk, sr_store_sk@1 as sr_store_sk], aggr=[sum(store_returns.sr_return_amt)]
+27)----------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(d_date_sk@0, sr_returned_date_sk@0)], projection=[sr_customer_sk@2, sr_store_sk@3, sr_return_amt@4]
+28)------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/date_dim.vortex]]}, projection=[d_date_sk], file_type=vortex, predicate: d_year@6 = 2000
+29)------------------------RepartitionExec: partitioning=RoundRobinBatch(4), input_partitions=1
+30)--------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store_returns.vortex]]}, projection=[sr_returned_date_sk, sr_customer_sk, sr_store_sk, sr_return_amt], file_type=vortex

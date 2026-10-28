@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+[package]
+name = "vortex-cuda-driver"
+authors.workspace = true
+description = "Minimal CUDA driver API bindings with cross-stream-only synchronization for Vortex"
+edition = { workspace = true }
+categories = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+
+[lints]
+workspace = true
+
+[features]
+default = []
+f16 = ["dep:half"]
+i256 = ["dep:vortex-array"]
+
+[dependencies]
+half = { workspace = true, optional = true }
+libloading = { workspace = true }
+parking_lot = { workspace = true }
+smallvec = { workspace = true }
+vortex-array = { workspace = true, optional = true }

@@ -85,6 +85,22 @@ final class VortexTableTest {
     }
 
     @Test
+    @DisplayName("Scan read schema keeps column nullability, comments and metadata")
+    void scanReadSchemaKeepsFieldDetails() {
+        Metadata metadata = Metadata.fromJson("{\"source\":\"bid_event\"}");
+        StructType schema = new StructType(new StructField[] {
+            new StructField("id", DataTypes.LongType, false, metadata),
+            new StructField("tags", DataTypes.createArrayType(DataTypes.StringType), true, Metadata.empty())
+                    .withComment("free-form tags")
+        });
+        VortexTable table = new VortexTable(ImmutableList.of("/data/a.vortex"), schema, Map.of(), new Transform[0]);
+
+        Scan scan = table.newScanBuilder(new CaseInsensitiveStringMap(Map.of())).build();
+
+        assertEquals(schema, scan.readSchema());
+    }
+
+    @Test
     @DisplayName("Scan description carries every table path")
     void scanDescriptionCarriesPaths() {
         VortexTable table = tableFor("/data/a.vortex", "/data/b.vortex");

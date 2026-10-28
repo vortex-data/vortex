@@ -61,8 +61,14 @@ use crate::common_tests::TestSessionContext;
 fn make_session(
     object_store: Arc<dyn ObjectStore>,
     repartition_file_scans: bool,
+    scan_v2: bool,
 ) -> SessionContext {
-    let factory = Arc::new(VortexFormatFactory::new());
+    let factory = Arc::new(
+        VortexFormatFactory::new().with_options(crate::VortexTableOptions {
+            scan_v2,
+            ..Default::default()
+        }),
+    );
 
     let config = SessionConfig::new()
         .with_target_partitions(4)
@@ -471,9 +477,11 @@ async fn doc_example() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[rstest]
 #[tokio::test]
-async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits() -> anyhow::Result<()>
-{
+async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits(
+    #[values(false, true)] scan_v2: bool,
+) -> anyhow::Result<()> {
     let store = Arc::new(InMemory::new()) as _;
     let session = VortexSession::default();
     let path = object_store::path::Path::parse("/split-aligned-repartition.vortex")?;
@@ -544,8 +552,8 @@ async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits() -
             .any(|window| window[0] != window[1])
     );
 
-    let serial_ctx = make_session(Arc::clone(&store), false);
-    let repartitioned_ctx = make_session(Arc::clone(&store), true);
+    let serial_ctx = make_session(Arc::clone(&store), false, scan_v2);
+    let repartitioned_ctx = make_session(Arc::clone(&store), true, scan_v2);
     let repartitioned_partitions = count_query_partitions(
         &repartitioned_ctx,
         "SELECT value FROM '/split-aligned-repartition.vortex'",
@@ -744,8 +752,10 @@ async fn test_predicate_memtable_oracle(
     #[case] projection: &str,
     #[case] predicate: &str,
     #[values(false, true)] pushdown: bool,
+    #[values(false, true)] scan_v2: bool,
 ) -> anyhow::Result<()> {
     let options = crate::VortexTableOptions {
+        scan_v2,
         projection_pushdown: pushdown,
         predicate_pushdown: pushdown,
         ..Default::default()

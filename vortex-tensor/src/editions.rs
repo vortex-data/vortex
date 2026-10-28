@@ -28,6 +28,7 @@ pub const TENSOR_2026_04: EditionId = EditionId::new("tensor", 2026, 4, 0);
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: TENSOR_2026_04,
+        immutable: true,
         min_library_version: None,
     },
     added: &[
@@ -42,16 +43,23 @@ pub static DECLARATION: EditionDeclaration = EditionDeclaration {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_edition::EditionSessionExt;
     use vortex_edition::test_harness::validate_edition;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::*;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
+
     #[test]
     fn tensor_edition_is_valid() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        crate::initialize(&session);
-        validate_edition(&session.editions(), &TENSOR_2026_04)
+        validate_edition(&SESSION.editions(), &TENSOR_2026_04)
     }
 }

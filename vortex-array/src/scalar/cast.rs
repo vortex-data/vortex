@@ -80,7 +80,9 @@ impl Scalar {
                 "union scalar cast from {} to {target_dtype} is not supported (yet)",
                 self.dtype()
             ),
-            DType::Variant(_) => vortex_bail!("Variant scalars can't be cast to {target_dtype}"),
+            DType::Variant(_) => {
+                vortex_bail!("Variant scalars can't be cast to {target_dtype}")
+            }
             DType::Extension(..) => self.as_extension().cast(target_dtype),
         }
     }

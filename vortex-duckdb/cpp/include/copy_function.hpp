@@ -8,11 +8,9 @@
 using namespace duckdb;
 
 struct VortexCopyBindData final : TableFunctionData {
-    VortexCopyBindData(unique_ptr<CData> ffi_bind, vector<Identifier> column_names)
-        : ffi_bind(std::move(ffi_bind)), column_names(std::move(column_names)) {
+    VortexCopyBindData(unique_ptr<CData> ffi_bind) : ffi_bind(std::move(ffi_bind)) {
     }
     unique_ptr<CData> ffi_bind;
-    vector<Identifier> column_names;
 };
 
 struct VortexCopyGlobalState final : GlobalFunctionData {

@@ -723,10 +723,10 @@ mod tests {
     use std::ptr;
     use std::slice::from_raw_parts;
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
-    use vortex::array::array_session;
     use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
@@ -737,6 +737,7 @@ mod tests {
     use vortex::expr::eq;
     use vortex::expr::lit;
     use vortex::expr::root;
+    use vortex::session::VortexSession;
 
     use crate::array::*;
     use crate::dtype::vx_dtype_free;
@@ -750,6 +751,8 @@ mod tests {
     use crate::session::vx_session_new_with;
     use crate::tests::assert_error;
     use crate::tests::assert_no_error;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     unsafe fn get_i32(session: *const vx_session, array: *const vx_array, index: usize) -> i32 {
         let mut error = ptr::null_mut();
@@ -1025,7 +1028,7 @@ mod tests {
             assert!(!res.is_null());
             {
                 let res = vx_array::as_ref(res);
-                let mut ctx = array_session().create_execution_ctx();
+                let mut ctx = SESSION.create_execution_ctx();
                 let expected = BoolArray::from_iter([Some(false), None, Some(true), Some(true)]);
                 assert_arrays_eq!(res, expected, &mut ctx);
             }
@@ -1110,7 +1113,7 @@ mod tests {
         assert_no_error(error);
         assert!(!vx.is_null());
         assert!(ffi_array.is_released());
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expected = StructArray::try_from_iter([
             ("a", buffer![1i32, 2, 3].into_array()),
             (

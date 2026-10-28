@@ -32,6 +32,8 @@ use crate::array::new_foreign_array;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::TryFromBytes;
+use crate::expr::stats::Precision;
+use crate::expr::stats::Stat;
 use crate::flatbuffers::FlatBuffer;
 use crate::flatbuffers::WriteFlatBuffer;
 use crate::flatbuffers::array as fba;
@@ -418,9 +420,14 @@ impl SerializedArray {
 
         // Populate statistics from the serialized array.
         if let Some(stats) = self.flatbuffer().stats() {
-            decoded
-                .statistics()
-                .set_all(StatsSet::from_flatbuffer(&stats, dtype, session)?);
+            let mut stats = StatsSet::from_flatbuffer(&stats, dtype, session)?;
+            // Arrays with 0 or 1 elements are always (strict) sorted. Older writers could store
+            // a sortedness hint that says otherwise, so the intrinsic fact takes precedence.
+            if len <= 1 {
+                stats.set(Stat::IsSorted, Precision::Exact(true.into()));
+                stats.set(Stat::IsStrictSorted, Precision::Exact(true.into()));
+            }
+            decoded.statistics().set_all(stats);
         }
 
         Ok(decoded)
@@ -769,12 +776,14 @@ impl TryFrom<BufferHandle> for SerializedArray {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
     use vortex_buffer::ByteBufferMut;
     use vortex_error::vortex_ensure;
     use vortex_error::vortex_ensure_eq;
+    use vortex_session::VortexSession;
     use vortex_session::registry::CachedId;
 
     use super::*;
@@ -784,10 +793,11 @@ mod tests {
     use crate::ArrayVTable;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     static SERIALIZER_CALLS: AtomicUsize = AtomicUsize::new(0);
 
@@ -896,7 +906,7 @@ mod tests {
     }
 
     fn versioned_primitive_session() -> VortexSession {
-        let session = array_session();
+        let session = VortexSession::empty();
         session.arrays().register(VersionedPrimitivePlugin);
         session
     }
@@ -919,7 +929,7 @@ mod tests {
 
     #[test]
     fn serialization_preserves_plugin_selected_old_wire_id() -> VortexResult<()> {
-        let session = array_session();
+        let session = VortexSession::empty();
         session.arrays().register(CountingVersionedPrimitivePlugin);
         let ctx = restricted_context(&[old_primitive_id(), new_primitive_id()]);
         let array = PrimitiveArray::from_iter([1i32, 2, 3, 4]).into_array();
@@ -988,9 +998,8 @@ mod tests {
         let serialized = SerializedArray::try_from(serialize_blob(&array, &ctx, &writer_session)?)?;
         let read_ctx = ReadContext::new(ctx.to_ids());
 
-        let old_session = array_session();
         let error = serialized
-            .decode(array.dtype(), array.len(), &read_ctx, &old_session)
+            .decode(array.dtype(), array.len(), &read_ctx, &SESSION)
             .expect_err("an old reader must not recognize the new wire ID");
         assert!(error.to_string().contains("Unknown encoding"));
         Ok(())
@@ -1021,14 +1030,13 @@ mod tests {
     /// such a buffer must return a [`VortexError`] rather than panicking (see issue #8819).
     #[test]
     fn from_flatbuffer_and_segment_rejects_out_of_bounds_buffer() -> VortexResult<()> {
-        let session = array_session();
         let array_ctx = ArrayContext::empty();
 
         // Serialize a simple array so we have a valid array tree flatbuffer whose declared buffer
         // lengths describe the trailing data segment.
         let serialized = PrimitiveArray::from_iter([1i32, 2, 3, 4])
             .into_array()
-            .serialize(&array_ctx, &session, &SerializeOptions::default())?;
+            .serialize(&array_ctx, &SESSION, &SerializeOptions::default())?;
 
         let mut concat = ByteBufferMut::empty();
         for buf in serialized {

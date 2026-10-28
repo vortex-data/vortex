@@ -83,26 +83,24 @@ fn chunked_indices<F: FnMut(usize, &[usize])>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_session::VortexSession;
 
     use crate::BitPackedArray;
     use crate::bitpack_compress::bitpack_encode;
     use crate::bitpacking::compute::chunked_indices;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     fn bp(array: &PrimitiveArray, bit_width: u8) -> BitPackedArray {
-        bitpack_encode(
-            array,
-            bit_width,
-            None,
-            &mut array_session().create_execution_ctx(),
-        )
-        .unwrap()
+        bitpack_encode(array, bit_width, None, &mut SESSION.create_execution_ctx()).unwrap()
     }
 
     #[test]
@@ -147,7 +145,7 @@ mod tests {
     #[case::alternating_bits(bp(&PrimitiveArray::from_iter([0u16, 255, 0, 255, 0, 255]), 8))]
 
     fn test_bitpacked_consistency(#[case] array: BitPackedArray) {
-        let ctx = &mut array_session().create_execution_ctx();
+        let ctx = &mut SESSION.create_execution_ctx();
         test_array_consistency(&array.into_array(), ctx);
     }
 
@@ -159,9 +157,6 @@ mod tests {
     #[case::i32_basic(bp(&PrimitiveArray::from_iter([10i32, 20, 30, 40, 50]), 7))]
     #[case::large_u32(bp(&PrimitiveArray::from_iter((0..100).map(|i| i as u32)), 7))]
     fn test_bitpacked_binary_numeric(#[case] array: BitPackedArray) {
-        test_binary_numeric_array(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_binary_numeric_array(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

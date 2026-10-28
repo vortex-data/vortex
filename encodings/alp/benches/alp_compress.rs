@@ -19,8 +19,12 @@ use vortex_alp::decompress_into_array;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
@@ -30,6 +34,7 @@ use vortex_session::VortexSession;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
@@ -56,7 +61,11 @@ const BENCH_ARGS: &[(usize, f64, f64)] = &[
 ];
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>();
     vortex_alp::initialize(&session);
     session
 });
@@ -134,10 +143,11 @@ fn make_rd_array<T: ALPRDFloat + NativePType>(n: usize, fraction_patch: f64) -> 
     let mut rng = StdRng::seed_from_u64(42);
     let mut values = buffer![base_val; n].into_mut();
     if fraction_patch > 0.0 {
-        let outlier = T::from(1000.0).unwrap();
         for index in 0..values.len() {
             if rng.random_bool(fraction_patch) {
-                values[index] = outlier;
+                let outlier =
+                    (1000.0 + index as f64) * 10f64.powi(i32::try_from(index % 24).unwrap());
+                values[index] = T::from(outlier).unwrap();
             }
         }
     }

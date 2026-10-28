@@ -15,7 +15,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.apache.spark.sql.connector.catalog.CatalogV2Util;
 import org.apache.spark.sql.connector.catalog.Column;
 import org.apache.spark.sql.connector.expressions.NamedReference;
 import org.apache.spark.sql.connector.expressions.Transform;
@@ -131,15 +130,20 @@ public final class VortexScanBuilder
     /**
      * Prunes the columns to only include those specified in the required schema.
      *
-     * <p>This method clears the current column list and replaces it with columns derived from the required schema.
-     * Currently only supports top-level schema pruning - deeply nested schema pruning is not yet implemented.
+     * <p>Required columns keep their table type because the native scan returns whole top-level columns, even when
+     * Spark prunes nested fields.
      *
      * @param requiredSchema the schema specifying which columns are required
      */
     @Override
     public void pruneColumns(StructType requiredSchema) {
+        Set<String> required = Set.copyOf(Arrays.asList(requiredSchema.fieldNames()));
         readColumns.clear();
-        readColumns.addAll(Arrays.asList(CatalogV2Util.structTypeToV2Columns(requiredSchema)));
+        for (Column column : tableColumns) {
+            if (required.contains(column.name())) {
+                readColumns.add(column);
+            }
+        }
     }
 
     /**

@@ -127,9 +127,12 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::ArrayEq;
     use crate::ArrayRef;
@@ -151,6 +154,8 @@ mod tests {
     use crate::scalar_fn::fns::mask::Mask as MaskExpr;
     use crate::scalar_fn::fns::operators::Operator;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn lazy_mask() -> VortexResult<ArrayRef> {
         Binary::try_new(
@@ -182,7 +187,7 @@ mod tests {
         };
         assert!(ArrayRef::ptr_eq(&validity, &mask));
 
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(
             output,
             PrimitiveArray::from_option_iter([Some(1i32), None, None]),
@@ -201,7 +206,7 @@ mod tests {
         let output = input.mask(lazy_mask()?)?;
         assert!(output.is::<ExactScalarFn<MaskExpr>>());
 
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(
             output,
             PrimitiveArray::from_option_iter([all_true.then_some(1i32), None, None]),
@@ -243,7 +248,7 @@ mod tests {
             optimized.encoding_id()
         );
 
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expected = if mask_value {
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4), Some(5)])
         } else {

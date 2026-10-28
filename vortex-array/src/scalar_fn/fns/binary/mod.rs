@@ -326,13 +326,15 @@ impl ScalarFnVTable for Binary {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Bool;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
@@ -361,6 +363,8 @@ mod tests {
     use crate::expr::test_harness;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn and_collect_balanced() {
@@ -541,7 +545,7 @@ mod tests {
         let result_equal = lhs_struct.binary(rhs_struct_equal, Operator::Eq).unwrap();
         assert_eq!(
             result_equal
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(0, &mut SESSION.create_execution_ctx())
                 .vortex_expect("value"),
             Scalar::bool(true, Nullability::NonNullable),
             "Equal structs should be equal"
@@ -552,7 +556,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             result_different
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(0, &mut SESSION.create_execution_ctx())
                 .vortex_expect("value"),
             Scalar::bool(false, Nullability::NonNullable),
             "Different structs should not be equal"
@@ -561,7 +565,7 @@ mod tests {
 
     #[test]
     fn test_or_kleene_validity() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         use crate::arrays::StructArray;
         use crate::expr::col;
 
@@ -587,7 +591,7 @@ mod tests {
 
     #[test]
     fn test_and_reduce() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let left = BoolArray::from_iter([true, true, false]).into_array();
         let right = ConstantArray::new(true, 3).into_array();
 
@@ -606,35 +610,35 @@ mod tests {
         let array = Binary::try_new(left.clone(), right.clone(), Operator::Or)?
             .into_array()
             .optimize()?;
-        assert_eq!(array.as_constant(), Some(true.into())); // or(left, const) -> true
+        assert_eq!(array.as_constant(), Some(&true.into())); // or(left, const) -> true
 
         let array = Binary::try_new(right.clone(), left, Operator::Or)?
             .into_array()
             .optimize()?;
-        assert_eq!(array.as_constant(), Some(true.into())); // or(const, left) -> true
+        assert_eq!(array.as_constant(), Some(&true.into())); // or(const, left) -> true
 
         let array = Binary::try_new(right.clone(), right.clone(), Operator::Or)?
             .into_array()
             .optimize()?;
-        assert_eq!(array.as_constant(), Some(true.into())); // or(const, const) -> const
+        assert_eq!(array.as_constant(), Some(&true.into())); // or(const, const) -> const
 
         let left_false = ConstantArray::new(false, 3).into_array();
 
         let array = Binary::try_new(right.clone(), left_false.clone(), Operator::Or)?
             .into_array()
             .optimize()?;
-        assert_eq!(array.as_constant(), Some(true.into()));
+        assert_eq!(array.as_constant(), Some(&true.into()));
         let array = Binary::try_new(left_false, right, Operator::And)?
             .into_array()
             .optimize()?;
-        assert_eq!(array.as_constant(), Some(false.into()));
+        assert_eq!(array.as_constant(), Some(&false.into()));
 
         Ok(())
     }
 
     #[test]
     fn test_and_reduce_nullable() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let nullable_true =
             ConstantArray::new(Scalar::bool(true, Nullability::Nullable), 3).into_array();
         let right = BoolArray::from_iter([true, false, true]).into_array();
@@ -655,7 +659,7 @@ mod tests {
 
     #[test]
     fn test_isnull_and_reduce() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let left = BoolArray::from_iter([Some(true), Some(true), None]).into_array();
         let right = BoolArray::from_iter([true, false, true]).into_array();
 
@@ -680,7 +684,7 @@ mod tests {
 
     #[test]
     fn test_isnotnull_or_reduce() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let left = BoolArray::from_iter([Some(true), Some(true), None]).into_array();
         let right = BoolArray::from_iter([true, false, true]).into_array();
 

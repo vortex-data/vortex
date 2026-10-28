@@ -1,33 +1,53 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Scan execution over physical plans through the planner I/O and compute protocol.
+//! The planners of a V2 scan, and the prepared plans they run.
 //!
-//! A `ProjectionPlanner` emits one `ProjectionMorsel` for each fixed-size work chunk. The morsel
-//! runs the physical projection plan over the chunk's selected rows through
-//! the pipeline [`Scan`](crate::plan::physical::pipeline::Scan). Every segment read is published
-//! through a `ScanAdaptor`, so the planning driver can advance other work while reads wait.
+//! A [`PreparedScan`] holds a scan's plans over one file. An engine composes the planners over it
+//! and drives them: a [`PrunePlanner`] evaluates the filter's pruning plans over the scan's rows and
+//! emits the planner it was built to continue into, with the rows they keep; a [`ChunkPlanner`]
+//! cuts those rows into chunks and spawns a [`FilterPlanner`] or a [`ProjectionPlanner`] per
+//! chunk; a filter planner runs its chunk's conjuncts and emits a projection planner for the rows
+//! that survive; a projection planner emits one morsel per piece of its rows. A planner only
+//! says what it needs, compute or reads; where either runs is the engine's driver's decision.
 
 mod adaptor;
+mod chunk;
 mod filter;
-mod projection;
 mod primitive;
+mod projection;
+mod prune;
 mod selection;
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_buffer::Alignment;
+use vortex_io::request::IoService;
 use vortex_io::request::IoTarget;
 use vortex_mask::Mask;
+use vortex_scan::planning::planner::Planner;
 use vortex_scan::planning::planner::WorkScope;
+use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 
-pub(super) use self::selection::FilePlanner;
-pub(super) use self::filter::FilterPlans;
+pub use self::chunk::ChunkPlanner;
+pub(crate) use self::chunk::FILTERED_ROWS_PER_CHUNK;
+pub(crate) use self::chunk::MAX_ROWS_PER_CHUNK;
+pub(crate) use self::chunk::ROW_BLOCK_SIZE;
+#[cfg(test)]
+pub(crate) use self::chunk::row_chunks;
+pub(crate) use self::chunk::rows_per_chunk;
+use self::filter::FilterPlanner;
+pub use self::filter::FilterPlans;
+use self::projection::ProjectionPlanner;
+pub use self::prune::PruneNext;
+pub use self::prune::PrunePlanner;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::pipeline::ValueCache;
+use crate::scan::v2::ScanCache;
 
-/// Where a segment's bytes live in its source.
+/// Where a segment's bytes live in the file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SegmentLocation {
     /// Byte offset of the segment from the start of the source.
@@ -49,29 +69,72 @@ impl SegmentLocation {
     }
 }
 
-/// What every split of a scan shares: the projection plan and where its segments live.
-#[derive(Clone)]
-pub(super) struct ScanPlans {
+/// A scan's plans over one file, built once from the file's footer and read by every planner of
+/// the scan. Nothing here touches a segment, and no planner plans again.
+pub struct PreparedScan {
     /// The session used for decoding and expression evaluation.
     pub(super) session: VortexSession,
+    /// The rows of the root row domain the scan covers.
+    pub(super) rows: Range<u64>,
+    /// The rows of `rows` the scan selects.
+    pub(super) selection: Selection,
+    /// The service from which each planning run takes its read scope.
+    pub(super) io: Arc<dyn IoService>,
+    /// Whether the positional service may read verified primitive subranges.
+    pub(super) subsegment_reads: bool,
+    /// Held for the scan's life, so scans of the file that start meanwhile share it.
+    #[expect(dead_code, reason = "kept alive, never read")]
+    pub(super) cache: ScanCache,
     /// The location of every segment, indexed by segment id.
     pub(super) locations: Arc<[SegmentLocation]>,
     /// The optimized projection plan, over the scan's root row domain.
     pub(super) projection: PlanRef,
-    /// Conjuncts evaluated before the projection, sharing selectivity information across splits.
+    /// The filter's conjuncts, their plans and their pruning plans.
     pub(super) filter: Option<Arc<FilterPlans>>,
     /// The global row index of the root row domain's first row.
     pub(super) row_offset: u64,
-    /// Whole values, such as dictionary values, shared by the splits of this scan. Their plans
-    /// always read the same complete row domain, independently of a split's selection.
+    /// Whole values, such as dictionary values, shared by the chunks of this scan. Their plans
+    /// always read the same complete row domain, independently of a chunk's selection.
     pub(super) values: ValueCache,
-    /// Whether sparse primitive requests may omit unselected bytes.
-    pub(super) subsegment_reads: bool,
+    /// The rows of one chunk, the unit of work a chunk planner emits.
+    pub(super) chunk_rows: usize,
 }
 
-/// The rows of a split selected for projection.
-struct SelectedRows {
-    /// The split the rows belong to.
+impl PreparedScan {
+    /// The rows of the file's row domain the scan covers.
+    pub fn rows(&self) -> &Range<u64> {
+        &self.rows
+    }
+
+    /// The rows of [`rows`](Self::rows) the scan selects.
+    pub fn selection(&self) -> &Selection {
+        &self.selection
+    }
+
+    /// The filter's plans, when the scan has a filter.
+    pub fn filter(&self) -> Option<&FilterPlans> {
+        self.filter.as_deref()
+    }
+
+    /// The service from which a driver takes independent IO registration scopes.
+    pub fn io(&self) -> Arc<dyn IoService> {
+        Arc::clone(&self.io)
+    }
+
+    /// The planner of one chunk's selected rows: its conjuncts when the scan has a filter, else
+    /// its projection.
+    pub(super) fn split_planner(self: &Arc<Self>, selected: SelectedRows) -> Box<dyn Planner> {
+        if self.filter.is_some() {
+            Box::new(FilterPlanner::new(Arc::clone(self), selected))
+        } else {
+            Box::new(ProjectionPlanner::new(Arc::clone(self), selected))
+        }
+    }
+}
+
+/// The rows a planner works on: a chunk, and which of its rows are selected.
+pub(super) struct SelectedRows {
+    /// The chunk the rows belong to.
     scope: WorkScope,
     /// Which rows of `scope.rows` are selected.
     mask: Mask,

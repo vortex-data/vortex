@@ -47,7 +47,6 @@ mod values;
 
 pub use self::compile::Chain;
 pub use self::compile::Compiler;
-pub use self::compile::Reach;
 pub(crate) use self::compile::overlapping;
 pub(super) use self::port::Arena;
 pub use self::port::Inlet;
