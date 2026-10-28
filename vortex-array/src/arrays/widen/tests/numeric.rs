@@ -58,7 +58,14 @@ fn execute_like_canonical(
             Ok(Some(actual))
         }
         (Err(actual), Err(expected)) => {
-            assert_eq!(actual.to_string(), expected.to_string());
+            let actual = actual.to_string();
+            let expected = expected.to_string();
+
+            // Backtraces differ between the two execution paths.
+            assert_eq!(
+                actual.split("\nBacktrace:\n").next(),
+                expected.split("\nBacktrace:\n").next(),
+            );
             Ok(None)
         }
         (actual, expected) => panic!("expected {expected:?}, got {actual:?}"),
