@@ -12,13 +12,10 @@
 //! handled: their sort order agrees with the comparison kernels without float total-ordering
 //! caveats.
 
-use std::cmp::Ordering;
-
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -26,8 +23,6 @@ use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::Primitive;
-use crate::arrays::VarBinView;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::expr::stats::Precision;
@@ -35,10 +30,15 @@ use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::binary::compare::bytes::constant_bytes;
 use crate::scalar_fn::fns::binary::compare::compare_validity;
 use crate::scalar_fn::fns::binary::compare::extension_storage;
 use crate::scalar_fn::fns::operators::CompareOperator;
+use crate::search_sorted::IndexOrd;
+use crate::search_sorted::SearchResult;
+use crate::search_sorted::SearchSorted;
+use crate::search_sorted::SearchSortedArray;
+use crate::search_sorted::SearchSortedPrimitiveArray;
+use crate::search_sorted::SearchSortedSide;
 use crate::validity::Validity;
 
 /// Compare a sorted array against a constant, in either operand order.
@@ -133,35 +133,16 @@ fn sorted_bounds(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<SortedBounds> {
     let nulls = array.invalid_count(ctx)?;
-    if let Some(primitive) = array.as_opt::<Primitive>() {
-        return match_each_integer_ptype!(primitive.ptype(), |T| {
-            let value = constant
-                .as_primitive()
-                .try_typed_value::<T>()?
-                .ok_or_else(|| vortex_err!("null constant handled by compare_sorted_constant"))?;
-            let values = primitive.as_slice::<T>();
-            SortedBounds::search(nulls, values.len(), strict, |idx| {
-                Ok(values[idx].cmp(&value))
-            })
+    // Both searchers order nulls before every valid value, matching the sorted null prefix.
+    if let DType::Primitive(ptype, _) = array.dtype() {
+        return match_each_integer_ptype!(*ptype, |T| {
+            let value = constant.as_primitive().try_typed_value::<T>()?;
+            let searcher = SearchSortedPrimitiveArray::<T>::new(array, ctx);
+            SortedBounds::search(nulls, &searcher, &value, strict)
         });
     }
-    if let Some(views) = array.as_opt::<VarBinView>() {
-        let value = constant_bytes(constant)?;
-        let views = views.into_owned();
-        let side = views.resolved_views();
-        return SortedBounds::search(nulls, side.len(), strict, |idx| {
-            Ok(side.bytes(idx).cmp(value.as_slice()))
-        });
-    }
-    // Probe encoded arrays in O(log n) scalar accesses without decoding the whole array.
-    SortedBounds::search(nulls, array.len(), strict, |idx| {
-        array
-            .execute_scalar(idx, ctx)?
-            .partial_cmp(constant)
-            .ok_or_else(|| {
-                vortex_err!("Cannot compare {} with {}", array.dtype(), constant.dtype())
-            })
-    })
+    let searcher = SearchSortedArray::new(array, ctx);
+    SortedBounds::search(nulls, &searcher, constant, strict)
 }
 
 /// The range of a sorted array whose valid values equal the searched constant.
@@ -176,20 +157,23 @@ struct SortedBounds {
 }
 
 impl SortedBounds {
-    /// Locate the constant in `nulls..len`, where `cmp(idx)` orders the value at `idx` against
-    /// the constant.
-    fn search(
+    /// Locate `value` in `searcher`, whose first `nulls` elements are null.
+    fn search<V, S: IndexOrd<V>>(
         nulls: usize,
-        len: usize,
+        searcher: &S,
+        value: &V,
         strict: bool,
-        mut cmp: impl FnMut(usize) -> VortexResult<Ordering>,
     ) -> VortexResult<Self> {
-        let lower = partition_point(nulls, len, |idx| Ok(cmp(idx)?.is_lt()))?;
-        // A strictly sorted array holds at most one value equal to the constant.
-        let upper = if strict {
-            lower + usize::from(lower < len && cmp(lower)?.is_eq())
-        } else {
-            partition_point(lower, len, |idx| Ok(cmp(idx)?.is_le()))?
+        let (lower, upper) = match searcher.search_sorted(value, SearchSortedSide::Left)? {
+            SearchResult::NotFound(idx) => (idx, idx),
+            // A strictly sorted array holds at most one value equal to the constant.
+            SearchResult::Found(idx) if strict => (idx, idx + 1),
+            SearchResult::Found(idx) => (
+                idx,
+                searcher
+                    .search_sorted(value, SearchSortedSide::Right)?
+                    .to_index(),
+            ),
         };
         Ok(Self {
             nulls,
@@ -245,24 +229,6 @@ impl SortedBounds {
         bits.append_n(false, len - bits.len());
         bits.freeze()
     }
-}
-
-/// The first index in `lo..hi` for which `pred` is false, assuming `pred` is true for a prefix
-/// of the range and false for the rest.
-fn partition_point(
-    mut lo: usize,
-    mut hi: usize,
-    mut pred: impl FnMut(usize) -> VortexResult<bool>,
-) -> VortexResult<usize> {
-    while lo < hi {
-        let mid = lo + (hi - lo) / 2;
-        if pred(mid)? {
-            lo = mid + 1;
-        } else {
-            hi = mid;
-        }
-    }
-    Ok(lo)
 }
 
 #[cfg(test)]
