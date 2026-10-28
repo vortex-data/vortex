@@ -54,7 +54,8 @@ jobs:
                 '.github/workflows/deploy-vercel.yml',
               ]);
               eligible = files.some(file => [file.filename, file.previous_filename].some(
-                path => path && (path.startsWith('docs/') || workflows.has(path)),
+                path => path && (path.startsWith('docs/') ||
+                  path.startsWith('.github/vercel-cli/') || workflows.has(path)),
               ));
             }
             core.setOutput('eligible', eligible);

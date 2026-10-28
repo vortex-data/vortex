@@ -34,8 +34,8 @@ def html_routes(static: Path) -> list[dict]:
     )
     return [
         *(redirect(f"^/{re.escape(d)}$", f"/{d}/") for d in directories),
-        redirect(r"^/index\.html$", "/"),
-        redirect(r"^/(.+)/index\.html$", "/$1/"),
+        redirect(r"^/index(?:\.html)?$", "/"),
+        redirect(r"^/(.+)/index(?:\.html)?$", "/$1/"),
         redirect(r"^/(.+)\.html$", "/$1"),
         {"handle": "filesystem"},
         # Only reached when no file or directory matched.
