@@ -35,6 +35,7 @@ use crate::aggregate_fn::fns::nan_count::NanCount;
 use crate::aggregate_fn::fns::null_count::NullCount;
 use crate::aggregate_fn::fns::sum::PrimitiveGroupedSumEncodingKernel;
 use crate::aggregate_fn::fns::sum::Sum;
+use crate::aggregate_fn::fns::sum_v2::DictGroupedSumV2EncodingKernel;
 use crate::aggregate_fn::fns::sum_v2::PrimitiveGroupedSumV2EncodingKernel;
 use crate::aggregate_fn::fns::sum_v2::SumV2;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
@@ -153,6 +154,11 @@ impl Default for AggregateFnSession {
         this.register_aggregate_kernel(Widen.id(), Some(Sum.id()), &WidenArrayAggregate);
 
         // Register the built-in grouped aggregate kernels.
+        this.register_grouped_encoding_kernel(
+            Dict.id(),
+            SumV2.id(),
+            &DictGroupedSumV2EncodingKernel,
+        );
         this.register_grouped_kernel(Count.id(), &CountGroupedKernel);
         this.register_grouped_encoding_kernel(
             Primitive.id(),

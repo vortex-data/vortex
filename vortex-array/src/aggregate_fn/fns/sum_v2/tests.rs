@@ -29,6 +29,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
+use crate::arrays::DictArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
@@ -392,5 +393,34 @@ fn finalize_struct_applies_partial_and_struct_validity(
     let result = SumV2.finalize(dtypes.args(&options), partials)?;
     let expected = PrimitiveArray::from_option_iter(expected).into_array();
     assert_arrays_eq!(&result, &expected, &mut SESSION.create_execution_ctx());
+    Ok(())
+}
+
+#[test]
+fn grouped_dictionary_sum_preserves_nulls_and_empty_groups() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = PrimitiveArray::from_option_iter([Some(10i32), None, Some(-3)]).into_array();
+    let codes = PrimitiveArray::from_option_iter([
+        Some(0u8), Some(2), None, Some(1), Some(0), Some(2),
+    ]).into_array();
+    let elements = DictArray::try_new(codes, values)?.into_array();
+    let groups = ListViewArray::try_new(
+        elements,
+        buffer![0u32, 2, 4, 0, 0].into_array(),
+        buffer![2u32, 2, 2, 0, 2].into_array(),
+        Validity::from_iter([true, true, true, true, false]),
+        &mut ctx,
+    )?.into_array();
+    let mut accumulator = GroupedAccumulator::try_new(
+        SumV2,
+        NumericalAggregateOpts::default(),
+        DType::Primitive(PType::I32, Nullable),
+    )?;
+    accumulator.accumulate_list(&groups, &mut ctx)?;
+    let result = accumulator.finish()?;
+    let expected = PrimitiveArray::from_option_iter([
+        Some(7i64), None, Some(7), None, None,
+    ]).into_array();
+    assert_arrays_eq!(&result, &expected, &mut ctx);
     Ok(())
 }
