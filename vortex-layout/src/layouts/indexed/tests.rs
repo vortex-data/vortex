@@ -62,8 +62,8 @@ use crate::layouts::indexed::tests::fixed_superset::FixedSupersetIndex;
 use crate::layouts::indexed::tests::fixed_superset::INDEX_ROWS;
 use crate::layouts::repartition::RepartitionStrategy;
 use crate::layouts::repartition::RepartitionWriterOptions;
-use crate::layouts::zoned::writer::ZonedLayoutOptions;
-use crate::layouts::zoned::writer::ZonedStrategy;
+use crate::layouts::zoned::writer::ZoneOptions;
+use crate::layouts::zoned::writer::ZonedStrategyBuilder;
 use crate::scan::scan_builder::ScanBuilder;
 use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
@@ -853,14 +853,14 @@ async fn probing_loads_only_the_index_chunks_its_filter_cannot_prune() -> Vortex
     let session = new_session();
     // Two index rows per chunk, with a zone per chunk.
     let index = RepartitionStrategy::new(
-        ZonedStrategy::new(
-            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
-            FlatLayoutStrategy::default(),
-            ZonedLayoutOptions {
-                block_size: NonZeroUsize::new(2).ok_or_else(|| vortex_err!("non-zero"))?,
-                ..Default::default()
-            },
-        ),
+        ZonedStrategyBuilder::new()
+            .with_zones([ZoneOptions::new(
+                NonZeroUsize::new(2).ok_or_else(|| vortex_err!("non-zero"))?,
+            )])
+            .build(
+                ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+                FlatLayoutStrategy::default(),
+            ),
         RepartitionWriterOptions {
             block_size_minimum: 0,
             block_len_multiple: 2,

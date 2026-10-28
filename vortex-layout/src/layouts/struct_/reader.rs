@@ -646,8 +646,8 @@ mod tests {
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::table::TableStrategy;
-    use crate::layouts::zoned::writer::ZonedLayoutOptions;
-    use crate::layouts::zoned::writer::ZonedStrategy;
+    use crate::layouts::zoned::writer::ZoneOptions;
+    use crate::layouts::zoned::writer::ZonedStrategyBuilder;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -1689,14 +1689,12 @@ mod tests {
         let ctx = ArrayContext::empty();
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
-        let zoned = ZonedStrategy::new(
-            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
-            FlatLayoutStrategy::default(),
-            ZonedLayoutOptions {
-                block_size: NonZeroUsize::new(3).unwrap(),
-                ..Default::default()
-            },
-        );
+        let zoned = ZonedStrategyBuilder::new()
+            .with_zones([ZoneOptions::new(NonZeroUsize::new(3).unwrap())])
+            .build(
+                ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+                FlatLayoutStrategy::default(),
+            );
         let strategy = TableStrategy::new(Arc::new(FlatLayoutStrategy::default()), Arc::new(zoned));
         let chunk = |a: [i32; 3], b: [i32; 3]| {
             StructArray::from_fields(

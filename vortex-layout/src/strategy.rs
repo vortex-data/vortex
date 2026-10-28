@@ -8,6 +8,8 @@ use std::sync::atomic::Ordering;
 use async_trait::async_trait;
 use vortex_array::ArrayContext;
 use vortex_array::aggregate_fn::AggregateFnId;
+use vortex_array::dtype::Field;
+use vortex_array::dtype::FieldPath;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -76,6 +78,7 @@ pub struct LayoutWriterContext {
     array_ctx: ArrayContext,
     allowed_aggregates: Option<Arc<HashSet<AggregateFnId>>>,
     nullable_ancestor: bool,
+    field_path: FieldPath,
     buffered_bytes: BufferedBytesTracker,
 }
 
@@ -86,6 +89,7 @@ impl LayoutWriterContext {
             array_ctx,
             allowed_aggregates: None,
             nullable_ancestor: false,
+            field_path: FieldPath::root(),
             buffered_bytes: BufferedBytesTracker::new(),
         }
     }
@@ -124,6 +128,19 @@ impl LayoutWriterContext {
     /// Returns whether a nullable container above this write may hide some of its values.
     pub fn has_nullable_ancestor(&self) -> bool {
         self.nullable_ancestor
+    }
+
+    /// Marks this write as the child `field` of the column written so far.
+    pub fn with_field(self, field: impl Into<Field>) -> Self {
+        Self {
+            field_path: self.field_path.push(field),
+            ..self
+        }
+    }
+
+    /// Returns the path from the root of the write to the column this write produces.
+    pub fn field_path(&self) -> &FieldPath {
+        &self.field_path
     }
 
     /// Replaces the buffered bytes tracker, so callers can observe the counter from outside the

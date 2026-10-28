@@ -236,6 +236,11 @@ impl LayoutStrategy for StructStrategy {
                 } else {
                     ctx.clone()
                 };
+                let ctx = if is_validity {
+                    ctx
+                } else {
+                    ctx.with_field(name.clone())
+                };
                 let segment_sink = Arc::clone(&segment_sink);
                 handle.spawn_nested(move |_| {
                     // Validity is written through the validity strategy; every other field
@@ -288,8 +293,8 @@ mod tests {
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::table::TableStrategy;
     use crate::layouts::zoned::Zoned;
-    use crate::layouts::zoned::writer::ZonedLayoutOptions;
-    use crate::layouts::zoned::writer::ZonedStrategy;
+    use crate::layouts::zoned::writer::ZoneOptions;
+    use crate::layouts::zoned::writer::ZonedStrategyBuilder;
     use crate::segments::TestSegments;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::test::FailingStrategy;
@@ -300,14 +305,16 @@ mod tests {
     fn field_has_zone_map(validity: Validity) -> VortexResult<bool> {
         let strategy = StructStrategy::new(
             Arc::new(FlatLayoutStrategy::default()),
-            Arc::new(ZonedStrategy::new(
-                ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
-                FlatLayoutStrategy::default(),
-                ZonedLayoutOptions {
-                    block_size: NonZeroUsize::new(3).vortex_expect("non zero"),
-                    ..Default::default()
-                },
-            )),
+            Arc::new(
+                ZonedStrategyBuilder::new()
+                    .with_zones([ZoneOptions::new(
+                        NonZeroUsize::new(3).vortex_expect("non zero"),
+                    )])
+                    .build(
+                        ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+                        FlatLayoutStrategy::default(),
+                    ),
+            ),
         );
         let is_nullable = validity.nullability().is_nullable();
         let (ptr, eof) = SequenceId::root().split();
@@ -340,14 +347,16 @@ mod tests {
     fn write_table(array: StructArray) -> VortexResult<LayoutRef> {
         let strategy = TableStrategy::new(
             Arc::new(FlatLayoutStrategy::default()),
-            Arc::new(ZonedStrategy::new(
-                ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
-                FlatLayoutStrategy::default(),
-                ZonedLayoutOptions {
-                    block_size: NonZeroUsize::new(3).vortex_expect("non zero"),
-                    ..Default::default()
-                },
-            )),
+            Arc::new(
+                ZonedStrategyBuilder::new()
+                    .with_zones([ZoneOptions::new(
+                        NonZeroUsize::new(3).vortex_expect("non zero"),
+                    )])
+                    .build(
+                        ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+                        FlatLayoutStrategy::default(),
+                    ),
+            ),
         );
         let (ptr, eof) = SequenceId::root().split();
         let stream = array.into_array().to_array_stream().sequenced(ptr);
