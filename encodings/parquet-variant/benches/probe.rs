@@ -54,14 +54,14 @@ fn fixture(mode: &str) -> ArrayRef {
     }))
     .into_array();
     let value = (mode != "typed").then(|| {
-        VarBinViewArray::from_iter_nullable_bin((0..LEN).map(|index| {
-            (mode == "raw" || index % 2 == 0).then_some(raw_value.as_slice())
-        }))
+        VarBinViewArray::from_iter_nullable_bin(
+            (0..LEN).map(|index| (mode == "raw" || index % 2 == 0).then_some(raw_value.as_slice())),
+        )
         .into_array()
     });
     let typed_value = (mode != "raw").then(|| {
         PrimitiveArray::from_option_iter((0..LEN).map(|index| {
-            (mode == "typed" || index % 2 == 1).then_some(index as i32)
+            (mode == "typed" || index % 2 == 1).then_some(i32::try_from(index).unwrap())
         }))
         .into_array()
     });
@@ -85,7 +85,11 @@ fn one_off(bencher: Bencher, (mode, pattern): (&str, &str)) {
         .with_inputs(|| SESSION.create_execution_ctx())
         .bench_refs(|ctx| {
             for read in 0..ACCESSES {
-                divan::black_box(array.execute_scalar(read_index(pattern, read), ctx).unwrap());
+                divan::black_box(
+                    array
+                        .execute_scalar(read_index(pattern, read), ctx)
+                        .unwrap(),
+                );
             }
         });
 }
@@ -97,7 +101,11 @@ fn repeated(bencher: Bencher, (mode, pattern): (&str, &str)) {
         .with_inputs(|| (SESSION.create_execution_ctx(), array.repeated_probe()))
         .bench_refs(|(ctx, probe)| {
             for read in 0..ACCESSES {
-                divan::black_box(probe.execute_scalar(read_index(pattern, read), ctx).unwrap());
+                divan::black_box(
+                    probe
+                        .execute_scalar(read_index(pattern, read), ctx)
+                        .unwrap(),
+                );
             }
         });
 }

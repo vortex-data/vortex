@@ -390,7 +390,6 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
@@ -420,8 +419,8 @@ mod tests {
     #[test]
     fn test_scalar_probe_consistency() -> VortexResult<()> {
         let (metadata, raw) = VariantBuilder::new().with_value("fallback").finish();
-        let metadata = VarBinViewArray::from_iter_bin((0..4).map(|_| metadata.as_slice()))
-            .into_array();
+        let metadata =
+            VarBinViewArray::from_iter_bin((0..4).map(|_| metadata.as_slice())).into_array();
         let value = VarBinViewArray::from_iter_nullable_bin([
             Some(raw.as_slice()),
             None,
@@ -453,7 +452,10 @@ mod tests {
         let sliced = array.slice(1..4)?;
         let mut sliced_probe = sliced.repeated_probe();
         for index in [0, 2, 1, 0] {
-            assert_eq!(sliced_probe.execute_scalar(index, &mut ctx)?, expected[index + 1]);
+            assert_eq!(
+                sliced_probe.execute_scalar(index, &mut ctx)?,
+                expected[index + 1]
+            );
         }
         Ok(())
     }

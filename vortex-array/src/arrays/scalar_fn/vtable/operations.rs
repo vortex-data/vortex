@@ -205,10 +205,7 @@ mod tests {
         assert_eq!(scalar_fn_array.len(), 3);
         assert_eq!(scalar_fn_array.child_count(), 0);
         let scalar_fn_array = scalar_fn_array.into_array();
-        test_scalar_probe_consistency(
-            &scalar_fn_array,
-            &mut SESSION.create_execution_ctx(),
-        );
+        test_scalar_probe_consistency(&scalar_fn_array, &mut SESSION.create_execution_ctx());
         assert_arrays_eq!(
             scalar_fn_array,
             ConstantArray::new(list, 3),
