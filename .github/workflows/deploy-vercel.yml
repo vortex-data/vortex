@@ -52,6 +52,11 @@ jobs:
     name: Deploy
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # One production deploy per project at a time, so the check of the live
+    # production commit in the Deploy step cannot race. Previews never wait.
+    concurrency:
+      group: deploy-vercel-${{ inputs.environment }}-${{ inputs.production && 'production' || github.run_id }}
+      cancel-in-progress: false
     permissions:
       contents: read
       deployments: write
@@ -112,14 +117,28 @@ jobs:
           VERCEL_CLI: ${{ github.workspace }}/.github/vercel-cli/node_modules/.bin/vercel
           PRODUCTION: ${{ inputs.production }}
           ENVIRONMENT: ${{ inputs.environment }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ -z "$VERCEL_TOKEN" ]; then
             echo "::error::VERCEL_TOKEN is empty. Store it in the $ENVIRONMENT environment and call this workflow with 'secrets: inherit'."
             exit 1
           fi
-          args=(deploy --prebuilt --non-interactive --format json)
+          # The commit tag lets a later production deploy see what is live.
+          args=(deploy --prebuilt --non-interactive --format json --meta "githubCommitSha=$GITHUB_SHA")
           if [ "$PRODUCTION" = "true" ]; then
+            # Runs for overlapping pushes do not cancel each other, so an older
+            # build can finish last. Do not replace a newer production deploy.
+            # If production cannot be read, deploy anyway.
+            live=$(curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "https://api.vercel.com/v6/deployments?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_ORG_ID&target=production&state=READY&limit=1" \
+              | jq -r '.deployments[0].meta.githubCommitSha // empty') ||
+              { echo "::warning::Could not read the production deployment."; live=""; }
+            if [ -n "$live" ] && [ "$live" != "$GITHUB_SHA" ] &&
+               [ "$(gh api "repos/$GITHUB_REPOSITORY/compare/$live...$GITHUB_SHA" --jq .status)" = "behind" ]; then
+              echo "::notice::Skipped: production serves $live, which is newer than $GITHUB_SHA."
+              exit 0
+            fi
             args+=(--prod)
           fi
           url=$("$VERCEL_CLI" "${args[@]}" | jq -er '.deployment.url')
