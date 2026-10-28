@@ -84,7 +84,6 @@ use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
 use crate::persistent::reader::VortexReaderFactory;
 use crate::persistent::scan_v2::ScanDriver;
-use crate::persistent::scan_v2::rebalance_batches;
 use crate::persistent::source::FileVersion;
 use crate::persistent::stream::PrunableStream;
 
@@ -143,7 +142,6 @@ pub(crate) struct VortexOpener {
     /// How many partitions the engine runs the scan on, so a V2 scan parallelises inside a
     /// partition only as far as the engine has not.
     pub partitions: usize,
-    pub batch_size: usize,
 }
 
 impl FileOpener for VortexOpener {
@@ -183,7 +181,6 @@ impl FileOpener for VortexOpener {
         let has_output_ordering = self.has_output_ordering;
         let scan_concurrency = self.scan_concurrency;
         let partitions = self.partitions.max(1);
-        let batch_size = self.batch_size;
         let scan_v2 = self.scan_v2;
 
         let expr_converter = Arc::clone(&self.expression_converter);
@@ -451,7 +448,6 @@ impl FileOpener for VortexOpener {
                 )?;
                 Ok(RecordBatch::from(arrow.as_struct().clone()))
             };
-            let rebalance = limit.is_none() && native_filter.is_none() && residual_filter.is_none();
             let stream = if scan_v2 {
                 let mut scan_file = vxf.scan_file();
                 scan_file.segments =
@@ -507,12 +503,7 @@ impl FileOpener for VortexOpener {
                 };
 
                 let driver = ScanDriver::new(handle, concurrency, has_output_ordering);
-                let batches = driver.run(scan, root, map_batch);
-                Ok(if rebalance {
-                    rebalance_batches(batches, batch_size)
-                } else {
-                    batches
-                })
+                Ok(driver.run(scan, root, map_batch))
             } else {
                 // Share V1 layout readers across partitions of the file.
                 let layout_reader = match layout_readers.entry(file.object_meta.location.clone()) {
@@ -1171,7 +1162,6 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
-            batch_size: 8192,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1582,7 +1572,6 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
-            batch_size: 8192,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1675,7 +1664,6 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
-            batch_size: 8192,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1859,7 +1847,6 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
-            batch_size: 8192,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1925,7 +1912,6 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
-            batch_size: 8192,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -2142,7 +2128,6 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
-            batch_size: 8192,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
