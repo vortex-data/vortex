@@ -28,7 +28,6 @@ use vortex_array::aggregate_fn::fns::sum;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::DictArray;
 use vortex_array::arrays::InterleaveArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::WidenArray;
@@ -80,8 +79,8 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 // under 1 ms.
 const LEN: usize = 32_768;
 
-/// The number of values of the dictionary in `dict_take`, so that a `u8` code can index each one.
-const DICT_VALUES_LEN: usize = 256;
+/// The number of values in `take_many_indices`, so that a `u8` index can address each one.
+const FEW_VALUES_LEN: usize = 256;
 
 const I64: DType = DType::Primitive(PType::I64, Nullability::NonNullable);
 const F64: DType = DType::Primitive(PType::F64, Nullability::NonNullable);
@@ -251,43 +250,42 @@ fn filter(bencher: Bencher, input: Input) {
     );
 }
 
+/// Gathers [`LEN`] / 4 rows from [`LEN`] values.
+///
+/// The `widen` input gathers the `i16` values and then widens only the gathered rows. The
+/// `decoded` input widens every value before the gather.
 #[divan::bench(args = INPUTS)]
-fn take(bencher: Bencher, input: Input) {
+fn take_few_indices(bencher: Bencher, input: Input) {
     let values = Values::random(0, LEN);
     let mut rng = StdRng::seed_from_u64(3);
     let len = u32::try_from(LEN).vortex_expect("LEN fits u32");
-    let take_indices: Buffer<u32> = (0..LEN / 4).map(|_| rng.random_range(0..len)).collect();
+    let indices: Buffer<u32> = (0..LEN / 4).map(|_| rng.random_range(0..len)).collect();
     bench_case(
         bencher,
-        || (values.array(input), take_indices.clone().into_array()),
+        || (values.array(input), indices.clone().into_array()),
         |(array, indices), ctx| execute_canonical(input.prepare(array, ctx).take(indices), ctx),
     );
 }
 
-/// A dictionary whose codes far outnumber its values.
+/// Gathers [`LEN`] rows from [`FEW_VALUES_LEN`] values, as a dictionary gathers its values by its
+/// codes.
 ///
-/// Under a real `Dict`, the `Widen` take kernel gathers every code from the narrow values, and
-/// execution then widens the gathered rows. The `decoded` input widens only the dictionary values.
+/// The `widen` input gathers the `i16` values and then widens every gathered row. The `decoded`
+/// input widens only the few values before the gather.
 #[divan::bench(args = INPUTS)]
-fn dict_take(bencher: Bencher, input: Input) {
-    let values = Values::random(0, DICT_VALUES_LEN);
+fn take_many_indices(bencher: Bencher, input: Input) {
+    let values = Values::random(0, FEW_VALUES_LEN);
     let mut rng = StdRng::seed_from_u64(3);
-    let codes: Buffer<u8> = (0..LEN)
+    let indices: Buffer<u8> = (0..LEN)
         .map(|_| {
-            u8::try_from(rng.random_range(0..DICT_VALUES_LEN))
-                .vortex_expect("DICT_VALUES_LEN keeps every code within u8")
+            u8::try_from(rng.random_range(0..FEW_VALUES_LEN))
+                .vortex_expect("FEW_VALUES_LEN keeps every index within u8")
         })
         .collect();
     bench_case(
         bencher,
-        || (values.array(input), codes.clone().into_array()),
-        |(values, codes), ctx| {
-            let values = input.prepare(values, ctx);
-            execute_canonical(
-                DictArray::try_new(codes, values).map(IntoArray::into_array),
-                ctx,
-            )
-        },
+        || (values.array(input), indices.clone().into_array()),
+        |(array, indices), ctx| execute_canonical(input.prepare(array, ctx).take(indices), ctx),
     );
 }
 
