@@ -435,6 +435,14 @@ impl FileOpener for VortexOpener {
 
             let stream_target_field = Field::new_struct("", stream_schema.fields().clone(), false);
             let residual_path = file.path().clone();
+            let batch_trace = std::env::var_os("VORTEX_TRACE_SCAN_BATCHES").map(|_| {
+                static NEXT_STREAM: std::sync::atomic::AtomicU64 =
+                    std::sync::atomic::AtomicU64::new(0);
+                (
+                    NEXT_STREAM.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+                    format!("{}:{:?}", file.path(), byte_range),
+                )
+            });
             let native_limit = limit
                 .filter(|_| scan_v2 && residual_filter.is_none())
                 .map(|limit| (limit, Arc::clone(&output_schema)));
@@ -605,6 +613,26 @@ impl FileOpener for VortexOpener {
             })
             .filter_map(|batch| ready(batch.transpose()))
             .boxed();
+
+            let stream = if let Some((stream_id, label)) = batch_trace {
+                let mut index = 0usize;
+                stream
+                    .inspect_ok(move |batch| {
+                        index += 1;
+                        eprintln!(
+                            "SCAN_BATCH v2={} stream={} index={} rows={} file={:?} columns={:?}",
+                            scan_v2,
+                            stream_id,
+                            index,
+                            batch.num_rows(),
+                            label,
+                            batch.schema().fields().iter().map(|f| f.name()).collect::<Vec<_>>(),
+                        );
+                    })
+                    .boxed()
+            } else {
+                stream
+            };
 
             let stream = if let Some((limit, schema)) = native_limit {
                 LimitStream::new(
