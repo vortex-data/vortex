@@ -145,7 +145,8 @@ struct OnPairDictionaryStorage {
     offsets: Buffer<u32>,
 }
 
-impl DictionaryStorage<u32> for OnPairDictionaryStorage {
+// SAFETY: owned immutable buffers retain stable slices for the storage's lifetime.
+unsafe impl DictionaryStorage<u32> for OnPairDictionaryStorage {
     #[inline]
     fn bytes(&self) -> &[u8] {
         self.bytes.as_slice()
