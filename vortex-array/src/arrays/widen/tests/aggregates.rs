@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Debug;
 use std::num::NonZeroUsize;
 
 use rstest::rstest;
@@ -91,7 +92,7 @@ fn canonical_batch(
 
 /// Runs the kernel that the session registers for `aggregate` on `Widen` over `array`, and returns
 /// its partial, or `None` when no kernel is registered or the kernel declines.
-fn kernel_partial(
+pub(super) fn kernel_partial(
     aggregate: &AggregateFnRef,
     array: &ArrayRef,
     ctx: &mut ExecutionCtx,
@@ -105,26 +106,30 @@ fn kernel_partial(
     }
 }
 
-/// Accumulates `batches` of `dtype` with `aggregate` once as [`WidenArray::encode`] encodes them
-/// and once as canonical arrays, and asserts that the running partials and the results are equal.
+/// Accumulates `batches` of `dtype` with `aggregate` once as `encode` encodes them and once as
+/// the canonical arrays that `build_batch` builds, and asserts that the running partials and the
+/// results are equal.
 ///
 /// On each batch that encodes to a `Widen`, the kernel must return a partial exactly when
 /// `served`, and the partial must equal the partial of a fresh accumulator on the canonical batch.
-/// Encoding and each accumulator get their own canonical batch, because both cache statistics on
-/// the array they read, and an accumulator reads a cached statistic instead of the data.
+/// Encoding and each accumulator get their own canonical batch from `build_batch`, because both
+/// cache statistics on the array they read, and an accumulator reads a cached statistic instead of
+/// the data.
 #[track_caller]
-fn assert_aggregate_batches(
+pub(super) fn assert_aggregate_batches<T: Debug, C: IntoArray>(
     aggregate: &AggregateFnRef,
     served: bool,
-    batches: &[Vec<Option<i64>>],
+    batches: &[T],
     dtype: &DType,
+    mut build_batch: impl FnMut(&T, &DType, &mut ExecutionCtx) -> VortexResult<C>,
+    mut encode: impl FnMut(C, &mut ExecutionCtx) -> VortexResult<ArrayRef>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
     let mut actual = aggregate.accumulator(dtype)?;
     let mut expected = aggregate.accumulator(dtype)?;
 
     for values in batches {
-        let encoded = WidenArray::encode(canonical_batch(values, dtype, ctx)?, ctx)?;
+        let encoded = encode(build_batch(values, dtype, ctx)?, ctx)?;
 
         if encoded.is::<Widen>() {
             let partial = kernel_partial(aggregate, &encoded, ctx)?;
@@ -132,13 +137,13 @@ fn assert_aggregate_batches(
 
             if let Some(partial) = partial {
                 let mut reference = aggregate.accumulator(dtype)?;
-                reference.accumulate(&canonical_batch(values, dtype, ctx)?.into_array(), ctx)?;
+                reference.accumulate(&build_batch(values, dtype, ctx)?.into_array(), ctx)?;
                 assert_eq!(partial, reference.flush()?, "{aggregate} on {values:?}");
             }
         }
 
         actual.accumulate(&encoded, ctx)?;
-        expected.accumulate(&canonical_batch(values, dtype, ctx)?.into_array(), ctx)?;
+        expected.accumulate(&build_batch(values, dtype, ctx)?.into_array(), ctx)?;
         assert_eq!(
             actual.partial_scalar()?,
             expected.partial_scalar()?,
@@ -230,7 +235,15 @@ fn test_aggregate_partials(
     let dtype = DType::Primitive(logical, nullability);
 
     for (aggregate, served) in aggregates() {
-        assert_aggregate_batches(&aggregate, served, &batches, &dtype, &mut ctx)?;
+        assert_aggregate_batches(
+            &aggregate,
+            served,
+            &batches,
+            &dtype,
+            |values, dtype, ctx| canonical_batch(values, dtype, ctx),
+            WidenArray::encode,
+            &mut ctx,
+        )?;
     }
 
     Ok(())

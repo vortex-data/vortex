@@ -10,6 +10,7 @@
 mod aggregates;
 mod compute;
 mod decimal;
+mod decimal_aggregates;
 mod decimal_compare;
 mod decimal_fallback;
 mod encoding;

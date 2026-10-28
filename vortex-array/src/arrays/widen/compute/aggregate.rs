@@ -7,6 +7,11 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::fns::is_constant::IsConstant;
+use crate::aggregate_fn::fns::is_sorted::IsSorted;
+use crate::aggregate_fn::fns::max::Max;
+use crate::aggregate_fn::fns::min::Min;
+use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::sum::Sum;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::arrays::Widen;
@@ -19,7 +24,10 @@ use crate::scalar::Scalar;
 ///
 /// The values run the same accumulator code as the canonical array, so edge cases such as an empty
 /// batch or a single null match by construction, and the values keep their own cached statistics
-/// and kernels. [`Sum`] is served only when [`is_exact_sum`] holds.
+/// and kernels. Decimal widening preserves order, equality and validity, so extrema, constancy and
+/// sortedness have the same partial after widening. Decimal sums must use the logical precision
+/// to select their accumulator, so they fall back to execution. Integer [`Sum`] is served only
+/// when [`is_exact_sum`] holds.
 #[derive(Debug)]
 pub(crate) struct WidenArrayAggregate;
 
@@ -34,10 +42,19 @@ impl DynAggregateKernel for WidenArrayAggregate {
             return Ok(None);
         };
 
-        // NB: Exactness rests on integer decoding. A decimal `Widen` (CD4 in #10733) needs its own
-        // argument, because `Sum` checks a decimal for overflow against the precision of its input.
-        if !batch.dtype().is_int() {
-            return Ok(None);
+        match batch.dtype() {
+            DType::Decimal(..) => {
+                if !(aggregate_fn.is::<MinMax>()
+                    || aggregate_fn.is::<Min>()
+                    || aggregate_fn.is::<Max>()
+                    || aggregate_fn.is::<IsConstant>()
+                    || aggregate_fn.is::<IsSorted>())
+                {
+                    return Ok(None);
+                }
+            }
+            dtype if dtype.is_int() => {}
+            _ => return Ok(None),
         }
 
         let values = widen.values();
@@ -49,8 +66,7 @@ impl DynAggregateKernel for WidenArrayAggregate {
         accumulator.accumulate(values, ctx)?;
 
         let partial_dtype = aggregate_fn.state_dtype(batch.dtype()).vortex_expect(
-            "an aggregate that accepts the values accepts the logical dtype, which is a wider \
-             integer of the same signedness",
+            "the served aggregate accepts the logical dtype when it accepts the narrower values",
         );
 
         Ok(Some(accumulator.flush()?.cast(&partial_dtype)?))
