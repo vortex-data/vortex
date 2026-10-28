@@ -271,6 +271,9 @@ tar = "0.4"
 target-lexicon = "0.13"
 temp-env = "0.3"
 tempfile = "3"
+# t4, a cache of object stores in memory and on local drives (vortex-io's `t4`
+# feature). By path while it is unpublished.
+t4 = { path = "../t4" }
 termtree = { version = "1.0" }
 test-with = "=0.16.3"
 thiserror = "2.0.3"

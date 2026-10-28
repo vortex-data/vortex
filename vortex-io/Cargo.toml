@@ -43,6 +43,7 @@ vortex-utils = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 custom-labels = { workspace = true }
+t4 = { workspace = true, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Smol is our default impl, so we don't want it to be optional, but it cannot be part of wasm
@@ -62,6 +63,7 @@ tokio = { workspace = true, features = ["full"] }
 
 [features]
 object_store = ["dep:object_store", "vortex-error/object_store"]
+t4 = ["dep:t4", "object_store"]
 tokio = ["tokio/fs", "tokio/rt-multi-thread"]
 wasm-bindgen = ["dep:wasm-bindgen-futures"]
 
