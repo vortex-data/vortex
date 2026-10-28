@@ -104,8 +104,13 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_CLI: ${{ github.workspace }}/.github/vercel-cli/node_modules/.bin/vercel
           PRODUCTION: ${{ inputs.production }}
+          ENVIRONMENT: ${{ inputs.environment }}
         run: |
           set -euo pipefail
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::error::VERCEL_TOKEN is empty. Store it in the $ENVIRONMENT environment and call this workflow with 'secrets: inherit'."
+            exit 1
+          fi
           args=(deploy --prebuilt --non-interactive --format json)
           if [ "$PRODUCTION" = "true" ]; then
             args+=(--prod)
