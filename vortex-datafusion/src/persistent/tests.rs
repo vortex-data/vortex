@@ -328,6 +328,29 @@ async fn test_lambda_projection_with_pushdown() -> anyhow::Result<()> {
         +----+---------+-------+-------------+
         ");
 
+    // A lambda that reads a column stays in DataFusion, and so does the rest of the projection.
+    let result = ctx
+        .session
+        .sql(
+            "SELECT id, \
+                    array_sum(xs) AS total, \
+                    array_transform(xs, lambda x: x + id) AS shifted \
+             FROM written_lists \
+             ORDER BY id",
+        )
+        .await?
+        .collect()
+        .await?;
+
+    assert_snapshot!(pretty_format_batches(&result)?, @r"
+        +----+-------+----------+
+        | id | total | shifted  |
+        +----+-------+----------+
+        | 1  | 3.0   | [2, , 3] |
+        | 2  | 0.0   | [2, 2]   |
+        +----+-------+----------+
+        ");
+
     Ok(())
 }
 
