@@ -136,8 +136,14 @@ fn scalar_probe_handles_empty_pieces_mixed_widths_and_revisits() -> VortexResult
     let mut ctx = SESSION.create_execution_ctx();
     let mut probe = array.repeated_probe();
     for index in [5, 0, 4, 1, 3, 2, 0, 5] {
-        assert_eq!(probe.execute_scalar(index, &mut ctx)?, expected[index].into());
-        assert_eq!(array.execute_scalar(index, &mut ctx)?, expected[index].into());
+        assert_eq!(
+            probe.execute_scalar(index, &mut ctx)?,
+            expected[index].into()
+        );
+        assert_eq!(
+            array.execute_scalar(index, &mut ctx)?,
+            expected[index].into()
+        );
     }
 
     let slice = array.slice(1..5)?;
@@ -187,7 +193,10 @@ fn scalar_probe_preserves_deferred_range_errors() -> VortexResult<()> {
         short.execute_scalar(2, &mut ctx).unwrap_err(),
         probe.execute_scalar(2, &mut ctx).unwrap_err(),
     ] {
-        assert!(error.to_string().contains("index 2 out of bounds"), "{error}");
+        assert!(
+            error.to_string().contains("index 2 out of bounds"),
+            "{error}"
+        );
     }
     Ok(())
 }
@@ -195,10 +204,7 @@ fn scalar_probe_preserves_deferred_range_errors() -> VortexResult<()> {
 #[test]
 fn scalar_probe_reads_chunked_lengths() -> VortexResult<()> {
     let lengths = ChunkedArray::try_new(
-        vec![
-            buffer![2u16, 0].into_array(),
-            buffer![1u16, 2].into_array(),
-        ],
+        vec![buffer![2u16, 0].into_array(), buffer![1u16, 2].into_array()],
         DType::from(PType::U16),
     )?
     .into_array();

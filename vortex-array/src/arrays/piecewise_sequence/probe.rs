@@ -4,6 +4,7 @@
 use std::ops::Range;
 
 use num_traits::AsPrimitive;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -65,7 +66,7 @@ pub(super) fn scalar_at(
         .clone();
 
     let located = if let Some(constant) = lengths.as_constant() {
-        let length = unsigned_scalar_usize(&constant)?;
+        let length = unsigned_scalar_usize(constant)?;
         if length == 0 || index / length >= lengths.len() {
             return Err(out_of_bounds(index));
         }
@@ -83,7 +84,7 @@ pub(super) fn scalar_at(
         retained
             .index
             .as_mut()
-            .expect("index was just prepared")
+            .vortex_expect("index was just prepared")
             .locate(&lengths, index, output_len, ctx)?
     } else {
         locate_once(&lengths, index, output_len, ctx)?
@@ -262,7 +263,9 @@ fn unsigned_scalar_usize(scalar: &Scalar) -> VortexResult<usize> {
         Some(PValue::U16(value)) => Ok(value as usize),
         Some(PValue::U32(value)) => Ok(value as usize),
         Some(PValue::U64(value)) => Ok(value.as_()),
-        _ => Err(vortex_err!("PiecewiseSequence child value is not an unsigned integer")),
+        _ => Err(vortex_err!(
+            "PiecewiseSequence child value is not an unsigned integer"
+        )),
     }
 }
 

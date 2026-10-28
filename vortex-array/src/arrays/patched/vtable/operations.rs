@@ -47,7 +47,10 @@ impl OperationsVTable<Patched> for Patched {
 
         let physical_index = index + array.offset();
         let chunk = physical_index / 1024;
-        #[expect(clippy::cast_possible_truncation, reason = "Index modulo 1024 fits in u16")]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "Index modulo 1024 fits in u16"
+        )]
         let chunk_index = (physical_index % 1024) as u16;
         let lane = physical_index % array.n_lanes();
         let lane_index = chunk * array.n_lanes() + lane;
@@ -72,7 +75,8 @@ impl OperationsVTable<Patched> for Patched {
             range
         };
 
-        let patch_position = patch_position(&mut children, cache, cache_hit, range, chunk_index, ctx)?;
+        let patch_position =
+            patch_position(&mut children, cache, cache_hit, range, chunk_index, ctx)?;
 
         if let Some(position) = patch_position {
             return children
@@ -189,8 +193,8 @@ fn lane_range(
             .ok_or_else(|| vortex_err!("Patched lane end is out of bounds"))?;
         let start = usize::try_from(start)
             .map_err(|_| vortex_err!("Patched lane start does not fit usize"))?;
-        let end = usize::try_from(end)
-            .map_err(|_| vortex_err!("Patched lane end does not fit usize"))?;
+        let end =
+            usize::try_from(end).map_err(|_| vortex_err!("Patched lane end does not fit usize"))?;
         return Ok(start..end);
     }
 
@@ -212,6 +216,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -353,9 +358,9 @@ mod tests {
 
     fn probe_fixture() -> VortexResult<ArrayRef> {
         let mut ctx = SESSION.create_execution_ctx();
-        let values = PrimitiveArray::from_option_iter((0..3072).map(|index| {
-            (![32, 65, 1024].contains(&index)).then_some(index as u32)
-        }))
+        let values = PrimitiveArray::from_option_iter(
+            (0..3072).map(|index| (![32, 65, 1024].contains(&index)).then_some(index as u32)),
+        )
         .into_array();
         let patches = Patches::new(
             3072,
@@ -374,7 +379,7 @@ mod tests {
             31 => Some(9001),
             1056 => Some(9004),
             2048 => Some(9005),
-            _ => Some(index as u32),
+            _ => Some(u32::try_from(index).vortex_expect("fixture index fits u32")),
         }
     }
 
@@ -385,8 +390,7 @@ mod tests {
     ) -> VortexResult<()> {
         let mut repeated = array.repeated_probe();
         for absolute in [
-            0, 31, 32, 33, 63, 64, 65, 1023, 1024, 1025, 1056, 2048, 2099, 3071, 31,
-            1056, 32,
+            0, 31, 32, 33, 63, 64, 65, 1023, 1024, 1025, 1056, 2048, 2099, 3071, 31, 1056, 32,
         ] {
             if absolute < start || absolute >= start + array.len() {
                 continue;
