@@ -6,6 +6,8 @@
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::buffer::BufferHandle;
@@ -51,11 +53,13 @@ const SELECT_BLOCK_ROWS: usize = 8192;
 ///
 /// A sparse `filter` is applied to the runs of blocks holding selected rows only, so an encoding
 /// that decodes every block of the range it filters, such as Pco or Zstd, skips the blocks the
-/// filter empties.
+/// filter empties. The runs' rows are then concatenated into one canonical array: they are few,
+/// and a consumer handed one piece per run would pay for each.
 fn select(
     array: ArrayRef,
     slice: Option<&Range<usize>>,
     filter: Option<&Mask>,
+    session: &VortexSession,
 ) -> VortexResult<ArrayRef> {
     let first_row = slice.map_or(0, |slice| slice.start);
     let array = match slice {
@@ -72,7 +76,11 @@ fn select(
         .into_iter()
         .map(|run| array.slice(run.clone())?.filter(filter.slice(run)))
         .collect::<VortexResult<Vec<_>>>()?;
-    Ok(ChunkedArray::try_new(pieces, array.dtype().clone())?.into_array())
+    let mut ctx = session.create_execution_ctx();
+    Ok(ChunkedArray::try_new(pieces, array.dtype().clone())?
+        .into_array()
+        .execute::<Canonical>(&mut ctx)?
+        .into_array())
 }
 
 /// The runs of `filter`, whose first position is row `first_row` of its segment, that cover the
@@ -153,6 +161,7 @@ impl Operator for ScanSource {
             array,
             self.slice.as_ref(),
             self.filter.as_ref(),
+            cx.session(),
         )?))
     }
 }

@@ -10,10 +10,13 @@ use futures::FutureExt;
 use object_store::registry::ObjectStoreRegistry;
 use url::Url;
 use vortex::array::ArrayRef;
+use vortex::array::IntoArray;
 use vortex::array::arrays::Chunked;
+use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrays::chunked::ChunkedArrayExt as _;
 use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::struct_::StructArrayExt as _;
+use vortex::dtype::DType;
 use vortex::dtype::FieldPath;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -291,11 +294,12 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
             local.split = Some(Split::V2);
             let array = match array.as_opt::<Chunked>() {
                 Some(chunked) => {
-                    let mut chunks = chunked.non_empty_chunks().cloned();
-                    let Some(first) = chunks.next() else {
+                    let mut groups = export_groups(chunked.non_empty_chunks(), array.dtype())?
+                        .into_iter();
+                    let Some(first) = groups.next() else {
                         return Ok(SplitItem::Empty);
                     };
-                    local.pending.extend(chunks);
+                    local.pending.extend(groups);
                     first
                 }
                 None => array,
@@ -307,6 +311,41 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
             })
         }
     }
+}
+
+/// The fewest rows exported together: chunks smaller than this are exported with their neighbours,
+/// so DuckDB is not handed a vector per small chunk.
+const MIN_EXPORT_ROWS: usize = 8192;
+
+/// Groups consecutive `chunks` of a chunked array into arrays of at least [`MIN_EXPORT_ROWS`]
+/// rows where they can be, each a lone chunk or a chunked array of its chunks.
+fn export_groups<'a>(
+    chunks: impl Iterator<Item = &'a ArrayRef>,
+    dtype: &DType,
+) -> VortexResult<Vec<ArrayRef>> {
+    let mut groups = Vec::new();
+    let mut group: Vec<ArrayRef> = Vec::new();
+    let mut rows = 0;
+    let mut flush = |group: &mut Vec<ArrayRef>| -> VortexResult<()> {
+        match group.len() {
+            0 => {}
+            1 => groups.push(group.remove(0)),
+            _ => groups.push(
+                ChunkedArray::try_new(std::mem::take(group), dtype.clone())?.into_array(),
+            ),
+        }
+        Ok(())
+    };
+    for chunk in chunks {
+        rows += chunk.len();
+        group.push(chunk.clone());
+        if rows >= MIN_EXPORT_ROWS {
+            flush(&mut group)?;
+            rows = 0;
+        }
+    }
+    flush(&mut group)?;
+    Ok(groups)
 }
 
 /// Called by all threads under global lock. If this function returns true,
