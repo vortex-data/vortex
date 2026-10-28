@@ -32,9 +32,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::array::ArrayId;
 use crate::arrays::ScalarFn;
 use crate::arrays::scalar_fn::AnyScalarFn;
@@ -117,6 +117,20 @@ impl ArrayOptimizer for ArrayRef {
     }
 }
 
+/// Optimizes arrays with the parent-reduce kernels an [`ExecutionCtx`] captured from its session,
+/// which saves taking a fresh snapshot of the session's registry for every array, as
+/// [`ArrayOptimizer::optimize`] does.
+pub(crate) trait OptimizeInCtx {
+    /// [`ArrayOptimizer::optimize`] with the kernels `ctx` captured.
+    fn optimize_in(&self, ctx: &ExecutionCtx) -> VortexResult<ArrayRef>;
+}
+
+impl OptimizeInCtx for ArrayRef {
+    fn optimize_in(&self, ctx: &ExecutionCtx) -> VortexResult<ArrayRef> {
+        optimize_with_kernels(self.clone(), ctx.reduce_parent_kernels())
+    }
+}
+
 /// [`ArrayOptimizer::optimize`] against a snapshot of the session's parent-reduce kernels, so a
 /// caller that optimizes repeatedly, such as the executor, reads the session once.
 pub(crate) fn optimize_with_kernels(
@@ -132,7 +146,27 @@ pub(crate) fn optimize_recursive_with_kernels(
     array: ArrayRef,
     kernels: &ParentReduceKernels,
 ) -> VortexResult<ArrayRef> {
-    Ok(try_optimize_recursive(array, kernels)?.0)
+    Ok(try_optimize_recursive(array, kernels, Descend::Always)?.0)
+}
+
+/// Optimizes the nodes of an execution result that were never optimized.
+///
+/// Kernels build their results with lazy constructors, such as a filtered validity, so the
+/// executor optimizes what it returns. A child that is already optimized as a root, such as an
+/// array a builder optimized as it was appended, is left with its subtree as it is, which keeps the
+/// pass from walking every chunk of a large result.
+pub(crate) fn optimize_result_with_kernels(
+    array: ArrayRef,
+    kernels: &ParentReduceKernels,
+) -> VortexResult<ArrayRef> {
+    Ok(try_optimize_recursive(array, kernels, Descend::UnlessOptimized)?.0)
+}
+
+/// Which children [`try_optimize_recursive`] descends into.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Descend {
+    Always,
+    UnlessOptimized,
 }
 
 fn optimize_owned(
@@ -151,7 +185,7 @@ fn optimize_owned(
         trace_op!(record_optimize_loop_start(&current_array));
 
         if let Some(new_array) = current_array.reduce()? {
-            current_array = optimize_new_nodes(new_array, &current_array, kernels)?;
+            current_array = optimize_new_nodes(new_array, kernels)?;
             any_optimizations = true;
             trace_op!(record_optimize_loop_end());
             continue;
@@ -179,7 +213,7 @@ fn optimize_owned(
         }
 
         if let Some(new_array) = reduced_parent {
-            current_array = optimize_new_nodes(new_array, &current_array, kernels)?;
+            current_array = optimize_new_nodes(new_array, kernels)?;
             any_optimizations = true;
             trace_op!(record_optimize_loop_end());
             continue;
@@ -197,49 +231,44 @@ fn optimize_owned(
     vortex_bail!("Exceeded maximum optimization iterations (possible infinite loop)");
 }
 
-/// Optimizes the nodes a rule built below its result `array`, which replaces `old`.
+/// Optimizes the nodes a rule built below its result `array`.
 ///
 /// Rules construct their result from lazy array constructors, so the nodes they build are not yet
 /// optimized, at any depth. Optimizing them as each rewrite happens keeps the optimizer from
 /// undoing one rule with its inverse: `slice(get_item(s))` and `get_item(slice(s))` rewrite into
-/// each other until the inner `slice(s)` collapses into `s`'s own encoding. Subtrees the rule
-/// carried over from `old` are left as they are.
-fn optimize_new_nodes(
-    array: ArrayRef,
-    old: &ArrayRef,
-    kernels: &ParentReduceKernels,
-) -> VortexResult<ArrayRef> {
-    let mut existing = HashSet::new();
-    let mut stack = vec![old];
-    while let Some(node) = stack.pop() {
-        if existing.insert(node.addr()) {
-            stack.extend(node.slots().iter().flatten());
-        }
-    }
-    optimize_new_slots(array, &existing, kernels)
-}
-
-fn optimize_new_slots(
-    array: ArrayRef,
-    existing: &HashSet<usize>,
-    kernels: &ParentReduceKernels,
-) -> VortexResult<ArrayRef> {
-    let mut new_slots = SmallVec::with_capacity(array.slots().len());
-    let mut any_slot_optimized = false;
-    for slot in array.slots() {
-        match slot {
-            Some(child) if !existing.contains(&child.addr()) => {
+/// each other until the inner `slice(s)` collapses into `s`'s own encoding.
+///
+/// A child that is already optimized is left as it is without visiting its subtree, which skips
+/// the subtrees a rule carries over from the array it rewrote.
+fn optimize_new_nodes(array: ArrayRef, kernels: &ParentReduceKernels) -> VortexResult<ArrayRef> {
+    let mut new_slots: Option<SmallVec<_>> = None;
+    for (slot_idx, slot) in array.slots().iter().enumerate() {
+        let optimized = match slot {
+            Some(child) if !child.optimized_state().is_root_optimized() => {
                 let (optimized, _) = optimize_owned(child.clone(), kernels)?;
-                let optimized = optimize_new_slots(optimized, existing, kernels)?;
-                any_slot_optimized |= !ArrayRef::ptr_eq(&optimized, child);
-                new_slots.push(Some(optimized));
+                let optimized = optimize_new_nodes(optimized, kernels)?;
+                (!ArrayRef::ptr_eq(&optimized, child)).then_some(optimized)
             }
-            slot => new_slots.push(slot.clone()),
+            _ => None,
+        };
+        match optimized {
+            Some(optimized) => new_slots
+                .get_or_insert_with(|| {
+                    let mut slots = SmallVec::with_capacity(array.slots().len());
+                    slots.extend(array.slots()[..slot_idx].iter().cloned());
+                    slots
+                })
+                .push(Some(optimized)),
+            None => {
+                if let Some(new_slots) = &mut new_slots {
+                    new_slots.push(slot.clone());
+                }
+            }
         }
     }
-    if !any_slot_optimized {
+    let Some(new_slots) = new_slots else {
         return Ok(array);
-    }
+    };
     // SAFETY: optimizer rules only replace child slots with logically equivalent arrays, so the
     // parent's logical values and statistics remain valid.
     unsafe { array.with_slots(new_slots) }
@@ -250,6 +279,8 @@ fn optimize_new_slots(
 struct ReduceParentCandidates<'a> {
     exact: &'a [ArrayId],
     any_scalar_fn: &'a [ArrayId],
+    /// Whether either list holds [`AnyScalarFn::id`], so any scalar function child is a candidate.
+    any_scalar_fn_child: bool,
 }
 
 impl<'a> ReduceParentCandidates<'a> {
@@ -260,9 +291,14 @@ impl<'a> ReduceParentCandidates<'a> {
         } else {
             &[]
         };
+        let any_scalar_fn_child = (!exact.is_empty() || !any_scalar_fn.is_empty()) && {
+            let any_id = AnyScalarFn.id();
+            exact.contains(&any_id) || any_scalar_fn.contains(&any_id)
+        };
         Self {
             exact,
             any_scalar_fn,
+            any_scalar_fn_child,
         }
     }
 
@@ -273,10 +309,9 @@ impl<'a> ReduceParentCandidates<'a> {
     /// Returns whether any kernel may apply to `child` under this parent.
     fn contains(&self, child: &ArrayRef) -> bool {
         let id = child.encoding_id();
-        let matches = |ids: &[ArrayId]| {
-            ids.contains(&id) || (ids.contains(&AnyScalarFn.id()) && child.is::<ScalarFn>())
-        };
-        matches(self.exact) || matches(self.any_scalar_fn)
+        self.exact.contains(&id)
+            || self.any_scalar_fn.contains(&id)
+            || (self.any_scalar_fn_child && child.is::<ScalarFn>())
     }
 }
 
@@ -367,6 +402,7 @@ fn try_parent_reduce_kernels(
 fn try_optimize_recursive(
     current_array: ArrayRef,
     kernels: &ParentReduceKernels,
+    descend: Descend,
 ) -> VortexResult<(ArrayRef, bool)> {
     if current_array.optimized_state().is_tree_optimized() {
         return Ok((current_array, false));
@@ -379,6 +415,7 @@ fn try_optimize_recursive(
     // The new slots are only collected once a child changes, so a parent whose children are all
     // optimized already, such as a chunked array of many chunks, copies none of them.
     let mut new_slots: Option<SmallVec<_>> = None;
+    let mut skipped_child = false;
     for (slot_idx, slot) in current_array.slots().iter().enumerate() {
         let Some(child) = slot else {
             if let Some(new_slots) = &mut new_slots {
@@ -386,7 +423,15 @@ fn try_optimize_recursive(
             }
             continue;
         };
-        let (new_child, new_slot_optimized) = try_optimize_recursive(child.clone(), kernels)?;
+        if descend == Descend::UnlessOptimized && child.optimized_state().is_root_optimized() {
+            skipped_child |= !child.optimized_state().is_tree_optimized();
+            if let Some(new_slots) = &mut new_slots {
+                new_slots.push(Some(child.clone()));
+            }
+            continue;
+        }
+        let (new_child, new_slot_optimized) =
+            try_optimize_recursive(child.clone(), kernels, descend)?;
         if new_slot_optimized {
             trace_op!(record_optimize_recursive_slot(slot_idx, child, &new_child));
             new_slots
@@ -408,7 +453,7 @@ fn try_optimize_recursive(
         // parent logical values and statistics remain valid.
         current_array = unsafe { current_array.with_slots(new_slots) }?;
         any_optimizations = true;
-    } else {
+    } else if !skipped_child {
         current_array.optimized_state().mark_tree_optimized();
     }
 

@@ -48,7 +48,7 @@ use crate::optimizer::kernels::ParentExecutionKernels;
 use crate::optimizer::kernels::ParentReduceKernels;
 use crate::optimizer::kernels::execute_parent_key;
 use crate::optimizer::kernels::execute_parent_marker_key;
-use crate::optimizer::optimize_recursive_with_kernels;
+use crate::optimizer::optimize_result_with_kernels;
 use crate::optimizer::optimize_with_kernels;
 use crate::stats::ArrayStats;
 use crate::trace_op;
@@ -183,8 +183,10 @@ impl ArrayRef {
     ) -> VortexResult<ArrayRef> {
         let reduce_parent_kernels = Arc::clone(&ctx.reduce_parent_kernels);
         let reduce_kernels = reduce_parent_kernels.as_ref();
-        // Constructors build lazy arrays, so optimize the whole tree before executing it.
-        let mut current_array = optimize_recursive_with_kernels(self, reduce_kernels)?;
+        // Constructors build lazy arrays, so each node is optimized when execution reaches it: the
+        // root here, and a child when execution focuses it. Subtrees that kernels consume without
+        // executing them are never walked.
+        let mut current_array = optimize_with_kernels(self, reduce_kernels)?;
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
         let mut stack: Vec<StackFrame> = Vec::new();
         let execute_parent_kernels = Arc::clone(&ctx.execute_parent_kernels);
@@ -223,7 +225,7 @@ impl ArrayRef {
                         // filtered validity, so optimize whatever execution produced.
                         if iteration > 0 {
                             current_array =
-                                optimize_recursive_with_kernels(current_array, reduce_kernels)?;
+                                optimize_result_with_kernels(current_array, reduce_kernels)?;
                         }
                         trace_op!(record_execute_until_return(&current_array));
                         return Ok(current_array);
@@ -313,7 +315,7 @@ impl ArrayRef {
                         original_dtype: child.dtype().clone(),
                         original_len: child.len(),
                     });
-                    current_array = child;
+                    current_array = optimize_with_kernels(child, reduce_kernels)?;
                     current_builder = None;
                 }
                 ExecutionStep::AppendChild(i) => {

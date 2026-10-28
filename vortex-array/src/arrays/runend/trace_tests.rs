@@ -68,10 +68,6 @@ fn trace_compare_on_runend() -> VortexResult<()> {
         &mut execution_ctx()
     );
     insta::assert_snapshot!(traced.trace.to_string(), @"
-    optimize_recursive root=vortex.runend(bool, len=9)
-    optimize_recursive root=vortex.binary(bool, len=3)
-    optimize_recursive root=vortex.primitive(i32, len=3)
-    optimize_recursive root=vortex.constant(i32, len=3)
     execute_until target=AnyCanonical root=vortex.runend(bool, len=9)
       iter 0 current=vortex.runend(bool, len=9) builder_active=false
         ExecuteSlot slot=1 parent=vortex.runend(bool, len=9) child=vortex.binary(bool, len=3)
@@ -110,9 +106,6 @@ fn trace_filter_on_runend() -> VortexResult<()> {
         &mut execution_ctx()
     );
     insta::assert_snapshot!(traced.trace.to_string(), @"
-    optimize_recursive root=vortex.filter(i32, len=4)
-    optimize_recursive root=vortex.runend(i32, len=9)
-    optimize_recursive root=vortex.primitive(i32, len=3)
     execute_until target=AnyCanonical root=vortex.filter(i32, len=4)
       iter 0 current=vortex.filter(i32, len=4) builder_active=false
         child_execute_parent session[0]:execute_parent_fn slot=0 parent=vortex.filter(i32, len=4) child=vortex.runend(i32, len=9) -> vortex.dict(i32, len=4)
@@ -144,10 +137,6 @@ fn trace_take_on_runend() -> VortexResult<()> {
         &mut execution_ctx()
     );
     insta::assert_snapshot!(traced.trace.to_string(), @"
-    optimize_recursive root=vortex.dict(i32, len=4)
-    optimize_recursive root=vortex.primitive(u64, len=4)
-    optimize_recursive root=vortex.runend(i32, len=9)
-    optimize_recursive root=vortex.primitive(i32, len=3)
     execute_until target=AnyCanonical root=vortex.dict(i32, len=4)
       iter 0 current=vortex.dict(i32, len=4) builder_active=false
         child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(i32, len=4) child=vortex.runend(i32, len=9) -> vortex.dict(i32, len=4)

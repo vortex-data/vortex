@@ -26,7 +26,7 @@ use crate::arrays::ScalarFnArray;
 use crate::arrays::VarBinView;
 use crate::dtype::DType;
 use crate::expr::BoundExpression;
-use crate::optimizer::ArrayOptimizer;
+use crate::optimizer::OptimizeInCtx;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -156,7 +156,7 @@ impl ScalarFnVTable for FillNull {
                 // kernels get a chance before we decode the input.
                 return FillNull::try_new(input, fill_value)?
                     .into_array()
-                    .optimize(ctx.session());
+                    .optimize_in(ctx);
             }
             let input = input.execute::<ArrayRef>(ctx)?;
             return Ok(FillNull::try_new(input, fill_value)?.into_array());

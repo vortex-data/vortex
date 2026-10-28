@@ -21,6 +21,7 @@ use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::Slice;
 use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::chunked::ChunkedSlots;
 use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::filter::FilterReduceAdaptor;
@@ -75,26 +76,33 @@ impl ArrayParentReduceRule<Dict> for DictionaryChunkedValuesPullUpRule {
         &self,
         array: ArrayView<'_, Dict>,
         parent: ArrayView<'_, Chunked>,
-        _child_idx: usize,
+        child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
+        // The rewrite depends on every chunk, not on which one is asking, so only the first chunk
+        // evaluates it rather than each chunk scanning all of them again.
+        if child_idx != ChunkedSlots::CHUNKS_OFFSET {
+            return Ok(None);
+        }
+
         let values = array.values();
-        let codes_dtype = array.codes().dtype().clone();
+        let codes_dtype = array.codes().dtype();
+        let shares_values = parent.iter_chunks().all(|chunk| {
+            chunk.as_opt::<Dict>().is_some_and(|dict| {
+                dict.codes().dtype() == codes_dtype && ArrayRef::ptr_eq(dict.values(), values)
+            })
+        });
+        if !shares_values {
+            return Ok(None);
+        }
+
         let mut code_chunks = Vec::with_capacity(parent.nchunks());
         let mut all_values_referenced = array.has_all_values_referenced();
-
         for chunk in parent.iter_chunks() {
-            let Some(dict) = chunk.as_opt::<Dict>() else {
-                return Ok(None);
-            };
-            if dict.codes().dtype() != &codes_dtype {
-                return Ok(None);
-            }
-            if !ArrayRef::ptr_eq(dict.values(), values) {
-                return Ok(None);
-            }
+            let dict = chunk.as_::<Dict>();
             all_values_referenced |= dict.has_all_values_referenced();
             code_chunks.push(dict.codes().clone());
         }
+        let codes_dtype = codes_dtype.clone();
 
         let codes = ChunkedArray::try_new(code_chunks, codes_dtype)?.into_array();
         let dict = DictArray::try_new(codes, values.clone())?;
