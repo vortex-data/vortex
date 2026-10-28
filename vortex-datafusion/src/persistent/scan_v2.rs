@@ -329,11 +329,13 @@ impl BatchRebalance {
         }
         self.pending_rows += batch.num_rows();
         self.pending.push_back(batch);
-        if self.pending_rows < self.batch_size * 3 {
+        // Every final batch must exceed DataFusion's half-batch coalescing threshold.
+        // This reserve permits that without waiting for two full tail batches.
+        let reserve = (self.batch_size / 2 + 1) * 2;
+        if self.pending_rows < reserve + self.batch_size {
             return Ok(());
         }
-        let mut emit =
-            (self.pending_rows - self.batch_size * 2) / self.batch_size * self.batch_size;
+        let mut emit = (self.pending_rows - reserve) / self.batch_size * self.batch_size;
         while emit > 0 {
             let front = self.pending[0].num_rows();
             // Preserve full spans as slices; only a boundary crossing needs concatenation.
