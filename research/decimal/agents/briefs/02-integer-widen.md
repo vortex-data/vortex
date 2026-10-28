@@ -3,9 +3,9 @@ SPDX-License-Identifier: CC-BY-4.0
 SPDX-FileCopyrightText: Copyright the Vortex contributors
 -->
 
-# Integer `Narrow` PR briefs: NR1 to NR6
+# Integer `Widen` PR briefs: WD1 to WD6
 
-These briefs cover the integer `Narrow` track. Each PR is written from scratch from its brief
+These briefs cover the integer `Widen` track. Each PR is written from scratch from its brief
 (D38). A local rewrite of the closed PRs #10223 and #10332 exists in
 `/Users/connor/spiral/vortex-data/vortex3`. It is a reference, not a base: read its code and tests
 for edge cases, reuse its test cases, and do not cherry-pick it. The rewrite predates D25, D26, D28
@@ -21,12 +21,12 @@ and it is marked "Not verified" where it matters.
 
 | Commit | Subject | Use it for | Do not copy |
 | --- | --- | --- | --- |
-| `f7408481ce` | feat(array): add in-memory Narrow integer encoding | NR1: the behavior of `encode`, `validate_dtypes`, the compare constant shortcut, the selection rules, and the cases of `narrow/tests/{encoding,compute}.rs` | The candidate list and the failed casts in `encode` (NR1 has one width helper). The integer-only parts of the compare kernel and the cast rule (see below). The `TakeReduce` rule, which puts `Narrow` above a lazy `Dict` (D25). The serialization stub |
-| `8d548646ee` | feat(array): forward Narrow integer aggregates | NR3: the oracle helper `assert_aggregate_batches`, and the cases of `narrow/tests/aggregates.rs` and `encodings/fastlanes/tests/narrow.rs` | All of the source. It accumulates at the child dtype, casts the partial, and registers one fallback kernel for every aggregate. NR3 builds the partial of the parent dtype (D36) |
-| `74aa17644e` | feat(array): push arithmetic and scalar operations through Narrow | NR4: the interval arithmetic, the cast, fill-null, zip and between rules, and the cases of `narrow/tests/{numeric,pushdown}.rs` | The replacement of the NR1 cast and fill-null rules. NR1 writes those rules so that NR4 extends them. The `integer_types` list, and the declines that build errors |
-| `af4b663059` | feat(array): retain Narrow storage through merges and indices | NR5: `TakeIndicesReduce` and `test_narrowed_take_indices` | The chunked and interleave merge rules in `narrow/merge.rs`, which put `Narrow` above `Chunked` and `Interleave` (D25) |
-| `7e2e5e4d7a` | fix(array): avoid truncating dictionary fill codes | FX3 fixed the same bug with its own check: it declines when the fill index is above the maximum of the codes type, and it keeps the fast path for non-nullable codes. It merged as `dcb4f50ae2` (#10745). NR5 reuses `test_fill_null_after_narrowing_take_indices` | Nothing |
-| `adc1e83b9d` | feat(compress): retain narrow integer children through compression | NR1: `encode_values`. NR6: the list of call sites. WR1 to WR3: background | The `Narrow` wrappers for internal children, and the preview edition with only `vortex.narrow`. The `integer_types` list |
+| `f7408481ce` | feat(array): add in-memory Narrow integer encoding | WD1: the behavior of `encode`, `validate_dtypes`, the compare constant shortcut, the selection rules, and the cases of `narrow/tests/{encoding,compute}.rs` | The candidate list and the failed casts in `encode` (WD1 has one width helper). The integer-only parts of the compare kernel and the cast rule (see below). The `TakeReduce` rule, which puts `Widen` above a lazy `Dict` (D25). The serialization stub |
+| `8d548646ee` | feat(array): forward Narrow integer aggregates | WD3: the oracle helper `assert_aggregate_batches`, and the cases of `narrow/tests/aggregates.rs` and `encodings/fastlanes/tests/narrow.rs` | All of the source. It accumulates at the child dtype, casts the partial, and registers one fallback kernel for every aggregate. WD3 builds the partial of the parent dtype (D36) |
+| `74aa17644e` | feat(array): push arithmetic and scalar operations through Narrow | WD4: the interval arithmetic, the cast, fill-null, zip and between rules, and the cases of `narrow/tests/{numeric,pushdown}.rs` | The replacement of the WD1 cast and fill-null rules. WD1 writes those rules so that WD4 extends them. The `integer_types` list, and the declines that build errors |
+| `af4b663059` | feat(array): retain Narrow storage through merges and indices | WD5: `TakeIndicesReduce` and `test_narrowed_take_indices` | The chunked and interleave merge rules in `narrow/merge.rs`, which put `Widen` above `Chunked` and `Interleave` (D25) |
+| `7e2e5e4d7a` | fix(array): avoid truncating dictionary fill codes | FX3 fixed the same bug with its own check: it declines when the fill index is above the maximum of the codes type, and it keeps the fast path for non-nullable codes. It merged as `dcb4f50ae2` (#10745). WD5 reuses `test_fill_null_after_narrowing_take_indices` | Nothing |
+| `adc1e83b9d` | feat(compress): retain narrow integer children through compression | WD1: `encode_values`. WD6: the list of call sites. WR1 to WR3: background | The `Widen` wrappers for internal children, and the preview edition with only `vortex.widen`. The `integer_types` list |
 
 All these commits are reachable from every local worktree, because the worktrees share one bare
 repository. The five rewrite commits are not on `origin`. Only the local branches
@@ -37,44 +37,44 @@ backup branch. `adc1e83b9d`, `0d94e44a91` and `07fafc2a5b` are on `origin/ct/nar
 
 ### Changes on `develop` since the rewrite
 
-The rewrite is based on `61ff28d970`. NR1 to NR4 are based on `origin/develop` at `afa4bc87cd` or
+The rewrite is based on `61ff28d970`. WD1 to WD4 are based on `origin/develop` at `afa4bc87cd` or
 later. These changes on `develop` matter when an agent reads the rewrite:
 
 | Change on `develop` | Commit | What new code does |
 | --- | --- | --- |
 | `vortex_array::array_session()` removed | `d834a11faa` (#10681) | Every test module uses a module `static SESSION`, with the pattern below. The tests of the rewrite call `array_session()`, so port their cases, not their setup |
-| Interleave uses named slots | `96ac9f2cc5` (#10688) | `InterleaveArray::try_new(values, array_indices, row_indices)` keeps its signature. The slot order is the same: selectors at 0 and 1, values from 2. `InterleaveSlots` is `pub(super)` (`vortex-array/src/arrays/interleave/array.rs:24`). The NR5 pull-up rule builds a new array with `InterleaveArray::try_new` |
-| Storage pushdown in the aggregate session | `d7562aa0e6` (#10566), `3bf14ba647` (#10616) | `AggregateFnSession::default` has `register_storage_ordered` calls (`vortex-array/src/aggregate_fn/session.rs:133-135`). Register the NR3 kernels after the `Dict` kernels (`:133-135`). The lookup tries the exact aggregate id first and then the `None` key (`:328-337`) |
-| `fill_null` on an empty input | `633c52deab` (#10627) | `FillNull` returns an empty array for a non-constant fill on an empty input (`vortex-array/src/scalar_fn/fns/fill_null/mod.rs:145`). The `Narrow` rule receives a `Scalar`, so it is not affected |
-| Kernel for constant dictionary codes | `a169338930` (#10643) | An execute-parent kernel handles `Constant` codes (`vortex-array/src/arrays/dict/take.rs:181-205`). The NR5 rule for `Narrow` codes is a reduce rule, so the two do not overlap |
+| Interleave uses named slots | `96ac9f2cc5` (#10688) | `InterleaveArray::try_new(values, array_indices, row_indices)` keeps its signature. The slot order is the same: selectors at 0 and 1, values from 2. `InterleaveSlots` is `pub(super)` (`vortex-array/src/arrays/interleave/array.rs:24`). The WD5 pull-up rule builds a new array with `InterleaveArray::try_new` |
+| Storage pushdown in the aggregate session | `d7562aa0e6` (#10566), `3bf14ba64793ca5b754770c9ee6200fd4bf01ada` (#10616) | `AggregateFnSession::default` has `register_storage_ordered` calls (`vortex-array/src/aggregate_fn/session.rs:133-135`). Register the WD3 kernels after the last `RunEnd` registration. The lookup tries the exact aggregate id first and then the `None` key (`:328-337`) |
+| `fill_null` on an empty input | `633c52deab` (#10627) | `FillNull` returns an empty array for a non-constant fill on an empty input (`vortex-array/src/scalar_fn/fns/fill_null/mod.rs:145`). The `Widen` rule receives a `Scalar`, so it is not affected |
+| Kernel for constant dictionary codes | `a169338930` (#10643) | An execute-parent kernel handles `Constant` codes (`vortex-array/src/arrays/dict/take.rs:181-205`). The WD5 rule for `Widen` codes is a reduce rule, so the two do not overlap |
 | Deprecated APIs and `legacy_session` removed | `85ae34d5f0` (#10595) | None of the removed APIs is needed |
-| Execution contexts in validation and patches | `c48457b572`, `7216cb5cb8`, `673fd2e064`, `b549eb5a97` | `ListViewArray::try_new`, `Patches::new`, `MaskedArray::try_new`, `RunEndArray::try_new` and `SparseArray::try_new` take a context. Reduce rules have none, so the NR5 brief names constructors without a context |
+| Execution contexts in validation and patches | `c48457b572`, `7216cb5cb8`, `673fd2e064`, `b549eb5a97` | `ListViewArray::try_new`, `Patches::new`, `MaskedArray::try_new`, `RunEndArray::try_new` and `SparseArray::try_new` take a context. Reduce rules have none, so the WD5 brief names constructors without a context |
 | Error types without categories | `f3cbb329dc` (#10080) | `VortexError` has no categories, and `vortex_err!` takes the message only. New errors state the requirement first and end with `, got {actual}` |
-| `as_constant` returns a borrowed scalar | `46429f5c53` (#10790) | The compare constant shortcut of NR1 reads the borrowed scalar, and clones it only where it must own it |
-| Cast-rule contract on `CastReduce` | `bbb562a395` (#10798) | The `Narrow` cast rule pushes the cast into the child, which holds the validity, so it needs no `trivially_cast_nullability` guard and no `CastKernel`. `test_cast_conformance` checks the contract with a partially valid array (`vortex-array/src/scalar_fn/fns/cast/kernel.rs:26-44`) |
-| `StatsSession` moved out of `vortex-array` | `d02df89980` (#10734) | `StatsSession` is in `vortex-expr` (`vortex-expr/src/stats/session.rs:24`). The NR2 `SESSION` registers `KernelSession`, `AggregateFnSession` and `MemorySession` only |
-| FX3 merged | `dcb4f50ae2` (#10745) | The dictionary `fill_null` kernel declines a fill code that the codes cannot hold. NR5 no longer waits for FX3 |
+| `as_constant` returns a borrowed scalar | `46429f5c53` (#10790) | The compare constant shortcut of WD1 reads the borrowed scalar, and clones it only where it must own it |
+| Cast-rule contract on `CastReduce` | `bbb562a395` (#10798) | The `Widen` cast rule pushes the cast into the child, which holds the validity, so it needs no `trivially_cast_nullability` guard and no `CastKernel`. `test_cast_conformance` checks the contract with a partially valid array (`vortex-array/src/scalar_fn/fns/cast/kernel.rs:26-44`) |
+| `StatsSession` moved out of `vortex-array` | `d02df89980` (#10734) | `StatsSession` is in `vortex-expr` (`vortex-expr/src/stats/session.rs:24`). The WD2 `SESSION` registers `KernelSession`, `AggregateFnSession` and `MemorySession` only |
+| FX3 merged | `dcb4f50ae2` (#10745) | The dictionary `fill_null` kernel declines a fill code that the codes cannot hold. WD5 no longer waits for FX3 |
 | Benchmark guide | `eecdc7b20a` (#10808) | `docs/developer-guide/benchmarking.md` already asks for at least a few µs of real work and under 1 ms per iteration. #10808 makes `mimalloc` mandatory for every bench binary and adds the "What Not to Do" list |
-| Decimal benchmarks (CD1) | `76d8371ddc` (#10752) | `encodings/decimal-byte-parts/benches/dbp_compute.rs` sets the conventions that NR2 follows |
-| Wider dictionary codes in `fill_null` | `0d4ddfb616` (#10806) | The dictionary `fill_null` kernel widens the codes when the fill code does not fit, instead of declining. NR5 reads it before it ports `test_fill_null_after_narrowing_take_indices` |
-| `between` over a constant null | `33675d9e39` (#10744) | `between` over a constant null array is null, not false (`vortex-array/src/scalar_fn/fns/between/mod.rs`). The NR4 between rule keeps this result |
+| Decimal benchmarks (CD1) | `76d8371ddc` (#10752) | `encodings/decimal-byte-parts/benches/dbp_compute.rs` sets the conventions that WD2 follows |
+| Wider dictionary codes in `fill_null` | `0d4ddfb616` (#10806) | The dictionary `fill_null` kernel widens the codes when the fill code does not fit, instead of declining. WD5 reads it before it ports `test_fill_null_after_narrowing_take_indices` |
+| `between` over a constant null | `33675d9e39` (#10744) | `between` over a constant null array is null, not false (`vortex-array/src/scalar_fn/fns/between/mod.rs`). The WD4 between rule keeps this result |
 | Non-generic array constructors | `ffaec9ffd1` (#10737) | The generic constructors of `PrimitiveArray`, `ConstantArray`, `DecimalArray`, `StructArray` and `ChunkedArray` call a private, non-generic builder. Their signatures are unchanged |
 
-NR1 starts from `origin/develop` at `f476db42e3`, which holds the last three rows. The line numbers
+WD1 starts from `origin/develop` at `f476db42e3`, which holds the last three rows. The line numbers
 in these briefs are from `afa4bc87cd`. Read each cited site at the base before changing it.
 
 `VTable`, `OperationsVTable`, `ValidityChild`, the kernel registry, `CompareKernel`,
 `execute_compare`, `execute_numeric`, the reduce adaptors, `ChunkedSlots::CHUNKS_OFFSET`,
 `DictSlots` and `BitBuffer::full_in` keep the signatures that the rewrite uses at `afa4bc87cd`.
 The execute-parent registry keeps a list for each key
-(`vortex-array/src/optimizer/kernels.rs:263-276`). So the compare kernel of NR1 and the numeric
-kernel of NR4 can both register for `Binary` on `Narrow`.
+(`vortex-array/src/optimizer/kernels.rs:263-276`). So the compare kernel of WD1 and the numeric
+kernel of WD4 can both register for `Binary` on `Widen`.
 
 #### Test session pattern
 
 PR #10681 gave each test module one session. `VortexSession::empty()` creates the vortex-array
 session variables on first use, and the default `KernelSession` runs `arrays::initialize`
-(`vortex-array/src/optimizer/kernels.rs:357-370`), so the `Narrow` kernels are present.
+(`vortex-array/src/optimizer/kernels.rs:357-370`), so the `Widen` kernels are present.
 
 ```rust
 // Module level, as in vortex-array/src/arrays/dict/compute/fill_null.rs:110 on develop.
@@ -103,25 +103,25 @@ The closed PRs used `ct/narrow-encoding` (#10223), `ct/narrow-pushdown` (#10332)
 
 | PR | Branch | Base |
 | --- | --- | --- |
-| NR1 | `ct/narrow-in-memory` | `origin/develop` (`afa4bc87cd` or later) |
-| NR2 | `ct/narrow-benchmarks` | NR1 |
-| NR3 | `ct/narrow-aggregate-kernels` | NR2 |
-| NR4 | `ct/narrow-arithmetic-kernels` | NR3 |
-| NR5 | `ct/narrow-structural-rules` | NR4. FX3 is on `develop` (`dcb4f50ae2`) |
-| NR6 | `ct/narrow-encode-values` | `develop` after NR1 merges. Merge it after NR5, so that the stack lands first (D35) |
+| WD1 | `ct/narrow-in-memory` | `origin/develop` (`afa4bc87cd` or later) |
+| WD2 | `ct/narrow-benchmarks` | WD1 |
+| WD3 | `ct/narrow-aggregate-kernels` | WD2 |
+| WD4 | `ct/narrow-arithmetic-kernels` | WD3 |
+| WD5 | `ct/narrow-structural-rules` | WD4. FX3 is on `develop` (`dcb4f50ae2`) |
+| WD6 | `ct/narrow-encode-values` | `develop` after WD1 merges. Merge it after WD5, so that the stack lands first (D35) |
 
-NR1 to NR5 form one linear stack (D35). NR3 needs no code from NR2, but it sits on NR2 so that the
-benchmarks exist before the kernels change. NR6 needs only NR1. The stack ends at NR4 for now. NR5
+WD1 to WD5 form one linear stack (D35). WD3 needs no code from WD2, but it sits on WD2 so that the
+benchmarks exist before the kernels change. WD6 needs only WD1. The stack ends at WD4 for now. WD5
 joins it later with `gh stack add ct/narrow-structural-rules` on the top branch, which keeps D35.
 
-The titles and labels of NR1 to NR4 are proposals. Connor makes them final at each gate:
+The titles and labels of WD1 to WD4 are proposals. Connor makes them final at each gate:
 
 | PR | Title | Label |
 | --- | --- | --- |
-| NR1 | Add an in-memory `Narrow` encoding for integers | `changelog/feature` |
-| NR2 | Add compute benchmarks for integer `Narrow` | `changelog/chore` |
-| NR3 | Compute aggregates on the child of a `Narrow` | `changelog/performance` |
-| NR4 | Run arithmetic and scalar operations on the child of a `Narrow` | `changelog/performance` |
+| WD1 | Add an in-memory `Widen` encoding for integers | `changelog/feature` |
+| WD2 | Add compute benchmarks for integer `Widen` | `changelog/chore` |
+| WD3 | Compute aggregates on the child of a `Widen` | `changelog/performance` |
+| WD4 | Run arithmetic and scalar operations on the child of a `Widen` | `changelog/performance` |
 
 #### Worktree and commands
 
@@ -138,11 +138,11 @@ The installed `gh stack` is v0.0.8. It has no `merge` command, and it keeps one 
 each worktree. Load the `connor-skills:gh-stack` skill, not `gh-stack`, which describes features of
 a later version. Run every command in `vortex2`:
 
-1. NR1: `git fetch origin`, make sure that the local `develop` equals `origin/develop`, then
+1. WD1: `git fetch origin`, make sure that the local `develop` equals `origin/develop`, then
    `git switch -c ct/narrow-in-memory origin/develop`, then
    `gh stack init --base develop ct/narrow-in-memory`. The bare repository checks out `develop`,
    so `git branch -f develop` can fail. Done on 2026-10-26 at `f476db42e3`.
-2. NR2 to NR4: `gh stack add <branch>` on top of the previous branch.
+2. WD2 to WD4: `gh stack add <branch>` on top of the previous branch.
 3. After each step, check the stack with `gh stack view --json`.
 
 Every commit has only the line `Signed-off-by: Connor Tsui <connor.tsui20@gmail.com>` and no
@@ -187,12 +187,12 @@ Otherwise it compares with `develop` and adds an `[^unexpected-base]` footnote.
 - Read a report only when its "Comparing <branch> with <parent branch>" line names the parent at
   its current head, with no `[^unexpected-base]` footnote. Otherwise, ask Connor, and run the
   "Codspeed Benchmarking" workflow of the PR again after the run of its parent succeeds.
-- NR3 compared with NR2 is the comparison that D19 wants. There is no need to wait for NR1 and NR2
+- WD3 compared with WD2 is the comparison that D19 wants. There is no need to wait for WD1 and WD2
   to merge.
-- The run of NR1 measures NR1 merged into `develop` at that time. Keep NR1 rebased on the current
+- The run of WD1 measures WD1 merged into `develop` at that time. Keep WD1 rebased on the current
   `develop` when you read the reports.
 - Each rebase of the bottom branch runs the full CodSpeed suite again on every PR of the stack.
-- `action/bench-*` labels work only once a PR targets `develop`. Apply them to NR1, or to a later
+- `action/bench-*` labels work only once a PR targets `develop`. Apply them to WD1, or to a later
   PR after GitHub retargets it. Check the CI of a stacked PR by hand before marking it ready.
 
 #### Hooks
@@ -211,23 +211,23 @@ Otherwise it compares with `develop` and adds an `[^unexpected-base]` footnote.
 
 ### Write the kernels so that decimal support is additive
 
-CD4 opens `Narrow` for decimals. The rewrite has integer-only assumptions that break then (table
+CD4 opens `Widen` for decimals. The rewrite has integer-only assumptions that break then (table
 below). The new NR code avoids them from the start where that costs little:
 
 - No `as_ptype()` and no `PType::try_from` on a path that a decimal child can reach once
   `validate_dtypes` accepts decimals. An integer path matches `DType::Primitive` and declines any
-  other dtype with `Ok(None)`. For example, the compare of two `Narrow` operands matches
+  other dtype with `Ok(None)`. For example, the compare of two `Widen` operands matches
   `DType::Primitive` on both children, compares at the wider child, and declines otherwise. CD4
   adds the decimal branch.
 - The out-of-range compare takes the direction from
   `constant.partial_cmp(&Scalar::zero_value(constant.dtype()))`, not from `i64::try_from` and
   `is_signed_int()`.
-- An aggregate runs in the accumulator of the parent dtype, and every `Narrow` kernel builds the
+- An aggregate runs in the accumulator of the parent dtype, and every `Widen` kernel builds the
   exact partial of the parent (D36). The extrema, `IsConstant` and `IsSorted` kernels are exact for
   decimals as they are. The sum kernel declines decimal children, so a decimal sum takes the
   default path. CD4 can add a decimal branch for `Sum` with `skip_nans` only.
 - `execute` can still yield a cast for integers, so that the child fuses decoding and widening.
-  CD4 adds the decimal path, because the decimal cast of D15 returns a `Narrow`.
+  CD4 adds the decimal path, because the decimal cast of D15 returns a `Widen`.
 - Kernels that do not support decimals decline them with `Ok(None)`, so canonicalization handles
   them.
 
@@ -235,16 +235,16 @@ These sites of the rewrite assume integers. Most of them decline a decimal with 
 is safe. The others give a panic, a wrong result or a likely execution loop once `validate_dtypes`
 accepts decimals:
 
-| Site | Assumption | Effect with a decimal `Narrow` | Safe for decimals |
+| Site | Assumption | Effect with a decimal `Widen` | Safe for decimals |
 | --- | --- | --- | --- |
 | `af4b663059:vortex-array/src/arrays/narrow/mod.rs:73-88` `validate_dtypes` | `PType::try_from`, integer, signedness, byte width | The gate. It rejects decimals | Gate |
-| `f7408481ce:vortex-array/src/arrays/narrow/compare.rs:52-61` | `as_ptype()` and `DType::Primitive` for two `Narrow` operands | Panic: `DType::as_ptype` panics on a non-primitive dtype (`vortex-array/src/dtype/dtype_impl.rs:209-215`) | No |
+| `f7408481ce:vortex-array/src/arrays/narrow/compare.rs:52-61` | `as_ptype()` and `DType::Primitive` for two `Widen` operands | Panic: `DType::as_ptype` panics on a non-primitive dtype (`vortex-array/src/dtype/dtype_impl.rs:209-215`) | No |
 | `f7408481ce:vortex-array/src/arrays/narrow/compare.rs:89` | `below = lhs.dtype().is_signed_int() && i64::try_from(&constant)? < 0` | Wrong result: `is_signed_int` is false for a decimal (`dtype_impl.rs:226-231`), so a negative constant below the child range answers `Lt`, `Lte`, `Gt` and `Gte` wrongly | No |
 | `f7408481ce:vortex-array/src/arrays/narrow/compare.rs:76-86` | Constant cast to the child dtype | Correct when the child label is true (D10): the decimal scalar cast checks the precision (`vortex-array/src/scalar/typed_view/decimal/dvalue.rs:158-182`) | Yes |
 | `af4b663059:vortex-array/src/arrays/narrow/rules.rs:316-346` `BetweenReduce` | Constant cast to the child, else two compares | Inherits the wrong `below` result through `two_compares` | No |
 | `8d548646ee:vortex-array/src/arrays/narrow/aggregates.rs:83-89` | Accumulate at the child dtype, then cast the partial | Wrong result for `Sum` and `SumV2`: the decimal sum state is `Decimal(p + 10, s)` (`vortex-array/src/aggregate_fn/fns/sum/mod.rs:81-86`), so a child state overflows to null before the parent state does | No |
-| `f7408481ce:vortex-array/src/arrays/narrow/vtable.rs:111-116` `execute` | Yields `values.cast(dtype)` | Today the decimal cast executes a copy (`vortex-array/src/arrays/decimal/compute/cast.rs`). D15 says a decimal cast to a wider canonical width returns a `Narrow` over its input. If CD4 implements that as a reduce rule, `execute` returns the same `Narrow` again and execution does not converge. Not verified | Depends on CD4 |
-| `f7408481ce:vortex-array/src/arrays/narrow/rules.rs:84-97` `CastReduce` | `as_ptype()` on the child dtype | Panic for an unsigned integer target: `is_signed_int()` is false for a decimal parent and for the target, so the signedness check passes and `as_ptype()` panics on the decimal child. NR1 matches `DType::Primitive` on the target and the child instead | No |
+| `f7408481ce:vortex-array/src/arrays/narrow/vtable.rs:111-116` `execute` | Yields `values.cast(dtype)` | Today the decimal cast executes a copy (`vortex-array/src/arrays/decimal/compute/cast.rs`). D15 says a decimal cast to a wider canonical width returns a `Widen` over its input. If CD4 implements that as a reduce rule, `execute` returns the same `Widen` again and execution does not converge. Not verified | Depends on CD4 |
+| `f7408481ce:vortex-array/src/arrays/narrow/rules.rs:84-97` `CastReduce` | `as_ptype()` on the child dtype | Panic for an unsigned integer target: `is_signed_int()` is false for a decimal parent and for the target, so the signedness check passes and `as_ptype()` panics on the decimal child. WD1 matches `DType::Primitive` on the target and the child instead | No |
 | `af4b663059:vortex-array/src/arrays/narrow/rules.rs:111-143` `CastReduce` | `PType::try_from` for target and child | Declines decimals. CD4 adds the decimal cast rules of D15 | Yes |
 | `af4b663059:vortex-array/src/arrays/narrow/rules.rs:146-194` fill null, `integer_storage_type` | `PType::try_from`, `i64::try_from`, `min_*_ptype_for_value` | Declines decimals | Yes |
 | `af4b663059:vortex-array/src/arrays/narrow/rules.rs:240-278` `zip_values` | `PType::try_from`, `DType::Primitive` | Declines decimals | Yes |
@@ -254,92 +254,92 @@ accepts decimals:
 
 ### Module layout as landed in #10864
 
-`vortex-array/src/arrays/narrow/` has the layout of `Extension`, `Masked` and `Dict`. Put new code
+`vortex-array/src/arrays/widen/` has the layout of `Extension`, `Masked` and `Dict`. Put new code
 in this layout, even where a brief below or a reference commit names a flat file such as
 `narrow/rules.rs` or `narrow/aggregates.rs`:
 
 - `mod.rs`: the module doc, declarations, re-exports, and `initialize`, which registers every
   kernel directly.
-- `array.rs`: `NarrowSlots`, `try_new` and `validate_dtypes`. `encode.rs`: `encode`,
+- `array.rs`: `WidenSlots`, `try_new` and `validate_dtypes`. `encode.rs`: `encode`,
   `encode_values` and the width helper.
 - `compute/`: one file per operation (`cast.rs`, `compare.rs`, `fill_null.rs`, `filter.rs`,
   `mask.rs`, `slice.rs`, `take.rs`), `PARENT_RULES` in `compute/rules.rs`, and `wrap_values` in
   `compute/mod.rs`. Aggregate kernels also go here, one file per aggregate, as in `dict/compute/`.
-- `vtable/`: `Narrow`, `NarrowArray` and the `VTable` impl in `vtable/mod.rs`, `probe_scalar` in
+- `vtable/`: `Widen`, `WidenArray` and the `VTable` impl in `vtable/mod.rs`, `probe_scalar` in
   `vtable/operations.rs`, and `ValidityChild` in `vtable/validity.rs`.
 
 ## Briefs
 
-### NR1: In-memory integer `Narrow` encoding
+### WD1: In-memory integer `Widen` encoding
 
-- Goal: Add `Narrow`, an in-memory encoding that stores an integer column as a strictly narrower
+- Goal: Add `Widen`, an in-memory encoding that stores an integer column as a strictly narrower
   integer child with the same signedness and nullability. Selection, compare, mask, cast and fill
-  null pass to the child. `Narrow` has no wire form yet, so an array that holds a `Narrow` cannot
-  be serialized. As landed in #10864, NR1 has no serialization workaround: D26 is deferred to CD4,
-  and the D26 items in this section describe that deferred design, not NR1.
-- Depends on: None. Soft: None. Blocks: NR2, NR3, NR4, NR5, NR6, CD4, CD7.
-- Decisions: D8 (one encoding with ID `vortex.narrow`), D15, D18, D22, D23, D25, D26, D28, D38.
+  null pass to the child. `Widen` has no wire form yet, so an array that holds a `Widen` cannot
+  be serialized. As landed in #10864, WD1 has no serialization workaround: D26 is deferred to CD4,
+  and the D26 items in this section describe that deferred design, not WD1.
+- Depends on: None. Soft: None. Blocks: WD2, WD3, WD4, WD5, WD6, CD4, CD7.
+- Decisions: D8 (one encoding with ID `vortex.widen`), D15, D18, D22, D23, D25, D26, D28, D38.
 - Branch: `ct/narrow-in-memory`, based on `origin/develop` (`afa4bc87cd` or later).
 - Scope:
   - Write the encoding, `validate_dtypes`, the compare kernel, the take kernel, and the selection,
     mask, cast and fill-null rules. `f7408481ce` is the reference (D38).
-  - Add `NarrowArray::encode_values`, marked `#[deprecated]` (D28). `adc1e83b9d` has a reference
+  - Add `WidenArray::encode_values`, marked `#[deprecated]` (D28). `adc1e83b9d` has a reference
     version.
   - No serialization workaround (D26 is deferred to CD4). `ArraySession` does not register
-    `Narrow`, and WR1 adds the registration.
-  - Add a self-reduce that flattens a `Narrow` child, so D15 holds after physical rewrites.
-- Out of scope: Aggregate kernels (NR3). Arithmetic, between, zip, float and cross-signedness casts
-  (NR4). The rules that move structural encodings above `Narrow`, and the dictionary-codes rule
-  (NR5). The switch of the existing narrowing call sites to `encode_values` (NR6). The
-  `vortex.narrow` wire form and editions (WR1, WR2). Compressor changes (WR3). Decimals (CD4).
+    `Widen`, and WR1 adds the registration.
+  - Add a self-reduce that flattens a `Widen` child, so D15 holds after physical rewrites.
+- Out of scope: Aggregate kernels (WD3). Arithmetic, between, zip, float and cross-signedness casts
+  (WD4). The rules that move structural encodings above `Widen`, and the dictionary-codes rule
+  (WD5). The switch of the existing narrowing call sites to `encode_values` (WD6). The
+  `vortex.widen` wire form and editions (WR1, WR2). Compressor changes (WR3). Decimals (CD4).
   Lowering in the direct callers of `array_serialize`.
 
 Files (checked at `afa4bc87cd`):
 
 | Path | Change |
 | --- | --- |
-| `vortex-array/src/arrays/narrow/mod.rs` | New. The module doc, with the D15 flatten and the D26 note. The `mod` declarations, the re-exports, `pub struct Narrow`, `initialize`, and `#[cfg(test)] mod tests;` last |
-| `vortex-array/src/arrays/narrow/array.rs` | New. Reference: `f7408481ce`. `NarrowArray`, `NarrowSlots` with `#[slot(0)]`, `try_new`, `validate_dtypes` |
-| `vortex-array/src/arrays/narrow/vtable.rs` | New. Reference: `f7408481ce`. `VTable` with the flatten in `VTable::reduce`, `OperationsVTable` with `probe_scalar`, and `ValidityChild` |
-| `vortex-array/src/arrays/narrow/encode.rs` | New. `NarrowArray::encode`, the deprecated `encode_values` and the `pub(super)` width helper. References: `f7408481ce` and `adc1e83b9d:vortex-array/src/arrays/narrow/encoding.rs:45-90` |
-| `vortex-array/src/arrays/narrow/compare.rs` | New. Reference: `f7408481ce`. Compare kernel and `constant_fits_child` |
-| `vortex-array/src/arrays/narrow/rules.rs` | New. Reference: `f7408481ce`. `PARENT_RULES` with the slice, filter, mask, cast and fill-null rules, and `wrap_values` |
-| `vortex-array/src/arrays/narrow/take.rs` | New. `TakeExecute for Narrow` |
-| `vortex-array/src/arrays/narrow/tests/mod.rs` | New. The one module `SESSION` and the shared named fixtures |
-| `vortex-array/src/arrays/narrow/tests/encoding.rs` | New. Port the cases of the reference tests, and add the flatten, `encode_values` and serialization tests |
-| `vortex-array/src/arrays/narrow/tests/compute.rs` | New. Port the cases of the reference tests, and add the conformance tests |
-| `vortex-array/src/arrays/mod.rs:85-91` | Add `pub mod narrow;` with `pub use narrow::Narrow;` and `pub use narrow::NarrowArray;` between `masked` and `null` |
-| `vortex-array/src/arrays/mod.rs:144-145` | Add `narrow::initialize(session);` between `map` and `null` |
-| `vortex-array/src/session/mod.rs` | No change. WR1 registers `Narrow` together with its wire form |
+| `vortex-array/src/arrays/widen/mod.rs` | New. The module doc, with the D15 flatten and the D26 note. The `mod` declarations, the re-exports, `pub struct Widen`, `initialize`, and `#[cfg(test)] mod tests;` last |
+| `vortex-array/src/arrays/widen/array.rs` | New. Reference: `f7408481ce`. `WidenArray`, `WidenSlots` with `#[slot(0)]`, `try_new`, `validate_dtypes` |
+| `vortex-array/src/arrays/widen/vtable.rs` | New. Reference: `f7408481ce`. `VTable` with the flatten in `VTable::reduce`, `OperationsVTable` with `probe_scalar`, and `ValidityChild` |
+| `vortex-array/src/arrays/widen/encode.rs` | New. `WidenArray::encode`, the deprecated `encode_values` and the `pub(super)` width helper. References: `f7408481ce` and `adc1e83b9d:vortex-array/src/arrays/narrow/encoding.rs:45-90` |
+| `vortex-array/src/arrays/widen/compare.rs` | New. Reference: `f7408481ce`. Compare kernel and `constant_fits_child` |
+| `vortex-array/src/arrays/widen/rules.rs` | New. Reference: `f7408481ce`. `PARENT_RULES` with the slice, filter, mask, cast and fill-null rules, and `wrap_values` |
+| `vortex-array/src/arrays/widen/take.rs` | New. `TakeExecute for Widen` |
+| `vortex-array/src/arrays/widen/tests/mod.rs` | New. The one module `SESSION` and the shared named fixtures |
+| `vortex-array/src/arrays/widen/tests/encoding.rs` | New. Port the cases of the reference tests, and add the flatten, `encode_values` and serialization tests |
+| `vortex-array/src/arrays/widen/tests/compute.rs` | New. Port the cases of the reference tests, and add the conformance tests |
+| `vortex-array/src/arrays/mod.rs:85-91` | Add `pub mod widen;` with `pub use widen::Widen;` and `pub use widen::WidenArray;` after the existing `use vortex_session::VortexSession;` line |
+| `vortex-array/src/arrays/mod.rs:144-145` | Add `widen::initialize(session);` after `variant::initialize(session);` |
+| `vortex-array/src/session/mod.rs` | No change. WR1 registers `Widen` together with its wire form |
 
 Design notes:
 
 ```rust
-pub struct Narrow;
-pub type NarrowArray = Array<Narrow>;
-#[array_slots(Narrow)]
-pub struct NarrowSlots {
+pub struct Widen;
+pub type WidenArray = Array<Widen>;
+#[array_slots(Widen)]
+pub struct WidenSlots {
     #[slot(0)]
     pub values: ArrayRef,
 }
 
-impl NarrowArray {
+impl WidenArray {
     pub fn try_new(values: ArrayRef, dtype: DType) -> VortexResult<Self>;
 
-    /// Stores `array` as a `Narrow` over a child of the smallest integer type with the same
+    /// Stores `array` as a `Widen` over a child of the smallest integer type with the same
     /// signedness, or returns it unchanged when no narrower type holds its values.
     pub fn encode(array: PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
 
-    /// Returns `array` at the smallest integer type with the same signedness, without a `Narrow`.
+    /// Returns `array` at the smallest integer type with the same signedness, without a `Widen`.
     /// Floats return unchanged.
-    #[deprecated(note = "Changes the dtype. Each caller must decide whether it needs a Narrow (#10733)")]
+    #[deprecated(note = "Changes the dtype. Each caller must decide whether it needs a Widen (#10733)")]
     pub fn encode_values(array: PrimitiveArray, ctx: &mut ExecutionCtx)
         -> VortexResult<PrimitiveArray>;
 }
 pub(super) fn validate_dtypes(storage: &DType, logical: &DType) -> VortexResult<()>;
 
 // rules.rs, from `f7408481ce:vortex-array/src/arrays/narrow/rules.rs:46-52`.
-/// Returns `values` when it has `dtype`, and a `Narrow` of `dtype` over `values` otherwise.
+/// Returns `values` when it has `dtype`, and a `Widen` of `dtype` over `values` otherwise.
 pub(super) fn wrap_values(values: ArrayRef, dtype: DType) -> VortexResult<ArrayRef>;
 
 // compare.rs. The caller handles a null constant first.
@@ -348,17 +348,17 @@ pub(super) fn wrap_values(values: ArrayRef, dtype: DType) -> VortexResult<ArrayR
 pub(super) fn constant_fits_child(constant: &Scalar, child: &DType) -> Option<bool>;
 ```
 
-NR4 calls `wrap_values`, `constant_fits_child` and the width helper, so their names and signatures
-are part of the NR1 contract.
+WD4 calls `wrap_values`, `constant_fits_child` and the width helper, so their names and signatures
+are part of the WD1 contract.
 
 - `validate_dtypes` implements D22: both dtypes are integer primitives, the signedness is equal,
   the child byte width is strictly smaller, and the nullability is equal. `VTable::validate` and
   `try_new` both call it.
-- `encode.rs` owns one width helper. It is `pub(super)`, so only the `narrow` module sees it. It
+- `encode.rs` owns one width helper. It is `pub(super)`, so only the `widen` module sees it. It
   maps an inclusive range and a signedness to the smallest `PType`, and it is built on
   `PType::min_signed_ptype_for_value` and `PType::min_unsigned_ptype_for_value`
   (`vortex-array/src/dtype/ptype.rs:819-845`), which raise no error on the normal path. `encode`,
-  the deprecated `encode_values` and the NR4 numeric kernel all use it. There is no
+  the deprecated `encode_values` and the WD4 numeric kernel all use it. There is no
   `integer_types` list.
 - `encode` and `encode_values` share one private, non-deprecated function, so `encode` itself needs
   no `#[expect(deprecated)]`. That function takes `min_max` of the valid values and passes the
@@ -367,53 +367,53 @@ are part of the NR1 contract.
   `encode_values` returns a float unchanged. An `I64` column with values 0 to 200 gets an `I16`
   child (D22).
 - `encode_values` has no non-test caller in this PR. Its tests carry
-  `#[expect(deprecated, reason = "...")]`. CD7 (the DecimalByteParts MSP) and NR6 (the existing
+  `#[expect(deprecated, reason = "...")]`. CD7 (the DecimalByteParts MSP) and WD6 (the existing
   call sites) call it, each with `#[expect(deprecated, reason = "...")]` (D28).
-- `try_new` flattens a `Narrow` child. Physical rewrites keep only the slot dtype
-  (`vortex-array/src/array/erased.rs:595-625`), so a rewrite can replace a child with a `Narrow` of
+- `try_new` flattens a `Widen` child. Physical rewrites keep only the slot dtype
+  (`vortex-array/src/array/erased.rs:595-625`), so a rewrite can replace a child with a `Widen` of
   the same dtype. So the flatten is also a self-reduce in `VTable::reduce`. It returns
-  `NarrowArray::try_new(child.values().clone(), dtype)` when the child is a `Narrow`, and `None`
+  `WidenArray::try_new(child.values().clone(), dtype)` when the child is a `Widen`, and `None`
   otherwise. The parent rule set is named `PARENT_RULES`, as in most encodings on `develop`.
 - `execute` yields `values.cast(dtype)`, so the child can fuse decoding and widening. Validity
   comes from the child. CD4 changes `execute` for decimals, because the decimal cast of D15 would
   loop.
 - `probe_scalar`, as `Extension`, `ZigZag` and `FoR` implement it. `ProbeState::slot` returns
   `VortexResult<Option<ArrayProbe>>` (`vortex-array/src/array/probe/array.rs:238`), so the chain is
-  `state.slot(NarrowSlots::VALUES)?.ok_or_else(|| vortex_err!(..))?.execute_scalar(index, ctx)?`,
+  `state.slot(WidenSlots::VALUES)?.ok_or_else(|| vortex_err!(..))?.execute_scalar(index, ctx)?`,
   then a cast of the scalar to the logical dtype. A null child scalar casts to a null of the
   logical dtype. `scalar_at` delegates through `ProbeState::once`, and `type ProbeState = ()`.
-  This cast is the `Narrow` decode. NR1 writes it inline. NR3 moves it into one function that
+  This cast is the `Widen` decode. WD1 writes it inline. WD3 moves it into one function that
   `probe_scalar` and the aggregate kernels call.
-- The serialization workaround (D26, deferred to CD4 and not in NR1):
+- The serialization workaround (D26, deferred to CD4 and not in WD1):
   - Today `ArraySerializationTree::try_new` fails with "Array … does not support serialization"
     when `array_serialize` returns `None` (`vortex-array/src/serde.rs:173-178`).
   - A plugin cannot return the wire form of another encoding. `array_serialize` checks that the
     returned ID is one of the plugin's `serialized_ids` (`vortex-array/src/session/mod.rs:144-151`).
   - So the fallback lives in the serializer, and it is crate-private. Before the serializer
-    lookup, `try_new` executes a `Narrow` to `RecursiveCanonical`
+    lookup, `try_new` executes a `Widen` to `RecursiveCanonical`
     (`vortex-array/src/canonical.rs:674`) with `session.create_execution_ctx()`, so that no lazy
-    child reaches the serializer. It keeps the statistics of the `Narrow` with
+    child reaches the serializer. It keeps the statistics of the `Widen` with
     `StatsSetRef::inherit_from` (`vortex-array/src/stats/array.rs:148`), and it builds the node from
     the lowered array. It lowers once. Any other array without a wire form fails as today.
   - There is no new `VTable` method, no new `ArrayPlugin` method and no new `ArraySessionExt`
     accessor.
-  - The code carries `TODO(connor)[Narrow]: remove once vortex.narrow is in core (LT1, #10733)`.
+  - The code carries `TODO(connor)[Widen]: remove once vortex.widen is in core (LT1, #10733)`.
     LT1 deletes the branch. WR1 adds its "ID not permitted" condition at the same site.
   - The direct callers of `array_serialize` do not lower: the Python metadata
     (`vortex-python/src/arrays/mod.rs:150`), the zstd buffers
     (`encodings/zstd/src/zstd_buffers.rs:82`) and the web crate
     (`vortex-web/crate/src/wasm.rs:650`). They get the "not registered for serialization" error,
     and the PR body says so.
-- `deserialize` fails with "Narrow deserialization is not supported", because no wire form exists
-  yet. `ArraySession::default` does not register `Narrow`. The blanket `ArrayPlugin` impl of a
-  `VTable` would also add a reader entry under `vortex.narrow` that can only fail, which hides the
+- `deserialize` fails with "Widen deserialization is not supported", because no wire form exists
+  yet. `ArraySession::default` does not register `Widen`. The blanket `ArrayPlugin` impl of a
+  `VTable` would also add a reader entry under `vortex.widen` that can only fail, which hides the
   `allow_unknown` foreign fallback and lists the ID in footers written without editions.
-  `serialize` panics with a `TODO(connor)[Narrow]`, because only a session that registers `Narrow`
-  itself can reach it. WR1 adds the registration. No compressor produces a `Narrow` in this PR.
+  `serialize` panics with a `TODO(connor)[Widen]`, because only a session that registers `Widen`
+  itself can reach it. WR1 adds the registration. No compressor produces a `Widen` in this PR.
 - Compare kernel: register it with `CompareExecuteAdaptor`
   (`vortex-array/src/scalar_fn/fns/binary/compare/mod.rs:71`), as
   `vortex-array/src/arrays/dict/vtable/kernel.rs:21` does.
-  - Two `Narrow` operands match `DType::Primitive` on both children and compare at the wider
+  - Two `Widen` operands match `DType::Primitive` on both children and compare at the wider
     child. Any other pair declines.
   - A constant inside the child range compares against the child. `constant_fits_child` checks
     the range: it compares the constant with `PValue::min_value` and `PValue::max_value` of the
@@ -427,18 +427,18 @@ are part of the NR1 contract.
 - Cast rule in this PR: match `DType::Primitive` on the target and on the child, and decline any
   other dtype. There is no `as_ptype()` and no `PType::try_from` as control flow. Take an integer
   target of the same signedness. If it is no wider than the child, the cast goes to the child with
-  the same target. If it is wider, the rule returns a `Narrow` over the child cast to its own ptype
+  the same target. If it is wider, the rule returns a `Widen` over the child cast to its own ptype
   with the target nullability (D15 as amended), so a cast to non-nullable still fails on nulls.
   Other targets decline. The rule pushes the cast into the child, which holds the validity, so it
   needs no `trivially_cast_nullability` guard and no `CastKernel` (#10798). Write the cast and
-  fill-null rules so that NR4 can add target kinds without replacing them.
+  fill-null rules so that WD4 can add target kinds without replacing them.
 - Fill null declines when the fill value does not fit the child dtype, so canonical execution
   handles it.
-- Take: `TakeExecute for Narrow` (`vortex-array/src/arrays/dict/take.rs:41`), registered with
-  `TakeExecuteAdaptor(Narrow)` for the `Dict` parent in `narrow::initialize`, as `Extension` does.
-  It gathers the child, executes the gather, and wraps the result in a `Narrow`. A one-line comment
-  says why the gather is executed: a lazy `Dict` under a `Narrow` breaks D25 and loops against the
-  NR5 `Dict` pull-up rule. NR1 adds no `TakeReduce`.
+- Take: `TakeExecute for Widen` (`vortex-array/src/arrays/dict/take.rs:41`), registered with
+  `TakeExecuteAdaptor(Widen)` for the `Dict` parent in `widen::initialize`, as `Extension` does.
+  It gathers the child, executes the gather, and wraps the result in a `Widen`. A one-line comment
+  says why the gather is executed: a lazy `Dict` under a `Widen` breaks D25 and loops against the
+  WD5 `Dict` pull-up rule. WD1 adds no `TakeReduce`.
 
 Steps:
 
@@ -464,12 +464,12 @@ Tests:
   `test_reject_invalid_dtypes`, `test_validate_slots`, `test_flatten_and_scalar_dtype`,
   `test_encoded_child_execution`, `test_smallest_width_unchanged`, `test_reject_float_encoding`,
   `test_deserialization_unsupported`.
-- Not in NR1 (D26 is deferred to CD4): `test_serialization_unsupported` becomes
-  `test_serialization_writes_canonical`. Serialize a nullable and a non-nullable `Narrow`, and
+- Not in WD1 (D26 is deferred to CD4): `test_serialization_unsupported` becomes
+  `test_serialization_writes_canonical`. Serialize a nullable and a non-nullable `Widen`, and
   decode the bytes. The result is a canonical primitive array with the logical dtype and equal
-  values, and its wire ID is the primitive ID. An exact min or max that is set on the `Narrow` reads
-  back. Two more cases test the `RecursiveCanonical` lowering: a nullable `Narrow` over an encoded
-  child whose validity is not canonical, such as a `Dict`, and a struct with a `Narrow` field. Each
+  values, and its wire ID is the primitive ID. An exact min or max that is set on the `Widen` reads
+  back. Two more cases test the `RecursiveCanonical` lowering: a nullable `Widen` over an encoded
+  child whose validity is not canonical, such as a `Dict`, and a struct with a `Widen` field. Each
   reads back as a canonical array with equal values.
 - New, in `narrow/tests/encoding.rs`:
   - `test_encode_values_keeps_signedness`, an `rstest`. `[0i64, 127]` gives `I8`, `[0i64, 200]`
@@ -477,20 +477,20 @@ Tests:
     `U8`, and `[0u64, u64::MAX]` stays `U64`. Validity is kept in every case.
   - `test_encode_values_preserves_floats`, from `adc1e83b9d`.
   - Both `encode_values` tests carry `#[expect(deprecated, reason = "...")]`.
-  - `test_reduce_flattens_nested_narrow`. Build a `Narrow` with `try_from_parts` over a `Narrow`
-    child, and call `optimize()`. Check that the result is one `Narrow` over the inner child, with
+  - `test_reduce_flattens_nested_widen`. Build a `Widen` with `try_from_parts` over a `Widen`
+    child, and call `optimize()`. Check that the result is one `Widen` over the inner child, with
     the same values.
 - The existing `PiecewiseSequence` test
   (`vortex-array/src/arrays/piecewise_sequence/tests.rs:159-182`) stays the regression for an
-  array with no wire form. NR1 adds no `serde.rs` test for it.
+  array with no wire form. WD1 adds no `serde.rs` test for it.
 - Port the cases of these tests in `f7408481ce:vortex-array/src/arrays/narrow/tests/compute.rs`:
   `test_selection_and_fill_null`,
   `test_cast_preserves_checked_nullability`, `test_fill_null_preserves_result_dtype`,
   `test_arithmetic_uses_logical_width`, and `test_comparison`. The last one is an `rstest` over six
   operators. It covers constants on both sides of the child range, both operand orders, and a
-  second `Narrow`.
+  second `Widen`.
 - The ported take case asserts that the optimized root of `slice.take.filter` is a `Dict` over a
-  `Narrow`, with equal values. The reference asserts a `Narrow` root, which the take kernel
+  `Widen`, with equal values. The reference asserts a `Widen` root, which the take kernel
   changes.
 - A compare with a constant outside the child range gives the constant answer with the child
   validity, as the reference does with a `BoolArray`
@@ -500,46 +500,46 @@ Tests:
   `narrow/tests/mod.rs`: signed, unsigned, non-nullable, partially valid, all invalid, and one row.
   It runs `test_cast_conformance`, `test_filter_conformance`, `test_take_conformance`,
   `test_mask_conformance` and `test_array_consistency`. The `CastReduce` contract (#10798) needs
-  the partially valid case. NR3 and NR4 reuse these fixtures.
+  the partially valid case. WD3 and WD4 reuse these fixtures.
 
-Benchmarks: None in this PR. NR2 adds them. No change on existing benchmarks is expected. Record
-the `take_patches` results for the NR6 investigation.
+Benchmarks: None in this PR. WD2 adds them. No change on existing benchmarks is expected. Record
+the `take_patches` results for the WD6 investigation.
 
 Acceptance checks:
 
 - `cargo clippy -p vortex-array --all-targets --all-features -- -D warnings`
 - `cargo +nightly-2026-09-10 fmt -p vortex-array`
 - `cargo nextest run -p vortex-array narrow` and `cargo nextest run -p vortex-array serde`
-- No array node with the ID `vortex.narrow` is written, and no footer lists the ID, because
-  `ArraySession` does not register `Narrow`.
+- No array node with the ID `vortex.widen` is written, and no footer lists the ID, because
+  `ArraySession` does not register `Widen`.
 - `encode_values` carries `#[deprecated]` and has no non-test caller.
 
 Review focus: The constant shortcut of the compare kernel for both operand orders and null
 constants. Checked nullability in the cast rule. Nullability of `take` results, which comes from
 the gathered child and the indices, and of `mask` results, which follow the child. The take kernel
-leaves no lazy `Dict` under a `Narrow` (D25). The fill-null fallback. The flatten in
+leaves no lazy `Dict` under a `Widen` (D25). The fill-null fallback. The flatten in
 `VTable::reduce`.
-Registration of the compare and take kernels in `narrow::initialize`.
+Registration of the compare and take kernels in `widen::initialize`.
 
 Size: Large. The reference commit has about 550 lines of source and 435 lines of tests.
 `encode_values`, the D26 lowering, the take kernel, the conformance tests and their tests come on
 top.
 
 PR body: say that the direct callers of `array_serialize` do not lower, and that files written
-with `disable_editions()` list `vortex.narrow` in the footer.
+with `disable_editions()` list `vortex.widen` in the footer.
 
 Open questions: None.
 
-### NR2: Benchmarks for compute on integer `Narrow`
+### WD2: Benchmarks for compute on integer `Widen`
 
-- Goal: Add one benchmark file that runs each `Narrow` operation on three inputs. They are the
-  `Narrow`, the equivalent wide canonical array, and the `Narrow` decoded inside the timed region.
-  CodSpeed on NR3 to NR5 then shows each kernel against the fallback.
-- Depends on: NR1. Soft: None. Blocks: NR3, NR4 and NR5 (their CodSpeed evidence).
+- Goal: Add one benchmark file that runs each `Widen` operation on three inputs. They are the
+  `Widen`, the equivalent wide canonical array, and the `Widen` decoded inside the timed region.
+  CodSpeed on WD3 to WD5 then shows each kernel against the fallback.
+- Depends on: WD1. Soft: None. Blocks: WD3, WD4 and WD5 (their CodSpeed evidence).
 - Decisions: D19 (benchmarks land before the changes that they cover), D15.
-- Branch: `ct/narrow-benchmarks`, based on NR1.
+- Branch: `ct/narrow-benchmarks`, based on WD1.
 - Scope: A new `vortex-array/benches/narrow.rs` and its `[[bench]]` entry.
-- Out of scope: Kernel changes (NR3 to NR5). Workflow changes. Decimal benchmarks (CD1).
+- Out of scope: Kernel changes (WD3 to WD5). Workflow changes. Decimal benchmarks (CD1).
 
 Files (checked at `afa4bc87cd`):
 
@@ -561,26 +561,26 @@ Design notes:
     `VortexSession::empty()` plus `initialize`, and it needs no `ArraySession`, because no case
     serializes. `StatsSession` moved out of `vortex-array`
     (#10734), so the old recipe of this brief does not compile. `main` creates the three
-    variables, so no timed case pays for their default constructors. Then the `Wide` and `Decoded`
-    cases stay flat when NR3 adds registrations.
+    variables, so no timed case pays for their default constructors. Then the `Canonical` and `Decoded`
+    cases stay flat when WD3 adds registrations.
   - Return the result from `bench_values`. Use `vortex_expect`, not `unwrap`. Give `Input` a
-    `Display` impl (`wide`, `narrow`, `decoded`). Use one `bench_case(bencher, input, operation)`
+    `Display` impl (`canonical`, `widen`, `decoded`). Use one `bench_case(bencher, input, operation)`
     helper.
 - Do not tag any case with `#[vortex_bench_support::cpu_features]`. These kernels are dispatch
   work, so the cases stay in simulation.
-- The name `narrow` matches no prefix in `.github/workflows/codspeed.yml:92-104`, so the cases run
+- The name `widen` matches no prefix in `.github/workflows/codspeed.yml:92-104`, so the cases run
   in the "builders" shard. No workflow change is needed.
 - Data: `LEN = 8_192` rows, so the wide input holds 64 KiB, as `filter_fixed_width.rs:47-54`
   recommends. Values are `i16` from `StdRng::seed_from_u64`, uniform in `-10_000..=10_000`. The
-  `Narrow` input has logical dtype non-nullable `I64` over that `i16` child. The wide input holds
+  `Widen` input has logical dtype non-nullable `I64` over that `i16` child. The wide input holds
   the same values as `i64`.
 - Fresh inputs. `sum` caches its result on the array
-  (`vortex-array/src/aggregate_fn/fns/sum/mod.rs:63-65`), and the NR4 arithmetic kernel calls
+  (`vortex-array/src/aggregate_fn/fns/sum/mod.rs:63-65`), and the WD4 arithmetic kernel calls
   `min_max` on both operands, so reused inputs hide work:
   - Keep the `Buffer<i16>` (and a second one from another seed), the `Buffer<i64>`, the selection
     `BitBuffer`, the validity `BitBuffer` of `fill_null_wide` and the index `Buffer<u32>` outside
     the bencher.
-  - Inside `with_inputs`, build the arrays with `PrimitiveArray::new` and `NarrowArray::try_new`
+  - Inside `with_inputs`, build the arrays with `PrimitiveArray::new` and `WidenArray::try_new`
     (not `encode`), a new `Mask` and new index arrays.
   - Never clone a built `ArrayRef`, and never use a `static` array. A doc comment on `Input` says
     why, as CD1 does (`dbp_compute.rs:193-197`).
@@ -589,15 +589,15 @@ Design notes:
 #[derive(Clone, Copy, Debug)]
 enum Input {
     /// The canonical `i64` array with the same values.
-    Wide,
-    /// A `Narrow` with logical dtype `i64` over an `i16` child.
-    Narrow,
-    /// The `Narrow`, executed to a `PrimitiveArray` inside the timed region, then the operation.
+    Canonical,
+    /// A `Widen` with logical dtype `i64` over an `i16` child.
+    Widen,
+    /// The `Widen`, executed to a `PrimitiveArray` inside the timed region, then the operation.
     Decoded,
 }
 
-const INPUTS: &[Input] = &[Input::Wide, Input::Narrow, Input::Decoded];
-const NARROW_INPUTS: &[Input] = &[Input::Narrow, Input::Decoded];
+const INPUTS: &[Input] = &[Input::Canonical, Input::Widen, Input::Decoded];
+const WIDEN_INPUTS: &[Input] = &[Input::Widen, Input::Decoded];
 
 #[divan::bench(args = INPUTS)]
 fn compare_in_range(bencher: Bencher, input: Input) { /* ... */ }
@@ -605,34 +605,34 @@ fn compare_in_range(bencher: Bencher, input: Input) { /* ... */ }
 
 Workloads. Each one ends with `execute::<Canonical>`, or returns the aggregate scalar:
 
-| Bench | Operation | PR whose kernel changes the `Narrow` case |
+| Bench | Operation | PR whose kernel changes the `Widen` case |
 | --- | --- | --- |
-| `compare_in_range` | `binary(Constant(0i64), Lt)` | NR1 (child compare) |
-| `compare_out_of_range` | `binary(Constant(100_000i64), Lt)`, above `i16::MAX`. Keep it only if it does real work. NR1 asserts the constant result in a unit test | NR1 (constant answer) |
-| `between_in_range` | `between(Constant(-1_000i64), Constant(1_000i64))`, both bounds non-strict | NR4 |
-| `filter` | `filter(mask)`, random mask with density 0.5 | NR1 |
-| `take` | `take(indices)`, `LEN / 4` random `u32` indices | NR1 (take kernel) |
-| `slice` | `slice(LEN / 4..3 * LEN / 4)`, only `Narrow` and `Decoded` inputs | NR1 |
-| `sum` | `sum(&array, ctx)` with the default options (`skip_nans`), the only configuration that NR3 serves | NR3 |
-| `min_max` | `min_max(&array, ctx, NumericalAggregateOpts::default())`. It covers the extrema kernel | NR3 |
-| `add_constant` | `binary(Constant(1i64), Add)` | NR4 |
-| `add_narrow` | `Narrow + Narrow`, second operand from another seed | NR4 |
-| `add_wide` | `Narrow + wide i64 array`, only `Narrow` and `Decoded` inputs. The wide operand is the `Wide` input from the second seed | NR4 (the kernel declines it) |
-| `cast_f64` | `cast` to `F64`, a float target that NR4 sends to the child | NR4 |
-| `fill_null_wide` | A nullable input from the same values with about 10% nulls, filled with a value that fits `i32` but not `i16` | NR4. NR1 declines it, and NR4 fills at `I32` |
-| `zip` | `zip` of two inputs from the two seeds, with a random mask | NR4 |
-| `chunked` | `execute::<Canonical>` of a `ChunkedArray` of four inputs of `LEN / 4` rows | None. It guards the decode of each `Narrow` chunk |
+| `compare_in_range` | `binary(Constant(0i64), Lt)` | WD1 (child compare) |
+| `compare_out_of_range` | `binary(Constant(100_000i64), Lt)`, above `i16::MAX`. Keep it only if it does real work. WD1 asserts the constant result in a unit test | WD1 (constant answer) |
+| `between_in_range` | `between(Constant(-1_000i64), Constant(1_000i64))`, both bounds non-strict | WD4 |
+| `filter` | `filter(mask)`, random mask with density 0.5 | WD1 |
+| `take` | `take(indices)`, `LEN / 4` random `u32` indices | WD1 (take kernel) |
+| `slice` | `slice(LEN / 4..3 * LEN / 4)`, only `Widen` and `Decoded` inputs | WD1 |
+| `sum` | `sum(&array, ctx)` with the default options (`skip_nans`), the only configuration that WD3 serves | WD3 |
+| `min_max` | `min_max(&array, ctx, NumericalAggregateOpts::default())`. It covers the extrema kernel | WD3 |
+| `add_constant` | `binary(Constant(1i64), Add)` | WD4 |
+| `add_widen` | `Widen + Widen`, second operand from another seed | WD4 |
+| `add_wide` | `Widen + wide i64 array`, only `Widen` and `Decoded` inputs. The wide operand is the `Canonical` input from the second seed | WD4 (the kernel declines it) |
+| `cast_f64` | `cast` to `F64`, a float target that WD4 sends to the child | WD4 |
+| `fill_null_wide` | A nullable input from the same values with about 10% nulls, filled with a value that fits `i32` but not `i16` | WD4. WD1 declines it, and WD4 fills at `I32` |
+| `zip` | `zip` of two inputs from the two seeds, with a random mask | WD4 |
+| `chunked` | `execute::<Canonical>` of a `ChunkedArray` of four inputs of `LEN / 4` rows | None. It guards the decode of each `Widen` chunk |
 | `interleave` | `execute::<Canonical>` of an `InterleaveArray` of two inputs of `LEN / 2` rows, `array_indices = i % 2` as `u8`, `row_indices = i / 2` as `u32` | None. It guards the interleave kernels |
 
 - `Decoded` for `chunked` and `interleave` decodes each input, then builds the parent.
-- `Decoded` for `add_narrow` and `zip` decodes both operands. `Wide` for `add_narrow` adds two
-  `i64` arrays. `add_wide` omits `Wide`, because it is the same case.
+- `Decoded` for `add_widen` and `zip` decodes both operands. `Canonical` for `add_widen` adds two
+  `i64` arrays. `add_wide` omits `Canonical`, because it is the same case.
 
 Steps:
 
-1. Run `gh stack add ct/narrow-benchmarks` on top of NR1, as "Stack and branches" describes.
+1. Run `gh stack add ct/narrow-benchmarks` on top of WD1, as "Stack and branches" describes.
 2. Add `vortex-array/benches/narrow.rs` and the `[[bench]]` entry.
-3. Commit as `bench(array): add Narrow compute benchmarks`, with the sign-off line. The PR title
+3. Commit as `bench(array): add Widen compute benchmarks`, with the sign-off line. The PR title
    comes from the table in "Stack and branches".
 
 Tests: None. The benchmark compiles under `cargo clippy --all-targets`.
@@ -640,14 +640,14 @@ Tests: None. The benchmark compiles under `cargo clippy --all-targets`.
 Benchmarks: This PR only adds cases, so CodSpeed reports them as new. Read the reports of later PRs
 with the CodSpeed rule in "Stack and branches". Qualitative expectations for later PRs:
 
-- NR3: `sum[Narrow]` and `min_max[Narrow]` move from about the `Decoded` level toward or below
-  `Wide`.
-- NR4: `add_constant`, `add_narrow`, `between_in_range`, `cast_f64`, `fill_null_wide` and `zip`
-  change for `Narrow`. `add_wide[Narrow]` stays near `add_wide[Decoded]`, because the NR4 kernel
+- WD3: `sum[Widen]` and `min_max[Widen]` move from about the `Decoded` level toward or below
+  `Canonical`.
+- WD4: `add_constant`, `add_widen`, `between_in_range`, `cast_f64`, `fill_null_wide` and `zip`
+  change for `Widen`. `add_wide[Widen]` stays near `add_wide[Decoded]`, because the WD4 kernel
   declines a wide operand and canonical execution widens it once.
-- `chunked` and `interleave` stay flat. They call no aggregate, and NR5 changes no tree that they
+- `chunked` and `interleave` stay flat. They call no aggregate, and WD5 changes no tree that they
   build.
-- `Wide` and `Decoded` cases must stay flat in NR3 to NR5. A move there points at noise or at a
+- `Canonical` and `Decoded` cases must stay flat in WD3 to WD5. A move there points at noise or at a
   side effect of session registration.
 
 Acceptance checks:
@@ -666,10 +666,10 @@ Size: Medium. One file with 16 workloads.
 
 Open questions: None.
 
-### NR3: Aggregate kernels read the child
+### WD3: Aggregate kernels read the child
 
 As landed in #10890 after review (2026-10-27), this replaces the kernel design below. One kernel,
-`NarrowArrayAggregate` in `narrow/compute/aggregate.rs`, runs the aggregate on the child with an
+`WidenArrayAggregate` in `narrow/compute/aggregate.rs`, runs the aggregate on the child with an
 accumulator of the child dtype and casts the flushed partial to the partial dtype of the parent
 (D36 as changed on 2026-10-27). It is registered for the exact ids of `MinMax`, `Min`, `Max`,
 `IsConstant`, `IsSorted` and `Sum`, and it declines a parent dtype that is not an integer. It serves
@@ -678,14 +678,14 @@ accumulator of the child dtype and casts the flushed partial to the partial dtyp
 sum changes and the exact-id lookup below were not kept. The decode function is
 `decode_narrow_scalar` in `vtable/operations.rs`. CD4 needs its own argument for decimals.
 
-- Goal: Add aggregate kernels for `Narrow` that build the exact partial of the parent dtype from
+- Goal: Add aggregate kernels for `Widen` that build the exact partial of the parent dtype from
   the child, so that `min_max`, `is_constant`, `is_sorted` and `sum` stop widening the child
-  buffer. An aggregate on a `Narrow` runs in the accumulator of the parent dtype (D36). Every other
+  buffer. An aggregate on a `Widen` runs in the accumulator of the parent dtype (D36). Every other
   aggregate keeps the default path.
-- Depends on: NR1, NR2 (stack, D35: the benchmarks exist before the kernels change). Soft: None.
-  Blocks: NR4 (stack), CD4.
+- Depends on: WD1, WD2 (stack, D35: the benchmarks exist before the kernels change). Soft: None.
+  Blocks: WD4 (stack), CD4.
 - Decisions: D15, D36, D38.
-- Branch: `ct/narrow-aggregate-kernels`, based on NR2.
+- Branch: `ct/narrow-aggregate-kernels`, based on WD2.
 - Scope: Four kernels in `narrow/compute/` and their registrations in
   `AggregateFnSession::default`. A shared `SumState::to_scalar`, a crate-private kernel lookup by
   exact id, and two doc comments in the aggregate code. `8d548646ee` is the reference for the test
@@ -694,13 +694,13 @@ sum changes and the exact-id lookup below were not kept. The decode function is
   for `SumV2` and for `Sum` with `include_nans`. Grouped aggregate kernels. A fast path for
   `UncompressedSizeInBytes`. The engine issues in "Issues to draft at the gate" below.
 
-The rule (D36). An aggregate over a `Narrow` runs in the accumulator of the parent dtype. Every
+The rule (D36). An aggregate over a `Widen` runs in the accumulator of the parent dtype. Every
 partial that reaches it is exactly the partial that the parent accumulator builds from the decoded
 values. No accumulator and no aggregate vtable receives a batch of another dtype, and no partial
-state is cast. A `Narrow` kernel can read the child in two ways only:
+state is cast. A `Widen` kernel can read the child in two ways only:
 
-- It asks the child for values or a verdict that the `Narrow` decode does not change (min and max,
-  is constant, is sorted), and it decodes any value with the `Narrow` decode.
+- It asks the child for values or a verdict that the `Widen` decode does not change (min and max,
+  is constant, is sorted), and it decodes any value with the `Widen` decode.
 - It sums the stored values into the sum state of the parent, and it widens each value exactly.
 
 The precedent is `vortex-array/src/aggregate_fn/fns/min_max/extension.rs:24-32`, which runs
@@ -716,16 +716,16 @@ Kernels:
 
 | Kernel | Aggregates | How |
 | --- | --- | --- |
-| `NarrowMinMaxKernel` | `MinMax`, `Min`, `Max` | `min_max(child)`, decode both values, and build the parent partial with `make_minmax_dtype(parent)`, in the shape of `DictMinMaxKernel`. `Min` and `Max` take one decoded value as a nullable scalar of the parent dtype. A child with no valid value gives the null partial |
-| `NarrowIsConstantKernel` | `IsConstant` | `batch.is_empty() \|\| is_constant(child)`, then `IsConstant::make_partial` on the `Narrow`. The empty guard is required: the free `is_constant` reports an empty array as not constant (`aggregate_fn/fns/is_constant/mod.rs:99-102`) |
-| `NarrowIsSortedKernel` | `IsSorted` | The verdict follows the vtable semantics, not the length shortcut of the free function (`aggregate_fn/fns/is_sorted/mod.rs:87-89`). An all-null batch gives `!strict`, as `is_sorted/primitive.rs:35` does. Otherwise `is_sorted` or `is_strict_sorted` on the child, then `IsSorted::make_partial` on the `Narrow` |
-| `NarrowSumKernel` | `Sum` with `skip_nans` only | Declines, cheapest check first (below). Otherwise executes the child to a `PrimitiveArray` and calls `accumulate_primitive` into `make_zero_state` of the parent return dtype |
+| `WidenMinMaxKernel` | `MinMax`, `Min`, `Max` | `min_max(child)`, decode both values, and build the parent partial with `make_minmax_dtype(parent)`, in the shape of `DictMinMaxKernel`. `Min` and `Max` take one decoded value as a nullable scalar of the parent dtype. A child with no valid value gives the null partial |
+| `WidenIsConstantKernel` | `IsConstant` | `batch.is_empty() \|\| is_constant(child)`, then `IsConstant::make_partial` on the `Widen`. The empty guard is required: the free `is_constant` reports an empty array as not constant (`aggregate_fn/fns/is_constant/mod.rs:99-102`) |
+| `WidenIsSortedKernel` | `IsSorted` | The verdict follows the vtable semantics, not the length shortcut of the free function (`aggregate_fn/fns/is_sorted/mod.rs:87-89`). An all-null batch gives `!strict`, as `is_sorted/primitive.rs:35` does. Otherwise `is_sorted` or `is_strict_sorted` on the child, then `IsSorted::make_partial` on the `Widen` |
+| `WidenSumKernel` | `Sum` with `skip_nans` only | Declines, cheapest check first (below). Otherwise executes the child to a `PrimitiveArray` and calls `accumulate_primitive` into `make_zero_state` of the parent return dtype |
 
 Design notes:
 
-- One decode function in `narrow/` casts a child scalar to the parent dtype. NR3 moves the cast
-  of NR1's `probe_scalar` into it, and `probe_scalar` and the kernels call it.
-- `NarrowSumKernel` is bit-exact with the parent, because the stats bridge also sums each batch
+- One decode function in `narrow/` casts a child scalar to the parent dtype. WD3 moves the cast
+  of WD1's `probe_scalar` into it, and `probe_scalar` and the kernels call it.
+- `WidenSumKernel` is bit-exact with the parent, because the stats bridge also sums each batch
   from zero and then merges (`accumulator.rs:265-283`). Only `Sum` with `skip_nans` has that bridge
   (`vortex-array/src/expr/stats/mod.rs:223`). The kernel declines, cheapest check first:
   1. Options without `skip_nans`.
@@ -742,19 +742,19 @@ Design notes:
 - The kernel returns the partial of its batch alone, as every aggregate kernel does. The
   accumulator merges it with the checked add of `Sum`.
 - Registration: each kernel is registered for its own aggregate id in `AggregateFnSession::default`
-  (`vortex-array/src/aggregate_fn/session.rs`), after the `Dict` kernels (`:133-135`). That is
-  `(Narrow, MinMax)`, `(Narrow, Min)` and `(Narrow, Max)` for `NarrowMinMaxKernel`, then
-  `(Narrow, IsConstant)`, `(Narrow, IsSorted)` and `(Narrow, Sum)`.
-  - Never register them from `narrow::initialize`. `KernelSession::default` runs
+  (`vortex-array/src/aggregate_fn/session.rs`), after the last `RunEnd` registration. That is
+  `(Widen, MinMax)`, `(Widen, Min)` and `(Widen, Max)` for `WidenMinMaxKernel`, then
+  `(Widen, IsConstant)`, `(Widen, IsSorted)` and `(Widen, Sum)`.
+  - Never register them from `widen::initialize`. `KernelSession::default` runs
     `arrays::initialize` on a throwaway session (`vortex-array/src/optimizer/kernels.rs:366-367`),
     so an aggregate registration there is lost without an error.
-  - There is no `(Narrow, None)` fallback. The lookup tries the exact id and then the `None` key
-    (`session.rs:338-347`), so such a fallback runs for every aggregate on a `Narrow`. It shadows
+  - There is no `(Widen, None)` fallback. The lookup tries the exact id and then the `None` key
+    (`session.rs:338-347`), so such a fallback runs for every aggregate on a `Widen`. It shadows
     the cheap `try_accumulate` paths of `First`, `Last`, `Count`, `NullCount`, `AllNull` and
     `AllNonNull`, and it covers future aggregates without a review.
 - Default path, no kernel: `SumV2`, `Sum` with `include_nans`, `First`, `Last`, `Count`,
   `NullCount`, `AllNull`, `AllNonNull`, `BoundedMin`, `BoundedMax` and `UncompressedSizeInBytes`.
-  The default path executes the `Narrow` into a cast to the parent dtype. `NanCount`, `AllNan` and
+  The default path executes the `Widen` into a cast to the parent dtype. `NanCount`, `AllNan` and
   `AllNonNan` do not apply to integers. Grouped aggregates take the default grouped path.
   - `SumV2` and `Sum` with `include_nans` have no stats bridge. They add each value into the
     running state, and they check after every value for 64-bit input. A kernel that returns the
@@ -772,7 +772,7 @@ Design notes:
     true on overflow.
   - One sentence on `AggregateFnVTable::accumulate` (`aggregate_fn/vtable.rs:254`) says that
     `batch` has the dtype `args.dtype`.
-- Child value queries are allowed with the `Narrow` decode. When the child has no cached
+- Child value queries are allowed with the `Widen` decode. When the child has no cached
   statistic and no kernel, `min_max`, `is_constant` and `is_sorted` build an accumulator of the
   child dtype inside. They return only two stored values or a bool, and they cache it on the
   child. No child partial reaches the parent.
@@ -781,25 +781,25 @@ Files (checked at `afa4bc87cd`):
 
 | Path | Change |
 | --- | --- |
-| `vortex-array/src/arrays/narrow/compute/min_max.rs`, `is_constant.rs`, `is_sorted.rs`, `sum.rs` | New. One `pub(crate)` kernel each, with a short exactness argument in its doc. The rule of D36 is stated once, in the doc of `compute/mod.rs` |
-| `vortex-array/src/arrays/narrow/mod.rs` | `pub(crate) mod compute;`, so that `aggregate_fn/session.rs` can import the kernels, as it does from `dict/compute/` |
-| `vortex-array/src/arrays/narrow/compute/mod.rs` | Declare the four modules as `pub(crate) mod`. The module doc states the aggregate rule |
-| `vortex-array/src/arrays/narrow/array.rs` | The `pub(super)` decode function, next to `validate_dtypes`. `vtable/operations.rs` is private to `vtable`, so a function there cannot serve the kernels in `compute/` |
-| `vortex-array/src/arrays/narrow/vtable/operations.rs` | `probe_scalar` calls the decode function |
-| `vortex-array/src/aggregate_fn/session.rs:45-56` | Import `Narrow` and the four kernels |
-| `vortex-array/src/aggregate_fn/session.rs:138-140` | The six registrations after the `Dict` kernels |
+| `vortex-array/src/arrays/widen/compute/min_max.rs`, `is_constant.rs`, `is_sorted.rs`, `sum.rs` | New. One `pub(crate)` kernel each, with a short exactness argument in its doc. The rule of D36 is stated once, in the doc of `compute/mod.rs` |
+| `vortex-array/src/arrays/widen/mod.rs` | `pub(crate) mod compute;`, so that `aggregate_fn/session.rs` can import the kernels, as it does from `dict/compute/` |
+| `vortex-array/src/arrays/widen/compute/mod.rs` | Declare the four modules as `pub(crate) mod`. The module doc states the aggregate rule |
+| `vortex-array/src/arrays/widen/array.rs` | The `pub(super)` decode function, next to `validate_dtypes`. `vtable/operations.rs` is private to `vtable`, so a function there cannot serve the kernels in `compute/` |
+| `vortex-array/src/arrays/widen/vtable/operations.rs` | `probe_scalar` calls the decode function |
+| `vortex-array/src/aggregate_fn/session.rs:45-56` | Import `Widen` and the four kernels |
+| `vortex-array/src/aggregate_fn/session.rs:138-140` | The six registrations after the last `RunEnd` registration |
 | `vortex-array/src/aggregate_fn/session.rs:308-336` | The `pub(crate)` exact-id lookup on `AggregateKernels` |
 | `vortex-array/src/aggregate_fn/fns/sum/mod.rs` | `SumState::to_scalar`. `Sum::to_scalar` uses it |
 | `vortex-array/src/aggregate_fn/fns/sum_v2/mod.rs:523-540` | Use `SumState::to_scalar`, and delete `sum_state_scalar` |
 | `vortex-array/src/aggregate_fn/fns/sum/primitive.rs:24` | The doc comment on `accumulate_primitive` |
 | `vortex-array/src/aggregate_fn/vtable.rs:254` | One sentence on the `accumulate` doc |
-| `vortex-array/src/arrays/narrow/tests/mod.rs` | `mod aggregates;` |
-| `vortex-array/src/arrays/narrow/tests/aggregates.rs` | New |
+| `vortex-array/src/arrays/widen/tests/mod.rs` | `mod aggregates;` |
+| `vortex-array/src/arrays/widen/tests/aggregates.rs` | New |
 | `encodings/fastlanes/tests/narrow.rs` | New integration test with a `BitPacked` child, with the closure session pattern. `encodings/fastlanes/tests/` does not exist yet, and Cargo discovers the file unless the crate sets `autotests = false`. It keeps `#![cfg(test)]`, or clippy fails on `tests_outside_test_module`, as in `vortex-btrblocks/tests/*.rs` |
 
 Steps:
 
-1. Run `gh stack add ct/narrow-aggregate-kernels` on top of NR2.
+1. Run `gh stack add ct/narrow-aggregate-kernels` on top of WD2.
 2. Add `SumState::to_scalar`, the exact-id lookup and the two doc comments. No behavior changes.
 3. Move the cast of `probe_scalar` into the decode function. Write the kernels in
    `narrow/compute/` and the registrations in `aggregate_fn/session.rs`.
@@ -814,21 +814,21 @@ Tests:
   the kernel partial, the running partial and the final value against a fresh parent accumulator on
   the canonical batch. It looks kernels up with the exact-id lookup through
   `ctx.aggregate_kernels()`, so a registration in the wrong place fails a test.
-  - The reference asserts that every batch encodes to a `Narrow` and that the kernel returns a
-    partial (`:60-65`). The port accepts a mix of `Narrow` and canonical batches, and it checks the
-    kernel partial only on the `Narrow` batches.
+  - The reference asserts that every batch encodes to a `Widen` and that the kernel returns a
+    partial (`:60-65`). The port accepts a mix of `Widen` and canonical batches, and it checks the
+    kernel partial only on the `Widen` batches.
   - For a declined configuration, the lookup misses or the kernel returns `None`. The oracle then
     compares only the running partials and the final value.
 - Shapes: `i64` over `i8`, `i16` and `i32`, and `u64` over `u8`, `u16` and `u32`, with the child
   bounds. A descending and an equal batch boundary. Empty, all-null and partially valid batches.
 - Strict `IsSorted` on `[null]` alone, and followed by `[1, 2]`.
 - `IsConstant` on `[[], [7, 7]]`. This catches a missing empty guard.
-- A `ChunkedArray` of a `Narrow` chunk and a `PrimitiveArray` chunk gives the canonical result.
+- A `ChunkedArray` of a `Widen` chunk and a `PrimitiveArray` chunk gives the canonical result.
 - Running overflow: `[i64::MAX - 5]` then `[10]`, and `[i64::MAX - 5]` then `[10, -10]`. No
   narrower child holds `i64::MAX - 5`, so the first batch is a canonical `i64` batch, and the later
-  batches are `Narrow`. `Sum` with `skip_nans` and each declined configuration (`SumV2`, `Sum` with
+  batches are `Widen`. `Sum` with `skip_nans` and each declined configuration (`SumV2`, `Sum` with
   `include_nans`) match canonical.
-- Statistics land on the right array: the parent dtype on the `Narrow`, the child dtype on the
+- Statistics land on the right array: the parent dtype on the `Widen`, the child dtype on the
   child.
 - A default-path test: the kernel lookup misses, and the result equals canonical, for `First`,
   `Last`, `Count`, `NullCount`, `AllNull`, `AllNonNull`, `BoundedMin`, `BoundedMax` and
@@ -838,7 +838,7 @@ Tests:
   take, compare, sum and execution), and add `min_max`, `is_constant`, `is_sorted` and `sum`
   against the canonical array.
 
-Benchmarks: NR2 `sum` and `min_max` with the `Narrow` input are expected to improve. All other
+Benchmarks: WD2 `sum` and `min_max` with the `Widen` input are expected to improve. All other
 cases stay flat.
 
 Acceptance checks:
@@ -855,7 +855,7 @@ Review focus: The exactness of each kernel against the parent partial: nulls, em
 boundaries, and strict `IsSorted` on an all-null batch. The order and cost of the `Sum` declines,
 the exact-id lookup of the child kernel, and the `NB:` comment on the 2^32 bound. Exact-id
 registrations in `AggregateFnSession::default`, with no `None` fallback. Every value goes through
-the one `Narrow` decode function. Statistics land on the right array.
+the one `Widen` decode function. Statistics land on the right array.
 
 Size: Medium. About 150 lines of source in `narrow/compute/`, small changes in the sum
 modules, and the tests.
@@ -875,46 +875,46 @@ Issues to draft at the gate. Read the code first to confirm each one:
 
 Open questions: None.
 
-### NR4: Arithmetic and scalar operations forward to the child
+### WD4: Arithmetic and scalar operations forward to the child
 
 - Goal: Execute checked add, subtract, multiply and divide at the smallest width that holds both
-  operands and the result interval, when each operand is a `Narrow` or a constant. Push `between`,
-  `zip`, `fill_null` and more casts through `Narrow`.
-- Depends on: NR3 (stack). Soft: NR2. Blocks: NR5.
+  operands and the result interval, when each operand is a `Widen` or a constant. Push `between`,
+  `zip`, `fill_null` and more casts through `Widen`.
+- Depends on: WD3 (stack). Soft: WD2. Blocks: WD5.
 - Decisions: D15, D22, D38.
-- Branch: `ct/narrow-arithmetic-kernels`, based on NR3.
+- Branch: `ct/narrow-arithmetic-kernels`, based on WD3.
 - Scope: Write the numeric kernel and the rules. `74aa17644e` is the reference for the interval
-  arithmetic and for test cases. Extend the cast and fill-null rules of NR1 instead of replacing
-  them. Reuse the NR1 width helper.
-- Out of scope: Structural rules and the dictionary-codes rule (NR5). Decimal arithmetic (D20).
+  arithmetic and for test cases. Extend the cast and fill-null rules of WD1 instead of replacing
+  them. Reuse the WD1 width helper.
+- Out of scope: Structural rules and the dictionary-codes rule (WD5). Decimal arithmetic (D20).
   Decimal casts (CD4).
 
 Files (checked at `afa4bc87cd`):
 
 | Path | Change |
 | --- | --- |
-| `vortex-array/src/arrays/narrow/compute/numeric.rs` | New. Reference: `74aa17644e`. A kernel for `Binary` that implements `ExecuteParentKernel` directly |
-| `vortex-array/src/arrays/narrow/compute/cast.rs`, `fill_null.rs` | Extend the cast and fill-null rules |
-| `vortex-array/src/arrays/narrow/compute/zip.rs`, `between.rs`, `rules.rs` | New `ZipReduce` and `BetweenReduce`, listed in `PARENT_RULES`. `ZipReduceAdaptor` fires only for child index 0 (`scalar_fn/fns/zip/kernel.rs:67`), so the false-branch rule is a hand-written `ArrayParentReduceRule` |
-| `vortex-array/src/arrays/narrow/encode.rs` | Created by NR1. The numeric kernel, `integer_storage_type` and `encode` use its `pub(super)` width helper. Make `integer_value` `pub(super)` and reuse it for the `min_max` bounds. There is no `integer_types` list |
-| `vortex-array/src/arrays/narrow/compute/mod.rs`, `mod.rs` | `mod numeric;`, and `initialize` in `mod.rs` registers the numeric kernel |
+| `vortex-array/src/arrays/widen/compute/numeric.rs` | New. Reference: `74aa17644e`. A kernel for `Binary` that implements `ExecuteParentKernel` directly |
+| `vortex-array/src/arrays/widen/compute/cast.rs`, `fill_null.rs` | Extend the cast and fill-null rules |
+| `vortex-array/src/arrays/widen/compute/zip.rs`, `between.rs`, `rules.rs` | New `ZipReduce` and `BetweenReduce`, listed in `PARENT_RULES`. `ZipReduceAdaptor` fires only for child index 0 (`scalar_fn/fns/zip/kernel.rs:67`), so the false-branch rule is a hand-written `ArrayParentReduceRule` |
+| `vortex-array/src/arrays/widen/encode.rs` | Created by WD1. The numeric kernel, `integer_storage_type` and `encode` use its `pub(super)` width helper. Make `integer_value` `pub(super)` and reuse it for the `min_max` bounds. There is no `integer_types` list |
+| `vortex-array/src/arrays/widen/compute/mod.rs`, `mod.rs` | `mod numeric;`, and `initialize` in `mod.rs` registers the numeric kernel |
 | `vortex-array/src/scalar_fn/fns/between/mod.rs:137` | Make `as_two_compares` `pub(crate)` |
-| `vortex-array/src/arrays/narrow/tests/mod.rs` | `mod numeric;` and `mod pushdown;` |
-| `vortex-array/src/arrays/narrow/tests/numeric.rs` | New. Port the cases of the reference tests |
-| `vortex-array/src/arrays/narrow/tests/pushdown.rs` | New. Port the cases of the reference tests |
+| `vortex-array/src/arrays/widen/tests/mod.rs` | `mod numeric;` and `mod pushdown;` |
+| `vortex-array/src/arrays/widen/tests/numeric.rs` | New. Port the cases of the reference tests |
+| `vortex-array/src/arrays/widen/tests/pushdown.rs` | New. Port the cases of the reference tests |
 
 Design notes:
 
 - Numeric kernel: it implements `ExecuteParentKernel` directly and handles child index 0 and 1,
   for `Add`, `Sub`, `Mul` and `Div`.
-  - It declines with `Ok(None)` unless each operand is a `Narrow` or a constant. Canonical
+  - It declines with `Ok(None)` unless each operand is a `Widen` or a constant. Canonical
     execution then widens a wide or lazy operand once.
   - It executes each stored operand once with `execute::<Columnar>`, which keeps a constant
     constant. It takes `min_max` of the executed array as `i128` bounds, and it passes the executed
     arrays to the cast and to the checked `execute_numeric`.
   - It computes the result interval, and it picks the smallest type of the same signedness, no
-    wider than the logical type, that holds both operands and the interval, with the NR1 width
-    helper. It wraps the result with the NR1 `wrap_values`.
+    wider than the logical type, that holds both operands and the interval, with the WD1 width
+    helper. It wraps the result with the WD1 `wrap_values`.
   - When no narrower type holds the interval, it runs at the logical width, so the checked kernel
     reports a real overflow as canonical execution does.
   - An empty parent gives an empty canonical array. An all-null operand gives a null constant.
@@ -923,24 +923,24 @@ Design notes:
 - Cast rule (D15): a float target goes to the child with the same target. An integer target
   first picks a storage type. It is the child type with the signedness of the target. For an
   unsigned child and a signed target, it is the next wider signed type. A target no wider than the
-  storage type goes to the child with the same target. A wider target returns a `Narrow` over the
+  storage type goes to the child with the same target. A wider target returns a `Widen` over the
   child cast to the storage type. Non-primitive targets decline.
 - Fill null: `integer_storage_type` picks the child type, or the smallest type that holds the fill
   value, without reading values. The child is cast to it before the fill. A fill value that needs
   the logical width gives a plain array.
-- Zip: both branches. The other branch is a `Narrow` or a constant. Otherwise decline.
+- Zip: both branches. The other branch is a `Widen` or a constant. Otherwise decline.
 - Between: when both bounds are constants inside the child range, run `between` on the child.
-  `constant_fits_child` from NR1 checks each constant against the child range. When both bounds
-  are constants or `Narrow` arrays, call `as_two_compares`, so each compare uses the NR1 kernel.
-  Otherwise decline, so that `Between::execute` widens the `Narrow` once.
+  `constant_fits_child` from WD1 checks each constant against the child range. When both bounds
+  are constants or `Widen` arrays, call `as_two_compares`, so each compare uses the WD1 kernel.
+  Otherwise decline, so that `Between::execute` decodes the `Widen` once.
 - Decimal declines: the numeric kernel (on the logical dtype, before it reads bounds), the cast
   rule (on the target and the child), `integer_storage_type` (fill null and zip with a constant)
-  and the zip of two `Narrow` operands decline a non-primitive dtype. `between` needs no decline,
-  because the NR1 compare kernel is decimal-safe. CD4 adds the decimal tests.
+  and the zip of two `Widen` operands decline a non-primitive dtype. `between` needs no decline,
+  because the WD1 compare kernel is decimal-safe. CD4 adds the decimal tests.
 
 Steps:
 
-1. Run `gh stack add ct/narrow-arithmetic-kernels` on top of NR3.
+1. Run `gh stack add ct/narrow-arithmetic-kernels` on top of WD3.
 2. Write the commits in this order. Each commit compiles and passes its tests: the numeric kernel,
    the cast extension, fill null, zip, and between.
 3. Port the test cases of `74aa17644e` into the commit of each change, with the module `SESSION`.
@@ -955,26 +955,26 @@ Tests:
   - A brute-force reference test of the interval function: for all pairs of small `i8` intervals,
     the computed interval holds every result.
   - Regression cases: the multiplication of two negative intervals, a zero divisor behind a null,
-    an all-zero divisor, and `Constant(i64::MIN) / Narrow(-1)`.
+    an all-zero divisor, and `Constant(i64::MIN) / Widen(-1)`.
   - `test_logical_errors`: overflow and division by zero give the same error messages as
     canonical execution.
   - `test_unsigned_arithmetic`, `test_unsigned_underflow`, `test_nulls_and_empty`,
     `test_encoded_child_and_operand_order`, `test_overflow_at_each_logical_width`,
     `test_logical_overflow_behind_null`.
-  - `test_binary_numeric_array` runs over the NR1 fixtures.
+  - `test_binary_numeric_array` runs over the WD1 fixtures.
 - `narrow/tests/pushdown.rs`:
   - `test_between_bounds`: `rstest` over bounds inside and outside the child range, and both
     strictness values.
   - `test_cast_child`: unsigned to signed, signed to unsigned, and float. The float target needs
     this test, because `test_cast_conformance` runs no float target for an integer input.
-  - `test_conformance` in `tests/compute.rs` already runs `test_cast_conformance` over the NR1
+  - `test_conformance` in `tests/compute.rs` already runs `test_cast_conformance` over the WD1
     fixtures, so do not add a second run.
   - Cast failures assert `is_err`, because the error text names the child ptype.
   - `test_fill_width`, `test_zip_width`, `test_between_nullable_bounds`,
     `test_zip_false_branch_and_null_mask`, `test_signedness_cast_checks_values_and_nulls`.
 
-Benchmarks: NR2 `add_constant`, `add_narrow`, `between_in_range`, `cast_f64`, `fill_null_wide` and
-`zip` change for the `Narrow` input. `add_wide[Narrow]` stays near `add_wide[Decoded]`, because the
+Benchmarks: WD2 `add_constant`, `add_widen`, `between_in_range`, `cast_f64`, `fill_null_wide` and
+`zip` change for the `Widen` input. `add_wide[Widen]` stays near `add_wide[Decoded]`, because the
 kernel declines a wide operand.
 
 Acceptance checks:
@@ -995,82 +995,82 @@ Size: Large. The reference has about 450 lines of source and 425 lines of tests.
 
 Open questions: None.
 
-### NR5: Structural encodings move above `Narrow`, and dictionary codes use the child
+### WD5: Structural encodings move above `Widen`, and dictionary codes use the child
 
-- Goal: Keep generic structural encodings above `Narrow` (D25). Reduce rules turn a `Narrow` over
+- Goal: Keep generic structural encodings above `Widen` (D25). Reduce rules turn a `Widen` over
   `Dict`, `RunEnd`, `Sparse`, `Constant`, `Masked`, `Chunked` or `Interleave` into that encoding
-  over `Narrow` children. Dictionary codes that are a `Narrow` use its child directly.
-- Depends on: NR4. FX3 is merged (`dcb4f50ae2`). Soft: NR2. Blocks: WR3.
+  over `Widen` children. Dictionary codes that are a `Widen` use its child directly.
+- Depends on: WD4. FX3 is merged (`dcb4f50ae2`). Soft: WD2. Blocks: WR3.
 - Decisions: D25, D15, D23, D38.
-- Branch: `ct/narrow-structural-rules`, based on NR4, with `gh stack add` on the top branch.
+- Branch: `ct/narrow-structural-rules`, based on WD4, with `gh stack add` on the top branch.
 - Scope: Seven pull-up rules, the dictionary-codes rule `TakeIndicesReduce` (reference:
-  `af4b663059`), and the case of the `Narrow` regression test from `7e2e5e4d7a`.
+  `af4b663059`), and the case of the `Widen` regression test from `7e2e5e4d7a`.
 - Out of scope: The chunked and interleave merge rules of `af4b663059` (`narrow/merge.rs`). They
-  put `Narrow` above `Chunked` and `Interleave`, so they would loop against the new rules. The same
+  put `Widen` above `Chunked` and `Interleave`, so they would loop against the new rules. The same
   pull-up rule for every other encoding, which a follow-up issue tracks. Decimal tests (CD4).
 
 Files (checked at `b70206818f`):
 
 | Path | Change |
 | --- | --- |
-| `vortex-array/src/arrays/narrow/compute/rules.rs` and new files in `compute/` | The pull-up rules for `Dict`, `Constant`, `Masked`, `Chunked` and `Interleave`. `TakeIndicesReduce` for `Dict` codes, from `af4b663059` |
-| `vortex-array/src/arrays/narrow/tests/mod.rs` | `mod structural;` |
-| `vortex-array/src/arrays/narrow/tests/structural.rs` | New. The pull-up tests, `test_narrowed_take_indices` from `af4b663059`, and `test_fill_null_after_narrowing_take_indices` from `7e2e5e4d7a`, with the module `SESSION` |
-| `encodings/runend/src/` | A parent-reduce rule that moves `RunEnd` above a `Narrow` parent, with a test |
-| `encodings/sparse/src/` | A parent-reduce rule that moves `Sparse` above a `Narrow` parent, with a test |
+| `vortex-array/src/arrays/widen/compute/rules.rs` and new files in `compute/` | The pull-up rules for `Dict`, `Constant`, `Masked`, `Chunked` and `Interleave`. `TakeIndicesReduce` for `Dict` codes, from `af4b663059` |
+| `vortex-array/src/arrays/widen/tests/mod.rs` | `mod structural;` |
+| `vortex-array/src/arrays/widen/tests/structural.rs` | New. The pull-up tests, `test_narrowed_take_indices` from `af4b663059`, and `test_fill_null_after_narrowing_take_indices` from `7e2e5e4d7a`, with the module `SESSION` |
+| `encodings/runend/src/` | A parent-reduce rule that moves `RunEnd` above a `Widen` parent, with a test |
+| `encodings/sparse/src/` | A parent-reduce rule that moves `Sparse` above a `Widen` parent, with a test |
 
 Design notes:
 
 | Input | Output |
 | --- | --- |
-| `Narrow(Dict(codes, values))` | `Dict(codes, Narrow(values))` |
-| `Narrow(RunEnd(ends, values))` | `RunEnd(ends, Narrow(values))` |
-| `Narrow(Sparse(indices, values, fill))` | `Sparse(indices, Narrow(values), fill)`, with `fill` cast to the parent dtype |
-| `Narrow(Constant(value))` | `Constant(value)`, with `value` cast to the parent dtype |
-| `Narrow(Masked(child, validity))` | `Masked(Narrow(child), validity)` |
-| `Narrow(Chunked(c1, ..., cn))` | `Chunked(Narrow(c1), ..., Narrow(cn))` |
-| `Narrow(Interleave(selectors, v1, ..., vn))` | `Interleave(selectors, Narrow(v1), ..., Narrow(vn))` |
+| `Widen(Dict(codes, values))` | `Dict(codes, Widen(values))` |
+| `Widen(RunEnd(ends, values))` | `RunEnd(ends, Widen(values))` |
+| `Widen(Sparse(indices, values, fill))` | `Sparse(indices, Widen(values), fill)`, with `fill` cast to the parent dtype |
+| `Widen(Constant(value))` | `Constant(value)`, with `value` cast to the parent dtype |
+| `Widen(Masked(child, validity))` | `Masked(Widen(child), validity)` |
+| `Widen(Chunked(c1, ..., cn))` | `Chunked(Widen(c1), ..., Widen(cn))` |
+| `Widen(Interleave(selectors, v1, ..., vn))` | `Interleave(selectors, Widen(v1), ..., Widen(vn))` |
 
-- Every output is valid if each new `Narrow` gets the right dtype. The array that it wraps can have
+- Every output is valid if each new `Widen` gets the right dtype. The array that it wraps can have
   another nullability than the structural array above it. `Masked` has the nullable dtype of its
   child (`vortex-array/src/arrays/masked/array.rs:84`), so its child is often non-nullable. `Dict`
   values can be non-nullable under nullable codes, and `Sparse` values can be non-nullable under a
-  null fill. So each new `Narrow` takes the parent dtype with the nullability of the array that it
+  null fill. So each new `Widen` takes the parent dtype with the nullability of the array that it
   wraps: `parent.with_nullability(inner.dtype().nullability())`. Then `validate_dtypes` holds. A
   cast of a scalar from the child dtype to the parent dtype is exact.
 - Reduce rules have no `ExecutionCtx`, but `MaskedArray::try_new`, `RunEndArray::try_new`,
   `RunEndArray::new`, `SparseArray::try_new` and `Patches::new` need one. Use the constructors
   without a context:
   - `Masked`: `MaskedArray::new_unchecked`. Its safety needs a child without nulls. The new
-    `Narrow` has the validity of the old child, so it holds.
+    `Widen` has the validity of the old child, so it holds.
   - `RunEnd`: `RunEnd::new_unchecked(ends, values, offset, length)`, with the ends, offset and
     length of the input.
   - `Sparse`: `patches.map_values(..)` (`vortex-array/src/patches.rs:972`), then
     `SparseArray::try_new_from_patches`.
   - `Dict`, `Chunked` and `Interleave`: their `try_new` takes no context.
 - Where the rules live. `Dict`, `Constant`, `Masked`, `Chunked` and `Interleave` are in
-  `vortex-array`, so their rules are `Narrow` reduce rules that match the child encoding. `RunEnd`
+  `vortex-array`, so their rules are `Widen` reduce rules that match the child encoding. `RunEnd`
   and `Sparse` are in their own crates, which depend on `vortex-array`. So their rules are
-  parent-reduce rules on `RunEnd` and `Sparse` with `Narrow` as the parent. Whether the rule
+  parent-reduce rules on `RunEnd` and `Sparse` with `Widen` as the parent. Whether the rule
   registry supports both shapes as described is Not verified. Read how `vortex-array/src/arrays/`
   registers parent rules before the first commit.
-- No rule moves `Narrow` above a structural encoding. A rule in the other direction would loop.
-  NR1 has no `TakeReduce` rule for this reason. Its `TakeExecute` kernel executes the gather of
-  the child and wraps the result, so no lazy `Dict` sits under a `Narrow`. So the `Dict` pull-up
-  rule and `TakeIndicesReduce` do not loop against the take of NR1.
-- Dictionary codes: a `Narrow` codes child is replaced by its child, with the same `DictData`.
+- No rule moves `Widen` above a structural encoding. A rule in the other direction would loop.
+  WD1 has no `TakeReduce` rule for this reason. Its `TakeExecute` kernel executes the gather of
+  the child and wraps the result, so no lazy `Dict` sits under a `Widen`. So the `Dict` pull-up
+  rule and `TakeIndicesReduce` do not loop against the take of WD1.
+- Dictionary codes: a `Widen` codes child is replaced by its child, with the same `DictData`.
   Narrowed codes can make an unreferenced fill index exceed the codes range. FX3 makes the
   dictionary `fill_null` kernel decline in that case, and it is on `develop` (`dcb4f50ae2`).
-- The rules never read the child dtype, so they also hold for decimal `Narrow`. CD4 adds the
+- The rules never read the child dtype, so they also hold for decimal `Widen`. CD4 adds the
   decimal tests.
-- WR3 can wrap a column root in `Narrow`, because these rules then move a structural encoding back
+- WR3 can wrap a column root in `Widen`, because these rules then move a structural encoding back
   to the top. The dict-layout probe and the Arrow and DuckDB exporters then see `Dict` and `RunEnd`
   at the root, as today.
 
 Steps:
 
-1. FX3 is on `develop` (`dcb4f50ae2`), and NR1 to NR4 are based on it. Run
-   `gh stack add ct/narrow-structural-rules` on top of NR4.
+1. FX3 is on `develop` (`dcb4f50ae2`), and WD1 to WD4 are based on it. Run
+   `gh stack add ct/narrow-structural-rules` on top of WD4.
 2. Add the five rules in `vortex-array`, with their tests.
 3. Add the `RunEnd` and `Sparse` rules in their crates, with one test each.
 4. Write `TakeIndicesReduce`, with `af4b663059` as the reference, and port the cases of
@@ -1080,20 +1080,20 @@ Steps:
 Tests:
 
 - `test_pull_up_structural`, an `rstest` over the five `vortex-array` shapes. Each result has the
-  structural encoding at the root and a `Narrow` below it. Its values equal the input, checked with
+  structural encoding at the root and a `Widen` below it. Its values equal the input, checked with
   `assert_arrays_eq!`.
 - `test_pull_up_nullable`: nullable children, a null constant, `Masked` with nulls over a
   non-nullable child, `Dict` with nullable codes over non-nullable values, and `Sparse` with a null
   fill over non-nullable values.
-- `test_pull_up_fixed_point`: `optimize()` on a `Chunked` of `Narrow` chunks returns the same tree.
+- `test_pull_up_fixed_point`: `optimize()` on a `Chunked` of `Widen` chunks returns the same tree.
   So no rule pair loops.
-- In `encodings/runend` and `encodings/sparse`: `Narrow` over the encoding optimizes to the encoding
-  over `Narrow` values, with equal values.
+- In `encodings/runend` and `encodings/sparse`: `Widen` over the encoding optimizes to the encoding
+  over `Widen` values, with equal values.
 - `test_narrowed_take_indices`, from `af4b663059`.
 - `test_fill_null_after_narrowing_take_indices`, from `7e2e5e4d7a`. It fails without FX3.
 
-Benchmarks: NR2 `chunked[Narrow]` and `interleave[Narrow]` keep their baseline. Their `Narrow`
-input already is a `Chunked` or `Interleave` of `Narrow` chunks, so the new rules change nothing
+Benchmarks: WD2 `chunked[Widen]` and `interleave[Widen]` keep their baseline. Their `Widen`
+input already is a `Chunked` or `Interleave` of `Widen` chunks, so the new rules change nothing
 for them. Kernels push work into each chunk.
 
 Acceptance checks:
@@ -1102,40 +1102,40 @@ Acceptance checks:
 - `cargo +nightly-2026-09-10 fmt -p vortex-array -p vortex-runend -p vortex-sparse`
 - `cargo nextest run -p vortex-array narrow`, `cargo nextest run -p vortex-runend` and
   `cargo nextest run -p vortex-sparse`
-- After `optimize()`, no `Narrow` sits directly above one of the seven encodings.
+- After `optimize()`, no `Widen` sits directly above one of the seven encodings.
 
-Review focus: The fill and constant casts to the parent dtype. Nullability of each new `Narrow`.
+Review focus: The fill and constant casts to the parent dtype. Nullability of each new `Widen`.
 No rule pair loops. The dictionary rule copies `DictData`. Each `unsafe` constructor has a SAFETY
 comment that names why its precondition holds.
 
-Shares files with CD4: both edit `vortex-array/src/arrays/narrow/compute/`. Do not run NR5 and CD4
+Shares files with CD4: both edit `vortex-array/src/arrays/widen/compute/`. Do not run WD5 and CD4
 at the same time.
 
 Size: Medium. Seven small rules in three crates, and their tests.
 
 Open questions: None.
 
-### NR6: The existing narrowing call sites move to `encode_values`
+### WD6: The existing narrowing call sites move to `encode_values`
 
-- Goal: Replace `PrimitiveArrayExt::narrow` with the deprecated `NarrowArray::encode_values` of NR1
+- Goal: Replace `PrimitiveArrayExt::narrow` with the deprecated `WidenArray::encode_values` of WD1
   at every call site. Each call site carries `#[expect(deprecated)]` with a reason, so every
   narrowing that changes a dtype is marked for a later decision (D28). Internal children keep
   their signedness.
-- Depends on: NR1. Soft: NR5 (merge after the stack, D35). Blocks: None.
+- Depends on: WD1. Soft: WD5 (merge after the stack, D35). Blocks: None.
 - Decisions: D28, D22, D23, D11.
-- Branch: `ct/narrow-encode-values`, based on `develop` after NR1 merges.
+- Branch: `ct/narrow-encode-values`, based on `develop` after WD1 merges.
 - Scope: The call sites that part 1 of `adc1e83b9d` changed, with that commit and `0d94e44a91` as
   references. The
   removal of `PrimitiveArrayExt::narrow`, with its tests ported. Regenerated golden snapshots. A
   check that the latest release reads files that this PR writes.
-- Out of scope: `encode_values` itself (NR1). Part 2 of `adc1e83b9d` (WR1 to WR3). Which arrays a
-  compressor wraps in a `Narrow` (deferred, D27).
+- Out of scope: `encode_values` itself (WD1). Part 2 of `adc1e83b9d` (WR1 to WR3). Which arrays a
+  compressor wraps in a `Widen` (deferred, D27).
 
 Files (checked at `b70206818f`):
 
 | Path | Change |
 | --- | --- |
-| `vortex-array/src/arrays/narrow/tests/encoding.rs` | Port the narrowing tests of `PrimitiveArrayExt::narrow` to `encode_values` |
+| `vortex-array/src/arrays/widen/tests/encoding.rs` | Port the narrowing tests of `PrimitiveArrayExt::narrow` to `encode_values` |
 | `vortex-array/src/arrays/primitive/array/mod.rs:157-241` | Remove `PrimitiveArrayExt::narrow` and imports that become unused |
 | `vortex-array/src/arrays/primitive/array/cast.rs:38-213` | Remove the narrowing tests, which move to `narrow/tests/encoding.rs` |
 | `vortex-array/src/builders/dict/mod.rs:19,87` | Dictionary codes |
@@ -1164,7 +1164,7 @@ when it becomes unused: `vortex-btrblocks/src/schemes/integer/bitpacking.rs:16`,
 
 `07fafc2a5b` pins dictionary compression in `test_array_stream_no_double_dict_encode`. `develop`
 reworked that test with far-apart values (`vortex-file/src/tests.rs:1599-1623`). Leave
-`07fafc2a5b` out unless that test fails with NR6.
+`07fafc2a5b` out unless that test fails with WD6.
 
 Design notes:
 
@@ -1174,9 +1174,9 @@ Design notes:
   ```rust
   #[expect(
       deprecated,
-      reason = "TODO(connor): decide whether this child narrows its dtype or becomes a Narrow"
+      reason = "TODO(connor): decide whether this child narrows its dtype or becomes a Widen"
   )]
-  let offsets = NarrowArray::encode_values(offsets, ctx)?;
+  let offsets = WidenArray::encode_values(offsets, ctx)?;
   ```
 
 - What "internal buffers keep their signedness" changes in file contents. The old
@@ -1212,7 +1212,7 @@ Design notes:
 
 Steps:
 
-1. Create `ct/narrow-encode-values` from `develop` after NR1 merges.
+1. Create `ct/narrow-encode-values` from `develop` after WD1 merges.
 2. Replace every call site in the table, each with the `#[expect(deprecated)]` shape above. Remove
    imports that become unused.
 3. Remove `PrimitiveArrayExt::narrow` and port its tests.
@@ -1234,7 +1234,7 @@ Tests:
     `I8`, `[0u64, u64::MAX]` stays `U64`, and floats stay unchanged.
   - Validity is kept in every case.
 - `vortex-btrblocks/tests/narrow.rs::test_internal_signed_buffers_roundtrip`: lists and strings
-  compress with the compact preset, serialize, decode and match the input, with no `vortex.narrow`
+  compress with the compact preset, serialize, decode and match the input, with no `vortex.widen`
   in the array context.
 - Regenerated `vortex-btrblocks/tests/snapshots/*.snap`. Only signed internal children change.
 
@@ -1245,16 +1245,16 @@ mode. The plan to investigate them:
 - `take_map` is in `vortex-array/benches/take_patches.rs:110-129`. It builds `Patches` with `u64`
   indices and `u64` values directly (`:131-140`), draws random `u64` take indices, and times
   `Patches::take_map` (`vortex-array/src/patches.rs:919-970`). No narrowing code runs.
-- Step 1: compare the `take_map` cases on NR1, NR3 and NR4. These PRs add session registrations
+- Step 1: compare the `take_map` cases on WD1, WD3 and WD4. These PRs add session registrations
   and kernels but no narrowing code. A move there points at registry growth or code layout.
-- Step 2: compare `take_map` on NR6 with its base. NR6 changes none of the code that `take_map`
+- Step 2: compare `take_map` on WD6 with its base. WD6 changes none of the code that `take_map`
   runs, so a move there also points at code layout.
 - Step 3: for a case that moves, open the CodSpeed flame graph diff. Find the symbols whose cost
   changed, for example `hashbrown` inserts and lookups, or allocator calls.
 - Step 4: check the `take_map` history on `develop` for variance. `HashMap` is `hashbrown` with
   `DefaultHashBuilder` (`vortex-utils/src/aliases/hash_map.rs:5-9`). If that builder seeds per
   process, the hash layout differs between runs. Not verified.
-- Report the result in the NR6 PR. Do not change `take_map` in NR6.
+- Report the result in the WD6 PR. Do not change `take_map` in WD6.
 
 Acceptance checks:
 
@@ -1293,19 +1293,19 @@ Open questions: None.
 
 1. The claim that "the only integer-only check is the private `validate_dtypes`" holds only for
    explicit dtype checks. Opening it for decimals without other changes gives a panic in the
-   compare kernel for two `Narrow` operands, wrong compare and between results for negative
+   compare kernel for two `Widen` operands, wrong compare and between results for negative
    constants below the child range, and early overflow in decimal `Sum` and `SumV2`. The table
    "Integer-only sites" lists every site, and CD4 owns each fix.
-2. `Narrow::execute` yields `values.cast(dtype)`. The decimal cast of D15 returns a `Narrow` for a
-   widening cast, so a decimal `Narrow` would execute to itself. CD4 widens decimals explicitly.
-   Resolved for integers in NR1 to NR4: `execute` casts the child, which is never a `Narrow` once
-   flattened, and a nested `Narrow` that is not yet flattened still converges. The hazard stays
+2. `Widen::execute` yields `values.cast(dtype)`. The decimal cast of D15 returns a `Widen` for a
+   widening cast, so a decimal `Widen` would execute to itself. CD4 widens decimals explicitly.
+   Resolved for integers in WD1 to WD4: `execute` casts the child, which is never a `Widen` once
+   flattened, and a nested `Widen` that is not yet flattened still converges. The hazard stays
    for CD4 only.
-3. The D15 text said that a cast of a `Narrow` passes to the child with the same target. For a
-   wider integer target, the rewrite returns a new `Narrow` over the child. The values are equal
+3. The D15 text said that a cast of a `Widen` passes to the child with the same target. For a
+   wider integer target, the rewrite returns a new `Widen` over the child. The values are equal
    and the data stays narrow. D15 now says this.
-4. The rewrite flattens nested `Narrow` arrays only in `try_new`. Physical rewrites check only the
-   slot dtype (`vortex-array/src/array/erased.rs:595-625`), so NR1 adds a `VTable::reduce` flatten
+4. The rewrite flattens nested `Widen` arrays only in `try_new`. Physical rewrites check only the
+   slot dtype (`vortex-array/src/array/erased.rs:595-625`), so WD1 adds a `VTable::reduce` flatten
    rule.
 5. The tests of the rewrite call `array_session()`, which `develop` removed. New tests use the
    module session, so port their cases, not their setup.
@@ -1313,9 +1313,9 @@ Open questions: None.
    In `f7408481ce` the same lines are `:76-79`.
 7. `ct/narrow-encoding` (#10223), `ct/narrow-pushdown` (#10332) and `ct/narrow-compression`
    (#10333) still exist on `origin`. The new branch names avoid all three.
-8. `Narrow` is not registered in `ArraySession::default`, like the in-memory `Filter`, `Slice`
+8. `Widen` is not registered in `ArraySession::default`, like the in-memory `Filter`, `Slice`
    and `Interleave`. A registered `VTable` also gets a reader entry that can only fail (#10864).
    WR1 registers it together with its wire form.
-9. Part 2 of #10333 wraps every integer primitive that reaches `compress_canonical` in a `Narrow`,
-   including internal children. It also declares a preview edition with only `vortex.narrow`. WR2
+9. Part 2 of #10333 wraps every integer primitive that reaches `compress_canonical` in a `Widen`,
+   including internal children. It also declares a preview edition with only `vortex.widen`. WR2
    and WR3 must not reuse either as they are.

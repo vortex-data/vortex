@@ -5,7 +5,7 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 # Independent fixes: FX1, FX2 and FX3
 
-These three PRs depend on no other PR. FX1 blocks CD6, and FX3 blocks NR5. Each one starts from
+These three PRs depend on no other PR. FX1 blocks CD6, and FX3 blocks WD5. Each one starts from
 `develop` at `b70206818f`. Every `file:line` below points at that checkout, unless a commit is
 named.
 
@@ -250,18 +250,18 @@ Issue #10750 listed seven more push-down rules, and it closed as not planned for
 - Goal: The dictionary `fill_null` kernel stops truncating the index of the fill value into the
   codes type. When the index does not fit the codes dtype, the kernel declines, and the generic
   path fills the decoded array.
-- Depends on: None. Soft: None. Blocks: NR5. With NR5, `optimize()` unwraps a `Narrow` over
+- Depends on: None. Soft: None. Blocks: WD5. With WD5, `optimize()` unwraps a `Widen` over
   dictionary codes to a narrow child
   (`af4b663059:vortex-array/src/arrays/narrow/tests/merge.rs:29-41`). This makes the bug easy to
-  reach. NR5 also carries the `Narrow` regression test of this fix.
-- Decisions: None by ID. `decisions.md`, section "The `Narrow` pull requests", makes this fix its
+  reach. WD5 also carries the `Widen` regression test of this fix.
+- Decisions: None by ID. `decisions.md`, section "The `Widen` pull requests", makes this fix its
   own PR.
 - Branch: `ct/dict-fill-code`, based on `develop`.
 - Scope: The fix of local commit `7e2e5e4d7a` to
-  `vortex-array/src/arrays/dict/compute/fill_null.rs`, and its `Narrow`-free regression test,
+  `vortex-array/src/arrays/dict/compute/fill_null.rs`, and its `Widen`-free regression test,
   adapted to the current test module.
-- Out of scope: The `Narrow` test
-  `7e2e5e4d7a:vortex-array/src/arrays/narrow/tests/merge.rs:45-62`, which NR5 owns. Any change to
+- Out of scope: The `Widen` test
+  `7e2e5e4d7a:vortex-array/src/arrays/narrow/tests/merge.rs:45-62`, which WD5 owns. Any change to
   the "no fill value found" branch at `fill_null.rs:45-55`.
 
 Files (checked at `b70206818f`):
@@ -272,7 +272,7 @@ Files (checked at `b70206818f`):
 
 Design notes:
 
-How the truncation happens on `develop`, without `Narrow`:
+How the truncation happens on `develop`, without `Widen`:
 
 1. The kernel compares every dictionary value with the fill value (`fill_null.rs:33-40`). This
    includes values that no code references.
@@ -383,8 +383,8 @@ These facts came up while the briefs were drafted. They do not change the scope 
    code uses. Its comment says to read the field with the generated getter, which FX1 makes wrong
    advice. Its removal belongs in a separate change.
 5. FX2 was dropped. Its section gives the reason.
-6. Commit `7e2e5e4d7a` has two tests. `fill_unreferenced_value` already avoids `Narrow`, and FX3
-   ports it. The `Narrow` test belongs to NR5, so NR5 lands after FX3.
+6. Commit `7e2e5e4d7a` has two tests. `fill_unreferenced_value` already avoids `Widen`, and FX3
+   ports it. The `Widen` test belongs to WD5, so WD5 lands after FX3.
 7. On `develop`, the FX3 bug is shown only for a dictionary built directly. Whether the compressor
    or a file read builds a dictionary with more values than its codes type can index is Not
    verified.

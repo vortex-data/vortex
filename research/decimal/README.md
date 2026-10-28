@@ -11,9 +11,9 @@ canonical decimal encoding.
 | Part | Content |
 | --- | --- |
 | [1. Current state](01-current-state.md) | How `Decimal` works on `develop`, and what is wrong |
-| [2. Design](02-design.md) | The leaf, imports and Arrow, `Narrow`, DecimalByteParts, the file format, and the future work |
+| [2. Design](02-design.md) | The leaf, imports and Arrow, `Widen`, DecimalByteParts, the file format, and the future work |
 | [3. Roadmap](03-roadmap.md) | The dependency graph of the type work, the independent changes, and the order of work |
-| [4. Implementation plan](04-implementation.md) | The PRs of the `Narrow` and canonical decimal work, their dependencies and waves, with one brief for each PR |
+| [4. Implementation plan](04-implementation.md) | The PRs of the `Widen` and canonical decimal work, their dependencies and waves, with one brief for each PR |
 
 ## Summary
 
@@ -24,8 +24,8 @@ canonical decimal encoding.
   precision gets the smallest signed width that holds it.
 - Decided: `DecimalArray::try_new` checks the width and every valid value. Imports copy into the
   canonical width, and they fail on a value outside the precision. File reads trust the precision.
-- Decided: a `Narrow` encoding stores a column as a child with a lower precision and the same
-  scale. The child must have a narrower canonical width. One `Narrow` encoding serves integers and
+- Decided: a `Widen` encoding stores a column as a child with a lower precision and the same
+  scale. The child must have a narrower canonical width. One `Widen` encoding serves integers and
   decimals, and its kernels pass work to the child. An integer child keeps the signedness of its
   parent. The wire form is only for columns with a fixed logical dtype, and internal integer
   children keep changing their own dtype.
@@ -33,21 +33,21 @@ canonical decimal encoding.
   precision: an `i32` holds 2,000,000,000, which needs precision 10. Each producer finds the child
   precision from the values.
 - Decided: a reader finds an old narrow `vortex.decimal` node by its stored width. It scans the
-  values for their max, and it returns a `Narrow` or a copy. Every narrowing copy writes zeros in
+  values for their max, and it returns a `Widen` or a copy. Every narrowing copy writes zeros in
   null slots and fails on a value outside the precision.
 - Decided: DecimalByteParts stays the compressed form. Operations run on its parts where they can,
   and it decodes to the canonical array of its own dtype. One compressor scheme builds it from the
   canonical array, so file contents stay the same.
-- Decided: `vortex.narrow` stays in memory until the maintainer decides to write it. Then it
+- Decided: `vortex.widen` stays in memory until the maintainer decides to write it. Then it
   enters one preview edition together with DecimalByteParts with lower parts. Only then does a
   decimal `Narrow` scheme narrow the decimal type first. Default writers use `core`, so until both
   formats enter `core`, they write wide decimals with values above 64 bits as plain `i256` arrays.
 - Decided: the bar of no compute regression applies to the final state. Until the compressor
   narrows the decimal type first, decoding a compressed decimal runs at the full width in memory.
 - Decided: the work lands as 22 PRs in four tracks. Each PR has a brief that a coding agent can
-  implement alone. The integer `Narrow` PRs are written from scratch, with a local rewrite as a
-  reference. Generic structural encodings always sit above `Narrow`. A writer that cannot
-  write `vortex.narrow` writes the canonical array, as a documented workaround. Which arrays the
+  implement alone. The integer `Widen` PRs are written from scratch, with a local rewrite as a
+  reference. Generic structural encodings always sit above `Widen`. A writer that cannot
+  write `vortex.widen` writes the canonical array, as a documented workaround. Which arrays the
   compressor narrows is deferred.
 - Arrow has the same decimal model and the same gap at the top of each width. Its width is part
   of the type, and from precision 5 the Vortex widths match the smallest Arrow types.
@@ -74,7 +74,7 @@ canonical decimal encoding.
 ## Evidence
 
 The notes come from reading `develop` at `5fc5cb8`, RFC drafts, issues and pull requests. On
-2026-10-19 the review also read the draft `Narrow` PRs and PR #10230. On 2026-10-22 it read the
+2026-10-19 the review also read the draft `Widen` PRs and PR #10230. On 2026-10-22 it read the
 versioning spec, the array plugin and serialization code, and the DecimalByteParts code. It also
 read the history of the decimal compression scheme, and PRs #10305 and #10314. On 2026-10-23 it
 traced which statistics the compressors store on the DecimalByteParts parts, read the decimal types

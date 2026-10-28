@@ -12,7 +12,7 @@ marks a proposal of these notes that is still open.
 ## Goal
 
 `Decimal` stays a built-in type that behaves like a hardcoded extension type (decided, D1). Each
-decimal dtype has exactly one canonical encoding (decided, D3), and a `Narrow` encoding keeps
+decimal dtype has exactly one canonical encoding (decided, D3), and a `Widen` encoding keeps
 narrow storage possible (decided, D4). Issue
 [#10701](https://github.com/vortex-data/vortex/issues/10701) tracks this fix. The move of decimal
 kernels onto the integer kernels is future work (decided, D20).
@@ -76,8 +76,8 @@ No import options exist yet. Until they do, the import fails, and the error name
 
 Exports widen as they do today. The Arrow export uses `Decimal128` for every precision up to 38,
 because DataFusion does not fully support `Decimal32` and `Decimal64` yet. The DuckDB export uses
-`i16` for precision 1 to 4. To widen an array, Vortex executes a `Narrow` with a wider dtype over
-it.
+`i16` for precision 1 to 4. For an export at a wider dtype, Vortex executes a `Widen` over
+the array.
 
 Arrow has the same model as Vortex. A decimal type has a precision and a scale, and each value is
 an unscaled two's complement integer. arrow-rs also rejects a positive scale larger than the
@@ -107,8 +107,8 @@ import returns an error for them.
 This section is future work (decided, D20). Its recommendations are not reviewed.
 
 The integer view is a `PrimitiveArray` over the same buffer and validity. It needs no copy.
-Decimal kernels can delegate to integer kernels through it. The `Narrow` work does not need the
-view, because `Narrow` kernels pass work to the decimal kernels of the child (decided, D15).
+Decimal kernels can delegate to integer kernels through it. The `Widen` work does not need the
+view, because `Widen` kernels pass work to the decimal kernels of the child (decided, D15).
 
 For precision 1 to 18, the view uses `I8` to `I64`, which exist today. For precision 19 to 76, the
 view needs `I128` and `I256` (decided, D5). Until those types exist, the kernels for wide decimals
@@ -117,16 +117,16 @@ stay decimal-specific.
 For extension types, `ext_storage` is the explicit way to reach the storage. For `Decimal`, the
 integer view plays that role.
 
-## `Narrow`
+## `Widen`
 
-Without a narrow form, D3 forces the full width on every column. A `Narrow` encoding solves this
+Without a narrow form, D3 forces the full width on every column. A `Widen` encoding solves this
 (decided, D4). It stores a `Decimal(p, s)` column as one child of dtype `Decimal(p', s)`. The child
 follows three rules (decided, D10):
 
 - It has the same scale and the same nullability as the parent.
-- Its canonical width is strictly narrower than the canonical width of `p`. So a `Narrow` from
+- Its canonical width is strictly narrower than the canonical width of `p`. So a `Widen` from
   `Decimal(76, s)` to `Decimal(75, s)` is not allowed, because both use `i256`. The integer
-  `Narrow` has the same rule, and the rule can be relaxed later.
+  `Widen` has the same rule, and the rule can be relaxed later.
 - The producer chooses `p'`: the best precision that the values and the scale allow, or a larger
   one.
 
@@ -145,13 +145,13 @@ a column can narrow:
 This limit matters only for a column whose values all have fewer unscaled digits than the scale.
 Such values have an absolute value below 1.
 
-A `Narrow` has three properties:
+A `Widen` has three properties:
 
 - It has no buffers. Validity comes from the child.
 - It decodes by widening the child buffer to the width of `p`.
 - It needs no value check, because a legal `Decimal(p', s)` value is a legal `Decimal(p, s)` value.
 
-One `Narrow` encoding serves integers and decimals, with one wire ID `vortex.narrow` (decided,
+One `Widen` encoding serves integers and decimals, with one wire ID `vortex.widen` (decided,
 D8). Integers narrow by width (issue
 [#10020](https://github.com/vortex-data/vortex/issues/10020)), and decimals narrow by precision.
 An integer child has the same signedness and nullability as its parent, and a strictly smaller
@@ -159,33 +159,33 @@ width (decided, D22). So an `I64` column with values from 0 to 200 gets an `I16`
 child. The metadata stores only the child `PType` or the child precision, in a prost message with
 a typed `oneof` (decided, D32). The plugin of the parent builds the child dtype from it. The child
 must have the scale and nullability of the parent, so metadata that stored them would only let a
-file hold an invalid child. `vortex.narrow` stays in memory only until the maintainer decides to
+file hold an invalid child. `vortex.widen` stays in memory only until the maintainer decides to
 write it to files (decided, D18).
 
-Until then, a writer that meets a `Narrow` writes its executed canonical array (proposed, D26,
-deferred to CD4). This also holds later for writers whose editions do not permit `vortex.narrow`.
-Decimal `Narrow` appears in ordinary pipelines, through widening casts and old files, so IPC or a
+Until then, a writer that meets a `Widen` writes its executed canonical array (proposed, D26,
+deferred to CD4). This also holds later for writers whose editions do not permit `vortex.widen`.
+Decimal `Widen` appears in ordinary pipelines, through widening casts and old files, so IPC or a
 writer without compression would fail without it. A plugin cannot return the wire form of another
 encoding, so the fallback lives in the serializer. The code documents it as a workaround, which
-stays until `vortex.narrow` is in `core`.
+stays until `vortex.widen` is in `core`.
 
-`Narrow` has two producer functions (decided, D28). `encode` builds a `Narrow` over the narrowest
+`Widen` has two producer functions (decided, D28). `encode` builds a `Widen` over the narrowest
 child of the same signedness. `encode_values` returns only that child, so it changes the dtype.
 `encode_values` is `#[deprecated]`, and it replaces `PrimitiveArrayExt::narrow` at every call site
 with `#[expect(deprecated)]`. So every narrowing that changes a dtype is marked for a later
 decision.
 
-`vortex.narrow` is for arrays with a fixed logical dtype (decided, D23). Exactly which arrays the
+`vortex.widen` is for arrays with a fixed logical dtype (decided, D23). Exactly which arrays the
 compressor wraps is deferred to the design of the compressor scheme (decided, D27). Internal integer
 children keep changing their own dtype, through `encode_values`. Examples are list offsets,
 dictionary codes, run ends and the DecimalByteParts MSP. Whether `List` and `ListView` offsets get a
-fixed `I64` dtype with `Narrow` is an open question on issue
+fixed `I64` dtype with `Widen` is an open question on issue
 [#10733](https://github.com/vortex-data/vortex/issues/10733), and the decimal work does not depend
 on it.
 
-`Narrow` kernels pass work to the child, and the fallback is to canonicalize (decided, D15):
+`Widen` kernels pass work to the child, and the fallback is to canonicalize (decided, D15):
 
-| Operation | Kernel on a decimal `Narrow` |
+| Operation | Kernel on a decimal `Widen` |
 | --- | --- |
 | Compare with a constant | If the constant is outside the range of the child dtype, the answer needs no values. Otherwise, compare the child with the constant at the child precision |
 | Min and max | The result of the child, as a value of the parent dtype |
@@ -193,15 +193,15 @@ on it.
 | Filter, take and slice | Run on the child |
 | Cast | Pass the cast to the child, with the same target dtype |
 
-An operation on a `Narrow` fails only where the same operation on the parent fails, and it gives the
+An operation on a `Widen` fails only where the same operation on the parent fails, and it gives the
 same result (decided, D36). So an aggregate runs in the accumulator of the parent dtype, and a
-`Narrow` kernel builds the exact partial of the parent from the child. The kernels for min, max,
+`Widen` kernel builds the exact partial of the parent from the child. The kernels for min, max,
 is constant and is sorted are exact for decimals as they are. A decimal sum takes the default path
-until CD4, which can add a decimal branch for `Sum` with `skip_nans` only. A `Narrow` over a
-`Narrow` becomes one `Narrow`. Another decimal cast to a precision with the same scale follows
+until CD4, which can add a decimal branch for `Sum` with `skip_nans` only. A `Widen` over a
+`Widen` becomes one `Widen`. Another decimal cast to a precision with the same scale follows
 three rules:
 
-- When the canonical width grows, the cast returns a `Narrow` over its input. Nothing is copied
+- When the canonical width grows, the cast returns a `Widen` over its input. Nothing is copied
   until execution.
 - When the canonical width stays the same, for example from `Decimal(5, 2)` to `Decimal(9, 2)`, the
   cast changes only the dtype.
@@ -224,7 +224,7 @@ The table shows the largest precision for each width:
 A value between the two limits fits the width, but it needs a precision of the next width. For
 example, 2,000,000,000 fits `i32`, but it needs precision 10, whose canonical width is `i64`. So a
 width alone does not give `p'`, and each producer finds `p'` from the values. A false child label
-gives wrong results, because the `Narrow` rules trust the child dtype. Examples are the compare
+gives wrong results, because the `Widen` rules trust the child dtype. Examples are the compare
 shortcut and the cast that passes to the child.
 
 A gap column holds values in that range. In the final state, it uses the next width in memory
@@ -249,7 +249,7 @@ D7). It then converts the node (decided, D9). For a narrower node:
    statistics, because the deserializer attaches them after the plugin returns.
 2. It chooses the best precision that the values and the scale allow, or a larger one.
 3. If the width of that precision is narrower than the canonical width of the column, the result
-   is a `Narrow` over a child at that width. Otherwise, the result is the canonical array.
+   is a `Widen` over a child at that width. Otherwise, the result is the canonical array.
 4. The result reuses the buffer when its width is the stored width. Otherwise, the result is a
    copy.
 
@@ -307,7 +307,7 @@ buffer at the MSP width. So a `Decimal(18, 2)` array with an `i32` MSP decodes t
 with an `i32` buffer. D3 removes that form, so decoding widens a narrower MSP. The MSP rule also
 allows an MSP wider than the canonical width for precision up to 18, for example an `i64` MSP for
 `Decimal(4, 2)`. Decoding narrows such an MSP with the copy of D21. A `TODO(connor)` in the code
-marks a later optimization: find the max of the MSP, and return a `Narrow` that reuses its buffer.
+marks a later optimization: find the max of the MSP, and return a `Widen` that reuses its buffer.
 It waits until benchmarks show large regressions.
 
 The compressor has one DBP scheme (decided, D17):
@@ -318,23 +318,23 @@ The compressor has one DBP scheme (decided, D17):
   It uses the value range to choose the number of lower parts, because v1 has none. It also
   narrows the MSP dtype, as the compressor narrows every internal child. The parts get the same
   widths as today, so file contents do not change.
-- The scheme is not temporary. Writers whose edition does not permit `vortex.narrow` need it. These
-  include default writers until `vortex.narrow` enters `core`, and writers that select an older
+- The scheme is not temporary. Writers whose edition does not permit `vortex.widen` need it. These
+  include default writers until `vortex.widen` enters `core`, and writers that select an older
   edition.
-- When an edition permits `vortex.narrow`, a `Narrow` scheme runs first and narrows the decimal type
+- When an edition permits `vortex.widen`, a `Narrow` scheme runs first and narrows the decimal type
   (decided, D33). It is a real scheme at first. Its design settles its precedence with the DBP
   scheme, which returns `AlwaysUse`, and the cascade level that it uses. The DBP scheme then
-  compresses the child. So the compressor writes a `Narrow` of dtype `Decimal(p, s)` over a DBP
+  compresses the child. So the compressor writes a `Widen` of dtype `Decimal(p, s)` over a DBP
   child of dtype `Decimal(p', s)`. The MSP of that child usually has the canonical width of `p'`, so
   decoding reuses its buffer. In the gaps, decoding widens it. If the best precision has the
-  canonical width of the column, the compressor writes DBP without `Narrow`.
+  canonical width of the column, the compressor writes DBP without `Widen`.
 - For precision 39 to 76 with values that need more than 64 bits, the compressor uses the
   lower-parts form when an edition permits it. Otherwise, it writes a plain `i256` array. Today it
   writes a plain `i128` array, which D3 forbids.
 
 The `core` family holds the formats of the default writer
 (`docs/specs/versioning/using-editions.md`). So default writers write these wide columns as plain
-`i256` arrays until `vortex.narrow` and DBP v2 enter `core`. The maintainer accepts this cost. If
+`i256` arrays until `vortex.widen` and DBP v2 enter `core`. The maintainer accepts this cost. If
 possible, the wire change ships in the same release as the in-memory change, so that writers that
 select the preview edition never pay it (decided, D11).
 
@@ -351,11 +351,11 @@ change. FX2 (#10746), which added a `trivially_cast_nullability` guard, closed w
 
 Generic structural encodings sit above the type layer (decided, X5). These notes recommend this
 list for them: `Constant`, `Dict`, `RunEnd`, `Sparse`, `Chunked`, `Masked` and `Interleave`
-(XQ1). Decimal storage encodings, DBP and `Narrow`, sit below them.
+(XQ1). Decimal storage encodings, DBP and `Widen`, sit below them.
 
-For `Narrow`, reduce rules enforce this (decided, D25). They move `Dict`, `RunEnd`, `Sparse`,
-`Constant`, `Masked`, `Chunked` and `Interleave` above a `Narrow`, for example
-`Narrow(Dict(codes, values))` becomes `Dict(codes, Narrow(values))`. No rule moves `Narrow` above
+For `Widen`, reduce rules enforce this (decided, D25). They move `Dict`, `RunEnd`, `Sparse`,
+`Constant`, `Masked`, `Chunked` and `Interleave` above a `Widen`, for example
+`Widen(Dict(codes, values))` becomes `Dict(codes, Widen(values))`. No rule moves `Widen` above
 them, so the rules cannot loop. The Arrow and DuckDB exporters and the dict layout then find these
 encodings at the root. A follow-up issue covers the same rule for every encoding.
 
@@ -531,17 +531,17 @@ stored width, and it converts the node. Readers handle every existing decimal wi
 | Wire node | In memory |
 | --- | --- |
 | `vortex.decimal` at the canonical width | The leaf, zero-copy |
-| `vortex.decimal` at a narrower width | The result of [Reading old narrow data](#reading-old-narrow-data): a `Narrow`, or the canonical array |
+| `vortex.decimal` at a narrower width | The result of [Reading old narrow data](#reading-old-narrow-data): a `Widen`, or the canonical array |
 | `vortex.decimal` at a wider width, for example Arrow `Decimal128` data at a low precision | The leaf, after the narrowing copy of D21 with zeros in null slots. A value outside the precision is an error |
 | `vortex.decimal` with an unknown width | An error, not a silent `I8` |
 | DecimalByteParts v1 and v2 | DecimalByteParts, unchanged. Decoding widens a narrower MSP and narrows a wider MSP |
-| `vortex.narrow`, after the wire change | A `Narrow` over its child |
+| `vortex.widen`, after the wire change | A `Widen` over its child |
 
 Writers produce forms that old readers understand. The leaf becomes `vortex.decimal` at the
 canonical width. DBP becomes DecimalByteParts v1, which the first core edition already contains,
-or v2 where an edition permits it. `Narrow` is written only where an edition permits
-`vortex.narrow`, and the compressor produces it only then. Elsewhere the serializer writes the
-canonical array of a `Narrow` (proposed, D26, deferred to CD4). `vortex.narrow` and DBP v2 enter one
+or v2 where an edition permits it. `Widen` is written only where an edition permits
+`vortex.widen`, and the compressor produces it only then. Elsewhere the serializer writes the
+canonical array of a `Widen` (proposed, D26, deferred to CD4). `vortex.widen` and DBP v2 enter one
 preview edition together, and later `core` together (decided, D18). Constant, dictionary and
 run-end arrays of decimals keep their current wire forms.
 
