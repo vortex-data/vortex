@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
+use vortex_buffer::BitBuffer;
+use vortex_compute::lane_kernels::IndexedFoldExt;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -59,20 +62,17 @@ where
             Mask::AllFalse(_) => None,
             Mask::Values(v) => {
                 let slice = array.as_slice::<T>();
-                // Each `[start, end)` run is fully valid, so integers can reuse the vectorized
-                // packed min/max per run and fold the run results; floats chain the runs through
-                // the NaN-filtering reduction.
                 if T::PTYPE.is_int() {
-                    v.slices()
-                        .iter()
-                        .filter_map(|&(start, end)| integer_min_max_raw(&slice[start..end]))
-                        .reduce(|(amin, amax), (rmin, rmax)| {
-                            (
-                                if rmin.is_lt(amin) { rmin } else { amin },
-                                if rmax.is_gt(amax) { rmax } else { amax },
-                            )
-                        })
-                        .map(min_max_result)
+                    let valid = v.bit_buffer();
+                    let first = valid
+                        .set_indices()
+                        .next()
+                        .vortex_expect("a mask with values has a valid row");
+                    Some(min_max_result(integer_min_max_masked(
+                        slice,
+                        valid,
+                        slice[first],
+                    )))
                 } else {
                     compute_min_max(
                         v.slices()
@@ -103,6 +103,26 @@ where
         }
     }
     Some((min, max))
+}
+
+/// Min/max of the valid values of an integer slice, reading null lanes as `valid_value`, a value of
+/// some valid lane, which leaves both extrema unchanged. Selecting per lane rather than walking the
+/// runs of valid values keeps the packed min/max of [`integer_min_max_raw`] however short the runs.
+fn integer_min_max_masked<T>(slice: &[T], valid: &BitBuffer, valid_value: T) -> (T, T)
+where
+    T: NativePType,
+{
+    slice.fold_masked(
+        valid,
+        valid_value,
+        (valid_value, valid_value),
+        |(min, max), v| {
+            (
+                if v.is_lt(min) { v } else { min },
+                if v.is_gt(max) { v } else { max },
+            )
+        },
+    )
 }
 
 fn min_max_result<T>((min, max): (T, T)) -> MinMaxResult

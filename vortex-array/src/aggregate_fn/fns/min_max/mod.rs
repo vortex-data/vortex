@@ -684,6 +684,29 @@ mod tests {
         Ok(())
     }
 
+    /// The null rows hold the type's extremes, which the masked integer kernel must not read,
+    /// in a full 64-row word and in the partial word after it.
+    #[test]
+    fn integer_min_max_ignores_values_under_nulls() -> VortexResult<()> {
+        let values: Buffer<i16> = (0..100)
+            .map(|i| match i % 6 {
+                0 => i16::MIN,
+                3 => i16::MAX,
+                _ => i,
+            })
+            .collect();
+        let array = PrimitiveArray::new(values, Validity::from_iter((0..100).map(|i| i % 3 != 0)));
+        let result = min_max(
+            &array.into_array(),
+            &mut SESSION.create_execution_ctx(),
+            NumericalAggregateOpts::default(),
+        )?
+        .vortex_expect("has valid rows");
+        assert_eq!(i16::try_from(&result.min)?, 1);
+        assert_eq!(i16::try_from(&result.max)?, 98);
+        Ok(())
+    }
+
     #[test]
     fn test_prim_nan() -> VortexResult<()> {
         let array = PrimitiveArray::new(

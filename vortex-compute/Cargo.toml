@@ -36,3 +36,7 @@ workspace = true
 [[bench]]
 name = "lane_kernels"
 harness = false
+
+[[bench]]
+name = "fold_masked"
+harness = false
