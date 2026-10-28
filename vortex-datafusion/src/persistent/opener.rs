@@ -49,7 +49,6 @@ use object_store::ObjectMeta;
 use object_store::path::Path;
 use tracing::Instrument;
 use vortex::array::VortexSessionExecute;
-use vortex::array::expr::Expression;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::expr::and_collect;
@@ -379,16 +378,6 @@ impl FileOpener for VortexOpener {
                 }
             }
             let residual_filter = conjunction_opt(residual_filters);
-            // Bound optional metadata work: complex predicates can cost more to rewrite
-            // against footer statistics than the scan they would avoid.
-            if scan_v2
-                && let Some(filter) = footer_pruning_filter(&native_filters)
-                && vxf
-                    .can_prune(&filter)
-                    .map_err(|error| DataFusionError::External(Box::new(error)))?
-            {
-                return Ok(stream::empty().boxed());
-            }
             let native_filter = and_collect(native_filters)
                 .map(|filter| filter.bind(vxf.dtype())?.optimize_recursive())
                 .transpose()
@@ -708,32 +697,6 @@ impl NaturalSplits {
     }
 }
 
-// A subset of AND conjuncts can prove a file empty. Keep the complete predicate
-// on the scan, including conjuncts omitted from this optional footer check.
-fn footer_pruning_filter(filters: &[Expression]) -> Option<Expression> {
-    fn fits(expression: &Expression, remaining: &mut usize) -> bool {
-        let Some(next) = remaining.checked_sub(1) else {
-            return false;
-        };
-        *remaining = next;
-        expression
-            .children()
-            .iter()
-            .all(|child| fits(child, remaining))
-    }
-
-    let mut remaining = 32;
-    and_collect(filters.iter().filter_map(|filter| {
-        let mut available = remaining;
-        if fits(filter, &mut available) {
-            remaining = available;
-            Some(filter.clone())
-        } else {
-            None
-        }
-    }))
-}
-
 /// Whether any expression in `projection` contains a lambda.
 fn contains_lambda(projection: &ProjectionExprs) -> DFResult<bool> {
     for projection_expr in projection.iter() {
@@ -932,7 +895,6 @@ mod tests {
     use object_store::memory::InMemory;
     use rstest::rstest;
     use vortex::VortexSessionDefault;
-    use vortex::array::expr as vx_expr;
     use vortex::buffer::Buffer;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::VortexWrite;
@@ -1274,56 +1236,6 @@ mod tests {
         let num_rows = data.iter().map(|rb| rb.num_rows()).sum::<usize>();
         assert_eq!((num_batches, num_rows), (0, 0));
 
-        Ok(())
-    }
-
-    #[rstest]
-    fn test_footer_pruning_preserves_conjunct_boundaries(#[values(false, true)] cheap_first: bool) {
-        let cheap = vx_expr::eq(vx_expr::col("a"), vx_expr::lit(100_i32));
-        let complex = vx_expr::or_collect(
-            (0..20).map(|value| vx_expr::eq(vx_expr::col("b"), vx_expr::lit(value))),
-        )
-        .expect("nonempty disjunction");
-        assert!(footer_pruning_filter(std::slice::from_ref(&complex)).is_none());
-        let filters = if cheap_first {
-            vec![cheap.clone(), complex]
-        } else {
-            vec![complex, cheap.clone()]
-        };
-        assert_eq!(footer_pruning_filter(&filters), Some(cheap));
-    }
-
-    #[rstest]
-    #[case(100, 0)]
-    #[case(1, 2)]
-    #[tokio::test]
-    async fn test_v2_footer_pruning_before_scan_preparation(
-        #[case] threshold: i32,
-        #[case] expected_rows: usize,
-    ) -> anyhow::Result<()> {
-        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
-        let batch = record_batch!(("a", Int32, vec![1, 2, 3]))?;
-        let size =
-            write_arrow_to_vortex(Arc::clone(&store), "footer-pruning.vortex", batch.clone())
-                .await?;
-        let table_schema = TableSchema::from(batch.schema());
-        let filter = logical2physical(&col("a").gt(lit(threshold)), table_schema.table_schema());
-        let mut opener = make_opener(store, table_schema, Some(filter));
-        opener.scan_v2 = true;
-        let batches = opener
-            .open(PartitionedFile::new(
-                "footer-pruning.vortex".to_string(),
-                size,
-            ))?
-            .await?
-            .try_collect::<Vec<_>>()
-            .await?;
-        assert_eq!(
-            batches.iter().map(RecordBatch::num_rows).sum::<usize>(),
-            expected_rows
-        );
-        assert_eq!(opener.scan_caches.is_empty(), expected_rows == 0);
-        assert_eq!(opener.segment_sources.is_empty(), expected_rows == 0);
         Ok(())
     }
 
@@ -2407,7 +2319,7 @@ mod tests {
             &self,
             _expr: &PhysicalExprRef,
             _schema: &Schema,
-        ) -> DFResult<Option<Expression>> {
+        ) -> DFResult<Option<vortex::expr::Expression>> {
             Ok(None)
         }
     }
