@@ -33,11 +33,12 @@ use crate::scan::execution::SelectedRows;
 use crate::scan::execution::adaptor::AdaptorStep;
 use crate::scan::execution::adaptor::Piece;
 use crate::scan::execution::adaptor::ScanAdaptor;
+use crate::scan::execution::chunk::MAX_ROWS_PER_CHUNK;
 use crate::scan::execution::chunk::row_chunks;
 use crate::scan::execution::filter::hint;
 use crate::scan::execution::filter::segments_read;
 
-const MAX_OUTPUT_ROWS: usize = 262_144;
+const MAX_OUTPUT_ROWS: usize = 131_072;
 const MAX_FILTERED_OUTPUT_ROWS: usize = 65_536;
 /// Pieces smaller than this are grouped with their neighbours into one batch.
 const MIN_OUTPUT_ROWS: usize = 4_096;
@@ -100,7 +101,7 @@ impl ProjectionPlanner {
         };
         Self {
             announced: scan.filter.is_some()
-                || scan.projection.row_count() <= MAX_OUTPUT_ROWS as u64,
+                || scan.projection.row_count() <= MAX_ROWS_PER_CHUNK as u64,
             scan,
             selected: selected.into_iter(),
         }

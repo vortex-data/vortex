@@ -40,7 +40,7 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps((lambda rows: [dict(x, id="tpcds-nvme-"+str(sf), name="TPC-DS SF="+str(sf)+" on NVME", scale_factor=float(sf)) for x in rows if x["id"] == "tpcds-nvme" for sf in (1,10,30)] + [x for x in rows if x["id"] == "clickbench-nvme"])(json.load(sys.stdin))))')"
+          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps((lambda rows: [dict(x, id="tpcds-nvme-"+str(sf), name="TPC-DS SF="+str(sf)+" on NVME", scale_factor=float(sf)) for x in rows if x["id"] == "tpcds-nvme" for sf in (10,30)])(json.load(sys.stdin))))')"
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   build:
@@ -73,12 +73,9 @@ jobs:
             packages+=(--bin lance-bench)
           fi
           cargo build "${packages[@]}" --profile release_debug
-      - name: Test filtered chunk budget
+      - name: Test V2 scans
         shell: bash
-        run: cargo test -p vortex-layout --lib filtered_chunk_budget
-      - name: Test object-store readers
-        shell: bash
-        run: cargo test -p vortex-io --features object_store,tokio --lib object_store::read_at::tests
+        run: cargo test -p vortex-layout --lib scan::v2::tests
       - parallel:
           - name: Upload binaries
             uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
@@ -240,7 +237,7 @@ jobs:
             sudo apt-get install -y llvm
           fi
 
-      - name: Compare retained local file handles
+      - name: Compare unfiltered output batch sizing
         shell: bash
         env:
           TOKIO_WORKER_THREADS: "8"
@@ -252,7 +249,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: scan-filehandle-${{ matrix.id }}
+          name: scan-output128-${{ matrix.id }}
           path: scan-*
 
       - name: Compare results

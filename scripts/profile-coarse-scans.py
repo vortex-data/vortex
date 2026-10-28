@@ -44,7 +44,7 @@ def command(v2, query, iterations, label):
 current_binary = binary
 baseline = root / 'target/coarse-baseline/datafusion-bench'
 variants = [('v1', current_binary, False), ('accepted', baseline, True), ('candidate', current_binary, True)]
-Path('scan-provenance.json').write_text(json.dumps({'baseline_run': 40604183269, 'candidate_run': os.environ['GITHUB_RUN_ID'], 'candidate_head': os.environ['GITHUB_SHA'], 'candidate': 'Retain local file handle and size per immutable reader; preserve concurrency; atop 256K filtered work', 'binary_sha256': {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path, _ in variants}}, indent=2))
+Path('scan-provenance.json').write_text(json.dumps({'baseline_run': 40604183269, 'candidate_run': os.environ['GITHUB_RUN_ID'], 'candidate_head': os.environ['GITHUB_SHA'], 'candidate': 'Unfiltered output 128K rows; 256K filtered work and original I/O discovery threshold retained; file-handle cache excluded', 'binary_sha256': {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path, _ in variants}}, indent=2))
 for round in range(3):
     for label_name, binary, v2 in variants[round:] + variants[:round]:
         label = f'scan-timing-r{round}-{label_name}'
