@@ -306,13 +306,11 @@ mod tests {
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::Nullability;
@@ -321,31 +319,32 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
+    use vortex_session::VortexSession;
 
     use super::fill_null_canonical_array;
 
     fn canonical(array: impl IntoArray) -> Canonical {
         array
             .into_array()
-            .execute::<Canonical>(&mut array_session().create_execution_ctx())
+            .execute::<Canonical>(&mut VortexSession::empty().create_execution_ctx())
             .unwrap()
     }
 
     #[test]
     fn test_fill_null_primitive() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let array = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, Some(5)]);
         let fill_value = Scalar::from(42i32);
 
         let result = fill_null_canonical_array(canonical(array), &fill_value, &mut ctx).unwrap();
 
         let expected = PrimitiveArray::from_iter([1i32, 42, 3, 42, 5]);
-        assert_arrays_eq!(expected, result, &mut ctx);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn test_fill_null_bool() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let data_buffer = BitBuffer::from(vec![true, false, false, false]);
         let validity_buffer = BitBuffer::from(vec![true, false, true, false]);
         let array = BoolArray::new(data_buffer, Validity::from(validity_buffer));
@@ -354,12 +353,12 @@ mod tests {
         let result = fill_null_canonical_array(canonical(array), &fill_value, &mut ctx).unwrap();
 
         let expected = BoolArray::from(BitBuffer::from(vec![true, true, false, true]));
-        assert_arrays_eq!(expected, result, &mut ctx);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn test_fill_null_string() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let array = VarBinViewArray::from_iter(
             [Some("hello"), None, Some("world")].iter().copied(),
             DType::Utf8(Nullability::Nullable),
@@ -369,54 +368,50 @@ mod tests {
         let result = fill_null_canonical_array(canonical(array), &fill_value, &mut ctx).unwrap();
 
         let expected = VarBinViewArray::from_iter_str(["hello", "default", "world"]);
-        assert_arrays_eq!(expected, result, &mut ctx);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn test_fill_null_all_invalid() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let array = PrimitiveArray::from_option_iter([None::<i32>, None, None]);
         let fill_value = Scalar::from(100i32);
 
         let result = fill_null_canonical_array(canonical(array), &fill_value, &mut ctx).unwrap();
 
         let expected = PrimitiveArray::from_iter([100i32, 100, 100]);
-        assert_arrays_eq!(expected, result, &mut ctx);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn test_fill_null_no_nulls() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let array = PrimitiveArray::from_iter([1i32, 2, 3]);
         let fill_value = Scalar::from(42i32);
 
         let result = fill_null_canonical_array(canonical(array), &fill_value, &mut ctx).unwrap();
 
         let expected = PrimitiveArray::from_iter([1i32, 2, 3]);
-        assert_arrays_eq!(expected, result, &mut ctx);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "fill value conversion should succeed in fuzz test")]
     fn test_fill_null_with_null_value_errors() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let array = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]);
         let fill_value = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
 
-        let result = fill_null_canonical_array(canonical(array), &fill_value, &mut ctx);
-
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Cannot fill_null with a null value")
-        );
+        drop(fill_null_canonical_array(
+            canonical(array),
+            &fill_value,
+            &mut ctx,
+        ));
     }
 
     #[test]
     fn test_fill_null_decimal_i32() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let array = DecimalArray::from_option_iter(
             [Some(100i32), None, Some(300i32), None, Some(500i32)],
             DecimalDType::new(10, 2),
@@ -433,12 +428,12 @@ mod tests {
             [100i32, 999i32, 300i32, 999i32, 500i32],
             DecimalDType::new(10, 2),
         );
-        assert_arrays_eq!(expected, result, &mut ctx);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn test_fill_null_decimal_i64() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let array = DecimalArray::from_option_iter(
             [Some(1000i64), None, Some(3000i64)],
             DecimalDType::new(15, 3),
@@ -453,12 +448,12 @@ mod tests {
 
         let expected =
             DecimalArray::from_iter([1000i64, 9999i64, 3000i64], DecimalDType::new(15, 3));
-        assert_arrays_eq!(expected, result, &mut ctx);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn test_fill_null_decimal_i128() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let array = DecimalArray::from_option_iter(
             [Some(10000i128), None, Some(30000i128), None],
             DecimalDType::new(20, 4),
@@ -475,12 +470,12 @@ mod tests {
             [10000i128, 99999i128, 30000i128, 99999i128],
             DecimalDType::new(20, 4),
         );
-        assert_arrays_eq!(expected, result, &mut ctx);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn test_fill_null_decimal_all_invalid() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let array =
             DecimalArray::from_option_iter([None::<i64>, None, None], DecimalDType::new(10, 2));
         let fill_value = Scalar::decimal(
@@ -491,19 +486,13 @@ mod tests {
 
         let result = fill_null_canonical_array(canonical(array), &fill_value, &mut ctx).unwrap();
 
-        let expected = DecimalArray::from_option_iter(
-            [Some(777i64), Some(777i64), Some(777i64)],
-            DecimalDType::new(10, 2),
-        )
-        .into_array()
-        .cast(result.dtype().clone())
-        .unwrap();
-        assert_arrays_eq!(expected, result, &mut ctx);
+        let expected = DecimalArray::from_iter([777i64, 777, 777], DecimalDType::new(10, 2));
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn test_fill_null_decimal_no_nulls() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let array = DecimalArray::from_option_iter(
             [Some(100i32), Some(200i32), Some(300i32)],
             DecimalDType::new(10, 2),
@@ -516,13 +505,7 @@ mod tests {
 
         let result = fill_null_canonical_array(canonical(array), &fill_value, &mut ctx).unwrap();
 
-        let expected = DecimalArray::from_option_iter(
-            [Some(100i32), Some(200i32), Some(300i32)],
-            DecimalDType::new(10, 2),
-        )
-        .into_array()
-        .cast(result.dtype().clone())
-        .unwrap();
-        assert_arrays_eq!(expected, result, &mut ctx);
+        let expected = DecimalArray::from_iter([100i32, 200, 300], DecimalDType::new(10, 2));
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 }

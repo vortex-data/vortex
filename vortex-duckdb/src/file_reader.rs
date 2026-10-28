@@ -2,15 +2,17 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
 use object_store::registry::ObjectStoreRegistry;
 use url::Url;
+use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::struct_::StructArrayExt as _;
-use vortex::dtype::DType;
+use vortex::dtype::FieldPath;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_panic;
@@ -26,6 +28,8 @@ use vortex::io::runtime::BlockingRuntime as _;
 use vortex::io::std_file::StdFileSystem;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::scan::scan_builder::ScanBuilder;
+use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
+use vortex::layout::scan::v2::ScanFile;
 use vortex::mask::Mask;
 use vortex::session::SessionExt as _;
 
@@ -40,6 +44,7 @@ use crate::exporter::ArrayExporter;
 use crate::exporter::ConversionCache;
 use crate::projection::Filter;
 use crate::projection::extract_schema_from_dtype;
+use crate::scan_v2::FileScan;
 use crate::table_function::BindState;
 use crate::table_function::GlobalState;
 use crate::table_function::LocalState;
@@ -66,7 +71,7 @@ use crate::table_function::convert_result;
 // After this, still in planning phase, one thread calls the following chain on
 // all files to try and replace scanning with metadata answer:
 //
-// `can_get_partition_stats` -> `footer_open` -> `footer_get_statistics`.
+// `can_get_partition_stats` -> `footer_get_cached` -> `footer_get_statistics`.
 //
 // Then there's query runtime phase, called for all files in scan:
 //
@@ -114,6 +119,11 @@ pub struct OpenFileReader {
 /// The state of an open file that the threads scanning it share.
 pub struct FileScanState {
     reader: LayoutReaderRef,
+    /// The file as the V2 executor reads it.
+    scan_file: ScanFile,
+    /// The file's V2 scan, which every thread scanning the file drives. Set when the file is
+    /// initialized for a V2 scan.
+    v2: OnceLock<FileScan>,
     cache: ConversionCache,
 }
 
@@ -122,9 +132,13 @@ impl OpenFileReader {
         let (fs, fs_path) = resolve_filesystem(&parse_uri_or_path(&path)?)?;
         let source = fs.open_read(&fs_path).await?;
         let file = open_cached(&SESSION, Some(&path), source, None, &|options| options).await?;
+        let mut scan_file = file.scan_file();
+        scan_file.cache.get_or_insert_default();
         Ok(OpenFileReader {
             scan_state: Some(Arc::new(FileScanState {
                 reader: file.layout_reader()?,
+                scan_file,
+                v2: OnceLock::new(),
                 cache: ConversionCache::default(),
             })),
             splits: vec![],
@@ -132,12 +146,14 @@ impl OpenFileReader {
         })
     }
 
-    fn reader(&self) -> &LayoutReaderRef {
-        &self
-            .scan_state
+    fn scan_state(&self) -> &FileScanState {
+        self.scan_state
             .as_ref()
             .vortex_expect("file used after its scan state was released")
-            .reader
+    }
+
+    fn reader(&self) -> &LayoutReaderRef {
+        &self.scan_state().reader
     }
 
     fn can_skip(&self, filter: &Filter) -> VortexResult<bool> {
@@ -195,8 +211,18 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
         return Ok(true);
     }
 
-    // Getting splits is non-trivial work so we prefer doing it here under file
-    // lock and not in reader_try_initialize_scan under global lock.
+    // Getting splits, or planning a V2 scan, is non-trivial work so we prefer
+    // doing it here under file lock and not in reader_try_initialize_scan under
+    // global lock.
+    if global.scan_v2 {
+        let state = file.scan_state();
+        let scan = FileScan::try_new(v2_builder(state, global))?;
+        if state.v2.set(scan).is_err() {
+            vortex_panic!("file initialized twice");
+        }
+        return Ok(false);
+    }
+
     let reader = Arc::clone(file.reader());
     let filter = &global.filter;
     let builder = ScanBuilder::new(SESSION.clone(), reader)
@@ -204,13 +230,66 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
         .with_some_filter(filter.filter.clone())
         .with_selection(filter.row_selection.clone());
     let scan = builder.prepare()?;
-    let mut splits = scan.execute(filter.row_range.clone())?;
+    let mut splits: Vec<Split> = scan
+        .execute(filter.row_range.clone())?
+        .into_iter()
+        .map(Split::V1)
+        .collect();
 
     // threads take last element of file.splits so we need to reverse
     splits.reverse();
     file.total_splits = splits.len();
     file.splits = splits;
     Ok(false)
+}
+
+/// The V2 scan of the file's rows that the scan's row range and selection keep.
+fn v2_builder(state: &FileScanState, global: &GlobalState) -> V2ScanBuilder {
+    let filter = &global.filter;
+    let row_count = state.reader.row_count();
+    let rows = filter.row_range.as_ref().map_or(0..row_count, |range| {
+        range.start.min(row_count)..range.end.min(row_count)
+    });
+    V2ScanBuilder::new(SESSION.clone(), state.scan_file.clone())
+        .with_projection(global.projection.clone())
+        .with_some_filter(filter.filter.clone())
+        .with_selection(filter.row_selection.clone())
+        .with_row_range(rows)
+}
+
+/// What a thread's split yields next.
+enum SplitItem {
+    /// The split has no more rows.
+    Done,
+    /// The split produced no rows this time but may produce more.
+    Empty,
+    Array(ArrayRef),
+}
+
+/// Takes the next array of the thread's split, keeping the split while it has more to yield.
+fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
+    match local.split.take() {
+        None => Ok(SplitItem::Done),
+        Some(Split::V1(task)) => Ok(RUNTIME
+            .block_on(task)?
+            .map_or(SplitItem::Empty, SplitItem::Array)),
+        Some(Split::V2) => {
+            let file = local.file.as_ref().vortex_expect("split without a file");
+            let scan = file
+                .v2
+                .get()
+                .vortex_expect("V2 split of a file without a V2 scan");
+            let Some(array) = scan.next_array(&mut local.run)? else {
+                return Ok(SplitItem::Done);
+            };
+            local.split = Some(Split::V2);
+            Ok(if array.is_empty() {
+                SplitItem::Empty
+            } else {
+                SplitItem::Array(array)
+            })
+        }
+    }
 }
 
 /// Called by all threads under global lock. If this function returns true,
@@ -222,7 +301,14 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
 /// the global lock. It only moves references between the file and the local
 /// state, and reader_scan drops the retired ones.
 pub fn reader_try_initialize_scan(file: &mut OpenFileReader, local: &mut LocalState) -> bool {
-    let Some(split) = file.splits.pop() else {
+    // A V2 scan's threads take chunks from the file's scan until it has spawned
+    // them all, so the file has work for another thread until then.
+    let v2 = file
+        .scan_state
+        .as_ref()
+        .and_then(|state| state.v2.get())
+        .map(|scan| (!scan.is_exhausted()).then_some(Split::V2));
+    let Some(split) = v2.unwrap_or_else(|| file.splits.pop()) else {
         // DuckDB releases the file after this call, under the global lock.
         // Give the reference of the file to this thread so it drops outside.
         local.retired_files.extend(file.scan_state.take());
@@ -262,12 +348,11 @@ pub fn reader_scan(
     }
 
     if local.exporter.is_none() {
-        let Some(split) = local.split.take() else {
-            return Ok(false);
-        };
-        let Some(array) = RUNTIME.block_on(split)? else {
+        let array = match next_split_item(local)? {
+            SplitItem::Done => return Ok(false),
             // split is filtered
-            return Ok(true);
+            SplitItem::Empty => return Ok(true),
+            SplitItem::Array(array) => array,
         };
         let mut ctx = SESSION.create_execution_ctx();
         let array = convert_result(array, &mut ctx)?;
@@ -284,12 +369,11 @@ pub fn reader_scan(
 }
 
 fn reader_scan_aggregate(global: &GlobalState, local: &mut LocalState) -> VortexResult<bool> {
-    let Some(split) = local.split.take() else {
-        return Ok(false);
-    };
-    let Some(array) = RUNTIME.block_on(split)? else {
+    let array = match next_split_item(local)? {
+        SplitItem::Done => return Ok(false),
         // split is filtered
-        return Ok(true);
+        SplitItem::Empty => return Ok(true),
+        SplitItem::Array(array) => array,
     };
 
     let mut ctx = SESSION.create_execution_ctx();
@@ -323,16 +407,12 @@ pub fn reader_get_statistics(
         .as_any()
         .downcast_ref::<FileStatsLayoutReader>()?;
 
-    let DType::Struct(fields, _) = &file.reader().dtype() else {
-        return None;
-    };
-    let index = fields.find(column)?;
-    let stats_sets = reader.file_stats().stats_sets();
+    let (stats, dtype) = reader
+        .file_stats()
+        .get_by_path(&FieldPath::from_name(column))?;
 
-    let dtype = fields.field_by_index(index)?;
-
-    let stats = ColumnStatisticsAggregate::new(stats_sets.get(index)?);
-    match ColumnStatistics::try_from(stats, dtype) {
+    let stats = ColumnStatisticsAggregate::new(stats);
+    match ColumnStatistics::try_from(stats, dtype.clone()) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
     }
@@ -341,6 +421,9 @@ pub fn reader_get_statistics(
 /// Called from a separate thread (not related to threads for Vortex
 /// table function) under global lock.
 pub fn reader_get_progress_in_file(file: &OpenFileReader) -> f64 {
+    if let Some(scan) = file.scan_state.as_ref().and_then(|state| state.v2.get()) {
+        return scan.progress();
+    }
     let total = file.total_splits;
     let left = file.splits.len();
     let denom = total + (total == 0) as usize;
@@ -373,15 +456,11 @@ pub fn footer_get_cached(bind: &mut BindState, path: &str) -> VortexResult<Optio
 }
 
 /// Called by one thread for every footer in planning phase
-pub fn footer_get_statistics(footer: &Footer, index: usize) -> Option<ColumnStatistics> {
-    let DType::Struct(fields, _) = footer.dtype() else {
-        return None;
-    };
+pub fn footer_get_statistics(footer: &Footer, column: &str) -> Option<ColumnStatistics> {
     let stats = footer.statistics()?;
-    let dtype = fields.field_by_index(index)?;
-    let stats = stats.stats_sets().get(index)?;
+    let (stats, dtype) = stats.get_by_path(&FieldPath::from_name(column))?;
     let stats = ColumnStatisticsAggregate::new(stats);
-    match ColumnStatistics::try_from(stats, dtype) {
+    match ColumnStatistics::try_from(stats, dtype.clone()) {
         Ok(stats) => Some(stats),
         Err(e) => vortex_panic!(e),
     }

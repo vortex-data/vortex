@@ -7,9 +7,6 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use cudarc::driver::DevicePtr;
-use cudarc::driver::DeviceRepr;
-use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
@@ -37,6 +34,9 @@ use vortex::encodings::fsst::FSSTArraySlotsExt;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex_cuda_driver::DevicePtr;
+use vortex_cuda_driver::DeviceRepr;
+use vortex_cuda_driver::PushKernelArg;
 
 use crate::CanonicalCudaExt;
 use crate::CudaBufferExt;
@@ -128,7 +128,7 @@ impl CudaExecute for FSSTExecutor {
             .clone()
             .execute_cuda(ctx)
             .await?
-            .into_host()
+            .into_host(ctx.execution_ctx())
             .await?
             .into_primitive();
         let codes_offsets = fsst
@@ -398,6 +398,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use rstest::rstest;
@@ -410,6 +412,7 @@ mod tests {
     use vortex::encodings::fsst::fsst_compress;
     use vortex::encodings::fsst::fsst_train_compressor;
     use vortex::error::VortexExpect;
+    use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
 
     use super::*;
@@ -420,8 +423,10 @@ mod tests {
     use crate::session::CudaSession;
     use crate::session::VarBinExportLayout;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     fn cuda_ctx_with_varbin_layout(layout: VarBinExportLayout) -> VortexResult<CudaExecutionCtx> {
-        let session = vortex::array::array_session()
+        let session = VortexSession::empty()
             .with_some(CudaSession::try_default()?.with_varbin_export_layout(layout));
         CudaSession::create_execution_ctx(&session)
     }
@@ -476,7 +481,7 @@ mod tests {
         #[case] strings: Vec<Option<&'static [u8]>>,
         #[case] dtype: DType,
     ) -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -492,7 +497,10 @@ mod tests {
         assert_eq!(gpu_result.dtype(), &dtype);
         assert_device_resident(&gpu_result);
 
-        let host_result = gpu_result.into_host().await?.into_array();
+        let host_result = gpu_result
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
         assert_arrays_eq!(fsst_array, host_result, &mut ctx);
         Ok(())
     }
@@ -500,7 +508,7 @@ mod tests {
     /// Verifies that the view kernel applies a sliced validity bitmap's nonzero bit offset.
     #[crate::test]
     async fn test_cuda_fsst_decompression_sliced_validity() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
         let values = [
@@ -518,7 +526,10 @@ mod tests {
 
         let gpu_result = FSSTExecutor.execute(sliced.clone(), &mut cuda_ctx).await?;
         assert_device_resident(&gpu_result);
-        let host_result = gpu_result.into_host().await?.into_array();
+        let host_result = gpu_result
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
         assert_arrays_eq!(sliced, host_result, &mut ctx);
         Ok(())
     }
@@ -616,7 +627,7 @@ mod tests {
     /// Exercises the multi-block grid-stride path on a larger dataset.
     #[crate::test]
     async fn test_cuda_fsst_decompression_roundtrip_large() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         use vortex_fsst::test_utils::make_fsst_clickbench_urls;
 
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
@@ -630,7 +641,10 @@ mod tests {
             .vortex_expect("GPU decompression failed");
         assert_device_resident(&gpu_result);
 
-        let host_result = gpu_result.into_host().await?.into_array();
+        let host_result = gpu_result
+            .into_host(cuda_ctx.execution_ctx())
+            .await?
+            .into_array();
         assert_arrays_eq!(fsst_array, host_result, &mut ctx);
         Ok(())
     }

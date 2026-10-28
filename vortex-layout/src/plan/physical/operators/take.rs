@@ -20,21 +20,29 @@ use crate::plan::physical::operator::SourceBlocked;
 use crate::plan::physical::operator::SourceReady;
 use crate::plan::physical::operator::Step;
 use crate::plan::physical::pipeline::DEFAULT_CAPACITY;
+use crate::plan::physical::pipeline::ValueCache;
 
 /// Wraps each batch of codes as a dictionary over the values, once the values inlet has ended.
 pub(crate) struct TakeSource {
     plan: TakePlan,
     /// The values, once their inlet has ended.
     values: Option<ArrayRef>,
+    /// Where values joined from the inlet are kept for the split's later scans.
+    cache: Option<ValueCache>,
 }
 
 const CODES: usize = 0;
 const VALUES: usize = 1;
 
 impl TakeSource {
-    /// A take over `values`, or over what its values inlet produces when `None`.
-    pub(crate) fn new(plan: TakePlan, values: Option<ArrayRef>) -> Self {
-        Self { plan, values }
+    /// A take over `values`, or over what its values inlet produces when `None`, keeping those
+    /// in `cache`.
+    pub(crate) fn new(plan: TakePlan, values: Option<ArrayRef>, cache: Option<ValueCache>) -> Self {
+        Self {
+            plan,
+            values,
+            cache,
+        }
     }
 
     /// The batches inlet `inlet` holds: the values are taken whole, so they never block.
@@ -66,7 +74,12 @@ impl Operator for TakeSource {
         let values = match &self.values {
             Some(values) => values.clone(),
             None => {
-                let values = shared(join_inlet(cx, VALUES, self.plan.values()?.dtype())?);
+                let values_plan = self.plan.values()?;
+                let values = shared(join_inlet(cx, VALUES, values_plan.dtype())?);
+                let values = match &self.cache {
+                    Some(cache) => cache.insert(&values_plan, values),
+                    None => values,
+                };
                 self.values = Some(values.clone());
                 values
             }

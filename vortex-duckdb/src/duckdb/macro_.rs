@@ -11,14 +11,14 @@ macro_rules! duckdb_try {
     };
 
     // Pattern: duckdb_try!(function_call, "error message")
-    ($call:expr, $msg:expr) => {
+    ($call:expr, $msg:literal) => {
         if $call != $crate::cpp::duckdb_state::DuckDBSuccess {
             vortex::error::vortex_bail!($msg);
         }
     };
 
     // Pattern: duckdb_try!(function_call, "error message with {}", args...)
-    ($call:expr, $msg:expr, $($args:expr),+) => {
+    ($call:expr, $msg:literal, $($args:expr),+) => {
         if $call != $crate::cpp::duckdb_state::DuckDBSuccess {
             vortex::error::vortex_bail!($msg, $($args),+);
         }

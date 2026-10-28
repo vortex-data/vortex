@@ -9,17 +9,12 @@ use arrow_schema::Field;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::legacy_session;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::ArrowSessionExt;
-#[allow(deprecated)]
-use crate::FromArrowArray;
 
 /// A wrapper around a generic Arrow array that can be used as a Datum in Arrow compute.
 #[derive(Debug)]
@@ -97,45 +92,6 @@ impl ArrowDatum for Datum {
     fn get(&self) -> (&dyn ArrowArray, bool) {
         (&self.array, self.is_scalar)
     }
-}
-
-/// Convert an Arrow array to an Array with a specific length.
-/// This is useful for compute functions that delegate to Arrow using [Datum],
-/// which will return a scalar (length 1 Arrow array) if the input array is constant.
-///
-/// # Error
-///
-/// The provided array must have length
-#[deprecated(
-    note = "Relies on the hidden global `legacy_session()`; use `from_arrow_columnar` with an explicit `ExecutionCtx` instead"
-)]
-#[allow(clippy::disallowed_methods)]
-#[allow(deprecated)]
-pub fn from_arrow_array_with_len<A>(array: A, len: usize, nullable: bool) -> VortexResult<ArrayRef>
-where
-    ArrayRef: FromArrowArray<A>,
-{
-    let array = ArrayRef::from_arrow(array, nullable)?;
-    if array.len() == len {
-        return Ok(array);
-    }
-
-    if array.len() != 1 {
-        vortex_panic!(
-            "Array length mismatch, expected {} got {} for encoding {}",
-            len,
-            array.len(),
-            array.encoding_id()
-        );
-    }
-
-    Ok(ConstantArray::new(
-        array
-            .execute_scalar(0, &mut legacy_session().create_execution_ctx())
-            .vortex_expect("array of length 1 must support execute_scalar(0)"),
-        len,
-    )
-    .into_array())
 }
 
 /// Convert an Arrow array to an Array with a specific length, using the provided

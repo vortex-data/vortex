@@ -11,10 +11,12 @@ use datafusion_common::config::ConfigOptions;
 use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file::FileSource;
+use datafusion_datasource::file_groups::FileGroupPartitioner;
 use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::EquivalenceProperties;
+use datafusion_physical_expr::LexOrdering;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::PhysicalSortExpr;
 use datafusion_physical_expr::conjunction;
@@ -32,6 +34,8 @@ use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
+use vortex::layout::scan::v2::WeakScanCache;
+use vortex::layout::segments::SegmentSource;
 use vortex::metrics::DefaultMetricsRegistry;
 use vortex::metrics::MetricsRegistry;
 use vortex::session::VortexSession;
@@ -198,6 +202,9 @@ pub struct VortexSource {
     ///
     /// Sharing the readers allows us to only read every layout once from the file, even across partitions.
     layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
+    /// Shared V2 segment sources, keyed by path and alive only while a scan reads the file.
+    segment_sources: Arc<DashMap<Path, Weak<dyn SegmentSource>>>,
+    scan_caches: Arc<DashMap<Path, WeakScanCache>>,
     /// Shared full-file natural splits keyed by path.
     natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
     /// Shared physical Arrow schemas of each file, keyed by path.
@@ -234,6 +241,8 @@ impl VortexSource {
             vortex_predicate: None,
             df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
+            segment_sources: Arc::new(DashMap::default()),
+            scan_caches: Arc::new(DashMap::default()),
             natural_splits: Arc::new(DashMap::default()),
             file_schemas: Arc::new(DashMap::default()),
             expression_converter,
@@ -359,6 +368,8 @@ impl VortexSource {
             metrics_registry: Arc::clone(&self.vx_metrics_registry),
             df_metrics: self.df_metrics.clone(),
             layout_readers: Arc::clone(&self.layout_readers),
+            segment_sources: Arc::clone(&self.segment_sources),
+            scan_caches: Arc::clone(&self.scan_caches),
             natural_splits: Arc::clone(&self.natural_splits),
             file_schemas: Arc::clone(&self.file_schemas),
             has_output_ordering: !base_config.output_ordering.is_empty() || self.ordered,
@@ -366,6 +377,8 @@ impl VortexSource {
             file_metadata_cache: self.file_metadata_cache.clone(),
             projection_pushdown: self.options.projection_pushdown,
             scan_concurrency: self.options.scan_concurrency,
+            scan_v2: self.options.scan_v2,
+            partitions: base_config.file_groups.len(),
         };
 
         Ok(opener)
@@ -443,6 +456,29 @@ impl FileSource for VortexSource {
 
     fn supports_repartitioning(&self) -> bool {
         true
+    }
+
+    fn repartitioned(
+        &self,
+        target_partitions: usize,
+        repartition_file_min_size: usize,
+        output_ordering: Option<LexOrdering>,
+        config: &FileScanConfig,
+    ) -> DFResult<Option<FileScanConfig>> {
+        if config.file_compression_type.is_compressed() {
+            return Ok(None);
+        }
+        let Some(file_groups) = FileGroupPartitioner::new()
+            .with_target_partitions(target_partitions)
+            .with_repartition_file_min_size(repartition_file_min_size)
+            .with_preserve_order_within_groups(output_ordering.is_some())
+            .repartition_file_groups(&config.file_groups)
+        else {
+            return Ok(None);
+        };
+        let mut repartitioned = config.clone();
+        repartitioned.file_groups = file_groups;
+        Ok(Some(repartitioned))
     }
 
     fn try_pushdown_filters(
@@ -703,7 +739,8 @@ mod tests {
         let source = sort_test_source(Arc::clone(&schema));
         let filter = octet_length_filter(&schema);
 
-        let result = source.try_pushdown_filters(vec![filter], &ConfigOptions::new())?;
+        let result =
+            source.try_pushdown_filters(vec![Arc::clone(&filter)], &ConfigOptions::new())?;
 
         assert!(matches!(result.filters.as_slice(), [PushedDown::Yes]));
         let updated_source = result
@@ -712,7 +749,8 @@ mod tests {
             .downcast_ref::<VortexSource>()
             .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?
             .clone();
-        assert!(updated_source.vortex_predicate.is_some());
+        assert_eq!(updated_source.vortex_predicate.as_ref(), Some(&filter));
+        assert_eq!(updated_source.full_predicate.as_ref(), Some(&filter));
         Ok(())
     }
 
@@ -722,7 +760,8 @@ mod tests {
         let source = sort_test_source(Arc::clone(&schema)).with_predicate_pushdown(false);
         let filter = octet_length_filter(&schema);
 
-        let result = source.try_pushdown_filters(vec![filter], &ConfigOptions::new())?;
+        let result =
+            source.try_pushdown_filters(vec![Arc::clone(&filter)], &ConfigOptions::new())?;
 
         assert!(matches!(result.filters.as_slice(), [PushedDown::No]));
         let updated_source = result
@@ -731,7 +770,7 @@ mod tests {
             .downcast_ref::<VortexSource>()
             .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?
             .clone();
-        assert!(updated_source.full_predicate.is_some());
+        assert_eq!(updated_source.full_predicate.as_ref(), Some(&filter));
         assert!(updated_source.vortex_predicate.is_none());
         Ok(())
     }

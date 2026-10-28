@@ -74,16 +74,20 @@ pub(super) fn to_arrow_byte_view<T: ByteViewType>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use arrow_array::types::StringViewType;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
+    use vortex_session::VortexSession;
 
     use super::*;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn empty_views_are_aligned() -> VortexResult<()> {
         let array = VarBinViewArray::from_iter_str(std::iter::empty::<&str>());
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let arrow = canonical_varbinview_to_arrow::<StringViewType>(&array, &mut ctx)?;
 

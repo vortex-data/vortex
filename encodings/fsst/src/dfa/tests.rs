@@ -8,7 +8,6 @@ use fsst::ESCAPE_CODE;
 use fsst::Symbol;
 use rstest::rstest;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
@@ -31,7 +30,7 @@ use crate::fsst_compress;
 use crate::fsst_train_compressor;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty();
     crate::initialize(&session);
     session
 });
@@ -277,12 +276,9 @@ fn make_fsst_str(strings: &[Option<&str>]) -> FSSTArray {
     fsst_compress(&array, &compressor, &mut ctx).unwrap()
 }
 
-fn run_like(array: FSSTArray, pattern_arr: ArrayRef) -> VortexResult<BoolArray> {
+fn run_like(array: FSSTArray, pattern_arr: ArrayRef) -> VortexResult<ArrayRef> {
     let arr: ArrayRef = array.into_array();
-    let result = Like::try_new(arr, pattern_arr, LikeOptions::default())?
-        .into_array()
-        .execute::<Canonical>(&mut SESSION.create_execution_ctx())?;
-    Ok(result.into_bool())
+    Ok(Like::try_new(arr, pattern_arr, LikeOptions::default())?.into_array())
 }
 
 #[rstest]

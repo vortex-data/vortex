@@ -21,6 +21,7 @@ use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::RunEnd;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
@@ -36,15 +37,14 @@ use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::internal::row_count::RowCount;
 use vortex_array::scalar_fn::internal::row_count::contains_row_count;
 use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
-use vortex_array::stats::bind::StatBinder;
-use vortex_array::stats::bind::bind_stats;
 use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
+use vortex_expr::stats::bind::StatBinder;
+use vortex_expr::stats::bind::bind_stats;
 use vortex_mask::Mask;
-use vortex_runend::RunEnd;
 use vortex_session::VortexSession;
 
 use crate::layouts::zoned::schema::aggregate_stats_table_dtype;
@@ -131,7 +131,7 @@ impl ZoneMap {
     /// Apply a pruning predicate to this zone map.
     ///
     /// `predicate` should be a stats rewrite expression such as the result of
-    /// [`BoundExpression::falsify`]. The returned mask has one value per zone, where
+    /// [`BoundExpressionPruneExt::falsify`]. The returned mask has one value per zone, where
     /// `true` means the zone cannot contain matching rows and can be skipped.
     ///
     /// If the predicate contains [`row_count`][vortex_array::scalar_fn::internal::row_count]
@@ -141,6 +141,8 @@ impl ZoneMap {
     /// `row_count` is a layout property rather than a stored stats field, and the
     /// final zone may be shorter than the nominal zone length, so it is materialized
     /// only after the predicate has been lowered to the zone-map table.
+    ///
+    /// [`BoundExpressionPruneExt::falsify`]: vortex_expr::stats::rewrite::BoundExpressionPruneExt::falsify
     pub fn prune(
         &self,
         predicate: &BoundExpression,
@@ -436,14 +438,15 @@ mod tests {
     use vortex_array::expr::stats::Stat;
     use vortex_array::scalar::ScalarValue;
     use vortex_array::scalar_fn::fns::operators::CompareOperator;
-    use vortex_array::stats::all_nan;
-    use vortex_array::stats::all_non_nan;
-    use vortex_array::stats::all_non_null;
-    use vortex_array::stats::all_null;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_expr::stats::all_nan;
+    use vortex_expr::stats::all_non_nan;
+    use vortex_expr::stats::all_non_null;
+    use vortex_expr::stats::all_null;
+    use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
     use vortex_mask::Mask;
 
     use crate::layouts::zoned::zone_map::ZoneMap;
@@ -985,7 +988,7 @@ mod tests {
         let max_fn = Stat::Max
             .aggregate_fn()
             .expect("max should have an aggregate function");
-        let predicate = is_null(vortex_array::stats::stat(root(), max_fn));
+        let predicate = is_null(vortex_expr::stats::stat(root(), max_fn));
 
         // Missing StatFn lowers to a nullable null literal, so `is_null(...)` is true for every zone.
         let mask = prune(&zone_map, &predicate).unwrap();
@@ -1010,7 +1013,7 @@ mod tests {
         let max_fn = Stat::Max
             .aggregate_fn()
             .expect("max should have an aggregate function");
-        let predicate = is_null(vortex_array::stats::stat(root(), max_fn));
+        let predicate = is_null(vortex_expr::stats::stat(root(), max_fn));
         let error = prune(&zone_map, &predicate).unwrap_err();
 
         assert!(

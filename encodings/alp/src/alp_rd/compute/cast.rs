@@ -47,23 +47,28 @@ impl CastReduce for ALPRD {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_session::VortexSession;
 
     use crate::RDEncoder;
     use crate::RDEncoderExt;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_cast_alprd_f32_to_f64() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = vec![1.0f32, 1.1, 1.2, 1.3, 1.4];
         let arr = PrimitiveArray::from_iter(values.clone());
         let encoder = RDEncoder::new(&values);
@@ -78,16 +83,13 @@ mod tests {
             &DType::Primitive(PType::F64, Nullability::NonNullable)
         );
 
-        let decoded = casted.execute::<PrimitiveArray>(&mut ctx).unwrap();
-        let f64_values = decoded.as_slice::<f64>();
-        assert_eq!(f64_values.len(), 5);
-        assert!((f64_values[0] - 1.0).abs() < f64::EPSILON);
-        assert!((f64_values[1] - 1.1).abs() < 1e-6); // Use larger epsilon for f32->f64 conversion
+        let expected = PrimitiveArray::from_iter(values.into_iter().map(f64::from));
+        assert_arrays_eq!(casted, expected, &mut ctx);
     }
 
     #[test]
     fn test_cast_alprd_nullable() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let arr =
             PrimitiveArray::from_option_iter([Some(10.0f64), None, Some(10.1), Some(10.2), None]);
         let values = vec![10.0f64, 10.1, 10.2];
@@ -149,9 +151,6 @@ mod tests {
         encoder.encode(arr.as_view())
     })]
     fn test_cast_alprd_conformance(#[case] alprd: crate::alp_rd::ALPRDArray) {
-        test_cast_conformance(
-            &alprd.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_cast_conformance(&alprd.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

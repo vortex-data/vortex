@@ -126,7 +126,6 @@ unsafe impl<T: OutputElement + Copy + Default> OutputSink for FixedSizeListSink<
         let width = *params;
         let element_capacity = rows.checked_mul(width).ok_or_else(|| {
             vortex_err!(
-                InvalidArgument:
                 "fixed-size-list sink capacity must fit in usize, got {rows} rows with width {width}"
             )
         })?;

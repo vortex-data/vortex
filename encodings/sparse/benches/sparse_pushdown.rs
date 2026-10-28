@@ -17,7 +17,6 @@ use divan::Bencher;
 use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
-use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
@@ -25,23 +24,29 @@ use vortex_array::aggregate_fn::fns::is_constant::is_constant;
 use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::aggregate_fn::fns::null_count::null_count;
 use vortex_array::aggregate_fn::fns::sum::sum;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::session::ArraySession;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
+use vortex_sparse::SparseExt;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
@@ -49,7 +54,11 @@ const LEN: usize = 1_000_000;
 
 /// Session with Sparse and its pushdown kernels registered.
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>();
     vortex_sparse::initialize(&session);
     session
 });
@@ -58,6 +67,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 /// fill value 1. When `constant` is true every patch also equals 1, so the whole array
 /// is constant (the worst case for `is_constant`: it must scan all patches to confirm).
 fn make_sparse(num_patches: usize, constant: bool) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let stride = LEN / num_patches;
     let indices: Buffer<u32> = (0..num_patches).map(|i| (i * stride) as u32).collect();
     let values: Buffer<i32> = (0..num_patches)
@@ -68,6 +78,7 @@ fn make_sparse(num_patches: usize, constant: bool) -> ArrayRef {
         values.into_array(),
         LEN,
         Scalar::from(1i32),
+        &mut ctx,
     )
     .vortex_expect("valid sparse")
     .into_array()
@@ -76,6 +87,7 @@ fn make_sparse(num_patches: usize, constant: bool) -> ArrayRef {
 /// Build a sparse `i32` array of `LEN` with a null fill and `num_patches` nullable patches
 /// (every third patch null), so `null_count` does real `O(P)` work over the patch validity.
 fn make_sparse_nullable(num_patches: usize) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let stride = LEN / num_patches;
     let indices: Buffer<u32> = (0..num_patches).map(|i| (i * stride) as u32).collect();
     let values = PrimitiveArray::from_option_iter(
@@ -83,9 +95,15 @@ fn make_sparse_nullable(num_patches: usize) -> ArrayRef {
     )
     .into_array();
     let nullable = DType::Primitive(PType::I32, Nullability::Nullable);
-    Sparse::try_new(indices.into_array(), values, LEN, Scalar::null(nullable))
-        .vortex_expect("valid sparse")
-        .into_array()
+    Sparse::try_new(
+        indices.into_array(),
+        values,
+        LEN,
+        Scalar::null(nullable),
+        &mut ctx,
+    )
+    .vortex_expect("valid sparse")
+    .into_array()
 }
 
 #[divan::bench]
@@ -134,18 +152,20 @@ fn sparse_null_count(bencher: Bencher) {
 
 #[divan::bench]
 fn sparse_compare(bencher: Bencher) {
+    let array = make_sparse(10_000, false);
     bencher
-        .with_inputs(|| (make_sparse(10_000, false), SESSION.create_execution_ctx()))
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| {
             let rhs = ConstantArray::new(Scalar::from(1i32), array.len()).into_array();
             let result = array.binary(rhs, Operator::Eq).vortex_expect("binary");
-            divan::black_box(materialize(result, &mut ctx))
+            let sparse = result
+                .execute_until::<Sparse>(&mut ctx)
+                .vortex_expect("execute to sparse");
+            let patch_values = sparse.as_::<Sparse>().patches().values().clone();
+            divan::black_box(
+                patch_values
+                    .execute::<Canonical>(&mut ctx)
+                    .vortex_expect("execute patch values"),
+            )
         });
-}
-
-fn materialize(array: ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
-    array
-        .execute::<Canonical>(ctx)
-        .vortex_expect("execute")
-        .into_array()
 }

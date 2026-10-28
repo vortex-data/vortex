@@ -13,16 +13,23 @@ use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::Accumulator;
+use vortex_array::aggregate_fn::DynAccumulator;
+use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
+use vortex_array::aggregate_fn::fns::is_constant::is_constant;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::compute::conformance::consistency::test_array_consistency;
 use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::smallvec::smallvec;
 use vortex_buffer::Buffer;
+use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -39,7 +46,7 @@ use crate::FoRData;
 use crate::FoRReferences;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty();
     crate::initialize(&session);
     session
 });
@@ -418,11 +425,16 @@ where
         // Each block draws its own width, from zero to the native width, so values wider than
         // their block's width become patches.
         let num_blocks = len.div_ceil(FL_CHUNK_SIZE);
-        let bit_widths: Vec<u8> = tc.draw(
-            gs::vecs(gs::integers().max_value(T::PTYPE.bit_width() as u8))
+        let native = T::PTYPE.bit_width() as u8;
+        let mut bit_widths: Vec<u8> = tc.draw(
+            gs::vecs(gs::integers().max_value(native))
                 .min_size(num_blocks)
                 .max_size(num_blocks),
         );
+        // `encode_blocked` rejects all blocks at the native width; keep one block packed.
+        if bit_widths.iter().all(|&w| w == native) {
+            bit_widths[0] = native - 1;
+        }
         BitPackedData::encode_blocked(&encoded_array.into_array(), &bit_widths, &mut ctx)?
     } else {
         BitPacked::encode(&encoded_array.into_array(), bit_width, &mut ctx)?
@@ -447,5 +459,22 @@ where
         expected.into_array().slice(start..end)?,
         &mut ctx
     );
+    Ok(())
+}
+
+#[test]
+fn empty_for_leaves_constant_partial_empty() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let empty = FoR::try_new(Buffer::<u32>::empty().into_array(), 7u32.into())?.into_array();
+    let mut acc = Accumulator::try_new(IsConstant, EmptyOptions, empty.dtype().clone())?;
+    acc.accumulate(&empty, &mut ctx)?;
+
+    assert!(acc.partial_scalar()?.is_null());
+    assert!(!is_constant(&empty, &mut ctx)?);
+
+    acc.accumulate(&buffer![1u32, 1].into_array(), &mut ctx)?;
+    acc.accumulate(&empty, &mut ctx)?;
+
+    assert_eq!(acc.finish()?, Scalar::bool(true, Nullability::NonNullable));
     Ok(())
 }

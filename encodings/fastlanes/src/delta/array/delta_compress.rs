@@ -116,7 +116,7 @@ mod tests {
     use crate::delta_compress;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -230,11 +230,7 @@ mod tests {
             0,
             array.len(),
         )?;
-        let packed_delta_prim = packed_delta
-            .as_array()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?;
-        assert_arrays_eq!(packed_delta_prim, array, &mut ctx);
+        assert_arrays_eq!(packed_delta, array, &mut ctx);
         Ok(())
     }
 

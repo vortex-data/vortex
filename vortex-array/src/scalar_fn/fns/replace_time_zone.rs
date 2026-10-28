@@ -172,7 +172,7 @@ impl ScalarFnVTable for ReplaceTimeZone {
         };
 
         if let (Some(value), Some(policy)) = (input.as_constant(), ambiguous.as_constant()) {
-            let scalar = replace_scalar(options, &value, &policy)?;
+            let scalar = replace_scalar(options, value, policy)?;
             return Ok(ConstantArray::new(scalar, args.row_count()).into_array());
         }
 
@@ -313,6 +313,8 @@ fn replace(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
@@ -324,7 +326,6 @@ mod tests {
     use super::resolve_zone;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ExtensionArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
@@ -342,6 +343,8 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::scalar_fn::ScalarFnVTable;
     use crate::scalar_fn::fns::literal::Literal;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     #[case(TimeUnit::Seconds, 1)]
@@ -437,10 +440,7 @@ mod tests {
             null_on_non_existent,
         };
         let metadata = ReplaceTimeZone.serialize(&options)?.unwrap();
-        assert_eq!(
-            ReplaceTimeZone.deserialize(&metadata, &VortexSession::empty())?,
-            options
-        );
+        assert_eq!(ReplaceTimeZone.deserialize(&metadata, &SESSION)?, options);
         Ok(())
     }
 
@@ -489,6 +489,7 @@ mod tests {
                 ),
             )
         );
+        assert_eq!(scalar.dtype(), &DType::Extension(timestamp(target)));
         Ok(())
     }
 
@@ -546,7 +547,7 @@ mod tests {
             ])
             .into_array(),
         );
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }

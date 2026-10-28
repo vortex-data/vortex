@@ -71,7 +71,8 @@ pub struct PrimitiveSlots {
 /// ```
 /// # fn main() -> vortex_error::VortexResult<()> {
 /// use vortex_array::arrays::PrimitiveArray;
-/// use vortex_array::{VortexSessionExecute, array_session};
+/// use vortex_array::{VortexSessionExecute};
+/// use vortex_session::VortexSession;
 ///
 /// // Create from iterator using FromIterator impl
 /// let array: PrimitiveArray = [1i32, 2, 3, 4, 5].into_iter().collect();
@@ -80,7 +81,7 @@ pub struct PrimitiveSlots {
 /// let sliced = array.slice(1..3)?;
 ///
 /// // Access individual values
-/// let mut ctx = array_session().create_execution_ctx();
+/// let mut ctx = VortexSession::empty().create_execution_ctx();
 /// let value = sliced.execute_scalar(0, &mut ctx).unwrap();
 /// assert_eq!(value, 2i32.into());
 ///
@@ -326,7 +327,6 @@ impl PrimitiveData {
             && buffer.len() != len
         {
             return Err(vortex_err!(
-                InvalidArgument:
                 "Buffer and validity length mismatch: buffer={}, validity={}",
                 buffer.len(),
                 len
@@ -346,7 +346,11 @@ impl Array<Primitive> {
         let len = 0;
         let data = PrimitiveData::empty::<T>(nullability);
         let slots = PrimitiveData::make_slots(&Validity::from(nullability), len);
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data, slots)) }
+        unsafe {
+            Self::from_primitive_parts_unchecked(ArrayParts::new(
+                Primitive, dtype, len, data, slots,
+            ))
+        }
     }
 
     /// Creates a new `PrimitiveArray`.
@@ -360,7 +364,11 @@ impl Array<Primitive> {
         let len = buffer.len();
         let slots = PrimitiveData::make_slots(&validity, len);
         let data = PrimitiveData::new(buffer, validity);
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data, slots)) }
+        unsafe {
+            Self::from_primitive_parts_unchecked(ArrayParts::new(
+                Primitive, dtype, len, data, slots,
+            ))
+        }
     }
 
     /// Constructs a new `PrimitiveArray`.
@@ -370,7 +378,9 @@ impl Array<Primitive> {
         let slots = PrimitiveData::make_slots(&validity, len);
         let data = PrimitiveData::try_new(buffer, validity)?;
         Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data, slots))
+            Self::from_primitive_parts_unchecked(ArrayParts::new(
+                Primitive, dtype, len, data, slots,
+            ))
         })
     }
 
@@ -384,7 +394,23 @@ impl Array<Primitive> {
         let len = buffer.len();
         let slots = PrimitiveData::make_slots(&validity, len);
         let data = unsafe { PrimitiveData::new_unchecked(buffer, validity) };
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data, slots)) }
+        unsafe {
+            Self::from_primitive_parts_unchecked(ArrayParts::new(
+                Primitive, dtype, len, data, slots,
+            ))
+        }
+    }
+
+    /// Creates the array from parts without validation.
+    ///
+    /// The generic constructors call this function. It is not generic, so crates that call those
+    /// constructors do not each compile the `Primitive` array vtable.
+    ///
+    /// # Safety
+    ///
+    /// The parts must be logically consistent.
+    unsafe fn from_primitive_parts_unchecked(parts: ArrayParts<Primitive>) -> Self {
+        unsafe { Array::from_parts_unchecked(parts) }
     }
 
     /// Create a new array from a buffer handle.

@@ -112,9 +112,12 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
@@ -125,7 +128,6 @@ mod tests {
     use crate::aggregate_fn::fns::sum::SumPartial;
     use crate::aggregate_fn::fns::sum::SumState;
     use crate::aggregate_fn::fns::sum::sum;
-    use crate::array_session;
     use crate::arrays::DecimalArray;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
@@ -136,6 +138,8 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     /// A partial whose running decimal sum is `value` (test-only helper bypassing scalar parsing).
     fn partial_with_decimal(value: DecimalValue) -> SumPartial {
@@ -152,10 +156,7 @@ mod tests {
             Validity::AllValid,
         );
 
-        let result = sum(
-            &decimal.into_array(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        let result = sum(&decimal.into_array(), &mut SESSION.create_execution_ctx())?;
 
         let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(14, 2), Nullability::NonNullable),
@@ -174,10 +175,7 @@ mod tests {
             Validity::from_iter([true, false, true, true]),
         );
 
-        let result = sum(
-            &decimal.into_array(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        let result = sum(&decimal.into_array(), &mut SESSION.create_execution_ctx())?;
 
         let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(14, 2), Nullable),
@@ -196,10 +194,7 @@ mod tests {
             Validity::AllValid,
         );
 
-        let result = sum(
-            &decimal.into_array(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        let result = sum(&decimal.into_array(), &mut SESSION.create_execution_ctx())?;
 
         let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(14, 2), Nullability::NonNullable),
@@ -219,10 +214,7 @@ mod tests {
             Validity::AllValid,
         );
 
-        let result = sum(
-            &decimal.into_array(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        let result = sum(&decimal.into_array(), &mut SESSION.create_execution_ctx())?;
 
         let expected_sum = near_max as i64 + 500 + 400;
         let expected = Scalar::try_new(
@@ -243,10 +235,7 @@ mod tests {
             Validity::AllValid,
         );
 
-        let result = sum(
-            &decimal.into_array(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        let result = sum(&decimal.into_array(), &mut SESSION.create_execution_ctx())?;
 
         let expected_sum = (large_val as i128) * 4 + 1;
         let expected = Scalar::try_new(
@@ -266,10 +255,7 @@ mod tests {
             Validity::AllValid,
         );
 
-        let result = sum(
-            &decimal.into_array(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        let result = sum(&decimal.into_array(), &mut SESSION.create_execution_ctx())?;
 
         let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(16, 4), Nullability::NonNullable),
@@ -285,10 +271,7 @@ mod tests {
         let decimal =
             DecimalArray::new(buffer![42i32], DecimalDType::new(3, 1), Validity::AllValid);
 
-        let result = sum(
-            &decimal.into_array(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        let result = sum(&decimal.into_array(), &mut SESSION.create_execution_ctx())?;
 
         let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(13, 1), Nullability::NonNullable),
@@ -307,10 +290,7 @@ mod tests {
             Validity::from_iter([false, false, true, false]),
         );
 
-        let result = sum(
-            &decimal.into_array(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        let result = sum(&decimal.into_array(), &mut SESSION.create_execution_ctx())?;
 
         let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(14, 2), Nullable),
@@ -330,10 +310,7 @@ mod tests {
             Validity::AllValid,
         );
 
-        let result = sum(
-            &decimal.into_array(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        let result = sum(&decimal.into_array(), &mut SESSION.create_execution_ctx())?;
 
         let expected_sum =
             i256::from_i128(max_val) + i256::from_i128(max_val) + i256::from_i128(max_val);
@@ -356,11 +333,8 @@ mod tests {
         );
 
         assert_eq!(
-            sum(
-                &decimal.into_array(),
-                &mut array_session().create_execution_ctx()
-            )
-            .vortex_expect("operation should succeed in test"),
+            sum(&decimal.into_array(), &mut SESSION.create_execution_ctx())
+                .vortex_expect("operation should succeed in test"),
             Scalar::null(DType::Decimal(decimal_dtype, Nullable))
         );
         Ok(())
@@ -455,7 +429,7 @@ mod tests {
 
         // Drive accumulate through the vtable directly.
         let columnar = crate::Columnar::Canonical(crate::Canonical::Decimal(decimal));
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         Sum.accumulate(dtypes.args(&options), &mut state, &columnar, &mut ctx)?;
 
         let result = Sum.to_scalar(dtypes.args(&options), &state)?;

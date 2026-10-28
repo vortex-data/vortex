@@ -827,15 +827,25 @@ mod tests {
 
     #[test]
     fn jsonl_round_trips_one_record_per_line() -> anyhow::Result<()> {
-        let record = compression_size_record("taxi", None, Format::Parquet, 100, 1_000);
+        let records = [
+            compression_size_record("taxi", None, Format::Parquet, 100, 1_000),
+            compression_size_record("other", Some("variant"), Format::Lance, 200, 2_000),
+        ];
         let mut buf: Vec<u8> = Vec::new();
-        write_jsonl(&mut buf, &[record.clone(), record])?;
+        write_jsonl(&mut buf, &records)?;
         let s = String::from_utf8(buf)?;
-        assert_eq!(s.lines().count(), 2);
-        for line in s.lines() {
-            let v: serde_json::Value = serde_json::from_str(line)?;
-            assert_eq!(v["kind"], "compression_size");
-        }
+        assert!(s.ends_with('\n'));
+        let actual = s
+            .lines()
+            .map(serde_json::from_str::<serde_json::Value>)
+            .collect::<Result<Vec<_>, _>>()?;
+        assert_eq!(
+            actual,
+            [
+                serde_json::json!({"kind":"compression_size", "commit_sha":GIT_COMMIT_ID.as_str(), "dataset":"taxi", "format":"parquet", "value_bytes":100, "uncompressed_bytes":1000}),
+                serde_json::json!({"kind":"compression_size", "commit_sha":GIT_COMMIT_ID.as_str(), "dataset":"other", "dataset_variant":"variant", "format":"lance", "value_bytes":200, "uncompressed_bytes":2000}),
+            ]
+        );
         Ok(())
     }
 }

@@ -48,7 +48,7 @@ LIMIT 100;
 logical_plan
 01)Sort: item.i_item_id ASC NULLS LAST, item.i_item_desc ASC NULLS LAST, store.s_store_id ASC NULLS LAST, store.s_store_name ASC NULLS LAST, fetch=100
 02)--Projection: item.i_item_id, item.i_item_desc, store.s_store_id, store.s_store_name, sum(store_sales.ss_quantity) AS store_sales_quantity, sum(store_returns.sr_return_quantity) AS store_returns_quantity, sum(catalog_sales.cs_quantity) AS catalog_sales_quantity
-03)----Aggregate: groupBy=[[item.i_item_id, item.i_item_desc, store.s_store_id, store.s_store_name]], aggr=[[sum(store_sales.ss_quantity), sum(store_returns.sr_return_quantity), sum(catalog_sales.cs_quantity)]]
+03)----Aggregate: groupBy=[[item.i_item_id, item.i_item_desc, store.s_store_id, store.s_store_name]], aggr=[[sum(CAST(store_sales.ss_quantity AS Int64)), sum(CAST(store_returns.sr_return_quantity AS Int64)), sum(CAST(catalog_sales.cs_quantity AS Int64))]]
 04)------Projection: store_sales.ss_quantity, store_returns.sr_return_quantity, catalog_sales.cs_quantity, store.s_store_id, store.s_store_name, item.i_item_id, item.i_item_desc
 05)--------Inner Join: store_sales.ss_item_sk = item.i_item_sk
 06)----------Projection: store_sales.ss_item_sk, store_sales.ss_quantity, store_returns.sr_return_quantity, catalog_sales.cs_quantity, store.s_store_id, store.s_store_name
@@ -68,16 +68,16 @@ logical_plan
 20)------------------------------TableScan: catalog_sales projection=[cs_sold_date_sk, cs_bill_customer_sk, cs_item_sk, cs_quantity]
 21)--------------------------SubqueryAlias: d1
 22)----------------------------Projection: date_dim.d_date_sk
-23)------------------------------Filter: date_dim.d_moy = Int64(9) AND date_dim.d_year = Int64(1999)
-24)--------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy = Int64(9), date_dim.d_year = Int64(1999)]
+23)------------------------------Filter: date_dim.d_moy = Int32(9) AND date_dim.d_year = Int32(1999)
+24)--------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy = Int32(9), date_dim.d_year = Int32(1999)]
 25)----------------------SubqueryAlias: d2
 26)------------------------Projection: date_dim.d_date_sk
-27)--------------------------Filter: date_dim.d_moy >= Int64(9) AND date_dim.d_moy <= Int64(12) AND date_dim.d_year = Int64(1999)
-28)----------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy >= Int64(9), date_dim.d_moy <= Int64(12), date_dim.d_year = Int64(1999)]
+27)--------------------------Filter: date_dim.d_moy >= Int32(9) AND date_dim.d_moy <= Int32(12) AND date_dim.d_year = Int32(1999)
+28)----------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_moy], partial_filters=[date_dim.d_moy >= Int32(9), date_dim.d_moy <= Int32(12), date_dim.d_year = Int32(1999)]
 29)------------------SubqueryAlias: d3
 30)--------------------Projection: date_dim.d_date_sk
-31)----------------------Filter: date_dim.d_year = Int64(1999) OR date_dim.d_year = Int64(2000) OR date_dim.d_year = Int64(2001)
-32)------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(1999) OR date_dim.d_year = Int64(2000) OR date_dim.d_year = Int64(2001)]
+31)----------------------Filter: date_dim.d_year = Int32(1999) OR date_dim.d_year = Int32(2000) OR date_dim.d_year = Int32(2001)
+32)------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int32(1999) OR date_dim.d_year = Int32(2000) OR date_dim.d_year = Int32(2001)]
 33)--------------TableScan: store projection=[s_store_sk, s_store_id, s_store_name]
 34)----------TableScan: item projection=[i_item_sk, i_item_id, i_item_desc]
 physical_plan
@@ -101,8 +101,6 @@ physical_plan
 18)------------------------RepartitionExec: partitioning=Hash([cs_bill_customer_sk@1, cs_item_sk@2], 4), input_partitions=4
 19)--------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>], [${WORK_DIR}/catalog_sales.vortex:<slt:ignore>]]}, projection=[cs_sold_date_sk, cs_bill_customer_sk, cs_item_sk, cs_quantity], file_type=vortex
 20)------------------------RepartitionExec: partitioning=Hash([sr_customer_sk@6, sr_item_sk@5], 4), input_partitions=4
-21)--------------------------HashJoinExec: mode=Partitioned, join_type=Inner, on=[(sr_customer_sk@2, ss_customer_sk@2), (sr_item_sk@1, ss_item_sk@1), (sr_ticket_number@3, ss_ticket_number@4)], projection=[ss_sold_date_sk@5, ss_item_sk@6, ss_store_sk@8, ss_quantity@10, sr_returned_date_sk@0, sr_item_sk@1, sr_customer_sk@2, sr_return_quantity@4]
-22)----------------------------RepartitionExec: partitioning=Hash([sr_customer_sk@2, sr_item_sk@1, sr_ticket_number@3], 4), input_partitions=4
-23)------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>], [${WORK_DIR}/store_returns.vortex:<slt:ignore>]]}, projection=[sr_returned_date_sk, sr_item_sk, sr_customer_sk, sr_ticket_number, sr_return_quantity], file_type=vortex
-24)----------------------------RepartitionExec: partitioning=Hash([ss_customer_sk@2, ss_item_sk@1, ss_ticket_number@4], 4), input_partitions=4
-25)------------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_customer_sk, ss_store_sk, ss_ticket_number, ss_quantity], file_type=vortex
+21)--------------------------HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(sr_customer_sk@2, ss_customer_sk@2), (sr_item_sk@1, ss_item_sk@1), (sr_ticket_number@3, ss_ticket_number@4)], projection=[ss_sold_date_sk@5, ss_item_sk@6, ss_store_sk@8, ss_quantity@10, sr_returned_date_sk@0, sr_item_sk@1, sr_customer_sk@2, sr_return_quantity@4]
+22)----------------------------DataSourceExec: file_groups={1 group: [[${WORK_DIR}/store_returns.vortex]]}, projection=[sr_returned_date_sk, sr_item_sk, sr_customer_sk, sr_ticket_number, sr_return_quantity], file_type=vortex
+23)----------------------------DataSourceExec: file_groups={4 groups: [[${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>], [${WORK_DIR}/store_sales.vortex:<slt:ignore>]]}, projection=[ss_sold_date_sk, ss_item_sk, ss_customer_sk, ss_store_sk, ss_ticket_number, ss_quantity], file_type=vortex

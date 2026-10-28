@@ -135,7 +135,10 @@ mod tests {
     use vortex_array::arrays::MaskedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
+    use vortex_array::dtype::DType;
     use vortex_array::dtype::NativePType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
 
@@ -156,6 +159,10 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let output: PrimitiveArray = result.into_array().execute(&mut ctx)?;
 
+        assert_eq!(
+            output.dtype(),
+            &DType::Primitive(T::PTYPE, Nullability::NonNullable)
+        );
         Ok(output.as_slice::<T>().to_vec())
     }
 
@@ -274,15 +281,21 @@ mod tests {
 
     #[test]
     fn null_input_row() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         // 3 rows of dim-2 vectors. Row 1 of lhs is masked as null.
         let lhs = tensor_array(&[2], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0])?;
         let rhs = tensor_array(&[2], &[7.0, 8.0, 9.0, 10.0, 11.0, 12.0])?;
-        let lhs = MaskedArray::try_new(lhs, Validity::from_iter([true, false, true]))?.into_array();
+        let lhs = MaskedArray::try_new(lhs, Validity::from_iter([true, false, true]), &mut ctx)?
+            .into_array();
 
         let result = InnerProduct::try_new(lhs, rhs)?;
-        let mut ctx = SESSION.create_execution_ctx();
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
 
+        assert_eq!(prim.len(), 3);
+        assert_eq!(
+            prim.dtype(),
+            &DType::Primitive(PType::F64, Nullability::Nullable)
+        );
         // Row 0: 1*7 + 2*8 = 23, row 1: null, row 2: 5*11 + 6*12 = 127.
         assert!(prim.is_valid(0, &mut ctx)?);
         assert!(!prim.is_valid(1, &mut ctx)?);
@@ -310,9 +323,13 @@ mod tests {
     }
 
     #[rstest]
-    #[case::vector(inner_product_vector_lhs(), inner_product_vector_rhs())]
-    #[case::fixed_shape_tensor(inner_product_tensor_lhs(), inner_product_tensor_rhs())]
-    fn serde_round_trip(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) -> VortexResult<()> {
+    #[case::vector(inner_product_vector_lhs(), inner_product_vector_rhs(), [50.0, 167.0])]
+    #[case::fixed_shape_tensor(inner_product_tensor_lhs(), inner_product_tensor_rhs(), [17.0, 53.0])]
+    fn serde_round_trip(
+        #[case] lhs: ArrayRef,
+        #[case] rhs: ArrayRef,
+        #[case] expected: [f64; 2],
+    ) -> VortexResult<()> {
         let original = InnerProduct::try_new(lhs.clone(), rhs.clone())?.into_array();
 
         let plugin = ScalarFnArrayPlugin::new(InnerProduct);
@@ -336,6 +353,11 @@ mod tests {
         assert_eq!(recovered.dtype(), original.dtype());
         assert_eq!(recovered.len(), original.len());
         assert_eq!(recovered.encoding_id(), original.encoding_id());
+        vortex_array::assert_arrays_eq!(
+            recovered,
+            PrimitiveArray::from_iter(expected),
+            &mut SESSION.create_execution_ctx()
+        );
         Ok(())
     }
 

@@ -34,7 +34,10 @@ pub(crate) fn accumulate_bool(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::aggregate_fn::Accumulator;
@@ -43,20 +46,18 @@ mod tests {
     use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::sum::Sum;
     use crate::aggregate_fn::fns::sum::sum;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::executor::VortexSessionExecute;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn sum_bool_all_true() -> VortexResult<()> {
         let arr: BoolArray = [true, true, true].into_iter().collect();
-        let result = sum(
-            &arr.into_array(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        let result = sum(&arr.into_array(), &mut SESSION.create_execution_ctx())?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(3));
         Ok(())
     }
@@ -64,10 +65,7 @@ mod tests {
     #[test]
     fn sum_bool_mixed() -> VortexResult<()> {
         let arr: BoolArray = [true, false, true, false, true].into_iter().collect();
-        let result = sum(
-            &arr.into_array(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        let result = sum(&arr.into_array(), &mut SESSION.create_execution_ctx())?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(3));
         Ok(())
     }
@@ -75,10 +73,7 @@ mod tests {
     #[test]
     fn sum_bool_all_false() -> VortexResult<()> {
         let arr: BoolArray = [false, false, false].into_iter().collect();
-        let result = sum(
-            &arr.into_array(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        let result = sum(&arr.into_array(), &mut SESSION.create_execution_ctx())?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(0));
         Ok(())
     }
@@ -86,10 +81,7 @@ mod tests {
     #[test]
     fn sum_bool_with_nulls() -> VortexResult<()> {
         let arr = BoolArray::from_iter([Some(true), None, Some(true), Some(false)]);
-        let result = sum(
-            &arr.into_array(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        let result = sum(&arr.into_array(), &mut SESSION.create_execution_ctx())?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(2));
         Ok(())
     }
@@ -97,10 +89,7 @@ mod tests {
     #[test]
     fn sum_bool_all_null() -> VortexResult<()> {
         let arr = BoolArray::from_iter([None::<bool>, None, None]);
-        let result = sum(
-            &arr.into_array(),
-            &mut array_session().create_execution_ctx(),
-        )?;
+        let result = sum(&arr.into_array(), &mut SESSION.create_execution_ctx())?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(0));
         Ok(())
     }
@@ -116,7 +105,7 @@ mod tests {
 
     #[test]
     fn sum_bool_finish_resets_state() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Bool(Nullability::NonNullable);
         let mut acc = Accumulator::try_new(Sum, NumericalAggregateOpts::default(), dtype)?;
 
@@ -147,7 +136,7 @@ mod tests {
     #[test]
     fn sum_boolean_from_iter() -> VortexResult<()> {
         let arr = BoolArray::from_iter([true, false, false, true]).into_array();
-        let result = sum(&arr, &mut array_session().create_execution_ctx())?;
+        let result = sum(&arr, &mut SESSION.create_execution_ctx())?;
         assert_eq!(result.as_primitive().as_::<i32>(), Some(2));
         Ok(())
     }

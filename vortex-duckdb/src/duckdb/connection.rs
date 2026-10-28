@@ -73,19 +73,6 @@ mod tests {
     }
 
     #[test]
-    fn test_connection_creation() {
-        let conn = test_connection();
-        assert!(conn.is_ok());
-    }
-
-    #[test]
-    fn test_execute_success() {
-        let conn = test_connection().unwrap();
-        let result = conn.query("SELECT 1");
-        assert!(result.is_ok());
-    }
-
-    #[test]
     fn test_execute_with_null_bytes() {
         let conn = test_connection().unwrap();
         let result = conn.query("SELECT\0 1");

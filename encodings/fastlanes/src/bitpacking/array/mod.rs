@@ -330,7 +330,11 @@ impl BitPackedData {
         length: usize,
         offset: u16,
     ) -> VortexResult<()> {
-        vortex_ensure!(ptype.is_int(), MismatchedTypes: "integer", ptype);
+        vortex_ensure!(
+            ptype.is_int(),
+            "expected type: integer but instead got {}",
+            ptype
+        );
 
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure_eq!(
@@ -437,10 +441,12 @@ impl BitPackedData {
         bit_width: u8,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<BitPackedArray> {
-        let parray: PrimitiveArray = array
-            .clone()
-            .try_downcast::<Primitive>()
-            .map_err(|a| vortex_err!(InvalidArgument: "Bitpacking can only encode primitive arrays, got {}", a.encoding_id()))?;
+        let parray: PrimitiveArray = array.clone().try_downcast::<Primitive>().map_err(|a| {
+            vortex_err!(
+                "Bitpacking can only encode primitive arrays, got {}",
+                a.encoding_id()
+            )
+        })?;
         bitpack_encode(&parray, bit_width, None, ctx)
     }
 
@@ -460,10 +466,12 @@ impl BitPackedData {
         bit_widths: &[u8],
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<BitPackedArray> {
-        let parray: PrimitiveArray = array
-            .clone()
-            .try_downcast::<Primitive>()
-            .map_err(|a| vortex_err!(InvalidArgument: "Bitpacking can only encode primitive arrays, got {}", a.encoding_id()))?;
+        let parray: PrimitiveArray = array.clone().try_downcast::<Primitive>().map_err(|a| {
+            vortex_err!(
+                "Bitpacking can only encode primitive arrays, got {}",
+                a.encoding_id()
+            )
+        })?;
         bitpack_encode_blocked(&parray, bit_widths, None, ctx)
     }
 }
@@ -538,7 +546,7 @@ mod test {
     use crate::bitpacking::array::BitPackedArrayExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -558,12 +566,7 @@ mod test {
         let uncompressed = PrimitiveArray::from_option_iter(values);
         let packed = BitPackedData::encode(&uncompressed.into_array(), 1, &mut ctx).unwrap();
         let expected = PrimitiveArray::from_option_iter(values);
-        let packed_primitive = packed
-            .as_array()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
-        assert_arrays_eq!(packed_primitive, expected, &mut ctx);
+        assert_arrays_eq!(packed, expected, &mut ctx);
     }
 
     #[test]
@@ -585,13 +588,8 @@ mod test {
 
         let packed_with_patches = BitPackedData::encode(&parray, 9, &mut ctx).unwrap();
         assert!(packed_with_patches.patches().is_some());
-        let packed_primitive = packed_with_patches
-            .as_array()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
         assert_arrays_eq!(
-            packed_primitive,
+            packed_with_patches,
             PrimitiveArray::new(values, vortex_array::validity::Validity::NonNullable),
             &mut ctx
         );

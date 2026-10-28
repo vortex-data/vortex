@@ -49,8 +49,9 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-        working-directory: .
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91  # v2
+        with:
+          tool: wasm-pack@0.15.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7
         with:
           node-version: "24"
@@ -75,8 +76,9 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-        working-directory: .
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91  # v2
+        with:
+          tool: wasm-pack@0.15.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7
         with:
           node-version: "24"

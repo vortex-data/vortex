@@ -23,8 +23,11 @@ use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::session::ArraySession;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 use vortex_session::VortexSession;
@@ -33,11 +36,15 @@ use vortex_session::VortexSession;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<MemorySession>();
     vortex_fsst::initialize(&session);
     session
 });

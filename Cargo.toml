@@ -13,6 +13,7 @@ members = [
     "vortex-io",
     "vortex-cloud",
     "vortex-array",
+    "vortex-expr",
     "vortex-arrow",
     "vortex-row",
     "vortex-tensor",
@@ -29,6 +30,7 @@ members = [
     "vortex-duckdb",
     "vortex-cuda",
     "vortex-cuda/cub",
+    "vortex-cuda/driver",
     "vortex-cuda/ffi",
     "vortex-cuda/gpu-scan-cli",
     "vortex-cuda/macros",
@@ -48,7 +50,6 @@ members = [
     # Encodings
     "encodings/fastlanes",
     "encodings/decimal-byte-parts",
-    "encodings/runend",
     "encodings/sequence",
     "encodings/alp",
     "encodings/datetime-parts",
@@ -123,19 +124,16 @@ bitvec = "1.0.1"
 bytes = "1.11.1"
 bzip2 = "0.6.0"
 cbindgen = "0.29.0"
-cc = "1.2"
+# cc 1.9 and later run cl.exe through RUSTC_WRAPPER (sccache). sccache 0.18 does not parse
+# `-Tp <file>` and puts `/WX-` before the file, so the Windows CI build of libmimalloc-sys fails.
+# Remove the pin when sccache supports `-Tp`.
+cc = "=1.8.0"
 cfg-if = "1.0.4"
 chrono = "0.4.45"
 clap = "4.5"
-criterion = { package = "codspeed-criterion-compat-walltime", version = "5.0.0" }
+criterion = { package = "codspeed-criterion-compat-walltime", version = "6.0.0" }
 crossbeam-channel = "0.5.16"
 crossterm = "0.29"
-cudarc = { version = "0.19.0", features = [
-    # The NSight Compute version available on lambda.ai hosts does not inject a symbol for
-    # several functions that cudarc expects to load when this is set to "cuda-12080". We
-    # don't use any CUDA 12.8 specific features currently so this is fine.
-    "cuda-12050",
-] }
 custom-labels = "0.4.4"
 dashmap = "6.2.1"
 datafusion = { version = "55.0.0", default-features = false, features = [
@@ -155,7 +153,7 @@ datafusion-physical-expr-common = { version = "55.0.0" }
 datafusion-physical-plan = { version = "55.0.0" }
 datafusion-pruning = { version = "55.0.0" }
 datafusion-sqllogictest = { version = "55.0.0" }
-divan = { package = "codspeed-divan-compat", version = "5.0.0" }
+divan = { package = "codspeed-divan-compat", version = "6.0.0" }
 enum-iterator = "2.0.0"
 env_logger = "0.11"
 fastlanes = { version = "0.7.1", features = ["runtime"] }
@@ -191,6 +189,7 @@ lending-iterator = "0.1.7"
 libfuzzer-sys = "0.4"
 libloading = "0.8"
 liblzma = "0.4"
+libmimalloc-sys = { version = "0.1.49", features = ["extended"] }
 log = { version = "0.4.21" }
 memchr = "2.8.1"
 memmap2 = "0.9.5"
@@ -278,10 +277,14 @@ tokio = { version = "1.52" }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.17"
 toml = "1.0"
-tpcdsgen = "0.1.0-alpha.1"
-tpcdsgen-arrow = "0.1.0-alpha.1"
-tpchgen = "3.0.0"
-tpchgen-arrow = "3.0.0"
+tpcdsgen = "4.0.0"
+tpcdsgen-arrow = { version = "4.0.0", default-features = false, features = [
+    "arrow_59",
+] }
+tpchgen = "4.0.0"
+tpchgen-arrow = { version = "4.0.0", default-features = false, features = [
+    "arrow_59",
+] }
 tracing = { version = "0.1.41", default-features = false }
 tracing-perfetto = "0.1.5"
 tracing-subscriber = "0.3"
@@ -292,7 +295,7 @@ wasm-bindgen-futures = "0.4.58"
 wkb = "0.9.2"
 zigzag = "0.1.0"
 zip = "9.0.0"
-zstd = { version = "0.13.3", default-features = false, features = [
+zstd = { version = "0.14.3", default-features = false, features = [
     "zdict_builder",
 ] }
 
@@ -313,6 +316,7 @@ vortex-datetime-parts = { version = "0.1.0", path = "./encodings/datetime-parts"
 vortex-decimal-byte-parts = { version = "0.1.0", path = "encodings/decimal-byte-parts", default-features = false }
 vortex-edition = { version = "0.1.0", path = "./vortex-edition", default-features = false }
 vortex-error = { version = "0.1.0", path = "./vortex-error", default-features = false }
+vortex-expr = { version = "0.1.0", path = "./vortex-expr", default-features = false }
 vortex-fastlanes = { version = "0.1.0", path = "./encodings/fastlanes", default-features = false }
 vortex-file = { version = "0.1.0", path = "./vortex-file", default-features = false }
 vortex-fsst = { version = "0.1.0", path = "./encodings/fsst", default-features = false }
@@ -326,7 +330,6 @@ vortex-onpair = { version = "0.1.0", path = "./encodings/onpair", default-featur
 vortex-parquet-variant = { version = "0.1.0", path = "./encodings/parquet-variant" }
 vortex-pco = { version = "0.1.0", path = "./encodings/pco", default-features = false }
 vortex-row = { version = "0.1.0", path = "./vortex-row", default-features = false }
-vortex-runend = { version = "0.1.0", path = "./encodings/runend", default-features = false }
 vortex-scan = { version = "0.1.0", path = "./vortex-scan", default-features = false }
 vortex-sequence = { version = "0.1.0", path = "encodings/sequence", default-features = false }
 vortex-session = { version = "0.1.0", path = "./vortex-session", default-features = false }
@@ -343,6 +346,7 @@ vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features =
 vortex-bench = { path = "./vortex-bench", default-features = false }
 vortex-bench-support = { path = "./benchmarks/bench-support" }
 vortex-cuda = { path = "./vortex-cuda", default-features = false }
+vortex-cuda-driver = { path = "./vortex-cuda/driver" }
 vortex-cuda-macros = { path = "./vortex-cuda/macros" }
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
 vortex-tui = { path = "./vortex-tui" }
@@ -421,6 +425,12 @@ inherits = "release"
 [profile.release_size]
 inherits = "release"
 opt-level = "z"
+
+# Used by the vortex-web WASM build. Cloudflare Pages rejects files over 25 MiB.
+[profile.wasm_release]
+inherits = "release"
+lto = "fat"
+opt-level = "s"
 
 [profile.bench]
 codegen-units = 16

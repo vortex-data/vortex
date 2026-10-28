@@ -233,7 +233,8 @@ fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[A
     // Sum is deliberately absent: zone maps exist to prune, and a zone sum prunes nothing.
     // Its semantics are also unsettled - null-on-empty was changed in #9113 and reverted in
     // #9324 - so it is not a stat to record in every zone of every file, let alone freeze
-    // into an edition. File-level statistics still record `Stat::Sum` via `PRUNING_STATS`.
+    // into an edition. File-level statistics still record a sum by default (see
+    // `file_stats::default_pruning_aggregate_fns`).
     let mut aggregate_fns = vec![
         max,
         min,
@@ -249,6 +250,8 @@ fn default_zoned_aggregate_fns(dtype: &DType, session: &VortexSession) -> Arc<[A
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
@@ -279,6 +282,8 @@ mod tests {
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::session::LayoutSession;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     /// Write three zones of primitives through `ctx`, returning the aggregates the zoned
     /// layout recorded.
@@ -312,7 +317,7 @@ mod tests {
         .sequenced(ptr);
 
         block_on(|handle: Handle| async move {
-            let session = vortex_array::array_session()
+            let session = VortexSession::empty()
                 .with::<LayoutSession>()
                 .with::<RuntimeSession>()
                 .with_handle(handle);
@@ -372,10 +377,8 @@ mod tests {
 
     #[test]
     fn default_aggregates_bound_variable_length_min_max() {
-        let aggregate_fns = default_zoned_aggregate_fns(
-            &DType::Utf8(Nullability::NonNullable),
-            &vortex_array::array_session(),
-        );
+        let aggregate_fns =
+            default_zoned_aggregate_fns(&DType::Utf8(Nullability::NonNullable), &SESSION);
 
         assert_eq!(
             aggregate_fns[0].as_::<BoundedMax>().max_bytes,
@@ -389,8 +392,7 @@ mod tests {
 
     #[test]
     fn default_aggregates_keep_fixed_width_min_max_exact() {
-        let aggregate_fns =
-            default_zoned_aggregate_fns(&PType::I32.into(), &vortex_array::array_session());
+        let aggregate_fns = default_zoned_aggregate_fns(&PType::I32.into(), &SESSION);
 
         assert!(aggregate_fns[0].is::<Max>());
         assert!(aggregate_fns[1].is::<Min>());
@@ -404,7 +406,7 @@ mod tests {
         Timestamp::new(TimeUnit::Microseconds, Nullability::Nullable).erased(),
     ))]
     fn default_aggregates_never_record_sum(#[case] dtype: DType) {
-        let aggregate_fns = default_zoned_aggregate_fns(&dtype, &vortex_array::array_session());
+        let aggregate_fns = default_zoned_aggregate_fns(&dtype, &VortexSession::empty());
 
         assert!(
             aggregate_fns

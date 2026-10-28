@@ -8,19 +8,19 @@ use arrow_buffer::ArrowNativeType;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::RunEnd;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::NativePType;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
-use vortex_runend::RunEnd;
 
 /// Build a Vortex run-end array from an Arrow [`RunArray`] and its already-converted `values`.
 ///
-/// The caller converts `values` separately (rather than this function calling
-/// [`crate::FromArrowArray`] on `array.values()`) so that extension metadata on the Arrow values
-/// field dispatches through the session's registered import plugins.
+/// The caller converts `values` separately (rather than this function converting
+/// `array.values()` itself) so that extension metadata on the Arrow values field dispatches
+/// through the session's registered import plugins.
 pub(crate) fn run_end_from_arrow<R: RunEndIndexType>(
     array: &RunArray<R>,
     values: ArrayRef,
@@ -85,6 +85,7 @@ mod tests {
     use vortex_array::IntoArray as _;
     use vortex_array::VortexSessionExecute as _;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::RunEnd;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::NativePType;
@@ -92,16 +93,11 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_runend::RunEnd;
     use vortex_session::VortexSession;
 
     use crate::ArrowSessionExt;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
-        vortex_runend::initialize(&session);
-        session
-    });
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     /// Decode through the session import path, which is what production callers use.
     fn decode_run_array<R: RunEndIndexType>(
@@ -256,6 +252,11 @@ mod tests {
         assert_eq!(
             vortex_array.dtype(),
             &DType::Primitive(PType::I64, Nullability::Nullable)
+        );
+        assert_arrays_eq!(
+            vortex_array,
+            PrimitiveArray::from_option_iter([] as [Option<i64>; 0]),
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }

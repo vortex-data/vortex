@@ -9,13 +9,11 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use vortex_buffer::BufferString;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_utils::aliases::StringEscape;
 
 use crate::dtype::DType;
-use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
 /// A scalar value representing a UTF-8 encoded string.
@@ -84,23 +82,6 @@ impl<'a> Utf8Scalar<'a> {
     /// This avoids cloning the underlying BufferString.
     pub fn value(&self) -> Option<&'a BufferString> {
         self.value
-    }
-
-    /// Casts this scalar to the given `dtype`.
-    pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
-        if !matches!(dtype, DType::Utf8(..)) {
-            vortex_bail!(
-                "Cannot cast utf8 to {dtype}: UTF-8 scalars can only be cast to UTF-8 types with different nullability"
-            )
-        }
-        Scalar::try_new(
-            dtype.clone(),
-            Some(ScalarValue::Utf8(
-                self.value()
-                    .cloned()
-                    .vortex_expect("nullness handled in Scalar::cast"),
-            )),
-        )
     }
 
     /// Length of the scalar value or None if value is null
@@ -191,8 +172,11 @@ mod tests {
 
     use rstest::rstest;
 
+    use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::scalar::Scalar;
+    use crate::scalar::ScalarValue;
     use crate::scalar::Utf8Scalar;
 
     #[rstest]
@@ -232,10 +216,9 @@ mod tests {
 
     #[test]
     fn test_utf8_null_value() {
-        let null_utf8 = Scalar::null(crate::dtype::DType::Utf8(Nullability::Nullable));
+        let null_utf8 = Scalar::null(DType::Utf8(Nullability::Nullable));
         let scalar = null_utf8.as_utf8();
 
-        assert!(scalar.value().is_none());
         assert!(scalar.value().is_none());
         assert!(scalar.len().is_none());
         assert!(scalar.is_empty().is_none());
@@ -256,47 +239,33 @@ mod tests {
     }
 
     #[test]
-    fn test_utf8_value_ref() {
-        let data = "test string";
-        let utf8 = Scalar::utf8(data, Nullability::NonNullable);
-        let scalar = utf8.as_utf8();
+    fn test_utf8_cast() {
+        let scalar = Scalar::utf8("test", Nullability::NonNullable);
+        for target in [
+            DType::Utf8(Nullability::NonNullable),
+            DType::Utf8(Nullability::Nullable),
+        ] {
+            let result = scalar.cast(&target).unwrap();
+            assert_eq!(result.dtype(), &target);
+            assert_eq!(result.as_utf8().value().unwrap().as_str(), "test");
+        }
 
-        // value_ref should not clone
-        let value_ref = scalar.value().unwrap();
-        assert_eq!(value_ref.as_str(), data);
-
-        // value should clone
-        let value = scalar.value().unwrap();
-        assert_eq!(value.as_str(), data);
-    }
-
-    #[test]
-    fn test_utf8_cast_to_utf8() {
-        use crate::dtype::DType;
-        use crate::dtype::Nullability;
-
-        let utf8 = Scalar::utf8("test", Nullability::NonNullable);
-        let scalar = utf8.as_utf8();
-
-        // Cast to nullable utf8
-        let result = scalar.cast(&DType::Utf8(Nullability::Nullable)).unwrap();
-        assert_eq!(result.dtype(), &DType::Utf8(Nullability::Nullable));
-
-        let casted = result.as_utf8();
-        assert_eq!(casted.value().unwrap().as_str(), "test");
-    }
-
-    #[test]
-    fn test_utf8_cast_to_non_utf8_fails() {
-        use crate::dtype::DType;
-        use crate::dtype::Nullability;
-        use crate::dtype::PType;
-
-        let utf8 = Scalar::utf8("test", Nullability::NonNullable);
-        let scalar = utf8.as_utf8();
-
-        let result = scalar.cast(&DType::Primitive(PType::I32, Nullability::NonNullable));
-        assert!(result.is_err());
+        let nullable = Scalar::utf8("test", Nullability::Nullable);
+        let result = nullable
+            .cast(&DType::Utf8(Nullability::NonNullable))
+            .unwrap();
+        assert_eq!(result.dtype(), &DType::Utf8(Nullability::NonNullable));
+        assert_eq!(result.as_utf8().value().unwrap().as_str(), "test");
+        assert!(
+            Scalar::null(DType::Utf8(Nullability::Nullable))
+                .cast(&DType::Utf8(Nullability::NonNullable))
+                .is_err()
+        );
+        assert!(
+            scalar
+                .cast(&DType::Primitive(PType::I32, Nullability::NonNullable))
+                .is_err()
+        );
     }
 
     #[test]
@@ -306,7 +275,7 @@ mod tests {
         use crate::dtype::PType;
 
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let value = crate::scalar::ScalarValue::Primitive(crate::scalar::PValue::I32(42));
+        let value = ScalarValue::Primitive(crate::scalar::PValue::I32(42));
 
         let result = Utf8Scalar::try_new(&dtype, Some(&value));
         assert!(result.is_err());
@@ -323,12 +292,10 @@ mod tests {
     #[test]
     fn test_from_str() {
         let data = "hello world";
+        assert_eq!(ScalarValue::from(data).as_utf8().as_str(), data);
         let scalar: Scalar = data.into();
 
-        assert_eq!(
-            scalar.dtype(),
-            &crate::dtype::DType::Utf8(Nullability::NonNullable)
-        );
+        assert_eq!(scalar.dtype(), &DType::Utf8(Nullability::NonNullable));
         let utf8 = scalar.as_utf8();
         assert_eq!(utf8.value().unwrap().as_str(), data);
     }
@@ -336,12 +303,13 @@ mod tests {
     #[test]
     fn test_from_string() {
         let data = String::from("hello world");
+        assert_eq!(
+            ScalarValue::from(data.clone()).as_utf8().as_str(),
+            data.as_str()
+        );
         let scalar: Scalar = data.into();
 
-        assert_eq!(
-            scalar.dtype(),
-            &crate::dtype::DType::Utf8(Nullability::NonNullable)
-        );
+        assert_eq!(scalar.dtype(), &DType::Utf8(Nullability::NonNullable));
         let utf8 = scalar.as_utf8();
         assert_eq!(utf8.value().unwrap().as_str(), "hello world");
     }
@@ -351,24 +319,15 @@ mod tests {
         use vortex_buffer::BufferString;
 
         let data = BufferString::from("test");
+        assert_eq!(
+            ScalarValue::from(data.clone()).as_utf8().as_str(),
+            data.as_str()
+        );
         let scalar: Scalar = data.into();
 
-        assert_eq!(
-            scalar.dtype(),
-            &crate::dtype::DType::Utf8(Nullability::NonNullable)
-        );
+        assert_eq!(scalar.dtype(), &DType::Utf8(Nullability::NonNullable));
         let utf8 = scalar.as_utf8();
         assert_eq!(utf8.value().unwrap().as_str(), "test");
-    }
-
-    #[test]
-    fn test_try_from_scalar_to_string() {
-        let data = "test string";
-        let scalar = Scalar::utf8(data, Nullability::NonNullable);
-
-        // Try from &Scalar to String
-        let string: String = (&scalar).try_into().unwrap();
-        assert_eq!(string, data);
     }
 
     #[test]
@@ -399,7 +358,7 @@ mod tests {
         assert_eq!(buffer.unwrap().as_str(), data);
 
         // Null case
-        let null_scalar = Scalar::null(crate::dtype::DType::Utf8(Nullability::Nullable));
+        let null_scalar = Scalar::null(DType::Utf8(Nullability::Nullable));
         let null_buffer: Option<BufferString> = (&null_scalar).try_into().unwrap();
         assert!(null_buffer.is_none());
     }
@@ -420,59 +379,18 @@ mod tests {
     }
 
     #[test]
-    fn test_scalar_value_from_str() {
-        let data = "test";
-        let value: crate::scalar::ScalarValue = data.into();
-
-        let scalar = Scalar::new(
-            crate::dtype::DType::Utf8(Nullability::NonNullable),
-            Some(value),
-        );
-        let utf8 = scalar.as_utf8();
-        assert_eq!(utf8.value().unwrap().as_str(), data);
-    }
-
-    #[test]
-    fn test_scalar_value_from_string() {
-        let data = String::from("test");
-        let value: crate::scalar::ScalarValue = data.clone().into();
-
-        let scalar = Scalar::new(
-            crate::dtype::DType::Utf8(Nullability::NonNullable),
-            Some(value),
-        );
-        let utf8 = scalar.as_utf8();
-        assert_eq!(utf8.value().unwrap().as_str(), &data);
-    }
-
-    #[test]
-    fn test_scalar_value_from_buffer_string() {
-        use vortex_buffer::BufferString;
-
-        let data = BufferString::from("test");
-        let value: crate::scalar::ScalarValue = data.into();
-
-        let scalar = Scalar::new(
-            crate::dtype::DType::Utf8(Nullability::NonNullable),
-            Some(value),
-        );
-        let utf8 = scalar.as_utf8();
-        assert_eq!(utf8.value().unwrap().as_str(), "test");
-    }
-
-    #[test]
     fn test_utf8_with_emoji() {
         let emoji_str = "Hello 👋 World 🌍!";
         let scalar = Scalar::utf8(emoji_str, Nullability::NonNullable);
         let utf8_scalar = scalar.as_utf8();
 
         assert_eq!(utf8_scalar.value().unwrap().as_str(), emoji_str);
-        assert!(utf8_scalar.len().unwrap() > emoji_str.chars().count()); // Byte length > char count
+        assert_eq!(utf8_scalar.len(), Some(22));
     }
 
     #[test]
     fn test_partial_ord_null() {
-        let null_scalar = Scalar::null(crate::dtype::DType::Utf8(Nullability::Nullable));
+        let null_scalar = Scalar::null(DType::Utf8(Nullability::Nullable));
         let non_null_scalar = Scalar::utf8("test", Nullability::Nullable);
 
         let null = null_scalar.as_utf8();

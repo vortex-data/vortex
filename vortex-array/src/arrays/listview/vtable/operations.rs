@@ -21,7 +21,7 @@ impl OperationsVTable<ListView> for ListView {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         // By the preconditions we know that the list scalar is not null.
-        let list = array.list_elements_at(index)?;
+        let list = array.list_elements_at(index, ctx)?;
         let children: Vec<Scalar> = (0..list.len())
             .map(|i| list.execute_scalar(i, ctx))
             .collect::<VortexResult<_>>()?;

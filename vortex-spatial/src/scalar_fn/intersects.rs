@@ -71,6 +71,8 @@ impl RowFn for SpatialIntersects {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use geo_types::Coord;
     use geo_types::Geometry;
     use geo_types::LineString;
@@ -92,15 +94,17 @@ mod tests {
     use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::ScalarFnVTable;
     use vortex_array::validity::Validity;
-    use vortex_arrow::ArrowSessionExt;
     use vortex_buffer::BitBuffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
     use wkb::writer::WriteOptions;
 
     use super::SpatialIntersects;
     use crate::test_harness::nullable_point_column;
     use crate::test_harness::point_column;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     /// A rectangle polygon with corners `(x0, y0)` and `(x1, y1)`, no holes.
     fn rect_polygon(x0: f64, y0: f64, x1: f64, y1: f64) -> Polygon {
@@ -138,8 +142,8 @@ mod tests {
         let mut buf = Vec::new();
         wkb::writer::write_geometry(&mut buf, geometry, &WriteOptions::default())
             .map_err(|e| vortex_err!("writing WKB failed: {e}"))?;
-        let session = vortex_array::array_session();
-        let scalar = crate::extension::native_geometry_scalar_from_wkb(&buf, &session.arrow())?
+        let session = VortexSession::empty();
+        let scalar = crate::extension::native_geometry_scalar_from_wkb(&buf, &session)?
             .ok_or_else(|| vortex_err!("unsupported geometry type"))?;
         Ok(ConstantArray::new(scalar, len).into_array())
     }
@@ -155,8 +159,7 @@ mod tests {
         b: ArrayRef,
         expected: impl IntoIterator<Item = bool>,
     ) -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let intersects = SpatialIntersects::try_new(a, b)?.into_array();
         assert_arrays_eq!(intersects, BoolArray::from_iter(expected), &mut ctx);
         Ok(())
@@ -216,8 +219,7 @@ mod tests {
         #[case] other: Polygon,
         #[case] expected: bool,
     ) -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let column = materialize(geometry_constant(&Geometry::Polygon(other), 2)?, &mut ctx)?;
         let query = geometry_constant(&Geometry::Polygon(rect_polygon(0.0, 0.0, 4.0, 4.0)), 2)?;
         assert_intersects(column, query, [expected; 2])
@@ -235,8 +237,7 @@ mod tests {
     /// same data.
     #[test]
     fn columns_agree_with_constant() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let constant = geometry_constant(&donut(), 4)?;
         let column = materialize(constant.clone(), &mut ctx)?;
@@ -244,7 +245,9 @@ mod tests {
         let against_constant = SpatialIntersects::try_new(donut_probes()?, constant)?.into_array();
         let pairwise = SpatialIntersects::try_new(donut_probes()?, column)?.into_array();
 
-        assert_arrays_eq!(against_constant, pairwise, &mut ctx);
+        let expected = BoolArray::from_iter(DONUT_EXPECTED);
+        assert_arrays_eq!(against_constant, expected, &mut ctx);
+        assert_arrays_eq!(pairwise, expected, &mut ctx);
         Ok(())
     }
 
@@ -263,10 +266,10 @@ mod tests {
         let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
         let non_nullable =
             SpatialIntersects.return_dtype(&EmptyOptions, &[dtype.clone(), dtype.clone()])?;
-        assert!(!non_nullable.is_nullable());
+        assert_eq!(non_nullable, DType::Bool(Nullability::NonNullable));
         let nullable =
             SpatialIntersects.return_dtype(&EmptyOptions, &[dtype.as_nullable(), dtype])?;
-        assert!(nullable.is_nullable());
+        assert_eq!(nullable, DType::Bool(Nullability::Nullable));
         Ok(())
     }
 
@@ -274,8 +277,7 @@ mod tests {
     /// (interior intersects, exterior does not).
     #[test]
     fn intersects_propagates_null_rows() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let points = nullable_point_column(vec![Some((2.0, 2.0)), None, Some((20.0, 20.0))])?;
         let query = geometry_constant(&donut(), 3)?;
@@ -293,8 +295,7 @@ mod tests {
     /// A constant-null operand produces an all-null output.
     #[test]
     fn intersects_constant_null_is_all_null() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let point_dtype = point_column(vec![0.0], vec![0.0])?.dtype().as_nullable();
         let null_const = ConstantArray::new(Scalar::null(point_dtype), 2).into_array();
@@ -311,8 +312,7 @@ mod tests {
     /// computed on the rows valid in both (points intersect exactly when equal).
     #[test]
     fn intersects_propagates_column_pair_nulls() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let a = nullable_point_column(vec![
             Some((0.0, 0.0)),
@@ -340,8 +340,7 @@ mod tests {
     /// An entirely-null geometry column yields an all-null output.
     #[test]
     fn intersects_all_null_column_is_all_null() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let points = nullable_point_column(vec![None, None])?;
         let query = geometry_constant(&donut(), 2)?;
@@ -357,8 +356,7 @@ mod tests {
     /// is all null.
     #[test]
     fn intersects_column_pair_all_null() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let a = nullable_point_column(vec![Some((0.0, 0.0)), None])?;
         let b = nullable_point_column(vec![None, Some((1.0, 1.0))])?;

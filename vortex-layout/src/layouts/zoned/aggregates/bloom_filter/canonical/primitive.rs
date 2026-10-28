@@ -111,8 +111,12 @@ mod tests {
     #[cfg(test)]
     use vortex_array::scalar::PValue;
     use vortex_array::scalar::Scalar;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
 
+    use crate::layouts::zoned::aggregates::bloom_filter::BloomOptions;
+    use crate::layouts::zoned::aggregates::bloom_filter::BloomPartial;
     use crate::layouts::zoned::aggregates::bloom_filter::test_utils::build_filter;
     use crate::layouts::zoned::aggregates::bloom_filter::test_utils::setup;
 
@@ -174,7 +178,7 @@ mod tests {
         T: Copy + NativePType + Into<PValue>,
     {
         let ctx = setup()?;
-        let all_invalid = PrimitiveArray::from_option_iter(present.iter().map(|_| None::<T>));
+        let all_invalid = PrimitiveArray::new(Buffer::copy_from(present), Validity::AllInvalid);
         let bloom_filter = build_filter(
             all_invalid.into_array(),
             DType::Primitive(T::PTYPE, Nullability::Nullable),
@@ -196,14 +200,12 @@ mod tests {
         T: Copy + NativePType + Into<PValue>,
     {
         let ctx = setup()?;
-        let mixed: Vec<Option<T>> = present
-            .iter()
-            .enumerate()
-            .map(|(i, &v)| (i % 2 == 0).then_some(v))
-            .collect();
-
         let bloom_filter = build_filter(
-            PrimitiveArray::from_option_iter(mixed).into_array(),
+            PrimitiveArray::new(
+                Buffer::copy_from(present),
+                Validity::from_iter((0..present.len()).map(|i| i % 2 == 0)),
+            )
+            .into_array(),
             DType::Primitive(T::PTYPE, Nullability::Nullable),
             ctx,
         )?;
@@ -215,6 +217,16 @@ mod tests {
             }
         }
 
+        let mut expected = BloomPartial::from(&BloomOptions::default());
+        for (i, &value) in present.iter().enumerate() {
+            if i % 2 == 0 {
+                expected.insert_scalar(&Scalar::primitive(value, Nullability::Nullable))?;
+            }
+        }
+        assert!(
+            bloom_filter == expected,
+            "only valid physical values belong in the filter"
+        );
         Ok(())
     }
 

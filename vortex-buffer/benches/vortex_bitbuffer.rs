@@ -50,13 +50,13 @@ fn true_count_pattern(i: usize) -> bool {
 
 #[cfg(not(codspeed))]
 #[divan::bench(args = INPUT_SIZE)]
-fn from_iter_arrow(n: usize) {
-    Arrow::<BooleanBuffer>::from_iter((0..n).map(|i| i % 2 == 0));
+fn from_iter_arrow(n: usize) -> Arrow<BooleanBuffer> {
+    Arrow::<BooleanBuffer>::from_iter((0..n).map(|i| i % 2 == 0))
 }
 
 #[divan::bench(args = INPUT_SIZE)]
-fn from_iter_bit_buffer(n: usize) {
-    BitBuffer::from_iter((0..n).map(|i| i % 2 == 0));
+fn from_iter_bit_buffer(n: usize) -> BitBuffer {
+    BitBuffer::from_iter((0..n).map(|i| i % 2 == 0))
 }
 
 #[divan::bench(args = INPUT_SIZE)]
@@ -81,7 +81,9 @@ fn append_arrow_buffer(bencher: Bencher, length: usize) {
         });
 }
 
-#[divan::bench(args = INPUT_SIZE)]
+const CHUNKED_APPEND_INPUT_SIZE: &[usize] = &[2_048, 16_384, 65_536];
+
+#[divan::bench(args = CHUNKED_APPEND_INPUT_SIZE)]
 fn append_n_vortex_buffer(bencher: Bencher, length: usize) {
     bencher
         .with_inputs(|| (BitBufferMut::with_capacity(length), length, true))
@@ -92,7 +94,7 @@ fn append_n_vortex_buffer(bencher: Bencher, length: usize) {
         });
 }
 
-#[divan::bench(args = INPUT_SIZE)]
+#[divan::bench(args = CHUNKED_APPEND_INPUT_SIZE)]
 fn append_n_arrow_buffer(bencher: Bencher, length: usize) {
     bencher
         .with_inputs(|| (Arrow(BooleanBufferBuilder::new(length)), length, true))
@@ -103,7 +105,7 @@ fn append_n_arrow_buffer(bencher: Bencher, length: usize) {
         });
 }
 
-#[divan::bench(args = INPUT_SIZE)]
+#[divan::bench(args = CHUNKED_APPEND_INPUT_SIZE)]
 fn append_buffer_vortex_buffer(bencher: Bencher, length: usize) {
     bencher
         .with_inputs(|| {
@@ -120,7 +122,7 @@ fn append_buffer_vortex_buffer(bencher: Bencher, length: usize) {
 
 /// Arrow has no bulk append from a `BooleanBuffer`, so this appends bit-by-bit and runs an
 /// order of magnitude slower than the vortex bulk path; cap the top size accordingly.
-const APPEND_BUFFER_ARROW_INPUT_SIZE: &[usize] = &[128, 1024, 2048, 16_384, 32_768];
+const APPEND_BUFFER_ARROW_INPUT_SIZE: &[usize] = &[2_048, 16_384, 32_768];
 
 #[divan::bench(args = APPEND_BUFFER_ARROW_INPUT_SIZE)]
 fn append_buffer_arrow_buffer(bencher: Bencher, length: usize) {
@@ -335,7 +337,7 @@ fn set_indices_arrow_buffer(bencher: Bencher, length: usize) {
 }
 
 /// Rank-select scan over a sparse deterministic bitmap, reaching the final chunk.
-#[divan::bench(args = [512, 65_536, 1_048_576])]
+#[divan::bench(args = [65_536, 1_048_576])]
 fn select_last_vortex_buffer(bencher: Bencher, length: usize) {
     let buffer = BitBuffer::collect_bool(length, |i| i % 3 == 0);
     let nth = buffer.true_count() - 1;

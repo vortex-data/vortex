@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "wasm": "wasm-pack build crate --dev --target web --out-dir ../src/wasm/pkg",
-    "wasm:release": "wasm-pack build crate --release --target web --out-dir ../src/wasm/pkg",
+    "wasm:release": "wasm-pack build crate --profile wasm_release --target web --out-dir ../src/wasm/pkg",
     "dev": "npm run wasm && vite",
     "build": "npm run wasm:release && tsc -b && vite build",
     "check": "npm run wasm && npm run lint && npm run typecheck",

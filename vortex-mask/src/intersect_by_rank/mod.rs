@@ -735,6 +735,7 @@ mod tests {
         #[case] expected_indices: Vec<usize>,
     ) {
         let result = base_mask.intersect_by_rank(&rank_mask);
+        assert_eq!(result.len(), base_mask.len());
 
         match result.indices() {
             crate::AllOr::All => assert_eq!(expected_indices.len(), result.len()),
@@ -790,6 +791,7 @@ mod tests {
         let base = Mask::from_indices(10, base_indices);
         let rank = Mask::from_iter(rank_pattern);
         let result = base.intersect_by_rank(&rank);
+        assert_eq!(result.len(), base.len());
 
         match result.indices() {
             crate::AllOr::Some(indices) => assert_eq!(indices, &expected_indices[..]),

@@ -94,8 +94,8 @@ logical_plan
 17)--------------------------------Projection: store_sales.ss_addr_sk, store_sales.ss_ext_sales_price, date_dim.d_year, date_dim.d_qoy
 18)----------------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
 19)------------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_addr_sk, ss_ext_sales_price]
-20)------------------------------------Filter: date_dim.d_qoy = Int64(1) AND date_dim.d_year = Int64(2000)
-21)--------------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_qoy], partial_filters=[date_dim.d_qoy = Int64(1), date_dim.d_year = Int64(2000)]
+20)------------------------------------Filter: date_dim.d_qoy = Int32(1) AND date_dim.d_year = Int32(2000)
+21)--------------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_qoy], partial_filters=[date_dim.d_qoy = Int32(1), date_dim.d_year = Int32(2000)]
 22)--------------------------------TableScan: customer_address projection=[ca_address_sk, ca_county]
 23)--------------------SubqueryAlias: ss2
 24)----------------------SubqueryAlias: ss
@@ -106,8 +106,8 @@ logical_plan
 29)--------------------------------Projection: store_sales.ss_addr_sk, store_sales.ss_ext_sales_price, date_dim.d_year, date_dim.d_qoy
 30)----------------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
 31)------------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_addr_sk, ss_ext_sales_price]
-32)------------------------------------Filter: date_dim.d_qoy = Int64(2) AND date_dim.d_year = Int64(2000)
-33)--------------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_qoy], partial_filters=[date_dim.d_qoy = Int64(2), date_dim.d_year = Int64(2000)]
+32)------------------------------------Filter: date_dim.d_qoy = Int32(2) AND date_dim.d_year = Int32(2000)
+33)--------------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_qoy], partial_filters=[date_dim.d_qoy = Int32(2), date_dim.d_year = Int32(2000)]
 34)--------------------------------TableScan: customer_address projection=[ca_address_sk, ca_county]
 35)------------------SubqueryAlias: ss3
 36)--------------------SubqueryAlias: ss
@@ -118,8 +118,8 @@ logical_plan
 41)------------------------------Projection: store_sales.ss_addr_sk, store_sales.ss_ext_sales_price, date_dim.d_year, date_dim.d_qoy
 42)--------------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
 43)----------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_addr_sk, ss_ext_sales_price]
-44)----------------------------------Filter: date_dim.d_qoy = Int64(3) AND date_dim.d_year = Int64(2000)
-45)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_qoy], partial_filters=[date_dim.d_qoy = Int64(3), date_dim.d_year = Int64(2000)]
+44)----------------------------------Filter: date_dim.d_qoy = Int32(3) AND date_dim.d_year = Int32(2000)
+45)------------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_qoy], partial_filters=[date_dim.d_qoy = Int32(3), date_dim.d_year = Int32(2000)]
 46)------------------------------TableScan: customer_address projection=[ca_address_sk, ca_county]
 47)--------------SubqueryAlias: ws1
 48)----------------SubqueryAlias: ws
@@ -130,8 +130,8 @@ logical_plan
 53)--------------------------Projection: web_sales.ws_bill_addr_sk, web_sales.ws_ext_sales_price, date_dim.d_year, date_dim.d_qoy
 54)----------------------------Inner Join: web_sales.ws_sold_date_sk = date_dim.d_date_sk
 55)------------------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_bill_addr_sk, ws_ext_sales_price]
-56)------------------------------Filter: date_dim.d_qoy = Int64(1) AND date_dim.d_year = Int64(2000)
-57)--------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_qoy], partial_filters=[date_dim.d_qoy = Int64(1), date_dim.d_year = Int64(2000)]
+56)------------------------------Filter: date_dim.d_qoy = Int32(1) AND date_dim.d_year = Int32(2000)
+57)--------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_qoy], partial_filters=[date_dim.d_qoy = Int32(1), date_dim.d_year = Int32(2000)]
 58)--------------------------TableScan: customer_address projection=[ca_address_sk, ca_county]
 59)------------SubqueryAlias: ws2
 60)--------------SubqueryAlias: ws
@@ -142,8 +142,8 @@ logical_plan
 65)------------------------Projection: web_sales.ws_bill_addr_sk, web_sales.ws_ext_sales_price, date_dim.d_year, date_dim.d_qoy
 66)--------------------------Inner Join: web_sales.ws_sold_date_sk = date_dim.d_date_sk
 67)----------------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_bill_addr_sk, ws_ext_sales_price]
-68)----------------------------Filter: date_dim.d_qoy = Int64(2) AND date_dim.d_year = Int64(2000)
-69)------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_qoy], partial_filters=[date_dim.d_qoy = Int64(2), date_dim.d_year = Int64(2000)]
+68)----------------------------Filter: date_dim.d_qoy = Int32(2) AND date_dim.d_year = Int32(2000)
+69)------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_qoy], partial_filters=[date_dim.d_qoy = Int32(2), date_dim.d_year = Int32(2000)]
 70)------------------------TableScan: customer_address projection=[ca_address_sk, ca_county]
 71)--------SubqueryAlias: ws3
 72)----------SubqueryAlias: ws
@@ -154,8 +154,8 @@ logical_plan
 77)--------------------Projection: web_sales.ws_bill_addr_sk, web_sales.ws_ext_sales_price, date_dim.d_year, date_dim.d_qoy
 78)----------------------Inner Join: web_sales.ws_sold_date_sk = date_dim.d_date_sk
 79)------------------------TableScan: web_sales projection=[ws_sold_date_sk, ws_bill_addr_sk, ws_ext_sales_price]
-80)------------------------Filter: date_dim.d_qoy = Int64(3) AND date_dim.d_year = Int64(2000)
-81)--------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_qoy], partial_filters=[date_dim.d_qoy = Int64(3), date_dim.d_year = Int64(2000)]
+80)------------------------Filter: date_dim.d_qoy = Int32(3) AND date_dim.d_year = Int32(2000)
+81)--------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_qoy], partial_filters=[date_dim.d_qoy = Int32(3), date_dim.d_year = Int32(2000)]
 82)--------------------TableScan: customer_address projection=[ca_address_sk, ca_county]
 physical_plan
 01)SortPreservingMergeExec: [ca_county@0 ASC NULLS LAST]

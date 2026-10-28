@@ -162,7 +162,7 @@ mod tests {
     use crate::bitpacking::array::BitPackedArrayExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -283,9 +283,8 @@ mod tests {
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6, &mut ctx).unwrap();
         let filtered = bitpacked.filter(Mask::from_indices(4096, 0..1024)).unwrap();
-        let filtered_prim = filtered.execute::<PrimitiveArray>(&mut ctx).unwrap();
         assert_arrays_eq!(
-            filtered_prim,
+            filtered,
             PrimitiveArray::from_iter((0..1024).map(|i| (i % 63) as u8)),
             &mut ctx
         );
@@ -299,8 +298,6 @@ mod tests {
         let bitpacked = BitPackedData::encode(&unpacked.into_array(), 9, &mut ctx).unwrap();
         let filtered = bitpacked
             .filter(Mask::from_indices(values.len(), 0..250))
-            .unwrap()
-            .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
 
         assert_arrays_eq!(
@@ -350,8 +347,6 @@ mod tests {
         // Filter to include some patched and some non-patched values.
         let filtered = bitpacked
             .filter(Mask::from_indices(values.len(), vec![0, 2, 5, 9]))
-            .unwrap()
-            .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
 
         assert_arrays_eq!(
@@ -389,8 +384,6 @@ mod tests {
         let indices: Vec<usize> = (0..20).collect();
         let filtered = bitpacked
             .filter(Mask::from_indices(values.len(), indices))
-            .unwrap()
-            .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
 
         let expected: Vec<i32> = values[0..20].to_vec();

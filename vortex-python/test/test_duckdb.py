@@ -22,5 +22,4 @@ def test_duckdb_via_substrait(tmp_path: Path) -> None:
 
     ds = vx.open(path).to_dataset()  # noqa: F841 - used by duckdb via SQL
     result = con.execute("SELECT * FROM ds WHERE ts > '2024-06-01'").fetchall()
-    assert len(result) == 2
-    print(result)
+    assert result == [(datetime(2024, 6, 15),), (datetime(2024, 12, 31),)]

@@ -34,6 +34,7 @@ parking_lot = { workspace = true }
 paste = { workspace = true }
 pin-project-lite = { workspace = true }
 prost = { workspace = true }
+roaring = { workspace = true }
 rustc-hash = { workspace = true }
 sketches-ddsketch = { workspace = true }
 smallvec = { workspace = true }
@@ -46,31 +47,42 @@ vortex-arrow = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
+vortex-expr = { workspace = true }
 vortex-io = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
-vortex-runend = { workspace = true }
 vortex-scan = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [dev-dependencies]
+anyhow = { workspace = true }
+arrow-array = { workspace = true }
 divan = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 goldenfile = { workspace = true }
 insta = { workspace = true }
 mimalloc = { workspace = true }
+object_store = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 temp-env = { workspace = true }
-tokio = { workspace = true, features = ["rt", "macros"] }
+tokio = { workspace = true, features = [
+    "rt",
+    "rt-multi-thread",
+    "macros",
+    "time",
+] }
 vortex-array = { path = "../vortex-array", features = ["_test-harness"] }
-vortex-io = { path = "../vortex-io", features = ["tokio"] }
+vortex-buffer = { workspace = true }
+vortex-edition = { workspace = true }
+vortex-file = { path = "../vortex-file" }
+vortex-io = { path = "../vortex-io", features = ["tokio", "object_store"] }
 
 [features]
 default = ["wasm-bindgen"]
-_test-harness = []
+_test-harness = ["vortex-array/_test-harness"]
 tokio = ["dep:tokio", "vortex-error/tokio"]
 # `moka` enables uuid's `v4`, which needs a randomness source on wasm32-unknown-unknown.
 # Disable this to supply your own instead, by depending on uuid from your own manifest with
@@ -90,6 +102,10 @@ harness = false
 
 [[bench]]
 name = "aggregate_partial_merge"
+harness = false
+
+[[bench]]
+name = "pipeline_scan"
 harness = false
 
 [lints]

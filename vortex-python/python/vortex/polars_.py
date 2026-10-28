@@ -1,12 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+from __future__ import annotations
+
 import json
 import operator
 from collections.abc import Callable
 from typing import Any, Literal, cast
 
 import polars as pl
+import pyarrow as pa
 
 import vortex.expr as ve
 
@@ -151,6 +154,13 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
 
     if "Function" in expr:
         expr = expr["Function"]
+
+        # The members of `is_in` are a list literal, which is not a scalar of its own.
+        is_in = expr["function"].get("Boolean", {}) if isinstance(expr["function"], dict) else {}
+        if isinstance(is_in, dict) and "IsIn" in is_in:
+            needle, members = expr["input"]
+            return _is_in(_polars_to_vortex(needle), members, nulls_equal=is_in["IsIn"]["nulls_equal"])
+
         _inputs = [_polars_to_vortex(e) for e in expr["input"]]
 
         if expr["function"] == "FillNull":
@@ -191,13 +201,6 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
             if fn == "Not":
                 return ve.not_(_inputs[0])
 
-            if "IsIn" in fn:
-                fn = fn["IsIn"]
-                if fn["nulls_equal"]:
-                    raise ValueError(f"Unsupported nulls_equal argument in fn {expr}")
-
-                # Vortex doesn't support is-in, so we need to construct a series of ORs?
-
         if "StringExpr" in fn:
             fn = fn["StringExpr"]
             if "Contains" in fn:
@@ -206,6 +209,51 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
         raise NotImplementedError(f"Unsupported Polars function: {fn}")
 
     raise NotImplementedError(f"Unsupported Polars expression: {expr}")
+
+
+def _is_in(needle: ve.Expr, members: dict[str, Any], *, nulls_equal: bool) -> ve.Expr:
+    """``needle.is_in(members)`` for a literal list of members, with the null semantics of Polars.
+
+    Polars ignores a null member unless nulls are equal, and a null needle gives null, even against
+    an empty list. Vortex's SQL null semantics agree with that for a list without a null, and its
+    default semantics for a list with one, which cannot be empty. With nulls equal, a null needle is
+    a member exactly when the list holds a null.
+    """
+    values = _literal_list(members)
+    has_null = values.null_count > 0
+    dtype = _dtype.list_(_dtype.DType.from_arrow(values.type))
+    members_expr = ve.literal(dtype, values.to_pylist())
+
+    if nulls_equal:
+        return ve.fill_null(ve.list_contains(members_expr, needle), has_null)
+    return ve.list_contains(members_expr, needle, sql_null_semantics=not has_null)
+
+
+def _literal_list(expr: dict[str, Any]) -> pa.Array[pa.Scalar[Any]]:
+    """The members of ``is_in``: a Polars list scalar, or a series of one list, as an Arrow array.
+
+    Polars writes both as an Arrow IPC stream. A list scalar holds the members as its values, and
+    an imploded series holds them as the list of its one row.
+    """
+    while "Alias" in expr:
+        expr = expr["Alias"][0]
+    literal = expr.get("Literal", {})
+
+    if "Series" in literal:
+        series = _ipc_values(literal["Series"])
+        if not isinstance(series, pa.ListArray | pa.LargeListArray) or len(series) != 1:
+            raise NotImplementedError(f"Unsupported Polars is_in series: {series.type} of {len(series)} rows")
+        return series.flatten()
+
+    if "List" in literal.get("Scalar", {}):
+        return _ipc_values(literal["Scalar"]["List"])
+
+    raise NotImplementedError(f"Unsupported Polars is_in members: {expr}")
+
+
+def _ipc_values(raw: list[int]) -> pa.Array[pa.Scalar[Any]]:
+    """The one column of an Arrow IPC stream that Polars writes for a literal."""
+    return pa.ipc.open_stream(bytes(raw)).read_all().column(0).combine_chunks()
 
 
 def _datetime_literal(data: list[Any]) -> ve.Expr:

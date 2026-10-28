@@ -23,9 +23,10 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
@@ -38,7 +39,11 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<MemorySession>()
+});
 
 /// Number of lists in the source array.
 const NUM_LISTS: usize = 500;

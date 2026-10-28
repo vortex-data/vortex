@@ -71,3 +71,26 @@ impl ScalarFnVTable for RowIdx {
 pub fn row_idx() -> Expression {
     RowIdx.new_expr(EmptyOptions, [])
 }
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::expr::Lambda;
+    use vortex_array::expr::checked_add;
+    use vortex_array::expr::var;
+
+    use super::row_idx;
+
+    /// The scan replaces `row_idx()` before anything runs, but never looks inside a lambda's body,
+    /// so a lambda can't read it. `Lambda::new` recognizes it by its id.
+    #[test]
+    fn a_lambda_cannot_read_row_idx() {
+        let error = Lambda::new(["x"], checked_add(var("x"), row_idx()))
+            .expect_err("row_idx() is not a parameter");
+        assert!(
+            error
+                .to_string()
+                .contains("lambda (x) can only read its parameters, not #row_idx"),
+            "{error}"
+        );
+    }
+}

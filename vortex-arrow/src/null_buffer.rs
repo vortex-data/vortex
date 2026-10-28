@@ -46,10 +46,13 @@ mod tests {
 
         let all_false = Mask::new_false(5);
         let null_buffer = to_null_buffer(all_false).unwrap();
-        assert_eq!(null_buffer.null_count(), 5);
+        assert_eq!(null_buffer.iter().collect::<Vec<_>>(), [false; 5]);
 
         let values = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false, true]));
         let null_buffer = to_null_buffer(values).unwrap();
-        assert_eq!(null_buffer.null_count(), 2);
+        assert_eq!(
+            null_buffer.iter().collect::<Vec<_>>(),
+            [true, false, true, false, true]
+        );
     }
 }

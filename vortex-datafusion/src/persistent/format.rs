@@ -45,8 +45,12 @@ use futures::stream;
 use object_store::ObjectMeta;
 use object_store::ObjectStore;
 use vortex::VortexSessionDefault;
+use vortex::aggregate_fn::AggregateFnVTableExt;
+use vortex::aggregate_fn::EmptyOptions;
+use vortex::aggregate_fn::fns::is_constant::IsConstant;
 use vortex::array::memory::MemorySessionExt;
 use vortex::dtype::DType;
+use vortex::dtype::FieldPath;
 use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -71,6 +75,7 @@ use crate::PrecisionExt as _;
 use crate::convert::ExpressionConverter;
 use crate::convert::TryToDataFusion;
 use crate::convert::stats::constant_distinct_count;
+use crate::convert::stats::is_nan_free;
 
 const DEFAULT_FOOTER_INITIAL_READ_SIZE_BYTES: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE;
 
@@ -196,6 +201,13 @@ extensions_options! {
     /// [`ParquetFormatFactory::new_with_options`]: https://docs.rs/datafusion/latest/datafusion/datasource/file_format/parquet/struct.ParquetFormatFactory.html#method.new_with_options
     /// [`JsonFormatFactory::new_with_options`]: https://docs.rs/datafusion/latest/datafusion/datasource/file_format/json/struct.JsonFormatFactory.html#method.new_with_options
     pub struct VortexTableOptions {
+        /// Use the planner-driven V2 scan executor for supported layouts.
+        ///
+        /// Disabled by default. Select V2 before creating a table with
+        /// `SET vortex.scan_v2 = true` (with the `vortex` options extension registered),
+        /// or for one table with `OPTIONS(scan_v2 'true')`. In Rust, set
+        /// `VortexTableOptions { scan_v2: true, ..Default::default() }` on the factory.
+        pub scan_v2: bool, default = false
         /// The number of bytes to read when parsing a file footer.
         ///
         /// Values smaller than `MAX_POSTSCRIPT_SIZE + EOF_SIZE` will be clamped to that minimum
@@ -597,7 +609,7 @@ impl FileFormat for VortexFormat {
                         })
                 });
 
-            let (dtype, file_stats, row_count) = match cached_metadata {
+            let (_dtype, file_stats, row_count) = match cached_metadata {
                 Some(metadata) => metadata,
                 None => {
                     // Not entry - open the file
@@ -634,10 +646,6 @@ impl FileFormat for VortexFormat {
                 }
             };
 
-            let struct_dtype = dtype
-                .as_struct_fields_opt()
-                .vortex_expect("dtype is not a struct");
-
             // Evaluate the statistics for each column that we are able to return to DataFusion.
             let Some(file_stats) = file_stats else {
                 // If the file has no column stats, the best we can do is return a row count.
@@ -660,30 +668,38 @@ impl FileFormat for VortexFormat {
             for field in table_schema.fields().iter() {
                 // If the column does not exist, continue. This can happen if the schema has evolved
                 // but we have not yet updated the Vortex file.
-                let Some(col_idx) = struct_dtype.find(field.name()) else {
+                let Some((aggregates, stats_dtype)) =
+                    file_stats.get_by_path(&FieldPath::from_name(field.name().as_str()))
+                else {
                     // The default sets all statistics to `Precision<Absent>`.
                     column_statistics.push(ColumnStatistics::default());
                     continue;
                 };
-                let (stats_set, stats_dtype) = file_stats.get(col_idx);
+                let mut stats_set = aggregates.to_stats_set();
+                // `IsConstant` has no aggregate behind its stat slot, so `to_stats_set` omits it.
+                if let Some(is_constant) = aggregates
+                    .get(&IsConstant.bind(EmptyOptions))
+                    .as_exact()
+                    .and_then(|is_constant| bool::try_from(&is_constant).ok())
+                {
+                    stats_set.set(Stat::IsConstant, Precision::exact(is_constant));
+                }
+                let stats_set = &stats_set;
 
                 // Update the total size in bytes.
                 let column_size =
                     stats_set.get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into());
 
-                let min = scalar_stat_to_df(
-                    Stat::Min,
-                    stats_set.get(Stat::Min),
-                    stats_dtype,
-                    field.data_type(),
-                );
-
-                let max = scalar_stat_to_df(
-                    Stat::Max,
-                    stats_set.get(Stat::Max),
-                    stats_dtype,
-                    field.data_type(),
-                );
+                let nan_free = is_nan_free(stats_set, stats_dtype);
+                let bound = |stat| {
+                    if nan_free {
+                        scalar_stat_to_df(stat, stats_set.get(stat), stats_dtype, field.data_type())
+                    } else {
+                        DFPrecision::Absent
+                    }
+                };
+                let min = bound(Stat::Min);
+                let max = bound(Stat::Max);
 
                 let null_count = stats_set
                     .get_as::<usize>(Stat::NullCount, &PType::U64.into())
@@ -797,6 +813,7 @@ mod tests {
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::TimeUnit;
+    use datafusion::datasource::listing::ListingTable;
     use datafusion_common::ScalarValue;
     use datafusion_common::config::ConfigOptions;
     use datafusion_expr::Operator;
@@ -1034,22 +1051,64 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
     #[tokio::test]
-    async fn configure_format_source() -> anyhow::Result<()> {
+    async fn configure_format_source(#[values(false, true)] scan_v2: bool) -> anyhow::Result<()> {
         let ctx = TestSessionContext::default();
 
         ctx.session
             .sql(
-                "CREATE EXTERNAL TABLE my_tbl \
+                &format!("CREATE EXTERNAL TABLE my_tbl \
                 (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
                 STORED AS vortex \
                 LOCATION 'table/' \
-                OPTIONS( footer_initial_read_size_bytes '12345', predicate_pushdown 'false', scan_concurrency '3' );",
+                OPTIONS( footer_initial_read_size_bytes '12345', predicate_pushdown 'false', scan_concurrency '3', scan_v2 '{scan_v2}' );"),
             )
             .await?
             .collect()
             .await?;
 
+        let provider = ctx.session.table_provider("my_tbl").await?;
+        let table = provider
+            .downcast_ref::<ListingTable>()
+            .ok_or_else(|| anyhow::anyhow!("expected ListingTable"))?;
+        let format = table
+            .options()
+            .format
+            .downcast_ref::<VortexFormat>()
+            .ok_or_else(|| anyhow::anyhow!("expected VortexFormat"))?;
+        assert_eq!(format.options().footer_initial_read_size_bytes, 12345);
+        assert!(!format.options().predicate_pushdown);
+        assert_eq!(format.options().scan_concurrency, Some(3));
+        assert_eq!(format.options().scan_v2, scan_v2);
+        Ok(())
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn session_scan_version(#[values(false, true)] scan_v2: bool) -> anyhow::Result<()> {
+        let factory = Arc::new(VortexFormatFactory::new());
+        let ctx = TestSessionContext::new_with_factory(Arc::clone(&factory));
+        ctx.session
+            .state_ref()
+            .write()
+            .config_mut()
+            .options_mut()
+            .extensions
+            .insert(VortexTableOptions::default());
+
+        for enabled in [scan_v2, !scan_v2] {
+            ctx.session
+                .sql(&format!("SET vortex.scan_v2 = {enabled}"))
+                .await?
+                .collect()
+                .await?;
+            let format = factory.create(&ctx.session.state(), &Default::default())?;
+            let format = format
+                .downcast_ref::<VortexFormat>()
+                .ok_or_else(|| anyhow::anyhow!("expected VortexFormat"))?;
+            assert_eq!(format.options().scan_v2, enabled);
+        }
         Ok(())
     }
 
@@ -1065,6 +1124,7 @@ mod tests {
     #[test]
     fn format_plumbs_source_options() -> anyhow::Result<()> {
         let opts = VortexTableOptions {
+            scan_v2: true,
             projection_pushdown: true,
             predicate_pushdown: false,
             scan_concurrency: Some(3),
@@ -1084,6 +1144,7 @@ mod tests {
         );
         assert_eq!(source.options().predicate_pushdown, opts.predicate_pushdown);
         assert_eq!(source.options().scan_concurrency, opts.scan_concurrency);
+        assert_eq!(source.options().scan_v2, opts.scan_v2);
         Ok(())
     }
 

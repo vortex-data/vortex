@@ -20,6 +20,7 @@ use compress_bench::vortex::VortexCompressor;
 use futures::FutureExt;
 use indicatif::ProgressBar;
 use itertools::Itertools;
+use mimalloc::MiMalloc;
 use regex::Regex;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_bench::Engine;
@@ -105,6 +106,12 @@ struct Args {
     /// measure storage bandwidth instead, and do not read the ratio as a decode comparison.
     #[arg(long)]
     gpu_direct_io: bool,
+    /// Number of Tokio worker threads.
+    ///
+    /// Every timed Vortex and Parquet operation runs as tasks on this one pool, so both formats
+    /// get the same CPU budget. Defaults to one per available core.
+    #[arg(long)]
+    threads: Option<usize>,
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
     #[arg(short, long)]
@@ -120,12 +127,29 @@ struct Args {
     log_format: LogFormat,
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
+fn main() -> anyhow::Result<()> {
+    vortex_bench::configure_allocator();
     let args = Args::parse();
 
     setup_logging_and_tracing_with_format(args.verbose, args.tracing, args.log_format)?;
 
+    let mut runtime = tokio::runtime::Builder::new_multi_thread();
+    runtime.enable_all();
+    if let Some(threads) = args.threads {
+        runtime.worker_threads(threads);
+    }
+    let runtime = runtime.build()?;
+    tracing::info!(
+        "Running with {} Tokio worker threads",
+        runtime.metrics().num_workers()
+    );
+    runtime.block_on(run(args))
+}
+
+async fn run(args: Args) -> anyhow::Result<()> {
     if args.gpu_decompress && !cfg!(feature = "cuda") {
         anyhow::bail!("--gpu-decompress requires building compress-bench with --features cuda");
     }

@@ -1,26 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use rstest::fixture;
 use rstest::rstest;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbin::offsets_tile_utf8;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 #[fixture]
 fn binary_array() -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let values = Buffer::copy_from("hello worldhello world this is a long string".as_bytes());
     let offsets = buffer![0, 11, 44].into_array();
 
@@ -29,6 +35,7 @@ fn binary_array() -> ArrayRef {
         values,
         DType::Utf8(Nullability::NonNullable),
         Validity::NonNullable,
+        &mut ctx,
     )
     .unwrap()
     .into_array()
@@ -36,7 +43,16 @@ fn binary_array() -> ArrayRef {
 
 #[rstest]
 pub fn test_scalar_at(binary_array: ArrayRef) {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
+    for (index, value) in ["hello world", "hello world this is a long string"]
+        .into_iter()
+        .enumerate()
+    {
+        assert_eq!(
+            binary_array.execute_scalar(index, &mut ctx).unwrap(),
+            Scalar::from(value)
+        );
+    }
     assert_arrays_eq!(
         binary_array,
         VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"]),
@@ -46,7 +62,7 @@ pub fn test_scalar_at(binary_array: ArrayRef) {
 
 #[rstest]
 pub fn slice_array(binary_array: ArrayRef) {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let binary_arr = binary_array.slice(1..2).unwrap();
     assert_arrays_eq!(
         binary_arr,
@@ -77,6 +93,7 @@ fn test_offsets_tile_utf8_rejects_negative_offsets() {
 #[case::negative_first(buffer![-1i32, 2, 3].into_array())]
 #[case::beyond_bytes(buffer![0i32, 2, 6].into_array())]
 fn try_new_rejects_invalid_offsets(#[case] offsets: ArrayRef) {
+    let mut ctx = SESSION.create_execution_ctx();
     let values = Buffer::copy_from("hello".as_bytes());
 
     let result = VarBinArray::try_new(
@@ -84,6 +101,7 @@ fn try_new_rejects_invalid_offsets(#[case] offsets: ArrayRef) {
         values,
         DType::Binary(Nullability::NonNullable),
         Validity::NonNullable,
+        &mut ctx,
     );
 
     assert!(result.is_err());
@@ -91,6 +109,7 @@ fn try_new_rejects_invalid_offsets(#[case] offsets: ArrayRef) {
 
 #[test]
 fn try_new_allows_nonzero_first_offset() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let values = Buffer::copy_from("hello".as_bytes());
     let offsets = buffer![1i32, 3, 5].into_array();
 
@@ -99,14 +118,20 @@ fn try_new_allows_nonzero_first_offset() -> VortexResult<()> {
         values,
         DType::Binary(Nullability::NonNullable),
         Validity::NonNullable,
+        &mut ctx,
     )?;
 
-    assert_eq!(array.len(), 2);
+    assert_arrays_eq!(
+        array,
+        VarBinViewArray::from_iter_bin([b"el", b"lo"]),
+        &mut SESSION.create_execution_ctx()
+    );
     Ok(())
 }
 
 #[test]
 fn try_new_rejects_unsorted_utf8_offsets_at_null_row() {
+    let mut ctx = SESSION.create_execution_ctx();
     // Every non-null string is valid UTF-8, so only the offsets check rejects the null row 3..1.
     let values = Buffer::copy_from("hello".as_bytes());
     let offsets = buffer![0i32, 3, 1, 5].into_array();
@@ -116,6 +141,7 @@ fn try_new_rejects_unsorted_utf8_offsets_at_null_row() {
         values,
         DType::Utf8(Nullability::Nullable),
         Validity::from_iter([true, false, true]),
+        &mut ctx,
     );
 
     assert!(result.is_err());

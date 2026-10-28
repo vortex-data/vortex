@@ -17,26 +17,30 @@ def test_primitive_compress() -> None:
     arr_compressed = vortex.compress(vortex.array(a))
     assert not isinstance(arr_compressed, vortex.PrimitiveArray)
     assert arr_compressed.nbytes < a.nbytes
+    assert arr_compressed.to_arrow_array() == a
 
 
 def test_for_compress() -> None:
     a = pa.array(np.arange(10_000) + 10_000_000)
     arr_compressed = vortex.compress(vortex.array(a))
     assert not isinstance(arr_compressed, vortex.PrimitiveArray)
+    assert arr_compressed.to_arrow_array() == a
 
 
 def test_arrange_encode() -> None:
-    a = vortex.array(pa.array(np.arange(10_000), type=pa.uint32()))
+    expected = pa.array(np.arange(10_000), type=pa.uint32())
+    a = vortex.array(expected)
     compressed = vortex.compress(a)
     assert isinstance(compressed, vortex.FastLanesDeltaArray | vortex.SequenceArray)
     assert compressed.nbytes < a.nbytes
+    assert compressed.to_arrow_array() == expected
 
 
 def test_zigzag_encode() -> None:
     a = vortex.array(pa.array([-1, -1, 0, -1, 1, -1]))
     zarr = vortex.ZigZagArray.encode(a)
     assert isinstance(zarr, vortex.ZigZagArray)
-    # TODO(ngates): support decoding once we have decompressor.
+    assert zarr.to_arrow_array() == pa.array([-1, -1, 0, -1, 1, -1])
 
 
 def test_chunked_encode() -> None:

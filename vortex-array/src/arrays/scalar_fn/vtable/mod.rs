@@ -90,6 +90,8 @@ impl VTable for ScalarFn {
             "ScalarFnArray data scalar_fn does not match vtable",
         );
 
+        Array::<ScalarFn>::validate_not_literal(scalar_fn)?;
+
         let missing_children = slots.iter().filter(|slot| slot.is_none()).count();
         vortex_ensure_eq!(
             missing_children,

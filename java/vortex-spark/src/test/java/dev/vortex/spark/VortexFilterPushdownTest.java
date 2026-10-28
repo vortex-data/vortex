@@ -378,7 +378,7 @@ public final class VortexFilterPushdownTest {
         SparkPlan plan = qe.executedPlan();
         String planString = plan.toString();
         assertTrue(
-                planString.contains("id > 1"),
+                planString.contains("pushedPredicates=[id > 1]"),
                 "Expected pushed predicate for id > 1 in the executed plan: " + planString);
     }
 

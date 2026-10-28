@@ -76,7 +76,9 @@ impl From<&DType> for vx_dtype_variant {
             DType::Struct(..) => vx_dtype_variant::DTYPE_STRUCT,
             DType::Map(..) => vortex_panic!("Map is not supported in FFI yet"),
             DType::Union(..) => vortex_panic!("Union is not supported in FFI yet"),
-            DType::Variant(_) => vortex_panic!("Variant is not supported in FFI yet"),
+            DType::Variant(_) => {
+                vortex_panic!("Variant is not supported in FFI yet")
+            }
             DType::Extension(_) => vx_dtype_variant::DTYPE_EXTENSION,
         }
     }
@@ -393,6 +395,9 @@ mod tests {
                 vx_dtype_variant::DTYPE_PRIMITIVE
             );
 
+            assert!(!vx_dtype_is_nullable(dtype0));
+            assert!(vx_dtype_is_nullable(dtype1));
+            assert_eq!(vx_dtype_primitive_ptype(dtype1), vx_ptype::PTYPE_U8);
             vx_dtype_free(dtype0);
             vx_dtype_free(dtype1);
 
@@ -449,6 +454,7 @@ mod tests {
                 vx_dtype_variant::DTYPE_PRIMITIVE
             );
             assert_eq!(vx_dtype_primitive_ptype(element), vx_ptype::PTYPE_I32);
+            assert!(!vx_dtype_is_nullable(element));
             vx_dtype_free(element);
 
             vx_dtype_free(list_dtype);
@@ -473,6 +479,7 @@ mod tests {
                 vx_dtype_variant::DTYPE_PRIMITIVE
             );
             assert_eq!(vx_dtype_primitive_ptype(element), vx_ptype::PTYPE_F64);
+            assert!(!vx_dtype_is_nullable(element));
             vx_dtype_free(element);
 
             let size = vx_dtype_fixed_size_list_size(fsl_dtype);
@@ -539,6 +546,7 @@ mod tests {
                 vx_dtype_variant::DTYPE_PRIMITIVE
             );
             assert_eq!(vx_dtype_primitive_ptype(innermost), vx_ptype::PTYPE_I32);
+            assert!(!vx_dtype_is_nullable(innermost));
 
             vx_dtype_free(innermost);
             vx_dtype_free(inner);
@@ -572,10 +580,12 @@ mod tests {
         unsafe {
             let u8_dtype = vx_dtype_new_primitive(vx_ptype::PTYPE_U8, false);
             assert_eq!(vx_dtype_primitive_ptype(u8_dtype), vx_ptype::PTYPE_U8);
+            assert!(!vx_dtype_is_nullable(u8_dtype));
             vx_dtype_free(u8_dtype);
 
             let f64_dtype = vx_dtype_new_primitive(vx_ptype::PTYPE_F64, true);
             assert_eq!(vx_dtype_primitive_ptype(f64_dtype), vx_ptype::PTYPE_F64);
+            assert!(vx_dtype_is_nullable(f64_dtype));
             vx_dtype_free(f64_dtype);
         }
     }
@@ -624,47 +634,6 @@ mod tests {
         StructArray::try_from_iter([("nums", nums.into_array()), ("floats", floats.into_array())])
             .unwrap()
             .into_array()
-    }
-
-    // TODO: re-enable under miri once parking_lot_core fixes strict-provenance violations
-    #[cfg_attr(miri, ignore)]
-    #[test]
-    fn test_struct_introspection_simple() {
-        let array = create_test_struct_array();
-        let vx_arr = vx_array::new(array);
-        let dtype_ptr = unsafe { vx_array_dtype(vx_arr) };
-
-        let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };
-        let n_fields = unsafe { vx_struct_fields_nfields(struct_fields_ptr) };
-        assert_eq!(n_fields, 2);
-
-        unsafe {
-            vx_struct_fields_free(struct_fields_ptr);
-            vx_dtype_free(dtype_ptr);
-            vx_array_free(vx_arr);
-        }
-    }
-
-    // TODO: re-enable under miri once parking_lot_core fixes strict-provenance violations
-    #[cfg_attr(miri, ignore)]
-    #[test]
-    fn test_field_name_access() {
-        let array = create_test_struct_array();
-        let vx_arr = vx_array::new(array);
-        let dtype_ptr = unsafe { vx_array_dtype(vx_arr) };
-
-        let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };
-
-        // Test field name access
-        let field_name = unsafe { vx_struct_fields_field_name(struct_fields_ptr, 0) };
-        assert!(!field_name.ptr.is_null());
-        assert_eq!(unsafe { field_name.as_str() }.unwrap(), "nums");
-
-        unsafe {
-            vx_struct_fields_free(struct_fields_ptr);
-            vx_dtype_free(dtype_ptr);
-            vx_array_free(vx_arr);
-        }
     }
 
     // TODO: re-enable under miri once parking_lot_core fixes strict-provenance violations
@@ -720,6 +689,14 @@ mod tests {
             assert!(!vx_dtype_is_nullable(dtype));
             let fields = vx_dtype_struct_dtype(dtype);
             assert_eq!(vx_struct_fields_nfields(fields), 2);
+            assert_eq!(
+                vx_struct_fields_field_name(fields, 0).as_str().unwrap(),
+                "a"
+            );
+            assert_eq!(
+                vx_struct_fields_field_name(fields, 1).as_str().unwrap(),
+                "b"
+            );
             let f0 = vx_struct_fields_field_dtype(fields, 0);
             assert_eq!(vx_dtype_get_variant(f0), vx_dtype_variant::DTYPE_PRIMITIVE);
             assert_eq!(vx_dtype_primitive_ptype(f0), vx_ptype::PTYPE_I64);

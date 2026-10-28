@@ -33,6 +33,7 @@ use vortex_bench::v3;
 use crate::render::RandomAccessRun;
 use crate::render::render_random_access_table;
 
+mod litdata;
 mod render;
 
 // ---------------------------------------------------------------------------
@@ -155,6 +156,40 @@ async fn benchmark_random_access(
     remote: Option<&RemoteDataDir>,
 ) -> Result<RandomAccessRun> {
     let time_limit = Duration::from_secs(time_limit_secs);
+    let runs = if format == Format::LitData {
+        if remote.is_some() {
+            anyhow::bail!("LitData random access is only supported from local disk");
+        }
+        let path = litdata::dataset_path(dataset).await?;
+        litdata::time_takes(&path, indices, time_limit, CACHED_WARMUP_DURATION, reopen)?
+    } else {
+        time_accessor_takes(dataset, format, indices, time_limit, reopen, remote).await?
+    };
+
+    let timing = TimingMeasurement {
+        name: measurement_name.to_string(),
+        storage: storage.to_string(),
+        target: Target::new(Engine::default(), format),
+        runs,
+    };
+    Ok(RandomAccessRun {
+        display_name: display_name(dataset.name(), pattern),
+        dataset: dataset.name().to_string(),
+        pattern,
+        reopen,
+        timing,
+    })
+}
+
+/// Time [`RandomAccessor::take`] of `indices` until `time_limit` has elapsed.
+async fn time_accessor_takes(
+    dataset: &dyn BenchDataset,
+    format: Format,
+    indices: &[u64],
+    time_limit: Duration,
+    reopen: bool,
+    remote: Option<&RemoteDataDir>,
+) -> Result<Vec<Duration>> {
     let mut runs = Vec::new();
     let prepared_accessor = open_accessor(dataset, format, remote).await?;
     let cached_accessor = (!reopen).then_some(prepared_accessor);
@@ -189,19 +224,7 @@ async fn benchmark_random_access(
         }
     }
 
-    let timing = TimingMeasurement {
-        name: measurement_name.to_string(),
-        storage: storage.to_string(),
-        target: Target::new(Engine::default(), format),
-        runs,
-    };
-    Ok(RandomAccessRun {
-        display_name: display_name(dataset.name(), pattern),
-        dataset: dataset.name().to_string(),
-        pattern,
-        reopen,
-        timing,
-    })
+    Ok(runs)
 }
 
 /// Row label for the table view. Format is implied by the column header, so
@@ -280,6 +303,7 @@ async fn dataset_path(dataset: &dyn BenchDataset, format: Format) -> Result<Path
                 other => anyhow::bail!("Unknown dataset for Lance: {other}"),
             }
         }
+        Format::LitData => litdata::dataset_path(dataset).await,
         format => dataset.path(format).await,
     }
 }

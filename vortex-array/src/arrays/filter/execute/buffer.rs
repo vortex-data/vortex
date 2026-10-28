@@ -197,10 +197,12 @@ mod tests {
     #[test]
     fn test_filter_dense_in_place() {
         let buf = buffer![1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let original_ptr = buf.as_ptr();
         let mask = Mask::from_iter([true, true, true, true, false, true, true, true, false, true]);
 
         let result = filter_buffer(buf, mask_values(&mask));
         assert_eq!(result, buffer![1u32, 2, 3, 4, 6, 7, 8, 10]);
+        assert_eq!(result.as_ptr(), original_ptr);
     }
 
     #[test]
@@ -211,7 +213,7 @@ mod tests {
 
         let result = filter_buffer(buf, mask_values(&mask));
         assert_eq!(result, buffer![1u64, 5, 9, 15]);
-        assert_eq!(shared.len(), 16);
+        assert_eq!(shared.as_slice(), &(0u64..16).collect::<Vec<_>>());
     }
 
     #[test]
@@ -223,7 +225,7 @@ mod tests {
         let result = filter_buffer(buf, mask_values(&mask));
         let expected = (3u32..15).chain(20..30).collect::<Vec<_>>();
         assert_eq!(result.as_slice(), expected.as_slice());
-        assert_eq!(shared.len(), 32);
+        assert_eq!(shared.as_slice(), &(0u32..32).collect::<Vec<_>>());
     }
 
     #[test]

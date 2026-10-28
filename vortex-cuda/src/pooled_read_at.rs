@@ -33,6 +33,7 @@ mod file;
 
 pub use file::PooledFileReadAt;
 pub use file::PooledFileReadAtOptions;
+pub use file::release_file_mappings;
 
 /// Default number of concurrent requests to allow for object store I/O.
 pub const DEFAULT_OBJECT_STORE_CONCURRENCY: usize = 192;

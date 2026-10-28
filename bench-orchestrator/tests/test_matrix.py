@@ -59,9 +59,12 @@ EXPECTED_IDS = {
         "tpch-nvme",
         "tpch-s3",
         "tpcds-nvme-10",
-        "tpcds-nvme-100",
         "tpcds-s3-10",
-        "tpcds-s3-100",
+        *(
+            f"tpcds-{storage}-100-{target}"
+            for storage in ("nvme", "s3")
+            for target in ("datafusion-parquet", "datafusion-vortex", "duckdb-parquet", "duckdb-vortex")
+        ),
     ),
 }
 
@@ -84,6 +87,17 @@ def test_matrix_presets(preset: str, expected_ids: tuple[str, ...]) -> None:
     assert len(ids) == len(set(ids))
     assert all(entry["targets"] for entry in entries)
     assert "${{" not in json.dumps(entries)
+
+
+def test_tpcds_sf100_runs_one_target_per_job() -> None:
+    nightly = [
+        entry for entry in _entries("nightly") if str(entry["id"]).startswith("tpcds-") and "-100-" in str(entry["id"])
+    ]
+
+    assert len(nightly) == 8
+    assert all(len(_targets(entry)) == 1 for entry in nightly)
+    s3_keys = [entry["remote_key"] for entry in nightly if "remote_key" in entry]
+    assert len(s3_keys) == len(set(s3_keys)) == 4
 
 
 def test_pr_target_selection() -> None:

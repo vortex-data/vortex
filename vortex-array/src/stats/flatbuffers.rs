@@ -165,7 +165,9 @@ impl StatsSet {
                             match fb.max_precision() {
                                 fba::Precision::Exact => Precision::Exact(value),
                                 fba::Precision::Inexact => Precision::Inexact(value),
-                                other => vortex_bail!("Corrupted max_precision field: {other:?}"),
+                                other => {
+                                    vortex_bail!("Corrupted max_precision field: {other:?}")
+                                }
                             },
                         );
                     }
@@ -185,7 +187,9 @@ impl StatsSet {
                             match fb.min_precision() {
                                 fba::Precision::Exact => Precision::Exact(value),
                                 fba::Precision::Inexact => Precision::Inexact(value),
-                                other => vortex_bail!("Corrupted min_precision field: {other:?}"),
+                                other => {
+                                    vortex_bail!("Corrupted min_precision field: {other:?}")
+                                }
                             },
                         );
                     }
@@ -237,8 +241,8 @@ mod tests {
     use flatbuffers::root;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
 
-    use crate::array_session;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -250,7 +254,7 @@ mod tests {
     use crate::scalar::ScalarValue;
     use crate::stats::StatsSet;
 
-    fn roundtrip_sum(sum: f64) -> VortexResult<u64> {
+    fn roundtrip_sum(sum: f64, expected_bits: u64) -> VortexResult<u64> {
         let stats = StatsSet::of(
             Stat::Sum,
             Precision::exact(ScalarValue::Primitive(PValue::F64(sum))),
@@ -260,9 +264,13 @@ mod tests {
         let offset = stats.write_flatbuffer(&mut fbb)?;
         fbb.finish_minimal(offset);
         let fb = root::<fba::ArrayStats>(fbb.finished_data())?;
+        // ScalarValue.f64_value is protobuf field 6, wire type fixed64.
+        let mut expected_bytes = vec![0x31];
+        expected_bytes.extend_from_slice(&expected_bits.to_le_bytes());
+        assert_eq!(fb.sum().expect("serialized sum").bytes(), expected_bytes);
 
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
-        let read = StatsSet::from_flatbuffer(&fb, &dtype, &array_session())?;
+        let read = StatsSet::from_flatbuffer(&fb, &dtype, &VortexSession::empty())?;
         Ok(read
             .get_as::<f64>(
                 Stat::Sum,
@@ -277,17 +285,17 @@ mod tests {
     fn nan_sum_is_written_canonical() -> VortexResult<()> {
         // x86_64 gives this NaN for `inf + -inf`.
         assert_eq!(
-            roundtrip_sum(f64::from_bits(0xfff8_0000_0000_0000))?,
+            roundtrip_sum(f64::from_bits(0xfff8_0000_0000_0000), 0x7ff8_0000_0000_0000)?,
             0x7ff8_0000_0000_0000
         );
         assert_eq!(
-            roundtrip_sum(f64::from_bits(0x7ff8_0000_dead_beef))?,
+            roundtrip_sum(f64::from_bits(0x7ff8_0000_dead_beef), 0x7ff8_0000_0000_0000)?,
             0x7ff8_0000_0000_0000
         );
 
-        assert_eq!(roundtrip_sum(3.0)?, 3.0f64.to_bits());
+        assert_eq!(roundtrip_sum(3.0, 3.0f64.to_bits())?, 3.0f64.to_bits());
         assert_eq!(
-            roundtrip_sum(f64::NEG_INFINITY)?,
+            roundtrip_sum(f64::NEG_INFINITY, f64::NEG_INFINITY.to_bits())?,
             f64::NEG_INFINITY.to_bits()
         );
 

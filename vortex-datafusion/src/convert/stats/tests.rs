@@ -173,3 +173,34 @@ fn convertible_statistics_keep_their_precision(
     assert_eq!(stats.min_value, expected);
     Ok(())
 }
+
+#[rstest]
+#[case::nan_free(VortexPrecision::exact(0u64), true)]
+#[case::has_nan(VortexPrecision::exact(1u64), false)]
+#[case::inexact(VortexPrecision::inexact(0u64), false)]
+#[case::unknown(VortexPrecision::Absent, false)]
+fn float_statistics_require_no_nans(
+    #[case] nan_count: VortexPrecision<u64>,
+    #[case] reported: bool,
+) -> VortexResult<()> {
+    let stats_set = StatsSet::from_iter([
+        (Stat::Min, VortexPrecision::exact(ScalarValue::from(1.0f64))),
+        (Stat::Max, VortexPrecision::exact(ScalarValue::from(2.0f64))),
+        (Stat::Sum, VortexPrecision::exact(ScalarValue::from(3.0f64))),
+        (Stat::NaNCount, nan_count.map(ScalarValue::from)),
+    ]);
+    let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+    let stats = stats_set_to_df(&stats_set, &dtype)?;
+
+    let expected = |value: f64| {
+        if reported {
+            Precision::Exact(DFScalarValue::Float64(Some(value)))
+        } else {
+            Precision::Absent
+        }
+    };
+    assert_eq!(stats.min_value, expected(1.0));
+    assert_eq!(stats.max_value, expected(2.0));
+    assert_eq!(stats.sum_value, expected(3.0));
+    Ok(())
+}

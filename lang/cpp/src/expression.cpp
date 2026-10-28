@@ -35,7 +35,7 @@ Expression &Expression::operator=(const Expression &other) {
 Expression Expression::operator[](std::string_view field) const {
     vx_expression *out = vx_expression_get_item(to_view(field), handle_.get());
     if (out == nullptr) {
-        throw VortexException("get_item: field name is not valid UTF-8", ErrorCode::InvalidArgument);
+        throw VortexException("get_item: field name is not valid UTF-8");
     }
     return Access::adopt<Expression>(out);
 }
@@ -129,7 +129,7 @@ static Expression combine(vx_expression *(*combiner)(const vx_expression *const 
     }
     vx_expression *out = combiner(raw.data(), raw.size());
     if (out == nullptr) {
-        throw VortexException("empty expression list", ErrorCode::InvalidArgument);
+        throw VortexException("empty expression list");
     }
     return Access::adopt<Expression>(out);
 }

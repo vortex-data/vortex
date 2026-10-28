@@ -23,6 +23,7 @@ test = false
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+mimalloc = { workspace = true }
 similar = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

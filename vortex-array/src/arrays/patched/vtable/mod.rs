@@ -347,21 +347,22 @@ fn apply_patches_primitive<V: NativePType>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
     use vortex_buffer::buffer_mut;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
     use crate::Array;
     use crate::ArrayContext;
     use crate::ArrayParts;
     use crate::ArraySlots;
-    use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Patched;
     use crate::arrays::PatchedArray;
     use crate::arrays::PrimitiveArray;
@@ -378,8 +379,11 @@ mod tests {
     use crate::session::ArraySessionExt;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_execute() {
+        let mut ctx = SESSION.create_execution_ctx();
         let values = buffer![0u16; 1024].into_array();
         let patches = Patches::new(
             1024,
@@ -387,32 +391,27 @@ mod tests {
             buffer![1u32, 2, 3].into_array(),
             buffer![1u16; 3].into_array(),
             None,
+            &mut ctx,
         )
         .unwrap();
 
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
             .into_array();
-
-        let executed = array
-            .execute::<Canonical>(&mut ctx)
-            .unwrap()
-            .into_primitive()
-            .into_buffer::<u16>();
 
         let mut expected = buffer_mut![0u16; 1024];
         expected[1] = 1;
         expected[2] = 1;
         expected[3] = 1;
 
-        assert_eq!(executed, expected.freeze());
+        assert_arrays_eq!(array, expected.into_array(), &mut ctx);
     }
 
     #[test]
     fn test_execute_sliced() {
+        let mut ctx = SESSION.create_execution_ctx();
         let values = buffer![0u16; 1024].into_array();
         let patches = Patches::new(
             1024,
@@ -420,11 +419,11 @@ mod tests {
             buffer![1u32, 2, 3].into_array(),
             buffer![1u16; 3].into_array(),
             None,
+            &mut ctx,
         )
         .unwrap();
 
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -432,20 +431,15 @@ mod tests {
             .slice(3..1024)
             .unwrap();
 
-        let executed = array
-            .execute::<Canonical>(&mut ctx)
-            .unwrap()
-            .into_primitive()
-            .into_buffer::<u16>();
-
         let mut expected = buffer_mut![0u16; 1021];
         expected[0] = 1;
 
-        assert_eq!(executed, expected.freeze());
+        assert_arrays_eq!(array, expected.into_array(), &mut ctx);
     }
 
     #[test]
     fn test_append_to_builder_non_nullable() {
+        let mut ctx = SESSION.create_execution_ctx();
         let values = PrimitiveArray::new(buffer![0u16; 1024], Validity::NonNullable).into_array();
         let patches = Patches::new(
             1024,
@@ -453,11 +447,11 @@ mod tests {
             buffer![1u32, 2, 3].into_array(),
             buffer![10u16, 20, 30].into_array(),
             None,
+            &mut ctx,
         )
         .unwrap();
 
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -478,11 +472,12 @@ mod tests {
         expected[3] = 30;
         let expected = expected.into_array();
 
-        assert_arrays_eq!(expected, result, &mut ctx);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn test_append_to_builder_sliced() {
+        let mut ctx = SESSION.create_execution_ctx();
         let values = PrimitiveArray::new(buffer![0u16; 1024], Validity::NonNullable).into_array();
         let patches = Patches::new(
             1024,
@@ -490,11 +485,11 @@ mod tests {
             buffer![1u32, 2, 3].into_array(),
             buffer![10u16, 20, 30].into_array(),
             None,
+            &mut ctx,
         )
         .unwrap();
 
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -515,11 +510,12 @@ mod tests {
         expected[0] = 30;
         let expected = expected.into_array();
 
-        assert_arrays_eq!(expected, result, &mut ctx);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn test_append_to_builder_with_validity() {
+        let mut ctx = SESSION.create_execution_ctx();
         // Create inner array with nulls at indices 0 and 5.
         let validity = Validity::from_iter((0..10).map(|i| i != 0 && i != 5));
         let values = PrimitiveArray::new(buffer![0u16; 10], validity).into_array();
@@ -531,11 +527,11 @@ mod tests {
             buffer![1u32, 2, 3].into_array(),
             buffer![10u16, 20, 30].into_array(),
             None,
+            &mut ctx,
         )
         .unwrap();
 
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -565,7 +561,7 @@ mod tests {
         ])
         .into_array();
 
-        assert_arrays_eq!(expected, result, &mut ctx);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     fn make_patched_array(
@@ -573,6 +569,7 @@ mod tests {
         patch_indices: &[u32],
         patch_values: &[u16],
     ) -> VortexResult<PatchedArray> {
+        let mut ctx = SESSION.create_execution_ctx();
         let values: Vec<u16> = inner.into_iter().collect();
         let len = values.len();
         let array = PrimitiveArray::from_iter(values).into_array();
@@ -580,30 +577,31 @@ mod tests {
         let indices = PrimitiveArray::from_iter(patch_indices.iter().copied()).into_array();
         let patch_vals = PrimitiveArray::from_iter(patch_values.iter().copied()).into_array();
 
-        let patches = Patches::new(len, 0, indices, patch_vals, None)?;
+        let patches = Patches::new(len, 0, indices, patch_vals, None, &mut ctx)?;
 
-        let session = array_session();
-        let mut ctx = session.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         Patched::from_array_and_patches(array, &patches, &mut ctx)
     }
 
     #[rstest]
     #[case::basic(
-        make_patched_array(vec![0u16; 1024], &[1, 2, 3], &[10, 20, 30]).unwrap().into_array()
+        make_patched_array(vec![0u16; 1024], &[1, 2, 3], &[10, 20, 30]).unwrap().into_array(),
+        (0..1024).map(|i| match i { 1 => 10u16, 2 => 20, 3 => 30, _ => 0 }).collect::<Vec<_>>()
     )]
     #[case::multi_chunk(
-        make_patched_array(vec![0u16; 4096], &[100, 1500, 2500, 3500], &[11, 22, 33, 44]).unwrap().into_array()
+        make_patched_array(vec![0u16; 4096], &[100, 1500, 2500, 3500], &[11, 22, 33, 44]).unwrap().into_array(),
+        (0..4096).map(|i| match i { 100 => 11u16, 1500 => 22, 2500 => 33, 3500 => 44, _ => 0 }).collect::<Vec<_>>()
     )]
     #[case::sliced({
         let arr = make_patched_array(vec![0u16; 1024], &[1, 2, 3], &[10, 20, 30]).unwrap();
         arr.into_array().slice(2..1024).unwrap()
-    })]
-    fn test_serde_roundtrip(#[case] array: crate::ArrayRef) {
+    }, (2..1024).map(|i| match i { 2 => 20u16, 3 => 30, _ => 0 }).collect::<Vec<_>>())]
+    fn test_serde_roundtrip(#[case] array: crate::ArrayRef, #[case] expected: Vec<u16>) {
         let dtype = array.dtype().clone();
         let len = array.len();
 
-        let session = array_session();
+        let session = VortexSession::empty();
         session.arrays().register(Patched);
 
         let ctx = ArrayContext::empty().with_allowed_ids(
@@ -629,10 +627,10 @@ mod tests {
             .unwrap();
 
         assert!(decoded.is::<Patched>());
-        assert_eq!(
-            array.display_values().to_string(),
-            decoded.display_values().to_string()
-        );
+        let expected = PrimitiveArray::from_iter(expected);
+        let mut exec_ctx = session.create_execution_ctx();
+        assert_arrays_eq!(array, &expected, &mut exec_ctx);
+        assert_arrays_eq!(decoded, expected, &mut exec_ctx);
     }
 
     #[test]
@@ -661,12 +659,15 @@ mod tests {
         assert_eq!(array_ref.len(), new_array.len());
         assert_eq!(array_ref.dtype(), new_array.dtype());
 
-        // Execute both and compare results
-        let mut ctx = array_session().create_execution_ctx();
-        let original_executed = array_ref.execute::<Canonical>(&mut ctx)?.into_primitive();
-        let new_executed = new_array.execute::<Canonical>(&mut ctx)?.into_primitive();
+        let mut ctx = SESSION.create_execution_ctx();
 
-        assert_arrays_eq!(original_executed, new_executed, &mut ctx);
+        let expected = PrimitiveArray::from_iter((0..1024).map(|i| match i {
+            1 => 10u16,
+            2 => 20,
+            3 => 30,
+            _ => 0,
+        }));
+        assert_arrays_eq!(new_array, expected, &mut ctx);
 
         Ok(())
     }
@@ -698,12 +699,11 @@ mod tests {
         .into_array();
 
         // Execute and verify the inner values changed (except at patch positions)
-        let mut ctx = array_session().create_execution_ctx();
-        let executed = new_array.execute::<Canonical>(&mut ctx)?.into_primitive();
+        let mut ctx = SESSION.create_execution_ctx();
 
         // Expected: all 5s except indices 1, 2, 3 which are patched to 10, 20, 30
         let expected = PrimitiveArray::from_iter([5u16, 10, 20, 30, 5, 5, 5, 5, 5, 5]);
-        assert_arrays_eq!(expected, executed, &mut ctx);
+        assert_arrays_eq!(new_array, expected, &mut ctx);
 
         Ok(())
     }

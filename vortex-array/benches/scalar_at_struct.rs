@@ -14,9 +14,9 @@ use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::FieldNames;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
@@ -33,7 +33,8 @@ const ARRAY_SIZE: usize = 100_000;
 // Sized to keep the CodSpeed simulation under 1ms per benchmark.
 const NUM_ACCESSES: usize = 100;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
 
 #[divan::bench]
 fn execute_scalar_struct_simple(bencher: Bencher) {

@@ -9,6 +9,9 @@
 //! Unlike SQL which coerces all branches to a common supertype, all THEN/ELSE
 //! branches must share the same base dtype (ignoring nullability). The result
 //! nullability is the union of all branches (forced nullable if no ELSE).
+//!
+//! The serialized expression format is not part of a Vortex edition and is not
+//! guaranteed to remain compatible across Vortex versions.
 
 use std::fmt;
 use std::fmt::Formatter;
@@ -19,6 +22,7 @@ use prost::Message;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -91,11 +95,19 @@ impl ScalarFnVTable for CaseWhen {
         *ID
     }
 
-    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        // let num_children = options.num_when_then_pairs * 2 + u32::from(options.has_else);
-        // Ok(Some(pb::CaseWhenOpts { num_children }.encode_to_vec()))
-        // stabilize the expr
-        vortex_bail!("cannot serialize")
+    fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        vortex_ensure!(
+            options.num_when_then_pairs > 0,
+            "CaseWhen must have at least one WHEN/THEN pair"
+        );
+        let Some(num_children) = options
+            .num_when_then_pairs
+            .checked_mul(2)
+            .and_then(|count| count.checked_add(u32::from(options.has_else)))
+        else {
+            vortex_bail!("CaseWhen has too many children to serialize");
+        };
+        Ok(Some(pb::CaseWhenOpts { num_children }.encode_to_vec()))
     }
 
     fn deserialize(
@@ -497,6 +509,7 @@ mod tests {
     use crate::expr::is_null;
     use crate::expr::lit;
     use crate::expr::nested_case_when;
+    use crate::expr::proto::ExprSerializeProtoExt;
     use crate::expr::root;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
@@ -505,7 +518,7 @@ mod tests {
     use crate::scalar_fn::fns::operators::Operator;
     use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn compact_and_run_merges_agree_for_nested_and_nullable_values() -> VortexResult<()> {
@@ -638,11 +651,7 @@ mod tests {
         .into_array();
 
         let mut ctx = SESSION.create_execution_ctx();
-        assert_arrays_eq!(
-            array.execute::<Canonical>(&mut ctx)?.into_array(),
-            expected,
-            &mut ctx
-        );
+        assert_arrays_eq!(array, expected, &mut ctx);
 
         Ok(())
     }
@@ -771,57 +780,80 @@ mod tests {
         Ok(())
     }
 
-    /// Helper to evaluate an expression using the apply+execute pattern
-    fn evaluate_expr(expr: &Expression, array: &ArrayRef) -> ArrayRef {
-        let mut ctx = SESSION.create_execution_ctx();
-        array
-            .clone()
-            .apply(expr)
-            .unwrap()
-            .execute::<Canonical>(&mut ctx)
-            .unwrap()
-            .into_array()
+    fn apply_expr(expr: &Expression, array: &ArrayRef) -> ArrayRef {
+        array.clone().apply(expr).unwrap()
     }
 
-    fn evaluate_bound_expr(expr: &BoundExpression, array: &ArrayRef) -> ArrayRef {
-        let mut ctx = SESSION.create_execution_ctx();
-        array
-            .clone()
-            .apply_bound(expr)
-            .unwrap()
-            .execute::<Canonical>(&mut ctx)
-            .unwrap()
-            .into_array()
+    fn apply_bound_expr(expr: &BoundExpression, array: &ArrayRef) -> ArrayRef {
+        array.clone().apply_bound(expr).unwrap()
     }
 
     // ==================== Serialization Tests ====================
 
-    #[test]
-    #[should_panic(expected = "cannot serialize")]
-    fn test_serialization_roundtrip() {
+    #[rstest]
+    #[case(1, true, 3)]
+    #[case(1, false, 2)]
+    #[case(3, true, 7)]
+    #[case(4, false, 8)]
+    #[case(u32::MAX / 2, true, u32::MAX)]
+    #[case(u32::MAX / 2, false, u32::MAX - 1)]
+    fn test_serialization_roundtrip(
+        #[case] num_when_then_pairs: u32,
+        #[case] has_else: bool,
+        #[case] num_children: u32,
+    ) -> VortexResult<()> {
         let options = CaseWhenOptions {
-            num_when_then_pairs: 1,
-            has_else: true,
+            num_when_then_pairs,
+            has_else,
         };
-        let serialized = CaseWhen.serialize(&options).unwrap().unwrap();
-        let deserialized = CaseWhen
-            .deserialize(&serialized, &VortexSession::empty())
-            .unwrap();
-        assert_eq!(options, deserialized);
+        let serialized = CaseWhen.serialize(&options)?.expect("serializable options");
+        assert_eq!(
+            pb::CaseWhenOpts::decode(serialized.as_slice())?.num_children,
+            num_children
+        );
+        assert_eq!(CaseWhen.deserialize(&serialized, &SESSION)?, options);
+        Ok(())
     }
 
-    #[test]
-    #[should_panic(expected = "cannot serialize")]
-    fn test_serialization_no_else() {
+    #[rstest]
+    #[case(0, "at least one WHEN/THEN pair")]
+    #[case(u32::MAX / 2 + 1, "too many children")]
+    fn test_serialization_invalid_options(
+        #[case] num_when_then_pairs: u32,
+        #[case] expected_error: &str,
+        #[values(false, true)] has_else: bool,
+    ) {
         let options = CaseWhenOptions {
-            num_when_then_pairs: 1,
-            has_else: false,
+            num_when_then_pairs,
+            has_else,
         };
-        let serialized = CaseWhen.serialize(&options).unwrap().unwrap();
-        let deserialized = CaseWhen
-            .deserialize(&serialized, &VortexSession::empty())
-            .unwrap();
-        assert_eq!(options, deserialized);
+        let error = CaseWhen.serialize(&options).unwrap_err();
+        assert!(error.to_string().contains(expected_error));
+    }
+
+    #[rstest]
+    #[case::missing(&[])]
+    #[case::zero_children(&[0x08, 0])]
+    #[case::one_child(&[0x08, 1])]
+    #[case::truncated(&[0x08, 0x80])]
+    fn test_deserialization_invalid_metadata(#[case] metadata: &[u8]) {
+        assert!(CaseWhen.deserialize(metadata, &SESSION).is_err());
+    }
+
+    #[rstest]
+    fn test_expression_serialization_roundtrip(
+        #[values(1, 3)] num_when_then_pairs: u32,
+        #[values(false, true)] has_else: bool,
+    ) -> VortexResult<()> {
+        let branches = (0..num_when_then_pairs)
+            .map(|value| (eq(col("value"), lit(value)), lit(value)))
+            .collect();
+        let expression = nested_case_when(branches, has_else.then(|| lit(42u32)));
+        let bytes = expression.serialize_proto()?.encode_to_vec();
+        let proto = pb::Expr::decode(bytes.as_slice())?;
+        assert_eq!(proto.id, "vortex.case_when");
+        assert_eq!(Expression::from_proto(&proto, &SESSION)?, expression);
+        Ok(())
     }
 
     // ==================== Display Tests ====================
@@ -965,36 +997,6 @@ mod tests {
         assert_eq!(CaseWhen.child_name(&options, 2).to_string(), "else");
     }
 
-    // ==================== N-ary Serialization Tests ====================
-
-    #[test]
-    #[should_panic(expected = "cannot serialize")]
-    fn test_serialization_roundtrip_nary() {
-        let options = CaseWhenOptions {
-            num_when_then_pairs: 3,
-            has_else: true,
-        };
-        let serialized = CaseWhen.serialize(&options).unwrap().unwrap();
-        let deserialized = CaseWhen
-            .deserialize(&serialized, &VortexSession::empty())
-            .unwrap();
-        assert_eq!(options, deserialized);
-    }
-
-    #[test]
-    #[should_panic(expected = "cannot serialize")]
-    fn test_serialization_roundtrip_nary_no_else() {
-        let options = CaseWhenOptions {
-            num_when_then_pairs: 4,
-            has_else: false,
-        };
-        let serialized = CaseWhen.serialize(&options).unwrap().unwrap();
-        let deserialized = CaseWhen
-            .deserialize(&serialized, &VortexSession::empty())
-            .unwrap();
-        assert_eq!(options, deserialized);
-    }
-
     // ==================== N-ary Arity Tests ====================
 
     #[test]
@@ -1081,8 +1083,10 @@ mod tests {
     #[test]
     fn test_replace_children() {
         let expr = case_when(lit(true), lit(1i32), lit(0i32));
-        expr.with_children([lit(false), lit(2i32), lit(3i32)])
+        let replaced = expr
+            .with_children([lit(false), lit(2i32), lit(3i32)])
             .vortex_expect("operation should succeed in test");
+        assert_eq!(replaced, case_when(lit(false), lit(2i32), lit(3i32)));
     }
 
     // ==================== Evaluate Tests ====================
@@ -1101,7 +1105,7 @@ mod tests {
             lit(0i32),
         );
 
-        let result = evaluate_expr(&expr, &test_array);
+        let result = apply_expr(&expr, &test_array);
         assert_arrays_eq!(
             result,
             buffer![0i32, 0, 100, 100, 100].into_array(),
@@ -1126,7 +1130,7 @@ mod tests {
             Some(lit(0i32)),
         );
 
-        let result = evaluate_expr(&expr, &test_array);
+        let result = apply_expr(&expr, &test_array);
         assert_arrays_eq!(result, buffer![10i32, 0, 30, 0, 0].into_array(), &mut ctx);
     }
 
@@ -1147,7 +1151,7 @@ mod tests {
             Some(lit(0i32)),
         );
 
-        let result = evaluate_expr(&expr, &test_array);
+        let result = apply_expr(&expr, &test_array);
         assert_arrays_eq!(
             result,
             buffer![0i32, 0, 100, 100, 100].into_array(),
@@ -1165,7 +1169,7 @@ mod tests {
 
         let expr = case_when_no_else(gt(get_item("value", root()), lit(3i32)), lit(100i32));
 
-        let result = evaluate_expr(&expr, &test_array);
+        let result = apply_expr(&expr, &test_array);
         assert!(result.dtype().is_nullable());
         assert_arrays_eq!(
             result,
@@ -1189,7 +1193,7 @@ mod tests {
             lit(0i32),
         );
 
-        let result = evaluate_expr(&expr, &test_array);
+        let result = apply_expr(&expr, &test_array);
         assert_arrays_eq!(result, buffer![0i32, 0, 0, 0, 0].into_array(), &mut ctx);
     }
 
@@ -1207,7 +1211,7 @@ mod tests {
             lit(0i32),
         );
 
-        let result = evaluate_expr(&expr, &test_array);
+        let result = apply_expr(&expr, &test_array);
         assert_arrays_eq!(
             result,
             buffer![100i32, 100, 100, 100, 100].into_array(),
@@ -1226,7 +1230,7 @@ mod tests {
 
         let expr = case_when_no_else(gt(get_item("value", root()), lit(0i32)), lit(100i32));
 
-        let result = evaluate_expr(&expr, &test_array);
+        let result = apply_expr(&expr, &test_array);
         assert!(
             result.dtype().is_nullable(),
             "result dtype must be Nullable, got {:?}",
@@ -1263,7 +1267,7 @@ mod tests {
             Some(lit(0i32)),
         );
 
-        let result = evaluate_expr(&expr, &test_array);
+        let result = apply_expr(&expr, &test_array);
         assert!(
             result.dtype().is_nullable(),
             "result dtype must be Nullable, got {:?}",
@@ -1282,7 +1286,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let test_array = buffer![1i32, 2, 3].into_array();
         let expr = case_when(lit(true), lit(100i32), lit(0i32));
-        let result = evaluate_expr(&expr, &test_array);
+        let result = apply_expr(&expr, &test_array);
 
         assert_arrays_eq!(result, buffer![100i32, 100, 100].into_array(), &mut ctx);
     }
@@ -1301,7 +1305,7 @@ mod tests {
             lit(false),
         );
 
-        let result = evaluate_expr(&expr, &test_array);
+        let result = apply_expr(&expr, &test_array);
         assert_arrays_eq!(
             result,
             BoolArray::from_iter([false, false, true, true, true]).into_array(),
@@ -1321,7 +1325,7 @@ mod tests {
 
         let expr = case_when(get_item("cond", root()), lit(100i32), lit(0i32));
 
-        let result = evaluate_expr(&expr, &test_array);
+        let result = apply_expr(&expr, &test_array);
         assert_arrays_eq!(result, buffer![100i32, 0, 0, 0, 100].into_array(), &mut ctx);
     }
 
@@ -1332,7 +1336,7 @@ mod tests {
             ("value", buffer![1i32, 2, 3, 4, 5].into_array()),
             (
                 "result",
-                PrimitiveArray::from_option_iter([Some(10), None, Some(30), Some(40), Some(50)])
+                PrimitiveArray::from_option_iter([Some(10), None, Some(30), None, Some(50)])
                     .into_array(),
             ),
         ])
@@ -1345,10 +1349,10 @@ mod tests {
             lit(0i32),
         );
 
-        let result = evaluate_expr(&expr, &test_array);
+        let result = apply_expr(&expr, &test_array);
         assert_arrays_eq!(
             result,
-            PrimitiveArray::from_option_iter([Some(0i32), Some(0), Some(30), Some(40), Some(50)])
+            PrimitiveArray::from_option_iter([Some(0i32), Some(0), Some(30), None, Some(50)])
                 .into_array(),
             &mut ctx
         );
@@ -1366,7 +1370,7 @@ mod tests {
 
         let expr = case_when(get_item("cond", root()), lit(100i32), lit(0i32));
 
-        let result = evaluate_expr(&expr, &test_array);
+        let result = apply_expr(&expr, &test_array);
         assert_arrays_eq!(result, buffer![0i32, 0, 0].into_array(), &mut ctx);
     }
 
@@ -1389,7 +1393,7 @@ mod tests {
             None,
         );
 
-        let result = evaluate_expr(&expr, &test_array);
+        let result = apply_expr(&expr, &test_array);
         assert!(result.dtype().is_nullable());
         assert_arrays_eq!(
             result,
@@ -1419,7 +1423,7 @@ mod tests {
             Some(lit(0i32)),
         );
 
-        let result = evaluate_expr(&expr, &test_array);
+        let result = apply_expr(&expr, &test_array);
         assert_arrays_eq!(
             result,
             buffer![10i32, 20, 30, 40, 50].into_array(),
@@ -1443,7 +1447,7 @@ mod tests {
             None,
         );
 
-        let result = evaluate_expr(&expr, &test_array);
+        let result = apply_expr(&expr, &test_array);
         assert!(result.dtype().is_nullable());
         assert_arrays_eq!(
             result,
@@ -1472,7 +1476,7 @@ mod tests {
             Some(lit(0i32)),
         );
 
-        let result = evaluate_expr(&expr, &test_array);
+        let result = apply_expr(&expr, &test_array);
         // First matching condition always wins
         assert_arrays_eq!(result, buffer![1i32, 1, 1].into_array(), &mut ctx);
     }
@@ -1495,7 +1499,7 @@ mod tests {
             Some(lit(0i32)),
         );
 
-        let result = evaluate_expr(&expr, &test_array);
+        let result = apply_expr(&expr, &test_array);
         assert_arrays_eq!(result, buffer![100i32, 100, 100].into_array(), &mut ctx);
     }
 
@@ -1519,7 +1523,7 @@ mod tests {
             Some(lit(0i32)),
         );
 
-        let result = evaluate_expr(&expr, &test_array);
+        let result = apply_expr(&expr, &test_array);
         assert_arrays_eq!(result, buffer![10i32, 20, 0].into_array(), &mut ctx);
     }
 
@@ -1541,22 +1545,11 @@ mod tests {
             Some(lit("none")),
         );
 
-        let result = evaluate_expr(&expr, &test_array);
-        assert_eq!(
-            result.execute_scalar(0, &mut SESSION.create_execution_ctx())?,
-            Scalar::utf8("low", Nullability::NonNullable)
-        );
-        assert_eq!(
-            result.execute_scalar(1, &mut SESSION.create_execution_ctx())?,
-            Scalar::utf8("low", Nullability::NonNullable)
-        );
-        assert_eq!(
-            result.execute_scalar(2, &mut SESSION.create_execution_ctx())?,
-            Scalar::utf8("high", Nullability::NonNullable)
-        );
-        assert_eq!(
-            result.execute_scalar(3, &mut SESSION.create_execution_ctx())?,
-            Scalar::utf8("high", Nullability::NonNullable)
+        let result = apply_expr(&expr, &test_array);
+        assert_arrays_eq!(
+            result,
+            VarBinViewArray::from_iter_str(["low", "low", "high", "high"]),
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }
@@ -1585,7 +1578,7 @@ mod tests {
             Some(lit(0i32)),
         );
 
-        let result = evaluate_expr(&expr, &test_array);
+        let result = apply_expr(&expr, &test_array);
         // row 0: cond1=true → 10
         // row 1: cond1=NULL(→false), cond2=true → 20
         // row 2: cond1=false, cond2=NULL(→false) → else=0
@@ -1708,8 +1701,8 @@ mod tests {
         );
 
         let expected = PrimitiveArray::from_option_iter([Some(1i64), None, Some(3)]).into_array();
-        assert_arrays_eq!(evaluate_expr(&original, &array), expected, &mut ctx);
-        assert_arrays_eq!(evaluate_bound_expr(&optimized, &array), expected, &mut ctx);
+        assert_arrays_eq!(apply_expr(&original, &array), expected, &mut ctx);
+        assert_arrays_eq!(apply_bound_expr(&optimized, &array), expected, &mut ctx);
         Ok(())
     }
 
@@ -1762,12 +1755,12 @@ mod tests {
         // Original keeps CASE WHEN's nullable result dtype; the rewrite tightens it to
         // NonNullable because a non-null fill cannot leave any nulls behind. Values match.
         assert_arrays_eq!(
-            evaluate_expr(&original, &array),
+            apply_expr(&original, &array),
             PrimitiveArray::from_option_iter([Some(1i64), Some(0), Some(3)]).into_array(),
             &mut ctx
         );
         assert_arrays_eq!(
-            evaluate_bound_expr(&optimized, &array),
+            apply_bound_expr(&optimized, &array),
             buffer![1i64, 0, 3].into_array(),
             &mut ctx
         );
@@ -1785,11 +1778,7 @@ mod tests {
         ] {
             let optimized = expr.bind(input.dtype())?.optimize_recursive()?;
             assert!(optimized.is::<FillNull>(), "{optimized}");
-            let result = input
-                .clone()
-                .apply_bound(&optimized)?
-                .execute::<Canonical>(&mut ctx)?
-                .into_array();
+            let result = input.clone().apply_bound(&optimized)?;
             assert_arrays_eq!(
                 result,
                 VarBinViewArray::from_iter_str(["a", "fallback"]),

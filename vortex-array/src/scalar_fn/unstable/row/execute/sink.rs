@@ -336,21 +336,25 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::BufferAllocatorRef;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use super::execute_sink_valid_rows;
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::NativePType;
     use crate::scalar_fn::VecExecutionArgs;
     use crate::scalar_fn::unstable::row::OutputSink;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     struct ShrinkingSink(Vec<i64>);
 
@@ -399,7 +403,7 @@ mod tests {
         let Mask::Values(valid) = Mask::from_iter([false, true]) else {
             vortex_bail!("the test validity must be partially valid");
         };
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let result = execute_sink_valid_rows::<(i64,), (), ShrinkingSink, ()>(
             &args,
@@ -414,7 +418,9 @@ mod tests {
 
         let error = match result {
             Err(error) => error,
-            Ok(_) => vortex_bail!("the sink must reject rows changed by its initializer"),
+            Ok(_) => {
+                vortex_bail!("the sink must reject rows changed by its initializer")
+            }
         };
         assert!(
             error

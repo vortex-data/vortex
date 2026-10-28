@@ -187,14 +187,18 @@ fn filter_map(array: &MapArray, mask: &MaskValuesRef) -> MapArray {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::BitBuffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn uncached_contiguous_filter_executes_as_zero_copy_slice() -> VortexResult<()> {
@@ -209,8 +213,7 @@ mod tests {
 
         let filtered = array.into_array().filter(mask)?;
         assert!(filtered.is::<Primitive>());
-        let filtered =
-            filtered.execute::<PrimitiveArray>(&mut array_session().create_execution_ctx())?;
+        let filtered = filtered.execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
         let filtered_values = filtered.to_buffer::<i32>();
 
         assert_eq!(filtered_values.as_slice(), &(37..91).collect::<Vec<_>>());

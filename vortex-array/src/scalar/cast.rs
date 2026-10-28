@@ -62,11 +62,17 @@ impl Scalar {
 
         match &self.dtype() {
             DType::Null => unreachable!("Handled by the if case above"),
-            DType::Bool(_) => self.as_bool().cast(target_dtype),
+            DType::Bool(_) => vortex_bail!(
+                "Cannot cast bool to {target_dtype}: boolean scalars can only be cast to boolean types with different nullability"
+            ),
             DType::Primitive(..) => self.as_primitive().cast(target_dtype),
             DType::Decimal(..) => self.as_decimal().cast(target_dtype),
-            DType::Utf8(_) => self.as_utf8().cast(target_dtype),
-            DType::Binary(_) => self.as_binary().cast(target_dtype),
+            DType::Utf8(_) => vortex_bail!(
+                "Cannot cast utf8 to {target_dtype}: UTF-8 scalars can only be cast to UTF-8 types with different nullability"
+            ),
+            DType::Binary(_) => vortex_bail!(
+                "Cannot cast binary to {target_dtype}: binary scalars can only be cast to binary types with different nullability"
+            ),
             DType::List(..) | DType::FixedSizeList(..) => self.as_list().cast(target_dtype),
             DType::Map(..) => self.as_map().cast(target_dtype),
             DType::Struct(..) => self.as_struct().cast(target_dtype),
@@ -74,7 +80,9 @@ impl Scalar {
                 "union scalar cast from {} to {target_dtype} is not supported (yet)",
                 self.dtype()
             ),
-            DType::Variant(_) => vortex_bail!("Variant scalars can't be cast to {target_dtype}"),
+            DType::Variant(_) => {
+                vortex_bail!("Variant scalars can't be cast to {target_dtype}")
+            }
             DType::Extension(..) => self.as_extension().cast(target_dtype),
         }
     }

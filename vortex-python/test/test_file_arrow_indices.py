@@ -82,23 +82,32 @@ def test_arrow_indices_use_scan_validation(indexed_file, indices):
 @pytest.mark.parametrize("indices", [None, [], [1], [0, 2, 5, 8]])
 @pytest.mark.parametrize("batch_size", [None, 1, 3])
 @pytest.mark.parametrize("combine_chunks", [False, True])
-def test_iterator_to_arrow_array_matches_read_all(
+def test_iterator_to_arrow_array_preserves_values_and_type(
     indexed_file: tuple[vx.VortexFile, pa.Table], indices, batch_size, combine_chunks
 ):
-    file, _ = indexed_file
+    file, table = indexed_file
     selection = None if indices is None else vx.array(pa.array(indices, type=pa.uint64()))
-    arrow_type = pa.struct([("id", pa.int64()), ("payload", pa.string_view())])
+    arrow_type = pa.struct([("id", pa.int64()), ("payload", pa.string())])
 
     def scan() -> vx.ArrayIterator:
         return file.scan(indices=selection, batch_size=batch_size)
 
-    expected = scan().read_all().to_arrow_array(arrow_type=arrow_type, combine_chunks=combine_chunks)
+    expected = table if indices is None else table.take(pa.array(indices, type=pa.uint64()))
     result = scan().to_arrow_array(arrow_type=arrow_type, combine_chunks=combine_chunks)
-    assert type(result) is type(expected)
-    assert result == expected
+    assert result.type == arrow_type
+    if combine_chunks:
+        assert isinstance(result, pa.StructArray)
+    elif indices is None and batch_size is not None and len(expected) > batch_size:
+        assert isinstance(result, pa.ChunkedArray)
+        assert result.num_chunks > 1
+    values = result.combine_chunks() if isinstance(result, pa.ChunkedArray) else result
+    assert values == pa.array(expected.to_pylist(), type=arrow_type)
 
-    inferred = scan().read_all().to_arrow_array(combine_chunks=combine_chunks)
-    assert scan().to_arrow_array(combine_chunks=combine_chunks) == inferred
+    inferred = scan().to_arrow_array(combine_chunks=combine_chunks)
+    inferred_type = pa.struct([("id", pa.int64()), ("payload", pa.string_view())])
+    assert inferred.type == inferred_type
+    values = inferred.combine_chunks() if isinstance(inferred, pa.ChunkedArray) else inferred
+    assert values == pa.array(expected.to_pylist(), type=inferred_type)
 
 
 def test_iterator_to_arrow_array_after_read_is_empty(indexed_file):

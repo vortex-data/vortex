@@ -16,7 +16,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures::TryStreamExt;
-use futures::future::try_join;
+use futures::future::join;
 use futures::future::try_join_all;
 use futures::pin_mut;
 use itertools::Itertools;
@@ -258,7 +258,11 @@ impl LayoutStrategy for StructStrategy {
             })
             .collect();
 
-        let (_success, column_layouts) = try_join(fanout_fut, try_join_all(layout_futures)).await?;
+        // A column writer that fails drops its stream, which fails the fan-out too. Report the
+        // column writer's error, which is the cause, ahead of the fan-out's.
+        let (fanout, column_layouts) = join(fanout_fut, try_join_all(layout_futures)).await;
+        let column_layouts = column_layouts?;
+        fanout?;
         // TODO(os): transposed stream could count row counts as well,
         // This must hold though, all columns must have the same row count of the struct layout
         let row_count = column_layouts.first().map(|l| l.row_count()).unwrap_or(0);
@@ -272,6 +276,7 @@ mod tests {
 
     use vortex_array::ArrayContext;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -287,6 +292,8 @@ mod tests {
     use crate::layouts::zoned::writer::ZonedStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::SequentialArrayStreamExt;
+    use crate::test::FailingStrategy;
+    use crate::test::SESSION;
     use crate::test::new_session;
 
     /// Write a single-field struct with zoned fields, returning whether the field got a zone map.
@@ -465,6 +472,43 @@ mod tests {
         // The nullable middle struct's children are `[validity, below]`.
         let leaf = descend(&holder_children[1].children()?[1], DEPTH)?;
         assert!(!leaf.is::<Zoned>());
+        Ok(())
+    }
+
+    /// A field writer's own error is reported, not the fan-out's failure to send it more chunks.
+    #[tokio::test]
+    async fn reports_field_writer_error() -> VortexResult<()> {
+        let strategy = StructStrategy::new(
+            Arc::new(FlatLayoutStrategy::default()),
+            Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default())),
+        )
+        .with_field_writer("b", Arc::new(FailingStrategy));
+        let chunk = || -> VortexResult<ArrayRef> {
+            Ok(StructArray::try_from_iter([
+                ("a", buffer![1, 2, 3].into_array()),
+                ("b", buffer![4, 5, 6].into_array()),
+            ])?
+            .into_array())
+        };
+        let chunks = (0..4).map(|_| chunk()).collect::<VortexResult<Vec<_>>>()?;
+        let dtype = chunks[0].dtype().clone();
+        let (ptr, eof) = SequenceId::root().split();
+        let stream = ChunkedArray::try_new(chunks, dtype)?
+            .into_array()
+            .to_array_stream()
+            .sequenced(ptr);
+
+        let err = strategy
+            .write_stream(
+                LayoutWriterContext::new(ArrayContext::empty()),
+                Arc::new(TestSegments::default()),
+                stream,
+                eof,
+                &SESSION,
+            )
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains(FailingStrategy::MESSAGE), "{err}");
         Ok(())
     }
 }

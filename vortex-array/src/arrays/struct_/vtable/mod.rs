@@ -69,7 +69,7 @@ impl VTable for Struct {
         let expected_slots = struct_dtype.nfields() + 1;
         if slots.len() != expected_slots {
             vortex_bail!(
-                InvalidArgument: "StructArray has {} slots but expected {}",
+                "StructArray has {} slots but expected {}",
                 slots.len(),
                 expected_slots
             );
@@ -80,7 +80,7 @@ impl VTable for Struct {
             && validity_len != len
         {
             vortex_bail!(
-                InvalidArgument: "StructArray validity length {} does not match outer length {}",
+                "StructArray validity length {} does not match outer length {}",
                 validity_len,
                 len
             );
@@ -98,14 +98,14 @@ impl VTable for Struct {
                 .ok_or_else(|| vortex_error::vortex_err!("StructArray missing field slot {idx}"))?;
             if field.len() != len {
                 vortex_bail!(
-                    InvalidArgument: "StructArray field {idx} has length {} but expected {}",
+                    "StructArray field {idx} has length {} but expected {}",
                     field.len(),
                     len
                 );
             }
             if field.dtype() != &field_dtype {
                 vortex_bail!(
-                    InvalidArgument: "StructArray field {idx} has dtype {} but expected {}",
+                    "StructArray field {idx} has dtype {} but expected {}",
                     field.dtype(),
                     field_dtype
                 );

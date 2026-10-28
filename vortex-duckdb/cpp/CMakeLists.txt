@@ -40,6 +40,11 @@ endif()
 include_directories(include ../include)
 include_directories(SYSTEM ${DUCKDB_INCLUDE})
 
+file(GLOB DUCKDB_THIRD_PARTY_INCLUDES "${DUCKDB_DIR}/third_party/*/include")
+foreach(THIRD_PARTY_INCLUDE ${DUCKDB_THIRD_PARTY_INCLUDES})
+    include_directories(SYSTEM ${THIRD_PARTY_INCLUDE})
+endforeach()
+
 # Auto-discover C++ source files
 file(GLOB CPP_SOURCES "*.cpp")
 add_library(vortex ${CPP_SOURCES})

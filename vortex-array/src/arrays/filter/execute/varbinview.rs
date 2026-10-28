@@ -38,17 +38,22 @@ pub fn filter_varbinview(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
+    use vortex_session::VortexSession;
+
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::VarBinViewArray;
     use crate::compute::conformance::filter::test_filter_conformance;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_filter_varbinview_conformance() {
         test_filter_conformance(
             &VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         );
 
         test_filter_conformance(
@@ -60,7 +65,7 @@ mod tests {
                 Some("five"),
             ])
             .into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         );
     }
 }

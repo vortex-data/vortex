@@ -136,7 +136,9 @@ impl ExtVTable for Time {
                 Span::new().nanoseconds(length_of_time),
                 TimeValue::Nanoseconds(length_of_time),
             ),
-            d @ TimeUnit::Days => vortex_bail!("Time type does not support time unit {d}"),
+            d @ TimeUnit::Days => {
+                vortex_bail!("Time type does not support time unit {d}")
+            }
         };
 
         // Validate the storage value is within the valid range for Time.

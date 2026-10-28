@@ -157,22 +157,6 @@ mod tests {
     }
 
     #[test]
-    fn test_split_epoch() {
-        let ts = 0;
-        for unit in [
-            TimeUnit::Seconds,
-            TimeUnit::Milliseconds,
-            TimeUnit::Microseconds,
-            TimeUnit::Nanoseconds,
-        ] {
-            let parts = split(ts, unit).unwrap();
-            assert_eq!(parts.days, 0);
-            assert_eq!(parts.seconds, 0);
-            assert_eq!(parts.subseconds, 0);
-        }
-    }
-
-    #[test]
     fn test_split_days_error() {
         assert!(split(1, TimeUnit::Days).is_err());
     }

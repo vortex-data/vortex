@@ -6,12 +6,21 @@ use std::fmt;
 use std::ops::Range;
 
 use vortex_array::EmptyMetadata;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
+use vortex_array::expr::traversal::NodeExt;
+use vortex_array::expr::traversal::Transformed;
+use vortex_array::expr::traversal::TraversalOrder;
+use vortex_array::scalar_fn::fns::pack::Pack;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::plan::physical::PackPlan;
 use crate::plan::physical::Plan;
 use crate::plan::physical::PlanChildren;
 use crate::plan::physical::PlanId;
@@ -20,11 +29,10 @@ use crate::plan::physical::PlanRef;
 use crate::plan::physical::PlanVTable;
 use crate::plan::physical::check_child_count;
 use crate::plan::physical::operators::EvalStage;
+use crate::plan::physical::optimizer::PlanParentReduceRule;
 use crate::plan::physical::optimizer::PlanReduceRule;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
-use crate::plan::physical::pipeline::Reach;
-use crate::segments::SegmentId;
 
 /// Applies an expression to the output of its child.
 #[derive(Clone, Debug)]
@@ -130,15 +138,6 @@ impl PlanVTable for Eval {
         let chain = compiler.compile(&plan.child_plan()?, rows, mask)?;
         Ok(chain.map(|chain| chain.with(EvalStage::new(plan.expression().clone()))))
     }
-
-    fn reach(
-        plan: &Plan<Self>,
-        rows: Range<u64>,
-        at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
-    ) -> VortexResult<()> {
-        plan.child_plan()?.reach(rows, at, visit)
-    }
 }
 
 fn validate_expression_child(expression: &BoundExpression, child: &PlanRef) -> VortexResult<()> {
@@ -156,11 +155,71 @@ fn validate_expression_child(expression: &BoundExpression, child: &PlanRef) -> V
 pub(crate) struct EvalIdentityRule;
 
 impl PlanReduceRule<Eval> for EvalIdentityRule {
-    fn reduce(&self, plan: &Plan<Eval>) -> VortexResult<Option<PlanRef>> {
+    fn reduce(&self, plan: &Plan<Eval>, _session: &VortexSession) -> VortexResult<Option<PlanRef>> {
         if plan.expression().is_root() {
             Ok(Some(plan.child_plan()?))
         } else {
             Ok(None)
         }
+    }
+}
+
+/// Eval(expr1, Eval(expr2)) -> Eval(expr1 . expr2)
+#[derive(Debug)]
+pub(crate) struct EvalEvalRule;
+impl PlanParentReduceRule<Eval> for EvalEvalRule {
+    type Parent = Eval;
+    fn reduce_parent(
+        &self,
+        child: &Plan<Eval>,
+        parent: &Plan<Eval>,
+        _: usize,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<PlanRef>> {
+        let child_expr = child.expression();
+        let expr = parent.expression().clone().transform_down(|expr| {
+            if !expr.is_root() {
+                return Ok(Transformed::no(expr));
+            }
+            Ok(Transformed {
+                value: child_expr.clone(),
+                order: TraversalOrder::Skip,
+                changed: true,
+            })
+        })?;
+        // We want to fold repeated expressions like ($.a).b -> $.a.b.
+        let expr = expr.into_inner().optimize()?;
+        let plan = EvalPlan::try_new(expr, child.child_plan()?)?;
+        Ok(Some(plan.into_plan()))
+    }
+}
+
+/// Eval(pack({0: expr})) -> PackPlan(expr) for a non-nullable pack
+#[derive(Debug)]
+pub(crate) struct EvalPackRule;
+impl PlanReduceRule<Eval> for EvalPackRule {
+    fn reduce(&self, plan: &Plan<Eval>, _session: &VortexSession) -> VortexResult<Option<PlanRef>> {
+        let Some(expr) = plan.expression.as_opt::<Pack>() else {
+            return Ok(None);
+        };
+        if expr.nullability != Nullability::NonNullable {
+            return Ok(None);
+        }
+        let [child_expr] = plan.expression.children() else {
+            return Ok(None);
+        };
+        let fields = StructFields::new(expr.names.clone(), vec![child_expr.dtype().clone()]);
+
+        let child_plan = plan.child(0)?.vortex_expect("no child plan");
+        let child_plan = EvalPlan::try_new(child_expr.clone(), child_plan)?.into_plan();
+
+        let plan = PackPlan::try_new(
+            fields,
+            Nullability::NonNullable,
+            plan.row_count(),
+            vec![child_plan],
+            None,
+        )?;
+        Ok(Some(plan.into_plan()))
     }
 }

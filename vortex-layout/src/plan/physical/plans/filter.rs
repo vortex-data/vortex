@@ -22,8 +22,6 @@ use crate::plan::physical::check_child_count;
 use crate::plan::physical::operators::MaskStage;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
-use crate::plan::physical::pipeline::Reach;
-use crate::segments::SegmentId;
 
 /// Keeps only the selected rows of its child.
 ///
@@ -103,12 +101,12 @@ impl PlanVTable for Filter {
         mask: &Mask,
         compiler: &mut Compiler<'_>,
     ) -> VortexResult<Option<Chain>> {
+        if mask.all_false() {
+            return Ok(None);
+        }
         let child = plan.child_plan()?;
         if let Some(scan) = child.as_opt::<SegmentScan>() {
             return compiler.scan(scan, rows, Some(mask.clone()));
-        }
-        if mask.all_false() {
-            return Ok(None);
         }
         let len = usize::try_from(rows.end - rows.start)?;
         let predicate = plan.dtype().is_boolean();
@@ -120,14 +118,5 @@ impl PlanVTable for Filter {
                 chain.with(MaskStage::new(mask.clone(), predicate))
             }
         }))
-    }
-
-    fn reach(
-        plan: &Plan<Self>,
-        rows: Range<u64>,
-        at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
-    ) -> VortexResult<()> {
-        plan.child_plan()?.reach(rows, at, visit)
     }
 }

@@ -29,8 +29,14 @@ TEST_CASE("dtype to ArrowSchema", "[arrow]") {
 
     nanoarrow::UniqueSchema unique_schema;
     ArrowSchemaMove(&schema, unique_schema.get());
-    REQUIRE(unique_schema->format != nullptr);
+    REQUIRE(std::string_view(unique_schema->format) == "+s");
     REQUIRE(unique_schema->n_children == 2);
+    REQUIRE(std::string_view(unique_schema->children[0]->name) == "age");
+    REQUIRE(std::string_view(unique_schema->children[0]->format) == "C");
+    REQUIRE((unique_schema->children[0]->flags & ARROW_FLAG_NULLABLE) == 0);
+    REQUIRE(std::string_view(unique_schema->children[1]->name) == "height");
+    REQUIRE(std::string_view(unique_schema->children[1]->format) == "S");
+    REQUIRE((unique_schema->children[1]->flags & ARROW_FLAG_NULLABLE) != 0);
 }
 
 TEST_CASE("dtype from ArrowSchema", "[arrow]") {
@@ -80,8 +86,10 @@ TEST_CASE("Import Arrow array as Vortex array", "[arrow]") {
     Array a = vx.field(0);
     REQUIRE(a.is_primitive(I32));
     auto view = a.values<int32_t>(session);
-    REQUIRE(view.values()[0] == 10);
-    REQUIRE(view.values()[2] == 30);
+    REQUIRE(view.size() == 3);
+    for (size_t i = 0; i < view.size(); ++i) {
+        REQUIRE(view.values()[i] == 10 * (i + 1));
+    }
 }
 
 TEST_CASE("Scan partition to ArrowArrayStream", "[arrow]") {
@@ -109,6 +117,15 @@ TEST_CASE("Scan partition to ArrowArrayStream", "[arrow]") {
         REQUIRE(rc == NANOARROW_OK);
         if (chunk->release == nullptr) {
             break;
+        }
+        nanoarrow::UniqueArrayView view;
+        REQUIRE(ArrowArrayViewInitFromSchema(view.get(), schema.get(), &err) == NANOARROW_OK);
+        REQUIRE(ArrowArrayViewSetArray(view.get(), chunk.get(), &err) == NANOARROW_OK);
+        for (int64_t row = 0; row < chunk->length; ++row) {
+            REQUIRE_FALSE(ArrowArrayViewIsNull(view->children[0], row));
+            REQUIRE_FALSE(ArrowArrayViewIsNull(view->children[1], row));
+            REQUIRE(ArrowArrayViewGetUIntUnsafe(view->children[0], row) == rows + row);
+            REQUIRE(ArrowArrayViewGetUIntUnsafe(view->children[1], row) == (rows + row + 1) % 200);
         }
         rows += chunk->length;
     }

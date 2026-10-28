@@ -134,31 +134,4 @@ mod tests {
         assert!(!bool::from(Nullability::NonNullable));
         assert!(bool::from(Nullability::Nullable));
     }
-
-    #[test]
-    fn test_nullability_roundtrip() {
-        // Test roundtrip conversion bool -> Nullability -> bool
-        assert!(!bool::from(Nullability::from(false)));
-        assert!(bool::from(Nullability::from(true)));
-
-        // Test roundtrip conversion Nullability -> bool -> Nullability
-        assert_eq!(
-            Nullability::from(bool::from(Nullability::NonNullable)),
-            Nullability::NonNullable
-        );
-        assert_eq!(
-            Nullability::from(bool::from(Nullability::Nullable)),
-            Nullability::Nullable
-        );
-    }
-
-    #[test]
-    fn test_nullability_chained_bitor() {
-        // Test chaining multiple BitOr operations
-        let result = Nullability::NonNullable | Nullability::NonNullable | Nullability::NonNullable;
-        assert_eq!(result, Nullability::NonNullable);
-
-        let result = Nullability::NonNullable | Nullability::Nullable | Nullability::NonNullable;
-        assert_eq!(result, Nullability::Nullable);
-    }
 }

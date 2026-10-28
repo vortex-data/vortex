@@ -130,12 +130,9 @@ mod tests {
     use std::sync::LazyLock;
 
     use vortex_buffer::buffer;
-    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::array::ArrayPlugin;
     use crate::arrays::ScalarFn;
     use crate::arrays::Struct;
     use crate::arrays::StructArray;
@@ -152,20 +149,9 @@ mod tests {
     use crate::executor::VortexSessionExecute;
     use crate::optimizer::ArrayOptimizer;
     use crate::optimizer::kernels::KernelSession;
-    use crate::optimizer::kernels::ReduceParentFn;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::ScalarFnVTable;
-    use crate::scalar_fn::fns::cast::Cast;
     use crate::validity::Validity;
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
-
-    fn no_struct_cast_plugin(
-        _child: &ArrayRef,
-        _parent: &ArrayRef,
-        _child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        Ok(None)
-    }
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_struct_cast_field_reorder() {
@@ -242,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn struct_cast_plugin_can_be_overridden() {
+    fn empty_kernel_session_disables_struct_cast_reduction() {
         let source = StructArray::try_new(
             FieldNames::from(["a", "b"]),
             vec![
@@ -262,13 +248,8 @@ mod tests {
         );
 
         let cast = source.cast(target).unwrap();
-        let kernels = KernelSession::empty();
-        kernels.kernels().register_reduce_parent(
-            Cast.id(),
-            Struct.id(),
-            &[no_struct_cast_plugin as ReduceParentFn],
-        );
-        let session = VortexSession::empty().with_some(kernels);
+        assert!(cast.optimize_ctx(&SESSION).unwrap().is::<Struct>());
+        let session = VortexSession::empty().with_some(KernelSession::empty());
 
         let optimized = cast.optimize_ctx(&session).unwrap();
         assert!(optimized.is::<ScalarFn>());

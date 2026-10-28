@@ -244,22 +244,6 @@ mod tests {
     use crate::dtype::PType;
 
     #[test]
-    fn test_list_scalar_creation() {
-        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
-        let children = vec![
-            Scalar::primitive(1i32, Nullability::NonNullable),
-            Scalar::primitive(2i32, Nullability::NonNullable),
-            Scalar::primitive(3i32, Nullability::NonNullable),
-        ];
-        let list_scalar = Scalar::list(element_dtype, children, Nullability::NonNullable);
-
-        let list = list_scalar.as_list();
-        assert_eq!(list.len(), 3);
-        assert!(!list.is_empty());
-        assert!(!list.is_null());
-    }
-
-    #[test]
     fn test_empty_list() {
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
         let list_scalar = Scalar::list_empty(element_dtype, Nullability::NonNullable);
@@ -291,6 +275,9 @@ mod tests {
         let list_scalar = Scalar::list(element_dtype, children, Nullability::NonNullable);
 
         let list = list_scalar.as_list();
+        assert_eq!(list.len(), 3);
+        assert!(!list.is_empty());
+        assert!(!list.is_null());
 
         // Test element access
         let elem0 = list.element(0).unwrap();
@@ -340,8 +327,7 @@ mod tests {
 
         let list = list_scalar.as_list();
         let display = format!("{list}");
-        assert!(display.contains("1"));
-        assert!(display.contains("2"));
+        assert_eq!(display, "[1i32, 2i32]");
     }
 
     #[test]
@@ -429,28 +415,6 @@ mod tests {
         let list2 = list_scalar2.as_list();
 
         assert!(list1.partial_cmp(&list2).is_none());
-    }
-
-    #[test]
-    fn test_list_hash() {
-        let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
-        let children = vec![
-            Scalar::primitive(1i32, Nullability::NonNullable),
-            Scalar::primitive(2i32, Nullability::NonNullable),
-        ];
-        let list_scalar = Scalar::list(element_dtype, children, Nullability::NonNullable);
-
-        let list = list_scalar.as_list();
-
-        let mut hasher1 = DefaultHasher::new();
-        list.hash(&mut hasher1);
-        let hash1 = hasher1.finish();
-
-        let mut hasher2 = DefaultHasher::new();
-        list.hash(&mut hasher2);
-        let hash2 = hasher2.finish();
-
-        assert_eq!(hash1, hash2);
     }
 
     #[test]

@@ -137,7 +137,7 @@ mod tests {
 
             let partial = fut.slice(0..mask.len() - 1);
             assert_eq!(partial.len(), mask.len() - 1);
-            assert_eq!(partial.await?, mask.slice(0..mask.len() - 1));
+            assert_eq!(partial.await?, Mask::from_iter([true, false, true, true]));
             Ok(())
         })
     }

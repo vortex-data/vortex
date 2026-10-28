@@ -134,7 +134,7 @@ impl VTable for Slice {
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         // TODO(joe): make this configurable
-        vortex_bail!("Slice array is not serializable")
+        Ok(None)
     }
 
     fn deserialize(
@@ -209,18 +209,22 @@ impl Debug for SliceMetadata {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::SliceArray;
     use crate::assert_arrays_eq;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_slice_slice() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Slice(1..4, Slice(2..8, base)) combines to Slice(3..6, base)
         let arr = PrimitiveArray::from_iter(0i32..10).into_array();
         let inner_slice = SliceArray::new(arr, 2..8).into_array();

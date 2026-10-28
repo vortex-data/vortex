@@ -4,9 +4,18 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
+use datafusion::arrow::array::Array;
+use datafusion::arrow::array::DictionaryArray;
 use datafusion::arrow::array::Int32Array;
 use datafusion::arrow::array::RecordBatch;
+use datafusion::arrow::array::RunArray;
+use datafusion::arrow::array::StringArray;
+use datafusion::arrow::array::UInt32Array;
 use datafusion::arrow::datatypes::DataType;
+use datafusion::arrow::datatypes::Field;
+use datafusion::arrow::datatypes::Int32Type;
+use datafusion::arrow::datatypes::Schema;
+use datafusion::arrow::datatypes::UInt32Type;
 use datafusion::arrow::util::pretty::pretty_format_batches;
 use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::SessionStateBuilder;
@@ -14,7 +23,11 @@ use datafusion::prelude::SessionConfig;
 use datafusion::prelude::SessionContext;
 use datafusion_common::GetExt;
 use datafusion_common::arrow::compute::concat_batches;
+use datafusion_datasource::file_scan_config::FileScanConfig;
+use datafusion_datasource::source::DataSourceExec;
+use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::display::DisplayableExecutionPlan;
+use datafusion_physical_plan::filter::FilterExec;
 use insta::assert_snapshot;
 use object_store::ObjectStore;
 use object_store::memory::InMemory;
@@ -42,13 +55,20 @@ use vortex::layout::layouts::table::TableStrategy;
 use vortex::session::VortexSession;
 
 use crate::VortexFormatFactory;
+use crate::VortexSource;
 use crate::common_tests::TestSessionContext;
 
 fn make_session(
     object_store: Arc<dyn ObjectStore>,
     repartition_file_scans: bool,
+    scan_v2: bool,
 ) -> SessionContext {
-    let factory = Arc::new(VortexFormatFactory::new());
+    let factory = Arc::new(
+        VortexFormatFactory::new().with_options(crate::VortexTableOptions {
+            scan_v2,
+            ..Default::default()
+        }),
+    );
 
     let config = SessionConfig::new()
         .with_target_partitions(4)
@@ -138,15 +158,32 @@ async fn test_query_file(#[values(Some(1), None)] limit: Option<usize>) -> anyho
 
     assert_eq!(summary.row_count(), 8);
 
-    let read_row_count = ctx
+    let batches = ctx
         .session
         .sql("SELECT * from '/test.vortex'")
         .await?
         .limit(0, limit)?
-        .count()
+        .collect()
         .await?;
 
-    assert_eq!(read_row_count, limit.unwrap_or(8));
+    let mut seen = std::collections::BTreeSet::new();
+    for batch in &batches {
+        assert_eq!(batch.num_columns(), 2);
+        for row in 0..batch.num_rows() {
+            let number = datafusion_common::ScalarValue::try_from_array(batch.column(1), row)?;
+            let datafusion_common::ScalarValue::UInt32(Some(number)) = number else {
+                panic!("expected non-null UInt32");
+            };
+            assert!((1..=8).contains(&number));
+            assert!(seen.insert(number), "duplicate row {number}");
+            let expected = ["ab", "foo", "bar", "baz"][(number as usize - 1) % 4];
+            assert_eq!(
+                datafusion_common::ScalarValue::try_from_array(batch.column(0), row)?,
+                datafusion_common::ScalarValue::Utf8View(Some(expected.to_owned()))
+            );
+        }
+    }
+    assert_eq!(seen.len(), limit.unwrap_or(8));
 
     Ok(())
 }
@@ -440,9 +477,11 @@ async fn doc_example() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[rstest]
 #[tokio::test]
-async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits() -> anyhow::Result<()>
-{
+async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits(
+    #[values(false, true)] scan_v2: bool,
+) -> anyhow::Result<()> {
     let store = Arc::new(InMemory::new()) as _;
     let session = VortexSession::default();
     let path = object_store::path::Path::parse("/split-aligned-repartition.vortex")?;
@@ -513,8 +552,8 @@ async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits() -
             .any(|window| window[0] != window[1])
     );
 
-    let serial_ctx = make_session(Arc::clone(&store), false);
-    let repartitioned_ctx = make_session(Arc::clone(&store), true);
+    let serial_ctx = make_session(Arc::clone(&store), false, scan_v2);
+    let repartitioned_ctx = make_session(Arc::clone(&store), true, scan_v2);
     let repartitioned_partitions = count_query_partitions(
         &repartitioned_ctx,
         "SELECT value FROM '/split-aligned-repartition.vortex'",
@@ -713,8 +752,10 @@ async fn test_predicate_memtable_oracle(
     #[case] projection: &str,
     #[case] predicate: &str,
     #[values(false, true)] pushdown: bool,
+    #[values(false, true)] scan_v2: bool,
 ) -> anyhow::Result<()> {
     let options = crate::VortexTableOptions {
+        scan_v2,
         projection_pushdown: pushdown,
         predicate_pushdown: pushdown,
         ..Default::default()
@@ -775,5 +816,85 @@ async fn test_predicate_memtable_oracle(
             "Vortex/MemTable mismatch for {projection} WHERE {predicate}: {actual:?} / {expected:?}"
         ),
     }
+    Ok(())
+}
+
+/// Returns whether `plan` filters rows in DataFusion and whether a Vortex scan accepted a
+/// predicate.
+fn filter_placement(plan: &dyn ExecutionPlan) -> (bool, bool) {
+    let mut in_datafusion = plan.downcast_ref::<FilterExec>().is_some();
+    let mut in_scan = plan
+        .downcast_ref::<DataSourceExec>()
+        .and_then(|exec| exec.data_source().downcast_ref::<FileScanConfig>())
+        .and_then(|config| config.file_source.downcast_ref::<VortexSource>())
+        .is_some_and(|source| source.predicate().is_some());
+    for child in plan.children() {
+        let (child_in_datafusion, child_in_scan) = filter_placement(child.as_ref());
+        in_datafusion |= child_in_datafusion;
+        in_scan |= child_in_scan;
+    }
+    (in_datafusion, in_scan)
+}
+
+/// Regression test for #10634: string comparisons on `REE<Dict<Utf8>>` columns are pushed into
+/// the scan and return the same rows as DataFusion.
+#[rstest]
+#[case::eq("ree_dict = 'x'")]
+#[case::not_eq("ree_dict <> 'x'")]
+#[case::or("ree_dict = 'x' OR ree_dict = 'y'")]
+#[case::in_list("ree_dict IN ('y', 'unused')")]
+#[case::and("ree_dict = 'x' AND id > 1")]
+#[tokio::test]
+async fn test_ree_dict_predicate_memtable_oracle(
+    #[case] predicate: &str,
+    #[values(false, true)] pushdown: bool,
+) -> anyhow::Result<()> {
+    let options = crate::VortexTableOptions {
+        projection_pushdown: pushdown,
+        predicate_pushdown: pushdown,
+        ..Default::default()
+    };
+    let ctx = TestSessionContext::new_with_factory(Arc::new(
+        VortexFormatFactory::new().with_options(options),
+    ));
+    // Rows: x, x, NULL, y, y, x. The dictionary also holds a value no key references.
+    let values = DictionaryArray::<UInt32Type>::try_new(
+        UInt32Array::from(vec![Some(0), None, Some(1), Some(0)]),
+        Arc::new(StringArray::from(vec!["x", "y", "unused"])),
+    )?;
+    let ree = RunArray::<Int32Type>::try_new(&Int32Array::from(vec![2, 3, 5, 6]), &values)?;
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int32, false),
+        Field::new("ree_dict", ree.data_type().clone(), true),
+    ]));
+    let batch = RecordBatch::try_new(
+        Arc::clone(&schema),
+        vec![Arc::new(Int32Array::from_iter_values(0..6)), Arc::new(ree)],
+    )?;
+    ctx.write_arrow_batch("ree_dict.vortex", &batch).await?;
+    let actual_table = ctx
+        .table_provider("actual", "/ree_dict.vortex", schema.as_ref().clone())
+        .await?;
+    ctx.session.register_table("actual", actual_table)?;
+    ctx.session.register_table(
+        "oracle",
+        Arc::new(datafusion::datasource::MemTable::try_new(
+            schema,
+            vec![vec![batch]],
+        )?),
+    )?;
+
+    let query = |table: &str| format!("SELECT id FROM {table} WHERE {predicate} ORDER BY id");
+    let actual = ctx.session.sql(&query("actual")).await?;
+    let plan = actual.clone().create_physical_plan().await?;
+    assert_eq!(
+        filter_placement(plan.as_ref()),
+        (!pushdown, pushdown),
+        "{}",
+        DisplayableExecutionPlan::new(plan.as_ref()).indent(true)
+    );
+    let actual = actual.collect().await?;
+    let expected = ctx.session.sql(&query("oracle")).await?.collect().await?;
+    assert_eq!(batch_values(&actual), batch_values(&expected));
     Ok(())
 }

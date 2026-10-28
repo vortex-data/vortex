@@ -196,11 +196,11 @@ impl<O: IntegerPType, S: IntegerPType> ColumnExporter for ListViewExporter<O, S>
 mod tests {
     use vortex::array::IntoArray as _;
     use vortex::array::VortexSessionExecute;
+    use vortex::array::arrays::RunEnd;
     use vortex::array::arrays::VarBinArray;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
-    use vortex_runend::RunEnd;
 
     use super::*;
     use crate::SESSION;
@@ -213,7 +213,13 @@ mod tests {
         let elements = Buffer::<u32>::empty().into_array();
         let offsets = Buffer::<u32>::empty().into_array();
         let sizes = Buffer::<u32>::empty().into_array();
-        let list = ListViewArray::try_new(elements, offsets, sizes, Validity::AllValid)?;
+        let list = ListViewArray::try_new(
+            elements,
+            offsets,
+            sizes,
+            Validity::AllValid,
+            &mut SESSION.create_execution_ctx(),
+        )?;
         let list = unsafe { list.with_zero_copy_to_list(true) };
         let list = list.into_array();
 
@@ -244,8 +250,14 @@ mod tests {
         let elements = buffer![0, 1, 2, 3, 4, 5].into_array();
         let offsets = buffer![1u8, 0, 3].into_array();
         let sizes = buffer![1u8, 1, 1].into_array();
-        let list =
-            ListViewArray::try_new(elements, offsets, sizes, Validity::AllValid)?.into_array();
+        let list = ListViewArray::try_new(
+            elements,
+            offsets,
+            sizes,
+            Validity::AllValid,
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .into_array();
 
         let list_type = LogicalType::list_type(LogicalType::int32())?;
         let mut chunk = DataChunk::new([list_type]);
@@ -274,7 +286,13 @@ mod tests {
         let elements = buffer![0, 1, 2, 3, 4, 5].into_array();
         let offsets = buffer![1u8, 2, 3].into_array();
         let sizes = buffer![1u8, 1, 1].into_array();
-        let list = ListViewArray::try_new(elements, offsets, sizes, Validity::AllValid)?;
+        let list = ListViewArray::try_new(
+            elements,
+            offsets,
+            sizes,
+            Validity::AllValid,
+            &mut SESSION.create_execution_ctx(),
+        )?;
         let list = unsafe { list.with_zero_copy_to_list(true) };
         let list = list.into_array();
 
@@ -312,7 +330,13 @@ mod tests {
         let offsets = buffer![0u8, 0, 3, 4].into_array();
         let sizes = buffer![0u8, 3, 1, 0].into_array();
         let validities = Validity::from_iter([true, true, false, true]);
-        let list = ListViewArray::try_new(elements, offsets, sizes, validities)?;
+        let list = ListViewArray::try_new(
+            elements,
+            offsets,
+            sizes,
+            validities,
+            &mut SESSION.create_execution_ctx(),
+        )?;
         let list = unsafe { list.with_zero_copy_to_list(true) };
         let list = list.into_array();
 
@@ -346,8 +370,14 @@ mod tests {
 
         let offsets = buffer![1u32, 2, 4].into_array();
         let sizes = buffer![1u8, 2, 1].into_array();
-        let list =
-            ListViewArray::try_new(elements, offsets, sizes, Validity::AllValid)?.into_array();
+        let list = ListViewArray::try_new(
+            elements,
+            offsets,
+            sizes,
+            Validity::AllValid,
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .into_array();
 
         let list_type = LogicalType::list_type(LogicalType::float32())?;
         let mut chunk = DataChunk::new([list_type]);

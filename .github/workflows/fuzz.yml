@@ -50,7 +50,10 @@ jobs:
   attempt-fix-io:
     name: "Attempt Fix for IO Fuzz Crash"
     needs: report-io-fuzz-failures
-    if: needs.report-io-fuzz-failures.outputs.issue_created == 'true'
+    # Without a status function, `if` adds an implicit success(), which checks
+    # all upstream jobs. The fuzz job fails when it finds a crash, so success()
+    # is always false here. This applies to each attempt-fix-* job below.
+    if: ${{ !cancelled() && needs.report-io-fuzz-failures.outputs.issue_created == 'true' }}
     permissions:
       # actions: read is needed for `gh run download` of the crash artifact.
       actions: read
@@ -104,7 +107,7 @@ jobs:
   attempt-fix-ops:
     name: "Attempt Fix for Array Operations Fuzz Crash"
     needs: report-ops-fuzz-failures
-    if: needs.report-ops-fuzz-failures.outputs.issue_created == 'true'
+    if: ${{ !cancelled() && needs.report-ops-fuzz-failures.outputs.issue_created == 'true' }}
     permissions:
       # actions: read is needed for `gh run download` of the crash artifact.
       actions: read
@@ -157,7 +160,7 @@ jobs:
   attempt-fix-fsst-like:
     name: "Attempt Fix for FSST LIKE Fuzz Crash"
     needs: report-fsst-like-fuzz-failures
-    if: needs.report-fsst-like-fuzz-failures.outputs.issue_created == 'true'
+    if: ${{ !cancelled() && needs.report-fsst-like-fuzz-failures.outputs.issue_created == 'true' }}
     permissions:
       # actions: read is needed for `gh run download` of the crash artifact.
       actions: read
@@ -210,7 +213,7 @@ jobs:
   attempt-fix-row-encode:
     name: "Attempt Fix for Row Encoding Fuzz Crash"
     needs: report-row-encode-fuzz-failures
-    if: needs.report-row-encode-fuzz-failures.outputs.issue_created == 'true'
+    if: ${{ !cancelled() && needs.report-row-encode-fuzz-failures.outputs.issue_created == 'true' }}
     permissions:
       # actions: read is needed for `gh run download` of the crash artifact.
       actions: read
@@ -263,7 +266,7 @@ jobs:
   attempt-fix-compress:
     name: "Attempt Fix for Compress Roundtrip Fuzz Crash"
     needs: report-compress-fuzz-failures
-    if: needs.report-compress-fuzz-failures.outputs.issue_created == 'true'
+    if: ${{ !cancelled() && needs.report-compress-fuzz-failures.outputs.issue_created == 'true' }}
     permissions:
       # actions: read is needed for `gh run download` of the crash artifact.
       actions: read

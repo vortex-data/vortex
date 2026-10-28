@@ -12,17 +12,21 @@ mod take;
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::scalar::PValue;
+    use vortex_session::VortexSession;
 
     use crate::Sequence;
     use crate::SequenceArray;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     // Basic sequence arrays - A[i] = base + i * multiplier
@@ -110,9 +114,6 @@ mod tests {
     ).unwrap())] // Results in [1000, 1100, 1200, ..., 150900]
 
     fn test_sequence_consistency(#[case] array: SequenceArray) {
-        test_array_consistency(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_array_consistency(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

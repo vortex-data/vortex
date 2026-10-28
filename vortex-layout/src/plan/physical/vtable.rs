@@ -16,9 +16,7 @@ use vortex_session::registry::Id;
 use crate::plan::physical::PlanChildren;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
-use crate::plan::physical::pipeline::Reach;
 use crate::plan::physical::typed::Plan;
-use crate::segments::SegmentId;
 
 /// A unique identifier for a plan operator.
 pub type PlanId = Id;
@@ -91,21 +89,5 @@ pub trait PlanVTable: 'static + Clone + Sized + Send + Sync + Debug {
     ) -> VortexResult<Option<Chain>> {
         let _ = (rows, mask, compiler);
         vortex_bail!("Plan {} has no pipeline implementation", plan.vtable().id())
-    }
-
-    /// Visits every segment compiling this plan over `rows` could read, under any mask, with
-    /// the rows of the scanned plan it is read for, so a segment more than one reader reads is
-    /// decoded once. `at` maps this plan's rows to the scanned plan's.
-    ///
-    /// The default visits nothing, so the segments under a plan that does not override it are
-    /// read by each reader alone.
-    fn reach(
-        plan: &Plan<Self>,
-        rows: Range<u64>,
-        at: &Reach,
-        visit: &mut dyn FnMut(SegmentId, Range<u64>),
-    ) -> VortexResult<()> {
-        let _ = (plan, rows, at, visit);
-        Ok(())
     }
 }

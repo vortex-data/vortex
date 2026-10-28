@@ -436,10 +436,17 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
 
         for (kind, expected, actual) in cases {
-            assert!(
-                verify_canonicalized("fixture", &expected, &actual, &mut ctx).is_err(),
-                "{kind} mismatch must be rejected"
-            );
+            let err = verify_canonicalized("fixture", &expected, &actual, &mut ctx)
+                .unwrap_err()
+                .to_string();
+            let expected_error = match kind {
+                "dtype" => "canonicalized dtype",
+                "length" => "canonicalized row count",
+                "validity" => "validity mismatch at row 1",
+                "value" => "canonicalized value differs from input at row 1",
+                _ => unreachable!(),
+            };
+            assert!(err.contains(expected_error), "{kind}: {err}");
         }
     }
 
@@ -459,16 +466,21 @@ mod tests {
 
     #[test]
     fn iterations_must_be_positive() -> Result<()> {
-        assert!(validate_iterations(0).is_err());
+        assert_eq!(
+            validate_iterations(0).unwrap_err().to_string(),
+            "iterations must be greater than zero"
+        );
         validate_iterations(1)
     }
 
     #[tokio::test]
     async fn clickbench_shard_rejects_out_of_range() {
-        assert!(
+        assert_eq!(
             download_clickbench_shard(CLICKBENCH_SHARD_COUNT)
                 .await
-                .is_err()
+                .unwrap_err()
+                .to_string(),
+            "invalid ClickBench shard 100 (want 0..99)",
         );
     }
 
@@ -495,10 +507,14 @@ mod tests {
                 name: name.to_string(),
                 array,
             };
-            assert!(
-                prepare_column(&column, &mut ctx).is_err(),
-                "{name} input must be rejected"
-            );
+            let err = prepare_column(&column, &mut ctx).unwrap_err().to_string();
+            let expected_error = match name {
+                "null" => "contains 1 null strings",
+                "empty" => "zero uncompressed bytes",
+                "binary" => "requires Utf8 input",
+                _ => unreachable!(),
+            };
+            assert!(err.contains(expected_error), "{name}: {err}");
         }
     }
 }

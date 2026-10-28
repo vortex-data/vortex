@@ -34,7 +34,6 @@ use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::pack::Pack;
 
@@ -97,10 +96,10 @@ impl GetItem {
         }
 
         // A nullable pack intersects its validity into the field, so mask the field with an
-        // all-true literal to make its dtype nullable.
+        // all-true constant to make its dtype nullable.
         Ok(Some(struct_node.new_node(
             Mask.bind(EmptyOptions),
-            &[field, struct_node.new_node(Literal.bind(true.into()), &[])?],
+            &[field, struct_node.new_constant(true.into())],
         )?))
     }
 }
@@ -226,8 +225,11 @@ impl ScalarFnVTable for GetItem {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::GetItem;
     use crate::ArrayRef;
@@ -237,8 +239,10 @@ mod tests {
     use crate::arrays::ConstantArray;
     use crate::arrays::Filter;
     use crate::arrays::Primitive;
+    use crate::arrays::PrimitiveArray;
     use crate::arrays::ScalarFn;
     use crate::arrays::Slice;
+    use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::FieldName;
@@ -255,6 +259,8 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::get_item::StructArray;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -274,7 +280,12 @@ mod tests {
                 .is_some_and(|f| f.signature().is_strict())
         );
         let item = st.into_array().apply(&get_item).unwrap();
-        assert_eq!(item.dtype(), &DType::from(PType::I32))
+        assert_eq!(item.dtype(), &DType::from(PType::I32));
+        assert_arrays_eq!(
+            item,
+            buffer![0i32, 1, 2].into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -302,6 +313,11 @@ mod tests {
             item.dtype(),
             &DType::Primitive(PType::I32, Nullability::Nullable)
         );
+        assert_arrays_eq!(
+            item,
+            PrimitiveArray::from_option_iter([None::<i32>]),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -318,6 +334,11 @@ mod tests {
         assert_eq!(
             item.dtype(),
             &DType::Primitive(PType::I32, Nullability::Nullable)
+        );
+        assert_arrays_eq!(
+            item,
+            PrimitiveArray::from_option_iter([Some(1i32)]),
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }
@@ -336,7 +357,7 @@ mod tests {
             (0..128).map(|idx| Scalar::primitive(idx, NonNullable)),
         );
         let array = ConstantArray::new(scalar, 1_000_000).into_array();
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let item: ArrayRef = GetItem::try_new(array, "f97")?
             .into_array()
@@ -363,6 +384,11 @@ mod tests {
 
         assert!(item.is::<Filter>());
         assert!(!item.is::<ScalarFn>());
+        assert_arrays_eq!(
+            item,
+            buffer![0i32, 2].into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
         Ok(())
     }
 
@@ -375,6 +401,11 @@ mod tests {
         assert!(item.is::<Primitive>());
         assert!(!item.is::<Slice>());
         assert!(!item.is::<ScalarFn>());
+        assert_arrays_eq!(
+            item,
+            buffer![1i32, 2].into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
         Ok(())
     }
 
@@ -392,6 +423,11 @@ mod tests {
             &DType::Primitive(PType::I32, Nullability::Nullable)
         );
         assert!(!item.is::<ScalarFn>());
+        assert_arrays_eq!(
+            item,
+            PrimitiveArray::from_option_iter([Some(0i32), None, Some(2)]),
+            &mut SESSION.create_execution_ctx()
+        );
         Ok(())
     }
 
@@ -470,6 +506,7 @@ mod tests {
 
     #[test]
     fn get_item_filter_list_field() {
+        let mut ctx = SESSION.create_execution_ctx();
         use vortex_mask::Mask;
 
         use crate::arrays::BoolArray;
@@ -480,6 +517,7 @@ mod tests {
             buffer![0f32, 1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11.].into_array(),
             buffer![2u64, 4, 6, 8, 10, 12].into_array(),
             Validity::Array(BoolArray::from_iter([true, true, false, true, true]).into_array()),
+            &mut ctx,
         )
         .unwrap();
 
@@ -497,6 +535,14 @@ mod tests {
         )
         .unwrap();
 
-        st.into_array().apply(&get_item("data", root())).unwrap();
+        let result = st.into_array().apply(&get_item("data", root())).unwrap();
+        let expected = ListArray::try_new(
+            buffer![2f32, 3., 4., 5.].into_array(),
+            buffer![0u64, 2, 4].into_array(),
+            Validity::AllValid,
+            &mut ctx,
+        )
+        .unwrap();
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
     }
 }

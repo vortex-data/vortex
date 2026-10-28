@@ -1,0 +1,101 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTTTTTTTTTTTTRTR
+WITH customer_total_return AS
+  (SELECT cr_returning_customer_sk AS ctr_customer_sk ,
+          ca_state AS ctr_state,
+          sum(cr_return_amt_inc_tax) AS ctr_total_return
+   FROM catalog_returns ,
+        date_dim ,
+        customer_address
+   WHERE cr_returned_date_sk = d_date_sk
+     AND d_year = 2000
+     AND cr_returning_addr_sk = ca_address_sk
+   GROUP BY cr_returning_customer_sk ,
+            ca_state)
+SELECT c_customer_id,
+       c_salutation,
+       c_first_name,
+       c_last_name,
+       ca_street_number,
+       ca_street_name ,
+       ca_street_type,
+       ca_suite_number,
+       ca_city,
+       ca_county,
+       ca_state,
+       ca_zip,
+       ca_country,
+       ca_gmt_offset ,
+       ca_location_type,
+       ctr_total_return
+FROM customer_total_return ctr1 ,
+     customer_address ,
+     customer
+WHERE ctr1.ctr_total_return >
+    (SELECT avg(ctr_total_return)*1.2
+     FROM customer_total_return ctr2
+     WHERE ctr1.ctr_state = ctr2.ctr_state)
+  AND ca_address_sk = c_current_addr_sk
+  AND ca_state = 'GA'
+  AND ctr1.ctr_customer_sk = c_customer_sk
+ORDER BY c_customer_id,
+         c_salutation,
+         c_first_name,
+         c_last_name,
+         ca_street_number,
+         ca_street_name ,
+         ca_street_type,
+         ca_suite_number,
+         ca_city,
+         ca_county,
+         ca_state,
+         ca_zip,
+         ca_country,
+         ca_gmt_offset ,
+         ca_location_type,
+         ctr_total_return
+LIMIT 100;
+----
+AAAAAAAAACHAAAAA Ms. Naomi Lee 473 15th  Dr. Suite 210 Spring Hill Murray County GA 36787 United States -5 apartment 1740.17
+AAAAAAAAAOBCAAAA Miss Rose Mueller 87 Maple  Drive Suite 360 Mountain View Candler County GA 34466 United States -5 apartment 5645.8
+AAAAAAAABBBBAAAA Miss Ann Fleming 7 Ridge 2nd Road Suite 490 Glendale Jenkins County GA 33951 United States -5 condo 2627.96
+AAAAAAAABFEBAAAA Sir Frances Smith 140 3rd Park Ct. Suite 420 NULL NULL GA NULL NULL NULL single family 1247.61
+AAAAAAAABJDAAAAA Mr. Rob Blanco 791 Chestnut Main Ln Suite 70 Plainview Monroe County GA 33683 United States -5 single family 2868.75
+AAAAAAAACINAAAAA Mr. Charles Perry 264 Main  Drive Suite V Cedar Grove Wilcox County GA 30411 United States -5 condo 1854.97
+AAAAAAAACMBBAAAA Dr. Michael Alvarado 91 Sunset Lincoln Ln Suite 390 Unionville Tift County GA 31711 United States -5 apartment 2478.75
+AAAAAAAADCEAAAAA Dr. Lori Cervantes 679 River 9th Lane Suite 310 Maple Grove Upson County GA 38252 United States -5 single family 1675.62
+AAAAAAAADHCCAAAA Dr. Lisa Gabriel 705 Park 2nd Avenue Suite 50 Cedar Grove Chattooga County GA 30411 United States -5 condo 2616.12
+AAAAAAAAEALBAAAA Miss Carolyn Ginn 914 Ash Lake Cir. Suite K Berea Oglethorpe County GA 33804 United States -5 apartment 2092.15
+AAAAAAAAEGCAAAAA Dr. Dana Nelson 983 Hillcrest Forest ST Suite 370 Valley View Crisp County GA 35124 United States -5 single family 2872.42
+AAAAAAAAEIGCAAAA Miss Clara Farmer 736 Broadway Dogwood Ln Suite O Bunker Hill Troup County GA 30150 United States -5 apartment 3895.65
+AAAAAAAAFGAAAAAA Dr. Jeffrey Bruce 52 6th Park Drive Suite E Farmington Johnson County GA 39145 United States -5 condo 1677.48
+AAAAAAAAGEEBAAAA Ms. April Stewart 791 3rd  Drive Suite 240 Edgewood Muscogee County GA 30069 United States -5 single family 5373.88
+AAAAAAAAGGGBAAAA Dr. Timothy Werner 983 Cedar Johnson Cir. Suite 360 Edgewood Jenkins County GA 30069 United States -5 condo 1534.38
+AAAAAAAAGGGBAAAA Dr. Timothy Werner 983 Cedar Johnson Cir. Suite 360 Edgewood Jenkins County GA 30069 United States -5 condo 4686.47
+AAAAAAAAGHABAAAA Mrs. Lina Abbott 173 Woodland  Road Suite T Bunker Hill Candler County GA 30150 United States -5 apartment 3307.95
+AAAAAAAAGLLAAAAA Mr. Christian Sexton 18 Hickory  Circle Suite 430 Pine Grove Ware County GA 34593 United States -5 single family 2790.31
+AAAAAAAAHHCCAAAA Mrs. Dawn Crabtree 292 Oak  Boulevard Suite U Pleasant Grove Warren County GA 34136 United States -5 condo 9254.66
+AAAAAAAAHKGAAAAA Mr. Brian Smith 457 Park River Street Suite 170 Woodville Dawson County GA 34289 United States -5 condo 7246.59
+AAAAAAAAIHGAAAAA Dr. Jack Partin 377 Pine Broadway Blvd Suite 300 Clifton Clay County GA 38014 United States -5 condo 4979.92
+AAAAAAAAIPOBAAAA Miss Diane Zavala 253 South Meadow Boulevard Suite 20 Pine Grove Wilkes County GA 34593 United States -5 condo 5440.68
+AAAAAAAAJJDBAAAA Miss Tamara Hadden 116 Washington Cherry Street Suite Y Riceville Colquitt County GA 35867 United States -5 apartment 1740.06
+AAAAAAAAJJDBAAAA Miss Tamara Hadden 116 Washington Cherry Street Suite Y Riceville Colquitt County GA 35867 United States -5 apartment 13501.03
+AAAAAAAAJJNAAAAA Dr. Joseph Ryder 578 Pine  Pkwy Suite 430 Ruth Macon County GA 30309 United States -5 condo 6531.96
+AAAAAAAAKAAAAAAA Ms. Albert Brunson 307 7th Hillcrest Street Suite 70 Wildwood Union County GA 36871 United States -5 apartment 2093.46
+AAAAAAAAKGCAAAAA Sir James Mueller 545 Sixth  RD Suite U Plainview Long County GA 33683 United States -5 apartment 7929.26
+AAAAAAAALAJBAAAA Miss Vicki NULL 353 Sixth  Ln Suite 410 Oak Ridge Charlton County GA 38371 United States -5 condo 3990.14
+AAAAAAAALNBAAAAA Mr. Fletcher Palmer 453 Davis Pine Way Suite 410 Wildwood Peach County GA 36871 United States -5 condo 3919.93
+AAAAAAAALOACAAAA Dr. Margaret Toscano 916 Cherry Elm ST Suite 110 Providence Clay County GA 36614 United States -5 single family 4998.15
+AAAAAAAAMACAAAAA Dr. Sheldon Hewitt 860 4th  Boulevard Suite 240 Clinton Walker County GA 38222 United States -5 single family 1996.11
+AAAAAAAAMACAAAAA Dr. Sheldon Hewitt 860 4th  Boulevard Suite 240 Clinton Walker County GA 38222 United States -5 single family 5789.44
+AAAAAAAAMGHBAAAA Dr. Dale Walker 709 Second  Street Suite 440 Westminster DeKalb County GA 36549 United States -5 condo 2348.92
+AAAAAAAANJFAAAAA Mrs. Tina Jordan 321 Pine Woodland Avenue Suite 40 Five Points Spalding County GA 36098 United States -5 apartment 2644.71
+AAAAAAAAOIMAAAAA Dr. Kendra Terry 697 Railroad 7th Court Suite D Jamestown Burke County GA 36867 United States -5 condo 2056.31
+AAAAAAAAOKMAAAAA Miss Angel Foote 30 Willow  Wy Suite 230 Farmington Crisp County GA 39145 United States -5 single family 15761.18
+AAAAAAAAOLPBAAAA Mrs. Kathleen Morris 81 Lee 4th RD Suite 140 Centerville Coffee County GA 30059 United States -5 single family 4402.58
+AAAAAAAAOMOAAAAA Dr. Joe Mcnair 576 Church 9th Lane Suite C Springdale Camden County GA 38883 United States -5 apartment 4711.01
+AAAAAAAAPEEBAAAA Sir William Thomas 188 9th  Blvd Suite 340 Summit Dawson County GA 30499 United States -5 apartment 5352.96
+AAAAAAAAPHMAAAAA Mr. Michael Proctor 249 Elm  RD Suite R Georgetown Crisp County GA 37057 United States -5 condo 4798.56
+AAAAAAAAPONBAAAA Mr. Michael Leonard 430 Elm  Lane Suite 260 Greenfield Lumpkin County GA 35038 United States -5 apartment 2285.31

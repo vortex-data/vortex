@@ -40,7 +40,6 @@
 //! [Apache Datafusion]: https://github.com/apache/datafusion/tree/5fac581efbaffd0e6a9edf931182517524526afd/datafusion/expr
 
 pub mod aliases;
-pub mod analysis;
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
 pub mod bound_expression;
@@ -48,15 +47,13 @@ pub mod display;
 pub(crate) mod expression;
 mod exprs;
 pub(crate) mod field;
-pub mod forms;
+pub mod lambda;
 mod optimize;
 pub mod proto;
 pub mod scope;
 pub mod stats;
-pub mod transform;
 pub mod traversal;
 
-pub use analysis::*;
 pub use bound_expression::*;
 pub use expression::*;
 pub use exprs::and;
@@ -71,6 +68,7 @@ pub use exprs::cast;
 pub use exprs::checked_add;
 pub use exprs::col;
 pub use exprs::dynamic;
+pub use exprs::dynamic_expression;
 pub use exprs::dynamic_with_options;
 pub use exprs::eq;
 pub use exprs::ext_storage;
@@ -80,6 +78,7 @@ pub use exprs::gt;
 pub use exprs::gt_eq;
 pub use exprs::ilike;
 pub use exprs::in_list;
+pub use exprs::in_list_of;
 pub use exprs::is_nan;
 pub use exprs::is_not_null;
 pub use exprs::is_null;
@@ -90,6 +89,7 @@ pub use exprs::list_contains_opts;
 pub use exprs::list_length;
 pub use exprs::list_sum;
 pub use exprs::list_sum_opts;
+pub use exprs::list_transform;
 pub use exprs::lit;
 pub use exprs::lt;
 pub use exprs::lt_eq;
@@ -108,8 +108,10 @@ pub use exprs::replace_time_zone;
 pub use exprs::root;
 pub use exprs::select;
 pub use exprs::select_exclude;
+pub use exprs::var;
 pub use exprs::variant_get;
 pub use exprs::zip_expr;
+pub use lambda::*;
 pub use scope::*;
 
 #[cfg(feature = "_test-harness")]

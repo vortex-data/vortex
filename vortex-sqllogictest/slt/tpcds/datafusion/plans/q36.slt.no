@@ -83,8 +83,8 @@ logical_plan
 18)----------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_store_sk, ss_ext_sales_price, ss_net_profit]
 19)----------------------------------SubqueryAlias: d1
 20)------------------------------------Projection: date_dim.d_date_sk
-21)--------------------------------------Filter: date_dim.d_year = Int64(2001)
-22)----------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2001)]
+21)--------------------------------------Filter: date_dim.d_year = Int32(2001)
+22)----------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int32(2001)]
 23)------------------------------TableScan: item projection=[i_item_sk, i_class, i_category]
 24)--------------------------Projection: store.s_store_sk
 25)----------------------------Filter: store.s_state = Utf8View("TN")
@@ -103,8 +103,8 @@ logical_plan
 38)------------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_store_sk, ss_ext_sales_price, ss_net_profit]
 39)------------------------------------SubqueryAlias: d1
 40)--------------------------------------Projection: date_dim.d_date_sk
-41)----------------------------------------Filter: date_dim.d_year = Int64(2001)
-42)------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2001)]
+41)----------------------------------------Filter: date_dim.d_year = Int32(2001)
+42)------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int32(2001)]
 43)--------------------------------TableScan: item projection=[i_item_sk, i_class, i_category]
 44)----------------------------Projection: store.s_store_sk
 45)------------------------------Filter: store.s_state = Utf8View("TN")
@@ -123,8 +123,8 @@ logical_plan
 58)------------------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_item_sk, ss_store_sk, ss_ext_sales_price, ss_net_profit]
 59)------------------------------------SubqueryAlias: d1
 60)--------------------------------------Projection: date_dim.d_date_sk
-61)----------------------------------------Filter: date_dim.d_year = Int64(2001)
-62)------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int64(2001)]
+61)----------------------------------------Filter: date_dim.d_year = Int32(2001)
+62)------------------------------------------TableScan: date_dim projection=[d_date_sk, d_year], partial_filters=[date_dim.d_year = Int32(2001)]
 63)--------------------------------TableScan: item projection=[i_item_sk, i_class, i_category]
 64)----------------------------Projection: store.s_store_sk
 65)------------------------------Filter: store.s_state = Utf8View("TN")

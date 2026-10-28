@@ -47,7 +47,7 @@ use crate::bitpack_compress::bitpack_blocked_to_best_bit_widths;
 use crate::bitpack_compress::bitpack_encode_blocked;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty();
     session.arrays().register(BitPackedPatchedPlugin);
     session
 });
@@ -87,6 +87,8 @@ fn test_decode_bitpacked_patches() -> VortexResult<()> {
         ),
         &SESSION,
     )?;
+
+    assert_arrays_eq!(deserialized, parray, &mut ctx);
 
     let patched: PatchedArray = deserialized
         .try_downcast()
@@ -141,6 +143,8 @@ fn bitpacked_without_patches_stays_bitpacked() -> VortexResult<()> {
         &SESSION,
     )?;
 
+    assert_arrays_eq!(deserialized, parray, &mut ctx);
+
     let result = deserialized
         .try_downcast::<BitPacked>()
         .map_err(|a| vortex_err!("Expected deserialize BitPacked, got {}", a.encoding_id()))?;
@@ -183,7 +187,7 @@ fn primitive_array_returns_error() -> VortexResult<()> {
 }
 
 static PLUGIN_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty();
     session.arrays().register(BitPackedPlugin);
     session
 });
@@ -241,9 +245,9 @@ fn serde_roundtrip(
 fn vtable_serde_requires_plugin() -> VortexResult<()> {
     let values = PrimitiveArray::from_iter([1u8, 2, 3]).into_array();
     let array = BitPackedData::encode(&values, 2, &mut SESSION.create_execution_ctx())?;
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty();
     session.arrays().register(BitPacked);
-    assert!(session.array_serialize(&array.into_array()).is_err());
+    assert!(session.array_serialize(&array.into_array())?.is_none());
     Ok(())
 }
 

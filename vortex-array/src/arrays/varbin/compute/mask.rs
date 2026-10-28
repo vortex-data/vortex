@@ -31,13 +31,18 @@ impl MaskReduce for VarBin {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
+    use vortex_session::VortexSession;
+
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::VarBinArray;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_mask_var_bin_array() {
@@ -45,18 +50,12 @@ mod test {
             vec!["hello", "world", "filter", "good", "bye"],
             DType::Utf8(Nullability::NonNullable),
         );
-        test_mask_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_mask_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
 
         let array = VarBinArray::from_iter(
             vec![Some("hello"), None, Some("filter"), Some("good"), None],
             DType::Utf8(Nullability::Nullable),
         );
-        test_mask_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_mask_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

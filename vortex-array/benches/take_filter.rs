@@ -29,9 +29,12 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
+use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
@@ -63,17 +66,23 @@ const INDEX_SEED: u64 = 43;
 const LIST_SIZE: usize = 4;
 const NULL_INDEX_INTERVAL: usize = 8;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>()
+});
 
 fn primitive_array() -> ArrayRef {
     PrimitiveArray::from_iter(0..ARRAY_LEN as u32).into_array()
 }
 
 fn list_array(len: usize) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let elements = PrimitiveArray::from_iter(0..(len * LIST_SIZE) as u32).into_array();
     let offsets = Buffer::from_iter((0..=len).map(|idx| (idx * LIST_SIZE) as u32)).into_array();
 
-    ListArray::try_new(elements, offsets, Validity::NonNullable)
+    ListArray::try_new(elements, offsets, Validity::NonNullable, &mut ctx)
         .unwrap()
         .into_array()
 }
@@ -164,9 +173,9 @@ fn take_filter_primitive_slice_mask_sequential_indices<const FILTERED_LEN: usize
     bencher: Bencher,
     num_indices: usize,
 ) {
-    let array = primitive_array()
-        .filter(slice_mask(ARRAY_LEN, FILTERED_LEN))
-        .unwrap();
+    let array = FilterArray::try_new(primitive_array(), slice_mask(ARRAY_LEN, FILTERED_LEN))
+        .unwrap()
+        .into_array();
     bench_take_filter(bencher, array, sequential_indices(num_indices));
 }
 
@@ -175,9 +184,9 @@ fn take_filter_primitive_slice_mask_random_indices<const FILTERED_LEN: usize>(
     bencher: Bencher,
     num_indices: usize,
 ) {
-    let array = primitive_array()
-        .filter(slice_mask(ARRAY_LEN, FILTERED_LEN))
-        .unwrap();
+    let array = FilterArray::try_new(primitive_array(), slice_mask(ARRAY_LEN, FILTERED_LEN))
+        .unwrap()
+        .into_array();
     bench_take_filter(bencher, array, random_indices(num_indices, FILTERED_LEN));
 }
 
@@ -232,9 +241,12 @@ fn take_filter_list_slice_mask_sequential_indices<const FILTERED_LEN: usize>(
     bencher: Bencher,
     num_indices: usize,
 ) {
-    let array = list_array(NESTED_ARRAY_LEN)
-        .filter(slice_mask(NESTED_ARRAY_LEN, FILTERED_LEN))
-        .unwrap();
+    let array = FilterArray::try_new(
+        list_array(NESTED_ARRAY_LEN),
+        slice_mask(NESTED_ARRAY_LEN, FILTERED_LEN),
+    )
+    .unwrap()
+    .into_array();
     bench_take_filter(bencher, array, sequential_indices(num_indices));
 }
 
@@ -243,9 +255,12 @@ fn take_filter_list_slice_mask_random_indices<const FILTERED_LEN: usize>(
     bencher: Bencher,
     num_indices: usize,
 ) {
-    let array = list_array(NESTED_ARRAY_LEN)
-        .filter(slice_mask(NESTED_ARRAY_LEN, FILTERED_LEN))
-        .unwrap();
+    let array = FilterArray::try_new(
+        list_array(NESTED_ARRAY_LEN),
+        slice_mask(NESTED_ARRAY_LEN, FILTERED_LEN),
+    )
+    .unwrap()
+    .into_array();
     bench_take_filter(bencher, array, random_indices(num_indices, FILTERED_LEN));
 }
 
@@ -300,9 +315,9 @@ fn take_filter_primitive_nullable_slice_mask_random_indices<const FILTERED_LEN: 
     bencher: Bencher,
     num_indices: usize,
 ) {
-    let array = primitive_array()
-        .filter(slice_mask(ARRAY_LEN, FILTERED_LEN))
-        .unwrap();
+    let array = FilterArray::try_new(primitive_array(), slice_mask(ARRAY_LEN, FILTERED_LEN))
+        .unwrap()
+        .into_array();
     bench_take_filter(
         bencher,
         array,

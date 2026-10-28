@@ -33,16 +33,20 @@ pub(super) fn check_list_identical(
     let lhs = list_from_list_view(lhs.clone(), ctx)?;
     let rhs = list_from_list_view(rhs.clone(), ctx)?;
 
-    if !check_list_offsets_identical(&lhs, &rhs)? {
+    if !check_list_offsets_identical(&lhs, &rhs, ctx)? {
         return Ok(false);
     }
 
     all_non_distinct(lhs.elements(), rhs.elements(), ctx)
 }
 
-fn check_list_offsets_identical(lhs: &ListArray, rhs: &ListArray) -> VortexResult<bool> {
+fn check_list_offsets_identical(
+    lhs: &ListArray,
+    rhs: &ListArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<bool> {
     for idx in 0..=lhs.len() {
-        if lhs.offset_at(idx)? != rhs.offset_at(idx)? {
+        if lhs.offset_at(idx, ctx)? != rhs.offset_at(idx, ctx)? {
             return Ok(false);
         }
     }
@@ -62,21 +66,21 @@ fn check_zero_copy_list_identical(
         return Ok(true);
     }
 
-    let lhs_base = lhs.offset_at(0);
-    let rhs_base = rhs.offset_at(0);
+    let lhs_base = lhs.offset_at(0, ctx);
+    let rhs_base = rhs.offset_at(0, ctx);
 
     for idx in 0..lhs.len() {
-        if lhs.size_at(idx) != rhs.size_at(idx) {
+        if lhs.size_at(idx, ctx) != rhs.size_at(idx, ctx) {
             return Ok(false);
         }
 
-        if lhs.offset_at(idx) - lhs_base != rhs.offset_at(idx) - rhs_base {
+        if lhs.offset_at(idx, ctx) - lhs_base != rhs.offset_at(idx, ctx) - rhs_base {
             return Ok(false);
         }
     }
 
-    let lhs_end = lhs.offset_at(lhs.len() - 1) + lhs.size_at(lhs.len() - 1);
-    let rhs_end = rhs.offset_at(rhs.len() - 1) + rhs.size_at(rhs.len() - 1);
+    let lhs_end = lhs.offset_at(lhs.len() - 1, ctx) + lhs.size_at(lhs.len() - 1, ctx);
+    let rhs_end = rhs.offset_at(rhs.len() - 1, ctx) + rhs.size_at(rhs.len() - 1, ctx);
 
     let lhs_elements = lhs.elements().slice(lhs_base..lhs_end)?;
     let rhs_elements = rhs.elements().slice(rhs_base..rhs_end)?;

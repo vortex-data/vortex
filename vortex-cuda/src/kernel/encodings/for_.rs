@@ -5,8 +5,6 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use cudarc::driver::DeviceRepr;
-use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
@@ -30,6 +28,8 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
+use vortex_cuda_driver::DeviceRepr;
+use vortex_cuda_driver::PushKernelArg;
 use vortex_error::vortex_bail;
 
 use crate::CudaBufferExt;
@@ -165,6 +165,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex::array::IntoArray;
     use vortex::array::arrays::PrimitiveArray;
@@ -178,12 +180,14 @@ mod tests {
     use vortex::encodings::fastlanes::FoRArray;
     use vortex::error::VortexExpect;
     use vortex::scalar::Scalar;
+    use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
 
     use super::*;
     use crate::CanonicalCudaExt;
     use crate::session::CudaSession;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn make_for_array<T: NativePType + Into<Scalar>>(input_data: Vec<T>, reference: T) -> FoRArray {
         FoR::try_new(
@@ -200,7 +204,7 @@ mod tests {
     #[case::u64(make_for_array((0..2050).map(|i| (i % 2050) as u64).collect(), 1000000u64))]
     #[crate::test]
     async fn test_cuda_for_decompression(#[case] for_array: FoRArray) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -208,7 +212,7 @@ mod tests {
             .execute(for_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 
@@ -219,7 +223,7 @@ mod tests {
 
     #[crate::test]
     async fn test_signed_ffor() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -228,7 +232,7 @@ mod tests {
             .take(1024)
             .collect::<Buffer<_>>()
             .into_array();
-        let packed = BitPacked::encode(&values, 3, &mut array_session().create_execution_ctx())
+        let packed = BitPacked::encode(&values, 3, &mut SESSION.create_execution_ctx())
             .unwrap()
             .into_array();
         let for_array = FoR::try_new(packed, (-8i8).into()).unwrap();
@@ -237,7 +241,7 @@ mod tests {
             .execute(for_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await
             .vortex_expect("copying to host failed")
             .into_array();
@@ -258,7 +262,7 @@ mod tests {
     where
         T: NativePType + Into<Scalar> + From<u32>,
     {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -271,7 +275,7 @@ mod tests {
         }
 
         let values = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-        let packed = BitPacked::encode(&values, 8, &mut array_session().create_execution_ctx())?;
+        let packed = BitPacked::encode(&values, 8, &mut SESSION.create_execution_ctx())?;
         assert!(
             packed.patches().is_some(),
             "test setup expects the exceptions to be stored as patches"
@@ -282,7 +286,7 @@ mod tests {
             .execute(for_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
-            .into_host()
+            .into_host(cuda_ctx.execution_ctx())
             .await?
             .into_array();
 

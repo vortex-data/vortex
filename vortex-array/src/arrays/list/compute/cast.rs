@@ -77,6 +77,7 @@ mod tests {
     use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
+    use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::DType;
@@ -84,14 +85,16 @@ mod tests {
     use crate::dtype::PType;
     use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_cast_list_success() {
+        let mut ctx = SESSION.create_execution_ctx();
         let list = ListArray::try_new(
             buffer![1i32, 2, 3, 4].into_array(),
             buffer![0, 2, 3].into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )
         .unwrap();
 
@@ -107,14 +110,23 @@ mod tests {
             .unwrap();
         assert_eq!(result.dtype(), &target_dtype);
         assert_eq!(result.len(), list.len());
+        let expected = ListArray::new(
+            PrimitiveArray::from_option_iter([Some(1u64), Some(2), Some(3)]).into_array(),
+            buffer![0u32, 2, 3].into_array(),
+            Validity::AllValid,
+            &mut ctx,
+        );
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
     fn test_cast_to_wrong_type() {
+        let mut ctx = SESSION.create_execution_ctx();
         let list = ListArray::try_new(
             buffer![0i32, 2, 3, 4].into_array(),
             buffer![0, 2, 3].into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )
         .unwrap();
 
@@ -131,6 +143,7 @@ mod tests {
 
     #[test]
     fn test_cant_cast_nulls_to_non_null() {
+        let mut ctx = SESSION.create_execution_ctx();
         // Test that if list has nulls, the conversion will fail
 
         // Nulls in the list itself
@@ -138,6 +151,7 @@ mod tests {
             buffer![0i32, 2, 3, 4].into_array(),
             buffer![0, 2, 3].into_array(),
             Validity::Array(BoolArray::from_iter(vec![false, true]).into_array()),
+            &mut ctx,
         )
         .unwrap();
 
@@ -159,6 +173,7 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(0i32), Some(2), None, None]).into_array(),
             buffer![0, 2, 3].into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )
         .unwrap();
 
@@ -185,13 +200,15 @@ mod tests {
     }
 
     fn create_simple_list() -> ListArray {
+        let mut ctx = SESSION.create_execution_ctx();
         let data = buffer![1i32, 2, 3, 4, 5, 6].into_array();
         let offsets = buffer![0i64, 2, 2, 5, 6].into_array();
 
-        ListArray::try_new(data, offsets, Validity::NonNullable).unwrap()
+        ListArray::try_new(data, offsets, Validity::NonNullable, &mut ctx).unwrap()
     }
 
     fn create_nullable_list() -> ListArray {
+        let mut ctx = SESSION.create_execution_ctx();
         let data = PrimitiveArray::from_option_iter([
             Some(10i64),
             None,
@@ -204,10 +221,11 @@ mod tests {
         let offsets = buffer![0i64, 3, 6].into_array();
         let validity = Validity::Array(BoolArray::from_iter(vec![true, false]).into_array());
 
-        ListArray::try_new(data, offsets, validity).unwrap()
+        ListArray::try_new(data, offsets, validity, &mut ctx).unwrap()
     }
 
     fn create_string_list() -> ListArray {
+        let mut ctx = SESSION.create_execution_ctx();
         let data = VarBinArray::from_iter(
             vec![Some("hello"), Some("world"), Some("foo"), Some("bar")],
             DType::Utf8(Nullability::NonNullable),
@@ -215,27 +233,30 @@ mod tests {
         .into_array();
         let offsets = buffer![0i64, 2, 4].into_array();
 
-        ListArray::try_new(data, offsets, Validity::NonNullable).unwrap()
+        ListArray::try_new(data, offsets, Validity::NonNullable, &mut ctx).unwrap()
     }
 
     fn create_nested_list() -> ListArray {
+        let mut ctx = SESSION.create_execution_ctx();
         // Create inner lists: [[1, 2], [3], [4, 5, 6]]
         let inner_data = buffer![1i32, 2, 3, 4, 5, 6].into_array();
         let inner_offsets = buffer![0i64, 2, 3, 6].into_array();
-        let inner_list = ListArray::try_new(inner_data, inner_offsets, Validity::NonNullable)
-            .unwrap()
-            .into_array();
+        let inner_list =
+            ListArray::try_new(inner_data, inner_offsets, Validity::NonNullable, &mut ctx)
+                .unwrap()
+                .into_array();
 
         // Create outer list: [[[1, 2], [3]], [[4, 5, 6]]]
         let outer_offsets = buffer![0i64, 2, 3].into_array();
 
-        ListArray::try_new(inner_list, outer_offsets, Validity::NonNullable).unwrap()
+        ListArray::try_new(inner_list, outer_offsets, Validity::NonNullable, &mut ctx).unwrap()
     }
 
     fn create_empty_lists() -> ListArray {
+        let mut ctx = SESSION.create_execution_ctx();
         let data = buffer![42u8].into_array();
         let offsets = buffer![0i64, 0, 0, 1].into_array();
 
-        ListArray::try_new(data, offsets, Validity::NonNullable).unwrap()
+        ListArray::try_new(data, offsets, Validity::NonNullable, &mut ctx).unwrap()
     }
 }

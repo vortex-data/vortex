@@ -302,7 +302,6 @@ mod tests {
     use std::fmt;
 
     use vortex_array::IntoArray;
-    use vortex_array::array_session;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
@@ -310,6 +309,7 @@ mod tests {
     use vortex_io::filesystem::FileSystem;
     use vortex_io::session::RuntimeSession;
     use vortex_layout::session::LayoutSession;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::WriteOptionsSessionExt;
@@ -347,7 +347,7 @@ mod tests {
     }
 
     async fn assert_cached_footer_metadata_order(default_first: bool) -> VortexResult<()> {
-        let session = array_session()
+        let session = VortexSession::empty()
             .with::<LayoutSession>()
             .with::<RuntimeSession>()
             .with::<MultiFileSession>();
@@ -448,7 +448,7 @@ mod tests {
     // cache must not let one file's metadata leak into another (URI isolation).
     #[tokio::test]
     async fn test_multi_file_metadata_isolated_per_uri() -> VortexResult<()> {
-        let session = array_session()
+        let session = VortexSession::empty()
             .with::<LayoutSession>()
             .with::<RuntimeSession>()
             .with::<MultiFileSession>();

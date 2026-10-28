@@ -75,6 +75,7 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::NativePType;
+    use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
     use vortex_session::VortexSession;
 
@@ -84,7 +85,7 @@ mod test {
     use crate::RDEncoderExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -98,7 +99,8 @@ mod test {
         let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
 
         assert!(encoded.left_parts_patches().is_some());
-        assert_arrays_eq!(encoded, array, &mut ctx);
+        let sliced = encoded.slice(1..3).unwrap();
+        assert_arrays_eq!(sliced, PrimitiveArray::from_iter([b, outlier]), &mut ctx);
     }
 
     #[rstest]
@@ -114,6 +116,12 @@ mod test {
         let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
         assert!(encoded.left_parts_patches().is_some());
         assert_arrays_eq!(encoded, array, &mut ctx);
+        for (index, value) in [a, b, outlier].into_iter().enumerate() {
+            let expected: Scalar = value.into();
+            let actual = encoded.execute_scalar(index, &mut ctx).unwrap();
+            assert_eq!(actual.dtype(), expected.dtype());
+            assert_eq!(actual, expected);
+        }
     }
 
     #[test]
@@ -130,5 +138,11 @@ mod test {
             PrimitiveArray::from_option_iter([Some(a), Some(b), Some(outlier)]),
             &mut ctx
         );
+        for (index, value) in [a, b, outlier].into_iter().enumerate() {
+            let expected = Scalar::primitive(value, Nullability::Nullable);
+            let actual = encoded.execute_scalar(index, &mut ctx).unwrap();
+            assert_eq!(actual.dtype(), expected.dtype());
+            assert_eq!(actual, expected);
+        }
     }
 }

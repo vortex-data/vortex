@@ -19,8 +19,15 @@ TEST_CASE("Expression copy", "[expr]") {
         clone = orig;
     }
     Expression another = clone;
-    (void)another;
-    SUCCEED();
+    clone = expr::root();
+    Session session;
+    const std::vector<uint8_t> ages = {10, 20, 30};
+    Array input = make_struct({{"age", Array::primitive<uint8_t>(ages)}});
+    auto values = input.apply(another).values<uint8_t>(session);
+    REQUIRE(values.size() == ages.size());
+    for (size_t i = 0; i < ages.size(); ++i) {
+        REQUIRE(values.values()[i] == ages[i]);
+    }
 }
 
 TEST_CASE("Apply root()", "[expr]") {
@@ -33,6 +40,7 @@ TEST_CASE("Apply root()", "[expr]") {
     REQUIRE(applied.size() == data.size());
     REQUIRE(applied.is_primitive(I32));
     auto values = applied.values<int32_t>(session);
+    REQUIRE(values.size() == data.size());
     for (size_t i = 0; i < data.size(); ++i) {
         REQUIRE(values.values()[i] == data[i]);
     }
@@ -67,6 +75,7 @@ TEST_CASE("Apply arithmetic", "[expr]") {
 
     REQUIRE(applied.is_primitive(I32));
     auto values = applied.values<int32_t>(session);
+    REQUIRE(values.size() == data.size());
     for (size_t i = 0; i < data.size(); ++i) {
         REQUIRE(values.values()[i] == data[i] + 10);
     }

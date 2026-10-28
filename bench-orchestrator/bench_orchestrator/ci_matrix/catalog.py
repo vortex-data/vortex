@@ -9,10 +9,10 @@ validate, and render these declarations.
 
 from dataclasses import replace
 
-from ..config import Benchmark, Format
+from ..config import Benchmark, Engine, Format
 from .model import BenchmarkCase, Catalog, Coverage, Storage
 from .render import merge_coverage
-from .targets import df, duck
+from .targets import df, duck, targets
 
 PRESETS = {
     "develop": "Every regular SQL benchmark at full target coverage.",
@@ -77,6 +77,31 @@ COMPACT = Coverage(COMPACT_TARGETS)
 JOB_DUCKDB = Coverage(duck(Format.PARQUET, Format.VORTEX, Format.DUCKDB))
 
 # Concrete benchmark cases
+
+# TPC-DS SF=100 runs one engine/format target per job, each on its own machine, so a single slow
+# target cannot push the others past the job timeout and lose their results.
+TPCDS_SF100_TARGETS = (
+    (Engine.DATAFUSION, Format.PARQUET, "DataFusion", "Parquet"),
+    (Engine.DATAFUSION, Format.VORTEX, "DataFusion", "Vortex"),
+    (Engine.DUCKDB, Format.PARQUET, "DuckDB", "Parquet"),
+    (Engine.DUCKDB, Format.VORTEX, "DuckDB", "Vortex"),
+)
+TPCDS_SF100_CASES = tuple(
+    BenchmarkCase(
+        id=f"tpcds-{storage.value}-100-{engine.value}-{fmt.value}",
+        benchmark=Benchmark.TPCDS,
+        name=f"TPC-DS SF=100 on {storage.value.upper()} ({engine_name}, {fmt_name})",
+        storage=storage,
+        scale_factor=100.0,
+        iterations=3,
+        local_dir="vortex-bench/data/tpcds/100.0" if storage is Storage.S3 else None,
+        # A distinct key per job: each job clears and re-uploads its own copy of the data.
+        remote_key=f"tpcds/100.0-{engine.value}-{fmt.value}" if storage is Storage.S3 else None,
+        runs={"nightly": Coverage(targets(engine, fmt))},
+    )
+    for storage in (Storage.NVME, Storage.S3)
+    for engine, fmt, engine_name, fmt_name in TPCDS_SF100_TARGETS
+)
 
 BENCHMARKS = (
     BenchmarkCase(
@@ -194,15 +219,6 @@ BENCHMARKS = (
         runs={"nightly": DEFAULT},
     ),
     BenchmarkCase(
-        id="tpcds-nvme-100",
-        benchmark=Benchmark.TPCDS,
-        name="TPC-DS SF=100 on NVME",
-        scale_factor=100.0,
-        # 99 queries across four targets: fewer passes keep the job inside its timeout.
-        iterations=3,
-        runs={"nightly": DEFAULT},
-    ),
-    BenchmarkCase(
         id="tpcds-s3-10",
         benchmark=Benchmark.TPCDS,
         name="TPC-DS SF=10 on S3",
@@ -212,17 +228,7 @@ BENCHMARKS = (
         remote_key="tpcds/10.0",
         runs={"nightly": DEFAULT},
     ),
-    BenchmarkCase(
-        id="tpcds-s3-100",
-        benchmark=Benchmark.TPCDS,
-        name="TPC-DS SF=100 on S3",
-        storage=Storage.S3,
-        scale_factor=100.0,
-        iterations=3,
-        local_dir="vortex-bench/data/tpcds/100.0",
-        remote_key="tpcds/100.0",
-        runs={"nightly": DEFAULT},
-    ),
+    *TPCDS_SF100_CASES,
     BenchmarkCase(
         id="statpopgen",
         benchmark=Benchmark.STATPOPGEN,

@@ -1,0 +1,163 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query RTTII
+WITH results AS
+  (SELECT sum(ss_net_profit) AS ss_net_profit,
+          sum(ss_ext_sales_price) AS ss_ext_sales_price,
+          (sum(ss_net_profit)*1.0000)/sum(ss_ext_sales_price) AS gross_margin ,
+          i_category ,
+          i_class ,
+          0 AS g_category,
+          0 AS g_class
+   FROM store_sales ,
+        date_dim d1 ,
+        item ,
+        store
+   WHERE d1.d_year = 2001
+     AND d1.d_date_sk = ss_sold_date_sk
+     AND i_item_sk = ss_item_sk
+     AND s_store_sk = ss_store_sk
+     AND s_state ='TN'
+   GROUP BY i_category,
+            i_class) ,
+     results_rollup AS
+  (SELECT gross_margin,
+          i_category,
+          i_class,
+          0 AS t_category,
+          0 AS t_class,
+          0 AS lochierarchy
+   FROM results
+   UNION SELECT (sum(ss_net_profit)*1.0000)/sum(ss_ext_sales_price) AS gross_margin,
+                i_category,
+                NULL AS i_class,
+                0 AS t_category,
+                1 AS t_class,
+                1 AS lochierarchy
+   FROM results
+   GROUP BY i_category
+   UNION SELECT (sum(ss_net_profit)*1.0000)/sum(ss_ext_sales_price) AS gross_margin,
+                NULL AS i_category,
+                NULL AS i_class,
+                1 AS t_category,
+                1 AS t_class,
+                2 AS lochierarchy
+   FROM results)
+SELECT gross_margin,
+       i_category,
+       i_class,
+       lochierarchy,
+       rank() OVER ( PARTITION BY lochierarchy,
+                                  CASE
+                                      WHEN t_class = 0 THEN i_category
+                                  END
+                    ORDER BY gross_margin ASC) AS rank_within_parent
+FROM results_rollup
+ORDER BY lochierarchy DESC NULLS FIRST,
+         CASE
+             WHEN lochierarchy = 0 THEN i_category
+         END NULLS FIRST,
+         rank_within_parent NULLS FIRST
+LIMIT 100;
+----
+-0.433378996948 NULL NULL 2 1
+-0.459408032174 Books NULL 1 1
+-0.455368397891 Shoes NULL 1 2
+-0.44435411157 Men NULL 1 3
+-0.436742000079 Sports NULL 1 4
+-0.435267871191 Children NULL 1 5
+-0.434837223399 Women NULL 1 6
+-0.430762076886 Music NULL 1 7
+-0.417889626091 Electronics NULL 1 8
+-0.411376972556 Jewelry NULL 1 9
+-0.406045593214 Home NULL 1 10
+-0.394792144987 NULL NULL 1 11
+-0.548963796734 NULL archery 0 1
+-0.309304132421 NULL NULL 0 2
+-0.631743679276 Books self-help 0 1
+-0.543963746338 Books romance 0 2
+-0.520867302666 Books reference 0 3
+-0.503644198113 Books sports 0 4
+-0.484062232759 Books arts 0 5
+-0.473207121048 Books fiction 0 6
+-0.461276324573 Books science 0 7
+-0.450238028273 Books mystery 0 8
+-0.446109609409 Books travel 0 9
+-0.42924245254 Books home repair 0 10
+-0.423567425403 Books parenting 0 11
+-0.411327142518 Books cooking 0 12
+-0.410954667834 Books history 0 13
+-0.39564323082 Books entertainments 0 14
+-0.35885335844 Books business 0 15
+-0.315079729378 Books computers 0 16
+-0.46112133164 Children toddlers 0 1
+-0.441952761402 Children newborn 0 2
+-0.416408692541 Children school-uniforms 0 3
+-0.412406558421 Children infants 0 4
+-0.677194802472 Electronics portable 0 1
+-0.543888901227 Electronics scanners 0 2
+-0.530039268858 Electronics karoke 0 3
+-0.492433907229 Electronics disk drives 0 4
+-0.488375184524 Electronics memory 0 5
+-0.453171667501 Electronics camcorders 0 6
+-0.435880552794 Electronics musical 0 7
+-0.434289904191 Electronics wireless 0 8
+-0.423287942534 Electronics monitors 0 9
+-0.386430130756 Electronics dvd/vcr players 0 10
+-0.371762452397 Electronics cameras 0 11
+-0.371551806098 Electronics audio 0 12
+-0.370744371686 Electronics automotive 0 13
+-0.370323447308 Electronics televisions 0 14
+-0.353800843179 Electronics stereo 0 15
+-0.34815293148 Electronics personal 0 16
+-0.624510353129 Home glassware 0 1
+-0.539537664864 Home accent 0 2
+-0.478138825123 Home lighting 0 3
+-0.436227034795 Home blinds/shades 0 4
+-0.427757329297 Home decor 0 5
+-0.427179275367 Home mattresses 0 6
+-0.423561091365 Home bathroom 0 7
+-0.41082750721 Home furniture 0 8
+-0.408297773462 Home curtains/drapes 0 9
+-0.384262468191 Home flatware 0 10
+-0.380991001811 Home rugs 0 11
+-0.365051194297 Home paint 0 12
+-0.359969629807 Home bedding 0 13
+-0.348462332054 Home kids 0 14
+-0.312848655768 Home wallpaper 0 15
+-0.235240945638 Home tables 0 16
+-0.653317970009 Jewelry mens watch 0 1
+-0.49344292777 Jewelry custom 0 2
+-0.480105067003 Jewelry bracelets 0 3
+-0.466426541887 Jewelry diamonds 0 4
+-0.462356405258 Jewelry gold 0 5
+-0.462016444099 Jewelry loose stones 0 6
+-0.436034584132 Jewelry semi-precious 0 7
+-0.420996375984 Jewelry earings 0 8
+-0.419915667558 Jewelry womens watch 0 9
+-0.406795130759 Jewelry costume 0 10
+-0.372460651066 Jewelry consignment 0 11
+-0.362811280445 Jewelry pendants 0 12
+-0.336277938793 Jewelry jewelry boxes 0 13
+-0.335852384537 Jewelry estate 0 14
+-0.298661503841 Jewelry birdal 0 15
+-0.286482254455 Jewelry rings 0 16
+-0.499576594084 Men accessories 0 1
+-0.459463329961 Men sports-apparel 0 2
+-0.430575172226 Men shirts 0 3
+-0.371030953339 Men pants 0 4
+-0.48597562553 Music classical 0 1
+-0.436969785726 Music rock 0 2
+-0.414004968553 Music pop 0 3
+-0.40190808837 Music country 0 4
+-0.492898777537 Shoes kids 0 1
+-0.477092916621 Shoes athletic 0 2
+-0.447729144675 Shoes mens 0 3
+-0.418396801088 Shoes womens 0 4
+-0.511498002918 Sports golf 0 1
+-0.480187501174 Sports sailing 0 2
+-0.478033893057 Sports fitness 0 3
+-0.473426008171 Sports tennis 0 4
+-0.467039923976 Sports archery 0 5
+-0.460332827698 Sports football 0 6

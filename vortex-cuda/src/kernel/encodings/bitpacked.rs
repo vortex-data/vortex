@@ -5,10 +5,6 @@ use std::fmt::Debug;
 use std::ops::Range;
 
 use async_trait::async_trait;
-use cudarc::driver::CudaFunction;
-use cudarc::driver::DeviceRepr;
-use cudarc::driver::LaunchConfig;
-use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
@@ -33,6 +29,10 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
+use vortex_cuda_driver::CudaFunction;
+use vortex_cuda_driver::DeviceRepr;
+use vortex_cuda_driver::LaunchConfig;
+use vortex_cuda_driver::PushKernelArg;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -237,6 +237,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use futures::executor::block_on;
     use rstest::rstest;
     use vortex::array::IntoArray;
@@ -248,23 +250,26 @@ mod tests {
     use vortex::buffer::buffer;
     use vortex::encodings::fastlanes::BitPackedArrayExt;
     use vortex::error::VortexExpect;
+    use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::CanonicalCudaExt;
     use crate::session::CudaSession;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[rstest]
     #[case::u8((0u8..128u8).cycle().take(2048), 6)]
-    #[case::u32((0u16..128u16).cycle().take(2048), 6)]
-    #[case::u16((0u32..128u32).cycle().take(2048), 6)]
-    #[case::u16((0u64..128u64).cycle().take(2048), 6)]
+    #[case::u16((0u16..128u16).cycle().take(2048), 6)]
+    #[case::u32((0u32..128u32).cycle().take(2048), 6)]
+    #[case::u64((0u64..128u64).cycle().take(2048), 6)]
     #[crate::test]
     fn test_patched<T: NativePType>(
         #[case] iter: impl Iterator<Item = T>,
         #[case] bw: u8,
     ) -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -279,7 +284,7 @@ mod tests {
                 .execute(bp_with_patches.clone().into_array(), &mut cuda_ctx)
                 .await
                 .vortex_expect("GPU decompression failed")
-                .into_host()
+                .into_host(cuda_ctx.execution_ctx())
                 .await
                 .map(|a| a.into_array())
         })?;
@@ -291,7 +296,7 @@ mod tests {
 
     #[crate::test]
     fn test_patches() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -309,7 +314,7 @@ mod tests {
                 .execute(bp_with_patches.clone().into_array(), &mut cuda_ctx)
                 .await
                 .vortex_expect("GPU decompression failed")
-                .into_host()
+                .into_host(cuda_ctx.execution_ctx())
                 .await
                 .map(|a| a.into_array())
         })?;
@@ -329,7 +334,7 @@ mod tests {
     #[case::bw_7(7)]
     #[crate::test]
     fn test_cuda_bitunpack_u8(#[case] bit_width: u8) -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -349,7 +354,7 @@ mod tests {
                 .execute(bitpacked_array.clone().into_array(), &mut cuda_ctx)
                 .await
                 .vortex_expect("GPU decompression failed")
-                .into_host()
+                .into_host(cuda_ctx.execution_ctx())
                 .await
                 .map(|a| a.into_array())
         })?;
@@ -377,7 +382,7 @@ mod tests {
     #[case::bw_15(15)]
     #[crate::test]
     fn test_cuda_bitunpack_u16(#[case] bit_width: u8) -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -397,7 +402,7 @@ mod tests {
                 .execute(bitpacked_array.clone().into_array(), &mut cuda_ctx)
                 .await
                 .vortex_expect("GPU decompression failed")
-                .into_host()
+                .into_host(cuda_ctx.execution_ctx())
                 .await
                 .map(|a| a.into_array())
         })?;
@@ -441,7 +446,7 @@ mod tests {
     #[case::bw_31(31)]
     #[crate::test]
     fn test_cuda_bitunpack_u32(#[case] bit_width: u8) -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -461,7 +466,7 @@ mod tests {
                 .execute(bitpacked_array.clone().into_array(), &mut cuda_ctx)
                 .await
                 .vortex_expect("GPU decompression failed")
-                .into_host()
+                .into_host(cuda_ctx.execution_ctx())
                 .await
                 .map(|a| a.into_array())
         })?;
@@ -537,7 +542,7 @@ mod tests {
     #[case::bw_63(63)]
     #[crate::test]
     fn test_cuda_bitunpack_u64(#[case] bit_width: u8) -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -557,7 +562,7 @@ mod tests {
                 .execute(bitpacked_array.clone().into_array(), &mut cuda_ctx)
                 .await
                 .vortex_expect("GPU decompression failed")
-                .into_host()
+                .into_host(cuda_ctx.execution_ctx())
                 .await
                 .map(|a| a.into_array())
         })?;
@@ -575,7 +580,7 @@ mod tests {
         #[case] slice_start: usize,
         #[case] slice_end: usize,
     ) -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let bit_width = 32;
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
@@ -597,7 +602,7 @@ mod tests {
                 .execute(sliced_array.clone(), &mut cuda_ctx)
                 .await
                 .vortex_expect("GPU decompression failed")
-                .into_host()
+                .into_host(cuda_ctx.execution_ctx())
                 .await
                 .map(|a| a.into_array())
         })?;
@@ -612,7 +617,6 @@ mod tests {
     #[case::mid_chunk(Some(67..3969), 3902, Some(67..3969), 67, 4096 * 9 / 8)]
     #[case::chunk_aligned(Some(1024..3072), 2048, Some(1024..3072), 0, 2048 * 9 / 8)]
     #[case::tail_chunk(Some(3000..4096), 1096, Some(3000..4096), 952, 2048 * 9 / 8)]
-    #[crate::test]
     fn test_bitunpack_try_specialize_slices(
         #[case] range: Option<Range<usize>>,
         #[case] expected_len: usize,
@@ -620,7 +624,7 @@ mod tests {
         #[case] expected_offset: u16,
         #[case] expected_packed_len: usize,
     ) -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = PrimitiveArray::new(
             (0u16..4096)
                 .map(|i| if i % 1000 == 0 { 600 } else { i % 512 })
@@ -652,7 +656,7 @@ mod tests {
     /// offset_within_chunk.
     #[crate::test]
     fn test_cuda_bitunpack_sliced_patches_offset_within_chunk() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -675,7 +679,7 @@ mod tests {
                 .execute(sliced_array.clone(), &mut cuda_ctx)
                 .await
                 .vortex_expect("GPU decompression failed")
-                .into_host()
+                .into_host(cuda_ctx.execution_ctx())
                 .await
                 .map(|a| a.into_array())
         })?;
@@ -688,7 +692,7 @@ mod tests {
     /// Test slicing a bitpacked array multiple times, accumulating offset_within_chunk.
     #[crate::test]
     fn test_cuda_bitunpack_double_sliced_patches() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -723,7 +727,7 @@ mod tests {
                 .execute(second_slice.clone(), &mut cuda_ctx)
                 .await
                 .vortex_expect("GPU decompression failed")
-                .into_host()
+                .into_host(cuda_ctx.execution_ctx())
                 .await
                 .map(|a| a.into_array())
         })?;
@@ -736,7 +740,7 @@ mod tests {
     /// Test slicing to skip an entire chunk's worth of patches.
     #[crate::test]
     fn test_cuda_bitunpack_sliced_skip_first_chunk_patches() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -769,7 +773,7 @@ mod tests {
                 .execute(sliced_array.clone(), &mut cuda_ctx)
                 .await
                 .vortex_expect("GPU decompression failed")
-                .into_host()
+                .into_host(cuda_ctx.execution_ctx())
                 .await
                 .map(|a| a.into_array())
         })?;

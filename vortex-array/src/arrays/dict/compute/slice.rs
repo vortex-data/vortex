@@ -31,7 +31,7 @@ impl SliceReduce for Dict {
             let sliced_code = <Primitive as SliceReduce>::slice(codes, range)?
                 .vortex_expect("Primitive SliceReduce should always return Some");
             // Because we specialize the primitive branch here, we have to make sure to handle the stat inheritance
-            inherit_slice_stats(array.codes(), &sliced_code);
+            inherit_selection_stats(array.codes(), &sliced_code);
             sliced_code
         } else {
             array.codes().slice(range)?
@@ -49,15 +49,17 @@ impl SliceReduce for Dict {
     }
 }
 
-fn inherit_slice_stats(source: &ArrayRef, sliced: &ArrayRef) {
+/// Copies the stats of `source` that hold for any order-preserving selection of its rows, such as a
+/// slice or a filter.
+pub(super) fn inherit_selection_stats(source: &ArrayRef, selected: &ArrayRef) {
     source.statistics().with_iter(|iter| {
-        sliced
+        selected
             .statistics()
-            .inherit(iter.filter(|(stat, value)| is_inheritable_true_slice_stat(*stat, value)));
+            .inherit(iter.filter(|(stat, value)| is_inheritable_selection_stat(*stat, value)));
     });
 }
 
-fn is_inheritable_true_slice_stat(stat: Stat, value: &Precision<ScalarValue>) -> bool {
+fn is_inheritable_selection_stat(stat: Stat, value: &Precision<ScalarValue>) -> bool {
     matches!(
         stat,
         Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
@@ -67,7 +69,7 @@ fn is_inheritable_true_slice_stat(stat: Stat, value: &Precision<ScalarValue>) ->
         .is_some_and(|value| matches!(value, ScalarValue::Bool(true)))
 }
 
-fn slice_constant_code(
+pub(super) fn slice_constant_code(
     array: ArrayView<'_, Dict>,
     code: &Scalar,
     len: usize,
@@ -75,8 +77,13 @@ fn slice_constant_code(
     let code = code.as_primitive().as_::<usize>();
     if let Some(code) = code {
         let values = array.values().slice(code..code + 1)?;
+        // Keep the codes' nullability so the result's dtype matches the original dict's dtype.
+        let codes = ConstantArray::new(
+            Scalar::primitive(0u8, array.codes().dtype().nullability()),
+            len,
+        );
         Ok(Some(
-            DictArray::new(ConstantArray::new(0u8, len).into_array(), values).into_array(),
+            DictArray::new(codes.into_array(), values).into_array(),
         ))
     } else {
         Ok(Some(
@@ -87,12 +94,14 @@ fn slice_constant_code(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::dict::compute::slice::ConstantArray;
@@ -102,9 +111,11 @@ mod tests {
     use crate::dtype::PType;
     use crate::scalar::Scalar;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn slice_constant_valid_code() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dict = DictArray::new(
             ConstantArray::new(1u8, 5).into_array(),
             buffer![10i32, 20, 30].into_array(),
@@ -116,8 +127,21 @@ mod tests {
     }
 
     #[test]
+    fn slice_nullable_constant_valid_code() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dict = DictArray::new(
+            ConstantArray::new(Scalar::primitive(1u8, Nullable), 5).into_array(),
+            buffer![10i32, 20, 30].into_array(),
+        );
+        let sliced = dict.slice(1..4)?;
+        let expected = PrimitiveArray::from_option_iter([Some(20i32), Some(20), Some(20)]);
+        assert_arrays_eq!(sliced, expected.into_array(), &mut ctx);
+        Ok(())
+    }
+
+    #[test]
     fn slice_constant_null_code() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dict = DictArray::new(
             ConstantArray::new(Scalar::null(DType::Primitive(PType::U8, Nullable)), 5).into_array(),
             buffer![10i32, 20, 30].into_array(),

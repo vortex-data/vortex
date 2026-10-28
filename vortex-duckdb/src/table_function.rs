@@ -32,8 +32,7 @@ use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::scalar::Scalar;
-use vortex::scalar_fn::fns::binary::Binary;
-use vortex::scalar_fn::fns::operators::Operator;
+use vortex::scan::planning::driver::Run;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::convert::PushedAggregate;
@@ -142,6 +141,8 @@ pub struct GlobalState {
     pub projection: BoundExpression,
     pub filter: Filter,
     pub file_row_number_column_pos: Option<usize>,
+    /// Whether the scan runs on the planner-driven V2 executor.
+    pub scan_v2: bool,
 
     // Following fields are used only in aggregate scans.
     pub aggregate_state: Mutex<AggregateState>,
@@ -158,7 +159,13 @@ pub struct AggregateState {
 }
 assert_impl_all!(GlobalState: Send, Sync);
 
-pub type Split = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
+/// A unit of scan work that one thread takes at a time.
+pub enum Split {
+    /// A V1 scan task yielding one array, or `None` if the filter removed every row.
+    V1(BoxFuture<'static, VortexResult<Option<ArrayRef>>>),
+    /// Chunks of the file's V2 scan, taken by the thread until the scan has none left.
+    V2,
+}
 
 /// field position, accumulator
 pub type Partials = Vec<(usize, Box<dyn DynAccumulator>)>;
@@ -172,6 +179,8 @@ pub struct LocalState {
     /// Scan states that this thread no longer uses. They are dropped outside
     /// DuckDB's global multi-file lock; see `OpenFileReader`.
     pub(crate) retired_files: Vec<Arc<FileScanState>>,
+    /// The planning run on which this thread runs the chunks of V2 scans.
+    pub(crate) run: Run,
 
     /// Empty for non-aggregate scan
     pub partials: Partials,
@@ -306,6 +315,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         aggregate_state: Mutex::new(AggregateState::default()),
         row_count: AtomicU64::new(0),
         file_row_number_column_pos,
+        scan_v2: crate::scan_v2(),
     })
 }
 
@@ -372,6 +382,7 @@ pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
         split: None,
         file: None,
         retired_files: Vec::new(),
+        run: Run::new(),
         finished: false,
     }
 }
@@ -396,7 +407,9 @@ fn aggregate_output_value(scalar: Scalar, expected: &LogicalTypeRef) -> VortexRe
         Ok(match primitive.ptype() {
             PType::I64 => primitive.typed_value::<i64>().map(i128::from),
             PType::U64 => primitive.typed_value::<u64>().map(i128::from),
-            other => vortex_bail!("expected {expected:?} output type, got {other}"),
+            other => {
+                vortex_bail!("expected {expected:?} output type, got {other}")
+            }
         })
     };
     match expected.as_type_id() {
@@ -425,35 +438,15 @@ pub fn pushdown_complex_filter(
         return Ok(false);
     };
 
-    // Duckdb calls pushdown_complex_filter during planning phase.
-    // If all filters are pushed down, duckdb enables a LEFT_DELIM_JOIN ->
-    // COMPARISON_JOIN (HASH_JOIN) optimization:
-    // duckdb/src/optimizer/deliminator.cpp: Deliminator::HasSelection,
-    // Deliminator::Optimize.
-    //
-    // This leads to a massive regression on tpch sf=10 q17 and other
-    // benchmarks.
-    //
-    // This bug is reported to Duckdb
-    // https://github.com/duckdb/duckdb/issues/22669
-    //
-    // As a hack, report equality filters as not pushed.
-    // We can also report only the first filter as not pushed, but this
-    // has a negative performance impact.
-    let report_pushed = !expr
-        .as_opt::<Binary>()
-        .map(|op| *op == Operator::Eq)
-        .unwrap_or(false);
-
     // Only table filters may be optional, any complex filter is
     // non-optional by definition.
     bind_data
         .has_non_optional_filter
         .store(true, Ordering::Relaxed);
 
-    debug!(%expr, report_pushed, "pushed down expression");
+    debug!(%expr, "pushed down expression");
     bind_data.filters.push(expr);
-    Ok(report_pushed)
+    Ok(true)
 }
 
 pub fn pushdown_projection_expression(

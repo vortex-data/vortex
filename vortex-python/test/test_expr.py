@@ -84,6 +84,8 @@ BUILDERS: dict[str, Callable[[], Expr]] = {
     "merge": lambda: ve.merge([ve.select(["name"]), ve.select(["age"])]),
     "merge_rightmost": lambda: ve.merge([ve.select(["name"]), ve.select(["name"])], duplicate_handling="rightmost"),
     "list_contains": lambda: ve.list_contains(ve.column("scores"), 5),
+    "list_contains_sql": lambda: ve.list_contains(ve.column("scores"), 5, sql_null_semantics=True),
+    "in_list": lambda: ve.in_list(ve.column("age"), [25, 30]),
     "list_length": lambda: ve.list_length(ve.column("scores")),
     "list_sum": lambda: ve.list_sum(ve.column("scores")),
     "list_sum_nans": lambda: ve.list_sum(ve.column("scores"), skip_nans=False),
@@ -102,21 +104,10 @@ def test_builder_returns_expr(name: str) -> None:
     assert isinstance(BUILDERS[name](), Expr)
 
 
-# `CaseWhen::serialize` is deliberately disabled in vortex-array pending a stable wire format, so
-# `case_when` expressions cannot cross a process boundary yet.
-NOT_SERIALIZABLE = {"case_when", "case_when_no_else"}
-
-
-@pytest.mark.parametrize("name", sorted(set(BUILDERS) - NOT_SERIALIZABLE))
+@pytest.mark.parametrize("name", sorted(BUILDERS))
 def test_builder_round_trips_through_proto(name: str) -> None:
     expr = BUILDERS[name]()
     assert str(ve.deserialize(expr.serialize())) == str(expr)
-
-
-@pytest.mark.parametrize("name", sorted(NOT_SERIALIZABLE))
-def test_unserializable_builder_reports_clearly(name: str) -> None:
-    with pytest.raises(RuntimeError, match="serial"):
-        _ = BUILDERS[name]().serialize()
 
 
 def test_variant_get_paths() -> None:
@@ -133,7 +124,10 @@ def test_variant_get_rejects_bad_path() -> None:
 
 
 def test_ext_storage_returns_expr() -> None:
-    assert isinstance(ve.ext_storage(ve.column("ts")), Expr)
+    expr = ve.ext_storage(ve.column("ts"))
+    assert isinstance(expr, Expr)
+    source = vx.array(pa.table({"ts": pa.array([42, None, -1], type=pa.timestamp("us"))}))
+    assert source.apply(expr).to_arrow_array(combine_chunks=True) == pa.array([42, None, -1], type=pa.int64())
 
 
 def test_merge_rejects_unknown_duplicate_handling() -> None:
@@ -209,14 +203,62 @@ def test_arithmetic_and_list_functions(people: vx.VortexFile) -> None:
     assert column_values(people, ve.get_item("city", ve.column("nested"))) == ["Paris", "Berlin", "Paris", "Lima"]
 
 
-def test_case_when_semantics(people: vx.VortexFile) -> None:
-    expr = ve.case_when([(ve.gt(ve.column("age"), 40), "senior"), (ve.gt(ve.column("age"), 26), "mid")], "junior")
-    assert column_values(people, expr) == ["mid", "junior", "junior", "senior"]
+@pytest.mark.parametrize(
+    "values,default,sql",
+    [
+        ([30, 57], [True, False, None, True], [True, False, None, True]),
+        ([30, None], [True, False, None, False], [True, None, None, None]),
+        ([None, 30], [True, False, None, False], [True, None, None, None]),
+        ([None], [False, False, None, False], [None, None, None, None]),
+        ([], [False, False, False, False], [False, False, None, False]),
+        (None, [None, None, None, None], [None, None, None, None]),
+    ],
+)
+def test_list_membership_null_semantics(
+    people: vx.VortexFile,
+    values: list[int | None] | None,
+    default: list[bool | None],
+    sql: list[bool | None],
+):
+    members = ve.literal(vx.list_(vx.int_(64, nullable=True), nullable=True), values)
+    age = ve.column("age")
+    assert column_values(people, ve.list_contains(members, age)) == default
+    assert column_values(people, ve.list_contains(members, age, sql_null_semantics=True)) == sql
+    expr = ve.in_list(age, members)
+    assert column_values(people, expr) == sql
+    assert column_values(people, ve.deserialize(expr.serialize())) == sql
+    assert column_values(people, ~expr) == [None if value is None else not value for value in sql]
+
+
+@pytest.mark.parametrize("members", [[30, None], [None, 30]])
+def test_in_list_python_list_filter(people: vx.VortexFile, members: list[int | None]):
+    expr = ve.in_list(ve.column("age"), members)
+    assert names(people, expr) == ["Alice"]
+    assert names(people, ~expr) == []
+    assert names(people, ~ve.in_list(ve.column("age"), [30])) == ["Bob", "Charlie"]
+
+
+def test_in_list_large_set_and_strings(people: vx.VortexFile):
+    assert names(people, ve.in_list(ve.column("age"), list(range(1000)))) == ["Alice", "Bob", "Charlie"]
+    assert names(people, ve.in_list(ve.column("name"), ["Alice", "Charlie"])) == ["Alice", "Charlie"]
+
+
+@pytest.mark.parametrize("else_value", ["junior", None])
+def test_case_when_semantics(people: vx.VortexFile, else_value: str | None) -> None:
+    expr = ve.case_when([(ve.gt(ve.column("age"), 40), "senior"), (ve.gt(ve.column("age"), 26), "mid")], else_value)
+    for restored in (expr, ve.deserialize(expr.serialize()), cast(Expr, pickle.loads(pickle.dumps(expr)))):
+        assert column_values(people, restored) == ["mid", else_value, else_value, "senior"]
 
 
 def test_select_exclude(people: vx.VortexFile) -> None:
     table = people.scan(ve.select_exclude(["scores", "nested"])).read_all().to_arrow_table()
     assert table.column_names == ["name", "age"]
+    assert table.to_pylist() == [
+        {"name": "Alice", "age": 30},
+        {"name": "Bob", "age": 25},
+        {"name": "alfred", "age": None},
+        {"name": "Charlie", "age": 57},
+    ]
 
 
 # --------------------------------------------------------------------------------------

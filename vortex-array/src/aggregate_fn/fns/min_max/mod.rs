@@ -4,6 +4,7 @@
 mod bool;
 mod decimal;
 mod extension;
+mod fixed_size_list;
 mod primitive;
 mod varbinview;
 
@@ -18,6 +19,7 @@ use vortex_session::registry::CachedId;
 use self::bool::accumulate_bool;
 use self::decimal::accumulate_decimal;
 use self::extension::accumulate_extension;
+use self::fixed_size_list::accumulate_fixed_size_bytes;
 use self::primitive::accumulate_primitive;
 use self::varbinview::accumulate_varbinview;
 use crate::ArrayRef;
@@ -31,6 +33,7 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::NumericalAggregateOpts;
+use crate::aggregate_fn::fns::fixed_size_bytes::is_fixed_size_bytes;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
@@ -52,7 +55,8 @@ static NAMES: LazyLock<FieldNames> = LazyLock::new(|| FieldNames::from(["min", "
 /// NaN handling for float inputs is controlled by [`NumericalAggregateOpts`]: with `skip_nans` (the
 /// default) NaN values are ignored and the cached `Stat::Min`/`Stat::Max` statistics are consulted
 /// and updated. With `skip_nans=false`, any NaN value in a float array poisons both extrema to
-/// NaN; an exact `Stat::NaNCount` statistic shortcircuits the NaN scan in either direction.
+/// NaN; an exact `Stat::NaNCount` statistic shortcircuits the NaN scan in either direction. The
+/// same applies to extension arrays stored as floats.
 ///
 /// The result scalars have the non-nullable version of the array dtype.
 /// This will update the stats set of the array as a side effect.
@@ -61,7 +65,7 @@ pub fn min_max(
     ctx: &mut ExecutionCtx,
     options: NumericalAggregateOpts,
 ) -> VortexResult<Option<MinMaxResult>> {
-    if !options.skip_nans && array.dtype().is_float() {
+    if !options.skip_nans && has_nan_values(array.dtype()) {
         match array.statistics().get_as::<u64>(Stat::NaNCount) {
             // NaN-free: identical to the NaN-skipping path below, including its stat caching.
             Precision::Exact(0) => {}
@@ -161,8 +165,22 @@ fn nan_minmax_result(dtype: &DType) -> MinMaxResult {
     }
 }
 
-/// A non-nullable NaN scalar of the float `dtype`.
+/// Whether `dtype` can hold NaN values: floats, and extension types stored as floats.
+pub(crate) fn has_nan_values(dtype: &DType) -> bool {
+    match dtype {
+        DType::Extension(ext_dtype) => has_nan_values(ext_dtype.storage_dtype()),
+        _ => dtype.is_float(),
+    }
+}
+
+/// A non-nullable NaN scalar of `dtype`, a float or an extension type stored as a float.
 pub(crate) fn nan_scalar(dtype: &DType) -> Scalar {
+    if let DType::Extension(ext_dtype) = dtype {
+        return Scalar::extension_ref(
+            ext_dtype.with_nullability(Nullability::NonNullable),
+            nan_scalar(ext_dtype.storage_dtype()),
+        );
+    }
     match dtype.as_ptype() {
         PType::F16 => Scalar::primitive(f16::NAN, Nullability::NonNullable),
         PType::F32 => Scalar::primitive(f32::NAN, Nullability::NonNullable),
@@ -171,8 +189,11 @@ pub(crate) fn nan_scalar(dtype: &DType) -> Scalar {
     }
 }
 
-/// Whether a scalar holds a primitive float NaN value.
+/// Whether a scalar holds a float NaN value, directly or as the storage of an extension scalar.
 pub(crate) fn scalar_is_nan(scalar: &Scalar) -> bool {
+    if let Some(ext) = scalar.as_extension_opt() {
+        return scalar_is_nan(&ext.to_storage_scalar());
+    }
     if !scalar.dtype().is_float() {
         return false;
     }
@@ -299,7 +320,8 @@ fn minmax_supported_dtype(input_dtype: &DType) -> bool {
 ///
 /// This is intentionally narrower than [`minmax_supported_dtype`]. List and fixed-size-list
 /// extrema have a defined output dtype for aggregate expression lowering, but the accumulator does
-/// not yet implement lexicographic list comparison.
+/// not yet implement lexicographic list comparison. Fixed-size lists of non-nullable `u8` are the
+/// exception: they compare by byte.
 fn minmax_compute_supported_dtype(input_dtype: &DType) -> bool {
     matches!(
         input_dtype,
@@ -309,7 +331,7 @@ fn minmax_compute_supported_dtype(input_dtype: &DType) -> bool {
             | DType::Utf8(..)
             | DType::Binary(..)
             | DType::Extension(..)
-    )
+    ) || is_fixed_size_bytes(input_dtype)
 }
 
 impl AggregateFnVTable for MinMax {
@@ -473,6 +495,9 @@ impl AggregateFnVTable for MinMax {
                 Canonical::VarBinView(v) => accumulate_varbinview(args, partial, v, ctx),
                 Canonical::Decimal(d) => accumulate_decimal(args, partial, d, ctx),
                 Canonical::Extension(e) => accumulate_extension(args, partial, e, ctx),
+                Canonical::FixedSizeList(f) if is_fixed_size_bytes(f.dtype()) => {
+                    accumulate_fixed_size_bytes(args, partial, f, ctx)
+                }
                 Canonical::Null(_) => Ok(()),
                 Canonical::Union(_) => {
                     vortex_bail!("TODO(connor)[Union]: implement min_max for Union arrays")
@@ -511,11 +536,14 @@ mod tests {
     use std::sync::LazyLock;
 
     use vortex_buffer::BitBuffer;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::ArrayRef;
+    use crate::EmptyMetadata;
     use crate::IntoArray as _;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
@@ -532,6 +560,7 @@ mod tests {
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::DecimalArray;
+    use crate::arrays::ExtensionArray;
     use crate::arrays::FixedSizeListArray;
     use crate::arrays::ListArray;
     use crate::arrays::NullArray;
@@ -541,14 +570,18 @@ mod tests {
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::extension::ExtDType;
+    use crate::dtype::extension::ExtId;
+    use crate::dtype::extension::ExtVTable;
     use crate::expr::stats::Precision;
     use crate::expr::stats::Stat;
+    use crate::expr::stats::StatsProvider;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
     use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_prim_min_max() -> VortexResult<()> {
@@ -794,11 +827,13 @@ mod tests {
     }
 
     #[test]
-    fn test_not_skipping_shortcircuits_on_exact_nan_count_stat() -> VortexResult<()> {
-        // The array has no NaNs; a planted exact NaNCount stat proves the poisoning came from
-        // the stat rather than a scan.
-        let array =
-            PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0], Validity::NonNullable).into_array();
+    fn test_not_skipping_with_exact_nan_count_stat() -> VortexResult<()> {
+        // The exact NaN count agrees with the batch; including NaNs must poison both extrema.
+        let array = PrimitiveArray::new(
+            buffer![1.0f64, 2.0, 3.0, f64::NAN, f64::NAN],
+            Validity::NonNullable,
+        )
+        .into_array();
         array
             .statistics()
             .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(2u64)));
@@ -807,8 +842,8 @@ mod tests {
     }
 
     #[test]
-    fn test_not_skipping_uses_cached_stats_when_nan_free() -> VortexResult<()> {
-        // With an exact NaNCount of zero, the planted exact Min/Max stats are usable as-is.
+    fn test_not_skipping_with_exact_stats_when_nan_free() -> VortexResult<()> {
+        // With an exact NaNCount of zero, the exact Min/Max stats are usable as-is.
         let array =
             PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0], Validity::NonNullable).into_array();
         array
@@ -816,14 +851,14 @@ mod tests {
             .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(0u64)));
         array
             .statistics()
-            .set(Stat::Min, Precision::Exact(ScalarValue::from(-10.0f64)));
+            .set(Stat::Min, Precision::Exact(ScalarValue::from(1.0f64)));
         array
             .statistics()
-            .set(Stat::Max, Precision::Exact(ScalarValue::from(10.0f64)));
+            .set(Stat::Max, Precision::Exact(ScalarValue::from(3.0f64)));
         let mut ctx = SESSION.create_execution_ctx();
         let result = min_max(&array, &mut ctx, KEEP_NANS)?.vortex_expect("should have result");
-        assert_eq!(f64::try_from(&result.min)?, -10.0);
-        assert_eq!(f64::try_from(&result.max)?, 10.0);
+        assert_eq!(f64::try_from(&result.min)?, 1.0);
+        assert_eq!(f64::try_from(&result.max)?, 3.0);
         Ok(())
     }
 
@@ -985,6 +1020,7 @@ mod tests {
             buffer![1i32, 2, 3].into_array(),
             buffer![0u32, 2, 3].into_array(),
             Validity::NonNullable,
+            &mut ctx,
         )?
         .into_array();
         assert_eq!(
@@ -1170,6 +1206,85 @@ mod tests {
             )?,
             None
         );
+        Ok(())
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+    struct F64Ext;
+
+    impl ExtVTable for F64Ext {
+        type Metadata = EmptyMetadata;
+        type NativeValue<'a> = &'a ScalarValue;
+
+        #[expect(clippy::disallowed_methods, reason = "test-only id")]
+        fn id(&self) -> ExtId {
+            ExtId::new("test.f64_ext")
+        }
+
+        fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+            Ok(vec![])
+        }
+
+        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+            Ok(EmptyMetadata)
+        }
+
+        fn validate_dtype(_extension_dtype: &ExtDType<Self>) -> VortexResult<()> {
+            Ok(())
+        }
+
+        fn unpack_native<'a>(
+            _extension_dtype: &'a ExtDType<Self>,
+            storage_value: &'a ScalarValue,
+        ) -> VortexResult<Self::NativeValue<'a>> {
+            Ok(storage_value)
+        }
+    }
+
+    fn f64_ext_array(values: Buffer<f64>) -> VortexResult<ArrayRef> {
+        let ext_dtype = ExtDType::<F64Ext>::try_new(
+            EmptyMetadata,
+            DType::Primitive(PType::F64, Nullability::NonNullable),
+        )?
+        .erased();
+        Ok(ExtensionArray::new(ext_dtype, values.into_array()).into_array())
+    }
+
+    fn ext_storage_f64(scalar: &Scalar) -> VortexResult<f64> {
+        f64::try_from(&scalar.as_extension().to_storage_scalar())
+    }
+
+    #[test]
+    fn test_extension_nan_not_skipping() -> VortexResult<()> {
+        let array = f64_ext_array(buffer![1.0f64, f64::NAN, 3.0])?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = min_max(&array, &mut ctx, KEEP_NANS)?.vortex_expect("should have result");
+        assert_eq!(result.min.dtype(), &array.dtype().as_nonnullable());
+        assert!(ext_storage_f64(&result.min)?.is_nan());
+        assert!(ext_storage_f64(&result.max)?.is_nan());
+        // A NaN-including result is not a NaN-skipping statistic.
+        assert!(array.statistics().get(Stat::Min).as_exact().is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn test_extension_nan_skipping() -> VortexResult<()> {
+        let array = f64_ext_array(buffer![1.0f64, f64::NAN, 3.0])?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = min_max(&array, &mut ctx, NumericalAggregateOpts::default())?
+            .vortex_expect("should have result");
+        assert_eq!(ext_storage_f64(&result.min)?, 1.0);
+        assert_eq!(ext_storage_f64(&result.max)?, 3.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_extension_nan_free_not_skipping() -> VortexResult<()> {
+        let array = f64_ext_array(buffer![2.0f64, 1.0, 3.0])?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = min_max(&array, &mut ctx, KEEP_NANS)?.vortex_expect("should have result");
+        assert_eq!(ext_storage_f64(&result.min)?, 1.0);
+        assert_eq!(ext_storage_f64(&result.max)?, 3.0);
         Ok(())
     }
 }

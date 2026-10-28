@@ -30,10 +30,6 @@ use arrow_schema::Schema;
 use arrow_schema::ffi::FFI_ArrowSchema;
 use async_trait::async_trait;
 pub(crate) use canonical::CanonicalDeviceArrayExport;
-use cudarc::driver::CudaEvent;
-use cudarc::driver::CudaStream;
-use cudarc::driver::DevicePtr;
-use cudarc::runtime::sys::cudaEvent_t;
 pub(crate) use offsets::I32Offsets;
 pub(crate) use offsets::i32_offsets_from_lengths;
 use vortex::array::ArrayRef;
@@ -61,6 +57,10 @@ use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
+use vortex_cuda_driver::CudaEvent;
+use vortex_cuda_driver::CudaStream;
+use vortex_cuda_driver::DevicePtr;
+use vortex_cuda_driver::sys::CUevent as cudaEvent_t;
 
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
@@ -172,10 +172,9 @@ impl PrivateData {
                         Ok(ptr::null())
                     }
                     Some(handle) => {
-                        // The buffer may have been populated on a different stream (for example,
-                        // pooled file reads use a dedicated H2D stream). Access it through cudarc's
-                        // stream-aware API so this export stream waits for pending writes before
-                        // its Arrow sync event is recorded.
+                        // The buffer may have been populated on a different pooled stream.
+                        // Access it through the driver's stream-aware API so this export stream
+                        // waits for pending writes before its Arrow sync event is recorded.
                         let view = handle.cuda_view::<u8>()?;
                         let (device_ptr, record_read) = view.device_ptr(ctx.stream());
                         drop(record_read);
@@ -780,7 +779,9 @@ fn arrow_device_export_dictionary_codes_dtype(codes_dtype: &DType) -> VortexResu
         PType::U16 => PType::I32,
         PType::U32 | PType::U64 => PType::I64,
         ptype @ (PType::I8 | PType::I16 | PType::I32 | PType::I64) => ptype,
-        ptype => return Err(vortex_err!("dictionary codes must be integer, got {ptype}")),
+        ptype => {
+            return Err(vortex_err!("dictionary codes must be integer, got {ptype}"));
+        }
     };
 
     Ok(DType::Primitive(ptype, codes_dtype.nullability()))
@@ -946,7 +947,11 @@ mod tests {
         let buffer = private.buffers[index]
             .as_ref()
             .ok_or_else(|| vortex_err!("missing exported buffer {index}"))?;
-        buffer.cuda_device_ptr()?;
+        assert!(index < usize::try_from(array.n_buffers)?);
+        assert!(!array.buffers.is_null());
+        // SAFETY: The live export exposes n_buffers readable buffer pointers.
+        let exported_ptr = unsafe { *array.buffers.add(index) } as u64;
+        assert_eq!(exported_ptr, buffer.cuda_device_ptr()?);
         buffer.try_to_host_sync()
     }
 
@@ -985,7 +990,7 @@ mod tests {
         };
         assert_eq!(status, 0);
         let field = arrow_schema::Field::try_from(&schema)?;
-        assert_eq!(field.data_type(), &DataType::UInt32);
+        assert_eq!(field, arrow_schema::Field::new("", DataType::UInt32, false));
 
         let get_next = device_stream
             .get_next
@@ -996,6 +1001,15 @@ mod tests {
         assert_eq!(first_array.device_type, ARROW_DEVICE_CUDA);
         assert_eq!(first_array.array.length, 5);
         assert!(first_array.array.release.is_some());
+
+        assert_eq!(
+            vortex::buffer::Buffer::<u32>::from_byte_buffer(private_data_buffer_bytes(
+                &first_array.array,
+                1
+            )?)
+            .as_slice(),
+            &[0, 1, 2, 3, 4],
+        );
 
         let mut eos = ArrowDeviceArray::empty();
         let status = unsafe { get_next(&raw mut device_stream, &raw mut eos) };
@@ -1037,7 +1051,7 @@ mod tests {
         };
         assert_eq!(status, 0);
         let field = arrow_schema::Field::try_from(&schema)?;
-        assert_eq!(field.data_type(), &DataType::UInt32);
+        assert_eq!(field, arrow_schema::Field::new("", DataType::UInt32, false));
 
         let get_next = device_stream
             .get_next

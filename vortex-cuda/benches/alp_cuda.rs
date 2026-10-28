@@ -12,18 +12,17 @@ mod timed_launch_strategy;
 use std::f64;
 use std::mem::size_of;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
-use cudarc::driver::DeviceRepr;
 use futures::executor::block_on;
 use mimalloc::MiMalloc;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
-use vortex::array::array_session;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::validity::Validity::NonNullable;
 use vortex::buffer::Buffer;
@@ -33,14 +32,33 @@ use vortex::encodings::alp::ALPArrayExt;
 use vortex::encodings::alp::ALPFloat;
 use vortex::encodings::alp::alp_encode;
 use vortex::error::VortexExpect;
+use vortex::session::VortexSession;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
+use vortex_array::dtype::session::DTypeSession;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::scalar_fn::session::ScalarFnSession;
+use vortex_array::session::ArraySession;
 use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
+use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
 use crate::bench_config::BENCH_SIZES;
 use crate::timed_launch_strategy::TimedLaunchStrategy;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<DTypeSession>()
+        .with::<ScalarFnSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>()
+        .with::<CudaSession>()
+});
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -78,7 +96,7 @@ where
     let encoded = alp_encode(
         primitive_array.as_view(),
         None,
-        &mut array_session().create_execution_ctx(),
+        &mut SESSION.create_execution_ctx(),
     )
     .vortex_expect("failed to ALP-encode array");
 
@@ -145,7 +163,11 @@ criterion::criterion_group! {
 }
 
 #[cuda_available]
-criterion::criterion_main!(benches);
+fn main() {
+    LazyLock::force(&SESSION);
+    benches();
+    Criterion::default().configure_from_args().final_summary();
+}
 
 #[cuda_not_available]
 fn main() {}

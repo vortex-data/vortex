@@ -12,6 +12,7 @@
 //! See <https://docs.vortex.dev/developer-guide/internals/execution> for the full execution
 //! narrative, diagrams, and walkthroughs.
 
+use std::any::TypeId;
 use std::env::VarError;
 use std::fmt;
 use std::fmt::Display;
@@ -33,6 +34,8 @@ use vortex_session::VortexSession;
 use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::aggregate_fn::session::AggregateFnSessionExt;
+use crate::aggregate_fn::session::AggregateKernels;
 use crate::array::ArrayId;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
@@ -44,14 +47,15 @@ use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::kernels::ParentExecutionKernels;
 use crate::optimizer::kernels::execute_parent_key;
+use crate::optimizer::kernels::execute_parent_marker_key;
 use crate::stats::StatsSet;
 use crate::trace_op;
 
 /// Returns the maximum number of iterations to attempt when executing an array before giving up and returning
 /// an error, can be by the `VORTEX_MAX_ITERATIONS` env variables, otherwise defaults to 2^22.
 pub(crate) fn max_iterations() -> usize {
-    static MAX_ITERATIONS: LazyLock<usize> =
-        LazyLock::new(|| match std::env::var("VORTEX_MAX_ITERATIONS") {
+    static MAX_ITERATIONS: LazyLock<usize> = LazyLock::new(|| {
+        match std::env::var("VORTEX_MAX_ITERATIONS") {
             Ok(val) => val.parse::<usize>().unwrap_or_else(|e| {
                 vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid usize: {e}")
             }),
@@ -59,7 +63,8 @@ pub(crate) fn max_iterations() -> usize {
             Err(VarError::NotUnicode(_)) => {
                 vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid unicode string")
             }
-        });
+        }
+    });
     *MAX_ITERATIONS
 }
 
@@ -147,7 +152,8 @@ impl ArrayRef {
     ///               kernels[(parent.encoding_id(), child.encoding_id())]
     ///                 .try_execute_parent(child, parent, stack.top.slot_idx)
     ///
-    ///   Step 2b: for child in current_array.children():
+    ///   Step 2b: if current_array's encoding has any registered kernel,
+    ///            for child in current_array.children():
     ///               parent = current_array
     ///               kernels[(parent.encoding_id(), child.encoding_id())]
     ///                 .try_execute_parent(child, parent, child.slot_idx)
@@ -159,12 +165,20 @@ impl ArrayRef {
     ///     Done                 -> finish current_builder if present, else use returned array
     /// ```
     ///
+    /// Step 2b first checks whether `current_array`'s encoding owns any execute-parent kernel at
+    /// all (a marker entry in the same kernel snapshot), so a pure compression encoding does not
+    /// probe the registry once for each of its children. Step 2a probes only one pair, so a
+    /// marker check there cannot remove a probe.
+    ///
     /// Step 2a and Step 2b are skipped while `current_builder` is active. `AppendChild`
     /// partially consumes `current_array`: some slots already live in the builder, so a
     /// parent rewrite would observe inconsistent state and could discard accumulated builder
     /// data.
     #[allow(clippy::cognitive_complexity)]
-    pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    pub fn execute_until<M: Matcher + 'static>(
+        self,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
         let mut current_array = self;
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
         let mut stack: Vec<StackFrame> = Vec::new();
@@ -184,12 +198,13 @@ impl ArrayRef {
                 current_builder.is_some(),
             ));
 
-            let is_done = stack
-                .last()
-                .map_or(M::matches as DonePredicate, |frame| frame.done);
-
-            let done_target = is_done(&current_array);
-            let done_canonical = AnyCanonical::matches(&current_array);
+            let (done_target, done_canonical) = match stack.last() {
+                None => root_done_check::<M>(&current_array),
+                Some(frame) => (
+                    (frame.done)(&current_array),
+                    AnyCanonical::matches(&current_array),
+                ),
+            };
             trace_op!(record_execute_until_done_check(done_target, done_canonical));
 
             if done_target || done_canonical {
@@ -250,6 +265,7 @@ impl ArrayRef {
 
             // Step 2b: execute_parent against current_array's own children.
             if current_builder.is_none()
+                && has_execute_parent_kernels(kernels, &current_array)
                 && let Some(rewritten) = try_execute_parent(&current_array, kernels, ctx)?
             {
                 let optimized = rewritten.optimize_ctx(ctx.session())?;
@@ -352,6 +368,8 @@ pub struct ExecutionCtx {
     // OnceLock avoids cloning the session allocator when a context does not allocate.
     allocator: OnceLock<BufferAllocatorRef>,
     execute_parent_kernels: Arc<ParentExecutionKernels>,
+    // OnceLock avoids snapshotting the aggregate kernels when a context does not aggregate.
+    aggregate_kernels: OnceLock<AggregateKernels>,
     #[cfg(debug_assertions)]
     id: usize,
     #[cfg(debug_assertions)]
@@ -370,6 +388,7 @@ impl ExecutionCtx {
             session,
             allocator: OnceLock::new(),
             execute_parent_kernels,
+            aggregate_kernels: OnceLock::new(),
             #[cfg(debug_assertions)]
             id: {
                 static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
@@ -388,6 +407,15 @@ impl ExecutionCtx {
     /// Get the allocator for this execution context.
     pub fn allocator(&self) -> &BufferAllocatorRef {
         self.allocator.get_or_init(|| self.session.allocator())
+    }
+
+    /// Get the aggregate kernels for this execution context.
+    ///
+    /// The session's aggregate kernel registries are snapshotted on first use. Kernels registered
+    /// after that are not visible to this context.
+    pub(crate) fn aggregate_kernels(&self) -> &AggregateKernels {
+        self.aggregate_kernels
+            .get_or_init(|| self.session.aggregate_fns().kernels_snapshot())
     }
 
     /// Set the allocator for this execution context.
@@ -497,17 +525,20 @@ impl Executable for ArrayRef {
 
         let execute_parent_kernels = Arc::clone(&ctx.execute_parent_kernels);
         let kernels = execute_parent_kernels.as_ref();
+        let has_parent_kernels = has_execute_parent_kernels(kernels, &array);
 
         for (slot_idx, slot) in array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
-            if let Some(executed_parent) = execute_parent_for_child(
-                "single_step_execute_parent",
-                &array,
-                child,
-                slot_idx,
-                kernels,
-                ctx,
-            )? {
+            if has_parent_kernels
+                && let Some(executed_parent) = execute_parent_for_child(
+                    "single_step_execute_parent",
+                    &array,
+                    child,
+                    slot_idx,
+                    kernels,
+                    ctx,
+                )?
+            {
                 executed_parent
                     .statistics()
                     .inherit_from(array.statistics());
@@ -564,6 +595,16 @@ pub fn execute_into_builder(
 ) -> VortexResult<Box<dyn ArrayBuilder>> {
     array.append_to_builder(builder.as_mut(), ctx)?;
     Ok(builder)
+}
+
+/// Returns `(matches M, is canonical)`, scanning once when `M` is [`AnyCanonical`].
+#[inline]
+fn root_done_check<M: Matcher + 'static>(array: &ArrayRef) -> (bool, bool) {
+    if TypeId::of::<M>() == TypeId::of::<AnyCanonical>() {
+        let canonical = AnyCanonical::matches(array);
+        return (canonical, canonical);
+    }
+    (M::matches(array), AnyCanonical::matches(array))
 }
 
 /// Pop a stack frame, restoring the parent with the finished child in its slot.
@@ -680,6 +721,12 @@ fn log_parent_rewrite(
         "{phase}: slot[{slot_idx}]({}) rewrote {parent} -> {output}",
         child.encoding_id(),
     ));
+}
+
+/// Whether any execute-parent kernel is registered with `parent`'s encoding as the parent.
+#[inline]
+fn has_execute_parent_kernels(kernels: &ParentExecutionKernels, parent: &ArrayRef) -> bool {
+    kernels.contains_key(&execute_parent_marker_key(parent.encoding_id()))
 }
 
 /// Try execute_parent on each occupied slot of the array.
@@ -953,6 +1000,7 @@ mod tests {
     use crate::VTable as _;
     use crate::VortexSessionExecute;
     use crate::arrays::Bool;
+    use crate::arrays::BoolArray;
     use crate::arrays::Primitive;
     use crate::memory::BufferAllocatorRef;
     use crate::memory::MemorySession;
@@ -999,6 +1047,35 @@ mod tests {
 
         let after_registration = session.create_execution_ctx();
         assert!(after_registration.execute_parent_kernels.contains_key(&key));
+    }
+
+    #[test]
+    fn execution_ctx_snapshot_marks_parents_with_kernels() {
+        let session = VortexSession::empty().with_some(KernelSession::empty());
+        let bool_array = BoolArray::from_iter([true, false]).into_array();
+        let primitive = vortex_buffer::buffer![1i32, 2].into_array();
+
+        let before = session.create_execution_ctx();
+        assert!(!has_execute_parent_kernels(
+            &before.execute_parent_kernels,
+            &bool_array
+        ));
+
+        session.kernels().register_execute_parent(
+            Bool.id(),
+            Primitive.id(),
+            &[noop_execute_parent as ExecuteParentFn],
+        );
+
+        let after = session.create_execution_ctx();
+        assert!(has_execute_parent_kernels(
+            &after.execute_parent_kernels,
+            &bool_array
+        ));
+        assert!(!has_execute_parent_kernels(
+            &after.execute_parent_kernels,
+            &primitive
+        ));
     }
 
     #[test]

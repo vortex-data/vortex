@@ -64,7 +64,6 @@ mod test {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
@@ -77,7 +76,7 @@ mod test {
     use crate::RDEncoderExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -102,11 +101,7 @@ mod test {
                 .is_unsigned_int()
         );
 
-        let taken = encoded
-            .take(buffer![0, 2].into_array())
-            .unwrap()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+        let taken = encoded.take(buffer![0, 2].into_array()).unwrap();
 
         assert_arrays_eq!(taken, PrimitiveArray::from_iter([a, outlier]), &mut ctx);
     }
@@ -134,8 +129,6 @@ mod test {
 
         let taken = encoded
             .take(PrimitiveArray::from_option_iter([Some(0), Some(2), None]).into_array())
-            .unwrap()
-            .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
 
         assert_arrays_eq!(

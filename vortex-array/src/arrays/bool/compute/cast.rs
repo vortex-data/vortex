@@ -79,19 +79,21 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
+    use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn try_cast_bool_success() {
@@ -100,8 +102,11 @@ mod tests {
         let res = bool
             .into_array()
             .cast(DType::Bool(Nullability::NonNullable));
-        assert!(res.is_ok());
-        assert_eq!(res.unwrap().dtype(), &DType::Bool(Nullability::NonNullable));
+        assert_arrays_eq!(
+            res.unwrap(),
+            BoolArray::from_iter([true, false, true]),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -140,7 +145,16 @@ mod tests {
         let out = arr
             .cast(DType::Primitive(target, Nullability::NonNullable))
             .unwrap();
-        let out = out.execute::<Canonical>(&mut ctx).unwrap().into_array();
-        assert_eq!(out.len(), 3);
+        let expected = match target {
+            PType::I8 => buffer![1i8, 0, 1].into_array(),
+            PType::I32 => buffer![1i32, 0, 1].into_array(),
+            PType::I64 => buffer![1i64, 0, 1].into_array(),
+            PType::U8 => buffer![1u8, 0, 1].into_array(),
+            PType::U64 => buffer![1u64, 0, 1].into_array(),
+            PType::F32 => buffer![1f32, 0., 1.].into_array(),
+            PType::F64 => buffer![1f64, 0., 1.].into_array(),
+            _ => unreachable!("unexpected fixture type"),
+        };
+        assert_arrays_eq!(out, expected, &mut ctx);
     }
 }

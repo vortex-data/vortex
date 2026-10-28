@@ -61,7 +61,7 @@ impl RowLimit {
     fn reserve(&self, requested: u64) -> u64 {
         let remaining = self
             .0
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |remaining| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |remaining| {
                 Some(remaining.saturating_sub(requested))
             })
             .ok()

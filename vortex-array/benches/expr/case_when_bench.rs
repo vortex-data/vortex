@@ -12,7 +12,6 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
@@ -30,6 +29,8 @@ use vortex_array::expr::lit;
 use vortex_array::expr::lt;
 use vortex_array::expr::nested_case_when;
 use vortex_array::expr::root;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::fns::case_when::CaseWhen;
@@ -42,7 +43,11 @@ use vortex_session::VortexSession;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<MemorySession>()
+});
 
 fn main() {
     LazyLock::force(&SESSION);
@@ -325,7 +330,7 @@ fn case_when_all_false(bencher: Bencher, size: usize) {
 
 /// Benchmark compact CASE WHEN assembly with three interleaved branches.
 /// Run length = 1; exercises branch 0, branch 1, and the else fallback at every 3rd row.
-#[divan::bench(args = [100, 400])]
+#[divan::bench(args = [4_096, 16_384])]
 fn case_when_fragmented(bencher: Bencher, size: usize) {
     let array = make_fragmented_array(size);
 

@@ -16,7 +16,6 @@ use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::columnar::AnyColumnar;
 use crate::dtype::DType;
 use crate::executor::max_iterations;
@@ -70,6 +69,13 @@ impl<V: AggregateFnVTable> Accumulator<V> {
         self.vtable.empty_partial(self.dtypes.args(&self.options))
     }
 
+    /// Take the accumulated partial state, leaving the accumulator empty.
+    ///
+    /// Returns `None` if nothing was accumulated.
+    pub(crate) fn take_partial(&mut self) -> Option<V::Partial> {
+        self.partial.take()
+    }
+
     fn ensure_partial(&mut self) -> VortexResult<()> {
         if self.partial.is_none() {
             self.partial = Some(self.empty_partial()?);
@@ -99,16 +105,14 @@ impl<V: AggregateFnVTable> Accumulator<V> {
     /// Accumulate `batch` into the partial state through kernel dispatch, the vtable's
     /// short-circuit, or execution to a columnar array, without consulting cached statistics.
     fn accumulate_batch(&mut self, batch: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
-        let session = ctx.session().clone();
-
         // 1. Kernel registry first: a registered `(encoding, aggregate_fn)` kernel is strictly
         //    more specific than the vtable's `try_accumulate` short-circuit. Checking the
         //    registry first gives kernels for `Combined<V>` aggregates a chance to fire —
         //    `Combined::try_accumulate` always returns true, so a later kernel check would be
         //    unreachable.
         {
-            let kernel = session
-                .aggregate_fns()
+            let kernel = ctx
+                .aggregate_kernels()
                 .find_aggregate_kernel(batch.encoding_id(), self.aggregate_fn.id());
             if let Some(kernel) = kernel
                 && let Some(result) = kernel.aggregate(&self.aggregate_fn, batch, ctx)?
@@ -144,8 +148,8 @@ impl<V: AggregateFnVTable> Accumulator<V> {
                 break;
             }
 
-            if let Some(kernel) = session
-                .aggregate_fns()
+            if let Some(kernel) = ctx
+                .aggregate_kernels()
                 .find_aggregate_kernel(batch.encoding_id(), self.aggregate_fn.id())
                 && let Some(result) = kernel.aggregate(&self.aggregate_fn, &batch, ctx)?
             {
@@ -452,7 +456,7 @@ mod tests {
     }
 
     fn fresh_session() -> VortexSession {
-        crate::array_session()
+        VortexSession::empty()
     }
 
     fn dict_of_seven() -> ArrayRef {
@@ -504,6 +508,46 @@ mod tests {
             s.field("count").unwrap().as_primitive().as_::<u64>(),
             Some(1)
         );
+        Ok(())
+    }
+
+    /// An execution context snapshots the aggregate kernels on first use, so a kernel registered
+    /// afterwards only fires through a new context.
+    #[test]
+    fn execution_ctx_snapshots_aggregate_kernels_on_first_use() -> VortexResult<()> {
+        static KERNEL: SentinelMeanPartialKernel = SentinelMeanPartialKernel;
+        let session = fresh_session();
+        let mut ctx = session.create_execution_ctx();
+
+        let mut acc = mean_f64_accumulator()?;
+        acc.accumulate(&dict_of_seven(), &mut ctx)?;
+        assert_eq!(
+            acc.flush()?
+                .as_struct()
+                .field("sum")
+                .unwrap()
+                .as_primitive()
+                .as_::<f64>(),
+            Some(7.0)
+        );
+
+        session
+            .get::<AggregateFnSession>()
+            .register_aggregate_kernel(Dict.id(), Some(Mean::combined().id()), &KERNEL);
+
+        acc.accumulate(&dict_of_seven(), &mut ctx)?;
+        assert_eq!(
+            acc.flush()?
+                .as_struct()
+                .field("sum")
+                .unwrap()
+                .as_primitive()
+                .as_::<f64>(),
+            Some(7.0)
+        );
+
+        acc.accumulate(&dict_of_seven(), &mut session.create_execution_ctx())?;
+        assert_eq!(acc.flush()?, sentinel_partial());
         Ok(())
     }
 
@@ -577,13 +621,13 @@ mod tests {
         let batch = dict_of_seven();
         batch
             .statistics()
-            .set(Stat::Sum, Precision::Exact(ScalarValue::from(11.0f64)));
+            .set(Stat::Sum, Precision::Exact(ScalarValue::from(7.0f64)));
 
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(Sum, NumericalAggregateOpts::default(), dtype)?;
         acc.accumulate(&batch, &mut ctx)?;
 
-        assert_eq!(acc.finish()?.as_primitive().as_::<f64>(), Some(11.0));
+        assert_eq!(acc.finish()?.as_primitive().as_::<f64>(), Some(7.0));
         Ok(())
     }
 

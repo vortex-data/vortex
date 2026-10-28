@@ -19,8 +19,8 @@ use rand::prelude::*;
 use rand_distr::Zipf;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::BoolArray;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_buffer::BitBuffer;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -33,9 +33,15 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
 
-const SIZES: &[usize] = &[1_000, 10_000, 100_000, 250_000];
+/// Array lengths for the filter benchmarks.
+///
+/// 1000 rows took less than 1 µs, so the allocator work left behind by the previous, larger case
+/// was a large part of the single measured iteration in simulation, and CodSpeed reported no
+/// execution time for `filter_powerlaw_by_mostly_false[1000]`.
+const SIZES: &[usize] = &[10_000, 100_000, 250_000];
 const DENSITY_SWEEP_SIZE: usize = 100_000;
 const ARRAY_SEED: u64 = 42;
 const MASK_SEED: u64 = 43;
@@ -393,14 +399,14 @@ fn density_sweep_dense_runs(bencher: Bencher, density: f64) {
         });
 }
 
-#[divan::bench(args = DENSITIES)]
-fn density_sweep_single_slice(bencher: Bencher, density: f64) {
+#[divan::bench]
+fn density_sweep_single_slice(bencher: Bencher) {
     let array = make_random_bool_array(DENSITY_SWEEP_SIZE, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
         .with_inputs(|| {
             (
                 array.clone(),
-                make_single_slice(DENSITY_SWEEP_SIZE, density),
+                make_single_slice(DENSITY_SWEEP_SIZE, 0.5),
                 SESSION.create_execution_ctx(),
             )
         })
@@ -416,8 +422,10 @@ fn density_sweep_single_slice(bencher: Bencher, density: f64) {
 // --- Extreme cases ---
 
 const LARGE_SIZES: &[usize] = &[10_000, 100_000, 250_000];
+const ALL_TRUE_SIZES: &[usize] = &[100_000];
+const ULTRA_SPARSE_SIZES: &[usize] = &[100_000, 250_000];
 
-#[divan::bench(args = LARGE_SIZES)]
+#[divan::bench(args = ALL_TRUE_SIZES)]
 fn filter_all_true(bencher: Bencher, n: usize) {
     let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher
@@ -459,7 +467,7 @@ fn filter_one_false(bencher: Bencher, n: usize) {
         });
 }
 
-#[divan::bench(args = LARGE_SIZES)]
+#[divan::bench(args = ULTRA_SPARSE_SIZES)]
 fn filter_ultra_sparse(bencher: Bencher, n: usize) {
     let array = make_random_bool_array(n, &mut StdRng::seed_from_u64(ARRAY_SEED));
     bencher

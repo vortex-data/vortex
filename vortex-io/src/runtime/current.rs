@@ -482,10 +482,7 @@ mod tests {
         let results = collected.lock();
         let mut values: Vec<_> = results.iter().map(|(_, v)| *v).collect();
         values.sort();
-        values.dedup();
-
-        assert!(values.len() >= 5);
-        assert!(values.iter().all(|&v| v < num_items));
+        assert_eq!(values, (0..num_threads * 5).collect::<Vec<_>>());
     }
 
     #[test]

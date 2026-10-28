@@ -10,7 +10,7 @@ statement ok
 CREATE TABLE tp(a INTEGER, b INTEGER, c INTEGER);
 
 statement ok
-INSERT INTO tp VALUES (1, 10, 100), (2, 20, 200), (3, 30, 300);
+INSERT INTO tp VALUES (1, 10, 100), (2, 20, 200), (3, 30, 300), (1, 10, 100);
 
 statement ok
 COPY tp TO '${WORK_DIR}/cp.vortex';
@@ -28,17 +28,17 @@ SELECT max(c), min(a) FROM '${WORK_DIR}/cp.vortex';
 query III
 SELECT min(c), count(*), max(a) FROM tp;
 ----
-100 3 3
+100 4 3
 
 query III
 SELECT min(c), count(*), max(a) FROM '${WORK_DIR}/cp.vortex';
 ----
-100 3 3
+100 4 3
 
 query I
 SELECT sum(a) FROM '${WORK_DIR}/cp.vortex' UNION ALL SELECT min(c) FROM '${WORK_DIR}/cp.vortex' ORDER BY 1;
 ----
-6
+7
 100
 
 # DISTINCT and FILTER clauses must not be pushed down

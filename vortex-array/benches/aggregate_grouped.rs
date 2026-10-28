@@ -22,10 +22,12 @@ use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::aggregate_fn::fns::count::Count;
 use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::aggregate_fn::fns::sum_v2::SumV2;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::dtype::DType;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
@@ -38,7 +40,11 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+});
 
 const GROUP_COUNT: usize = 128;
 const GROUP_SIZE_SEED: u64 = 42;
@@ -57,6 +63,7 @@ fn total_element_count(group_sizes: &[usize]) -> usize {
 }
 
 fn contiguous_list_view(elements: ArrayRef, group_sizes: &[usize]) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let mut offset = 0usize;
     let offsets: Buffer<u32> = group_sizes
         .iter()
@@ -75,6 +82,7 @@ fn contiguous_list_view(elements: ArrayRef, group_sizes: &[usize]) -> ArrayRef {
         offsets.into_array(),
         sizes.into_array(),
         Validity::NonNullable,
+        &mut ctx,
     )
     .unwrap()
     .into_array()

@@ -24,6 +24,7 @@ use jni::sys::jfloat;
 use jni::sys::jint;
 use jni::sys::jlong;
 use jni::sys::jshort;
+use vortex::VortexSessionDefault;
 use vortex::dtype::BigCast;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
@@ -44,6 +45,7 @@ use vortex::expr::between;
 use vortex::expr::get_item;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
+use vortex::expr::list_contains_opts;
 use vortex::expr::lit;
 use vortex::expr::merge_opts;
 use vortex::expr::not;
@@ -66,10 +68,11 @@ use vortex::scalar_fn::fns::between::StrictComparison;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
+use vortex::scalar_fn::fns::list_contains::ListContainsOptions;
 use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::merge::DuplicateHandling;
 use vortex::scalar_fn::fns::operators::Operator;
-use vortex_arrow::ArrowSession;
+use vortex::session::VortexSession;
 use vortex_spatial::extension::native_geometry_scalar_from_wkb;
 use vortex_spatial::scalar_fn::area::SpatialArea;
 use vortex_spatial::scalar_fn::collect::SpatialCollect;
@@ -410,6 +413,33 @@ fn strict_from_bool(value: jboolean) -> StrictComparison {
     }
 }
 
+/// Build `list_contains(list, needle)`: whether the list-typed `list` expression contains
+/// `needle`.
+///
+/// `list` must evaluate to a Vortex `List`; the list's element dtype must match `needle`'s dtype
+/// ignoring nullability. With a list literal on the left and a column on the right this is a
+/// set-membership (`IN`) test that a constant-set kernel answers in one pass over the column.
+///
+/// `sql_null_semantics` selects how a null list element behaves: off, it never matches and a
+/// non-matching needle is `false`; on, it is SQL's unknown value and a non-matching needle is
+/// `null`, so `NOT IN` never admits it.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeExpression_listContains(
+    _env: EnvUnowned,
+    _class: JClass,
+    list: jlong,
+    needle: jlong,
+    sql_null_semantics: jboolean,
+) -> jlong {
+    let list = unsafe { expr_ref(list) }.clone();
+    let needle = unsafe { expr_ref(needle) }.clone();
+    into_raw(list_contains_opts(
+        list,
+        needle,
+        ListContainsOptions { sql_null_semantics },
+    ))
+}
+
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalBool(
     _env: EnvUnowned,
@@ -719,7 +749,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalGeometry(
             throw_runtime!("geometry literal WKB bytes must not be null");
         }
         let bytes = env.convert_byte_array(&wkb)?;
-        let scalar = native_geometry_scalar_from_wkb(&bytes, &ArrowSession::default())?
+        let scalar = native_geometry_scalar_from_wkb(&bytes, &VortexSession::default())?
             .ok_or_else(|| vortex_err!("unsupported WKB geometry type for a geometry literal"))?;
         Ok(into_raw(lit(scalar)))
     })

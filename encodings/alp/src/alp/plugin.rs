@@ -105,6 +105,7 @@ mod tests {
     use vortex_array::arrays::PatchedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::patched::PatchedArraySlotsExt;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::buffer::BufferHandle;
     use vortex_array::session::ArraySessionExt;
     use vortex_error::VortexResult;
@@ -118,7 +119,7 @@ mod tests {
     use crate::alp_encode;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         session.arrays().register(ALPPatchedPlugin);
         session
     });
@@ -160,6 +161,8 @@ mod tests {
             ),
             &SESSION,
         )?;
+
+        assert_arrays_eq!(deserialized, parray, &mut SESSION.create_execution_ctx());
 
         let patched: PatchedArray = deserialized
             .try_downcast()
@@ -212,6 +215,8 @@ mod tests {
             ),
             &SESSION,
         )?;
+
+        assert_arrays_eq!(deserialized, parray, &mut SESSION.create_execution_ctx());
 
         let result = deserialized
             .try_downcast::<ALP>()

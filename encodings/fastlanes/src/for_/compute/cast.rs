@@ -56,7 +56,7 @@ mod tests {
     use crate::FoRArray;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -101,6 +101,11 @@ mod tests {
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::I64, Nullability::Nullable)
+        );
+        assert_arrays_eq!(
+            casted,
+            PrimitiveArray::from_option_iter([Some(50i64), None, Some(70), Some(80), None]),
+            &mut SESSION.create_execution_ctx()
         );
     }
 

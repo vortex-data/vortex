@@ -32,16 +32,24 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::MaskedArray;
+use vortex_array::dtype::session::DTypeSession;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::validity::Validity;
+use vortex_arrow::ArrowSession;
+use vortex_edition::EditionSession;
+use vortex_edition::EnabledEditions;
 use vortex_error::VortexResult;
+use vortex_expr::stats::session::StatsSession;
 use vortex_session::VortexSession;
 use vortex_spatial::scalar_fn::contains::SpatialContains;
 use vortex_spatial::scalar_fn::intersects::SpatialIntersects;
 use vortex_spatial::test_harness::point_column;
 use vortex_spatial::test_harness::polygon_column;
-use vortex_spatial::test_harness::spatial_session;
 
 // Scalar function execution allocates its output inside the timed region, so use the vendored
 // allocator instead of measuring glibc differences between CodSpeed runner images.
@@ -49,10 +57,24 @@ use vortex_spatial::test_harness::spatial_session;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(spatial_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<DTypeSession>()
+        .with::<ScalarFnSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>()
+        .with::<ArrowSession>()
+        .with::<StatsSession>()
+        .with::<EditionSession>()
+        .with::<EnabledEditions>();
+    vortex_spatial::initialize(&session);
+    session
+});
 
 /// The ordinary arms use the same row count so results are comparable across shapes. A geometry
 /// predicate costs roughly a microsecond per row under CodSpeed's CPU simulation, which caps the
@@ -148,21 +170,30 @@ fn execute(array: VortexResult<impl IntoArray>, ctx: &mut ExecutionCtx) -> Array
 
 /// Marks one row in `null_every` null without changing the geometry storage.
 fn nullable_every(array: ArrayRef, null_every: usize) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let validity = Validity::from_iter((0..array.len()).map(|i| !i.is_multiple_of(null_every)));
-    MaskedArray::try_new(array, validity).unwrap().into_array()
+    MaskedArray::try_new(array, validity, &mut ctx)
+        .unwrap()
+        .into_array()
 }
 
 /// A deterministic 90%-null validity pattern.
 fn ninety_percent_null(array: ArrayRef) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let validity = Validity::from_iter((0..array.len()).map(|i| i.is_multiple_of(10)));
-    MaskedArray::try_new(array, validity).unwrap().into_array()
+    MaskedArray::try_new(array, validity, &mut ctx)
+        .unwrap()
+        .into_array()
 }
 
 /// A deterministic 50% validity pattern with a distinct phase per operand. Adjacent phases make
 /// the two columns jointly cover every valid/null combination once per four rows.
 fn half_valid(array: ArrayRef, phase: usize) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let validity = Validity::from_iter((0..array.len()).map(|i| (i + phase) % 4 < 2));
-    MaskedArray::try_new(array, validity).unwrap().into_array()
+    MaskedArray::try_new(array, validity, &mut ctx)
+        .unwrap()
+        .into_array()
 }
 
 mod contains {

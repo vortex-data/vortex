@@ -191,18 +191,22 @@ fn apply_patches_idx_typed<T: BitPackedUnpack, I: IntegerPType>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::fns::is_constant::is_constant;
-    use vortex_array::array_session;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::BitPackedData;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn is_constant_with_patches() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = BitPackedData::encode(&buffer![4; 1025].into_array(), 2, &mut ctx)?;
         assert!(is_constant(&array.into_array(), &mut ctx)?);
         Ok(())

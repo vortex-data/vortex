@@ -43,9 +43,11 @@ use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::dict::DictLayout;
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::struct_::StructLayout;
+use crate::plan::physical::ConcatPlan;
 use crate::plan::physical::EvalPlan;
-use crate::plan::physical::FilterPlan;
+use crate::plan::physical::Filter;
 use crate::plan::physical::PackPlan;
+use crate::plan::physical::PlanChildren;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::SegmentScan;
 use crate::plan::physical::Take;
@@ -60,6 +62,7 @@ use crate::plan::physical::operator::SourceReady;
 use crate::plan::physical::operator::Step;
 use crate::plan::physical::operators::PackSource;
 use crate::plan::physical::optimize;
+use crate::plan::physical::selection::selected;
 use crate::segments::SegmentId;
 use crate::test::SESSION;
 
@@ -191,8 +194,8 @@ struct Run {
     /// The arrays of each split, in order.
     splits: Vec<Vec<ArrayRef>>,
     events: Vec<Event>,
-    /// Ports and shared readers still held once the scan finished.
-    leftover: (usize, usize),
+    /// Ports still held once the scan finished.
+    leftover: usize,
 }
 
 /// Drives a scan the way an owner does, completing reads only while the scan waits.
@@ -245,7 +248,7 @@ fn drive(
         0,
         "scan finished with a pipeline waiting for a read"
     );
-    let leftover = (scan.live_ports(), scan.pending_shares());
+    let leftover = scan.live_ports();
     Ok(Run {
         arrays,
         splits,
@@ -262,9 +265,22 @@ fn run(
     mask: Mask,
     pick: impl FnMut(&[ReadRequest]) -> usize,
 ) -> VortexResult<Run> {
-    let scan = Scan::try_new(SESSION.clone(), plan.clone(), vec![Split { rows, mask }])?;
+    run_with_values(store, plan, rows, mask, ValueCache::default(), pick)
+}
+
+/// [`run`], sharing whole values with the other scans given `values`.
+fn run_with_values(
+    store: &Store,
+    plan: &PlanRef,
+    rows: Range<u64>,
+    mask: Mask,
+    values: ValueCache,
+    pick: impl FnMut(&[ReadRequest]) -> usize,
+) -> VortexResult<Run> {
+    let scan = Scan::try_new(SESSION.clone(), plan.clone(), vec![Split { rows, mask }])?
+        .with_value_cache(values);
     let run = drive(store, scan, pick)?;
-    assert_eq!(run.leftover, (0, 0), "a finished scan holds no port");
+    assert_eq!(run.leftover, 0, "a finished scan holds no port");
     Ok(run)
 }
 
@@ -385,9 +401,9 @@ fn views_of_one_plan(
 }
 
 /// Splits cutting every column at different places, run as one scan, each produce their own
-/// rows, and a segment several splits read is read and decoded once, then dropped.
+/// rows, and between them read every segment.
 #[rstest]
-fn splits_of_one_scan_read_each_segment_once(
+fn splits_of_one_scan_read_the_segments_they_overlap(
     #[values([0, 4, 11, 20], [0, 9, 13, 20], [0, 1, 2, 20])] cuts: [u64; 4],
     #[values(1, 3)] active: usize,
     #[values(Delivery::Fifo, Delivery::Lifo)] order: Delivery,
@@ -403,11 +419,10 @@ fn splits_of_one_scan_read_each_segment_once(
         .collect();
     let scan = Scan::try_new(SESSION.clone(), plan, splits.clone())?.with_max_active(active);
     let run = drive(&store, scan, delivery(order))?;
-    assert_eq!(run.leftover, (0, 0), "every shared segment was dropped");
-    assert_eq!(
-        segments_read(&run.events),
-        (0..store.segments.len() as u32).collect::<Vec<_>>()
-    );
+    assert_eq!(run.leftover, 0, "a finished scan holds no port");
+    let mut read = segments_read(&run.events);
+    read.dedup();
+    assert_eq!(read, (0..store.segments.len() as u32).collect::<Vec<_>>());
     for (index, split) in splits.iter().enumerate() {
         assert_view(
             &expected,
@@ -517,13 +532,20 @@ fn pack_emits_when_every_field_has_data() -> VortexResult<()> {
     let plan = lower(&layout)?;
     let mask = Mask::new_true(ROWS as usize);
 
-    let run = run(
-        &store,
-        &plan,
-        0..ROWS,
-        mask.clone(),
-        delivery(Delivery::Fifo),
-    )?;
+    let order = std::iter::once(ROWS as u32)
+        .chain(0..ROWS as u32)
+        .collect::<Vec<_>>();
+    let run = run(&store, &plan, 0..ROWS, mask.clone(), scripted(&order))?;
+    let delivered_before_output = run
+        .events
+        .iter()
+        .take_while(|event| !matches!(event, Event::Piece(_)))
+        .filter_map(|event| match event {
+            Event::Delivered(id) => Some(*id),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(delivered_before_output, [ROWS as u32, 0]);
     assert_eq!(pieces(&run.events), vec![1; ROWS as usize]);
     assert_view(&expected, &(0..ROWS), &mask, run.arrays)
 }
@@ -567,9 +589,12 @@ fn aligned_fields_stream_one_struct_per_chunk() -> VortexResult<()> {
 fn scan_keeps_the_selection_with_or_without_a_filter(#[case] sel: Sel) -> VortexResult<()> {
     let mut store = Store::default();
     let values = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
-    let scan = lower(&store.flat(&values)?)?;
+    let filtered = lower(&store.flat(&values)?)?;
+    let scan = filtered
+        .as_opt::<Filter>()
+        .ok_or_else(|| vortex_err!("A flat layout lowers to a filter"))?
+        .child_plan()?;
     assert!(scan.is::<SegmentScan>());
-    let filtered = FilterPlan::new(scan.clone()).into_plan();
 
     let rows = 3..9;
     let mask = sel.mask(6);
@@ -591,7 +616,8 @@ fn scan_keeps_the_selection_with_or_without_a_filter(#[case] sel: Sel) -> Vortex
 
 /// A take reads its values over their whole domain and its codes over the selection, including
 /// when a predicate has been pushed onto the values, and emits nothing before the values are
-/// whole. Later scans of the plan reuse the values and read only the codes.
+/// whole. Later scans sharing its value cache reuse the values and read only the codes; a scan
+/// with a cache of its own reads them again.
 #[rstest]
 #[case::values(false)]
 #[case::predicate(true)]
@@ -601,19 +627,31 @@ fn take_waits_for_whole_values_and_keeps_them(#[case] predicate: bool) -> Vortex
     let codes = PrimitiveArray::from_iter((0..ROWS).map(|v| (v % 3) as u8)).into_array();
     let layout = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).into_layout();
     let mut plan = lower(&layout)?;
-    let mut expected = values.take(codes)?;
+    let expected = if predicate {
+        BoolArray::from_iter((0..ROWS).map(|row| row % 3 != 0)).into_array()
+    } else {
+        VarBinViewArray::from_iter_str((0..ROWS).map(|row| ["a", "b", "c"][(row % 3) as usize]))
+            .into_array()
+    };
     if predicate {
         let expression = gt(root(), lit("a"))
             .bind(plan.dtype())?
             .optimize_recursive()?;
-        expected = expected.apply_bound(&expression)?;
-        plan = optimize(EvalPlan::try_new(expression, plan)?.into_plan())?;
+        plan = optimize(EvalPlan::try_new(expression, plan)?.into_plan(), &SESSION)?;
     }
     assert!(plan.is::<Take>());
 
     let mask = Sel::EveryOther.mask(10);
+    let cache = ValueCache::default();
     // Codes (segment 1) land first; nothing comes out until the values (segment 0) do.
-    let first = run(&store, &plan, 0..10, mask.clone(), scripted(&[1, 0]))?;
+    let first = run_with_values(
+        &store,
+        &plan,
+        0..10,
+        mask.clone(),
+        cache.clone(),
+        scripted(&[1, 0]),
+    )?;
     assert_eq!(reads(&first.events), 2);
     let first_piece = first
         .events
@@ -628,32 +666,59 @@ fn take_waits_for_whole_values_and_keeps_them(#[case] predicate: bool) -> Vortex
     );
     assert_view(&expected, &(0..10), &mask, first.arrays)?;
 
-    Ok(())
+    let rows = 10..20;
+    let shared = run_with_values(
+        &store,
+        &plan,
+        rows.clone(),
+        mask.clone(),
+        cache,
+        delivery(Delivery::Fifo),
+    )?;
+    assert_eq!(reads(&shared.events), 1, "only the codes are read again");
+    assert_view(&expected, &rows, &mask, shared.arrays)?;
+
+    let fresh = run(
+        &store,
+        &plan,
+        rows.clone(),
+        mask.clone(),
+        delivery(Delivery::Fifo),
+    )?;
+    assert_eq!(
+        reads(&fresh.events),
+        2,
+        "a new cache reads the values again"
+    );
+    assert_view(&expected, &rows, &mask, fresh.arrays)
 }
 
 #[test]
 fn eval_applies_expression_to_selected_rows() -> VortexResult<()> {
     let mut store = Store::default();
-    let (plan, expected) = two_columns(&mut store)?;
+    let (plan, _) = two_columns(&mut store)?;
     let expression = gt(get_item("a", root()), lit(4_i32)).bind(plan.dtype())?;
-    let expected = expected.apply_bound(&expression)?;
+    let expected = BoolArray::from_iter((0..ROWS).map(|row| row > 4)).into_array();
     let plan = EvalPlan::try_new(expression, plan)?.into_plan();
 
     let rows = 2..18;
     let mask = Sel::EveryOther.mask(16);
-    let run = run(
-        &store,
-        &plan,
-        rows.clone(),
-        mask.clone(),
-        delivery(Delivery::Lifo),
-    )?;
-    assert_view(&expected, &rows, &mask, run.arrays)
+    for plan in [plan.clone(), optimize(plan, &SESSION)?] {
+        let run = run(
+            &store,
+            &plan,
+            rows.clone(),
+            mask.clone(),
+            delivery(Delivery::Lifo),
+        )?;
+        assert_view(&expected, &rows, &mask, run.arrays)?;
+    }
+    Ok(())
 }
 
-/// A column read by two fields of one struct is read and decoded once, and both fields get it.
+/// A column read by two fields of one struct is read by each field, and both get it.
 #[test]
-fn a_segment_two_readers_need_is_read_once() -> VortexResult<()> {
+fn a_segment_two_readers_need_is_read_by_each() -> VortexResult<()> {
     let mut store = Store::default();
     let a = PrimitiveArray::from_iter(0..ROWS as i32).into_array();
     let column = lower(&store.chunked(&a, &[7, 13])?)?;
@@ -681,7 +746,7 @@ fn a_segment_two_readers_need_is_read_once() -> VortexResult<()> {
         mask.clone(),
         delivery(Delivery::Lifo),
     )?;
-    assert_eq!(segments_read(&run.events), [0, 1]);
+    assert_eq!(segments_read(&run.events), [0, 0, 1, 1]);
     assert_view(&expected, &rows, &mask, run.arrays)
 }
 
@@ -769,5 +834,90 @@ fn pack_readiness_tracks_changes_and_consumption(
                 .contains("Pack fields ended at different rows")
         );
     }
+    Ok(())
+}
+
+#[rstest]
+#[case::sparse(2..19, vec![0, 5, 14, 16])]
+#[case::contiguous(2..19, (5..10).collect())]
+#[case::empty(2..19, vec![])]
+fn bound_selection_matches_projection(
+    #[case] rows: Range<u64>,
+    #[case] indices: Vec<usize>,
+) -> VortexResult<()> {
+    let mut store = Store::default();
+    let (plan, expected) = fixture(&mut store)?;
+    let mask = Mask::from_indices((rows.end - rows.start) as usize, indices);
+    let plan = selected(plan, rows.clone(), mask.clone());
+    let result = run(
+        &store,
+        &plan,
+        rows.clone(),
+        Mask::new_true(mask.len()),
+        delivery(Delivery::Lifo),
+    )?;
+    assert_view(&expected, &rows, &mask, result.arrays)
+}
+
+#[test]
+fn bound_selection_never_initializes_skipped_chunks() -> VortexResult<()> {
+    let mut store = Store::default();
+    let array = PrimitiveArray::from_iter(0..20i32).into_array();
+    let first = lower(&store.flat(&array.slice(0..5)?)?)?;
+    let last = lower(&store.flat(&array.slice(15..20)?)?)?;
+    let children = PlanChildren::lazy(4, move |index| match index {
+        0 => Ok(first.clone()),
+        3 => Ok(last.clone()),
+        _ => Err(vortex_err!("unselected chunk {index} was initialized")),
+    });
+    // SAFETY: All four logical chunks have five rows of the same primitive dtype. The two
+    // unselected initializers deliberately fail to detect discovery as well as compilation.
+    let plan = unsafe {
+        ConcatPlan::from_children_unchecked(
+            array.dtype().clone(),
+            20,
+            vec![0, 5, 10, 15].into(),
+            children,
+        )
+    }
+    .into_plan();
+    let mask = Mask::from_indices(20, [2, 17]);
+    let plan = selected(plan, 0..20, mask.clone());
+    let result = run(
+        &store,
+        &plan,
+        0..20,
+        Mask::new_true(20),
+        delivery(Delivery::Fifo),
+    )?;
+    assert_eq!(reads(&result.events), 2);
+    assert_view(&array, &(0..20), &mask, result.arrays)
+}
+
+#[test]
+fn bound_selection_keeps_whole_dictionary_values() -> VortexResult<()> {
+    let mut store = Store::default();
+    let values = PrimitiveArray::from_iter(100..120i32).into_array();
+    let codes = PrimitiveArray::from_iter((0..20u32).rev()).into_array();
+    let layout = DictLayout::new(
+        store.chunked(&values, &[5, 5, 5, 5])?,
+        store.chunked(&codes, &[5, 5, 5, 5])?,
+    )
+    .into_layout();
+    let mask = Mask::from_indices(20, [1, 18]);
+    let plan = selected(lower(&layout)?, 0..20, mask);
+    let result = run(
+        &store,
+        &plan,
+        0..20,
+        Mask::new_true(20),
+        delivery(Delivery::Lifo),
+    )?;
+    assert_eq!(reads(&result.events), 6, "all values and two code chunks");
+    assert_arrays_eq!(
+        join(values.dtype(), result.arrays)?,
+        PrimitiveArray::from_iter([118, 101]).into_array(),
+        &mut SESSION.create_execution_ctx()
+    );
     Ok(())
 }

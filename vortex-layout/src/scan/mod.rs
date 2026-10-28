@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod arrow;
+mod execution;
 mod filter;
 pub mod layout;
 mod limit;
@@ -13,6 +14,7 @@ mod splits;
 mod tasks;
 #[cfg(test)]
 mod test;
+pub mod v2;
 
 /// A heuristic for an ideal split size.
 ///

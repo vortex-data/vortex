@@ -22,6 +22,7 @@ import dev.vortex.arrow.ArrowAllocation;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -159,6 +160,13 @@ public final class JNIWriterTest {
         }
 
         assertTrue(Files.exists(outputPath), "output file should exist");
+        DataSource source = DataSource.open(session, writePath);
+        assertEquals(new DataSource.RowCount.Exact(0L), source.rowCount());
+        assertEquals(
+                new Schema(List.of(
+                        Field.notNullable("name", new ArrowType.Utf8View()),
+                        Field.notNullable("age", new ArrowType.Int(32, true)))),
+                source.arrowSchema(allocator));
     }
 
     @Test
@@ -177,6 +185,13 @@ public final class JNIWriterTest {
         }
 
         assertTrue(Files.exists(outputPath), "output file should exist");
+        DataSource source = DataSource.open(session, writePath);
+        assertEquals(new DataSource.RowCount.Exact(0L), source.rowCount());
+        assertEquals(
+                new Schema(List.of(
+                        Field.notNullable("name", new ArrowType.Utf8View()),
+                        Field.notNullable("age", new ArrowType.Int(32, true)))),
+                source.arrowSchema(allocator));
     }
 
     @Test
@@ -195,6 +210,13 @@ public final class JNIWriterTest {
         }
 
         assertTrue(Files.exists(outputPath), "output file should exist");
+        DataSource source = DataSource.open(session, writePath);
+        assertEquals(new DataSource.RowCount.Exact(0L), source.rowCount());
+        assertEquals(
+                new Schema(List.of(
+                        Field.notNullable("name", new ArrowType.Utf8View()),
+                        Field.notNullable("age", new ArrowType.Int(32, true)))),
+                source.arrowSchema(allocator));
     }
 
     @Test
@@ -255,21 +277,24 @@ public final class JNIWriterTest {
         assertEquals(new DataSource.RowCount.Exact(3L), ds.rowCount());
 
         Scan scan = ds.scan(ScanOptions.of());
+        List<String> names = new ArrayList<>();
+        List<Integer> ages = new ArrayList<>();
         while (scan.hasNext()) {
             Partition p = scan.next();
             try (ArrowReader reader = p.scanArrow(allocator)) {
-                reader.loadNextBatch();
-                VectorSchemaRoot resultRoot = reader.getVectorSchemaRoot();
-                ViewVarCharVector nameOut = (ViewVarCharVector) resultRoot.getVector("name");
-                IntVector ageOut = (IntVector) resultRoot.getVector("age");
-                assertEquals("Alice", nameOut.getObject(0).toString());
-                assertEquals("Bob", nameOut.getObject(1).toString());
-                assertEquals("Carol", nameOut.getObject(2).toString());
-                assertEquals(30, ageOut.get(0));
-                assertEquals(25, ageOut.get(1));
-                assertEquals(40, ageOut.get(2));
+                while (reader.loadNextBatch()) {
+                    VectorSchemaRoot resultRoot = reader.getVectorSchemaRoot();
+                    ViewVarCharVector nameOut = (ViewVarCharVector) resultRoot.getVector("name");
+                    IntVector ageOut = (IntVector) resultRoot.getVector("age");
+                    for (int i = 0; i < resultRoot.getRowCount(); i++) {
+                        names.add(nameOut.getObject(i).toString());
+                        ages.add(ageOut.getObject(i));
+                    }
+                }
             }
         }
+        assertEquals(List.of("Alice", "Bob", "Carol"), names);
+        assertEquals(List.of(30, 25, 40), ages);
     }
 
     @Test
@@ -297,13 +322,13 @@ public final class JNIWriterTest {
                 new ArrowType.Map(false),
                 dataSource.arrowSchema(allocator).findField("map").getType());
 
-        boolean sawBatch = false;
+        int rows = 0;
         Scan scan = dataSource.scan(ScanOptions.of());
         while (scan.hasNext()) {
             Partition partition = scan.next();
             try (ArrowReader reader = partition.scanArrow(allocator)) {
                 while (reader.loadNextBatch()) {
-                    sawBatch = true;
+                    rows += reader.getVectorSchemaRoot().getRowCount();
                     MapVector map = (MapVector) reader.getVectorSchemaRoot().getVector("map");
                     StructVector entries = (StructVector) map.getDataVector();
                     IntVector keys = entries.getChild(MapVector.KEY_NAME, IntVector.class);
@@ -321,7 +346,7 @@ public final class JNIWriterTest {
                 }
             }
         }
-        assertTrue(sawBatch);
+        assertEquals(3, rows);
     }
 
     /** Write a single three-row batch of {@link #personSchema()} data. */

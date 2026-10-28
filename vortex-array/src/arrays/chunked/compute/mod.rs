@@ -15,12 +15,14 @@ mod zip;
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::DecimalArray;
     use crate::arrays::PrimitiveArray;
@@ -30,6 +32,8 @@ mod tests {
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     // Basic chunked arrays
@@ -84,10 +88,7 @@ mod tests {
     ).unwrap())]
 
     fn test_chunked_consistency(#[case] array: ChunkedArray) {
-        test_array_consistency(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_array_consistency(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     #[rstest]
@@ -169,9 +170,6 @@ mod tests {
         DType::Decimal(DecimalDType::new(10, 2), Nullability::NonNullable),
     ).unwrap())]
     fn test_chunked_binary_numeric(#[case] array: ChunkedArray) {
-        test_binary_numeric_array(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        )
+        test_binary_numeric_array(&array.into_array(), &mut SESSION.create_execution_ctx())
     }
 }

@@ -83,7 +83,7 @@ jobs:
           PY
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7
         # Latest macOS doesn't allow maturin to install stuff into the global Python interpreter.
         # Windows has no versioned `python3.11` executable, so pin what `python` resolves to.
         if: "${{ matrix.target.runs-on == 'macos-latest' || matrix.target.os == 'windows' }}"
@@ -122,7 +122,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6  # v6
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad  # v6
         with:
           distribution: "corretto"
           java-version: "17"
@@ -151,7 +151,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6  # v6
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad  # v6
         with:
           distribution: "corretto"
           java-version: "17"
@@ -194,7 +194,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6  # v6
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad  # v6
         with:
           distribution: "corretto"
           java-version: "17"

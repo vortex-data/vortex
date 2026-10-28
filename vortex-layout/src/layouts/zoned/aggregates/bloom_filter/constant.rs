@@ -57,7 +57,8 @@ mod tests {
             )
             .is_ok(),
             "expected to return Ok() for null scalars"
-        )
+        );
+        assert!(zone_partial == BloomPartial::from(&BloomOptions::default()));
     }
 
     #[test]

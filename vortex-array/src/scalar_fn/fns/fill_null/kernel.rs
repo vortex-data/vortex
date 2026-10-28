@@ -130,15 +130,15 @@ where
         let scalar_fn_array = parent
             .as_opt::<ScalarFn>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let fill_value = scalar_fn_array
-            .get_child(1)
-            .as_constant()
-            .vortex_expect("fill_null fill_value must be constant");
+        // A non-constant fill is left for `FillNull::execute`, which materializes lazy scalars.
+        let Some(fill_value) = scalar_fn_array.get_child(1).as_constant() else {
+            return Ok(None);
+        };
         let arr = array.array().clone();
-        if let Some(result) = short_circuit(&arr, &fill_value)? {
+        if let Some(result) = short_circuit(&arr, fill_value)? {
             return Ok(Some(result));
         }
-        <V as FillNullReduce>::fill_null(array, &fill_value)
+        <V as FillNullReduce>::fill_null(array, fill_value)
     }
 }
 
@@ -166,14 +166,14 @@ where
         let scalar_fn_array = parent
             .as_opt::<ScalarFn>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let fill_value = scalar_fn_array
-            .get_child(1)
-            .as_constant()
-            .vortex_expect("fill_null fill_value must be constant");
+        // A non-constant fill is left for `FillNull::execute`, which materializes lazy scalars.
+        let Some(fill_value) = scalar_fn_array.get_child(1).as_constant() else {
+            return Ok(None);
+        };
         let arr = array.array().clone();
-        if let Some(result) = short_circuit(&arr, &fill_value)? {
+        if let Some(result) = short_circuit(&arr, fill_value)? {
             return Ok(Some(result));
         }
-        <V as FillNullKernel>::fill_null(array, &fill_value, ctx)
+        <V as FillNullKernel>::fill_null(array, fill_value, ctx)
     }
 }

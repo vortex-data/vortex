@@ -60,8 +60,8 @@ logical_plan
 13)------------------------Inner Join: store_sales.ss_sold_date_sk = date_dim.d_date_sk
 14)--------------------------TableScan: store_sales projection=[ss_sold_date_sk, ss_customer_sk, ss_hdemo_sk, ss_store_sk, ss_ticket_number]
 15)--------------------------Projection: date_dim.d_date_sk
-16)----------------------------Filter: (date_dim.d_dom >= Int64(1) AND date_dim.d_dom <= Int64(3) OR date_dim.d_dom >= Int64(25) AND date_dim.d_dom <= Int64(28)) AND (date_dim.d_year = Int64(1999) OR date_dim.d_year = Int64(2000) OR date_dim.d_year = Int64(2001))
-17)------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_dom], partial_filters=[date_dim.d_dom >= Int64(1) AND date_dim.d_dom <= Int64(3) OR date_dim.d_dom >= Int64(25) AND date_dim.d_dom <= Int64(28), date_dim.d_year = Int64(1999) OR date_dim.d_year = Int64(2000) OR date_dim.d_year = Int64(2001)]
+16)----------------------------Filter: (date_dim.d_dom >= Int32(1) AND date_dim.d_dom <= Int32(3) OR date_dim.d_dom >= Int32(25) AND date_dim.d_dom <= Int32(28)) AND (date_dim.d_year = Int32(1999) OR date_dim.d_year = Int32(2000) OR date_dim.d_year = Int32(2001))
+17)------------------------------TableScan: date_dim projection=[d_date_sk, d_year, d_dom], partial_filters=[date_dim.d_dom >= Int32(1) AND date_dim.d_dom <= Int32(3) OR date_dim.d_dom >= Int32(25) AND date_dim.d_dom <= Int32(28), date_dim.d_year = Int32(1999) OR date_dim.d_year = Int32(2000) OR date_dim.d_year = Int32(2001)]
 18)----------------------Projection: store.s_store_sk
 19)------------------------Filter: store.s_county = Utf8View("Williamson County")
 20)--------------------------TableScan: store projection=[s_store_sk, s_county], partial_filters=[store.s_county = Utf8View("Williamson County")]

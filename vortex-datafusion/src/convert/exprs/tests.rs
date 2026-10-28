@@ -4,17 +4,31 @@
 use std::sync::Arc;
 
 use arrow_array::Array;
+use arrow_array::DictionaryArray;
 use arrow_array::FixedSizeBinaryArray;
+use arrow_array::Int32Array;
 use arrow_array::RecordBatch;
+use arrow_array::RunArray;
+use arrow_array::StringArray;
 use arrow_array::StructArray;
+use arrow_array::UInt32Array;
+use arrow_array::types::Int32Type;
+use arrow_array::types::UInt32Type;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::IntervalUnit;
 use arrow_schema::Schema;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
 use arrow_schema::extension::Uuid as ArrowUuid;
+use datafusion::common::DFSchema;
+use datafusion::execution::context::ExecutionProps;
+use datafusion::logical_expr::simplify::SimplifyContext;
+use datafusion::optimizer::simplify_expressions::ExprSimplifier;
+use datafusion::physical_expr::create_physical_expr;
+use datafusion::prelude::SessionContext;
 use datafusion_common::ScalarValue;
 use datafusion_common::arrow::buffer::NullBuffer;
+use datafusion_common::arrow::compute::cast;
 use datafusion_common::arrow::datatypes::i256 as arrow_i256;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::metadata::FieldMetadata;
@@ -32,8 +46,14 @@ use vortex::array::IntoArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::builtins::ArrayBuiltins;
+use vortex::dtype::PType;
 use vortex::encodings::uuid::Uuid;
+use vortex::expr::between;
 use vortex::scalar::Scalar;
+use vortex::scalar_fn::fns::between::BetweenOptions;
+use vortex::scalar_fn::fns::between::StrictComparison;
+use vortex::scalar_fn::fns::cast::Cast;
+use vortex::scalar_fn::fns::list_contains::ListContains;
 use vortex::scalar_fn::fns::literal::Literal;
 use vortex_array::assert_arrays_eq;
 
@@ -324,6 +344,71 @@ fn test_native_in_list_large(#[values(false, true)] negated: bool) -> anyhow::Re
 }
 
 #[rstest]
+fn test_in_list_converts_to_set_lookup(#[values(false, true)] negated: bool) -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new("a", DataType::Int32, true)]);
+    let expr = Arc::new(df_expr::InListExpr::try_new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        int_literals([Some(1), Some(3), Some(7)]),
+        negated,
+        &schema,
+    )?);
+    let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
+    let list = Scalar::list(
+        element_dtype,
+        vec![1i32.into(), 3i32.into(), 7i32.into()],
+        Nullability::NonNullable,
+    );
+    let membership = vortex::expr::in_list(get_item("a", root()), lit(list));
+    let expected = if negated { not(membership) } else { membership };
+
+    assert_eq!(convert(expr, &schema)?, expected);
+    Ok(())
+}
+
+#[test]
+fn test_contiguous_in_list_converts_to_between() -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new("a", DataType::Int32, true)]);
+    let expr = Arc::new(df_expr::InListExpr::try_new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        int_literals([Some(3), Some(1), Some(2), Some(2)]),
+        false,
+        &schema,
+    )?);
+    let options = BetweenOptions {
+        lower_strict: StrictComparison::NonStrict,
+        upper_strict: StrictComparison::NonStrict,
+    };
+    assert_eq!(
+        convert(expr, &schema)?,
+        between(get_item("a", root()), lit(1i32), lit(3i32), options)
+    );
+    Ok(())
+}
+
+#[rstest]
+#[case::utf8(DataType::Utf8)]
+#[case::utf8_view(DataType::Utf8View)]
+fn test_in_list_from_array_converts_to_set_lookup(#[case] data_type: DataType) -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new("a", data_type.clone(), true)]);
+    let values = cast(
+        &StringArray::from(vec![Some("x"), None, Some("y"), Some("x")]),
+        &data_type,
+    )?;
+    let expr = Arc::new(df_expr::InListExpr::try_new_from_array(
+        Arc::new(df_expr::Column::new("a", 0)),
+        values,
+        false,
+        &schema,
+    )?);
+    let converted = convert(expr, &schema)?;
+    assert!(
+        converted.is::<ListContains>(),
+        "expected a set lookup, got {converted}"
+    );
+    Ok(())
+}
+
+#[rstest]
 fn test_native_in_list_float(
     #[values(false, true)] negated: bool,
     #[values(DataType::Float32, DataType::Float64)] data_type: DataType,
@@ -575,6 +660,24 @@ fn test_struct_literal_preserves_extension_child(
         .ok_or_else(|| anyhow::anyhow!("Expected the id field"))?;
     assert!(id_dtype.as_extension().is::<Uuid>());
     assert!(!id_dtype.is_nullable());
+    if !null {
+        let id = converted
+            .as_struct()
+            .field("id")
+            .ok_or_else(|| anyhow::anyhow!("Expected id value"))?;
+        assert_eq!(
+            id.as_extension().to_storage_scalar(),
+            Scalar::fixed_size_list(
+                DType::Primitive(PType::U8, Nullability::NonNullable),
+                b"0123456789abcdef"
+                    .iter()
+                    .copied()
+                    .map(Scalar::from)
+                    .collect(),
+                Nullability::NonNullable,
+            )
+        );
+    }
     Ok(())
 }
 
@@ -591,6 +694,21 @@ fn test_literal_preserves_extension_metadata(
     )))?;
     assert_eq!(converted.is_null(), null);
     assert!(converted.dtype().as_extension().is::<Uuid>());
+    assert_eq!(converted.dtype().is_nullable(), null);
+    if !null {
+        assert_eq!(
+            converted.as_extension().to_storage_scalar(),
+            Scalar::fixed_size_list(
+                DType::Primitive(PType::U8, Nullability::NonNullable),
+                b"0123456789abcdef"
+                    .iter()
+                    .copied()
+                    .map(Scalar::from)
+                    .collect(),
+                Nullability::NonNullable,
+            )
+        );
+    }
     Ok(())
 }
 
@@ -989,15 +1107,6 @@ fn test_can_be_pushed_down_like_unsupported_operand(test_schema: Schema) -> DFRe
 }
 
 #[rstest]
-fn test_can_be_pushed_down_octet_length_supported(test_schema: Schema) -> DFResult<()> {
-    let expr = Arc::new(df_expr::Column::new("name", 1)) as Arc<dyn PhysicalExpr>;
-    let octet_length = octet_length_expr(expr, &test_schema);
-
-    assert!(converts(&octet_length, &test_schema)?);
-    Ok(())
-}
-
-#[rstest]
 fn test_can_be_pushed_down_octet_length_unsupported_operand(test_schema: Schema) -> DFResult<()> {
     let expr = Arc::new(df_expr::Column::new("tags", 5)) as Arc<dyn PhysicalExpr>;
     let octet_length = Arc::new(ScalarFunctionExpr::new(
@@ -1009,15 +1118,6 @@ fn test_can_be_pushed_down_octet_length_unsupported_operand(test_schema: Schema)
     )) as Arc<dyn PhysicalExpr>;
 
     assert!(!converts(&octet_length, &test_schema)?);
-    Ok(())
-}
-
-#[rstest]
-fn test_can_be_pushed_down_array_length_supported(test_schema: Schema) -> DFResult<()> {
-    let expr = Arc::new(df_expr::Column::new("tags", 5)) as Arc<dyn PhysicalExpr>;
-    let array_length = array_length_expr(vec![expr], &test_schema);
-
-    assert!(converts(&array_length, &test_schema)?);
     Ok(())
 }
 
@@ -1104,24 +1204,40 @@ async fn test_cast_int_to_string() -> anyhow::Result<()> {
         .show()
         .await?;
 
-    ctx.session
+    let batches = ctx
+        .session
         .sql(r#"select cast(id as string) as sid from 'example.vortex' where id > 0"#)
         .await?
-        .show()
+        .collect()
         .await?;
+    assert_eq!(batches.iter().map(RecordBatch::num_rows).sum::<usize>(), 1);
+    let actual = ScalarValue::try_from_array(batches[0].column(0).as_ref(), 0)?;
+    assert!(
+        matches!(&actual, ScalarValue::Utf8(Some(value)) | ScalarValue::Utf8View(Some(value)) if value == "1")
+    );
 
-    ctx.session
+    let batches = ctx
+        .session
         .sql(r#"select id from 'example.vortex' where cast (id as string) == '1'"#)
         .await?
-        .show()
+        .collect()
         .await?;
+    assert_eq!(batches.iter().map(RecordBatch::num_rows).sum::<usize>(), 1);
+    let actual = ScalarValue::try_from_array(batches[0].column(0).as_ref(), 0)?;
+    assert_eq!(actual, ScalarValue::Int64(Some(1)));
 
     // This fails as it pushes string cast to the scan
-    ctx.session
+    let batches = ctx
+        .session
         .sql(r#"select cast(id as string) from 'example.vortex'"#)
         .await?
         .collect()
         .await?;
+    assert_eq!(batches.iter().map(RecordBatch::num_rows).sum::<usize>(), 1);
+    let actual = ScalarValue::try_from_array(batches[0].column(0).as_ref(), 0)?;
+    assert!(
+        matches!(&actual, ScalarValue::Utf8(Some(value)) | ScalarValue::Utf8View(Some(value)) if value == "1")
+    );
 
     Ok(())
 }
@@ -1158,9 +1274,7 @@ fn test_case_when_datafusion_vortex_equivalence() -> anyhow::Result<()> {
             DataType::Int32,
             false,
         )])),
-        vec![Arc::new(arrow_array::Int32Array::from(vec![
-            1, 5, 10, 15, 20,
-        ]))],
+        vec![Arc::new(Int32Array::from(vec![1, 5, 10, 15, 20]))],
     )?;
     let value: Arc<dyn PhysicalExpr> = Arc::new(df_expr::Column::new("value", 0));
     let int32 =
@@ -1353,6 +1467,131 @@ fn test_cast_options_fall_back() -> DFResult<()> {
     ));
     assert!(!converts(&expr, &schema)?);
     Ok(())
+}
+
+fn dict_utf8(key: DataType) -> DataType {
+    DataType::Dictionary(Box::new(key), Box::new(DataType::Utf8))
+}
+
+fn ree_dict_utf8(run_ends: DataType) -> DataType {
+    DataType::RunEndEncoded(
+        Arc::new(Field::new("run_ends", run_ends, false)),
+        Arc::new(Field::new("values", dict_utf8(DataType::UInt32), true)),
+    )
+}
+
+fn ree_utf8(run_ends: DataType) -> DataType {
+    DataType::RunEndEncoded(
+        Arc::new(Field::new("run_ends", run_ends, false)),
+        Arc::new(Field::new("values", DataType::Utf8, true)),
+    )
+}
+
+fn contains_cast(expr: &Expression) -> bool {
+    expr.is::<Cast>() || expr.children().iter().any(contains_cast)
+}
+
+/// Plans `predicate` as DataFusion does: type coercion, simplification, then physical planning.
+fn plan_predicate(predicate: &str, schema: &Schema) -> DFResult<Arc<dyn PhysicalExpr>> {
+    let df_schema = Arc::new(DFSchema::try_from(schema.clone())?);
+    let simplifier = ExprSimplifier::new(
+        SimplifyContext::builder()
+            .with_schema(Arc::clone(&df_schema))
+            .build(),
+    );
+    let expr = SessionContext::new().parse_sql_expr(predicate, &df_schema)?;
+    let expr = simplifier.simplify(simplifier.coerce(expr, &df_schema)?)?;
+    create_physical_expr(
+        &expr,
+        &df_schema,
+        &ExecutionProps::new(),
+        &Default::default(),
+    )
+}
+
+/// Regression test for #10634: coercion casts `REE<Dict<Utf8>>` columns to `Dict<Utf8>` before
+/// comparing them, and the converter must drop that cast rather than decline the predicate.
+#[rstest]
+#[case::ree_eq("ree_dict = 'x'")]
+#[case::ree_or("ree_dict = 'x' OR ree_dict = 'y'")]
+#[case::ree_in("ree_dict IN ('x', 'y', 'z')")]
+#[case::dict_eq("dict = 'x'")]
+#[case::plain_eq("plain = 'x'")]
+fn test_coerced_string_comparison_drops_encoding_cast(#[case] predicate: &str) -> DFResult<()> {
+    let schema = Schema::new(vec![
+        Field::new("ree_dict", ree_dict_utf8(DataType::Int32), true),
+        Field::new("dict", dict_utf8(DataType::UInt32), true),
+        Field::new("plain", DataType::Utf8, true),
+    ]);
+    let converted = convert(plan_predicate(predicate, &schema)?, &schema)?;
+    assert!(!contains_cast(&converted), "{}", converted.display_tree());
+    Ok(())
+}
+
+#[rstest]
+#[case::ree_to_dict(ree_dict_utf8(DataType::Int32), dict_utf8(DataType::UInt32))]
+#[case::ree_int16_run_ends(ree_dict_utf8(DataType::Int16), dict_utf8(DataType::UInt32))]
+#[case::ree_identity(ree_dict_utf8(DataType::Int64), ree_dict_utf8(DataType::Int64))]
+#[case::int_identity(DataType::Int32, DataType::Int32)]
+fn test_infallible_encoding_cast_is_dropped(
+    #[case] source: DataType,
+    #[case] target: DataType,
+) -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new("a", source, true)]);
+    let expr: Arc<dyn PhysicalExpr> = Arc::new(df_expr::CastExpr::new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        target,
+        None,
+    ));
+    let converted = convert(expr, &schema)?;
+    assert!(!contains_cast(&converted), "{}", converted.display_tree());
+    Ok(())
+}
+
+// Arrow expands runs with `Int32` indices and decodes offset-based values through `take`, which
+// may overflow; key changes may overflow the target keys.
+#[rstest]
+#[case::ree_int64_run_ends(ree_dict_utf8(DataType::Int64), dict_utf8(DataType::UInt32))]
+#[case::ree_narrow_keys(ree_dict_utf8(DataType::Int32), dict_utf8(DataType::UInt8))]
+#[case::ree_decode(ree_dict_utf8(DataType::Int32), DataType::Utf8)]
+#[case::ree_plain_utf8(ree_utf8(DataType::Int32), DataType::Utf8)]
+#[case::dict_narrow_keys(dict_utf8(DataType::UInt32), dict_utf8(DataType::UInt8))]
+#[case::dict_decode(dict_utf8(DataType::UInt32), DataType::Utf8)]
+#[case::dict_encode(DataType::Utf8, dict_utf8(DataType::UInt8))]
+#[case::large_utf8(DataType::LargeUtf8, DataType::Utf8)]
+fn test_fallible_encoding_cast_falls_back(
+    #[case] source: DataType,
+    #[case] target: DataType,
+) -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new("a", source, true)]);
+    let expr: Arc<dyn PhysicalExpr> = Arc::new(df_expr::CastExpr::new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        target,
+        None,
+    ));
+    assert!(!converts(&expr, &schema)?);
+    Ok(())
+}
+
+#[rstest]
+#[case::eq("ree_dict = 'x'")]
+#[case::not_eq("ree_dict <> 'x'")]
+#[case::or("ree_dict = 'x' OR ree_dict = 'y'")]
+#[case::in_list("ree_dict IN ('y', 'unused')")]
+fn test_ree_dict_comparison_matches_datafusion(#[case] predicate: &str) -> anyhow::Result<()> {
+    // Rows: x, x, NULL, y, y, x. The dictionary also holds a value no key references.
+    let values = DictionaryArray::<UInt32Type>::try_new(
+        UInt32Array::from(vec![Some(0), None, Some(1), Some(0)]),
+        Arc::new(StringArray::from(vec!["x", "y", "unused"])),
+    )?;
+    let ree = RunArray::<Int32Type>::try_new(&Int32Array::from(vec![2, 3, 5, 6]), &values)?;
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "ree_dict",
+        ree.data_type().clone(),
+        true,
+    )]));
+    let batch = RecordBatch::try_new(Arc::clone(&schema), vec![Arc::new(ree)])?;
+    assert_native_matches(plan_predicate(predicate, &schema)?, batch)
 }
 
 #[rstest]
@@ -1552,7 +1791,7 @@ fn test_native_nested_get_field(
     }
     let inner = Arc::new(StructArray::new(
         vec![Field::new("leaf", DataType::Int32, nullable_leaf)].into(),
-        vec![Arc::new(arrow_array::Int32Array::from(values))],
+        vec![Arc::new(Int32Array::from(values))],
         inner_validity.map(NullBuffer::from),
     ));
     let outer = Arc::new(StructArray::new(

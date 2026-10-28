@@ -228,7 +228,9 @@ impl ExtVTable for Timestamp {
                 Span::new().seconds(ts_value),
                 TimestampValue::Seconds(ts_value, tz),
             ),
-            TimeUnit::Days => vortex_bail!("Timestamp does not support Days time unit"),
+            TimeUnit::Days => {
+                vortex_bail!("Timestamp does not support Days time unit")
+            }
         };
 
         // Validate the storage value is within the valid range for Timestamp.
@@ -238,7 +240,7 @@ impl ExtVTable for Timestamp {
 
         if let Some(tz) = tz {
             resolve_time_zone(Some(tz))
-                .map_err(|e| vortex_err!("Invalid timezone for timestamp scalar: {}", e))?;
+                .map_err(|e| e.with_context("Invalid timezone for timestamp scalar"))?;
         }
 
         Ok(value)

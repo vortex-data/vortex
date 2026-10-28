@@ -1,0 +1,239 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TIIIRI
+WITH cross_items AS
+  (SELECT i_item_sk ss_item_sk
+   FROM item,
+     (SELECT iss.i_brand_id brand_id,
+             iss.i_class_id class_id,
+             iss.i_category_id category_id
+      FROM store_sales,
+           item iss,
+           date_dim d1
+      WHERE ss_item_sk = iss.i_item_sk
+        AND ss_sold_date_sk = d1.d_date_sk
+        AND d1.d_year BETWEEN 1999 AND 1999 + 2 INTERSECT
+        SELECT ics.i_brand_id,
+               ics.i_class_id,
+               ics.i_category_id
+        FROM catalog_sales,
+             item ics,
+             date_dim d2 WHERE cs_item_sk = ics.i_item_sk
+        AND cs_sold_date_sk = d2.d_date_sk
+        AND d2.d_year BETWEEN 1999 AND 1999 + 2 INTERSECT
+        SELECT iws.i_brand_id,
+               iws.i_class_id,
+               iws.i_category_id
+        FROM web_sales,
+             item iws,
+             date_dim d3 WHERE ws_item_sk = iws.i_item_sk
+        AND ws_sold_date_sk = d3.d_date_sk
+        AND d3.d_year BETWEEN 1999 AND 1999 + 2) sq1
+   WHERE i_brand_id = brand_id
+     AND i_class_id = class_id
+     AND i_category_id = category_id ),
+     avg_sales AS
+  (SELECT avg(quantity*list_price) average_sales
+   FROM
+     (SELECT ss_quantity quantity,
+             ss_list_price list_price
+      FROM store_sales,
+           date_dim
+      WHERE ss_sold_date_sk = d_date_sk
+        AND d_year BETWEEN 1999 AND 1999 + 2
+      UNION ALL SELECT cs_quantity quantity,
+                       cs_list_price list_price
+      FROM catalog_sales,
+           date_dim
+      WHERE cs_sold_date_sk = d_date_sk
+        AND d_year BETWEEN 1999 AND 1999 + 2
+      UNION ALL SELECT ws_quantity quantity,
+                       ws_list_price list_price
+      FROM web_sales,
+           date_dim
+      WHERE ws_sold_date_sk = d_date_sk
+        AND d_year BETWEEN 1999 AND 1999 + 2) sq2)
+SELECT channel,
+       i_brand_id,
+       i_class_id,
+       i_category_id,
+       sum(sales) AS sum_sales,
+       sum(number_sales) AS sum_number_sales
+FROM
+  (SELECT 'store' channel,
+                  i_brand_id,
+                  i_class_id,
+                  i_category_id,
+                  sum(ss_quantity*ss_list_price) sales,
+                  count(*) number_sales
+   FROM store_sales,
+        item,
+        date_dim
+   WHERE ss_item_sk IN
+       (SELECT ss_item_sk
+        FROM cross_items)
+     AND ss_item_sk = i_item_sk
+     AND ss_sold_date_sk = d_date_sk
+     AND d_year = 1999+2
+     AND d_moy = 11
+   GROUP BY i_brand_id,
+            i_class_id,
+            i_category_id
+   HAVING sum(ss_quantity*ss_list_price) >
+     (SELECT average_sales
+      FROM avg_sales)
+   UNION ALL SELECT 'catalog' channel,
+                              i_brand_id,
+                              i_class_id,
+                              i_category_id,
+                              sum(cs_quantity*cs_list_price) sales,
+                              count(*) number_sales
+   FROM catalog_sales,
+        item,
+        date_dim
+   WHERE cs_item_sk IN
+       (SELECT ss_item_sk
+        FROM cross_items)
+     AND cs_item_sk = i_item_sk
+     AND cs_sold_date_sk = d_date_sk
+     AND d_year = 1999+2
+     AND d_moy = 11
+   GROUP BY i_brand_id,
+            i_class_id,
+            i_category_id
+   HAVING sum(cs_quantity*cs_list_price) >
+     (SELECT average_sales
+      FROM avg_sales)
+   UNION ALL SELECT 'web' channel,
+                          i_brand_id,
+                          i_class_id,
+                          i_category_id,
+                          sum(ws_quantity*ws_list_price) sales,
+                          count(*) number_sales
+   FROM web_sales,
+        item,
+        date_dim
+   WHERE ws_item_sk IN
+       (SELECT ss_item_sk
+        FROM cross_items)
+     AND ws_item_sk = i_item_sk
+     AND ws_sold_date_sk = d_date_sk
+     AND d_year = 1999+2
+     AND d_moy = 11
+   GROUP BY i_brand_id,
+            i_class_id,
+            i_category_id
+   HAVING sum(ws_quantity*ws_list_price) >
+     (SELECT average_sales
+      FROM avg_sales)) y
+GROUP BY ROLLUP (channel,
+                 i_brand_id,
+                 i_class_id,
+                 i_category_id)
+ORDER BY channel NULLS FIRST,
+         i_brand_id NULLS FIRST,
+         i_class_id NULLS FIRST,
+         i_category_id NULLS FIRST
+LIMIT 100;
+----
+NULL NULL NULL NULL 68618948.26 15332
+catalog NULL NULL NULL 29715460.49 5800
+catalog 1001001 NULL NULL 131867.8 29
+catalog 1001001 1 NULL 13646.06 3
+catalog 1001001 1 5 13646.06 3
+catalog 1001001 2 NULL 9262.37 3
+catalog 1001001 2 2 9262.37 3
+catalog 1001001 3 NULL 58539.75 12
+catalog 1001001 3 2 43039.98 9
+catalog 1001001 3 5 15499.77 3
+catalog 1001001 7 NULL 23920.3 7
+catalog 1001001 7 7 23920.3 7
+catalog 1001001 15 NULL 26499.32 4
+catalog 1001001 15 10 26499.32 4
+catalog 1001002 NULL NULL 467137.74 86
+catalog 1001002 1 NULL 344424.28 60
+catalog 1001002 1 1 344424.28 60
+catalog 1001002 3 NULL 20048.42 3
+catalog 1001002 3 1 20048.42 3
+catalog 1001002 5 NULL 20712.8 5
+catalog 1001002 5 1 20712.8 5
+catalog 1001002 8 NULL 30140.52 7
+catalog 1001002 8 1 30140.52 7
+catalog 1001002 9 NULL 51811.72 11
+catalog 1001002 9 1 51811.72 11
+catalog 1002001 NULL NULL 222273.93 44
+catalog 1002001 1 NULL 117788.86 24
+catalog 1002001 1 2 91494.78 15
+catalog 1002001 1 9 26294.08 9
+catalog 1002001 2 NULL 38446.29 6
+catalog 1002001 2 6 38446.29 6
+catalog 1002001 4 NULL 66038.78 14
+catalog 1002001 4 5 44179.05 7
+catalog 1002001 4 9 21859.73 7
+catalog 1002002 NULL NULL 659721.87 123
+catalog 1002002 1 NULL 7846.58 3
+catalog 1002002 1 1 7846.58 3
+catalog 1002002 2 NULL 566973.58 101
+catalog 1002002 2 1 566973.58 101
+catalog 1002002 3 NULL 28031.49 4
+catalog 1002002 3 1 28031.49 4
+catalog 1002002 5 NULL 22164.07 8
+catalog 1002002 5 1 22164.07 8
+catalog 1002002 9 NULL 34706.15 7
+catalog 1002002 9 1 34706.15 7
+catalog 1003001 NULL NULL 276880.52 43
+catalog 1003001 3 NULL 84322.77 9
+catalog 1003001 3 1 18025.71 4
+catalog 1003001 3 4 66297.06 5
+catalog 1003001 4 NULL 66073.15 10
+catalog 1003001 4 9 66073.15 10
+catalog 1003001 7 NULL 39667.68 10
+catalog 1003001 7 6 39667.68 10
+catalog 1003001 11 NULL 86816.92 14
+catalog 1003001 11 8 33410.04 9
+catalog 1003001 11 9 53406.88 5
+catalog 1003002 NULL NULL 557142.41 106
+catalog 1003002 3 NULL 416452.87 80
+catalog 1003002 3 1 416452.87 80
+catalog 1003002 6 NULL 35854.69 5
+catalog 1003002 6 1 35854.69 5
+catalog 1003002 9 NULL 104834.85 21
+catalog 1003002 9 1 104834.85 21
+catalog 1004001 NULL NULL 332804.16 76
+catalog 1004001 3 NULL 67883.55 13
+catalog 1004001 3 2 6692.22 3
+catalog 1004001 3 3 25223.93 3
+catalog 1004001 3 5 35967.4 7
+catalog 1004001 4 NULL 194330.32 50
+catalog 1004001 4 2 20597.17 8
+catalog 1004001 4 3 27349.95 7
+catalog 1004001 4 4 30331.75 8
+catalog 1004001 4 7 51080.19 15
+catalog 1004001 4 8 30115.63 5
+catalog 1004001 4 9 34855.63 7
+catalog 1004001 13 NULL 29096.26 7
+catalog 1004001 13 9 29096.26 7
+catalog 1004001 16 NULL 41494.03 6
+catalog 1004001 16 9 41494.03 6
+catalog 1004002 NULL NULL 371689.81 95
+catalog 1004002 3 NULL 22970.95 4
+catalog 1004002 3 1 22970.95 4
+catalog 1004002 4 NULL 284934.77 77
+catalog 1004002 4 1 284934.77 77
+catalog 1004002 5 NULL 32533.04 9
+catalog 1004002 5 1 32533.04 9
+catalog 1004002 9 NULL 31251.05 5
+catalog 1004002 9 1 31251.05 5
+catalog 2001001 NULL NULL 182591.77 33
+catalog 2001001 1 NULL 147760.41 25
+catalog 2001001 1 3 46925.09 8
+catalog 2001001 1 4 41165.84 7
+catalog 2001001 1 8 22377.97 2
+catalog 2001001 1 9 37291.51 8
+catalog 2001001 4 NULL 34831.36 8
+catalog 2001001 4 3 34831.36 8
+catalog 2001002 NULL NULL 298472.71 72
+catalog 2001002 1 NULL 271456.67 63
+catalog 2001002 1 2 271456.67 63
+catalog 2001002 2 NULL 11981.41 5

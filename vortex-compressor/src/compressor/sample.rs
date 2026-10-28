@@ -193,20 +193,24 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::*;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn sample_is_deterministic() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Create a deterministic array with linear-with-noise pattern
         let values: Vec<i64> = (0i64..100_000).map(|i| i + (i * 7 + 3) % 11).collect();
 

@@ -14,12 +14,14 @@
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/catalog/default/default_functions.hpp"
 #include "duckdb/common/insertion_order_preserving_map.hpp"
-#include "duckdb/parser/keyword_helper.hpp"
 #include "duckdb/common/multi_file/multi_file_reader.hpp"
+#include "duckdb/function/partition_stats.hpp"
+#include "duckdb/function/scalar_macro_function.hpp"
 #include "duckdb/function/table_function.hpp"
+#include "duckdb/logging/logger.hpp"
 #include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/main/connection.hpp"
-#include "duckdb/function/partition_stats.hpp"
+#include "duckdb/parser/keyword_helper.hpp"
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
 #include "duckdb/storage/storage_index.hpp"
@@ -38,22 +40,6 @@ static void *get_ffi_bind(const FunctionData *bind_data) {
     return bind_data->Cast<MultiFileBindData>().bind_data->Cast<VortexBindData>().ffi_bind_data->DataPtr();
 }
 
-bool projection_expression_pushdown(ClientContext &, const TableFunctionProjectionExpressionInput &input) {
-    duckdb_vx_expr ffi_expr = get_ffi_expr(input.expression);
-    void *const ffi_bind = get_ffi_bind(input.get.bind_data.get());
-    duckdb_vx_error error_out = nullptr;
-
-    const bool ret = duckdb_table_function_pushdown_projection_expression( //
-        ffi_bind,
-        ffi_expr,
-        input.projection_idx,
-        &error_out);
-    if (error_out) {
-        throw BinderException(IntoErrString(error_out));
-    }
-    return ret;
-}
-
 extern "C" {
 idx_t duckdb_vx_aggregate_len(duckdb_vx_agg_input ffi_input) {
     return reinterpret_cast<const TableFunctionUngroupedAggregateInput *>(ffi_input)->projections.size();
@@ -69,6 +55,20 @@ duckdb_vx_expr duckdb_vx_aggregate_at(duckdb_vx_agg_input ffi_input, idx_t i, id
 }
 
 bool aggregate_pushdown(ClientContext &, const TableFunctionUngroupedAggregateInput &input) {
+    const MultiFileBindData &bind_data = input.get.bind_data->Cast<MultiFileBindData>();
+    const optional_idx filename_idx = bind_data.reader_bind.filename_idx;
+    const auto &hive_indices = bind_data.reader_bind.hive_partitioning_indexes;
+    for (const auto &projection : input.projections) {
+        const idx_t scan_index = projection.first;
+        if (scan_index == COUNT_STAR_PROJ_IDX) {
+            continue;
+        }
+        const idx_t primary_index = input.get.GetColumnIds()[scan_index].GetPrimaryIndex();
+        if (SkipMultiFileReaderColumn(primary_index, filename_idx, hive_indices)) {
+            return false;
+        }
+    }
+
     void *const ffi_bind = get_ffi_bind(input.get.bind_data.get());
     duckdb_vx_error error_out = nullptr;
     const auto ffi_input =
@@ -107,7 +107,7 @@ extern "C" void duckdb_vx_tfunc_bind_result_add_column(duckdb_bind_result ffi_re
     VortexBindResult &result = *reinterpret_cast<VortexBindResult *>(ffi_result);
     const LogicalType logical_type = *reinterpret_cast<LogicalType *>(ffi_type);
 
-    result.names.emplace_back(name_str, name_len);
+    result.names.emplace_back(string(name_str, name_len));
     result.return_types.emplace_back(logical_type);
 }
 
@@ -126,22 +126,32 @@ InsertionOrderPreservingMap<string> to_string(TableFunctionToStringInput &input)
     return result;
 }
 
-bool is_vortex_scan(const TableFunction &function) {
+bool is_vortex_scan(const BoundTableFunction &function) {
     return function.bind == MultiFileFunction<VortexReaderInterface>::MultiFileBind;
 }
 
-unique_ptr<MultiFileReader> get_multi_file_reader(const TableFunction &) {
+unique_ptr<MultiFileReader> get_multi_file_reader(const BoundTableFunction &) {
     return make_uniq<VortexMultiFileReader>();
 }
 
 unique_ptr<BaseStatistics> VortexRowGroup::GetColumnStatistics(const StorageIndex &storage_index) {
-    duckdb_column_statistics statistics = {};
     const idx_t idx = storage_index.GetPrimaryIndex();
-    const void *const ffi_footer_ptr = ffi_footer->DataPtr();
-    if (!duckdb_footer_get_statistics(ffi_footer_ptr, idx, &statistics)) {
+    if (idx >= columns.size()) {
         return {};
     }
-    return to_duckdb_statistics(statistics);
+    const MultiFileColumnDefinition &column = columns[idx];
+
+    duckdb_column_statistics statistics = {};
+    const void *const ffi_footer_ptr = ffi_footer->DataPtr();
+    if (!duckdb_footer_get_statistics(ffi_footer_ptr, column.name.c_str(), column.name.size(), &statistics)) {
+        return {};
+    }
+
+    unique_ptr<BaseStatistics> stats = to_duckdb_statistics(statistics);
+    if (stats && stats->GetType() != column.type) {
+        return {};
+    }
+    return stats;
 }
 
 static vector<PartitionStatistics> get_partition_stats(ClientContext &, GetPartitionStatsInput &input) {
@@ -174,17 +184,44 @@ static vector<PartitionStatistics> get_partition_stats(ClientContext &, GetParti
         stats.count = count;
         stats.count_type = CountType::COUNT_EXACT;
         row_start += count;
-        stats.partition_row_group = make_shared_ptr<VortexRowGroup>(std::move(cdata));
+        stats.partition_row_group = make_shared_ptr<VortexRowGroup>(std::move(cdata), bind_data.columns);
     }
     return result;
 }
 
+static bool projection_expression_pushdown(ClientContext &,
+                                           const TableFunctionProjectionExpressionInput &input) {
+    duckdb_vx_expr ffi_expr = get_ffi_expr(input.expr);
+    void *const ffi_bind = get_ffi_bind(input.get.bind_data.get());
+    duckdb_vx_error error_out = nullptr;
+
+    const idx_t column_id = input.get.GetColumnIds()[input.column_index].GetPrimaryIndex();
+
+    const bool ret =
+        duckdb_table_function_pushdown_projection_expression(ffi_bind, ffi_expr, column_id, &error_out);
+    if (error_out) {
+        throw BinderException(IntoErrString(error_out));
+    }
+
+    if (ret) {
+        MultiFileBindData &bind_data = input.get.bind_data->Cast<MultiFileBindData>();
+        bind_data.types[column_id] = input.expr.GetReturnType();
+        bind_data.columns[column_id].type = input.expr.GetReturnType();
+    }
+
+    return ret;
+}
+
 duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter, const std::string &name) {
-    MultiFileFunction<VortexReaderInterface> fn(name);
-    fn.arguments[0] = parameter;
-    fn.named_parameters = {{"filename", LogicalType::ANY},
-                           {"allow_empty", LogicalType::BOOLEAN},
-                           {"hive_partitioning", LogicalType::BOOLEAN}};
+    MultiFileFunction<VortexReaderInterface> fn {Identifier(name)};
+    FunctionSignature signature;
+    signature.AddPositionalOnly("path", std::move(parameter));
+    signature.WithTypedKwargs("options", [](TypedKwargs &options) {
+        options.Add("filename", LogicalType::ANY)
+            .Add("allow_empty", LogicalType::BOOLEAN)
+            .Add("hive_partitioning", LogicalType::BOOLEAN);
+    });
+    fn.GetSignature() = std::move(signature);
 
     fn.filter_pushdown = true;
     fn.filter_prune = true;
@@ -200,6 +237,7 @@ duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter
     fn.pushdown_complex_filter = [](auto &, auto &, FunctionData *bind_data, FilterVec &filters) {
         pushdown_complex_filter(*bind_data, filters);
     };
+    fn.projection_expression_pushdown = projection_expression_pushdown;
     fn.to_string = to_string;
 
     fn.late_materialization = true;
@@ -209,8 +247,8 @@ duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter
         return {COLUMN_IDENTIFIER_FILE_INDEX, COLUMN_IDENTIFIER_FILE_ROW_NUMBER};
     };
 
-    fn.statistics = MultiFileFunction<VortexReaderInterface>::MultiFileScanStats;
     fn.get_partition_stats = get_partition_stats;
+    fn.statistics_extended = MultiFileFunction<VortexReaderInterface>::MultiFileScanStatsExtended;
     fn.get_multi_file_reader = get_multi_file_reader;
 
     /**
@@ -255,18 +293,15 @@ extern "C" duckdb_state duckdb_vx_register_version_function(duckdb_database ffi_
     const DatabaseWrapper &wrapper = *reinterpret_cast<DatabaseWrapper *>(ffi_db);
     DatabaseInstance &db = *wrapper.database->instance;
 
-    const string quoted = KeywordHelper::WriteQuoted(version);
+    unique_ptr<ParsedExpression> expr = ConstantExpression::FromValue(version);
+    CreateMacroInfo info(CatalogType::MACRO_ENTRY);
+    info.macros.emplace_back(make_uniq<ScalarMacroFunction>(std::move(expr)));
+    info.SetQualifiedName({{DEFAULT_SCHEMA}, "vortex_version"});
+    info.internal = true; // only internals allowed in system catalog
 
-    const DefaultMacro macro {DEFAULT_SCHEMA,
-                              "vortex_version",
-                              {nullptr},
-                              {{nullptr, nullptr}},
-                              quoted.c_str()};
     try {
-        auto info = DefaultFunctionGenerator::CreateInternalMacroInfo(macro);
-        auto &system_catalog = Catalog::GetSystemCatalog(db);
         auto data = CatalogTransaction::GetSystemTransaction(db);
-        system_catalog.CreateFunction(data, *info);
+        Catalog::GetSystemCatalog(db).CreateFunction(data, info);
     } catch (const std::exception &e) {
         ErrorData data(e);
         DUCKDB_LOG_ERROR(db, "Failed to create the vortex_version macro:\t" + data.Message());

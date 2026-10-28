@@ -33,7 +33,7 @@ Writer Writer::open(const Session &session, std::string_view path, const DataTyp
 
 void Writer::push(std::span<const Array> arrays) {
     if (handle_ == nullptr) {
-        throw VortexException("null handle_", ErrorCode::InvalidArgument);
+        throw VortexException("null handle_");
     }
     vx_error *error = nullptr;
     for (const Array &array : arrays) {
@@ -52,7 +52,7 @@ void Writer::push(std::initializer_list<Array> arrays) {
 
 void Writer::finish() {
     if (handle_ == nullptr) {
-        throw VortexException("finish() called twice", ErrorCode::InvalidArgument);
+        throw VortexException("finish() called twice");
     }
     vx_error *error = nullptr;
     vx_array_sink_close(handle_.release(), &error);

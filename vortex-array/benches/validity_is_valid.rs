@@ -19,7 +19,7 @@ use std::sync::LazyLock;
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_session::VortexSession;
@@ -28,6 +28,7 @@ use vortex_session::VortexSession;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
@@ -40,7 +41,8 @@ fn array_validity(len: usize) -> Validity {
     ))
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
 
 /// Per-element validity check over array-backed validity (the antipattern). This mirrors the
 /// deprecated `Validity::is_valid(i)`: a fresh `ExecutionCtx` plus a scalar lookup on every call.

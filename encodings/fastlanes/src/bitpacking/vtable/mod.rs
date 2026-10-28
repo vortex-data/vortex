@@ -170,7 +170,7 @@ impl VTable for BitPacked {
         _array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        vortex_bail!("BitPacked serialization requires BitPackedPlugin")
+        Ok(None)
     }
 
     fn deserialize(

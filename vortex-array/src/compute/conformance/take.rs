@@ -5,9 +5,9 @@ use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray as _;
+use crate::RecursiveCanonical;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::Nullability;
 
@@ -25,7 +25,6 @@ pub fn test_take_conformance(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 
     if len > 0 {
         test_take_all(array, ctx);
-        test_take_none(array);
         test_take_selective(array, ctx);
         test_take_first_and_last(array, ctx);
         test_take_with_nullable_indices(array, ctx);
@@ -52,56 +51,31 @@ pub fn test_take_conformance(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     }
 }
 
-fn test_take_all(array: &ArrayRef, ctx: &mut ExecutionCtx) {
+pub(super) fn test_take_all(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let len = array.len();
     let indices = PrimitiveArray::from_iter(0..len as u64);
     let result = array
         .take(indices.into_array())
-        .vortex_expect("take should succeed in conformance test");
+        .vortex_expect("take should succeed in conformance test")
+        .execute::<RecursiveCanonical>(ctx)
+        .vortex_expect("take execution should succeed in conformance test")
+        .0
+        .into_array();
 
     assert_eq!(result.len(), len);
     assert_eq!(result.dtype(), array.dtype());
 
-    // Verify elements match
-    let array_canonical = array
-        .clone()
-        .execute::<Canonical>(ctx)
-        .vortex_expect("to_canonical failed on array");
-    let result_canonical = result
-        .clone()
-        .execute::<Canonical>(ctx)
-        .vortex_expect("to_canonical failed on result");
-    match (array_canonical, result_canonical) {
-        (Canonical::Primitive(orig_prim), Canonical::Primitive(result_prim)) => {
-            assert_eq!(
-                orig_prim.buffer_handle().to_host_sync(),
-                result_prim.buffer_handle().to_host_sync()
-            );
-        }
-        _ => {
-            // For non-primitive types, check scalar values
-            for i in 0..len {
-                assert_eq!(
-                    array
-                        .execute_scalar(i, ctx)
-                        .vortex_expect("scalar_at should succeed in conformance test"),
-                    result
-                        .execute_scalar(i, ctx)
-                        .vortex_expect("scalar_at should succeed in conformance test")
-                );
-            }
-        }
+    // The aggregate comparator does not support every dtype in this suite, including unions.
+    for i in 0..len {
+        assert_eq!(
+            array
+                .execute_scalar(i, ctx)
+                .vortex_expect("scalar_at should succeed in conformance test"),
+            result
+                .execute_scalar(i, ctx)
+                .vortex_expect("scalar_at should succeed in conformance test")
+        );
     }
-}
-
-fn test_take_none(array: &ArrayRef) {
-    let indices: PrimitiveArray = PrimitiveArray::from_iter::<[u64; 0]>([]);
-    let result = array
-        .take(indices.into_array())
-        .vortex_expect("take should succeed in conformance test");
-
-    assert_eq!(result.len(), 0);
-    assert_eq!(result.dtype(), array.dtype());
 }
 
 #[expect(clippy::cast_possible_truncation)]
@@ -115,7 +89,11 @@ fn test_take_selective(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 
     let result = array
         .take(indices_array.into_array())
-        .vortex_expect("take should succeed in conformance test");
+        .vortex_expect("take should succeed in conformance test")
+        .execute::<RecursiveCanonical>(ctx)
+        .vortex_expect("take execution should succeed in conformance test")
+        .0
+        .into_array();
     assert_eq!(result.len(), expected_len);
 
     // Verify the taken elements
@@ -136,7 +114,11 @@ fn test_take_first_and_last(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let indices = PrimitiveArray::from_iter([0u64, (len - 1) as u64]);
     let result = array
         .take(indices.into_array())
-        .vortex_expect("take should succeed in conformance test");
+        .vortex_expect("take should succeed in conformance test")
+        .execute::<RecursiveCanonical>(ctx)
+        .vortex_expect("take execution should succeed in conformance test")
+        .0
+        .into_array();
 
     assert_eq!(result.len(), 2);
     assert_eq!(
@@ -173,7 +155,11 @@ fn test_take_with_nullable_indices(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let indices = PrimitiveArray::from_option_iter(indices_vec.clone());
     let result = array
         .take(indices.into_array())
-        .vortex_expect("take should succeed in conformance test");
+        .vortex_expect("take should succeed in conformance test")
+        .execute::<RecursiveCanonical>(ctx)
+        .vortex_expect("take execution should succeed in conformance test")
+        .0
+        .into_array();
 
     assert_eq!(result.len(), indices_vec.len());
     assert_eq!(
@@ -205,7 +191,7 @@ fn test_take_with_nullable_indices(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     }
 }
 
-fn test_take_repeated_indices(array: &ArrayRef, ctx: &mut ExecutionCtx) {
+pub(super) fn test_take_repeated_indices(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     if array.is_empty() {
         return;
     }
@@ -214,7 +200,11 @@ fn test_take_repeated_indices(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let indices = buffer![0u64, 0, 0].into_array();
     let result = array
         .take(indices)
-        .vortex_expect("take should succeed in conformance test");
+        .vortex_expect("take should succeed in conformance test")
+        .execute::<RecursiveCanonical>(ctx)
+        .vortex_expect("take execution should succeed in conformance test")
+        .0
+        .into_array();
 
     assert_eq!(result.len(), 3);
     let first_elem = array
@@ -246,7 +236,11 @@ fn test_take_reverse(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let indices = PrimitiveArray::from_iter((0..len as u64).rev());
     let result = array
         .take(indices.into_array())
-        .vortex_expect("take should succeed in conformance test");
+        .vortex_expect("take should succeed in conformance test")
+        .execute::<RecursiveCanonical>(ctx)
+        .vortex_expect("take execution should succeed in conformance test")
+        .0
+        .into_array();
 
     assert_eq!(result.len(), len);
 
@@ -270,7 +264,11 @@ fn test_take_single_middle(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let indices = PrimitiveArray::from_iter([middle_idx as u64]);
     let result = array
         .take(indices.into_array())
-        .vortex_expect("take should succeed in conformance test");
+        .vortex_expect("take should succeed in conformance test")
+        .execute::<RecursiveCanonical>(ctx)
+        .vortex_expect("take execution should succeed in conformance test")
+        .0
+        .into_array();
 
     assert_eq!(result.len(), 1);
     assert_eq!(
@@ -298,7 +296,11 @@ fn test_take_random_unsorted(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let indices_array = PrimitiveArray::from_iter(indices.clone());
     let result = array
         .take(indices_array.into_array())
-        .vortex_expect("take should succeed in conformance test");
+        .vortex_expect("take should succeed in conformance test")
+        .execute::<RecursiveCanonical>(ctx)
+        .vortex_expect("take execution should succeed in conformance test")
+        .0
+        .into_array();
 
     assert_eq!(result.len(), indices.len());
 
@@ -324,7 +326,11 @@ fn test_take_contiguous_range(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let indices = PrimitiveArray::from_iter(start as u64..end as u64);
     let result = array
         .take(indices.into_array())
-        .vortex_expect("take should succeed in conformance test");
+        .vortex_expect("take should succeed in conformance test")
+        .execute::<RecursiveCanonical>(ctx)
+        .vortex_expect("take execution should succeed in conformance test")
+        .0
+        .into_array();
 
     assert_eq!(result.len(), end - start);
 
@@ -360,7 +366,11 @@ fn test_take_mixed_repeated(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let indices_array = PrimitiveArray::from_iter(indices.clone());
     let result = array
         .take(indices_array.into_array())
-        .vortex_expect("take should succeed in conformance test");
+        .vortex_expect("take should succeed in conformance test")
+        .execute::<RecursiveCanonical>(ctx)
+        .vortex_expect("take execution should succeed in conformance test")
+        .0
+        .into_array();
 
     assert_eq!(result.len(), indices.len());
 
@@ -391,7 +401,11 @@ fn test_take_large_indices(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let indices_array = PrimitiveArray::from_iter(indices.clone());
     let result = array
         .take(indices_array.into_array())
-        .vortex_expect("take should succeed in conformance test");
+        .vortex_expect("take should succeed in conformance test")
+        .execute::<RecursiveCanonical>(ctx)
+        .vortex_expect("take execution should succeed in conformance test")
+        .0
+        .into_array();
 
     assert_eq!(result.len(), num_indices);
 

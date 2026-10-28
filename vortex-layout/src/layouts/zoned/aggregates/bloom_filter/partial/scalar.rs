@@ -118,7 +118,7 @@ mod tests {
     use crate::layouts::zoned::aggregates::bloom_filter::BloomOptions;
     use crate::layouts::zoned::aggregates::bloom_filter::BloomPartial;
 
-    #[should_panic]
+    #[should_panic(expected = "non-null boolean value")]
     #[test]
     fn hash_invalid_scalar_panics() {
         let bloom = BloomPartial::from(&BloomOptions::default());

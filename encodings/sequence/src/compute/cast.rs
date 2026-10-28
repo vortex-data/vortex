@@ -63,7 +63,7 @@ mod tests {
     use crate::SequenceArray;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -98,9 +98,8 @@ mod tests {
         );
 
         // Verify the values
-        let decoded = casted.execute::<PrimitiveArray>(&mut ctx).unwrap();
         assert_arrays_eq!(
-            decoded,
+            casted,
             PrimitiveArray::from_iter([100i64, 110, 120, 130]),
             &mut ctx
         );
@@ -122,9 +121,8 @@ mod tests {
         );
 
         // Verify the values
-        let decoded = casted.execute::<PrimitiveArray>(&mut ctx).unwrap();
         assert_arrays_eq!(
-            decoded,
+            casted,
             PrimitiveArray::from_option_iter([Some(5i32), Some(8), Some(11)]),
             &mut ctx
         );
@@ -147,9 +145,8 @@ mod tests {
         );
 
         // Verify the values were correctly converted
-        let decoded = casted.execute::<PrimitiveArray>(&mut ctx).unwrap();
         assert_arrays_eq!(
-            decoded,
+            casted,
             PrimitiveArray::from_iter([0.0f32, 1.0, 2.0, 3.0, 4.0]),
             &mut ctx
         );

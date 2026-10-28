@@ -32,8 +32,8 @@ logical_plan
 07)------------Inner Join: inventory.inv_date_sk = date_dim.d_date_sk
 08)--------------TableScan: inventory projection=[inv_date_sk, inv_item_sk, inv_quantity_on_hand]
 09)--------------Projection: date_dim.d_date_sk
-10)----------------Filter: date_dim.d_month_seq >= Int64(1200) AND date_dim.d_month_seq <= Int64(1211)
-11)------------------TableScan: date_dim projection=[d_date_sk, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int64(1200), date_dim.d_month_seq <= Int64(1211)]
+10)----------------Filter: date_dim.d_month_seq >= Int32(1200) AND date_dim.d_month_seq <= Int32(1211)
+11)------------------TableScan: date_dim projection=[d_date_sk, d_month_seq], partial_filters=[date_dim.d_month_seq >= Int32(1200), date_dim.d_month_seq <= Int32(1211)]
 12)----------TableScan: item projection=[i_item_sk, i_brand, i_class, i_category, i_product_name]
 physical_plan
 01)SortPreservingMergeExec: [qoh@4 ASC, i_product_name@0 ASC, i_brand@1 ASC, i_class@2 ASC, i_category@3 ASC], fetch=100

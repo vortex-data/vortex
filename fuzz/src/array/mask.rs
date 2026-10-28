@@ -177,7 +177,6 @@ mod tests {
     use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::FixedSizeListArray;
@@ -190,7 +189,9 @@ mod tests {
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
+    use vortex_array::validity::Validity;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use super::mask_canonical_array;
 
@@ -200,22 +201,18 @@ mod tests {
 
     #[test]
     fn test_mask_null_array() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let array = NullArray::new(5);
         let mask = Mask::from_iter([true, false, true, false, true]);
 
         let result = mask_canonical_array(canonical(array, &mut ctx), &mask, &mut ctx).unwrap();
 
-        assert_eq!(result.len(), 5);
-        // All values should still be null
-        for i in 0..5 {
-            assert!(!result.is_valid(i, &mut ctx).unwrap());
-        }
+        assert_arrays_eq!(result, NullArray::new(5), &mut ctx);
     }
 
     #[test]
     fn test_mask_bool_array() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let array = BoolArray::from_iter([true, false, true, false, true]);
         let mask = Mask::from_iter([false, true, true, false, true]);
 
@@ -227,7 +224,7 @@ mod tests {
 
     #[test]
     fn test_mask_primitive_array() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let array = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
         let mask = Mask::from_iter([true, false, true, false, true]);
 
@@ -239,7 +236,7 @@ mod tests {
 
     #[test]
     fn test_mask_primitive_array_with_nulls() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let array = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None]);
         let mask = Mask::from_iter([false, true, true, false, true]);
 
@@ -251,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_mask_decimal_array() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let dtype = DecimalDType::new(10, 2);
         let array = DecimalArray::from_option_iter(
             [Some(1i128), Some(2), Some(3), Some(4), Some(5)],
@@ -268,7 +265,7 @@ mod tests {
 
     #[test]
     fn test_mask_varbinview_array() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let array = VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]);
         let mask = Mask::from_iter([false, true, false, true, false]);
 
@@ -281,7 +278,7 @@ mod tests {
 
     #[test]
     fn test_mask_list_array() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]).into_array();
         let offsets = PrimitiveArray::from_iter([0i32, 2, 4]).into_array();
         let sizes = PrimitiveArray::from_iter([2i32, 2, 2]).into_array();
@@ -294,15 +291,20 @@ mod tests {
 
         let result = mask_canonical_array(canonical(array, &mut ctx), &mask, &mut ctx).unwrap();
 
-        assert_eq!(result.len(), 3);
-        assert!(result.is_valid(0, &mut ctx).unwrap());
-        assert!(!result.is_valid(1, &mut ctx).unwrap());
-        assert!(result.is_valid(2, &mut ctx).unwrap());
+        let expected = ListViewArray::try_new(
+            PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]).into_array(),
+            PrimitiveArray::from_iter([0i32, 2, 4]).into_array(),
+            PrimitiveArray::from_iter([2i32, 2, 2]).into_array(),
+            Validity::from_iter([true, false, true]),
+            &mut ctx,
+        )
+        .unwrap();
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn test_mask_fixed_size_list_array() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]).into_array();
         let array =
             FixedSizeListArray::try_new(elements, 2, Nullability::NonNullable.into(), 3).unwrap();
@@ -311,15 +313,19 @@ mod tests {
 
         let result = mask_canonical_array(canonical(array, &mut ctx), &mask, &mut ctx).unwrap();
 
-        assert_eq!(result.len(), 3);
-        assert!(!result.is_valid(0, &mut ctx).unwrap());
-        assert!(result.is_valid(1, &mut ctx).unwrap());
-        assert!(!result.is_valid(2, &mut ctx).unwrap());
+        let expected = FixedSizeListArray::try_new(
+            PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]).into_array(),
+            2,
+            Validity::from_iter([false, true, false]),
+            3,
+        )
+        .unwrap();
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn test_mask_struct_array() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let field1 = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
         let field2 = PrimitiveArray::from_iter([4i32, 5, 6]).into_array();
         let fields = vec![field1, field2];
@@ -336,15 +342,22 @@ mod tests {
 
         let result = mask_canonical_array(canonical(array, &mut ctx), &mask, &mut ctx).unwrap();
 
-        assert_eq!(result.len(), 3);
-        assert!(result.is_valid(0, &mut ctx).unwrap());
-        assert!(!result.is_valid(1, &mut ctx).unwrap());
-        assert!(result.is_valid(2, &mut ctx).unwrap());
+        let expected = StructArray::try_new(
+            FieldNames::from(["a", "b"]),
+            vec![
+                PrimitiveArray::from_iter([1i32, 2, 3]).into_array(),
+                PrimitiveArray::from_iter([4i32, 5, 6]).into_array(),
+            ],
+            3,
+            Validity::from_iter([true, false, true]),
+        )
+        .unwrap();
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn test_mask_all_false() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let array = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
         let mask = Mask::AllFalse(5);
 
@@ -356,7 +369,7 @@ mod tests {
 
     #[test]
     fn test_mask_all_true() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let array = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
         let mask = Mask::AllTrue(5);
 
@@ -369,12 +382,13 @@ mod tests {
 
     #[test]
     fn test_mask_empty_array() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let array = PrimitiveArray::from_iter(Vec::<i32>::new());
         for mask in [Mask::AllFalse(0), Mask::AllTrue(0)] {
             let result =
                 mask_canonical_array(canonical(array.clone(), &mut ctx), &mask, &mut ctx).unwrap();
-            assert_eq!(result.len(), 0);
+            let expected = PrimitiveArray::from_option_iter([] as [Option<i32>; 0]);
+            assert_arrays_eq!(result, expected, &mut ctx);
         }
     }
 }

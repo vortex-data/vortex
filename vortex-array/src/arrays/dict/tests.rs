@@ -1,24 +1,34 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use vortex_buffer::buffer;
+use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use super::DictArray;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinArray;
 use crate::assert_arrays_eq;
 use crate::builders::builder_with_capacity_in;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 #[test]
 fn test_scalar_at_null_code() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let dict = DictArray::try_new(
         PrimitiveArray::from_option_iter(vec![None, Some(0u32), None]).into_array(),
         buffer![1i32].into_array(),
@@ -30,8 +40,8 @@ fn test_scalar_at_null_code() {
 }
 
 #[test]
-fn test_canonicalize_dict_with_all_null_array_validity_codes() -> vortex_error::VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+fn test_canonicalize_dict_with_all_null_array_validity_codes() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let codes = PrimitiveArray::new(
         buffer![0u32, 1],
         Validity::Array(BoolArray::from_iter([false, false]).into_array()),
@@ -72,6 +82,7 @@ fn test_canonicalize_dict_with_all_null_array_validity_codes() -> vortex_error::
 
 #[test]
 fn test_dict_display() {
+    let ctx = SESSION.create_execution_ctx();
     let x = DictArray::try_new(
         buffer![0u8, 0, 0, 1, 0, 3].into_array(),
         VarBinArray::from(vec!["Hello", "你好", "Bonjour", "Hola"]).into_array(),
@@ -80,13 +91,14 @@ fn test_dict_display() {
     .into_array();
 
     assert_eq!(
-        x.display_values().to_string(),
+        x.display_values(&ctx).to_string(),
         "[\"Hello\", \"Hello\", \"Hello\", \"你好\", \"Hello\", \"Hola\"]"
     )
 }
 
 #[test]
 fn test_dict_list_dict_display() {
+    let mut ctx = SESSION.create_execution_ctx();
     let elements = DictArray::try_new(
         buffer![0u8, 0, 0, 1, 0, 3, 3, 2].into_array(),
         <VarBinArray as FromIterator<_>>::from_iter([
@@ -102,7 +114,7 @@ fn test_dict_list_dict_display() {
     .into_array();
 
     assert_eq!(
-        elements.display_values().to_string(),
+        elements.display_values(&ctx).to_string(),
         "[\"Hello\", \"Hello\", \"Hello\", \"你好\", \"Hello\", \"Bonjour\", \"Bonjour\", null]"
     );
 
@@ -112,12 +124,13 @@ fn test_dict_list_dict_display() {
         Validity::Array(
             BoolArray::from_iter([true, true, false, true, false, true, true]).into_array(),
         ),
+        &mut ctx,
     )
     .unwrap()
     .into_array();
 
     assert_eq!(
-        lists.display_values().to_string(),
+        lists.display_values(&ctx).to_string(),
         "[[\"Hello\"], [], null, [\"Hello\", \"Hello\"], null, [\"你好\", \"Hello\"], [\"Bonjour\", \"Bonjour\", null]]"
     );
 
@@ -126,7 +139,46 @@ fn test_dict_list_dict_display() {
         .into_array();
 
     assert_eq!(
-        x.display_values().to_string(),
+        x.display_values(&ctx).to_string(),
         "[[\"Bonjour\", \"Bonjour\", null], [\"你好\", \"Hello\"], null, [\"Hello\", \"Hello\"], null, []]"
     )
+}
+
+#[test]
+fn canonicalize_constant_nullable_code_over_non_nullable_values() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let code = Scalar::primitive(1u8, Nullability::Nullable);
+    let dict = DictArray::try_new(
+        ConstantArray::new(code, 3).into_array(),
+        VarBinArray::from_iter(
+            ["a", "long enough to live out of line"].map(Some),
+            DType::Utf8(Nullability::NonNullable),
+        )
+        .into_array(),
+    )?;
+    let expected = VarBinArray::from_iter(
+        [Some("long enough to live out of line"); 3],
+        DType::Utf8(Nullability::Nullable),
+    );
+    assert_arrays_eq!(dict, expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn canonicalize_constant_null_code() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let dict = DictArray::try_new(
+        ConstantArray::new(
+            Scalar::null(DType::Primitive(PType::U8, Nullability::Nullable)),
+            3,
+        )
+        .into_array(),
+        buffer![10i32, 20, 30].into_array(),
+    )?;
+    assert_arrays_eq!(
+        dict,
+        PrimitiveArray::from_option_iter([None::<i32>, None, None]),
+        &mut ctx
+    );
+    Ok(())
 }

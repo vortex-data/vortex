@@ -6,6 +6,7 @@ use std::io;
 use std::sync::mpsc;
 use std::time::Duration;
 
+use futures::future::try_join_all;
 use futures::poll;
 use parking_lot::Mutex;
 use rstest::rstest;
@@ -23,6 +24,10 @@ use crate::CudaSessionExt;
 
 const WAIT: Duration = Duration::from_secs(30);
 const FILE_OFFSET: u64 = (1 << 32) + 37;
+
+/// Serializes tests that observe or clear the process-wide mapping cache, because releasing it
+/// concurrently would make another test's reopened file map again.
+static MAPPING_CACHE: Mutex<()> = Mutex::new(());
 
 #[derive(Default)]
 struct FakeFileReadBackend {
@@ -119,7 +124,7 @@ impl FileReadBackend for FakeFileReadBackend {
 }
 
 fn file_byte(offset: u64) -> u8 {
-    // Unlike a repeating u8 counter, this distinguishes adjacent 4 MiB chunks.
+    // Unlike a repeating u8 counter, this distinguishes adjacent read chunks.
     (offset % 251) as u8
 }
 
@@ -136,6 +141,7 @@ fn reader(
         pool: Arc::clone(cuda.pinned_buffer_pool()),
         stream: cuda.stream()?,
         read_slots: Arc::new(Semaphore::new(DEFAULT_FILE_CONCURRENCY)),
+        mapped: None,
     };
     Ok((runtime, reader))
 }
@@ -307,5 +313,259 @@ async fn cancelled_reads_keep_slots_and_buffers_until_blocking_io_finishes() -> 
     assert_slots_released(&reader, 2).await;
     // The cancelled request's third chunk must never reach the backend.
     assert_eq!(backend.requests.lock().len(), 3);
+    Ok(())
+}
+
+const MAPPED_FILE_BYTES: usize = 2 * FILE_READ_CHUNK_BYTES + 4096;
+
+/// Opens a real buffered file of `file_byte` content with the device-side mapped copy enabled.
+fn mapped_reader() -> VortexResult<(
+    CurrentThreadRuntime,
+    PooledFileReadAt,
+    tempfile::NamedTempFile,
+)> {
+    let mut file = tempfile::NamedTempFile::new()?;
+    let bytes: Vec<u8> = (0..MAPPED_FILE_BYTES as u64).map(file_byte).collect();
+    io::Write::write_all(&mut file, &bytes)?;
+    let runtime = CurrentThreadRuntime::new();
+    let session = crate::cuda_session().with_handle(runtime.handle());
+    let cuda = session.cuda_session();
+    let reader = PooledFileReadAt::open(
+        file.path(),
+        session.handle(),
+        Arc::clone(cuda.pinned_buffer_pool()),
+        cuda.stream()?,
+    )?
+    .with_mapped_copy(file.path(), &cuda)?;
+    Ok((runtime, reader, file))
+}
+
+/// Mapped reads must return the file's bytes for any source offset within 16 bytes, across
+/// chunk boundaries and up to the end of the file.
+#[rstest]
+#[case::empty(37, 0)]
+#[case::single_byte_unaligned(5, 1)]
+#[case::short_unaligned(15, 17)]
+#[case::chunk_aligned(0, FILE_READ_CHUNK_BYTES - 1)]
+#[case::chunks_with_tail(4091, 2 * FILE_READ_CHUNK_BYTES + 3)]
+#[case::through_file_end(0, MAPPED_FILE_BYTES)]
+#[crate::test]
+async fn mapped_reads_preserve_bytes_and_offsets(
+    #[case] offset: u64,
+    #[case] length: usize,
+) -> VortexResult<()> {
+    let (_runtime, reader, _file) = mapped_reader()?;
+    let Some(mapped) = &reader.mapped else {
+        // The device does not read pageable memory; the staged path is covered above.
+        return Ok(());
+    };
+    #[cfg(target_os = "linux")]
+    mapped.mapping().advise(Advice::PopulateRead)?;
+    let start = usize::try_from(offset)?;
+    assert_eq!(
+        mapped.cached_range(offset, length),
+        Some(start..start + length)
+    );
+    // A staged fallback must fail rather than silently bypass mapped-copy coverage.
+    reader.read_slots.close();
+    let buffer = reader
+        .read_at(offset, length, Alignment::of::<u8>())
+        .await?;
+    assert_eq!(buffer.len(), length);
+    if length > 0 {
+        assert_bytes(buffer, offset, length).await?;
+    }
+    Ok(())
+}
+
+#[rstest]
+#[case::empty_at_start(0, 0, Some(0..0))]
+#[case::empty_at_end(
+    MAPPED_FILE_BYTES as u64,
+    0,
+    Some(MAPPED_FILE_BYTES..MAPPED_FILE_BYTES)
+)]
+#[case::empty_past_end(MAPPED_FILE_BYTES as u64 + 1, 0, None)]
+#[case::past_end(MAPPED_FILE_BYTES as u64 - 10, 11, None)]
+#[case::offset_overflow(u64::MAX, 1, None)]
+#[case::length_overflow(1, usize::MAX, None)]
+#[crate::test]
+async fn mapped_ranges_validate_bounds(
+    #[case] offset: u64,
+    #[case] length: usize,
+    #[case] expected: Option<Range<usize>>,
+) -> VortexResult<()> {
+    let (_runtime, reader, _file) = mapped_reader()?;
+    let Some(mapped) = &reader.mapped else {
+        return Ok(());
+    };
+    assert_eq!(mapped.cached_range(offset, length), expected);
+    Ok(())
+}
+
+/// Concurrent overlapping mapped reads preserve bytes across chunk boundaries and complete
+/// without deadlocking on the shared fill lock.
+#[crate::test]
+async fn concurrent_mapped_reads_preserve_bytes_and_offsets() -> VortexResult<()> {
+    let (_runtime, reader, _file) = mapped_reader()?;
+    if reader.mapped.is_none() {
+        return Ok(());
+    }
+    // Populate the mapping explicitly: freshly written pages may not all remain resident.
+    let mapped = reader.mapped.as_ref().unwrap();
+    #[cfg(target_os = "linux")]
+    mapped.mapping().advise(Advice::PopulateRead)?;
+    assert_eq!(
+        mapped.cached_range(0, MAPPED_FILE_BYTES),
+        Some(0..MAPPED_FILE_BYTES)
+    );
+    // A staged fallback must fail rather than silently bypass mapped-copy coverage.
+    reader.read_slots.close();
+
+    let reads = [
+        (4091, 2 * FILE_READ_CHUNK_BYTES + 3),
+        (0, MAPPED_FILE_BYTES),
+        (FILE_READ_CHUNK_BYTES as u64 - 7, 3 * 4096),
+    ];
+    let buffers = wait_for(
+        "concurrent mapped reads did not finish",
+        try_join_all(
+            reads
+                .iter()
+                .map(|&(offset, length)| reader.read_at(offset, length, Alignment::of::<u8>())),
+        ),
+    )
+    .await?;
+    for ((offset, length), buffer) in reads.into_iter().zip(buffers) {
+        assert_bytes(buffer, offset, length).await?;
+    }
+    Ok(())
+}
+
+/// Opens of one file version share a mapping, so hot scans neither remap nor unmap the file.
+/// Changing the file maps its new version.
+#[crate::test]
+async fn reopened_files_share_mappings_until_modified() -> VortexResult<()> {
+    let _cache = MAPPING_CACHE.lock();
+    let (_runtime, reader, mut file) = mapped_reader()?;
+    let Some(mapped) = reader.mapped.as_ref() else {
+        return Ok(());
+    };
+    let first = Arc::clone(
+        mapped
+            .file
+            .as_ref()
+            .vortex_expect("open file has a mapping"),
+    );
+    let again = FileMapping::open(file.path())?;
+    assert!(Arc::ptr_eq(&first, &again));
+
+    io::Write::write_all(&mut file, &[7; 4096])?;
+    let modified = FileMapping::open(file.path())?;
+    assert!(!Arc::ptr_eq(&first, &modified));
+    assert_eq!(modified.mapping().len(), MAPPED_FILE_BYTES + 4096);
+    assert_eq!(modified.mapping()[MAPPED_FILE_BYTES], 7);
+    Ok(())
+}
+
+/// Releasing cached mappings unmaps idle ones, so the next open maps the file again, while a
+/// mapping an open reader still uses stays alive.
+#[crate::test]
+async fn released_mappings_are_remapped() -> VortexResult<()> {
+    let _cache = MAPPING_CACHE.lock();
+    let (_runtime, reader, file) = mapped_reader()?;
+    let Some(mapped) = reader.mapped.as_ref() else {
+        return Ok(());
+    };
+    let in_use = Arc::clone(
+        mapped
+            .file
+            .as_ref()
+            .vortex_expect("open file has a mapping"),
+    );
+    release_file_mappings();
+    // The open reader keeps its mapping.
+    assert_eq!(in_use.mapping()[0], file_byte(0));
+    let reopened = FileMapping::open(file.path())?;
+    assert!(!Arc::ptr_eq(&in_use, &reopened));
+    Ok(())
+}
+
+/// Closing a reader releases its mapping in the background once its copies drain; releasing
+/// cached mappings afterwards must still unmap it before returning, as cold-cache eviction needs.
+#[crate::test]
+async fn closed_reader_mappings_are_released_before_return() -> VortexResult<()> {
+    let (_runtime, reader, _file) = mapped_reader()?;
+    let Some(mapped) = reader.mapped.as_ref() else {
+        return Ok(());
+    };
+    let mapping = Arc::downgrade(
+        mapped
+            .file
+            .as_ref()
+            .vortex_expect("open file has a mapping"),
+    );
+    #[cfg(target_os = "linux")]
+    mapped
+        .file
+        .as_ref()
+        .vortex_expect("open file has a mapping")
+        .mapping()
+        .advise(Advice::PopulateRead)?;
+    // Leave copies queued on the copy stream when the reader closes.
+    let buffer = reader
+        .read_at(0, MAPPED_FILE_BYTES, Alignment::of::<u8>())
+        .await?;
+    // Only the release must not race other tests' use of the global cache; the guard is not
+    // held across an await.
+    let cache = MAPPING_CACHE.lock();
+    drop(reader);
+    release_file_mappings();
+    drop(cache);
+    assert!(mapping.upgrade().is_none());
+    assert_bytes(buffer, 0, MAPPED_FILE_BYTES).await?;
+    Ok(())
+}
+
+#[crate::test]
+async fn mapped_read_past_end_fails() -> VortexResult<()> {
+    let (_runtime, reader, _file) = mapped_reader()?;
+    let Some(mapped) = &reader.mapped else {
+        return Ok(());
+    };
+    let offset = MAPPED_FILE_BYTES as u64 - 10;
+    assert!(mapped.cached_range(offset, 11).is_none());
+    // Out-of-range reads take the staged path, which reports the short read.
+    reader
+        .read_at(offset, 11, Alignment::of::<u8>())
+        .await
+        .expect_err("a read past the end must fail");
+    Ok(())
+}
+
+/// Uncached ranges must not be filled through the mapping, where cold page faults are
+/// serialized; the staged path reads them and leaves them cached for the mapped path.
+#[cfg(target_os = "linux")]
+#[crate::test]
+async fn uncached_ranges_take_the_staged_path() -> VortexResult<()> {
+    let (_runtime, reader, file) = mapped_reader()?;
+    let Some(mapped) = reader.mapped.as_ref() else {
+        return Ok(());
+    };
+    file.as_file().sync_all()?;
+    rustix::fs::fadvise(file.as_file(), 0, None, rustix::fs::Advice::DontNeed)
+        .map_err(io::Error::from)?;
+    let (offset, length) = (37, FILE_READ_CHUNK_BYTES + 5);
+    assert!(mapped.cached_range(offset, length).is_none());
+
+    let buffer = reader
+        .read_at(offset, length, Alignment::of::<u8>())
+        .await?;
+    assert_bytes(buffer, offset, length).await?;
+    let start = usize::try_from(offset)?;
+    assert_eq!(
+        mapped.cached_range(offset, length),
+        Some(start..start + length)
+    );
     Ok(())
 }

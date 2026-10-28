@@ -62,6 +62,20 @@ pub(super) fn canonicalize_fsst(
 /// [`Decompressor::decompress_into`]: fsst::Decompressor::decompress_into
 pub(crate) const FSST_DECODE_SLACK: usize = 7;
 
+/// Sums the stored per-row uncompressed lengths.
+///
+/// Only the dtype of the lengths is validated on construction, so a malformed array can carry
+/// negative values or values whose sum overflows; both are reported as errors.
+pub(crate) fn total_uncompressed_len(lengths: &PrimitiveArray) -> VortexResult<usize> {
+    match_each_integer_ptype!(lengths.ptype(), |P| {
+        lengths
+            .as_slice::<P>()
+            .iter()
+            .try_fold(0usize, |acc, &x| acc.checked_add(x.to_usize()?))
+    })
+    .ok_or_else(|| vortex_err!("FSST uncompressed lengths are negative or overflow"))
+}
+
 /// Everything needed to decode an FSST array's values in one bulk `decompress_into` call.
 pub(crate) struct FsstDecodePlan {
     codes: ByteBuffer,
@@ -107,13 +121,7 @@ impl FsstDecodePlan {
             .clone()
             .execute::<PrimitiveArray>(ctx)?;
 
-        let total_size = match_each_integer_ptype!(lengths.ptype(), |P| {
-            lengths
-                .as_slice::<P>()
-                .iter()
-                .try_fold(0usize, |acc, &x| acc.checked_add(x.to_usize()?))
-        })
-        .ok_or_else(|| vortex_err!("FSST uncompressed lengths are negative or overflow"))?;
+        let total_size = total_uncompressed_len(&lengths)?;
 
         // Stored lengths size the output buffer, so bound them by the codes:
         // symbols emit 1 to 8 bytes; escapes use two code bytes per output byte.
@@ -195,7 +203,7 @@ mod tests {
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn make_data() -> (VarBinArray, Vec<Option<Vec<u8>>>) {
         const STRING_COUNT: usize = 1000;
@@ -301,7 +309,7 @@ mod tests {
             let arr = builder.finish_into_varbin();
             let mask = arr.validity()?.execute_mask(arr.len(), &mut ctx)?;
             let actual = (0..arr.len())
-                .map(|i| mask.value(i).then(|| arr.bytes_at(i).to_vec()))
+                .map(|i| mask.value(i).then(|| arr.bytes_at(i, &mut ctx).to_vec()))
                 .collect::<Vec<_>>();
             assert_eq!(data, actual);
         }
@@ -332,7 +340,17 @@ mod tests {
         .into_array();
         fsst_array.append_to_builder(&mut builder, &mut ctx)?;
 
-        let _result = builder.finish_into_varbinview();
+        assert_arrays_eq!(
+            builder.finish_into_varbinview(),
+            VarBinViewArray::from_iter(
+                [
+                    Some(b"long enough!!!".as_slice()),
+                    Some(b"long enough too".as_slice())
+                ],
+                DType::Binary(Nullability::NonNullable),
+            ),
+            &mut ctx
+        );
         Ok(())
     }
 
@@ -358,6 +376,7 @@ mod tests {
             encoded.codes_bytes().clone(),
             DType::Binary(Nullability::NonNullable),
             Validity::NonNullable,
+            &mut ctx,
         );
         let sliced = FSST::try_new_with_symbol_table(
             encoded.dtype().clone(),
@@ -375,6 +394,40 @@ mod tests {
             builder.finish_into_varbinview(),
             input.slice(1..3)?,
             &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_rejects_out_of_bounds_non_primitive_codes_offsets() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = VarBinViewArray::from_iter_str(["alpha"]).into_array();
+        let encoded = fsst_compress(&input, &fsst_train_compressor(&input, &mut ctx)?, &mut ctx)?;
+        let past_end = u32::try_from(encoded.codes_bytes().len())? + 1;
+        let offsets = ChunkedArray::from_iter([
+            PrimitiveArray::from_iter([0u32]).into_array(),
+            PrimitiveArray::from_iter([past_end]).into_array(),
+        ])
+        .into_array();
+        // SAFETY: the out-of-bounds offset is what FSST validation is expected to reject.
+        let codes = unsafe {
+            VarBinArray::new_unchecked(
+                offsets,
+                encoded.codes_bytes().clone(),
+                DType::Binary(Nullability::NonNullable),
+                Validity::NonNullable,
+            )
+        };
+
+        assert!(
+            FSST::try_new_with_symbol_table(
+                encoded.dtype().clone(),
+                encoded.symbol_table(),
+                codes,
+                encoded.uncompressed_lengths().clone(),
+                &mut ctx,
+            )
+            .is_err()
         );
         Ok(())
     }

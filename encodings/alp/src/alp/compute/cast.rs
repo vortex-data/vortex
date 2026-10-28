@@ -66,7 +66,7 @@ mod tests {
     use crate::alp_encode;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -88,8 +88,7 @@ mod tests {
 
         let expected = values.cast(nullable_dtype)?;
 
-        let casted_prim = casted.execute::<PrimitiveArray>(&mut ctx)?;
-        assert_arrays_eq!(casted_prim, expected, &mut ctx);
+        assert_arrays_eq!(casted, expected, &mut ctx);
 
         Ok(())
     }
@@ -109,11 +108,11 @@ mod tests {
             &DType::Primitive(PType::F64, Nullability::NonNullable)
         );
 
-        let decoded = casted.execute::<PrimitiveArray>(&mut ctx)?;
-        let values = decoded.as_slice::<f64>();
-        assert_eq!(values.len(), 4);
-        assert!((values[0] - 1.5).abs() < f64::EPSILON);
-        assert!((values[1] - 2.5).abs() < f64::EPSILON);
+        assert_arrays_eq!(
+            casted,
+            PrimitiveArray::from_iter([1.5f64, 2.5, 3.5, 4.5]),
+            &mut ctx
+        );
 
         Ok(())
     }
@@ -133,12 +132,7 @@ mod tests {
             &DType::Primitive(PType::I32, Nullability::NonNullable)
         );
 
-        let decoded = casted.execute::<PrimitiveArray>(&mut ctx)?;
-        assert_arrays_eq!(
-            decoded,
-            PrimitiveArray::from_iter([1i32, 2, 3, 4]),
-            &mut ctx
-        );
+        assert_arrays_eq!(casted, PrimitiveArray::from_iter([1i32, 2, 3, 4]), &mut ctx);
 
         Ok(())
     }

@@ -76,8 +76,7 @@ For the compatibility guarantee and minimum reader versions, see [Versioning](..
     support for Format B, so Library 1 still writes only Format A.
 
 [^compression]:
-    The default compressor filters schemes by their declared output wire IDs, but general per-writer
-    scheme configuration is not implemented. The planned configuration would select compatible
-    behavior before estimation, sampling, and full compression, avoiding recompression solely to
-    meet the edition. These cells still require the writer to construct a permitted representation.
-    See [Compression](design.md#compression) for the current behavior and planned work.
+    The default compressor picks its schemes and their variants from the permitted wire IDs before
+    it compresses, so it does not need to recompress only to meet the edition. These cells still
+    require the writer to construct a permitted representation. See
+    [Compression](design.md#compression) for the current behavior.

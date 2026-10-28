@@ -29,7 +29,7 @@ jobs:
           && format('runs-on={0}/runner=amd64-large/image=ubuntu24-full-x64-pre-v2/tag=rust-build-musl', github.run_id)
           || 'ubuntu-latest' }}
     container:
-      image: ghcr.io/rust-lang/rust:1-alpine3.21
+      image: ghcr.io/rust-lang/rust:1-alpine3.24
       credentials:
         username: ${{ github.repository_owner }}
         password: ${{ secrets.GITHUB_TOKEN }}

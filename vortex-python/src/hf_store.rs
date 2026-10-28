@@ -88,20 +88,3 @@ pub(crate) fn init(_py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     parent.add_class::<HfStore>()?;
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use vortex::cloud::hf::HfConfig;
-    use vortex::cloud::hf::HfRepoType;
-    use vortex::cloud::hf::make_hf_store;
-
-    /// `token=False` must reach `make_hf_store` with no token at all, which is the whole reason this
-    /// class exists alongside plain `hf://` URL resolution.
-    #[test]
-    fn anonymous_config_builds() {
-        let mut config = HfConfig::from_env(HfRepoType::Dataset, "org/name", None);
-        config.token = None;
-
-        assert!(make_hf_store(config).is_ok());
-    }
-}

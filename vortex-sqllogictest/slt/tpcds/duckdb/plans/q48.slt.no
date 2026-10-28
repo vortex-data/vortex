@@ -147,7 +147,7 @@ logical_plan [
                                                                         "s_zip",
                                                                         "s_country",
                                                                         "s_gmt_offset",
-                                                                        "s_tax_percentage"
+                                                                        "s_tax_precentage"
                                                                     ]
                                                                 }
                                                             }
@@ -277,7 +277,7 @@ logical_plan [
                             "Expressions": [
                                 "(s_store_sk = ss_store_sk)",
                                 "(ss_sold_date_sk = d_date_sk)",
-                                "(d_year = CAST(2000 AS BIGINT))",
+                                "(d_year = CAST(2000 AS INTEGER))",
                                 "(((cd_demo_sk = ss_cdemo_sk) AND (cd_marital_status = CAST('M' AS VARCHAR)) AND (cd_education_status = CAST('4 yr Degree' AS VARCHAR)) AND ((ss_sales_price >= CAST(100.00 AS DECIMAL(7,2))) AND (ss_sales_price <= CAST(150.00 AS DECIMAL(7,2))))) OR ((cd_demo_sk = ss_cdemo_sk) AND (cd_marital_status = CAST('D' AS VARCHAR)) AND (cd_education_status = CAST('2 yr Degree' AS VARCHAR)) AND ((ss_sales_price >= CAST(50.00 AS DECIMAL(7,2))) AND (ss_sales_price <= CAST(100.00 AS DECIMAL(7,2))))) OR ((cd_demo_sk = ss_cdemo_sk) AND (cd_marital_status = CAST('S' AS VARCHAR)) AND (cd_education_status = CAST('College' AS VARCHAR)) AND ((ss_sales_price >= CAST(150.00 AS DECIMAL(7,2))) AND (ss_sales_price <= CAST(200.00 AS DECIMAL(7,2))))))",
                                 "(((ss_addr_sk = ca_address_sk) AND (ca_country = CAST('United States' AS VARCHAR)) AND (ca_state IN (CAST('CO' AS VARCHAR), CAST('OH' AS VARCHAR), CAST('TX' AS VARCHAR))) AND ((CAST(ss_net_profit AS DECIMAL(12,2)) >= CAST(0 AS DECIMAL(12,2))) AND (CAST(ss_net_profit AS DECIMAL(12,2)) <= CAST(2000 AS DECIMAL(12,2))))) OR ((ss_addr_sk = ca_address_sk) AND (ca_country = CAST('United States' AS VARCHAR)) AND (ca_state IN (CAST('OR' AS VARCHAR), CAST('MN' AS VARCHAR), CAST('KY' AS VARCHAR))) AND ((CAST(ss_net_profit AS DECIMAL(12,2)) >= CAST(150 AS DECIMAL(12,2))) AND (CAST(ss_net_profit AS DECIMAL(12,2)) <= CAST(3000 AS DECIMAL(12,2))))) OR ((ss_addr_sk = ca_address_sk) AND (ca_country = CAST('United States' AS VARCHAR)) AND (ca_state IN (CAST('VA' AS VARCHAR), CAST('CA' AS VARCHAR), CAST('MS' AS VARCHAR))) AND ((CAST(ss_net_profit AS DECIMAL(12,2)) >= CAST(50 AS DECIMAL(12,2))) AND (CAST(ss_net_profit AS DECIMAL(12,2)) <= CAST(25000 AS DECIMAL(12,2))))))"
                             ]
@@ -303,169 +303,108 @@ logical_opt [
                 "name": "AGGREGATE",
                 "children": [
                     {
-                        "name": "FILTER",
+                        "name": "COMPARISON_JOIN",
                         "children": [
+                            {
+                                "name": "READ_VORTEX",
+                                "children": [],
+                                "extra_info": {
+                                    "Filters": [
+                                        "($.d_year = 2000i32)",
+                                        "(2450816i32 <= $.d_date_sk <= 2452642i32)"
+                                    ],
+                                    "Function": "Vortex Scan",
+                                    "Estimated Cardinality": "14609"
+                                }
+                            },
                             {
                                 "name": "COMPARISON_JOIN",
                                 "children": [
                                     {
-                                        "name": "PROJECTION",
+                                        "name": "COMPARISON_JOIN",
                                         "children": [
                                             {
                                                 "name": "READ_VORTEX",
                                                 "children": [],
                                                 "extra_info": {
-                                                    "Filters": "(2i64 <= $.cd_demo_sk <= 192076i64)",
+                                                    "Filters": [
+                                                        "(((($.cd_marital_status = \"M\") and ($.cd_education_status = \"4 yr Degree\")) or (($.cd_marital_status = \"D\") and ($.cd_education_status = \"2 yr Degree\"))) or (($.cd_marital_status = \"S\") and ($.cd_education_status = \"College\")))",
+                                                        "((($.cd_marital_status = \"M\") or ($.cd_marital_status = \"D\")) or ($.cd_marital_status = \"S\"))",
+                                                        "((($.cd_education_status = \"4 yr Degree\") or ($.cd_education_status = \"2 yr Degree\")) or ($.cd_education_status = \"College\"))",
+                                                        "(37i32 <= $.cd_demo_sk <= 1920695i32)"
+                                                    ],
                                                     "Function": "Vortex Scan",
-                                                    "Estimated Cardinality": "192080"
-                                                }
-                                            }
-                                        ],
-                                        "extra_info": {
-                                            "Expressions": [
-                                                "cd_demo_sk",
-                                                "cd_marital_status",
-                                                "cd_education_status"
-                                            ],
-                                            "Estimated Cardinality": "192080"
-                                        }
-                                    },
-                                    {
-                                        "name": "COMPARISON_JOIN",
-                                        "children": [
-                                            {
-                                                "name": "FILTER",
-                                                "children": [
-                                                    {
-                                                        "name": "COMPARISON_JOIN",
-                                                        "children": [
-                                                            {
-                                                                "name": "COMPARISON_JOIN",
-                                                                "children": [
-                                                                    {
-                                                                        "name": "PROJECTION",
-                                                                        "children": [
-                                                                            {
-                                                                                "name": "READ_VORTEX",
-                                                                                "children": [],
-                                                                                "extra_info": {
-                                                                                    "Filters": "",
-                                                                                    "Function": "Vortex Scan",
-                                                                                    "Estimated Cardinality": "288464"
-                                                                                }
-                                                                            }
-                                                                        ],
-                                                                        "extra_info": {
-                                                                            "Expressions": [
-                                                                                "ss_sold_date_sk",
-                                                                                "ss_cdemo_sk",
-                                                                                "ss_addr_sk",
-                                                                                "ss_store_sk",
-                                                                                "ss_quantity",
-                                                                                "ss_sales_price",
-                                                                                "ss_net_profit"
-                                                                            ],
-                                                                            "Estimated Cardinality": "288464"
-                                                                        }
-                                                                    },
-                                                                    {
-                                                                        "name": "PROJECTION",
-                                                                        "children": [
-                                                                            {
-                                                                                "name": "READ_VORTEX",
-                                                                                "children": [],
-                                                                                "extra_info": {
-                                                                                    "Filters": [
-                                                                                        "($.d_year = 2000i64)",
-                                                                                        "(2450816i64 <= $.d_date_sk <= 2452642i64)"
-                                                                                    ],
-                                                                                    "Function": "Vortex Scan",
-                                                                                    "Estimated Cardinality": "2921"
-                                                                                }
-                                                                            }
-                                                                        ],
-                                                                        "extra_info": {
-                                                                            "Expressions": "d_date_sk",
-                                                                            "Estimated Cardinality": "2921"
-                                                                        }
-                                                                    }
-                                                                ],
-                                                                "extra_info": {
-                                                                    "Join Type": "INNER",
-                                                                    "Conditions": "(ss_sold_date_sk = d_date_sk)",
-                                                                    "Estimated Cardinality": "57677"
-                                                                }
-                                                            },
-                                                            {
-                                                                "name": "PROJECTION",
-                                                                "children": [
-                                                                    {
-                                                                        "name": "READ_VORTEX",
-                                                                        "children": [],
-                                                                        "extra_info": {
-                                                                            "Filters": "($.ca_country = \"United States\")",
-                                                                            "Function": "Vortex Scan",
-                                                                            "Estimated Cardinality": "200"
-                                                                        }
-                                                                    }
-                                                                ],
-                                                                "extra_info": {
-                                                                    "Expressions": [
-                                                                        "ca_address_sk",
-                                                                        "ca_state"
-                                                                    ],
-                                                                    "Estimated Cardinality": "200"
-                                                                }
-                                                            }
-                                                        ],
-                                                        "extra_info": {
-                                                            "Join Type": "INNER",
-                                                            "Conditions": "(ss_addr_sk = ca_address_sk)",
-                                                            "Estimated Cardinality": "11535"
-                                                        }
-                                                    }
-                                                ],
-                                                "extra_info": {
-                                                    "Expressions": "((((ss_net_profit >= 0.00) AND (ss_net_profit <= 2000.00)) AND ((ca_state = 'CO') OR (ca_state = 'OH') OR (ca_state = 'TX'))) OR (((ss_net_profit >= 150.00) AND (ss_net_profit <= 3000.00)) AND ((ca_state = 'OR') OR (ca_state = 'MN') OR (ca_state = 'KY'))) OR (((ss_net_profit >= 50.00) AND (ss_net_profit <= 25000.00)) AND ((ca_state = 'VA') OR (ca_state = 'CA') OR (ca_state = 'MS'))))",
-                                                    "Estimated Cardinality": "11535"
+                                                    "Estimated Cardinality": "384160"
                                                 }
                                             },
                                             {
-                                                "name": "PROJECTION",
+                                                "name": "COMPARISON_JOIN",
                                                 "children": [
                                                     {
                                                         "name": "READ_VORTEX",
                                                         "children": [],
                                                         "extra_info": {
-                                                            "Filters": "",
+                                                            "Filters": [
+                                                                "(((($.ss_sales_price >= decimal128(10000, precision=7, scale=2)) and ($.ss_sales_price <= decimal128(15000, precision=7, scale=2))) or (($.ss_sales_price >= decimal128(5000, precision=7, scale=2)) and ($.ss_sales_price <= decimal128(10000, precision=7, scale=2)))) or (($.ss_sales_price >= decimal128(15000, precision=7, scale=2)) and ($.ss_sales_price <= decimal128(20000, precision=7, scale=2))))",
+                                                                "(((($.ss_net_profit >= decimal128(0, precision=7, scale=2)) and ($.ss_net_profit <= decimal128(200000, precision=7, scale=2))) or (($.ss_net_profit >= decimal128(15000, precision=7, scale=2)) and ($.ss_net_profit <= decimal128(300000, precision=7, scale=2)))) or (($.ss_net_profit >= decimal128(5000, precision=7, scale=2)) and ($.ss_net_profit <= decimal128(2500000, precision=7, scale=2))))"
+                                                            ],
                                                             "Function": "Vortex Scan",
-                                                            "Estimated Cardinality": "1"
+                                                            "Estimated Cardinality": "48097"
+                                                        }
+                                                    },
+                                                    {
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
+                                                        "extra_info": {
+                                                            "Filters": [
+                                                                "((vortex.list.contains([\"CO\", \"OH\", \"TX\"], $.ca_state, opts=sql_null_semantics) or vortex.list.contains([\"KY\", \"MN\", \"OR\"], $.ca_state, opts=sql_null_semantics)) or vortex.list.contains([\"CA\", \"MS\", \"VA\"], $.ca_state, opts=sql_null_semantics))",
+                                                                "($.ca_country = \"United States\")"
+                                                            ],
+                                                            "Function": "Vortex Scan",
+                                                            "Estimated Cardinality": "1000"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
-                                                    "Expressions": "s_store_sk",
-                                                    "Estimated Cardinality": "1"
+                                                    "Join Type": "INNER",
+                                                    "Conditions": [
+                                                        "(ss_addr_sk = ca_address_sk)",
+                                                        "(((ss_net_profit >= 50.00) AND (ca_state IN ('VA', 'CA', 'MS'))) OR (((ss_net_profit >= 0.00) AND (ss_net_profit <= 2000.00)) AND (ca_state IN ('CO', 'OH', 'TX'))) OR (((ss_net_profit >= 150.00) AND (ss_net_profit <= 3000.00)) AND (ca_state IN ('OR', 'MN', 'KY'))))"
+                                                    ],
+                                                    "Estimated Cardinality": "1923"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "Join Type": "INNER",
-                                            "Conditions": "(ss_store_sk = s_store_sk)",
-                                            "Estimated Cardinality": "11535"
+                                            "Conditions": [
+                                                "(cd_demo_sk = ss_cdemo_sk)",
+                                                "(((ss_sales_price >= 150.00) AND (cd_marital_status = 'S') AND (cd_education_status = 'College')) OR (((ss_sales_price >= 100.00) AND (ss_sales_price <= 150.00)) AND (cd_marital_status = 'M') AND (cd_education_status = '4 yr Degree')) OR (((ss_sales_price >= 50.00) AND (ss_sales_price <= 100.00)) AND (cd_marital_status = 'D') AND (cd_education_status = '2 yr Degree')))"
+                                            ],
+                                            "Estimated Cardinality": "384"
+                                        }
+                                    },
+                                    {
+                                        "name": "READ_VORTEX",
+                                        "children": [],
+                                        "extra_info": {
+                                            "Filters": "",
+                                            "Function": "Vortex Scan",
+                                            "Estimated Cardinality": "2"
                                         }
                                     }
                                 ],
                                 "extra_info": {
                                     "Join Type": "INNER",
-                                    "Conditions": "(cd_demo_sk = ss_cdemo_sk)",
-                                    "Estimated Cardinality": "11535"
+                                    "Conditions": "(ss_store_sk = s_store_sk)",
+                                    "Estimated Cardinality": "384"
                                 }
                             }
                         ],
                         "extra_info": {
-                            "Expressions": "((((ss_sales_price >= 100.00) AND (ss_sales_price <= 150.00)) AND (cd_marital_status = 'M') AND (cd_education_status = '4 yr Degree')) OR (((ss_sales_price >= 50.00) AND (ss_sales_price <= 100.00)) AND (cd_marital_status = 'D') AND (cd_education_status = '2 yr Degree')) OR (((ss_sales_price >= 150.00) AND (ss_sales_price <= 200.00)) AND (cd_marital_status = 'S') AND (cd_education_status = 'College')))",
-                            "Estimated Cardinality": "11535"
+                            "Join Type": "INNER",
+                            "Conditions": "(d_date_sk = ss_sold_date_sk)",
+                            "Estimated Cardinality": "384"
                         }
                     }
                 ],
@@ -490,10 +429,23 @@ physical_plan [
                 "name": "PROJECTION",
                 "children": [
                     {
-                        "name": "PROJECTION",
+                        "name": "HASH_JOIN",
                         "children": [
                             {
-                                "name": "FILTER",
+                                "name": "READ_VORTEX",
+                                "children": [],
+                                "extra_info": {
+                                    "Function": "Vortex Scan",
+                                    "Filters": [
+                                        "($.d_year = 2000i32)",
+                                        "(2450816i32 <= $.d_date_sk <= 2452642i32)"
+                                    ],
+                                    "Projections": "d_date_sk",
+                                    "Estimated Cardinality": "14609"
+                                }
+                            },
+                            {
+                                "name": "HASH_JOIN",
                                 "children": [
                                     {
                                         "name": "HASH_JOIN",
@@ -503,99 +455,42 @@ physical_plan [
                                                 "children": [],
                                                 "extra_info": {
                                                     "Function": "Vortex Scan",
-                                                    "Filters": "(2i64 <= $.cd_demo_sk <= 192076i64)",
+                                                    "Filters": [
+                                                        "(((($.cd_marital_status = \"M\") and ($.cd_education_status = \"4 yr Degree\")) or (($.cd_marital_status = \"D\") and ($.cd_education_status = \"2 yr Degree\"))) or (($.cd_marital_status = \"S\") and ($.cd_education_status = \"College\")))",
+                                                        "((($.cd_marital_status = \"M\") or ($.cd_marital_status = \"D\")) or ($.cd_marital_status = \"S\"))",
+                                                        "((($.cd_education_status = \"4 yr Degree\") or ($.cd_education_status = \"2 yr Degree\")) or ($.cd_education_status = \"College\"))",
+                                                        "(37i32 <= $.cd_demo_sk <= 1920695i32)"
+                                                    ],
                                                     "Projections": [
                                                         "cd_demo_sk",
                                                         "cd_marital_status",
                                                         "cd_education_status"
                                                     ],
-                                                    "Estimated Cardinality": "192080"
+                                                    "Estimated Cardinality": "384160"
                                                 }
                                             },
                                             {
                                                 "name": "HASH_JOIN",
                                                 "children": [
                                                     {
-                                                        "name": "PROJECTION",
-                                                        "children": [
-                                                            {
-                                                                "name": "FILTER",
-                                                                "children": [
-                                                                    {
-                                                                        "name": "HASH_JOIN",
-                                                                        "children": [
-                                                                            {
-                                                                                "name": "HASH_JOIN",
-                                                                                "children": [
-                                                                                    {
-                                                                                        "name": "READ_VORTEX",
-                                                                                        "children": [],
-                                                                                        "extra_info": {
-                                                                                            "Function": "Vortex Scan",
-                                                                                            "Projections": [
-                                                                                                "ss_sold_date_sk",
-                                                                                                "ss_cdemo_sk",
-                                                                                                "ss_addr_sk",
-                                                                                                "ss_store_sk",
-                                                                                                "ss_quantity",
-                                                                                                "ss_sales_price",
-                                                                                                "ss_net_profit"
-                                                                                            ],
-                                                                                            "Estimated Cardinality": "288464"
-                                                                                        }
-                                                                                    },
-                                                                                    {
-                                                                                        "name": "READ_VORTEX",
-                                                                                        "children": [],
-                                                                                        "extra_info": {
-                                                                                            "Function": "Vortex Scan",
-                                                                                            "Filters": "d_year=2000",
-                                                                                            "Projections": "d_date_sk",
-                                                                                            "Estimated Cardinality": "2921"
-                                                                                        }
-                                                                                    }
-                                                                                ],
-                                                                                "extra_info": {
-                                                                                    "Join Type": "INNER",
-                                                                                    "Conditions": "ss_sold_date_sk = d_date_sk",
-                                                                                    "Estimated Cardinality": "57677"
-                                                                                }
-                                                                            },
-                                                                            {
-                                                                                "name": "READ_VORTEX",
-                                                                                "children": [],
-                                                                                "extra_info": {
-                                                                                    "Function": "Vortex Scan",
-                                                                                    "Filters": "ca_country='United States'",
-                                                                                    "Projections": [
-                                                                                        "ca_address_sk",
-                                                                                        "ca_state"
-                                                                                    ],
-                                                                                    "Estimated Cardinality": "200"
-                                                                                }
-                                                                            }
-                                                                        ],
-                                                                        "extra_info": {
-                                                                            "Join Type": "INNER",
-                                                                            "Conditions": "ss_addr_sk = ca_address_sk",
-                                                                            "Estimated Cardinality": "11535"
-                                                                        }
-                                                                    }
-                                                                ],
-                                                                "extra_info": {
-                                                                    "Expression": "((((ss_net_profit >= 0.00) AND (ss_net_profit <= 2000.00)) AND ((ca_state = 'CO') OR (ca_state = 'OH') OR (ca_state = 'TX'))) OR (((ss_net_profit >= 150.00) AND (ss_net_profit <= 3000.00)) AND ((ca_state = 'OR') OR (ca_state = 'MN') OR (ca_state = 'KY'))) OR (((ss_net_profit >= 50.00) AND (ss_net_profit <= 25000.00)) AND ((ca_state = 'VA') OR (ca_state = 'CA') OR (ca_state = 'MS'))))",
-                                                                    "Estimated Cardinality": "11535"
-                                                                }
-                                                            }
-                                                        ],
+                                                        "name": "READ_VORTEX",
+                                                        "children": [],
                                                         "extra_info": {
-                                                            "Projections": [
-                                                                "#0",
-                                                                "#1",
-                                                                "#2",
-                                                                "#3"
+                                                            "Function": "Vortex Scan",
+                                                            "Filters": [
+                                                                "(((($.ss_sales_price >= decimal128(10000, precision=7, scale=2)) and ($.ss_sales_price <= decimal128(15000, precision=7, scale=2))) or (($.ss_sales_price >= decimal128(5000, precision=7, scale=2)) and ($.ss_sales_price <= decimal128(10000, precision=7, scale=2)))) or (($.ss_sales_price >= decimal128(15000, precision=7, scale=2)) and ($.ss_sales_price <= decimal128(20000, precision=7, scale=2))))",
+                                                                "(((($.ss_net_profit >= decimal128(0, precision=7, scale=2)) and ($.ss_net_profit <= decimal128(200000, precision=7, scale=2))) or (($.ss_net_profit >= decimal128(15000, precision=7, scale=2)) and ($.ss_net_profit <= decimal128(300000, precision=7, scale=2)))) or (($.ss_net_profit >= decimal128(5000, precision=7, scale=2)) and ($.ss_net_profit <= decimal128(2500000, precision=7, scale=2))))"
                                                             ],
-                                                            "Estimated Cardinality": "11535"
+                                                            "Projections": [
+                                                                "ss_sold_date_sk",
+                                                                "ss_cdemo_sk",
+                                                                "ss_addr_sk",
+                                                                "ss_store_sk",
+                                                                "ss_quantity",
+                                                                "ss_sales_price",
+                                                                "ss_net_profit"
+                                                            ],
+                                                            "Estimated Cardinality": "48097"
                                                         }
                                                     },
                                                     {
@@ -603,45 +498,70 @@ physical_plan [
                                                         "children": [],
                                                         "extra_info": {
                                                             "Function": "Vortex Scan",
-                                                            "Projections": "s_store_sk",
-                                                            "Estimated Cardinality": "1"
+                                                            "Filters": [
+                                                                "((vortex.list.contains([\"CO\", \"OH\", \"TX\"], $.ca_state, opts=sql_null_semantics) or vortex.list.contains([\"KY\", \"MN\", \"OR\"], $.ca_state, opts=sql_null_semantics)) or vortex.list.contains([\"CA\", \"MS\", \"VA\"], $.ca_state, opts=sql_null_semantics))",
+                                                                "($.ca_country = \"United States\")"
+                                                            ],
+                                                            "Projections": [
+                                                                "ca_address_sk",
+                                                                "ca_state"
+                                                            ],
+                                                            "Estimated Cardinality": "1000"
                                                         }
                                                     }
                                                 ],
                                                 "extra_info": {
                                                     "Join Type": "INNER",
-                                                    "Conditions": "ss_store_sk = s_store_sk",
-                                                    "Estimated Cardinality": "11535"
+                                                    "Conditions": [
+                                                        "ss_addr_sk = ca_address_sk",
+                                                        "(((ss_net_profit >= 50.00) AND (ca_state IN ('VA', 'CA', 'MS'))) OR (((ss_net_profit >= 0.00) AND (ss_net_profit <= 2000.00)) AND (ca_state IN ('CO', 'OH', 'TX'))) OR (((ss_net_profit >= 150.00) AND (ss_net_profit <= 3000.00)) AND (ca_state IN ('OR', 'MN', 'KY'))))"
+                                                    ],
+                                                    "Estimated Cardinality": "1923"
                                                 }
                                             }
                                         ],
                                         "extra_info": {
                                             "Join Type": "INNER",
-                                            "Conditions": "cd_demo_sk = ss_cdemo_sk",
-                                            "Estimated Cardinality": "11535"
+                                            "Conditions": [
+                                                "cd_demo_sk = ss_cdemo_sk",
+                                                "(((ss_sales_price >= 150.00) AND (cd_marital_status = 'S') AND (cd_education_status = 'College')) OR (((ss_sales_price >= 100.00) AND (ss_sales_price <= 150.00)) AND (cd_marital_status = 'M') AND (cd_education_status = '4 yr Degree')) OR (((ss_sales_price >= 50.00) AND (ss_sales_price <= 100.00)) AND (cd_marital_status = 'D') AND (cd_education_status = '2 yr Degree')))"
+                                            ],
+                                            "Estimated Cardinality": "384"
+                                        }
+                                    },
+                                    {
+                                        "name": "READ_VORTEX",
+                                        "children": [],
+                                        "extra_info": {
+                                            "Function": "Vortex Scan",
+                                            "Projections": "s_store_sk",
+                                            "Estimated Cardinality": "2"
                                         }
                                     }
                                 ],
                                 "extra_info": {
-                                    "Expression": "((((ss_sales_price >= 100.00) AND (ss_sales_price <= 150.00)) AND (cd_marital_status = 'M') AND (cd_education_status = '4 yr Degree')) OR (((ss_sales_price >= 50.00) AND (ss_sales_price <= 100.00)) AND (cd_marital_status = 'D') AND (cd_education_status = '2 yr Degree')) OR (((ss_sales_price >= 150.00) AND (ss_sales_price <= 200.00)) AND (cd_marital_status = 'S') AND (cd_education_status = 'College')))",
-                                    "Estimated Cardinality": "11535"
+                                    "Join Type": "INNER",
+                                    "Conditions": "ss_store_sk = s_store_sk",
+                                    "Estimated Cardinality": "384"
                                 }
                             }
                         ],
                         "extra_info": {
-                            "Projections": "#2",
-                            "Estimated Cardinality": "11535"
+                            "Join Type": "INNER",
+                            "Conditions": "d_date_sk = ss_sold_date_sk",
+                            "Estimated Cardinality": "384"
                         }
                     }
                 ],
                 "extra_info": {
                     "Projections": "ss_quantity",
-                    "Estimated Cardinality": "11535"
+                    "Estimated Cardinality": "384"
                 }
             }
         ],
         "extra_info": {
-            "Aggregates": "sum(#0)"
+            "Aggregates": "sum(#0)",
+            "Estimated Cardinality": "1"
         }
     }
 ]

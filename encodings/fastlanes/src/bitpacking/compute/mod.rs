@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem::MaybeUninit;
 use std::mem::size_of;
+use std::slice::from_raw_parts;
 
 use fastlanes::BitPacking;
 use vortex_array::dtype::NativePType;
@@ -13,6 +15,7 @@ mod compare;
 mod compare_fused;
 mod filter;
 pub(crate) mod is_constant;
+mod packed_range;
 mod slice;
 mod stream_predicate;
 mod take;
@@ -46,70 +49,79 @@ fn unpack_indices_into<T: NativePType + BitPacking>(
     }
 }
 
-// TODO(connor): This is duplicated in `encodings/fastlanes/src/bitpacking/kernels/mod.rs`.
+/// Groups consecutive indices by 1024-element chunk without allocating.
+///
+/// Repeated indices can select more than 1024 positions from one chunk, in which case
+/// `chunk_fn` is called more than once for that chunk.
 fn chunked_indices<F: FnMut(usize, &[usize])>(
-    mut indices: impl Iterator<Item = usize>,
+    indices: impl Iterator<Item = usize>,
     offset: usize,
     mut chunk_fn: F,
 ) {
-    let mut indices_within_chunk: Vec<usize> = Vec::with_capacity(1024);
+    let mut indices_within_chunk = [const { MaybeUninit::<usize>::uninit() }; 1024];
+    let mut len = 0;
+    let mut current_chunk_idx = 0;
+    // SAFETY: Callers only read the first `len` entries, which have been written.
+    let initialized =
+        |buf: &[MaybeUninit<usize>], len| unsafe { from_raw_parts(buf.as_ptr().cast(), len) };
 
-    let Some(first_idx) = indices.next() else {
-        return;
-    };
-
-    let mut current_chunk_idx = (first_idx + offset) / 1024;
-    indices_within_chunk.push((first_idx + offset) % 1024);
     for idx in indices {
-        let new_chunk_idx = (idx + offset) / 1024;
-
-        if new_chunk_idx != current_chunk_idx {
-            chunk_fn(current_chunk_idx, &indices_within_chunk);
-            indices_within_chunk.clear();
+        let chunk_idx = (idx + offset) / 1024;
+        if len != 0 && (chunk_idx != current_chunk_idx || len == indices_within_chunk.len()) {
+            chunk_fn(current_chunk_idx, initialized(&indices_within_chunk, len));
+            len = 0;
         }
-
-        current_chunk_idx = new_chunk_idx;
-        indices_within_chunk.push((idx + offset) % 1024);
+        current_chunk_idx = chunk_idx;
+        indices_within_chunk[len].write((idx + offset) % 1024);
+        len += 1;
     }
 
-    if !indices_within_chunk.is_empty() {
-        chunk_fn(current_chunk_idx, &indices_within_chunk);
+    if len != 0 {
+        chunk_fn(current_chunk_idx, initialized(&indices_within_chunk, len));
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_session::VortexSession;
 
     use crate::BitPackedArray;
     use crate::bitpack_compress::bitpack_encode;
     use crate::bitpacking::compute::chunked_indices;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     fn bp(array: &PrimitiveArray, bit_width: u8) -> BitPackedArray {
-        bitpack_encode(
-            array,
-            bit_width,
-            None,
-            &mut array_session().create_execution_ctx(),
-        )
-        .unwrap()
+        bitpack_encode(array, bit_width, None, &mut SESSION.create_execution_ctx()).unwrap()
     }
 
     #[test]
     fn chunk_indices_repeated() {
-        let mut called = false;
+        let mut calls = Vec::new();
         chunked_indices([0; 1025].into_iter(), 0, |chunk_idx, idxs| {
             assert_eq!(chunk_idx, 0);
-            assert_eq!(idxs, [0; 1025]);
-            called = true;
+            assert!(idxs.iter().all(|&idx| idx == 0));
+            calls.push(idxs.len());
         });
-        assert!(called);
+        // More than 1024 indices in one chunk are split across calls.
+        assert_eq!(calls, [1024, 1]);
+    }
+
+    #[test]
+    fn chunk_indices_with_offset() {
+        let mut calls = Vec::new();
+        chunked_indices([0, 5, 1000, 3000].into_iter(), 100, |chunk_idx, idxs| {
+            calls.push((chunk_idx, idxs.to_vec()));
+        });
+        assert_eq!(calls, [(0, vec![100, 105]), (1, vec![76]), (3, vec![28])]);
     }
 
     #[rstest]
@@ -133,7 +145,7 @@ mod tests {
     #[case::alternating_bits(bp(&PrimitiveArray::from_iter([0u16, 255, 0, 255, 0, 255]), 8))]
 
     fn test_bitpacked_consistency(#[case] array: BitPackedArray) {
-        let ctx = &mut array_session().create_execution_ctx();
+        let ctx = &mut SESSION.create_execution_ctx();
         test_array_consistency(&array.into_array(), ctx);
     }
 
@@ -145,9 +157,6 @@ mod tests {
     #[case::i32_basic(bp(&PrimitiveArray::from_iter([10i32, 20, 30, 40, 50]), 7))]
     #[case::large_u32(bp(&PrimitiveArray::from_iter((0..100).map(|i| i as u32)), 7))]
     fn test_bitpacked_binary_numeric(#[case] array: BitPackedArray) {
-        test_binary_numeric_array(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_binary_numeric_array(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

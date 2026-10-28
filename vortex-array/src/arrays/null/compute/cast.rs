@@ -29,17 +29,21 @@ impl CastReduce for Null {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::NullArray;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_cast_null_to_null() {
@@ -68,7 +72,7 @@ mod tests {
         for i in 0..5 {
             assert!(
                 result
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(i, &mut SESSION.create_execution_ctx())
                     .unwrap()
                     .is_null()
             );
@@ -90,9 +94,6 @@ mod tests {
     #[case(NullArray::new(100))]
     #[case(NullArray::new(0))]
     fn test_cast_null_conformance(#[case] array: NullArray) {
-        test_cast_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

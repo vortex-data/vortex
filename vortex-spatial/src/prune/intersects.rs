@@ -6,8 +6,8 @@
 use vortex_array::expr::BoundExpression;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::stats::rewrite::StatsRewriteRule;
 use vortex_error::VortexResult;
+use vortex_expr::stats::rewrite::StatsRewriteRule;
 use vortex_session::VortexSession;
 
 use super::aabb_stat;
@@ -62,8 +62,9 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::ScalarFnVTableExt;
-    use vortex_array::stats::rewrite::StatsRewriteRule;
     use vortex_error::VortexResult;
+    use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
+    use vortex_expr::stats::rewrite::StatsRewriteRule;
 
     use super::SpatialIntersectsPrune;
     use crate::prune::test_harness::aabb_zone_map;
@@ -96,7 +97,16 @@ mod tests {
     #[case(true)]
     #[case(false)]
     fn falsifies_either_operand_order(#[case] geom_first: bool) -> VortexResult<()> {
-        assert!(falsify_intersects(geom_first)?.is_some());
+        let proof = falsify_intersects(geom_first)?.expect("intersection proof");
+        let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
+        let zones = aabb_zone_map(&dtype, &[[0.0, 0.0, 1.0, 1.0], [3.0, 0.0, 4.0, 1.0]])?;
+        assert_eq!(
+            zones
+                .prune(&proof, &spatial_session())?
+                .iter()
+                .collect::<Vec<_>>(),
+            [false, true]
+        );
         Ok(())
     }
 

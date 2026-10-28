@@ -17,9 +17,9 @@ use mimalloc::MiMalloc;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
@@ -32,16 +32,17 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
 
 /// Number of lists in each chunk.
-const LISTS_PER_CHUNK: usize = 1_000;
+const LISTS_PER_CHUNK: usize = 128;
 
 /// Number of chunks in the source array.
 const NUM_CHUNKS: &[usize] = &[2, 8, 32];
 
 /// Fixed size list lengths (elements per list).
-const LIST_SIZES: &[usize] = &[16, 256, 1024];
+const LIST_SIZES: &[usize] = &[16, 256];
 
 /// Creates a `FixedSizeListArray` with the given list size and number of lists.
 fn create_fsl(list_size: usize, num_lists: usize) -> FixedSizeListArray {

@@ -210,6 +210,7 @@ impl FileSink for VortexSink {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use arrow_schema::DataType;
     use arrow_schema::Field;
@@ -243,6 +244,8 @@ mod tests {
     use super::*;
     use crate::common_tests::TestSessionContext;
     use crate::persistent::VortexFormatFactory;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[tokio::test]
     async fn test_insert_into_sql() -> anyhow::Result<()> {
@@ -484,7 +487,19 @@ mod tests {
             .await?;
 
         let table = ctx.session.table("my_tbl").await?;
-        assert_eq!(table.count().await?, 3);
+        let batches = table.select_columns(&["c1", "c2"])?.collect().await?;
+        assert_batches_sorted_eq!(
+            [
+                "+-------+----+",
+                "| c1    | c2 |",
+                "+-------+----+",
+                "| hello | 42 |",
+                "| world | 24 |",
+                "| world | 25 |",
+                "+-------+----+",
+            ],
+            &batches
+        );
 
         let location = Path::parse("table/")?;
         let file_metas = ctx
@@ -506,7 +521,6 @@ mod tests {
 
     #[test]
     fn test_display_as() {
-        let session = VortexSession::empty();
         let table_schema = TableSchema::from(Arc::new(Schema::empty()));
 
         let config = FileSinkConfig {
@@ -526,7 +540,7 @@ mod tests {
             VortexSink::new(
                 config.clone(),
                 Arc::clone(table_schema.file_schema()),
-                session.clone(),
+                SESSION.clone(),
             )
         };
 

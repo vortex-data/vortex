@@ -223,16 +223,21 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use flatbuffers::FlatBufferBuilder;
-    use vortex_array::array_session;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+    use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
     use super::layout_from_flatbuffer_with_options;
     use crate::LayoutEncodingId;
     use crate::flatbuffers::layout as fbl;
     use crate::session::LayoutSession;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<LayoutSession>());
 
     #[expect(clippy::disallowed_methods, reason = "test-only id")]
     #[test]
@@ -275,14 +280,13 @@ mod tests {
             LayoutEncodingId::new("vortex.test.foreign_child_layout"),
         ]);
         let array_ctx = ReadContext::new([]);
-        let session = array_session().with::<LayoutSession>();
 
         let layout = layout_from_flatbuffer_with_options(
             layout_buffer,
             &DType::Variant(Nullability::Nullable),
             &layout_ctx,
             &array_ctx,
-            &session,
+            &SESSION,
             true,
         )
         .unwrap();

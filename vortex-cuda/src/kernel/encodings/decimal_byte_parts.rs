@@ -68,6 +68,8 @@ impl CudaExecute for DecimalBytePartsExecutor {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex::array::IntoArray;
     use vortex::array::arrays::PrimitiveArray;
@@ -77,10 +79,13 @@ mod tests {
     use vortex::dtype::DecimalDType;
     use vortex::encodings::decimal_byte_parts::DecimalByteParts;
     use vortex::error::VortexExpect;
+    use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::session::CudaSession;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     #[case::i8_p5_s2(Buffer::from(vec![100i8, 101, 102, -1, -100]), 5, 2)]
@@ -93,7 +98,7 @@ mod tests {
         #[case] precision: u8,
         #[case] scale: i8,
     ) {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("create execution context");
 

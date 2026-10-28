@@ -115,28 +115,3 @@ impl Operator for ScanSource {
         )?))
     }
 }
-
-/// Narrows a whole decoded segment, the one batch of a share's port, to a reader's rows.
-pub(crate) struct SelectStage {
-    slice: Option<Range<usize>>,
-    filter: Option<Mask>,
-}
-
-impl SelectStage {
-    pub(crate) fn new(slice: Option<Range<usize>>, filter: Option<Mask>) -> Self {
-        Self { slice, filter }
-    }
-}
-
-impl Operator for SelectStage {
-    fn compute(&mut self, input: Input, _cx: &mut Cx<'_>) -> VortexResult<Step> {
-        let Input::Batch(batch) = input else {
-            return Ok(Step::End);
-        };
-        Ok(Step::Final(select(
-            batch,
-            self.slice.as_ref(),
-            self.filter.as_ref(),
-        )?))
-    }
-}

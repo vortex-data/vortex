@@ -13,6 +13,7 @@ mod once;
 mod pack;
 mod scan;
 mod take;
+mod whole;
 
 pub(crate) use concat::*;
 pub(crate) use eval::*;
@@ -29,6 +30,7 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+pub(crate) use whole::*;
 
 use crate::plan::physical::operator::Cx;
 use crate::plan::physical::pipeline::Inlet;

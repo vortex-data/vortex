@@ -81,24 +81,24 @@ pub type OnPairArray = Array<OnPair>;
 pub struct OnPairMetadata {
     /// Width of the per-row primitive `uncompressed_lengths` child.
     #[prost(enumeration = "PType", tag = "1")]
-    pub uncompressed_lengths_ptype: i32,
+    pub(crate) uncompressed_lengths_ptype: i32,
     /// Number of dictionary tokens. `dict_offsets` has length `dict_size + 1`.
     #[prost(uint32, tag = "3")]
-    pub dict_size: u32,
+    pub(crate) dict_size: u32,
     /// Length of the `codes` slot child. A sliced array may retain codes that
     /// fall outside its visible row range.
     #[prost(uint64, tag = "4")]
-    pub codes_len: u64,
+    pub(crate) codes_len: u64,
     /// PType of the `dict_offsets` slot child (defaults to U32, may be
     /// narrowed to U16/U8 by the cascading compressor when values fit).
     #[prost(enumeration = "PType", tag = "5")]
-    pub dict_offsets_ptype: i32,
+    pub(crate) dict_offsets_ptype: i32,
     /// PType of the `codes` slot child.
     #[prost(enumeration = "PType", tag = "6")]
-    pub codes_ptype: i32,
+    pub(crate) codes_ptype: i32,
     /// PType of the `codes_offsets` slot child.
     #[prost(enumeration = "PType", tag = "7")]
-    pub codes_offsets_ptype: i32,
+    pub(crate) codes_offsets_ptype: i32,
 }
 
 impl OnPairMetadata {
@@ -233,7 +233,7 @@ fn build_dictionary(
     offsets: Buffer<u32>,
 ) -> VortexResult<CompactDictionary<OnPairDictionaryStorage>> {
     CompactDictionary::validate_safety(OnPairDictionaryStorage { bytes, offsets })
-        .map_err(|e| vortex_err!(InvalidArgument: "Unsafe OnPair dictionary: {e}"))
+        .map_err(|e| vortex_err!("Unsafe OnPair dictionary: {e}"))
 }
 
 /// A safety-validated dictionary built from host-materialized parts, owned
@@ -417,19 +417,19 @@ fn validate_parts(
     );
 
     if !dict_offsets.dtype().is_int() || dict_offsets.dtype().is_nullable() {
-        vortex_bail!(InvalidArgument: "dict_offsets must be non-nullable integer");
+        vortex_bail!("dict_offsets must be non-nullable integer");
     }
     if !codes.dtype().is_int() || codes.dtype().is_nullable() {
-        vortex_bail!(InvalidArgument: "codes must be non-nullable integer");
+        vortex_bail!("codes must be non-nullable integer");
     }
     if !codes_offsets.dtype().is_int() || codes_offsets.dtype().is_nullable() {
-        vortex_bail!(InvalidArgument: "codes_offsets must be non-nullable integer");
+        vortex_bail!("codes_offsets must be non-nullable integer");
     }
     if !uncompressed_lengths.dtype().is_int() || uncompressed_lengths.dtype().is_nullable() {
-        vortex_bail!(InvalidArgument: "uncompressed_lengths must be non-nullable integer");
+        vortex_bail!("uncompressed_lengths must be non-nullable integer");
     }
     if codes_offsets.len() != uncompressed_lengths.len() + 1 {
-        vortex_bail!(InvalidArgument:
+        vortex_bail!(
             "codes_offsets.len ({}) != uncompressed_lengths.len + 1 ({})",
             codes_offsets.len(),
             uncompressed_lengths.len() + 1
@@ -464,7 +464,7 @@ impl VTable for OnPair {
             s.uncompressed_lengths,
         )?;
         if s.uncompressed_lengths.len() != len {
-            vortex_bail!(InvalidArgument: "uncompressed_lengths must have same len as outer array");
+            vortex_bail!("uncompressed_lengths must have same len as outer array");
         }
         Ok(())
     }
@@ -538,7 +538,7 @@ impl VTable for OnPair {
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         if buffers.len() != 1 {
-            vortex_bail!(InvalidArgument: "Expected 1 buffer, got {}", buffers.len());
+            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
         let metadata = OnPairMetadata::decode(metadata)?;
         let uncompressed_ptype = metadata.get_uncompressed_lengths_ptype()?;
@@ -585,7 +585,7 @@ impl VTable for OnPair {
         let validity = match children.len() {
             4 => Validity::from(dtype.nullability()),
             5 => Validity::Array(children.get(4, &Validity::DTYPE, len)?),
-            other => vortex_bail!(InvalidArgument: "Expected 4 or 5 children, got {other}"),
+            other => vortex_bail!("Expected 4 or 5 children, got {other}"),
         };
 
         let data = OnPairData::new(buffers[0].clone());

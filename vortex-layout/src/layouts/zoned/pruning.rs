@@ -25,6 +25,7 @@ use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_expr::stats::rewrite::BoundExpressionPruneExt;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;

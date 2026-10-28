@@ -132,7 +132,7 @@ impl VTable for FoR {
         _array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        vortex_bail!("FoR serialization requires FoRPlugin")
+        Ok(None)
     }
 
     fn deserialize(
@@ -206,7 +206,7 @@ impl FoR {
                 num_chunks(offset, encoded.len()),
                 "FoR expects one reference per chunk"
             );
-            return Self::try_new(encoded, reference);
+            return Self::try_new(encoded, reference.clone());
         }
         Self::try_from_parts(encoded, None, Some(references), offset)
     }

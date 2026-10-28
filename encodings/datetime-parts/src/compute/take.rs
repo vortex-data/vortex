@@ -94,18 +94,22 @@ impl TakeExecute for DateTimeParts {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::DateTimeParts;
     use crate::DateTimePartsArray;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     #[case(DateTimeParts::try_from_temporal(TemporalArray::new_timestamp(
@@ -118,7 +122,7 @@ mod tests {
         ].into_array(),
         TimeUnit::Milliseconds,
         Some("UTC".into())
-    ), &mut array_session().create_execution_ctx()).unwrap())]
+    ), &mut SESSION.create_execution_ctx()).unwrap())]
     #[case(DateTimeParts::try_from_temporal(TemporalArray::new_timestamp(
         PrimitiveArray::from_option_iter([
             Some(0i64),
@@ -129,16 +133,13 @@ mod tests {
         ]).into_array(),
         TimeUnit::Milliseconds,
         Some("UTC".into())
-    ), &mut array_session().create_execution_ctx()).unwrap())]
+    ), &mut SESSION.create_execution_ctx()).unwrap())]
     #[case(DateTimeParts::try_from_temporal(TemporalArray::new_timestamp(
         buffer![86_400_000i64].into_array(),
         TimeUnit::Milliseconds,
         Some("UTC".into())
-    ), &mut array_session().create_execution_ctx()).unwrap())]
+    ), &mut SESSION.create_execution_ctx()).unwrap())]
     fn test_take_datetime_parts_conformance(#[case] array: DateTimePartsArray) {
-        test_take_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_take_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

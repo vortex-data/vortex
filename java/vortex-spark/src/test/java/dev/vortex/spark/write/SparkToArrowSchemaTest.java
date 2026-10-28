@@ -33,7 +33,10 @@ final class SparkToArrowSchemaTest {
         StructType schema = new StructType(new StructField[] {new StructField(name, type, nullable, Metadata.empty())});
         Schema arrowSchema = SparkToArrowSchema.convert(schema);
         assertEquals(1, arrowSchema.getFields().size());
-        return arrowSchema.getFields().get(0);
+        Field field = arrowSchema.getFields().get(0);
+        assertEquals(name, field.getName());
+        assertEquals(nullable, field.isNullable());
+        return field;
     }
 
     @Test

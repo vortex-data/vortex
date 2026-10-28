@@ -138,7 +138,7 @@ pub(super) fn check_bounds(array: &ArrayRef, index: usize) -> VortexResult<()> {
 #[cold]
 #[inline(never)]
 fn out_of_bounds(index: usize, len: usize) -> VortexError {
-    vortex_err!(OutOfBounds: index, 0, len)
+    vortex_err!("index {index} out of bounds from 0 to {len}")
 }
 
 /// The encoding state type of `V`'s operations vtable.
@@ -281,8 +281,11 @@ pub(super) fn child_of(parent: &ArrayRef, slot: usize) -> VortexResult<Option<&A
 }
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::VortexSessionExecute;
@@ -292,6 +295,8 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::Struct;
     use crate::arrays::StructArray;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     fn nullable_ints() -> ArrayRef {
         PrimitiveArray::from_option_iter([Some(10i32), None, Some(30)]).into_array()
@@ -310,7 +315,7 @@ mod tests {
 
     #[test]
     fn once_probe_checks_bounds_and_nulls() -> VortexResult<()> {
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = nullable_ints();
         check_reads(array.probe(), &mut ctx)
     }
@@ -319,7 +324,7 @@ mod tests {
     /// validity before `scalar_at`.
     #[test]
     fn default_probe_scalar_resolves_nulls() -> VortexResult<()> {
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = BoolArray::from_iter([Some(true), None, Some(false)]).into_array();
         check_bool_reads(array.probe(), &mut ctx)?;
         check_bool_reads(array.repeated_probe().as_probe(), &mut ctx)
@@ -336,7 +341,7 @@ mod tests {
     /// dtype, on both the one-off and the retained path.
     #[test]
     fn wrapper_passes_child_nulls_through() -> VortexResult<()> {
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let codes = PrimitiveArray::from_iter([0u32, 1, 0, 2]).into_array();
         let values = PrimitiveArray::from_option_iter([Some(7i64), None, Some(9)]).into_array();
         let array = DictArray::try_new(codes, values)?.into_array();
@@ -357,7 +362,7 @@ mod tests {
     /// validity and scalar reads on both, sliced or not.
     #[test]
     fn dict_with_nullable_codes_and_values() -> VortexResult<()> {
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let codes = PrimitiveArray::from_option_iter([Some(0u32), None, Some(1), Some(2), None])
             .into_array();
         let values = PrimitiveArray::from_option_iter([Some(7i64), None, Some(9)]).into_array();
@@ -384,7 +389,7 @@ mod tests {
 
     #[test]
     fn state_validity_follows_read_policy() -> VortexResult<()> {
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = nullable_ints();
         let typed = array
             .as_opt::<Primitive>()
@@ -409,7 +414,7 @@ mod tests {
 
     #[test]
     fn once_state_reads_children_without_retaining() -> VortexResult<()> {
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = struct_of_two_fields()?;
         let typed = array
             .as_opt::<Struct>()

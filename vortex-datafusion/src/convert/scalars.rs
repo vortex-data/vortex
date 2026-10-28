@@ -134,7 +134,9 @@ impl TryToDataFusion<ScalarValue> for Scalar {
             dtype @ DType::Union(..) => vortex_bail!(
                 "cannot convert Vortex scalar dtype {dtype} to DataFusion ScalarValue: unsupported scalar type"
             ),
-            DType::Variant(_) => vortex_bail!("Variant scalars aren't supported with DF"),
+            DType::Variant(_) => {
+                vortex_bail!("Variant scalars aren't supported with DF")
+            }
             DType::Extension(ext) => {
                 let storage_scalar = self.as_extension().to_storage_scalar();
 
@@ -188,7 +190,6 @@ impl TryToDataFusion<ScalarValue> for Scalar {
 /// Converts a DataFusion [`ScalarValue`] to a Vortex [`Scalar`], resolving Arrow types through
 /// `session`'s [`ArrowSession`](vortex_arrow::ArrowSession).
 pub fn scalar_from_df(value: &ScalarValue, session: &VortexSession) -> VortexResult<Scalar> {
-    let arrow = session.arrow();
     Ok(match value {
         ScalarValue::Null => Scalar::null(DType::Null),
         ScalarValue::Boolean(b) => b
@@ -241,7 +242,8 @@ pub fn scalar_from_df(value: &ScalarValue, session: &VortexSession) -> VortexRes
         ScalarValue::Date32(v)
         | ScalarValue::Time32Second(v)
         | ScalarValue::Time32Millisecond(v) => {
-            let dtype = arrow
+            let dtype = session
+                .arrow()
                 .from_arrow_datatype(&value.data_type(), Nullability::Nullable)
                 .vortex_expect("arrow data type to dtype");
             Scalar::try_new(dtype, v.map(vortex::scalar::ScalarValue::from))
@@ -254,7 +256,8 @@ pub fn scalar_from_df(value: &ScalarValue, session: &VortexSession) -> VortexRes
         | ScalarValue::TimestampMillisecond(v, _)
         | ScalarValue::TimestampMicrosecond(v, _)
         | ScalarValue::TimestampNanosecond(v, _) => {
-            let dtype = arrow
+            let dtype = session
+                .arrow()
                 .from_arrow_datatype(&value.data_type(), Nullability::Nullable)
                 .vortex_expect("arrow data type to dtype");
             Scalar::try_new(dtype, v.map(vortex::scalar::ScalarValue::from))
@@ -384,7 +387,7 @@ fn struct_from_df(array: &StructArray, session: &VortexSession) -> Scalar {
                     .from_arrow_array(ArrowArrayRef::clone(column), field)
                     .and_then(|column| column.execute_scalar(0, &mut ctx))
                     .unwrap_or_else(|e| {
-                        vortex_panic!("cannot convert struct field to a Vortex scalar: {e}")
+                        vortex_panic!(e, "cannot convert struct field to a Vortex scalar")
                     })
             })
             .collect::<Vec<_>>();
@@ -609,14 +612,8 @@ mod tests {
     ) {
         let result = from_df(&df_scalar);
         assert_eq!(result.dtype(), expected_vortex.dtype());
+        assert_eq!(result, expected_vortex);
         assert_eq!(result.is_null(), expected_vortex.is_null());
-
-        // For non-null values, convert both back to DataFusion for comparison
-        if !result.is_null() {
-            let result_df = result.try_to_df().unwrap();
-            let expected_df = expected_vortex.try_to_df().unwrap();
-            assert_eq!(result_df, expected_df);
-        }
     }
 
     #[rstest]
@@ -626,35 +623,39 @@ mod tests {
     #[case::decimal256_null(ScalarValue::Decimal256(None, 50, 10))]
     fn test_from_datafusion_decimals(#[case] df_scalar: ScalarValue) {
         let result = from_df(&df_scalar);
-        match &df_scalar {
-            ScalarValue::Decimal128(value, precision, scale) => {
-                if let DType::Decimal(decimal_type, _) = result.dtype() {
-                    assert_eq!(decimal_type.precision(), *precision);
-                    assert_eq!(decimal_type.scale(), *scale);
-                    if value.is_some() {
-                        assert!(!result.is_null());
-                    } else {
-                        assert!(result.is_null());
-                    }
-                } else {
-                    panic!("Expected decimal type");
-                }
-            }
-            ScalarValue::Decimal256(value, precision, scale) => {
-                if let DType::Decimal(decimal_type, _) = result.dtype() {
-                    assert_eq!(decimal_type.precision(), *precision);
-                    assert_eq!(decimal_type.scale(), *scale);
-                    if value.is_some() {
-                        assert!(!result.is_null());
-                    } else {
-                        assert!(result.is_null());
-                    }
-                } else {
-                    panic!("Expected decimal type");
-                }
-            }
-            _ => panic!("Unexpected scalar type"),
-        }
+        let expected = match &df_scalar {
+            ScalarValue::Decimal128(value, ..) => value
+                .map(|_| {
+                    Scalar::decimal(
+                        DecimalValue::I128(12345),
+                        DecimalDType::new(10, 2),
+                        Nullability::Nullable,
+                    )
+                })
+                .unwrap_or_else(|| {
+                    Scalar::null(DType::Decimal(
+                        DecimalDType::new(10, 2),
+                        Nullability::Nullable,
+                    ))
+                }),
+            ScalarValue::Decimal256(value, ..) => value
+                .map(|_| {
+                    Scalar::decimal(
+                        DecimalValue::I256(i256::from(12345i64)),
+                        DecimalDType::new(50, 10),
+                        Nullability::Nullable,
+                    )
+                })
+                .unwrap_or_else(|| {
+                    Scalar::null(DType::Decimal(
+                        DecimalDType::new(50, 10),
+                        Nullability::Nullable,
+                    ))
+                }),
+            _ => unreachable!(),
+        };
+        assert_eq!(result.dtype(), expected.dtype());
+        assert_eq!(result, expected);
     }
 
     #[rstest]
@@ -738,6 +739,7 @@ mod tests {
     fn test_round_trip_conversions(#[case] original: Scalar) {
         let df_scalar = original.try_to_df().unwrap();
         let round_trip = from_df(&df_scalar);
+        assert_eq!(round_trip, original);
 
         // Check that core types match (ignoring nullability differences that can occur in round-trip)
         assert!(
@@ -753,17 +755,6 @@ mod tests {
             "Null status mismatch for scalar: {:?}",
             original
         );
-
-        if !original.is_null() {
-            // For non-null values, compare by converting both to DataFusion scalars
-            let original_df = original.try_to_df().unwrap();
-            let round_trip_df = round_trip.try_to_df().unwrap();
-            assert_eq!(
-                original_df, round_trip_df,
-                "Value mismatch for scalar: {:?}",
-                original
-            );
-        }
     }
 
     #[rstest]
@@ -808,11 +799,7 @@ mod tests {
         // Test DataFusion -> Vortex
         let vortex_result = from_df(&expected_df_null);
         assert!(vortex_result.is_null());
-        assert!(
-            vortex_result
-                .dtype()
-                .eq_ignore_nullability(vortex_null.dtype())
-        );
+        assert_eq!(vortex_result.dtype(), vortex_null.dtype());
     }
 
     #[rstest]
@@ -821,6 +808,7 @@ mod tests {
     #[case::large_utf8(ScalarValue::LargeUtf8(Some("test string".to_string())))]
     fn test_utf8_variants(#[case] variant: ScalarValue) {
         let result = from_df(&variant);
+        assert_eq!(result.dtype(), &DType::Utf8(Nullability::NonNullable));
         assert_eq!(result.as_utf8().value().unwrap().as_str(), "test string");
     }
 
@@ -831,6 +819,7 @@ mod tests {
     #[case::fixed_size_binary(ScalarValue::FixedSizeBinary(5, Some(vec![1u8, 2, 3, 4, 5])))]
     fn test_binary_variants(#[case] variant: ScalarValue) {
         let result = from_df(&variant);
+        assert_eq!(result.dtype(), &DType::Binary(Nullability::Nullable));
         let result_bytes: Vec<u8> = result
             .as_binary()
             .value()
@@ -868,6 +857,22 @@ mod tests {
             id_dtype.as_extension().is::<Uuid>(),
             "expected a Uuid extension field, got {id_dtype}"
         );
+        assert!(scalar.dtype().is_nullable());
+        assert_eq!(fields.names(), ["id"]);
+        assert!(!id_dtype.is_nullable());
+        let id = scalar.as_struct().field("id").vortex_expect("id field");
+        assert_eq!(
+            id.as_extension().to_storage_scalar(),
+            Scalar::fixed_size_list(
+                DType::Primitive(PType::U8, Nullability::NonNullable),
+                b"0123456789abcdef"
+                    .iter()
+                    .copied()
+                    .map(Scalar::from)
+                    .collect(),
+                Nullability::NonNullable,
+            )
+        );
         Ok(())
     }
 
@@ -891,9 +896,10 @@ mod tests {
         let df = original.try_to_df()?;
         assert!(matches!(df, ScalarValue::Struct(_)));
 
-        // Back through `from_df` and out again yields the identical DataFusion struct value.
+        // Check the recovered struct directly against the original values.
         let back = from_df(&df);
-        assert_eq!(back.try_to_df()?, df);
+        assert_eq!(back.dtype(), &original.dtype().as_nullable());
+        assert_eq!(back, original);
         Ok(())
     }
 
@@ -910,9 +916,11 @@ mod tests {
             Nullability::Nullable,
         );
 
-        let df = Scalar::null(dtype).try_to_df()?;
+        let df = Scalar::null(dtype.clone()).try_to_df()?;
         assert!(matches!(df, ScalarValue::Struct(_)));
-        assert!(from_df(&df).is_null());
+        let back = from_df(&df);
+        assert!(back.is_null());
+        assert_eq!(back.dtype(), &dtype);
         Ok(())
     }
 
@@ -986,13 +994,8 @@ mod tests {
     ) {
         let result = from_df(&run_end_encoded(inner));
         assert_eq!(result.dtype(), expected_vortex.dtype());
+        assert_eq!(result, expected_vortex);
         assert_eq!(result.is_null(), expected_vortex.is_null());
-
-        if !result.is_null() {
-            let result_df = result.try_to_df().unwrap();
-            let expected_df = expected_vortex.try_to_df().unwrap();
-            assert_eq!(result_df, expected_df);
-        }
     }
 
     /// A run-end-encoded scalar whose values are themselves dictionary-encoded, mirroring the
@@ -1006,6 +1009,7 @@ mod tests {
 
         let result = from_df(&run_end_encoded(dictionary));
 
+        assert_eq!(result.dtype(), &DType::Utf8(Nullability::NonNullable));
         assert_eq!(result.as_utf8().value().unwrap().as_str(), "hello");
     }
 }

@@ -74,7 +74,9 @@ impl Div<MeasurementValue> for MeasurementValue {
             (MeasurementValue::Int(a), MeasurementValue::Int(b)) => {
                 MeasurementValue::Float(a as f64 / b as f64)
             }
-            _ => vortex_panic!("Can't divide two measurement values of different kinds"),
+            _ => {
+                vortex_panic!("Can't divide two measurement values of different kinds")
+            }
         }
     }
 }
@@ -99,7 +101,9 @@ impl Add<MeasurementValue> for MeasurementValue {
                 MeasurementValue::Float(a + b)
             }
             (MeasurementValue::Int(a), MeasurementValue::Int(b)) => MeasurementValue::Int(a + b),
-            _ => vortex_panic!("Can't subtract two measurement values of different kinds"),
+            _ => {
+                vortex_panic!("Can't subtract two measurement values of different kinds")
+            }
         }
     }
 }
@@ -113,7 +117,9 @@ impl Sub<MeasurementValue> for MeasurementValue {
                 MeasurementValue::Float(a - b)
             }
             (MeasurementValue::Int(a), MeasurementValue::Int(b)) => MeasurementValue::Int(a - b),
-            _ => vortex_panic!("Can't subtract two measurement values of different kinds"),
+            _ => {
+                vortex_panic!("Can't subtract two measurement values of different kinds")
+            }
         }
     }
 }
@@ -543,5 +549,8 @@ mod tests {
         assert_eq!(json["name"], "arrow-ipc compress time/demo");
         assert_eq!(json["target"]["format"], "arrow-ipc");
         assert_eq!(json["value"], 42.0);
+        assert_eq!(json["unit"], "ns");
+        assert_eq!(json["time"], 42);
+        assert_eq!(json["target"]["engine"], "vortex");
     }
 }

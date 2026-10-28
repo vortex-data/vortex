@@ -18,9 +18,13 @@ def path(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def table(path: Path) -> pa.Table:
-    """The file as read without a shared cache, which every cached read must match; strings read back as string_view."""
-    return vx.open(str(path), without_segment_cache=True).to_arrow().read_all()
+def table() -> pa.Table:
+    return pa.table(
+        {
+            "index": pa.array(range(50_000), pa.int64()),
+            "string": pa.array([str(i) for i in range(50_000)], pa.string_view()),
+        }
+    )
 
 
 class CountingReader:

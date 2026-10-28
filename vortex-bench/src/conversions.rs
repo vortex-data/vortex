@@ -12,6 +12,8 @@ use futures::StreamExt;
 use futures::TryStreamExt;
 use parquet::arrow::AsyncArrowWriter;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
+use parquet::arrow::arrow_reader::ArrowReaderMetadata;
+use parquet::arrow::arrow_reader::ArrowReaderOptions;
 use parquet::arrow::async_reader::ParquetRecordBatchStream;
 use parquet::file::metadata::KeyValue;
 use parquet::file::metadata::ParquetMetaData;
@@ -177,27 +179,94 @@ pub fn parquet_to_vortex_stream(
     })
 }
 
+/// How many row groups of one Parquet file to decode concurrently.
+///
+/// Each in-flight row group is held fully decoded, so the count is bounded by the per-stream
+/// memory budget ([`MEMORY_PER_STREAM_GB`]) divided by the largest row group's uncompressed size,
+/// and by the available parallelism. Files with row groups too large to decode two at a time
+/// return 1 and keep the batch-at-a-time streaming path.
+fn row_group_decode_concurrency(metadata: &ParquetMetaData) -> usize {
+    let largest_row_group = metadata
+        .row_groups()
+        .iter()
+        .map(|row_group| u64::try_from(row_group.total_byte_size()).unwrap_or(u64::MAX))
+        .max()
+        .unwrap_or(0)
+        .max(1);
+    let budget = MEMORY_PER_STREAM_GB * 1024 * 1024 * 1024;
+    let fits = usize::try_from(budget / largest_row_group).unwrap_or(usize::MAX);
+    fits.min(get_available_parallelism().unwrap_or(1))
+        .min(metadata.num_row_groups())
+        .max(1)
+}
+
+/// Decode a Parquet file's row groups concurrently, yielding canonical Vortex chunks in file order.
+///
+/// A single [`ParquetRecordBatchStream`] decodes on one thread, so a large fact table would
+/// otherwise convert at the speed of one core while the parallel compressor waits for input.
+/// Each row group gets its own reader over the shared footer `metadata`, and at most
+/// `concurrency` decoded row groups are held in memory at once.
+fn parquet_row_groups_to_vortex_stream(
+    parquet_path: PathBuf,
+    metadata: ArrowReaderMetadata,
+    concurrency: usize,
+) -> impl futures::Stream<Item = VortexResult<ArrayRef>> {
+    let num_row_groups = metadata.metadata().num_row_groups();
+    futures::stream::iter(0..num_row_groups)
+        .map(move |row_group| {
+            let parquet_path = parquet_path.clone();
+            let metadata = metadata.clone();
+            tokio::spawn(async move {
+                let file = File::open(parquet_path)
+                    .await
+                    .map_err(|e| vortex_err!(External: e))?;
+                let reader = ParquetRecordBatchStreamBuilder::new_with_metadata(file, metadata)
+                    .with_row_groups(vec![row_group])
+                    .build()
+                    .map_err(|e| vortex_err!(External: e))?;
+                parquet_to_vortex_stream(reader)
+                    .try_collect::<Vec<_>>()
+                    .await
+            })
+        })
+        .buffered(concurrency)
+        .map(|joined| joined.map_err(|e| vortex_err!(External: e))?)
+        .map_ok(|chunks| futures::stream::iter(chunks.into_iter().map(Ok)))
+        .try_flatten()
+}
+
 /// Convert a single Parquet file to Vortex format using streaming.
 ///
 /// Streams data directly from Parquet to Vortex without loading the entire file into memory.
+/// Row groups are decoded in parallel, within the per-stream memory budget.
 pub async fn convert_parquet_file_to_vortex(
     parquet_path: &Path,
     output_path: &Path,
     compaction: CompactionStrategy,
 ) -> anyhow::Result<()> {
-    let file = File::open(parquet_path).await?;
-    let builder = ParquetRecordBatchStreamBuilder::new(file).await?;
+    let mut file = File::open(parquet_path).await?;
+    let metadata = ArrowReaderMetadata::load_async(&mut file, ArrowReaderOptions::new()).await?;
 
     // GeoParquet geometry tagging.
-    let spatial_columns = geoparquet_columns(builder.metadata());
+    let spatial_columns = geoparquet_columns(metadata.metadata());
     let dtype = tag_spatial_dtype(
         SESSION
             .arrow()
-            .from_arrow_schema(builder.schema().as_ref())?,
+            .from_arrow_schema(metadata.schema().as_ref())?,
         &spatial_columns,
     )?;
-    let stream = parquet_to_vortex_stream(builder.build()?)
-        .map(move |chunk| chunk.and_then(|chunk| tag_spatial_array(chunk, &spatial_columns)));
+    let concurrency = row_group_decode_concurrency(metadata.metadata());
+    let stream = if concurrency > 1 {
+        StreamExt::boxed(parquet_row_groups_to_vortex_stream(
+            parquet_path.to_path_buf(),
+            metadata,
+            concurrency,
+        ))
+    } else {
+        let reader = ParquetRecordBatchStreamBuilder::new_with_metadata(file, metadata).build()?;
+        StreamExt::boxed(parquet_to_vortex_stream(reader))
+    }
+    .map(move |chunk| chunk.and_then(|chunk| tag_spatial_array(chunk, &spatial_columns)));
 
     let mut output_file = OpenOptions::new()
         .write(true)
@@ -402,10 +471,7 @@ fn geoparquet_columns(metadata: &ParquetMetaData) -> HashSet<String> {
 
 /// The erased `vortex.st.wkb` extension dtype over a binary `storage` dtype.
 fn wkb_ext_dtype(storage: &DType) -> VortexResult<ExtDTypeRef> {
-    Ok(
-        ExtDType::<WellKnownBinary>::try_new(SpatialMetadata { crs: None }, storage.clone())?
-            .erased(),
-    )
+    Ok(ExtDType::<WellKnownBinary>::try_new(SpatialMetadata::default(), storage.clone())?.erased())
 }
 
 /// Re-type the named binary columns of a struct `dtype` as `vortex.st.wkb`, so the column

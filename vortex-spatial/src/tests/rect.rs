@@ -104,8 +104,12 @@ fn roundtrips_through_arrow() -> VortexResult<()> {
         )
     };
     assert_eq!(corner(0, "xmin")?, 0.0);
+    assert_eq!(corner(0, "ymin")?, 1.0);
+    assert_eq!(corner(0, "xmax")?, 2.0);
     assert_eq!(corner(0, "ymax")?, 3.0);
     assert_eq!(corner(1, "xmin")?, -5.0);
+    assert_eq!(corner(1, "ymin")?, -5.0);
+    assert_eq!(corner(1, "xmax")?, 5.0);
     assert_eq!(corner(1, "ymax")?, 5.0);
     Ok(())
 }

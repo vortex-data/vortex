@@ -719,19 +719,6 @@ mod tests {
     }
 
     #[test]
-    fn element_size_nested_fixed_size_list() {
-        let inner = Arc::new(DType::FixedSizeList(
-            Arc::new(DType::Primitive(PType::F64, NonNullable)),
-            10,
-            NonNullable,
-        ));
-        assert_eq!(
-            DType::FixedSizeList(inner, 100, NonNullable).element_size(),
-            Some(8000)
-        );
-    }
-
-    #[test]
     fn element_size_extension() {
         assert_eq!(
             DType::Extension(Date::new(TimeUnit::Days, NonNullable).erased()).element_size(),

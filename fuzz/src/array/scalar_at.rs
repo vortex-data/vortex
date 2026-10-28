@@ -57,7 +57,7 @@ pub fn scalar_at_canonical_array(
         }
         Canonical::VarBinView(array) => varbin_scalar(array.bytes_at(index), array.dtype()),
         Canonical::List(array) => {
-            let list = array.list_elements_at(index)?;
+            let list = array.list_elements_at(index, ctx)?;
             let children: Vec<Scalar> = (0..list.len())
                 .map(|i| {
                     let canonical = list
@@ -111,7 +111,7 @@ pub fn scalar_at_canonical_array(
             vortex_bail!("TODO(connor)[Union]: support Union arrays in the scalar_at fuzzer")
         }
         Canonical::Map(array) => {
-            let entries = array.entries_at(index)?.execute::<StructArray>(ctx)?;
+            let entries = array.entries_at(index, ctx)?.execute::<StructArray>(ctx)?;
             let keys = entries
                 .unmasked_field(0)
                 .clone()

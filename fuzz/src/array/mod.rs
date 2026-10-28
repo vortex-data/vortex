@@ -324,16 +324,13 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                 }
                 ActionType::Cast => {
                     let to: DType = u.arbitrary()?;
-                    if Some(CastOutcome::Infallible) == allowed_casting(current_array.dtype(), &to)
-                    {
-                        return Err(EmptyChoose);
-                    }
                     let Some(result) = cast_canonical_array(&current_array, &to, &mut ctx)
-                        .vortex_expect("should fail to create array")
+                        .vortex_expect("cast oracle should succeed")
                     else {
                         return Err(EmptyChoose);
                     };
 
+                    current_array = result.clone();
                     (Action::Cast(to), ExpectedValue::Array(result))
                 }
                 ActionType::Sum => {
@@ -600,7 +597,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
     debug!(
         "Initial array:\nTree:\n{}Values:\n{:#}",
         current_array.display_tree(),
-        current_array.display_values()
+        current_array.display_values(&ctx)
     );
 
     for (i, (action, expected)) in actions.into_iter().enumerate() {

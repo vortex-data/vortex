@@ -1,0 +1,149 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query TTTTIIITRI
+SELECT *
+FROM
+  (SELECT i_category,
+          i_class,
+          i_brand,
+          i_product_name,
+          d_year,
+          d_qoy,
+          d_moy,
+          s_store_id,
+          sumsales,
+          rank() OVER (PARTITION BY i_category
+                       ORDER BY sumsales DESC) rk
+   FROM
+     (SELECT i_category,
+             i_class,
+             i_brand,
+             i_product_name,
+             d_year,
+             d_qoy,
+             d_moy,
+             s_store_id,
+             sum(coalesce(ss_sales_price*ss_quantity,0)) sumsales
+      FROM store_sales,
+           date_dim,
+           store,
+           item
+      WHERE ss_sold_date_sk=d_date_sk
+        AND ss_item_sk=i_item_sk
+        AND ss_store_sk = s_store_sk
+        AND d_month_seq BETWEEN 1200 AND 1200+11
+      GROUP BY rollup(i_category, i_class, i_brand, i_product_name, d_year, d_qoy, d_moy,s_store_id))dw1) dw2
+WHERE rk <= 100
+ORDER BY i_category NULLS FIRST,
+         i_class NULLS FIRST,
+         i_brand NULLS FIRST,
+         i_product_name NULLS FIRST,
+         d_year NULLS FIRST,
+         d_qoy NULLS FIRST,
+         d_moy NULLS FIRST,
+         s_store_id NULLS FIRST,
+         sumsales NULLS FIRST,
+         rk NULLS FIRST
+LIMIT 100;
+----
+NULL NULL NULL NULL NULL NULL NULL NULL 240926.8 3
+NULL NULL NULL NULL NULL NULL NULL NULL 346249.14 2
+NULL NULL NULL NULL NULL NULL NULL NULL 84958926.21 1
+NULL NULL brandmaxi #2 NULL NULL NULL NULL NULL 137346.66 4
+NULL NULL brandmaxi #2 oughteingought NULL NULL NULL NULL 137346.66 4
+NULL NULL brandmaxi #2 oughteingought 2000 NULL NULL NULL 137346.66 4
+NULL NULL brandmaxi #2 oughteingought 2000 1 NULL NULL 14064.79 40
+NULL NULL brandmaxi #2 oughteingought 2000 1 1 NULL 8307.03 55
+NULL NULL brandmaxi #2 oughteingought 2000 1 1 AAAAAAAABAAAAAAA 1107.83 98
+NULL NULL brandmaxi #2 oughteingought 2000 1 1 AAAAAAAACAAAAAAA 7199.2 58
+NULL NULL brandmaxi #2 oughteingought 2000 1 2 NULL 5164.84 63
+NULL NULL brandmaxi #2 oughteingought 2000 1 2 AAAAAAAABAAAAAAA 5164.84 63
+NULL NULL brandmaxi #2 oughteingought 2000 1 3 NULL 592.92 100
+NULL NULL brandmaxi #2 oughteingought 2000 2 NULL NULL 35233.31 18
+NULL NULL brandmaxi #2 oughteingought 2000 2 4 NULL 19948.3 32
+NULL NULL brandmaxi #2 oughteingought 2000 2 4 AAAAAAAABAAAAAAA 3907.69 76
+NULL NULL brandmaxi #2 oughteingought 2000 2 4 AAAAAAAACAAAAAAA 16040.61 37
+NULL NULL brandmaxi #2 oughteingought 2000 2 5 NULL 4136.08 73
+NULL NULL brandmaxi #2 oughteingought 2000 2 5 AAAAAAAACAAAAAAA 4136.08 73
+NULL NULL brandmaxi #2 oughteingought 2000 2 6 NULL 11148.93 47
+NULL NULL brandmaxi #2 oughteingought 2000 2 6 AAAAAAAABAAAAAAA 2544.51 88
+NULL NULL brandmaxi #2 oughteingought 2000 2 6 AAAAAAAACAAAAAAA 8604.42 52
+NULL NULL brandmaxi #2 oughteingought 2000 3 NULL NULL 27097.42 22
+NULL NULL brandmaxi #2 oughteingought 2000 3 7 NULL 3032.64 86
+NULL NULL brandmaxi #2 oughteingought 2000 3 7 AAAAAAAACAAAAAAA 3032.64 86
+NULL NULL brandmaxi #2 oughteingought 2000 3 8 NULL 1526.26 92
+NULL NULL brandmaxi #2 oughteingought 2000 3 8 AAAAAAAABAAAAAAA 1525.26 93
+NULL NULL brandmaxi #2 oughteingought 2000 3 9 NULL 22538.52 24
+NULL NULL brandmaxi #2 oughteingought 2000 3 9 AAAAAAAABAAAAAAA 1911.13 90
+NULL NULL brandmaxi #2 oughteingought 2000 3 9 AAAAAAAACAAAAAAA 20627.39 29
+NULL NULL brandmaxi #2 oughteingought 2000 4 NULL NULL 60951.14 14
+NULL NULL brandmaxi #2 oughteingought 2000 4 10 NULL 20048.57 30
+NULL NULL brandmaxi #2 oughteingought 2000 4 10 AAAAAAAABAAAAAAA 20048.57 30
+NULL NULL brandmaxi #2 oughteingought 2000 4 11 NULL 19805.48 33
+NULL NULL brandmaxi #2 oughteingought 2000 4 11 AAAAAAAABAAAAAAA 5778.6 61
+NULL NULL brandmaxi #2 oughteingought 2000 4 11 AAAAAAAACAAAAAAA 14026.88 41
+NULL NULL brandmaxi #2 oughteingought 2000 4 12 NULL 21097.09 26
+NULL NULL brandmaxi #2 oughteingought 2000 4 12 AAAAAAAABAAAAAAA 16008.71 38
+NULL NULL brandmaxi #2 oughteingought 2000 4 12 AAAAAAAACAAAAAAA 5088.38 65
+NULL NULL exportischolar #2 NULL NULL NULL NULL NULL 103580.14 11
+NULL NULL exportischolar #2 prieingeseought NULL NULL NULL NULL 103580.14 11
+NULL NULL exportischolar #2 prieingeseought 2000 NULL NULL NULL 103580.14 11
+NULL NULL exportischolar #2 prieingeseought 2000 1 NULL NULL 8617.94 51
+NULL NULL exportischolar #2 prieingeseought 2000 1 2 NULL 3212.14 82
+NULL NULL exportischolar #2 prieingeseought 2000 1 2 AAAAAAAABAAAAAAA 3212.14 82
+NULL NULL exportischolar #2 prieingeseought 2000 1 3 NULL 5377.22 62
+NULL NULL exportischolar #2 prieingeseought 2000 1 3 AAAAAAAABAAAAAAA 4282.74 72
+NULL NULL exportischolar #2 prieingeseought 2000 1 3 AAAAAAAACAAAAAAA 1094.48 99
+NULL NULL exportischolar #2 prieingeseought 2000 2 NULL NULL 4949.04 66
+NULL NULL exportischolar #2 prieingeseought 2000 2 6 NULL 4307.73 70
+NULL NULL exportischolar #2 prieingeseought 2000 2 6 AAAAAAAABAAAAAAA 4307.73 70
+NULL NULL exportischolar #2 prieingeseought 2000 3 NULL NULL 37524.85 17
+NULL NULL exportischolar #2 prieingeseought 2000 3 8 NULL 31114.09 19
+NULL NULL exportischolar #2 prieingeseought 2000 3 8 AAAAAAAABAAAAAAA 27441.19 21
+NULL NULL exportischolar #2 prieingeseought 2000 3 8 AAAAAAAACAAAAAAA 3672.9 78
+NULL NULL exportischolar #2 prieingeseought 2000 3 9 NULL 6371.01 59
+NULL NULL exportischolar #2 prieingeseought 2000 3 9 AAAAAAAABAAAAAAA 4540.84 69
+NULL NULL exportischolar #2 prieingeseought 2000 3 9 AAAAAAAACAAAAAAA 1830.17 91
+NULL NULL exportischolar #2 prieingeseought 2000 4 NULL NULL 52488.31 16
+NULL NULL exportischolar #2 prieingeseought 2000 4 10 NULL 24560.7 23
+NULL NULL exportischolar #2 prieingeseought 2000 4 10 AAAAAAAABAAAAAAA 20712.65 28
+NULL NULL exportischolar #2 prieingeseought 2000 4 10 AAAAAAAACAAAAAAA 3848.05 77
+NULL NULL exportischolar #2 prieingeseought 2000 4 11 NULL 8536.33 53
+NULL NULL exportischolar #2 prieingeseought 2000 4 11 AAAAAAAABAAAAAAA 6072.28 60
+NULL NULL exportischolar #2 prieingeseought 2000 4 11 AAAAAAAACAAAAAAA 2464.05 89
+NULL NULL exportischolar #2 prieingeseought 2000 4 12 NULL 19391.28 34
+NULL NULL exportischolar #2 prieingeseought 2000 4 12 AAAAAAAABAAAAAAA 18209.44 36
+NULL NULL exportischolar #2 prieingeseought 2000 4 12 AAAAAAAACAAAAAAA 1181.84 97
+NULL archery NULL NULL NULL NULL NULL NULL 105322.34 7
+NULL archery amalgmaxi #6 NULL NULL NULL NULL NULL 105322.34 7
+NULL archery amalgmaxi #6 antioughtn stought NULL NULL NULL NULL 105322.34 7
+NULL archery amalgmaxi #6 antioughtn stought 2000 NULL NULL NULL 105322.34 7
+NULL archery amalgmaxi #6 antioughtn stought 2000 1 NULL NULL 14097.16 39
+NULL archery amalgmaxi #6 antioughtn stought 2000 1 1 NULL 13765.04 42
+NULL archery amalgmaxi #6 antioughtn stought 2000 1 1 AAAAAAAABAAAAAAA 12541.47 45
+NULL archery amalgmaxi #6 antioughtn stought 2000 1 1 AAAAAAAACAAAAAAA 1223.57 96
+NULL archery amalgmaxi #6 antioughtn stought 2000 2 NULL NULL 4869.84 68
+NULL archery amalgmaxi #6 antioughtn stought 2000 2 4 NULL 1372.13 94
+NULL archery amalgmaxi #6 antioughtn stought 2000 2 4 AAAAAAAACAAAAAAA 1372.13 94
+NULL archery amalgmaxi #6 antioughtn stought 2000 2 5 NULL 3185.53 84
+NULL archery amalgmaxi #6 antioughtn stought 2000 2 5 AAAAAAAABAAAAAAA 3185.53 84
+NULL archery amalgmaxi #6 antioughtn stought 2000 3 NULL NULL 30874.14 20
+NULL archery amalgmaxi #6 antioughtn stought 2000 3 7 NULL 3374.49 80
+NULL archery amalgmaxi #6 antioughtn stought 2000 3 7 AAAAAAAACAAAAAAA 3260.82 81
+NULL archery amalgmaxi #6 antioughtn stought 2000 3 8 NULL 8865.54 50
+NULL archery amalgmaxi #6 antioughtn stought 2000 3 8 AAAAAAAABAAAAAAA 3929.09 75
+NULL archery amalgmaxi #6 antioughtn stought 2000 3 8 AAAAAAAACAAAAAAA 4936.45 67
+NULL archery amalgmaxi #6 antioughtn stought 2000 3 9 NULL 18634.11 35
+NULL archery amalgmaxi #6 antioughtn stought 2000 3 9 AAAAAAAABAAAAAAA 10501.45 48
+NULL archery amalgmaxi #6 antioughtn stought 2000 3 9 AAAAAAAACAAAAAAA 8132.66 56
+NULL archery amalgmaxi #6 antioughtn stought 2000 4 NULL NULL 55481.2 15
+NULL archery amalgmaxi #6 antioughtn stought 2000 4 10 NULL 21504.95 25
+NULL archery amalgmaxi #6 antioughtn stought 2000 4 10 AAAAAAAABAAAAAAA 13628.17 43
+NULL archery amalgmaxi #6 antioughtn stought 2000 4 10 AAAAAAAACAAAAAAA 7876.78 57
+NULL archery amalgmaxi #6 antioughtn stought 2000 4 11 NULL 13054.58 44
+NULL archery amalgmaxi #6 antioughtn stought 2000 4 11 AAAAAAAABAAAAAAA 3479.49 79
+NULL archery amalgmaxi #6 antioughtn stought 2000 4 11 AAAAAAAACAAAAAAA 9575.09 49
+NULL archery amalgmaxi #6 antioughtn stought 2000 4 12 NULL 20921.67 27
+NULL archery amalgmaxi #6 antioughtn stought 2000 4 12 AAAAAAAABAAAAAAA 12467.14 46
+NULL archery amalgmaxi #6 antioughtn stought 2000 4 12 AAAAAAAACAAAAAAA 8454.53 54

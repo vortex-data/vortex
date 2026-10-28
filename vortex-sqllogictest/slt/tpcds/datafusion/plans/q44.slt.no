@@ -72,13 +72,13 @@ logical_plan
 18)----------------------------------Projection: CAST(avg(store_sales.ss_net_profit) AS rank_col AS Float64)
 19)------------------------------------Aggregate: groupBy=[[store_sales.ss_store_sk]], aggr=[[avg(store_sales.ss_net_profit)]]
 20)--------------------------------------Projection: store_sales.ss_store_sk, store_sales.ss_net_profit
-21)----------------------------------------Filter: store_sales.ss_store_sk = Int64(4) AND store_sales.ss_addr_sk IS NULL
-22)------------------------------------------TableScan: store_sales projection=[ss_addr_sk, ss_store_sk, ss_net_profit], partial_filters=[store_sales.ss_store_sk = Int64(4), store_sales.ss_addr_sk IS NULL]
+21)----------------------------------------Filter: store_sales.ss_store_sk = Int32(4) AND store_sales.ss_addr_sk IS NULL
+22)------------------------------------------TableScan: store_sales projection=[ss_addr_sk, ss_store_sk, ss_net_profit], partial_filters=[store_sales.ss_store_sk = Int32(4), store_sales.ss_addr_sk IS NULL]
 23)--------------------------------Aggregate: groupBy=[[ss1.ss_item_sk]], aggr=[[avg(ss1.ss_net_profit)]]
 24)----------------------------------SubqueryAlias: ss1
 25)------------------------------------Projection: store_sales.ss_item_sk, store_sales.ss_net_profit
-26)--------------------------------------Filter: store_sales.ss_store_sk = Int64(4)
-27)----------------------------------------TableScan: store_sales projection=[ss_item_sk, ss_store_sk, ss_net_profit], partial_filters=[store_sales.ss_store_sk = Int64(4)]
+26)--------------------------------------Filter: store_sales.ss_store_sk = Int32(4)
+27)----------------------------------------TableScan: store_sales projection=[ss_item_sk, ss_store_sk, ss_net_profit], partial_filters=[store_sales.ss_store_sk = Int32(4)]
 28)--------------SubqueryAlias: descending
 29)----------------SubqueryAlias: v21
 30)------------------Projection: v2.item_sk, rank() ORDER BY [v2.rank_col DESC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW AS rnk
@@ -92,13 +92,13 @@ logical_plan
 38)----------------------------------Projection: CAST(avg(store_sales.ss_net_profit) AS rank_col AS Float64)
 39)------------------------------------Aggregate: groupBy=[[store_sales.ss_store_sk]], aggr=[[avg(store_sales.ss_net_profit)]]
 40)--------------------------------------Projection: store_sales.ss_store_sk, store_sales.ss_net_profit
-41)----------------------------------------Filter: store_sales.ss_store_sk = Int64(4) AND store_sales.ss_addr_sk IS NULL
-42)------------------------------------------TableScan: store_sales projection=[ss_addr_sk, ss_store_sk, ss_net_profit], partial_filters=[store_sales.ss_store_sk = Int64(4), store_sales.ss_addr_sk IS NULL]
+41)----------------------------------------Filter: store_sales.ss_store_sk = Int32(4) AND store_sales.ss_addr_sk IS NULL
+42)------------------------------------------TableScan: store_sales projection=[ss_addr_sk, ss_store_sk, ss_net_profit], partial_filters=[store_sales.ss_store_sk = Int32(4), store_sales.ss_addr_sk IS NULL]
 43)--------------------------------Aggregate: groupBy=[[ss1.ss_item_sk]], aggr=[[avg(ss1.ss_net_profit)]]
 44)----------------------------------SubqueryAlias: ss1
 45)------------------------------------Projection: store_sales.ss_item_sk, store_sales.ss_net_profit
-46)--------------------------------------Filter: store_sales.ss_store_sk = Int64(4)
-47)----------------------------------------TableScan: store_sales projection=[ss_item_sk, ss_store_sk, ss_net_profit], partial_filters=[store_sales.ss_store_sk = Int64(4)]
+46)--------------------------------------Filter: store_sales.ss_store_sk = Int32(4)
+47)----------------------------------------TableScan: store_sales projection=[ss_item_sk, ss_store_sk, ss_net_profit], partial_filters=[store_sales.ss_store_sk = Int32(4)]
 48)----------SubqueryAlias: i1
 49)------------TableScan: item projection=[i_item_sk, i_product_name]
 50)------SubqueryAlias: i2

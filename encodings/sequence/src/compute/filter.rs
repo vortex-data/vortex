@@ -53,19 +53,23 @@ fn filter_impl<O: SequenceValue>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::compute::conformance::filter::LARGE_SIZE;
     use vortex_array::compute::conformance::filter::MEDIUM_SIZE;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::scalar::PValue;
+    use vortex_session::VortexSession;
 
     use crate::Sequence;
     use crate::SequenceArray;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[rstest]
     #[case(Sequence::try_new_typed(0i32, 1, Nullability::NonNullable, 5).unwrap())]
@@ -93,9 +97,6 @@ mod tests {
             Nullability::NonNullable, MEDIUM_SIZE).unwrap()
     )]
     fn test_filter_sequence_conformance(#[case] array: SequenceArray) {
-        test_filter_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_filter_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

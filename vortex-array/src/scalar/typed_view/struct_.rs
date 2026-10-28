@@ -354,13 +354,13 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "Can't take field out of null struct scalar")]
     fn test_struct_scalar_null() {
         let (_, _, dtype) = setup_types();
 
         let scalar = Scalar::null(dtype);
 
-        scalar.as_struct().field_by_idx(0).unwrap();
+        drop(scalar.as_struct().field_by_idx(0));
     }
 
     #[test]
@@ -473,7 +473,6 @@ mod tests {
 
         assert!(null_scalar.as_struct().is_null());
         assert!(null_scalar.as_struct().fields_iter().is_none());
-        assert!(null_scalar.as_struct().fields.is_none());
     }
 
     #[test]
@@ -585,6 +584,13 @@ mod tests {
 
         let projected = null_scalar.as_struct().project(&["a".into()]).unwrap();
         assert!(projected.as_struct().is_null());
+        assert_eq!(
+            projected.dtype(),
+            &DType::struct_(
+                [("a", DType::Primitive(I32, Nullability::NonNullable))],
+                Nullability::Nullable,
+            )
+        );
     }
 
     #[test]
@@ -617,6 +623,12 @@ mod tests {
 
         assert_eq!(scalar1.as_struct(), scalar2.as_struct());
         assert_ne!(scalar1.as_struct(), scalar3.as_struct());
+
+        let mut hasher1 = DefaultHasher::new();
+        scalar1.as_struct().hash(&mut hasher1);
+        let mut hasher2 = DefaultHasher::new();
+        scalar2.as_struct().hash(&mut hasher2);
+        assert_eq!(hasher1.finish(), hasher2.finish());
     }
 
     #[test]
@@ -692,41 +704,6 @@ mod tests {
         );
 
         assert_eq!(scalar1.as_struct().partial_cmp(&scalar3.as_struct()), None);
-    }
-
-    #[test]
-    fn test_struct_hash() {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::Hash;
-        use std::hash::Hasher;
-
-        let (_, _, dtype) = setup_types();
-
-        let scalar1 = Scalar::struct_(
-            dtype.clone(),
-            vec![
-                Scalar::primitive::<i32>(1, Nullability::NonNullable),
-                Scalar::utf8("test", Nullability::NonNullable),
-            ],
-        );
-
-        let scalar2 = Scalar::struct_(
-            dtype,
-            vec![
-                Scalar::primitive::<i32>(1, Nullability::NonNullable),
-                Scalar::utf8("test", Nullability::NonNullable),
-            ],
-        );
-
-        let mut hasher1 = DefaultHasher::new();
-        scalar1.as_struct().hash(&mut hasher1);
-        let hash1 = hasher1.finish();
-
-        let mut hasher2 = DefaultHasher::new();
-        scalar2.as_struct().hash(&mut hasher2);
-        let hash2 = hasher2.finish();
-
-        assert_eq!(hash1, hash2);
     }
 
     #[test]

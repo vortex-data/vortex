@@ -50,6 +50,25 @@ SELECT count(x), sum(x), min(x), max(x), avg(x) FROM '${WORK_DIR}/f-nan.vortex';
 ----
 3 NaN 1 NaN NaN
 
+query R
+SELECT max(x) FROM '${WORK_DIR}/f-nan.vortex';
+----
+NaN
+
+query I
+SELECT count(*) FROM '${WORK_DIR}/f-nan.vortex' WHERE x = 'NaN'::DOUBLE;
+----
+1
+
+statement ok
+COPY (SELECT -x AS x FROM (VALUES ('NaN'::DOUBLE),(-1.0),(-2.0)) AS t(x)) TO '${WORK_DIR}/f-negnan.vortex';
+
+onlyif datafusion
+query I
+SELECT count(*) FROM '${WORK_DIR}/f-negnan.vortex' WHERE x < 0.5;
+----
+1
+
 # all NaN
 query IRRRR
 SELECT count(x), sum(x), min(x), max(x), avg(x) FROM '${WORK_DIR}/f-allnan.vortex';
@@ -93,10 +112,10 @@ statement ok
 COPY (SELECT repeat('a',200) || lpad(i::VARCHAR,5,'0') AS x FROM generate_series(1,50) t(i))
 TO '${WORK_DIR}/s-long.vortex';
 
-query III
-SELECT length(min(x)), length(max(x)), count(x) FROM '${WORK_DIR}/s-long.vortex';
+query IIITT
+SELECT length(min(x)), length(max(x)), count(x), min(x), max(x) FROM '${WORK_DIR}/s-long.vortex';
 ----
-205 205 50
+205 205 50 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa00001 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa00050
 
 statement ok
 COPY (SELECT CAST(i AS INTEGER) AS x FROM generate_series(1,100) t(i)) TO '${WORK_DIR}/i-series.vortex';

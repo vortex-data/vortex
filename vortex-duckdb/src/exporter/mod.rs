@@ -309,10 +309,15 @@ mod tests {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
         let mut vector = Vector::with_capacity(&logical_type, 100);
 
+        unsafe { vector.ensure_validity_bitslice(10) }.fill(false);
+
         let mask = Mask::AllTrue(10);
-        let all_null = unsafe { vector.set_validity(&mask, 0, 10) };
+        let all_null = unsafe { vector.set_validity_zero_copy(&mask, 0, 10, None) };
 
         assert!(!all_null);
+        for row in 0..10 {
+            assert!(!vector.row_is_null(row));
+        }
     }
 
     #[test]
@@ -322,11 +327,11 @@ mod tests {
         let len = 10;
 
         let mask = Mask::AllFalse(len);
-        let all_null = unsafe { vector.set_validity(&mask, 0, len) };
+        let all_null = unsafe { vector.set_validity_zero_copy(&mask, 0, len, None) };
 
         assert!(all_null);
 
-        vector.flatten(len as u64);
+        vector.flatten();
 
         for i in 0..10 {
             assert!(vector.row_is_null(i));
@@ -338,35 +343,21 @@ mod tests {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
         let mut vector = Vector::with_capacity(&logical_type, 100);
 
+        unsafe { vector.ensure_validity_bitslice(10) }.fill(false);
+
         let mask = Mask::from(BitBuffer::from(vec![true; 10]));
 
-        let all_null = unsafe { vector.set_validity(&mask, 0, 10) };
+        let all_null = unsafe { vector.set_validity_zero_copy(&mask, 0, 10, None) };
 
         assert!(!all_null);
+        for row in 0..10 {
+            assert!(!vector.row_is_null(row));
+        }
 
         // When all values are true, the mask may be optimized to AllTrue,
         // so validity_slice_mut may return None (no validity allocated)
         if let Some(validity) = unsafe { vector.validity_bitslice_mut(10) } {
             assert!(validity.iter().all(|v| *v));
-        }
-    }
-
-    #[test]
-    fn test_set_validity_values_all_false() {
-        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
-        let mut vector = Vector::with_capacity(&logical_type, 100);
-
-        const LEN: usize = 10;
-        let bits = vec![false; LEN];
-        let mask = Mask::from(BitBuffer::from(bits));
-
-        let all_null = unsafe { vector.set_validity(&mask, 0, LEN) };
-
-        assert!(all_null);
-
-        vector.flatten(LEN as u64);
-        for i in 0..10 {
-            assert!(vector.row_is_null(i));
         }
     }
 
@@ -380,7 +371,7 @@ mod tests {
         ];
         let mask = Mask::from(BitBuffer::from(bits.as_slice()));
 
-        let all_null = unsafe { vector.set_validity(&mask, 0, 10) };
+        let all_null = unsafe { vector.set_validity_zero_copy(&mask, 0, 10, None) };
 
         assert!(!all_null);
 
@@ -400,7 +391,7 @@ mod tests {
         ];
         let mask = Mask::from(BitBuffer::from(bits.as_slice()));
 
-        let all_null = unsafe { vector.set_validity(&mask, 2, 8) };
+        let all_null = unsafe { vector.set_validity_zero_copy(&mask, 2, 8, None) };
 
         assert!(!all_null);
 
@@ -421,7 +412,7 @@ mod tests {
         ];
         let mask = Mask::from(BitBuffer::from(bits.as_slice()));
 
-        let all_null = unsafe { vector.set_validity(&mask, 3, 5) };
+        let all_null = unsafe { vector.set_validity_zero_copy(&mask, 3, 5, None) };
 
         assert!(!all_null);
 
@@ -439,7 +430,7 @@ mod tests {
         let bits = (0..70).map(|i| i % 3 == 0).collect::<Vec<_>>();
         let mask = Mask::from(BitBuffer::from(bits.as_slice()));
 
-        let all_null = unsafe { vector.set_validity(&mask, 5, 60) };
+        let all_null = unsafe { vector.set_validity_zero_copy(&mask, 5, 60, None) };
 
         assert!(!all_null);
 
@@ -482,6 +473,7 @@ mod tests {
         let mut target = [0u64];
         let source = [u8::MAX; 8];
         assert_eq!(copy_from_slice(&mut target, &source, 0, 64), 64);
+        assert_eq!(target, [u64::MAX]);
     }
 
     #[test]

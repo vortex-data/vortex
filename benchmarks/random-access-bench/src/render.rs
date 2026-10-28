@@ -213,13 +213,6 @@ mod tests {
     }
 
     #[test]
-    fn column_label_uses_format_ext_and_mode() {
-        assert_eq!(column_label(Format::Parquet, false), "parquet-cached");
-        assert_eq!(column_label(Format::Parquet, true), "parquet-reopen");
-        assert_eq!(column_label(Format::OnDiskVortex, false), "vortex-cached");
-    }
-
-    #[test]
     fn render_emits_single_header_row_with_format_mode_columns() -> Result<()> {
         let runs = vec![
             run("taxi", None, Format::Parquet, false, 100),
@@ -265,18 +258,41 @@ mod tests {
         )?;
         let rendered = strip_ansi(&String::from_utf8(buf)?);
 
-        assert!(
-            rendered.contains("parquet-cached") && rendered.contains("parquet-reopen"),
-            "expected format-mode column headers, got:\n{rendered}"
-        );
-        assert!(
-            rendered.contains("vortex-cached") && rendered.contains("vortex-reopen"),
-            "expected ext-based column headers, got:\n{rendered}"
-        );
-        assert!(
-            rendered.contains("random-access/taxi")
-                && rendered.contains("random-access/taxi/uniform"),
-            "expected display-name row labels, got:\n{rendered}"
+        let rows = rendered
+            .lines()
+            .filter(|line| line.starts_with('│'))
+            .map(|line| {
+                line.trim_matches('│')
+                    .split('│')
+                    .map(str::trim)
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            rows,
+            vec![
+                vec![
+                    "Benchmark",
+                    "parquet-cached",
+                    "parquet-reopen",
+                    "vortex-cached",
+                    "vortex-reopen"
+                ],
+                vec![
+                    "random-access/taxi",
+                    "100 μs (1.00)",
+                    "200 μs (2.00)",
+                    "50 μs (0.50)",
+                    "110 μs (1.10)"
+                ],
+                vec![
+                    "random-access/taxi/uniform",
+                    "300 μs (1.00)",
+                    "600 μs (2.00)",
+                    "150 μs (0.50)",
+                    "330 μs (1.10)"
+                ],
+            ]
         );
         Ok(())
     }

@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
+use rstest::rstest;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
@@ -12,10 +14,9 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use super::*;
-use crate::Canonical;
+use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::FilterArray;
 use crate::arrays::List;
 use crate::arrays::PrimitiveArray;
@@ -29,15 +30,16 @@ use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 /// A shared session for `List` tests, used to create execution contexts.
-static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 #[test]
 fn test_empty_list_array() {
+    let mut ctx = SESSION.create_execution_ctx();
     let elements = PrimitiveArray::empty::<u32>(Nullability::NonNullable);
     let offsets = buffer![0].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements.into_array(), offsets, validity).unwrap();
+    let list = ListArray::try_new(elements.into_array(), offsets, validity, &mut ctx).unwrap();
 
     assert_eq!(0, list.len());
 }
@@ -49,7 +51,7 @@ fn test_simple_list_array() {
     let offsets = buffer![0, 2, 4, 5].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements, offsets, validity).unwrap();
+    let list = ListArray::try_new(elements, offsets, validity, &mut ctx).unwrap();
 
     assert_eq!(
         Scalar::list(
@@ -80,7 +82,7 @@ fn test_simple_list_array_from_iter() {
     let offsets = buffer![0, 2, 3].into_array();
     let validity = Validity::NonNullable;
 
-    let list = ListArray::try_new(elements, offsets, validity).unwrap();
+    let list = ListArray::try_new(elements, offsets, validity, &mut ctx).unwrap();
 
     let list_from_iter =
         ListArray::from_iter_slow::<u32, _>(vec![vec![1i32, 2], vec![3]], Arc::new(I32.into()))
@@ -99,17 +101,28 @@ fn test_simple_list_array_from_iter() {
 
 #[test]
 fn test_simple_list_filter() {
+    let mut ctx = SESSION.create_execution_ctx();
     let elements = PrimitiveArray::from_option_iter([None, Some(2), Some(3), Some(4), Some(5)]);
     let offsets = buffer![0, 2, 4, 5].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements.into_array(), offsets, validity)
+    let list = ListArray::try_new(elements.into_array(), offsets, validity, &mut ctx)
         .unwrap()
         .into_array();
 
     let filtered = list.filter(Mask::from(BitBuffer::from(vec![false, true, true])));
 
-    assert!(filtered.is_ok())
+    let expected = ListArray::new(
+        PrimitiveArray::from_option_iter([Some(3i32), Some(4), Some(5)]).into_array(),
+        buffer![0u32, 2, 3].into_array(),
+        Validity::AllValid,
+        &mut ctx,
+    );
+    assert_arrays_eq!(
+        filtered.unwrap(),
+        expected,
+        &mut SESSION.create_execution_ctx()
+    );
 }
 
 #[test]
@@ -120,7 +133,7 @@ fn test_list_filter_dense_mask() {
     let offsets = buffer![0, 10, 25, 40, 60, 85, 100].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements, offsets, validity)
+    let list = ListArray::try_new(elements, offsets, validity, &mut ctx)
         .unwrap()
         .into_array();
 
@@ -138,6 +151,7 @@ fn test_list_filter_dense_mask() {
         buffer![10..100].into_array(),
         buffer![0u32, 15, 30, 50, 75, 90].into_array(),
         Validity::AllValid,
+        &mut ctx,
     )
     .unwrap();
 
@@ -152,7 +166,7 @@ fn test_list_filter_sparse_mask() {
     let offsets = buffer![0, 10, 25, 40, 60, 85, 100].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements, offsets, validity)
+    let list = ListArray::try_new(elements, offsets, validity, &mut ctx)
         .unwrap()
         .into_array();
 
@@ -172,6 +186,7 @@ fn test_list_filter_sparse_mask() {
         PrimitiveArray::from_iter(expected_elements).into_array(),
         buffer![0u32, 10, 25].into_array(),
         Validity::AllValid,
+        &mut ctx,
     )
     .unwrap();
 
@@ -186,7 +201,7 @@ fn test_list_filter_empty_lists() {
     let offsets = buffer![0, 0, 3, 3, 7, 10, 10].into_array(); // Lists at indices 0, 2, 5 are empty.
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements, offsets, validity)
+    let list = ListArray::try_new(elements, offsets, validity, &mut ctx)
         .unwrap()
         .into_array();
 
@@ -201,6 +216,7 @@ fn test_list_filter_empty_lists() {
         buffer![0..3].into_array(),
         buffer![0u32, 0, 3, 3, 3].into_array(), // empty, [0..3], empty, empty.
         Validity::AllValid,
+        &mut ctx,
     )
     .unwrap();
 
@@ -218,7 +234,7 @@ fn test_list_filter_with_nulls() {
         Nullability::Nullable,
     );
 
-    let list = ListArray::try_new(elements, offsets, validity)
+    let list = ListArray::try_new(elements, offsets, validity, &mut ctx)
         .unwrap()
         .into_array();
 
@@ -233,6 +249,13 @@ fn test_list_filter_with_nulls() {
     assert!(!filtered.execute_scalar(1, &mut ctx).unwrap().is_valid()); // Was null.
     assert!(!filtered.execute_scalar(2, &mut ctx).unwrap().is_valid()); // Was null.
     assert!(filtered.execute_scalar(3, &mut ctx).unwrap().is_valid());
+    let expected = ListArray::new(
+        PrimitiveArray::from_iter((0i32..3).chain(12..15)).into_array(),
+        buffer![0u32, 3, 3, 3, 6].into_array(),
+        Validity::from_iter([true, false, false, true]),
+        &mut ctx,
+    );
+    assert_arrays_eq!(filtered, expected, &mut ctx);
 }
 
 #[test]
@@ -243,9 +266,14 @@ fn test_list_filter_all_true() {
     let offsets = buffer![0, 5, 10, 15, 20].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements.clone(), offsets.clone(), validity.clone())
-        .unwrap()
-        .into_array();
+    let list = ListArray::try_new(
+        elements.clone(),
+        offsets.clone(),
+        validity.clone(),
+        &mut ctx,
+    )
+    .unwrap()
+    .into_array();
 
     let mask = Mask::AllTrue(4);
 
@@ -254,18 +282,19 @@ fn test_list_filter_all_true() {
     // All lists should be preserved.
     assert_eq!(filtered.len(), 4);
 
-    let expected = ListArray::try_new(elements, offsets, validity).unwrap();
+    let expected = ListArray::try_new(elements, offsets, validity, &mut ctx).unwrap();
     assert_arrays_eq!(filtered, expected, &mut ctx);
 }
 
 #[test]
 fn test_list_filter_all_false() {
+    let mut ctx = SESSION.create_execution_ctx();
     // Test filtering with an all-false mask.
     let elements = buffer![0..20].into_array();
     let offsets = buffer![0, 5, 10, 15, 20].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements, offsets, validity)
+    let list = ListArray::try_new(elements, offsets, validity, &mut ctx)
         .unwrap()
         .into_array();
 
@@ -276,6 +305,13 @@ fn test_list_filter_all_false() {
     // When mask is AllFalse, filter returns a canonical empty array (ListViewArray).
     // We need to check the length directly without casting to a specific type.
     assert_eq!(filtered.len(), 0);
+    let expected = ListArray::new(
+        PrimitiveArray::empty::<i32>(Nullability::NonNullable).into_array(),
+        buffer![0u32].into_array(),
+        Validity::AllValid,
+        &mut ctx,
+    );
+    assert_arrays_eq!(filtered, expected, &mut SESSION.create_execution_ctx());
 }
 
 #[test]
@@ -286,7 +322,7 @@ fn test_list_filter_single_element() {
     let offsets = buffer![0, 10, 20, 30, 40, 50].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements, offsets, validity)
+    let list = ListArray::try_new(elements, offsets, validity, &mut ctx)
         .unwrap()
         .into_array();
 
@@ -301,6 +337,7 @@ fn test_list_filter_single_element() {
         buffer![20..30].into_array(),
         buffer![0u32, 10].into_array(),
         Validity::AllValid,
+        &mut ctx,
     )
     .unwrap();
 
@@ -315,7 +352,7 @@ fn test_list_filter_alternating_pattern() {
     let offsets = buffer![0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements, offsets, validity)
+    let list = ListArray::try_new(elements, offsets, validity, &mut ctx)
         .unwrap()
         .into_array();
 
@@ -337,6 +374,7 @@ fn test_list_filter_alternating_pattern() {
         PrimitiveArray::from_iter(expected_elements).into_array(),
         buffer![0u32, 5, 10, 15, 20, 25, 30].into_array(),
         Validity::AllValid,
+        &mut ctx,
     )
     .unwrap();
 
@@ -351,7 +389,7 @@ fn test_list_filter_variable_sizes() {
     let offsets = buffer![0, 1, 2, 5, 10, 20, 35, 60, 100].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements, offsets, validity)
+    let list = ListArray::try_new(elements, offsets, validity, &mut ctx)
         .unwrap()
         .into_array();
 
@@ -378,6 +416,7 @@ fn test_list_filter_variable_sizes() {
         PrimitiveArray::from_iter(expected_elements).into_array(),
         buffer![0u32, 1, 4, 9, 24, 49, 89].into_array(),
         Validity::AllValid,
+        &mut ctx,
     )
     .unwrap();
 
@@ -386,6 +425,7 @@ fn test_list_filter_variable_sizes() {
 
 #[test]
 fn test_offset_to_0() {
+    let mut ctx = SESSION.create_execution_ctx();
     let mut builder = ListBuilder::<u32>::with_capacity_in(
         Arc::new(I32.into()),
         Nullability::NonNullable,
@@ -456,8 +496,18 @@ fn test_offset_to_0() {
     assert_eq!(list_array.offsets().len(), 3);
 
     // Each list has 3 elements
-    assert_eq!(list_array.list_elements_at(0).unwrap().len(), 3);
-    assert_eq!(list_array.list_elements_at(1).unwrap().len(), 3);
+    assert_eq!(list_array.list_elements_at(0, &mut ctx).unwrap().len(), 3);
+    assert_eq!(list_array.list_elements_at(1, &mut ctx).unwrap().len(), 3);
+    assert_arrays_eq!(
+        list_array.list_elements_at(0, &mut ctx).unwrap(),
+        buffer![7i32, 8, 9].into_array(),
+        &mut SESSION.create_execution_ctx()
+    );
+    assert_arrays_eq!(
+        list_array.list_elements_at(1, &mut ctx).unwrap(),
+        buffer![10i32, 11, 12].into_array(),
+        &mut SESSION.create_execution_ctx()
+    );
 }
 
 type OptVec<T> = Vec<Option<T>>;
@@ -465,6 +515,7 @@ type OptVec<T> = Vec<Option<T>>;
 // Helper function to create a list of lists from a 3D vector with Option types.
 #[expect(clippy::cast_possible_truncation)]
 fn create_list_of_lists_nullable(data: OptVec<OptVec<OptVec<i32>>>) -> ListArray {
+    let mut ctx = SESSION.create_execution_ctx();
     // Flatten all elements and track offsets and validity.
     let mut all_elements = Vec::new();
     let mut element_validity = Vec::new();
@@ -536,6 +587,7 @@ fn create_list_of_lists_nullable(data: OptVec<OptVec<OptVec<i32>>>) -> ListArray
         i32_elements.into_array(),
         PrimitiveArray::from_iter(inner_offsets).into_array(),
         inner_list_validity,
+        &mut ctx,
     )
     .unwrap();
 
@@ -566,6 +618,7 @@ fn create_list_of_lists_nullable(data: OptVec<OptVec<OptVec<i32>>>) -> ListArray
         inner_lists.into_array(),
         PrimitiveArray::from_iter(outer_offsets).into_array(),
         outer_list_validity,
+        &mut ctx,
     )
     .unwrap();
 
@@ -612,37 +665,37 @@ fn test_list_of_lists() {
     ));
 
     // Access the first list of lists and verify its contents.
-    let first_outer = list_of_lists.list_elements_at(0).unwrap();
+    let first_outer = list_of_lists.list_elements_at(0, &mut ctx).unwrap();
     let first_outer_list = first_outer.as_::<List>();
     assert_eq!(first_outer_list.len(), 2);
 
     // Check first inner list [1, 2].
-    let first_inner = first_outer_list.list_elements_at(0).unwrap();
+    let first_inner = first_outer_list.list_elements_at(0, &mut ctx).unwrap();
     assert_arrays_eq!(first_inner, PrimitiveArray::from_iter([1, 2]), &mut ctx);
 
     // Check second inner list [3].
-    let second_inner = first_outer_list.list_elements_at(1).unwrap();
+    let second_inner = first_outer_list.list_elements_at(1, &mut ctx).unwrap();
     assert_arrays_eq!(second_inner, PrimitiveArray::from_iter([3]), &mut ctx);
 
     // Check the second list of lists [[4, 5, 6]].
-    let second_outer = list_of_lists.list_elements_at(1).unwrap();
+    let second_outer = list_of_lists.list_elements_at(1, &mut ctx).unwrap();
     let second_outer_list = second_outer.as_::<List>();
     assert_eq!(second_outer_list.len(), 1);
 
-    let inner = second_outer_list.list_elements_at(0).unwrap();
+    let inner = second_outer_list.list_elements_at(0, &mut ctx).unwrap();
     assert_arrays_eq!(inner, PrimitiveArray::from_iter([4, 5, 6]), &mut ctx);
 
     // Check the third list of lists (empty).
-    let third_outer = list_of_lists.list_elements_at(2).unwrap();
+    let third_outer = list_of_lists.list_elements_at(2, &mut ctx).unwrap();
     // Empty slices return canonical form (`ListViewArray`), so we check length directly.
     assert_eq!(third_outer.len(), 0);
 
     // Check the fourth list of lists [[7]].
-    let fourth_outer = list_of_lists.list_elements_at(3).unwrap();
+    let fourth_outer = list_of_lists.list_elements_at(3, &mut ctx).unwrap();
     let fourth_outer_list = fourth_outer.as_::<List>();
     assert_eq!(fourth_outer_list.len(), 1);
 
-    let inner = fourth_outer_list.list_elements_at(0).unwrap();
+    let inner = fourth_outer_list.list_elements_at(0, &mut ctx).unwrap();
     assert_arrays_eq!(inner, PrimitiveArray::from_iter([7]), &mut ctx);
 
     // Test scalar conversion.
@@ -659,12 +712,12 @@ fn test_list_of_lists() {
     assert_eq!(sliced_list.len(), 2);
 
     // First element of slice should be [[4, 5, 6]].
-    let first_sliced = sliced_list.list_elements_at(0).unwrap();
+    let first_sliced = sliced_list.list_elements_at(0, &mut ctx).unwrap();
     let first_sliced_list = first_sliced.as_::<List>();
     assert_eq!(first_sliced_list.len(), 1);
 
     // Second element of slice should be empty [].
-    let second_sliced = sliced_list.list_elements_at(1).unwrap();
+    let second_sliced = sliced_list.list_elements_at(1, &mut ctx).unwrap();
     // Empty slices return canonical form (`ListViewArray`), so we check length directly
     assert_eq!(second_sliced.len(), 0);
 }
@@ -702,20 +755,27 @@ fn test_list_of_lists_nullable_outer() {
     assert!(second.is_null());
 
     // Third element should be [[4, 5, 6]].
-    let third = list_of_lists.list_elements_at(2).unwrap();
+    let third = list_of_lists.list_elements_at(2, &mut ctx).unwrap();
     let third_list = third.as_::<List>();
     assert_eq!(third_list.len(), 1);
-    let inner = third_list.list_elements_at(0).unwrap();
+    let inner = third_list.list_elements_at(0, &mut ctx).unwrap();
     assert_eq!(inner.len(), 3);
 
     // Fourth element should be [[7]].
-    let fourth = list_of_lists.list_elements_at(3).unwrap();
+    let fourth = list_of_lists.list_elements_at(3, &mut ctx).unwrap();
     let fourth_list = fourth.as_::<List>();
     assert_eq!(fourth_list.len(), 1);
+    assert_arrays_eq!(inner, buffer![4i32, 5, 6].into_array(), &mut ctx);
+    assert_arrays_eq!(
+        fourth_list.list_elements_at(0, &mut ctx).unwrap(),
+        buffer![7i32].into_array(),
+        &mut ctx
+    );
 }
 
 #[test]
 fn test_list_of_lists_nullable_inner() {
+    let mut ctx = SESSION.create_execution_ctx();
     // Create list of lists with non-nullable outer, nullable inner.
     // Structure: [[[1, 2], null, [3]], [[4, 5, 6]], [], [[null, 7]]]
     let data = vec![
@@ -746,7 +806,7 @@ fn test_list_of_lists_nullable_inner() {
     ));
 
     // First outer list should have 3 inner lists with the second being null.
-    let first_outer = list_of_lists.list_elements_at(0).unwrap();
+    let first_outer = list_of_lists.list_elements_at(0, &mut ctx).unwrap();
     let first_list = first_outer.as_::<List>();
     assert_eq!(first_list.len(), 3);
 
@@ -756,6 +816,12 @@ fn test_list_of_lists_nullable_inner() {
         .execute_scalar(1, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(second_inner.is_null());
+    let last = list_of_lists.list_elements_at(3, &mut ctx).unwrap();
+    assert_arrays_eq!(
+        last.as_::<List>().list_elements_at(0, &mut ctx).unwrap(),
+        PrimitiveArray::from_option_iter([None, Some(7i32)]),
+        &mut SESSION.create_execution_ctx()
+    );
 }
 
 #[test]
@@ -785,12 +851,12 @@ fn test_list_of_lists_both_nullable() {
     // First outer list should have 2 elements, second is null inner list.
     let first_outer = list_of_lists.execute_scalar(0, &mut ctx).unwrap();
     assert!(!first_outer.is_null());
-    let first_outer_array = list_of_lists.list_elements_at(0).unwrap();
+    let first_outer_array = list_of_lists.list_elements_at(0, &mut ctx).unwrap();
     let first_list = first_outer_array.as_::<List>();
     assert_eq!(first_list.len(), 2);
 
     // First inner list should be [1, 2].
-    let first_inner = first_list.list_elements_at(0).unwrap();
+    let first_inner = first_list.list_elements_at(0, &mut ctx).unwrap();
     assert_eq!(first_inner.len(), 2);
 
     // Second inner list should be null.
@@ -802,53 +868,58 @@ fn test_list_of_lists_both_nullable() {
     assert!(second_outer.is_null());
 
     // Third outer list should have [3].
-    let third_outer = list_of_lists.list_elements_at(2).unwrap();
+    let third_outer = list_of_lists.list_elements_at(2, &mut ctx).unwrap();
     let third_list = third_outer.as_::<List>();
     assert_eq!(third_list.len(), 1);
-    let inner = third_list.list_elements_at(0).unwrap();
+    let inner = third_list.list_elements_at(0, &mut ctx).unwrap();
     assert_arrays_eq!(inner, PrimitiveArray::from_iter([3]), &mut ctx);
 
     // Fourth outer list should have a null inner list.
-    let fourth_outer = list_of_lists.list_elements_at(3).unwrap();
+    let fourth_outer = list_of_lists.list_elements_at(3, &mut ctx).unwrap();
     let fourth_list = fourth_outer.as_::<List>();
     assert_eq!(fourth_list.len(), 1);
     let inner = fourth_list.array().execute_scalar(0, &mut ctx).unwrap();
     assert!(inner.is_null());
+    assert_arrays_eq!(first_inner, buffer![1i32, 2].into_array(), &mut ctx);
 }
 
 #[test]
 #[should_panic(expected = "offsets minimum -1 outside valid range")]
 fn test_negative_offset_values() {
+    let mut ctx = SESSION.create_execution_ctx();
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = buffer![-1i32, 2, 4, 5].into_array();
     let validity = Validity::AllValid;
 
-    ListArray::try_new(elements, offsets, validity).unwrap();
+    ListArray::try_new(elements, offsets, validity, &mut ctx).unwrap();
 }
 
 #[test]
 #[should_panic(expected = "offsets must be sorted")]
 fn test_unsorted_offsets() {
+    let mut ctx = SESSION.create_execution_ctx();
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = buffer![0u32, 3, 2, 5].into_array();
     let validity = Validity::AllValid;
 
-    ListArray::try_new(elements, offsets, validity).unwrap();
+    ListArray::try_new(elements, offsets, validity, &mut ctx).unwrap();
 }
 
 #[test]
 #[should_panic(expected = "Max offset 7 is beyond the length of the elements array 5")]
 fn test_offset_exceeding_elements_length() {
+    let mut ctx = SESSION.create_execution_ctx();
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = buffer![0u32, 2, 4, 7].into_array();
     let validity = Validity::AllValid;
 
-    ListArray::try_new(elements, offsets, validity).unwrap();
+    ListArray::try_new(elements, offsets, validity, &mut ctx).unwrap();
 }
 
 #[test]
 #[should_panic(expected = "validity length does not match array size")]
 fn test_validity_length_mismatch() {
+    let mut ctx = SESSION.create_execution_ctx();
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = buffer![0u32, 2, 4, 5, 5].into_array();
     let validity = Validity::from_mask(
@@ -856,51 +927,55 @@ fn test_validity_length_mismatch() {
         Nullability::Nullable,
     );
 
-    ListArray::try_new(elements, offsets, validity).unwrap();
+    ListArray::try_new(elements, offsets, validity, &mut ctx).unwrap();
 }
 
 #[test]
 #[should_panic(expected = "offsets have invalid type")]
 fn test_nullable_offsets() {
+    let mut ctx = SESSION.create_execution_ctx();
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = PrimitiveArray::from_option_iter([Some(0u32), Some(2), None, Some(5)]);
     let validity = Validity::AllValid;
 
-    ListArray::try_new(elements, offsets.into_array(), validity).unwrap();
+    ListArray::try_new(elements, offsets.into_array(), validity, &mut ctx).unwrap();
 }
 
 #[test]
 #[should_panic(expected = "Offsets must have at least one element, [0] for an empty list")]
 fn test_empty_offsets_array() {
+    let mut ctx = SESSION.create_execution_ctx();
     let elements = buffer![1i32, 2, 3].into_array();
     let offsets = PrimitiveArray::empty::<u32>(Nullability::NonNullable);
     let validity = Validity::AllValid;
 
-    ListArray::try_new(elements, offsets.into_array(), validity).unwrap();
+    ListArray::try_new(elements, offsets.into_array(), validity, &mut ctx).unwrap();
 }
 
 #[test]
 #[should_panic(expected = "offsets have invalid type")]
 fn test_non_integer_offsets() {
+    let mut ctx = SESSION.create_execution_ctx();
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = buffer![0.0f32, 2.0, 4.0, 5.0].into_array();
     let validity = Validity::AllValid;
 
-    ListArray::try_new(elements, offsets, validity).unwrap();
+    ListArray::try_new(elements, offsets, validity, &mut ctx).unwrap();
 }
 
 #[test]
 fn test_offsets_constant() {
+    let mut ctx = SESSION.create_execution_ctx();
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = buffer![5u32, 5, 5, 5].into_array();
     let validity = Validity::AllValid;
 
     // This should succeed as it represents empty lists
-    let list = ListArray::try_new(elements, offsets, validity).unwrap();
+    let list = ListArray::try_new(elements, offsets, validity, &mut ctx).unwrap();
     assert_eq!(list.len(), 3);
-    assert_eq!(list.list_elements_at(0).unwrap().len(), 0);
-    assert_eq!(list.list_elements_at(1).unwrap().len(), 0);
-    assert_eq!(list.list_elements_at(2).unwrap().len(), 0);
+    assert_eq!(list.list_elements_at(0, &mut ctx).unwrap().len(), 0);
+    assert_eq!(list.list_elements_at(1, &mut ctx).unwrap().len(), 0);
+    assert_eq!(list.list_elements_at(2, &mut ctx).unwrap().len(), 0);
 }
 
 #[test]
@@ -948,6 +1023,16 @@ fn test_recursive_compact_list_of_lists() {
         non_recursive_array.execute_scalar(0, &mut ctx).unwrap(),
         recursive_array.execute_scalar(0, &mut ctx).unwrap()
     );
+    assert_eq!(
+        non_recursive_array.execute_scalar(0, &mut ctx).unwrap(),
+        sliced.execute_scalar(0, &mut ctx).unwrap()
+    );
+    assert_eq!(
+        recursive_array.execute_scalar(0, &mut ctx).unwrap(),
+        sliced.execute_scalar(0, &mut ctx).unwrap()
+    );
+    assert_arrays_eq!(non_recursive_array, sliced, &mut ctx);
+    assert_arrays_eq!(recursive_array, sliced, &mut ctx);
 }
 
 #[test]
@@ -956,6 +1041,7 @@ fn test_filter_sliced_list_array() -> VortexResult<()> {
         buffer![0..50].into_array(),
         buffer![0, 10, 20, 30, 40, 50].into_array(),
         Validity::AllValid,
+        &mut SESSION.create_execution_ctx(),
     )?
     .into_array()
     .slice(2..5)?;
@@ -963,8 +1049,145 @@ fn test_filter_sliced_list_array() -> VortexResult<()> {
     let mask = Mask::from(BitBuffer::from(vec![true, false, true]));
     let filter_array = FilterArray::new(list, mask).into_array();
     let mut ctx = SESSION.create_execution_ctx();
-    let result = filter_array.execute::<Canonical>(&mut ctx)?;
+    let result = filter_array;
 
     assert_eq!(result.len(), 2);
+    let expected = ListArray::new(
+        PrimitiveArray::from_iter((20i32..30).chain(40..50)).into_array(),
+        buffer![0u32, 10, 20].into_array(),
+        Validity::AllValid,
+        &mut ctx,
+    );
+    assert_arrays_eq!(result, expected, &mut ctx);
+    Ok(())
+}
+
+#[rstest]
+#[case::nothing_to_drop(&[1, 2, 3], &[0, 1, 1, 3], &[true, false, true], &[1, 2, 3], &[0, 1, 1, 3])]
+#[case::exact(&[1, 2, 3], &[0, 1, 3], &[true, true], &[1, 2, 3], &[0, 1, 3])]
+#[case::leftovers_at_the_ends(&[9, 1, 2, 9], &[1, 2, 3], &[true, true], &[1, 2], &[0, 1, 2])]
+#[case::leftover_at_the_end(&[1, 2, 9], &[0, 1, 2], &[true, true], &[1, 2], &[0, 1, 2])]
+#[case::null_lists_holding_elements(
+    &[9, 9, 9, 1, 9, 9, 2, 3, 9, 9],
+    &[1, 3, 4, 6, 8, 9],
+    &[false, true, false, true, false],
+    &[1, 2, 3],
+    &[0, 0, 1, 1, 3, 3]
+)]
+#[case::only_the_last_null_list_holds_elements(
+    &[1, 2, 9],
+    &[0, 1, 1, 2, 3],
+    &[true, false, true, false],
+    &[1, 2],
+    &[0, 1, 1, 2, 2]
+)]
+#[case::an_empty_valid_list_between_null_lists(
+    &[9, 9, 1],
+    &[0, 1, 1, 2, 3],
+    &[false, true, false, true],
+    &[1],
+    &[0, 0, 0, 0, 1]
+)]
+#[case::every_list_null(&[9, 9], &[0, 1, 2], &[false, false], &[], &[0, 0, 0])]
+#[case::empty_null_list_with_leftovers_at_the_ends(
+    &[9, 1, 2, 9],
+    &[1, 2, 2, 3],
+    &[true, false, true],
+    &[1, 2],
+    &[0, 1, 1, 2]
+)]
+#[case::every_list_null_and_empty_with_leftovers(
+    &[9, 9],
+    &[1, 1, 1],
+    &[false, false],
+    &[],
+    &[0, 0, 0]
+)]
+#[case::no_lists_with_a_leftover(&[9], &[1], &[], &[], &[0])]
+fn test_compact(
+    #[case] elements: &[i32],
+    #[case] offsets: &[u32],
+    #[case] validity: &[bool],
+    #[case] expected_elements: &[i32],
+    #[case] expected_offsets: &[u32],
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let list = ListArray::try_new(
+        PrimitiveArray::from_iter(elements.iter().copied()).into_array(),
+        PrimitiveArray::from_iter(offsets.iter().copied()).into_array(),
+        if validity.iter().all(|valid| *valid) {
+            Validity::NonNullable
+        } else {
+            Validity::from_iter(validity.iter().copied())
+        },
+        &mut ctx,
+    )?;
+    let rebuilt = list.compact(&mut ctx)?;
+    assert_arrays_eq!(
+        rebuilt.elements().clone(),
+        PrimitiveArray::from_iter(expected_elements.iter().copied()),
+        &mut ctx
+    );
+    assert_arrays_eq!(
+        rebuilt.offsets().clone(),
+        PrimitiveArray::from_iter(expected_offsets.iter().copied()),
+        &mut ctx
+    );
+    assert_arrays_eq!(rebuilt, list, &mut ctx);
+    Ok(())
+}
+
+#[rstest]
+#[case::non_nullable(Validity::NonNullable)]
+#[case::all_valid(Validity::AllValid)]
+#[case::empty_null_list(Validity::from_iter([true, false, true]))]
+fn test_compact_returns_an_exact_list_as_is(#[case] validity: Validity) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let list = ListArray::try_new(
+        buffer![1i32, 2, 3].into_array(),
+        buffer![0u32, 1, 1, 3].into_array(),
+        validity,
+        &mut ctx,
+    )?;
+    let rebuilt = list.compact(&mut ctx)?;
+    assert!(ArrayRef::ptr_eq(rebuilt.elements(), list.elements()));
+    assert!(ArrayRef::ptr_eq(rebuilt.offsets(), list.offsets()));
+    Ok(())
+}
+
+/// A slice keeps all of its parent's elements, and its validity can start mid-byte.
+#[rstest]
+#[case::no_null_list(2..4, &[3, 4, 5, 6], &[0, 2, 4])]
+#[case::a_null_list_holding_elements_first(1..4, &[3, 4, 5, 6], &[0, 0, 2, 4])]
+#[case::a_null_list_holding_elements_last(3..5, &[5, 6], &[0, 2, 2])]
+fn test_compact_sliced(
+    #[case] range: Range<usize>,
+    #[case] expected_elements: &[i32],
+    #[case] expected_offsets: &[u32],
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    // [[0, 1], null over [2], [3, 4], [5, 6], null over [7, 8, 9]]
+    let list = ListArray::try_new(
+        PrimitiveArray::from_iter(0i32..10).into_array(),
+        buffer![0u32, 2, 3, 5, 7, 10].into_array(),
+        Validity::from_iter([true, false, true, true, false]),
+        &mut ctx,
+    )?
+    .into_array()
+    .slice(range)?
+    .as_::<List>()
+    .into_owned();
+    let rebuilt = list.compact(&mut ctx)?;
+    assert_arrays_eq!(
+        rebuilt.elements().clone(),
+        PrimitiveArray::from_iter(expected_elements.iter().copied()),
+        &mut ctx
+    );
+    assert_arrays_eq!(
+        rebuilt.offsets().clone(),
+        PrimitiveArray::from_iter(expected_offsets.iter().copied()),
+        &mut ctx
+    );
+    assert_arrays_eq!(rebuilt, list, &mut ctx);
     Ok(())
 }

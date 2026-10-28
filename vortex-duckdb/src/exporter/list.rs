@@ -169,6 +169,7 @@ mod tests {
             Buffer::<u32>::empty().into_array(),
             buffer![0u32].into_array(),
             Validity::AllValid,
+            &mut SESSION.create_execution_ctx(),
         )?
         .into_array();
 
@@ -199,6 +200,7 @@ mod tests {
             buffer![1u64, 2, 3, 4, 5].into_array(),
             buffer![0u8, 1, 2, 3, 4, 5].into_array(),
             Validity::AllValid,
+            &mut SESSION.create_execution_ctx(),
         )?
         .into_array();
         assert_eq!(
@@ -235,7 +237,13 @@ mod tests {
         // [1], [2, 8], [3], [4], [5]
         let elements = buffer![1u64, 2, 8, 3, 4, 5].into_array();
         let offsets = buffer![0u8, 1, 3, 4, 5, 6].into_array();
-        let list = ListArray::try_new(elements, offsets, Validity::AllValid)?.into_array();
+        let list = ListArray::try_new(
+            elements,
+            offsets,
+            Validity::AllValid,
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .into_array();
 
         let u64_type = LogicalType::uint64();
         let list_type = LogicalType::list_type(u64_type)?;
@@ -292,7 +300,13 @@ mod tests {
         let elements_buffer = buffer![100f32, 100f32, 200f32, 200f32, 200f32].into_array();
         let elements = RunEnd::encode(elements_buffer, &mut ctx)?.into_array();
         let offsets = buffer![0u32, 2, 5].into_array();
-        let list = ListArray::try_new(elements, offsets, Validity::AllValid)?.into_array();
+        let list = ListArray::try_new(
+            elements,
+            offsets,
+            Validity::AllValid,
+            &mut SESSION.create_execution_ctx(),
+        )?
+        .into_array();
 
         let list_type = LogicalType::list_type(LogicalType::float32())?;
         let mut chunk = DataChunk::new([list_type]);
@@ -327,6 +341,7 @@ mod tests {
             .into_array(),
             buffer![0u8, 1, 2, 3, 4].into_array(),
             Validity::from_iter([true, true, false, true]),
+            &mut SESSION.create_execution_ctx(),
         )?
         .into_array();
 

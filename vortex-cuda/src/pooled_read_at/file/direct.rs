@@ -251,14 +251,16 @@ mod tests {
     }
 
     #[rstest]
-    #[case(u64::MAX, 2, 4096)]
-    #[case(0, 1, 0)]
+    #[case(u64::MAX, 2, 4096, "direct I/O range overflow")]
+    #[case(0, 1, 0, "direct I/O alignment must be non-zero")]
     fn rejects_invalid_direct_read_range(
         #[case] offset: u64,
         #[case] length: usize,
         #[case] alignment: usize,
+        #[case] expected_error: &str,
     ) {
-        assert!(direct_io_range(offset, length, alignment).is_err());
+        let error = direct_io_range(offset, length, alignment).unwrap_err();
+        assert!(error.to_string().contains(expected_error), "{error}");
     }
 
     #[test]

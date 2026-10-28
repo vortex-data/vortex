@@ -509,12 +509,12 @@ mod tests {
     use enum_iterator::all;
     use itertools::Itertools;
     use rstest::rstest;
+    use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_error::vortex_panic;
     use vortex_session::VortexSession;
 
-    use super::list_scalar_elements;
     use crate::ArrayRef;
     use crate::Canonical;
     use crate::IntoArray;
@@ -552,7 +552,7 @@ mod tests {
     use crate::validity::Validity;
 
     /// A shared session for these constant-array tests, used to create execution contexts.
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn test_canonicalize_null() {
@@ -635,26 +635,17 @@ mod tests {
         let list_array =
             canonical_const.rebuild(ListViewRebuildMode::MakeZeroCopyToList, &mut ctx)?;
         assert_arrays_eq!(
-            list_array
-                .elements()
-                .clone()
-                .execute::<PrimitiveArray>(&mut ctx)?,
+            list_array.elements(),
             PrimitiveArray::from_iter([1u64, 2, 1, 2]),
             &mut ctx
         );
         assert_arrays_eq!(
-            list_array
-                .offsets()
-                .clone()
-                .execute::<PrimitiveArray>(&mut ctx)?,
+            list_array.offsets(),
             PrimitiveArray::from_iter([0u32, 2]),
             &mut ctx
         );
         assert_arrays_eq!(
-            list_array
-                .sizes()
-                .clone()
-                .execute::<PrimitiveArray>(&mut ctx)?,
+            list_array.sizes(),
             PrimitiveArray::from_iter([2u32, 2]),
             &mut ctx
         );
@@ -669,29 +660,28 @@ mod tests {
             vec![],
             Nullability::NonNullable,
         );
-        let const_array = ConstantArray::new(list_scalar, 2).into_array();
+        let const_array = ConstantArray::new(list_scalar.clone(), 2).into_array();
         let canonical_const = const_array.execute::<ListViewArray>(&mut ctx).unwrap();
-        let elements_prim = canonical_const
-            .elements()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
-        assert!(elements_prim.is_empty());
+        assert_eq!(canonical_const.dtype(), list_scalar.dtype());
+        assert_eq!(canonical_const.len(), 2);
+        for index in 0..2 {
+            assert_eq!(
+                canonical_const.execute_scalar(index, &mut ctx).unwrap(),
+                list_scalar
+            );
+        }
         assert_arrays_eq!(
-            canonical_const
-                .offsets()
-                .clone()
-                .execute::<PrimitiveArray>(&mut ctx)
-                .unwrap(),
+            canonical_const.elements(),
+            PrimitiveArray::from_iter(std::iter::empty::<u64>()),
+            &mut ctx
+        );
+        assert_arrays_eq!(
+            canonical_const.offsets(),
             PrimitiveArray::from_iter([0u32, 0]),
             &mut ctx
         );
         assert_arrays_eq!(
-            canonical_const
-                .sizes()
-                .clone()
-                .execute::<PrimitiveArray>(&mut ctx)
-                .unwrap(),
+            canonical_const.sizes(),
             PrimitiveArray::from_iter([0u32, 0]),
             &mut ctx
         );
@@ -704,29 +694,28 @@ mod tests {
             Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)),
             Nullability::Nullable,
         ));
-        let const_array = ConstantArray::new(list_scalar, 2).into_array();
+        let const_array = ConstantArray::new(list_scalar.clone(), 2).into_array();
         let canonical_const = const_array.execute::<ListViewArray>(&mut ctx).unwrap();
-        let elements_prim = canonical_const
-            .elements()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
-        assert!(elements_prim.is_empty());
+        assert_eq!(canonical_const.dtype(), list_scalar.dtype());
+        assert_eq!(canonical_const.len(), 2);
+        for index in 0..2 {
+            assert_eq!(
+                canonical_const.execute_scalar(index, &mut ctx).unwrap(),
+                list_scalar
+            );
+        }
         assert_arrays_eq!(
-            canonical_const
-                .offsets()
-                .clone()
-                .execute::<PrimitiveArray>(&mut ctx)
-                .unwrap(),
+            canonical_const.elements(),
+            PrimitiveArray::from_iter(std::iter::empty::<u64>()),
+            &mut ctx
+        );
+        assert_arrays_eq!(
+            canonical_const.offsets(),
             PrimitiveArray::from_iter([0u32, 0]),
             &mut ctx
         );
         assert_arrays_eq!(
-            canonical_const
-                .sizes()
-                .clone()
-                .execute::<PrimitiveArray>(&mut ctx)
-                .unwrap(),
+            canonical_const.sizes(),
             PrimitiveArray::from_iter([0u32, 0]),
             &mut ctx
         );
@@ -788,12 +777,7 @@ mod tests {
         // Check that each list is [10, 20, 30].
         for i in 0..4 {
             let list = canonical.fixed_size_list_elements_at(i).unwrap();
-            let list_primitive = list.execute::<PrimitiveArray>(&mut ctx).unwrap();
-            assert_arrays_eq!(
-                list_primitive,
-                PrimitiveArray::from_iter([10i32, 20, 30]),
-                &mut ctx
-            );
+            assert_arrays_eq!(list, PrimitiveArray::from_iter([10i32, 20, 30]), &mut ctx);
         }
     }
 
@@ -818,11 +802,7 @@ mod tests {
         assert!(matches!(canonical.validity(), Ok(Validity::AllValid)));
 
         // Check elements.
-        let elements = canonical
-            .elements()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+        let elements = canonical.elements();
         assert_arrays_eq!(
             elements,
             PrimitiveArray::from_iter([1.5f64, 2.5, 1.5, 2.5, 1.5, 2.5]),
@@ -847,14 +827,16 @@ mod tests {
         assert_eq!(canonical.list_size(), 4);
         assert!(matches!(canonical.validity(), Ok(Validity::AllInvalid)));
 
-        // Elements should be defaults (zeros).
         let elements = canonical
             .elements()
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
         assert_eq!(elements.len(), 20); // 5 lists * 4 elements each
-        assert!(elements.as_slice::<u64>().iter().all(|&x| x == 0));
+        assert_eq!(
+            elements.dtype(),
+            &DType::Primitive(PType::U64, Nullability::NonNullable)
+        );
     }
 
     #[test]
@@ -934,11 +916,7 @@ mod tests {
         assert_eq!(canonical.len(), 1);
         assert_eq!(canonical.list_size(), 1);
 
-        let elements = canonical
-            .elements()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+        let elements = canonical.elements();
         assert_arrays_eq!(elements, PrimitiveArray::from_iter([42i16]), &mut ctx);
     }
 
@@ -964,11 +942,7 @@ mod tests {
         assert!(matches!(canonical.validity(), Ok(Validity::NonNullable)));
 
         // Check elements including nulls.
-        let elements = canonical
-            .elements()
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)
-            .unwrap();
+        let elements = canonical.elements();
         assert_eq!(
             elements.execute_scalar(0, &mut ctx).unwrap(),
             Scalar::from(100i32)
@@ -989,6 +963,22 @@ mod tests {
         assert!(element_validity.execute_is_valid(0, &mut ctx).unwrap());
         assert!(!element_validity.execute_is_valid(1, &mut ctx).unwrap());
         assert!(element_validity.execute_is_valid(2, &mut ctx).unwrap());
+
+        assert_arrays_eq!(
+            elements,
+            PrimitiveArray::from_option_iter([
+                Some(100i32),
+                None,
+                Some(200),
+                Some(100),
+                None,
+                Some(200),
+                Some(100),
+                None,
+                Some(200),
+            ]),
+            &mut ctx
+        );
 
         // Pattern should repeat.
         assert!(element_validity.execute_is_valid(3, &mut ctx).unwrap());
@@ -1106,6 +1096,11 @@ mod tests {
             LEN,
             "every row should reference the same tile rather than hold its own copy",
         );
+        let chunks = canonical.elements().as_::<Chunked>();
+        let tile_ptr = chunks.chunk(0).buffer_handles()[0].as_host().as_ptr();
+        for chunk in chunks.iter_chunks() {
+            assert_eq!(chunk.buffer_handles()[0].as_host().as_ptr(), tile_ptr);
+        }
         for index in [0, 1, LEN - 1] {
             assert_arrays_eq!(
                 canonical.fixed_size_list_elements_at(index).unwrap(),
@@ -1137,7 +1132,7 @@ mod tests {
         );
     }
 
-    /// Every flat element dtype is written straight from its values, null elements included.
+    /// Canonicalizing a constant list preserves every flat element dtype and null element.
     #[rstest]
     #[case::bool(
         Scalar::list(
@@ -1173,13 +1168,20 @@ mod tests {
         NullArray::new(2).into_array()
     )]
     #[case::extension(date_list(), date_elements())]
-    fn test_list_scalar_elements_of_flat_dtypes(
+    fn test_canonicalize_list_flat_element_dtypes(
         #[case] list: Scalar,
         #[case] expected: ArrayRef,
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        let elements = list_scalar_elements(&list.as_list(), ctx.allocator());
-        assert_arrays_eq!(elements, expected, &mut ctx);
+        let size = expected.len() as u64;
+        let expected = ListViewArray::try_new(
+            expected,
+            buffer![0u64, 0].into_array(),
+            buffer![size, size].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?;
+        assert_arrays_eq!(ConstantArray::new(list, 2), expected, &mut ctx);
         Ok(())
     }
 

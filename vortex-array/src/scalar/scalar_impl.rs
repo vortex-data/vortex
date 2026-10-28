@@ -219,7 +219,9 @@ impl Scalar {
         let value = self.value()?;
 
         let is_zero = match self.dtype() {
-            DType::Null => vortex_panic!("non-null value somehow had `DType::Null`"),
+            DType::Null => {
+                vortex_panic!("non-null value somehow had `DType::Null`")
+            }
             DType::Bool(_) => !value.as_bool(),
             DType::Primitive(..) => value.as_primitive().is_zero(),
             DType::Decimal(..) => value.as_decimal().is_zero(),

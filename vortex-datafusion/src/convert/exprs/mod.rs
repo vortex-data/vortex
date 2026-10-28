@@ -27,23 +27,23 @@ use vortex::array::VortexSessionExecute;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::expr::Expression;
-use vortex::expr::and_collect;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
 use vortex::expr::get_item;
+use vortex::expr::in_list_of;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_length;
 use vortex::expr::lit;
 use vortex::expr::nested_case_when;
 use vortex::expr::not;
-use vortex::expr::or_collect;
 use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
+use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
@@ -342,9 +342,7 @@ impl DefaultExpressionConverter {
         }
 
         if let Some(cast_expr) = expr.downcast_ref::<df_expr::CastExpr>() {
-            if !supported_cast(cast_expr, schema)? {
-                return Err(Unconverted::Unsupported);
-            }
+            let pushdown = classify_cast(cast_expr, schema)?;
             let child = self.convert_expr(cast_expr.expr(), schema, input_dtype)?;
             // DataFusion casts preserve input nulls even when the target field is declared
             // non-nullable. Match the expression's runtime nullability rather than narrowing
@@ -352,14 +350,21 @@ impl DefaultExpressionConverter {
             let cast_dtype = self
                 .arrow_dtype(cast_expr.target_field())?
                 .with_nullability(Nullability::from(cast_expr.nullable(schema)?));
-            // Matching Arrow storage types do not imply matching extension semantics.
             let child_dtype = converted_dtype(&child, input_dtype)?;
-            if (child_dtype.is_extension() || cast_dtype.is_extension())
-                && !child_dtype.eq_ignore_nullability(&cast_dtype)
-            {
-                return Err(Unconverted::Unsupported);
-            }
-            return Ok(cast(child, cast_dtype));
+            return match pushdown {
+                // Matching Arrow types do not imply matching Vortex dtypes, e.g. for extensions.
+                CastPushdown::Drop if child_dtype.eq_ignore_nullability(&cast_dtype) => Ok(child),
+                CastPushdown::Drop => Err(Unconverted::Unsupported),
+                CastPushdown::Keep => {
+                    // Matching Arrow storage types do not imply matching extension semantics.
+                    if (child_dtype.is_extension() || cast_dtype.is_extension())
+                        && !child_dtype.eq_ignore_nullability(&cast_dtype)
+                    {
+                        return Err(Unconverted::Unsupported);
+                    }
+                    Ok(cast(child, cast_dtype))
+                }
+            };
         }
 
         if let Some(not_expr) = expr.downcast_ref::<df_expr::NotExpr>() {
@@ -436,30 +441,27 @@ impl DefaultExpressionConverter {
             return Err(Unconverted::Unsupported);
         }
         let value_dtype = converted_dtype(&value, input_dtype)?;
-        let operator = if in_list.negated() {
-            Operator::NotEq
+
+        let elements = in_list
+            .list()
+            .iter()
+            .map(|element| {
+                let element = self.convert_expr(element, schema, input_dtype)?;
+                element
+                    .as_opt::<Literal>()
+                    .cloned()
+                    .ok_or(Unconverted::Unsupported)
+            })
+            .collect::<Conversion<Vec<_>>>()?;
+
+        // An element of another type than the value declines the pushdown: no implicit casts.
+        let membership =
+            in_list_of(value, value_dtype, elements).map_err(|_| Unconverted::Unsupported)?;
+        Ok(if in_list.negated() {
+            not(membership)
         } else {
-            Operator::Eq
-        };
-        let mut comparisons = Vec::with_capacity(in_list.len());
-        for element in in_list.list() {
-            let element = self.convert_expr(element, schema, input_dtype)?;
-            let element_dtype = converted_dtype(&element, input_dtype)?;
-            if element_dtype == DType::Null {
-                comparisons.push(lit(None::<bool>));
-            } else if value_dtype.eq_ignore_nullability(&element_dtype) {
-                comparisons.push(Binary.new_expr(operator, [value.clone(), element]));
-            } else {
-                return Err(Unconverted::Unsupported);
-            }
-        }
-        // Kleene AND/OR preserve SQL IN/NOT IN nulls; list_contains does not.
-        let membership = if in_list.negated() {
-            and_collect(comparisons)
-        } else {
-            or_collect(comparisons)
-        };
-        membership.ok_or(Unconverted::Unsupported)
+            membership
+        })
     }
 
     fn convert_scalar_function(
@@ -591,7 +593,7 @@ impl ExpressionConverter for DefaultExpressionConverter {
 }
 
 /// Whether evaluating `expr` cannot fail, so Vortex may evaluate it on rows DataFusion skips.
-fn is_infallible(expr: &Expression) -> bool {
+pub(crate) fn is_infallible(expr: &Expression) -> bool {
     expr.as_scalar()
         .is_none_or(|scalar_fn| scalar_fn.signature().is_infallible())
         && expr.children().iter().all(is_infallible)
@@ -603,25 +605,41 @@ fn converted_dtype(expr: &Expression, input_dtype: &DType) -> Conversion<DType> 
         .map_err(|_| Unconverted::Unsupported)
 }
 
-fn supported_cast(cast: &df_expr::CastExpr, schema: &Schema) -> DFResult<bool> {
+/// How a supported DataFusion cast is converted.
+enum CastPushdown {
+    /// The Arrow cast cannot fail and keeps the Vortex dtype, so the converter omits it.
+    Drop,
+    /// The cast becomes a Vortex `cast`.
+    Keep,
+}
+
+/// Classifies a cast for pushdown; unsupported casts stay in DataFusion.
+fn classify_cast(cast: &df_expr::CastExpr, schema: &Schema) -> Conversion<CastPushdown> {
     use DataType::*;
     let options = cast.cast_options();
     if options.safe || options.format_options != DEFAULT_FORMAT_OPTIONS {
-        return Ok(false);
+        return Err(Unconverted::Unsupported);
     }
     let source = cast.expr().data_type(schema)?;
     let target = cast.cast_type();
-    Ok(source == *target
-        || matches!(
-            (&source, target),
-            (Int8, Int16 | Int32 | Int64)
-                | (Int16, Int32 | Int64)
-                | (Int32, Int64)
-                | (UInt8, UInt16 | UInt32 | UInt64)
-                | (UInt16, UInt32 | UInt64)
-                | (UInt32, UInt64)
-                | (Float32, Float64)
-        ))
+    Ok(match (&source, target) {
+        _ if source == *target => CastPushdown::Drop,
+        // Arrow expands runs by gathering with `Int32` indices, which fit Int16/Int32 run ends.
+        // Gathering a dictionary only moves keys and reuses the values, so nothing can overflow.
+        (RunEndEncoded(run_ends, values), Dictionary(..))
+            if matches!(run_ends.data_type(), Int16 | Int32) && values.data_type() == target =>
+        {
+            CastPushdown::Drop
+        }
+        (Int8, Int16 | Int32 | Int64)
+        | (Int16, Int32 | Int64)
+        | (Int32, Int64)
+        | (UInt8, UInt16 | UInt32 | UInt64)
+        | (UInt16, UInt32 | UInt64)
+        | (UInt32, UInt64)
+        | (Float32, Float64) => CastPushdown::Keep,
+        _ => return Err(Unconverted::Unsupported),
+    })
 }
 
 fn try_operator_from_df(value: &DFOperator) -> Option<Operator> {

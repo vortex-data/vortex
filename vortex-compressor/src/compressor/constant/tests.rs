@@ -44,7 +44,7 @@ use crate::builtins::FloatDictScheme;
 use crate::builtins::IntDictScheme;
 use crate::builtins::StringDictScheme;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
 /// Constant detection is built into the compressor, so it must work with no schemes at all.
 fn empty_compressor() -> CascadingCompressor {
@@ -58,6 +58,7 @@ fn constant_int_compresses_without_schemes() -> VortexResult<()> {
 
     let compressed = empty_compressor().compress(&array, &mut ctx)?;
     assert!(compressed.is::<Constant>());
+    assert_arrays_eq!(compressed, array, &mut ctx);
     Ok(())
 }
 
@@ -70,6 +71,7 @@ fn constant_int_with_nulls_compresses_to_masked_constant() -> VortexResult<()> {
 
     let compressed = empty_compressor().compress(&array, &mut ctx)?;
     assert!(compressed.is::<Masked>());
+    assert_arrays_eq!(compressed, array, &mut ctx);
     Ok(())
 }
 
@@ -80,6 +82,7 @@ fn constant_string_compresses_without_schemes() -> VortexResult<()> {
 
     let compressed = empty_compressor().compress(&array, &mut ctx)?;
     assert!(compressed.is::<Constant>());
+    assert_arrays_eq!(compressed, array, &mut ctx);
     Ok(())
 }
 
@@ -90,6 +93,7 @@ fn constant_bool_compresses_without_schemes() -> VortexResult<()> {
 
     let compressed = empty_compressor().compress(&array, &mut ctx)?;
     assert!(compressed.is::<Constant>());
+    assert_arrays_eq!(compressed, array, &mut ctx);
     Ok(())
 }
 
@@ -105,6 +109,7 @@ fn constant_decimal_compresses_without_schemes() -> VortexResult<()> {
 
     let compressed = empty_compressor().compress(&array, &mut ctx)?;
     assert!(compressed.is::<Constant>());
+    assert_arrays_eq!(compressed, array, &mut ctx);
     Ok(())
 }
 
@@ -117,6 +122,7 @@ fn constant_timestamp_compresses_without_schemes() -> VortexResult<()> {
 
     let compressed = empty_compressor().compress(&array, &mut ctx)?;
     assert!(compressed.is::<Constant>());
+    assert_arrays_eq!(compressed, array, &mut ctx);
     Ok(())
 }
 
@@ -137,6 +143,7 @@ fn constant_compresses_with_dict_schemes(#[case] array: ArrayRef) -> VortexResul
 
     let compressed = compressor.compress(&array, &mut ctx)?;
     assert!(compressed.is::<Constant>());
+    assert_arrays_eq!(compressed, array, &mut ctx);
     Ok(())
 }
 
@@ -148,6 +155,7 @@ fn signed_zero_floats_are_not_constant() -> VortexResult<()> {
 
     let compressed = empty_compressor().compress(&array, &mut ctx)?;
     assert!(!compressed.is::<Constant>());
+    assert_arrays_eq!(compressed, array, &mut ctx);
     Ok(())
 }
 
@@ -209,6 +217,7 @@ fn non_constant_valid_values_are_not_masked_constant(
     let compressed = empty_compressor().compress(&array, &mut ctx)?;
     assert!(!compressed.is::<Masked>());
     assert!(!compressed.is::<Constant>());
+    assert_arrays_eq!(compressed, array, &mut ctx);
     Ok(())
 }
 
@@ -220,6 +229,7 @@ fn non_constant_int_is_left_canonical_without_schemes() -> VortexResult<()> {
     let compressed = empty_compressor().compress(&array, &mut ctx)?;
     assert!(!compressed.is::<Constant>());
     assert_eq!(compressed.dtype(), array.dtype());
+    assert_arrays_eq!(compressed, array, &mut ctx);
     Ok(())
 }
 

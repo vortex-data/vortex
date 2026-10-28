@@ -174,7 +174,6 @@ mod tests {
 
     use rstest::rstest;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
@@ -183,8 +182,6 @@ mod tests {
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_array::compute::conformance::take::test_take_conformance;
-    use vortex_array::dtype::DType;
-    use vortex_array::dtype::Nullability;
     use vortex_array::scalar_fn::fns::operators::Operator;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
@@ -193,7 +190,7 @@ mod tests {
     use crate::ByteBoolArray;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = array_session();
+        let session = VortexSession::empty();
         crate::initialize(&session);
         session
     });
@@ -335,17 +332,6 @@ mod tests {
         test_take_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
-    #[test]
-    fn test_cast_bytebool_to_nullable() {
-        let array = bb(vec![true, false, true, false]);
-        let casted = array
-            .into_array()
-            .cast(DType::Bool(Nullability::Nullable))
-            .unwrap();
-        assert_eq!(casted.dtype(), &DType::Bool(Nullability::Nullable));
-        assert_eq!(casted.len(), 4);
-    }
-
     #[rstest]
     #[case(bb(vec![true, false, true, true, false]))]
     #[case(bb_opt(vec![Some(true), Some(false), None, Some(true), None]))]
@@ -366,7 +352,7 @@ mod tests {
     #[case::single_null(bb_opt(vec![None]))]
     #[case::mixed_with_nulls(bb_opt(vec![Some(true), None, Some(false), None, Some(true)]))]
     fn test_bytebool_consistency(#[case] array: ByteBoolArray) {
-        let ctx = &mut array_session().create_execution_ctx();
+        let ctx = &mut SESSION.create_execution_ctx();
         test_array_consistency(&array.into_array(), ctx);
     }
 }

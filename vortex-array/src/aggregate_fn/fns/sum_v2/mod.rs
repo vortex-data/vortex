@@ -291,7 +291,9 @@ impl AggregateFnVTable for SumV2 {
                 Canonical::Decimal(array) => {
                     accumulate_decimal(&mut partial.sum, args.return_dtype, array, ctx)
                 }
-                _ => vortex_bail!("Unsupported canonical type for sum_v2: {}", batch.dtype()),
+                _ => {
+                    vortex_bail!("Unsupported canonical type for sum_v2: {}", batch.dtype())
+                }
             },
             Columnar::Constant(_) => unreachable!(),
         };
@@ -419,7 +421,9 @@ fn decode_partial_scalar<'a>(
     let bool_field = |name: &str| -> VortexResult<bool> {
         match &values[field_index(name)?] {
             Some(ScalarValue::Bool(value)) => Ok(*value),
-            _ => vortex_bail!("SumV2 partial field {name} must be a non-null bool"),
+            _ => {
+                vortex_bail!("SumV2 partial field {name} must be a non-null bool")
+            }
         }
     };
 
@@ -491,7 +495,9 @@ fn checked_add_sum_value(
                 Some(_) | None => true,
             }
         }
-        (_, other) => vortex_bail!("SumV2 cannot add {other} to a {return_dtype} sum"),
+        (_, other) => {
+            vortex_bail!("SumV2 cannot add {other} to a {return_dtype} sum")
+        }
     })
 }
 

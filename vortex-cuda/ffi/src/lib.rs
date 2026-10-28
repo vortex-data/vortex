@@ -18,7 +18,6 @@ use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
-use vortex::error::vortex_err;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
@@ -76,6 +75,17 @@ pub struct vx_cuda_scan_options {
     /// Nonzero counts ignore layout boundaries and may require unsupported CUDA `Chunked`
     /// concatenation.
     pub batch_rows: usize,
+}
+
+/// Release Vortex's cached file mappings that no open scan uses.
+///
+/// Scans keep their files mapped so later scans of the same file reuse filled page tables. The
+/// operating system cannot evict mapped pages from the page cache, so call this before evicting
+/// files, for example before a cold-cache measurement. Mappings still used by open streams stay
+/// mapped until those streams are released.
+#[unsafe(no_mangle)]
+pub extern "C-unwind" fn vx_cuda_release_file_mappings() {
+    vortex_cuda::release_file_mappings();
 }
 
 fn session_with_cuda(session: &VortexSession) -> &VortexSession {
@@ -327,7 +337,7 @@ unsafe fn scan_columns(columns: *const vx_view, ncolumns: usize) -> VortexResult
         );
         // SAFETY: The caller guarantees readable name bytes. as_str checks null and UTF-8.
         let name = unsafe { column.as_str() }
-            .map_err(|error| vortex_err!("invalid CUDA scan column {index}: {error}"))?;
+            .map_err(|error| error.with_context(format!("invalid CUDA scan column {index}")))?;
         vortex_ensure!(seen.insert(name), "duplicate CUDA scan column: {name:?}");
         names.push(FieldName::from(name));
     }
@@ -494,9 +504,6 @@ mod tests {
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::Schema;
-    use cudarc::driver::CudaContext;
-    use cudarc::driver::result;
-    use cudarc::driver::sys::CUevent;
     use futures::TryStreamExt;
     use tempfile::NamedTempFile;
     use vortex::VortexSessionDefault;
@@ -520,6 +527,7 @@ mod tests {
     use vortex::dtype::Nullability;
     use vortex::error::VortexResult;
     use vortex::error::vortex_ensure_eq;
+    use vortex::error::vortex_err;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::session::RuntimeSessionExt;
     use vortex::layout::LayoutStrategy;
@@ -532,6 +540,9 @@ mod tests {
     use vortex_cuda::arrow::ArrowArray;
     use vortex_cuda::arrow::release_device_array;
     use vortex_cuda::arrow::release_schema;
+    use vortex_cuda_driver::CudaContext;
+    use vortex_cuda_driver::result;
+    use vortex_cuda_driver::sys::CUevent;
     use vortex_cuda_macros::cuda_not_available;
     use vortex_cuda_macros::test as cuda_test;
     use vortex_ffi::vx_array_free as free_test_array;
@@ -794,11 +805,8 @@ mod tests {
         Ok(PrimitiveArray::new(Buffer::from(values).slice(offset..), validity).into_array())
     }
 
-    /// Read the fixture's projected Int64/UInt32 columns through the public Arrow Device ABI.
-    ///
-    /// # Safety
-    /// `array` must be a live batch from the fixture's projected stream, with its schema checked.
-    unsafe fn read_projected_batch(array: &ArrowDeviceArray) -> VortexResult<ArrayRef> {
+    /// Wait for a live exported array before reading its device buffers.
+    fn synchronize_device_array(array: &ArrowDeviceArray) -> VortexResult<Arc<CudaContext>> {
         assert_eq!(array.device_type, ARROW_DEVICE_CUDA);
         let context = CudaContext::new(usize::try_from(array.device_id)?)
             .map_err(|error| vortex_err!("opening Arrow device context: {error}"))?;
@@ -810,6 +818,15 @@ mod tests {
             unsafe { result::event::synchronize(*array.sync_event.cast::<CUevent>()) }
                 .map_err(|error| vortex_err!("waiting for Arrow device batch: {error}"))?;
         }
+        Ok(context)
+    }
+
+    /// Read the fixture's projected Int64/UInt32 columns through the public Arrow Device ABI.
+    ///
+    /// # Safety
+    /// `array` must be a live batch from the fixture's projected stream, with its schema checked.
+    unsafe fn read_projected_batch(array: &ArrowDeviceArray) -> VortexResult<ArrayRef> {
+        let _context = synchronize_device_array(array)?;
         let array = &array.array;
         assert!(array.dictionary.is_null());
         assert_eq!(array.offset, 0);
@@ -931,6 +948,16 @@ mod tests {
             )?;
             let lengths: Vec<_> = batches.iter().map(|batch| batch.len()).collect();
             assert_eq!(lengths, [3, 3, 3, 1]);
+            let mut offset = 0u32;
+            for batch in batches {
+                let end = offset + u32::try_from(batch.len())?;
+                let expected = StructArray::from_fields(&[(
+                    "ids",
+                    PrimitiveArray::from_iter(offset..end).into_array(),
+                )])?;
+                assert_arrays_eq!(batch, expected, &mut session.create_execution_ctx());
+                offset = end;
+            }
         }
         Ok(())
     }
@@ -1161,26 +1188,36 @@ mod tests {
     }
 
     #[cuda_test]
-    fn test_export_primitive_arrow_device() {
+    fn test_export_primitive_arrow_device() -> VortexResult<()> {
         let session = test_session(VortexSession::default());
         let array = test_array(PrimitiveArray::from_iter(0u32..5));
         // SAFETY: Both handles remain live until cleanup below.
         let (mut schema, mut device_array) = unsafe { export_array(session, array) };
 
-        let field = Field::try_from(&schema).expect("schema should be a field");
-        assert_eq!(field.name(), "");
+        let field = Field::try_from(&schema)?;
+        assert_eq!(field, Field::new("", DataType::UInt32, false));
         assert_eq!(device_array.array.length, 5);
         assert_eq!(device_array.array.n_buffers, 2);
         assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
         assert_eq!(device_array.reserved, [0; 3]);
         assert!(device_array.array.release.is_some());
 
+        let _context = synchronize_device_array(&device_array)?;
+        // SAFETY: The checked schema describes the live, synchronized UInt32 export.
+        let actual =
+            unsafe { read_primitive::<u32>(&device_array.array, Nullability::NonNullable) }?;
+        assert_arrays_eq!(
+            actual,
+            PrimitiveArray::from_iter(0u32..5),
+            &mut VortexSession::default().create_execution_ctx()
+        );
         unsafe {
             release_device_array(&mut device_array);
             release_schema(&mut schema);
             free_test_array(array);
             free_test_session(session);
         }
+        Ok(())
     }
 
     #[cuda_test]
@@ -1199,9 +1236,13 @@ mod tests {
         let (mut schema, mut device_array) = unsafe { export_array(session, array) };
 
         let arrow_schema = Schema::try_from(&schema)?;
-        assert_eq!(arrow_schema.fields().len(), 2);
-        assert_eq!(arrow_schema.field(0).name(), "ids");
-        assert_eq!(arrow_schema.field(1).name(), "values");
+        assert_eq!(
+            arrow_schema,
+            Schema::new(vec![
+                Field::new("ids", DataType::UInt32, false),
+                Field::new("values", DataType::Int64, false)
+            ])
+        );
 
         assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
         assert_eq!(device_array.reserved, [0; 3]);
@@ -1210,7 +1251,19 @@ mod tests {
         assert_eq!(device_array.array.n_children, 2);
         assert!(device_array.array.release.is_some());
 
+        let _context = synchronize_device_array(&device_array)?;
         let children = unsafe { std::slice::from_raw_parts(device_array.array.children, 2) };
+        // SAFETY: Both children match the checked schema and their producer event is complete.
+        let actual_ids = unsafe { read_primitive::<u32>(&*children[0], Nullability::NonNullable) }?;
+        let actual_values =
+            unsafe { read_primitive::<i64>(&*children[1], Nullability::NonNullable) }?;
+        let mut ctx = VortexSession::default().create_execution_ctx();
+        assert_arrays_eq!(actual_ids, PrimitiveArray::from_iter(0u32..3), &mut ctx);
+        assert_arrays_eq!(
+            actual_values,
+            PrimitiveArray::from_iter([10i64, 20, 30]),
+            &mut ctx
+        );
         for child in children {
             let child = unsafe { &**child };
             assert_eq!(child.length, 3);
@@ -1229,7 +1282,7 @@ mod tests {
     }
 
     #[cuda_test]
-    fn test_cuda_session_new_export() {
+    fn test_cuda_session_new_export() -> VortexResult<()> {
         let mut error = ptr::null_mut();
         let session = unsafe { vx_cuda_session_new(&raw mut error) };
         assert!(error.is_null());
@@ -1240,6 +1293,19 @@ mod tests {
         let (mut schema, mut device_array) = unsafe { export_array(session, array) };
         assert_eq!(device_array.array.length, 5);
         assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
+        assert_eq!(
+            Field::try_from(&schema)?,
+            Field::new("", DataType::UInt32, false)
+        );
+        let _context = synchronize_device_array(&device_array)?;
+        // SAFETY: The checked schema describes the live, synchronized UInt32 export.
+        let actual =
+            unsafe { read_primitive::<u32>(&device_array.array, Nullability::NonNullable) }?;
+        assert_arrays_eq!(
+            actual,
+            PrimitiveArray::from_iter(0u32..5),
+            &mut VortexSession::default().create_execution_ctx()
+        );
 
         unsafe {
             release_device_array(&mut device_array);
@@ -1247,6 +1313,7 @@ mod tests {
             free_test_array(array);
             vortex_ffi::vx_session_free(session);
         }
+        Ok(())
     }
 
     #[cuda_not_available]

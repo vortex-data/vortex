@@ -159,9 +159,12 @@ impl<V: NativePType> ApplyPatches<'_, V> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
@@ -176,8 +179,11 @@ mod tests {
     use crate::scalar_fn::fns::operators::CompareOperator;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn test_basic() {
+        let mut ctx = SESSION.create_execution_ctx();
         let lhs = PrimitiveArray::from_iter(0u32..512).into_array();
         let patches = Patches::new(
             512,
@@ -185,10 +191,11 @@ mod tests {
             buffer![509u16, 510, 511].into_array(),
             buffer![u32::MAX; 3].into_array(),
             None,
+            &mut ctx,
         )
         .unwrap();
 
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)
             .unwrap()
@@ -206,11 +213,12 @@ mod tests {
         let expected =
             BoolArray::from_indices(512, [509, 510, 511], Validity::NonNullable).into_array();
 
-        assert_arrays_eq!(expected, result, &mut ctx);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn test_with_offset() {
+        let mut ctx = SESSION.create_execution_ctx();
         let lhs = PrimitiveArray::from_iter(0u32..512).into_array();
         let patches = Patches::new(
             512,
@@ -218,10 +226,11 @@ mod tests {
             buffer![5u16, 510, 511].into_array(),
             buffer![u32::MAX; 3].into_array(),
             None,
+            &mut ctx,
         )
         .unwrap();
 
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx).unwrap();
         // Slice the array so that the first patch should be skipped.
@@ -239,11 +248,12 @@ mod tests {
 
         let expected = BoolArray::from_indices(502, [500, 501], Validity::NonNullable).into_array();
 
-        assert_arrays_eq!(expected, result, &mut ctx);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn test_subnormal_f32() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         // Subnormal f32 values are smaller than f32::MIN_POSITIVE but greater than 0
         let subnormal: f32 = f32::MIN_POSITIVE / 2.0;
         assert!(subnormal > 0.0 && subnormal < f32::MIN_POSITIVE);
@@ -256,9 +266,10 @@ mod tests {
             buffer![509u16, 510, 511].into_array(),
             buffer![f32::NAN, subnormal, f32::NEG_INFINITY].into_array(),
             None,
+            &mut ctx,
         )?;
 
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)?
             .into_array()
             .try_downcast::<Patched>()
@@ -276,12 +287,13 @@ mod tests {
 
         let expected = BoolArray::from_indices(512, [510], Validity::NonNullable).into_array();
 
-        assert_arrays_eq!(expected, result, &mut ctx);
+        assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn test_pos_neg_zero() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let lhs = PrimitiveArray::from_iter([-0.0f32; 10]).into_array();
 
         let patches = Patches::new(
@@ -290,9 +302,10 @@ mod tests {
             buffer![5u16, 6, 7, 8, 9].into_array(),
             buffer![f32::NAN, f32::NEG_INFINITY, 0f32, -0.0f32, f32::INFINITY].into_array(),
             None,
+            &mut ctx,
         )?;
 
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)?
             .into_array()
             .try_downcast::<Patched>()
@@ -310,7 +323,7 @@ mod tests {
 
         let expected = BoolArray::from_indices(10, [7], Validity::NonNullable).into_array();
 
-        assert_arrays_eq!(expected, result, &mut ctx);
+        assert_arrays_eq!(result, expected, &mut ctx);
 
         Ok(())
     }

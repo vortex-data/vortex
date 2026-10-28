@@ -369,11 +369,7 @@ mod tests {
     ) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let (array, expected) = variable(ptype, offset, len, encoded_offsets)?;
-        let decoded = array
-            .clone()
-            .into_array()
-            .execute::<PrimitiveArray>(&mut ctx)?;
-        assert_arrays_eq!(decoded, expected, &mut ctx);
+        assert_arrays_eq!(array, expected, &mut ctx);
         for index in [
             0,
             1,
@@ -458,6 +454,7 @@ mod tests {
             PrimitiveArray::from_iter(indices.map(|i| i + 113)).into_array(),
             PrimitiveArray::new(buffer![999u32; 6], Validity::AllValid).into_array(),
             None,
+            &mut ctx,
         )?;
         let BitWidthsView::Blocked(block_offsets) = array.bit_widths() else {
             vortex_bail!("expected block offsets");

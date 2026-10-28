@@ -21,12 +21,15 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::expr::list_length;
 use vortex_array::expr::root;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
@@ -35,10 +38,16 @@ use vortex_session::VortexSession;
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>()
+});
 
 const BASE_LIST_SIZE: usize = 8;
 
@@ -74,6 +83,7 @@ fn random_lists(num_lists: usize) -> (Vec<i32>, Validity) {
 
 /// A canonical `List<i32>` of `num_lists` variable-length lists, ~1/8 of them null.
 fn make_list(num_lists: usize) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let (sizes, validity) = random_lists(num_lists);
     let total: i32 = sizes.iter().sum();
     let elements = PrimitiveArray::from_iter(0..total).into_array();
@@ -83,13 +93,14 @@ fn make_list(num_lists: usize) -> ArrayRef {
             Some(*acc)
         }))
         .collect();
-    ListArray::try_new(elements, offsets.into_array(), validity)
+    ListArray::try_new(elements, offsets.into_array(), validity, &mut ctx)
         .unwrap()
         .into_array()
 }
 
 /// A gapless `ListView<i32>` of `num_lists` variable-length lists, ~1/8 of them null.
 fn make_listview(num_lists: usize) -> ArrayRef {
+    let mut ctx = SESSION.create_execution_ctx();
     let (sizes, validity) = random_lists(num_lists);
     let total: i32 = sizes.iter().sum();
     let elements = PrimitiveArray::from_iter(0..total).into_array();
@@ -102,7 +113,14 @@ fn make_listview(num_lists: usize) -> ArrayRef {
         })
         .collect();
     let sizes: Buffer<i32> = sizes.into_iter().collect();
-    ListViewArray::new(elements, offsets.into_array(), sizes.into_array(), validity).into_array()
+    ListViewArray::new(
+        elements,
+        offsets.into_array(),
+        sizes.into_array(),
+        validity,
+        &mut ctx,
+    )
+    .into_array()
 }
 
 /// Apply `list_length(root())` and materialize the result.

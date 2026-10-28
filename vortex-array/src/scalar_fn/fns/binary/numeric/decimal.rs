@@ -255,10 +255,7 @@ where
         <W as BigCast>::from(1_i8).vortex_expect("one fits every decimal working width");
     for _ in 0..exp {
         factor = factor.checked_mul(&ten).ok_or_else(|| {
-            vortex_err!(
-                InvalidArgument:
-                "decimal scale factor 10^{exp} cannot be represented at the working width"
-            )
+            vortex_err!("decimal scale factor 10^{exp} cannot be represented at the working width")
         })?;
     }
     Ok(factor)
@@ -382,8 +379,8 @@ where
         ) => {
             let lhs = typed_constant::<W>(lhs);
             let rhs = typed_constant::<W>(rhs);
-            let value = Op::apply(lhs, rhs, constants)
-                .ok_or_else(|| vortex_err!(InvalidArgument: "{}", Op::ERROR))?;
+            let value =
+                Op::apply(lhs, rhs, constants).ok_or_else(|| vortex_err!("{}", Op::ERROR))?;
             let value = DecimalValue::from(value)
                 .normalize(result_decimal_dtype)
                 .vortex_expect("bounds-checked result fits the result precision");
@@ -394,7 +391,7 @@ where
             .into_array());
         }
     }
-    .map_err(|_lane| vortex_err!(InvalidArgument: "{}", Op::ERROR))?;
+    .map_err(|_lane| vortex_err!("{}", Op::ERROR))?;
 
     Ok(decimal_array_narrowed(
         values,

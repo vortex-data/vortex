@@ -162,6 +162,27 @@ jobs:
           aws s3 rm --recursive "${{ matrix.benchmark.remote_data_dir }}"
           aws s3 cp --recursive vortex-bench/data "${{ matrix.benchmark.remote_data_dir }}"
 
+      - name: Install uv for LitData
+        if: matrix.benchmark.id == 'random-access-bench' && matrix.benchmark.remote_data_dir == null
+        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+        with:
+          sync: false
+
+      - name: Install LitData
+        # LitData is Python-only, so random-access-bench times it through
+        # scripts/litdata-random-access.py, run by the interpreter named in LITDATA_PYTHON.
+        if: matrix.benchmark.id == 'random-access-bench' && matrix.benchmark.remote_data_dir == null
+        shell: bash
+        run: |
+          set -Eeu -o pipefail -x
+
+          uv venv --python 3.12 .venv-litdata
+          uv pip install --python .venv-litdata \
+            --index-strategy unsafe-best-match \
+            --extra-index-url https://download.pytorch.org/whl/cpu \
+            litdata==0.2.76 torch pyarrow numpy
+          echo "LITDATA_PYTHON=$PWD/.venv-litdata/bin/python" >> "$GITHUB_ENV"
+
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
 

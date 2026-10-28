@@ -9,8 +9,7 @@ import vortex
 def test_create_fixed_size_list_dtype() -> None:
     """Test creating a FixedSizeList dtype."""
     dtype = vortex.fixed_size_list(vortex.int_(32), 3, nullable=False)
-    # The actual string representation might differ from expected
-    assert "fixed_size_list" in str(dtype).lower()
+    assert str(dtype) == "fixed_size_list(i32)[3]"
 
 
 def test_create_nullable_fixed_size_list_dtype() -> None:
@@ -37,10 +36,7 @@ def test_create_fixed_size_list_array_from_arrow() -> None:
 
     # Convert back to Arrow to verify
     result = vx_array.to_arrow_array()
-    assert pa.types.is_fixed_size_list(result.type)
-    assert result.type.list_size == 3
-    # PyArrow returns FixedSizeListScalar objects that need to be converted
-    assert [x.as_py() for x in result] == [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+    assert result == pa_array
 
 
 def test_create_nullable_fixed_size_list_array() -> None:
@@ -51,10 +47,7 @@ def test_create_nullable_fixed_size_list_array() -> None:
     vx_array = vortex.array(pa_array)
     result = vx_array.to_arrow_array()
 
-    assert pa.types.is_fixed_size_list(result.type)
-    assert result.type.list_size == 2
-    # Handle nullable values - PyArrow scalars have as_py() method
-    assert [x.as_py() for x in result] == [[10, 20], None, [30, 40]]
+    assert result == pa_array
 
 
 def test_fixed_size_list_with_string_elements() -> None:
@@ -65,10 +58,7 @@ def test_fixed_size_list_with_string_elements() -> None:
     vx_array = vortex.array(pa_array)
     result = vx_array.to_arrow_array()
 
-    assert pa.types.is_fixed_size_list(result.type)
-    assert result.type.list_size == 3
-    # Convert FixedSizeListScalar to Python lists
-    assert [x.as_py() for x in result] == [["a", "b", "c"], ["d", "e", "f"], ["g", "h", "i"]]
+    assert result == pa.array([["a", "b", "c"], ["d", "e", "f"], ["g", "h", "i"]], type=pa.list_(pa.string_view(), 3))
 
 
 def test_empty_fixed_size_list_array() -> None:
@@ -79,9 +69,7 @@ def test_empty_fixed_size_list_array() -> None:
     vx_array = vortex.array(pa_array)
     result = vx_array.to_arrow_array()
 
-    assert pa.types.is_fixed_size_list(result.type)
-    assert result.type.list_size == 3
-    assert len(result) == 0
+    assert result == pa_array
 
 
 def test_fixed_size_list_scalar_access() -> None:
@@ -115,10 +103,4 @@ def test_fixed_size_list_with_f64_elements() -> None:
     result = vx_array.to_arrow_array()
 
     # Verify type is preserved
-    assert pa.types.is_fixed_size_list(result.type)
-    assert result.type.list_size == 4
-    assert result.type.value_type == pa.float64()
-
-    # Verify data is preserved
-    # Use as_py() to convert PyArrow scalars to Python objects
-    assert [x.as_py() for x in result] == [[1.1, 2.2, 3.3, 4.4], [5.5, 6.6, 7.7, 8.8], [9.9, 10.0, 11.1, 12.2]]
+    assert result == pa_array

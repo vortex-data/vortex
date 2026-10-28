@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import org.apache.spark.sql.Row;
+import org.apache.spark.sql.RowFactory;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -67,7 +68,9 @@ public final class VortexSessionCatalogTest {
         assertEquals("Bob", rows.get(0).getString(0));
 
         spark.sql("INSERT OVERWRITE managed_students VALUES (3, 'Carol', 22)");
-        assertEquals(1, spark.sql("SELECT * FROM managed_students").count(), "Overwrite should replace all rows");
+        assertEquals(
+                List.of(RowFactory.create(3, "Carol", 22)),
+                spark.sql("SELECT * FROM managed_students").collectAsList());
 
         Path tableDir = warehouseDir.resolve("managed_students");
         assertTrue(Files.exists(tableDir), "Managed table data should live under the warehouse dir");
@@ -82,9 +85,9 @@ public final class VortexSessionCatalogTest {
         spark.sql("INSERT INTO ctas_source VALUES (1, 'Alice'), (2, 'Bob')");
 
         spark.sql("CREATE TABLE ctas_target USING vortex AS SELECT * FROM ctas_source WHERE id > 1");
-        List<Row> rows = spark.sql("SELECT name FROM ctas_target").collectAsList();
-        assertEquals(1, rows.size());
-        assertEquals("Bob", rows.get(0).getString(0));
+        assertEquals(
+                List.of(RowFactory.create(2, "Bob")),
+                spark.sql("SELECT * FROM ctas_target").collectAsList());
 
         spark.sql("DROP TABLE ctas_target");
         spark.sql("DROP TABLE ctas_source");
@@ -97,7 +100,9 @@ public final class VortexSessionCatalogTest {
         spark.sql(
                 String.format("CREATE TABLE ext_students (id INT, name STRING) USING vortex LOCATION '%s'", location));
         spark.sql("INSERT INTO ext_students VALUES (1, 'Alice')");
-        assertEquals(1, spark.sql("SELECT * FROM ext_students").count());
+        assertEquals(
+                List.of(RowFactory.create(1, "Alice")),
+                spark.sql("SELECT * FROM ext_students").collectAsList());
         spark.sql("DROP TABLE ext_students");
     }
 
@@ -107,7 +112,8 @@ public final class VortexSessionCatalogTest {
         spark.sql("CREATE TABLE pq_table (id INT) USING parquet");
         spark.sql("INSERT INTO pq_table VALUES (7)");
         assertEquals(
-                7, spark.sql("SELECT * FROM pq_table").collectAsList().get(0).getInt(0));
+                List.of(RowFactory.create(7)),
+                spark.sql("SELECT * FROM pq_table").collectAsList());
         spark.sql("DROP TABLE pq_table");
     }
 }

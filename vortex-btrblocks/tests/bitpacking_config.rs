@@ -37,7 +37,7 @@ static BITPACKING_V1: BitPackingScheme = BitPackingScheme::v1();
 
 /// Registers the fastlanes encodings, and enables no editions.
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty();
     session.arrays().register(Patched);
     vortex_fastlanes::initialize(&session);
     session
@@ -46,7 +46,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 /// Like [`SESSION`], with the latest core edition enabled: it allows `fastlanes.bitpacked` but not
 /// `fastlanes.bitpacked.v2`.
 static CORE_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session().with::<EditionSession>();
+    let session = VortexSession::empty().with::<EditionSession>();
     for family in EDITION_FAMILIES {
         session
             .editions()

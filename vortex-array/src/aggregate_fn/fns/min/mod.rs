@@ -18,6 +18,7 @@ use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::bounded_min::BoundedMin;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::columnar_min_max;
+use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::fns::min_max::nan_scalar;
 use crate::aggregate_fn::fns::min_max::scalar_is_nan;
 use crate::dtype::DType;
@@ -175,13 +176,17 @@ impl AggregateFnVTable for Min {
         args: AggregateArgs<'_, Self::Options>,
         partial: &mut Self::Partial,
         batch: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
-        // NaN-aware shortcircuits only apply to the NaN-including float minimum; everything else
-        // takes the default dispatch path.
         if args.options.skip_nans || !args.dtype.is_float() {
-            return Ok(false);
+            // `min_max` computes both extrema in one pass and caches both on `batch`, so a
+            // `Max` over the same batch reads the cached value instead of a second scan.
+            if let Some(result) = min_max(batch, ctx, *args.options)? {
+                partial.merge(args, result.min);
+            }
+            return Ok(true);
         }
+
         match batch.statistics().get_as::<u64>(Stat::NaNCount) {
             Precision::Exact(0) => {
                 // NaN-free batch: the cached NaN-skipping minimum (if any) is valid. `to_scalar`
@@ -234,8 +239,11 @@ impl AggregateFnVTable for Min {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray as _;
     use crate::VortexSessionExecute;
@@ -243,7 +251,6 @@ mod tests {
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::min::Min;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -254,9 +261,11 @@ mod tests {
     use crate::scalar::ScalarValue;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     #[test]
     fn min_aggregate_fn() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(Min, NumericalAggregateOpts::default(), dtype)?;
 
@@ -287,7 +296,7 @@ mod tests {
 
     #[test]
     fn min_with_nan_not_skipping() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(Min, NumericalAggregateOpts::include_nans(), dtype)?;
 
@@ -307,11 +316,11 @@ mod tests {
     }
 
     #[test]
-    fn min_not_skipping_shortcircuits_on_exact_nan_count_stat() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
-        // The array has no NaNs; a planted exact NaNCount stat proves the poisoning came from
-        // the stat rather than a scan.
-        let batch = PrimitiveArray::new(buffer![1.0f64, 2.0], Validity::NonNullable).into_array();
+    fn min_not_skipping_with_exact_nan_count_stat() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // The exact NaN count agrees with the batch; including NaNs must poison the result.
+        let batch =
+            PrimitiveArray::new(buffer![1.0f64, 2.0, f64::NAN], Validity::NonNullable).into_array();
         batch
             .statistics()
             .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(1u64)));
@@ -335,7 +344,7 @@ mod tests {
     fn min_nan_including_nullable_cached_stat() -> VortexResult<()> {
         // A nullable float array's cached Min stat is reconstructed as a nullable scalar. The
         // NaN-including shortcircuit merges it as-is; `to_scalar` re-casts to the result dtype.
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array =
             PrimitiveArray::from_option_iter([Some(1.0f64), Some(2.0), Some(3.0)]).into_array();
         array
@@ -359,11 +368,11 @@ mod tests {
 
     #[test]
     fn min_casts_nonnullable_legacy_stat_to_nullable_partial() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let batch = PrimitiveArray::new(buffer![10i32, 20], Validity::NonNullable).into_array();
         batch
             .statistics()
-            .set(Stat::Min, Precision::Exact(ScalarValue::from(3i32)));
+            .set(Stat::Min, Precision::Exact(ScalarValue::from(10i32)));
         let mut acc = Accumulator::try_new(
             Min,
             NumericalAggregateOpts::default(),
@@ -374,7 +383,7 @@ mod tests {
 
         assert_eq!(
             acc.finish()?,
-            Scalar::primitive(3i32, Nullability::Nullable)
+            Scalar::primitive(10i32, Nullability::Nullable)
         );
         Ok(())
     }

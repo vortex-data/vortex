@@ -31,7 +31,7 @@ use crate::PcoArrayExt;
 use crate::PcoData;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = VortexSession::empty();
     session.arrays().register(Pco);
     session
 });
@@ -44,7 +44,8 @@ fn test_compress_decompress() {
     let array = PrimitiveArray::from_iter(data.clone());
     let compressed = Pco::from_primitive(array.as_view(), 3, 0, &mut ctx).unwrap();
     // this data should be compressible
-    assert!(compressed.pages.len() < array.into_array().nbytes() as usize);
+    let compressed_bytes: usize = compressed.pages.iter().map(|page| page.len()).sum();
+    assert!(compressed_bytes < array.into_array().nbytes() as usize);
 
     // check full decompression works
     let unsliced_validity = compressed.unsliced_validity();
@@ -134,22 +135,17 @@ fn test_validity_and_multiple_chunks_and_pages() {
     assert_nth_scalar!(compressed, 101, None::<i32>, &mut ctx);
     assert_nth_scalar!(compressed, 199, 199, &mut ctx);
 
+    assert_arrays_eq!(compressed, array, &mut ctx);
+
     // check slicing works
     let slice = compressed.slice(100..103).unwrap();
     assert_nth_scalar!(slice, 0, 100, &mut ctx);
     assert_nth_scalar!(slice, 2, 102, &mut ctx);
-    let primitive = slice.execute::<PrimitiveArray>(&mut ctx).unwrap();
 
-    assert!(
-        primitive
-            .validity()
-            .unwrap()
-            .mask_eq(
-                &Validity::Array(BoolArray::from_iter(vec![true, false, true]).into_array()),
-                primitive.len(),
-                &mut ctx,
-            )
-            .unwrap()
+    assert_arrays_eq!(
+        slice,
+        PrimitiveArray::from_option_iter([Some(100i32), None, Some(102)]),
+        &mut ctx
     );
 }
 
@@ -218,6 +214,25 @@ fn test_serde() -> VortexResult<()> {
     let decoded_arrow = SESSION
         .arrow()
         .execute_arrow(decoded, Some(&data_type), &mut ctx)?;
-    assert!(pco_arrow == decoded_arrow);
+    let expected_arrow =
+        SESSION
+            .arrow()
+            .execute_arrow(data.into_array(), Some(&data_type), &mut ctx)?;
+    assert_eq!(pco_arrow.as_ref(), expected_arrow.as_ref());
+    assert_eq!(decoded_arrow.as_ref(), expected_arrow.as_ref());
+    Ok(())
+}
+
+#[test]
+fn sliced_pco_cannot_be_serialized() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let values = PrimitiveArray::from_iter(0..100_i32);
+    let array = Pco::from_primitive(values.as_view(), 3, 0, &mut ctx)?.into_array();
+    let context = ArrayContext::empty();
+    let options = SerializeOptions::default();
+
+    array.serialize(&context, &SESSION, &options)?;
+    let slice = array.slice(10..20)?;
+    assert!(slice.serialize(&context, &SESSION, &options).is_err());
     Ok(())
 }

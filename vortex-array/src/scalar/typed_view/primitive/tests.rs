@@ -149,11 +149,11 @@ fn test_primitive_cast(
     let result = scalar.cast(&target_dtype);
 
     if should_succeed {
-        assert!(
-            result.is_ok(),
-            "Cast from {:?} to {:?} should succeed",
-            source_type,
-            target_type
+        let casted = result.expect("representable cast should succeed");
+        assert_eq!(casted.dtype(), &target_dtype);
+        assert_eq!(
+            casted.as_primitive().as_::<f64>(),
+            Some(f64::from(source_value))
         );
     } else {
         assert!(
@@ -311,10 +311,10 @@ fn test_checked_binary_numeric_float_ops() {
 fn test_from_primitive_or_f16() {
     // Test f16 to f32 conversion
     let f16_val = f16::from_f32(3.5);
-    assert!(f32::from_f16(f16_val).is_some());
+    assert_eq!(f32::from_f16(f16_val), Some(3.5));
 
     // Test f16 to f64 conversion
-    assert!(f64::from_f16(f16_val).is_some());
+    assert_eq!(f64::from_f16(f16_val), Some(3.5));
 
     // Test PValue::F16(f16) to integer conversion (should fail)
     assert!(i32::try_from(PValue::from(f16_val)).is_err());
@@ -404,16 +404,27 @@ fn test_hash() {
 #[test]
 fn test_zero_values() {
     assert_eq!(PValue::zero(&PType::U8), PValue::U8(0));
+    assert_eq!(PValue::zero(&PType::U8).ptype(), PType::U8);
     assert_eq!(PValue::zero(&PType::U16), PValue::U16(0));
+    assert_eq!(PValue::zero(&PType::U16).ptype(), PType::U16);
     assert_eq!(PValue::zero(&PType::U32), PValue::U32(0));
+    assert_eq!(PValue::zero(&PType::U32).ptype(), PType::U32);
     assert_eq!(PValue::zero(&PType::U64), PValue::U64(0));
+    assert_eq!(PValue::zero(&PType::U64).ptype(), PType::U64);
     assert_eq!(PValue::zero(&PType::I8), PValue::I8(0));
+    assert_eq!(PValue::zero(&PType::I8).ptype(), PType::I8);
     assert_eq!(PValue::zero(&PType::I16), PValue::I16(0));
+    assert_eq!(PValue::zero(&PType::I16).ptype(), PType::I16);
     assert_eq!(PValue::zero(&PType::I32), PValue::I32(0));
+    assert_eq!(PValue::zero(&PType::I32).ptype(), PType::I32);
     assert_eq!(PValue::zero(&PType::I64), PValue::I64(0));
+    assert_eq!(PValue::zero(&PType::I64).ptype(), PType::I64);
     assert_eq!(PValue::zero(&PType::F16), PValue::F16(f16::from_f32(0.0)));
+    assert_eq!(PValue::zero(&PType::F16).ptype(), PType::F16);
     assert_eq!(PValue::zero(&PType::F32), PValue::F32(0.0));
+    assert_eq!(PValue::zero(&PType::F32).ptype(), PType::F32);
     assert_eq!(PValue::zero(&PType::F64), PValue::F64(0.0));
+    assert_eq!(PValue::zero(&PType::F64).ptype(), PType::F64);
 }
 
 #[test]
@@ -435,6 +446,7 @@ fn test_ptype() {
 fn test_reinterpret_cast_same_type() {
     let value = PValue::U32(42);
     assert_eq!(value.reinterpret_cast(PType::U32), value);
+    assert_eq!(value.reinterpret_cast(PType::U32).ptype(), PType::U32);
 }
 
 #[test]
@@ -442,6 +454,7 @@ fn test_reinterpret_cast_u8_i8() {
     let value = PValue::U8(255);
     let casted = value.reinterpret_cast(PType::I8);
     assert_eq!(casted, PValue::I8(-1));
+    assert_eq!(casted.ptype(), PType::I8);
 }
 
 #[test]
@@ -455,6 +468,8 @@ fn test_reinterpret_cast_u16_types() {
     // U16 -> F16
     let as_f16 = value.reinterpret_cast(PType::F16);
     assert_eq!(as_f16, PValue::F16(f16::from_bits(12345)));
+    assert_eq!(as_i16.ptype(), PType::I16);
+    assert_eq!(as_f16.ptype(), PType::F16);
 }
 
 #[test]
@@ -469,6 +484,8 @@ fn test_reinterpret_cast_u32_types() {
     let value2 = PValue::U32(0x80000000);
     let as_i32 = value2.reinterpret_cast(PType::I32);
     assert_eq!(as_i32, PValue::I32(i32::MIN));
+    assert_eq!(as_f32.ptype(), PType::F32);
+    assert_eq!(as_i32.ptype(), PType::I32);
 }
 
 #[test]
@@ -476,6 +493,7 @@ fn test_reinterpret_cast_f32_to_u32() {
     let value = PValue::F32(1.0);
     let as_u32 = value.reinterpret_cast(PType::U32);
     assert_eq!(as_u32, PValue::U32(0x3f800000));
+    assert_eq!(as_u32.ptype(), PType::U32);
 }
 
 #[test]
@@ -483,6 +501,7 @@ fn test_reinterpret_cast_f64_to_i64() {
     let value = PValue::F64(1.0);
     let as_i64 = value.reinterpret_cast(PType::I64);
     assert_eq!(as_i64, PValue::I64(0x3ff0000000000000_i64));
+    assert_eq!(as_i64.ptype(), PType::I64);
 }
 
 #[test]
@@ -546,9 +565,11 @@ fn test_try_from_pvalue_floats() {
 fn test_from_usize() {
     let value: PValue = 42usize.into();
     assert_eq!(value, PValue::U64(42));
+    assert_eq!(value.ptype(), PType::U64);
 
     let max_value: PValue = usize::MAX.into();
     assert_eq!(max_value, PValue::U64(usize::MAX as u64));
+    assert_eq!(max_value.ptype(), PType::U64);
 }
 
 #[test]
@@ -628,10 +649,10 @@ fn test_to_le_bytes() {
     assert_eq!(PValue::I16(-1).to_le_bytes(), &[0xFF, 0xFF]);
 
     let f32_bytes = PValue::F32(1.0).to_le_bytes();
-    assert_eq!(f32_bytes.len(), 4);
+    assert_eq!(f32_bytes, &[0x00, 0x00, 0x80, 0x3f]);
 
     let f64_bytes = PValue::F64(1.0).to_le_bytes();
-    assert_eq!(f64_bytes.len(), 8);
+    assert_eq!(f64_bytes, &[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f]);
 }
 
 #[test]
@@ -670,7 +691,10 @@ fn test_coerce_pvalue() {
 #[test]
 fn test_coerce_f16_beyond_u16_max() {
     // Test U32 to f16 coercion within valid range
-    assert!(f16::coerce(PValue::U32(u16::MAX as u32)).is_ok());
+    assert_eq!(
+        f16::coerce(PValue::U32(u16::MAX as u32)).unwrap().to_bits(),
+        u16::MAX
+    );
     assert_eq!(
         f16::coerce(PValue::U32(0x3C00)).unwrap(),
         f16::from_bits(0x3C00) // 1.0 in f16
@@ -681,7 +705,10 @@ fn test_coerce_f16_beyond_u16_max() {
     assert!(f16::coerce(PValue::U32(u32::MAX)).is_err());
 
     // Test U64 to f16 coercion within valid range
-    assert!(f16::coerce(PValue::U64(u16::MAX as u64)).is_ok());
+    assert_eq!(
+        f16::coerce(PValue::U64(u16::MAX as u64)).unwrap().to_bits(),
+        u16::MAX
+    );
     assert_eq!(
         f16::coerce(PValue::U64(0x3C00)).unwrap(),
         f16::from_bits(0x3C00) // 1.0 in f16
@@ -696,7 +723,10 @@ fn test_coerce_f16_beyond_u16_max() {
 #[test]
 fn test_coerce_f32_beyond_u32_max() {
     // Test U64 to f32 coercion within valid range
-    assert!(f32::coerce(PValue::U64(u32::MAX as u64)).is_ok());
+    assert_eq!(
+        f32::coerce(PValue::U64(u32::MAX as u64)).unwrap().to_bits(),
+        u32::MAX
+    );
     assert_eq!(
         f32::coerce(PValue::U64(0x3f800000)).unwrap(),
         1.0f32 // 0x3f800000 is 1.0 in f32
@@ -707,18 +737,36 @@ fn test_coerce_f32_beyond_u32_max() {
     assert!(f32::coerce(PValue::U64(u64::MAX)).is_err());
 
     // Test smaller types still work
-    assert!(f32::coerce(PValue::U8(255)).is_ok());
-    assert!(f32::coerce(PValue::U16(u16::MAX)).is_ok());
-    assert!(f32::coerce(PValue::U32(u32::MAX)).is_ok());
+    assert_eq!(f32::coerce(PValue::U8(255)).unwrap().to_bits(), 255u32);
+    assert_eq!(
+        f32::coerce(PValue::U16(u16::MAX)).unwrap().to_bits(),
+        u16::MAX as u32
+    );
+    assert_eq!(
+        f32::coerce(PValue::U32(u32::MAX)).unwrap().to_bits(),
+        u32::MAX
+    );
 }
 
 #[test]
 fn test_coerce_f64_all_unsigned() {
     // Test f64 can accept all unsigned integer values as bit patterns
-    assert!(f64::coerce(PValue::U8(u8::MAX)).is_ok());
-    assert!(f64::coerce(PValue::U16(u16::MAX)).is_ok());
-    assert!(f64::coerce(PValue::U32(u32::MAX)).is_ok());
-    assert!(f64::coerce(PValue::U64(u64::MAX)).is_ok());
+    assert_eq!(
+        f64::coerce(PValue::U8(u8::MAX)).unwrap().to_bits(),
+        u8::MAX as u64
+    );
+    assert_eq!(
+        f64::coerce(PValue::U16(u16::MAX)).unwrap().to_bits(),
+        u16::MAX as u64
+    );
+    assert_eq!(
+        f64::coerce(PValue::U32(u32::MAX)).unwrap().to_bits(),
+        u32::MAX as u64
+    );
+    assert_eq!(
+        f64::coerce(PValue::U64(u64::MAX)).unwrap().to_bits(),
+        u64::MAX
+    );
 
     // Verify specific bit patterns
     assert_eq!(

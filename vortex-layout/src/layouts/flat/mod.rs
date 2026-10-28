@@ -170,5 +170,5 @@ impl Layout<Flat> {
 #[derive(prost::Message)]
 pub struct FlatLayoutMetadata {
     #[prost(optional, bytes, tag = "1")]
-    pub array_encoding_tree: Option<Vec<u8>>,
+    pub(crate) array_encoding_tree: Option<Vec<u8>>,
 }

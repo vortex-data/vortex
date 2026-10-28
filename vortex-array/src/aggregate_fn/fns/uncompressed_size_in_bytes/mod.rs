@@ -160,7 +160,7 @@ fn uncompressed_size_in_bytes_u64(
     };
     if let Some(size_scalar) = cached {
         return u64::try_from(&size_scalar)
-            .map_err(|e| vortex_err!("Failed to convert uncompressed size stat to u64: {e}"));
+            .map_err(|e| e.with_context("Failed to convert uncompressed size stat to u64"));
     }
 
     // The accumulator caches an exact size on `array` through the stat slot.
@@ -468,6 +468,7 @@ pub(crate) fn packed_bit_buffer_size_in_bytes(len: usize) -> VortexResult<u64> {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
@@ -475,6 +476,7 @@ mod tests {
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
@@ -488,7 +490,6 @@ mod tests {
     use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
     use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
     use crate::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
@@ -520,6 +521,8 @@ mod tests {
     use crate::scalar::ScalarValue;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
     /// The size the array occupies once rebuilt through the canonical builders, which is the
     /// layout [`UncompressedSizeInBytes`] is defined against: the builders normalize physical
     /// widths that the input array is free to choose differently, picking the smallest decimal
@@ -528,7 +531,7 @@ mod tests {
     /// Builders no longer canonicalize their children, so the finished array is only canonical at
     /// the top level - recursively canonicalize it before measuring.
     fn materialized_uncompressed_size_in_bytes(array: &ArrayRef) -> u64 {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut builder = builder_with_capacity_in(
             array.dtype(),
             array.len(),
@@ -551,7 +554,7 @@ mod tests {
     }
 
     fn aggregate_with(array: &ArrayRef, opts: UncompressedSizeOpts) -> VortexResult<u64> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut acc = Accumulator::try_new(UncompressedSizeInBytes, opts, array.dtype().clone())?;
         acc.accumulate(array, &mut ctx)?;
         acc.finish()?
@@ -588,6 +591,7 @@ mod tests {
             aggregate(&array)?,
             materialized_uncompressed_size_in_bytes(&array)
         );
+        assert_eq!(aggregate(&array)?, 16);
         Ok(())
     }
 
@@ -599,6 +603,7 @@ mod tests {
             aggregate(&array)?,
             materialized_uncompressed_size_in_bytes(&array)
         );
+        assert_eq!(aggregate(&array)?, 13);
         Ok(())
     }
 
@@ -610,6 +615,7 @@ mod tests {
             aggregate(&array)?,
             materialized_uncompressed_size_in_bytes(&array)
         );
+        assert_eq!(aggregate(&array)?, 14);
         Ok(())
     }
 
@@ -621,6 +627,7 @@ mod tests {
             aggregate(&array)?,
             materialized_uncompressed_size_in_bytes(&array)
         );
+        assert_eq!(aggregate(&array)?, 1);
         Ok(())
     }
 
@@ -632,6 +639,7 @@ mod tests {
             aggregate(&array)?,
             materialized_uncompressed_size_in_bytes(&array)
         );
+        assert_eq!(aggregate(&array)?, 2);
         Ok(())
     }
 
@@ -643,6 +651,7 @@ mod tests {
             aggregate(&array)?,
             materialized_uncompressed_size_in_bytes(&array)
         );
+        assert_eq!(aggregate(&array)?, 3);
         Ok(())
     }
 
@@ -654,6 +663,7 @@ mod tests {
             aggregate(&array)?,
             materialized_uncompressed_size_in_bytes(&array)
         );
+        assert_eq!(aggregate(&array)?, 0);
         Ok(())
     }
 
@@ -670,6 +680,7 @@ mod tests {
             aggregate(&array)?,
             materialized_uncompressed_size_in_bytes(&array)
         );
+        assert_eq!(aggregate(&array)?, 12);
         Ok(())
     }
 
@@ -686,27 +697,30 @@ mod tests {
             aggregate(&array)?,
             materialized_uncompressed_size_in_bytes(&array)
         );
+        assert_eq!(aggregate(&array)?, 88);
         Ok(())
     }
 
     #[test]
     fn list_matches_materialized_size() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let elements =
             PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();
         let offsets = buffer![2u32, 0].into_array();
         let sizes = buffer![2u32, 1].into_array();
-        let array =
-            ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+        let array = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable, &mut ctx)
+            .into_array();
 
         // The lists are out of order and leave element 1 unreferenced, so compare against the
         // exact layout rather than a builder round-trip.
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let exact = array
             .clone()
             .execute::<ListViewArray>(&mut ctx)?
             .rebuild(ListViewRebuildMode::MakeExact, &mut ctx)?
             .into_array();
 
+        assert_eq!(materialized_uncompressed_size_in_bytes(&exact), 44);
         assert_eq!(
             aggregate_with(&array, UncompressedSizeOpts::exact())?,
             materialized_uncompressed_size_in_bytes(&exact)
@@ -773,7 +787,11 @@ mod tests {
             .into_array(),
             NullArray::new(5).into_array(),
         ];
-        for array in arrays {
+        for (array, expected) in arrays.into_iter().zip([13, 2, 12, 0]) {
+            assert_eq!(
+                aggregate_with(&array, UncompressedSizeOpts::exact())?,
+                expected
+            );
             assert_eq!(
                 aggregate_with(&array, UncompressedSizeOpts::exact())?,
                 aggregate_with(&array, UncompressedSizeOpts::inexact())?
@@ -806,13 +824,15 @@ mod tests {
             aggregate_with(&strings, UncompressedSizeOpts::exact())?
         );
         assert!(exact < inexact);
+        assert_eq!(exact, 430);
+        assert_eq!(inexact, 27160);
         Ok(())
     }
 
     #[test]
     fn exact_result_is_cached_as_exact_stat() -> VortexResult<()> {
         let sliced = views_into_shared_page(0..10)?;
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let size = uncompressed_size_in_bytes(&sliced, UncompressedSizeOpts::exact(), &mut ctx)?;
 
@@ -820,13 +840,14 @@ mod tests {
             sliced.statistics().get(Stat::UncompressedSizeInBytes),
             Precision::exact(u64::try_from(size)?)
         );
+        assert_eq!(size, 430);
         Ok(())
     }
 
     #[test]
     fn inexact_result_is_cached_as_upper_bound() -> VortexResult<()> {
         let sliced = views_into_shared_page(0..10)?;
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let inexact =
             uncompressed_size_in_bytes(&sliced, UncompressedSizeOpts::inexact(), &mut ctx)?;
@@ -848,6 +869,8 @@ mod tests {
             uncompressed_size_in_bytes(&sliced, UncompressedSizeOpts::inexact(), &mut ctx)?,
             exact
         );
+        assert_eq!(exact, 430);
+        assert_eq!(inexact, 27160);
         Ok(())
     }
 
@@ -886,6 +909,7 @@ mod tests {
             aggregate(&array)?,
             materialized_uncompressed_size_in_bytes(&array)
         );
+        assert_eq!(aggregate(&array)?, 17);
         Ok(())
     }
 
@@ -906,6 +930,7 @@ mod tests {
             aggregate(&array)?,
             materialized_uncompressed_size_in_bytes(&array)
         );
+        assert_eq!(aggregate(&array)?, 62);
         Ok(())
     }
 
@@ -926,6 +951,7 @@ mod tests {
         let array = UnionArray::try_new(type_ids, variants, vec![numbers, flags])?.into_array();
 
         assert_eq!(aggregate(&array)?, expected);
+        assert_eq!(expected, 16);
         Ok(())
     }
 
@@ -939,6 +965,7 @@ mod tests {
             aggregate(&array)?,
             materialized_uncompressed_size_in_bytes(&array)
         );
+        assert_eq!(aggregate(&array)?, 13);
         Ok(())
     }
 
@@ -946,7 +973,7 @@ mod tests {
     fn variant_stat_is_unsupported() -> VortexResult<()> {
         let child = ConstantArray::new(Scalar::variant(Scalar::from(42i32)), 3).into_array();
         let array = VariantArray::try_new(child, None)?.into_array();
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         assert_eq!(
             array
@@ -965,6 +992,7 @@ mod tests {
             aggregate(&array)?,
             materialized_uncompressed_size_in_bytes(&array)
         );
+        assert_eq!(aggregate(&array)?, 40);
         Ok(())
     }
 
@@ -981,25 +1009,26 @@ mod tests {
         .into_array();
 
         assert_eq!(aggregate(&chunked)?, expected);
+        assert_eq!(expected, 20);
         Ok(())
     }
 
     #[test]
-    fn uses_cached_exact_stat() -> VortexResult<()> {
+    fn size_with_cached_exact_stat() -> VortexResult<()> {
         let array = ConstantArray::new(42i32, 10).into_array();
         array.statistics().set(
             Stat::UncompressedSizeInBytes,
-            Precision::Exact(ScalarValue::from(123u64)),
+            Precision::Exact(ScalarValue::from(40u64)),
         );
 
-        assert_eq!(aggregate_with(&array, UncompressedSizeOpts::exact())?, 123);
+        assert_eq!(aggregate_with(&array, UncompressedSizeOpts::exact())?, 40);
         Ok(())
     }
 
     #[test]
     fn helper_caches_result() -> VortexResult<()> {
         let array = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable).into_array();
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let size = uncompressed_size_in_bytes(&array, UncompressedSizeOpts::exact(), &mut ctx)?;
 
@@ -1007,6 +1036,7 @@ mod tests {
             array.statistics().get(Stat::UncompressedSizeInBytes),
             Precision::exact(u64::try_from(size)?)
         );
+        assert_eq!(size, 12);
         Ok(())
     }
 

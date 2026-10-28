@@ -26,13 +26,13 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
-use vortex_array::expr::transform::partition_bound;
 use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
 use vortex_array::expr::traversal::TraversalOrder;
 use vortex_array::scalar::PValue;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_expr::transform::partition_bound;
 use vortex_mask::Mask;
 use vortex_sequence::Sequence;
 use vortex_sequence::SequenceArray;
@@ -542,7 +542,11 @@ mod tests {
             .unwrap();
 
             assert!(result.is::<Sequence>());
-            assert_eq!(result.len(), 5);
+            assert_arrays_eq!(
+                result,
+                buffer![12u64, 13, 14, 15, 16].into_array(),
+                &mut new_session().create_execution_ctx()
+            );
         })
     }
 
