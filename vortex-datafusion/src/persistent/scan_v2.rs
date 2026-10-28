@@ -11,11 +11,13 @@
 //! of the file's segment source. The DataFusion thread polling the stream does no scan work
 //! itself.
 
+use std::collections::VecDeque;
 use std::future;
 use std::sync::Arc;
 use std::task::Poll;
 
 use arrow_array::RecordBatch;
+use datafusion_common::arrow::compute::concat_batches;
 use futures::SinkExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
@@ -241,3 +243,108 @@ fn chunk_stream(
         .filter_map(|result: VortexResult<()>| future::ready(result.err().map(Err)));
     stream::select(recv, errors).boxed()
 }
+
+/// Keep fewer than three target batches so EOF does not leave a small fragment for downstream joins.
+pub(crate) fn rebalance_batches(
+    input: BoxStream<'static, VortexResult<RecordBatch>>,
+    batch_size: usize,
+) -> BoxStream<'static, VortexResult<RecordBatch>> {
+    if batch_size == 0 || batch_size > usize::MAX / 3 {
+        return input;
+    }
+    let state = BatchRebalance {
+        input,
+        batch_size,
+        pending: VecDeque::new(),
+        pending_rows: 0,
+        ready: VecDeque::new(),
+        done: false,
+    };
+    stream::try_unfold(state, |mut state| async move {
+        loop {
+            if let Some(batch) = state.ready.pop_front() {
+                return Ok(Some((batch, state)));
+            }
+            if state.done {
+                return Ok(None);
+            }
+            match state.input.next().await {
+                Some(batch) => state.push(batch?)?,
+                None => {
+                    state.done = true;
+                    let count = state.pending_rows.div_ceil(state.batch_size);
+                    if count > 0 {
+                        let rows = state.pending_rows / count;
+                        let extra = state.pending_rows % count;
+                        for index in 0..count {
+                            let batch = state.take(rows + usize::from(index < extra))?;
+                            state.ready.push_back(batch);
+                        }
+                    }
+                }
+            }
+        }
+    })
+    .boxed()
+}
+
+struct BatchRebalance {
+    input: BoxStream<'static, VortexResult<RecordBatch>>,
+    batch_size: usize,
+    pending: VecDeque<RecordBatch>,
+    pending_rows: usize,
+    ready: VecDeque<RecordBatch>,
+    done: bool,
+}
+
+impl BatchRebalance {
+    fn take(&mut self, rows: usize) -> VortexResult<RecordBatch> {
+        let mut remaining = rows;
+        let mut pieces = Vec::new();
+        while remaining > 0 {
+            let batch = self.pending.pop_front().ok_or_else(|| vortex_err!("Missing pending scan rows"))?;
+            let take = remaining.min(batch.num_rows());
+            if take == batch.num_rows() {
+                pieces.push(batch);
+            } else {
+                pieces.push(batch.slice(0, take));
+                self.pending.push_front(batch.slice(take, batch.num_rows() - take));
+            }
+            remaining -= take;
+        }
+        self.pending_rows -= rows;
+        if pieces.len() == 1 {
+            return Ok(pieces.remove(0));
+        }
+        concat_batches(&pieces[0].schema(), &pieces)
+            .map_err(|error| vortex_err!("Failed to rebalance scan batch tails: {error}"))
+    }
+
+    fn push(&mut self, batch: RecordBatch) -> VortexResult<()> {
+        if batch.num_rows() == 0 {
+            return Ok(());
+        }
+        self.pending_rows += batch.num_rows();
+        self.pending.push_back(batch);
+        if self.pending_rows < self.batch_size * 3 {
+            return Ok(());
+        }
+        let mut emit = (self.pending_rows - self.batch_size * 2) / self.batch_size * self.batch_size;
+        while emit > 0 {
+            let front = self.pending[0].num_rows();
+            // Preserve full spans as slices; only a boundary crossing needs concatenation.
+            let rows = if front >= self.batch_size {
+                (front / self.batch_size * self.batch_size).min(emit)
+            } else {
+                self.batch_size.min(emit)
+            };
+            let batch = self.take(rows)?;
+            self.ready.push_back(batch);
+            emit -= rows;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests;

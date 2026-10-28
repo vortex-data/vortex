@@ -40,7 +40,7 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps((lambda rows: [dict(x, id="tpcds-nvme-"+str(sf), name="TPC-DS SF="+str(sf)+" on NVME", scale_factor=float(sf)) for x in rows if x["id"] == "tpcds-nvme" for sf in (10,30)])(json.load(sys.stdin))))')"
+          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps((lambda rows: [dict(x, id="tpcds-nvme-"+str(sf), name="TPC-DS SF="+str(sf)+" on NVME", scale_factor=float(sf)) for x in rows if x["id"] == "tpcds-nvme" for sf in (10,30)] + [x for x in rows if x["id"] == "clickbench-nvme"])(json.load(sys.stdin))))')"
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   build:
@@ -77,6 +77,7 @@ jobs:
         shell: bash
         run: |
           cargo test -p vortex-layout --lib scan::v2::tests
+          cargo test -p vortex-datafusion --lib persistent::scan_v2::tests
       - parallel:
           - name: Upload binaries
             uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
@@ -219,15 +220,38 @@ jobs:
             -o sizes.json
           cat sizes.json >> results.json
 
-      - name: Trace ordered Q58 scan batches
+      - name: Download published scan baseline
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: bench-binaries
+          run-id: 40613767503
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: target/coarse-baseline
+
+      - name: Make coarse baseline executable
+        run: chmod +x target/coarse-baseline/datafusion-bench
+
+      - name: Install LLVM symbolizer if needed
         shell: bash
-        run: python3 scripts/trace-batch-shapes.py "${{ matrix.scale_factor }}"
+        run: |
+          if ! command -v llvm-symbolizer >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y llvm
+          fi
+
+      - name: Compare rebalanced scan tails
+        shell: bash
+        env:
+          TOKIO_WORKER_THREADS: "8"
+          DATAFUSION_EXECUTION_TARGET_PARTITIONS: "8"
+          RUST_LOG: warn
+        run: python3 scripts/profile-coarse-scans.py "${{ matrix.scale_factor }}"
 
       - name: Upload scan comparison
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: scan-batch-shapes-${{ matrix.id }}
+          name: scan-rebalance-tails-${{ matrix.id }}
           path: scan-*
 
       - name: Compare results
