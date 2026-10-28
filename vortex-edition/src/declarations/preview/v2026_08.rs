@@ -12,9 +12,6 @@ use crate::EditionMember;
 pub const PREVIEW_2026_08_0: EditionId = EditionId::new("preview", 2026, 8, 0);
 
 /// The declaration of [`PREVIEW_2026_08_0`] and the components that join the family at it.
-///
-/// `vortex.uncompressed_size_in_bytes` lets file statistics record each field's exact
-/// uncompressed size.
 pub static DECLARATION: EditionDeclaration = EditionDeclaration {
     edition: Edition {
         id: PREVIEW_2026_08_0,
