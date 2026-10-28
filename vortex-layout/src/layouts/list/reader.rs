@@ -39,6 +39,7 @@ use crate::layouts::list::expr::ListChildrenNeeded;
 use crate::layouts::list::expr::get_necessary_bound_list_children;
 use crate::layouts::list::expr::rewrite_offsets_expr;
 use crate::layouts::list::expr::rewrite_validity_expr;
+use crate::layouts::list::expr::split_list_transform;
 use crate::segments::SegmentSource;
 
 type OptionalArrayFuture = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
@@ -160,6 +161,9 @@ impl ListReader {
     ///
     /// An all-true mask over the full local range reads every child concurrently. Otherwise, the
     /// read is bounded to the first and last selected list.
+    ///
+    /// When the list is read only through `list_transform`, the elements reader evaluates the
+    /// lambda's body instead of reading whole elements. See [`split_list_transform`].
     fn project_all(
         &self,
         row_range: &Range<u64>,
@@ -167,29 +171,38 @@ impl ListReader {
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         let is_full_range = row_range.start == 0 && row_range.end == self.layout.row_count();
+        let (elements_expr, expr) = match split_list_transform(expr)? {
+            Some(split) => split,
+            None => (root().bind(self.elements.dtype())?, expr.clone()),
+        };
         let reader = self.clone();
         let row_range = row_range.clone();
-        let expr = expr.clone();
         Ok(async move {
             let mask = mask.await?;
             if is_full_range && mask.all_true() {
-                reader.project_all_full(&expr)?.await
+                reader.project_all_full(&elements_expr, &expr)?.await
             } else {
-                reader.project_all_bounded(&row_range, &expr, mask)?.await
+                reader
+                    .project_all_bounded(&row_range, &elements_expr, &expr, mask)?
+                    .await
             }
         }
         .boxed())
     }
 
     /// Fetch the complete `elements`, `offsets`, and `validity` children concurrently.
-    fn project_all_full(&self, expr: &BoundExpression) -> VortexResult<ArrayFuture> {
+    fn project_all_full(
+        &self,
+        elements_expr: &BoundExpression,
+        expr: &BoundExpression,
+    ) -> VortexResult<ArrayFuture> {
         let row_count = self.layout.row_count();
         let elements_row_count = self.elements.row_count();
         let nullability = self.layout.dtype().nullability();
         let expr = expr.clone();
 
         let offsets_fut = self.fetch_raw_offsets(&(0..row_count))?;
-        let elements_fut = self.fetch_raw_elements(&(0..elements_row_count))?;
+        let elements_fut = self.fetch_elements(&(0..elements_row_count), elements_expr)?;
         let validity_fut = fetch_validity(
             self.validity.as_ref(),
             &(0..row_count),
@@ -198,8 +211,8 @@ impl ListReader {
 
         Ok(async move {
             let (offsets, elements, validity) = try_join!(offsets_fut, elements_fut, validity_fut)?;
-            // SAFETY: ListLayout is constructed from a valid ListArray and reading its children
-            // without transformation preserves the list invariants.
+            // SAFETY: ListLayout is constructed from a valid ListArray, and the elements
+            // expression gives one value per element, so the list invariants hold.
             let list = unsafe {
                 ListArray::new_unchecked(elements, offsets, create_validity(validity, nullability))
             }
@@ -217,6 +230,7 @@ impl ListReader {
     fn project_all_bounded(
         &self,
         row_range: &Range<u64>,
+        elements_expr: &BoundExpression,
         expr: &BoundExpression,
         mask: Mask,
     ) -> VortexResult<ArrayFuture> {
@@ -231,6 +245,7 @@ impl ListReader {
             ..(row_range.start + u64::try_from(selected_rows.end)?);
 
         let nullability = self.layout.dtype().nullability();
+        let elements_expr = elements_expr.clone();
         let expr = expr.clone();
         let reader = self.clone();
         let offsets_fut = self.fetch_raw_offsets(&selected_row_range)?;
@@ -239,7 +254,7 @@ impl ListReader {
             let offsets = offsets_fut.await?;
 
             let elements_range = elements_range_from_offsets(&offsets, &reader.session)?;
-            let elements_fut = reader.fetch_raw_elements(&elements_range)?;
+            let elements_fut = reader.fetch_elements(&elements_range, &elements_expr)?;
             let validity_fut = fetch_validity(
                 reader.validity.as_ref(),
                 &selected_row_range,
@@ -249,8 +264,8 @@ impl ListReader {
 
             let offsets = rebase_offsets(offsets, elements_range.start)?;
             // SAFETY: the selected offsets remain monotonically increasing, rebasing them against
-            // the selected element range preserves their lengths, and validity covers the same
-            // cropped list rows.
+            // the selected element range preserves their lengths, the elements expression gives
+            // one value per element, and validity covers the same cropped list rows.
             let list = unsafe {
                 ListArray::new_unchecked(elements, offsets, create_validity(validity, nullability))
             }
@@ -320,14 +335,17 @@ impl ListReader {
         )
     }
 
-    /// Fire the elements read for `row_range` in element space.
+    /// Fire the read of `expr` over the elements in `row_range`, in element space.
     ///
-    /// No mask or expression is applied.
-    fn fetch_raw_elements(&self, row_range: &Range<u64>) -> VortexResult<ArrayFuture> {
+    /// No mask is applied.
+    fn fetch_elements(
+        &self,
+        row_range: &Range<u64>,
+        expr: &BoundExpression,
+    ) -> VortexResult<ArrayFuture> {
         let row_count = usize::try_from(row_range.end - row_range.start)?;
-        let root = root().bind(self.elements.dtype())?;
         self.elements
-            .projection_evaluation(row_range, &root, MaskFuture::new_true(row_count))
+            .projection_evaluation(row_range, expr, MaskFuture::new_true(row_count))
     }
 }
 
@@ -615,30 +633,43 @@ fn apply_lengths_validity(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     use std::ops::Range;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
+    use parking_lot::Mutex;
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ListArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::Expression;
+    use vortex_array::expr::Lambda;
     use vortex_array::expr::cast;
+    use vortex_array::expr::checked_add;
+    use vortex_array::expr::col;
+    use vortex_array::expr::get_item;
     use vortex_array::expr::gt;
     use vortex_array::expr::is_not_null;
     use vortex_array::expr::is_null;
     use vortex_array::expr::list_length;
+    use vortex_array::expr::list_sum;
+    use vortex_array::expr::list_transform;
     use vortex_array::expr::lit;
+    use vortex_array::expr::pack;
+    use vortex_array::expr::var;
     use vortex_buffer::buffer;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_session::VortexSession;
+    use vortex_utils::aliases::hash_map::HashMap;
 
     use super::*;
+    use crate::LayoutChildType;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
@@ -646,6 +677,7 @@ mod tests {
     use crate::layouts::list::writer::ListLayoutStrategy;
     use crate::layouts::repartition::RepartitionStrategy;
     use crate::layouts::repartition::RepartitionWriterOptions;
+    use crate::layouts::table::TableStrategy;
     use crate::scan::split_by::SplitBy;
     use crate::segments::SegmentFuture;
     use crate::segments::SegmentSource;
@@ -1233,6 +1265,175 @@ mod tests {
         let expected = sliced.filter(mask)?;
         let mut exec_ctx = session.create_execution_ctx();
         assert_arrays_eq!(result, expected, &mut exec_ctx);
+        Ok(())
+    }
+
+    struct RecordingSegmentSource {
+        inner: Arc<dyn SegmentSource>,
+        requested: Arc<Mutex<Vec<crate::segments::SegmentId>>>,
+    }
+
+    impl SegmentSource for RecordingSegmentSource {
+        fn request(&self, id: crate::segments::SegmentId) -> SegmentFuture {
+            self.requested.lock().push(id);
+            self.inner.request(id)
+        }
+    }
+
+    /// Map each segment to its column, a dotted path of field and auxiliary child names. Chunks
+    /// and transparent children add nothing to the path.
+    fn segment_columns(
+        layout: &LayoutRef,
+        path: &str,
+        columns: &mut HashMap<crate::segments::SegmentId, String>,
+    ) -> VortexResult<()> {
+        for id in layout.segment_ids() {
+            columns.insert(id, path.to_string());
+        }
+        for (child_type, child) in layout.child_types().zip(layout.children()?) {
+            let child_path = match child_type {
+                LayoutChildType::Field(name) if path.is_empty() => name.to_string(),
+                LayoutChildType::Field(name) => format!("{path}.{name}"),
+                LayoutChildType::Auxiliary(name) => format!("{path}.{name}"),
+                LayoutChildType::Chunk(_) | LayoutChildType::Transparent(_) => path.to_string(),
+            };
+            segment_columns(&child, &child_path, columns)?;
+        }
+        Ok(())
+    }
+
+    /// `{l: list<struct<a: i32, f: i32, g: list<struct<h: i32, i: i32>>>>, o: i32}`. The five
+    /// lists have lengths [2, 3, 0, 3, 2], and when `nullable` the second is null over elements
+    /// that are still stored.
+    fn transform_table(nullable: bool) -> VortexResult<ArrayRef> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let inner = StructArray::from_fields(&[
+            ("h", PrimitiveArray::from_iter(0..15_i32).into_array()),
+            ("i", PrimitiveArray::from_iter(100..115_i32).into_array()),
+        ])?
+        .into_array();
+        let g = ListArray::try_new(
+            inner,
+            buffer![0u32, 1, 3, 3, 4, 6, 6, 7, 9, 9, 15].into_array(),
+            Validity::NonNullable,
+            &mut ctx,
+        )?
+        .into_array();
+        let elements = StructArray::from_fields(&[
+            ("a", PrimitiveArray::from_iter(0..10_i32).into_array()),
+            ("f", PrimitiveArray::from_iter(10..20_i32).into_array()),
+            ("g", g),
+        ])?
+        .into_array();
+        let validity = if nullable {
+            Validity::Array(BoolArray::from_iter([true, false, true, true, true]).into_array())
+        } else {
+            Validity::NonNullable
+        };
+        let l = ListArray::try_new(
+            elements,
+            buffer![0u32, 2, 5, 5, 8, 10].into_array(),
+            validity,
+            &mut ctx,
+        )?
+        .into_array();
+        Ok(StructArray::from_fields(&[
+            ("l", l),
+            ("o", PrimitiveArray::from_iter(0..5_i32).into_array()),
+        ])?
+        .into_array())
+    }
+
+    fn lambda(param: &str, body: Expression) -> Lambda {
+        Lambda::new([param], body).vortex_expect("lambda is valid")
+    }
+
+    /// `list_transform(l, x -> body)`.
+    fn transform(body: Expression) -> Expression {
+        list_transform(col("l"), lambda("x", body))
+    }
+
+    const EVERY_LIST_COLUMN: &[&str] = &[
+        "l.offsets",
+        "l.elements.a",
+        "l.elements.f",
+        "l.elements.g.offsets",
+        "l.elements.g.elements.h",
+        "l.elements.g.elements.i",
+    ];
+
+    /// A list read only through one infallible `list_transform` lambda reads only the element
+    /// columns its body uses, through nested lists too. Every other read takes whole elements.
+    #[rstest]
+    #[case::field(transform(get_item("f", var("x"))), &["l.offsets", "l.elements.f"])]
+    #[case::under_another_fn(
+        list_sum(transform(get_item("f", var("x")))),
+        &["l.offsets", "l.elements.f"],
+    )]
+    #[case::beside_another_column(
+        pack([("t", transform(get_item("f", var("x")))), ("o", col("o"))], Nullability::NonNullable),
+        &["l.offsets", "l.elements.f", "o"],
+    )]
+    #[case::nested(
+        transform(list_transform(get_item("g", var("x")), lambda("y", get_item("h", var("y"))))),
+        &["l.offsets", "l.elements.g.offsets", "l.elements.g.elements.h"],
+    )]
+    #[case::fallible(
+        transform(checked_add(get_item("f", var("x")), lit(1_i32))),
+        EVERY_LIST_COLUMN
+    )]
+    #[case::two_lambdas(
+        pack(
+            [("a", transform(get_item("a", var("x")))), ("f", transform(get_item("f", var("x"))))],
+            Nullability::NonNullable,
+        ),
+        EVERY_LIST_COLUMN,
+    )]
+    #[case::list_read_elsewhere(
+        pack(
+            [("t", transform(get_item("f", var("x")))), ("n", list_length(col("l")))],
+            Nullability::NonNullable,
+        ),
+        EVERY_LIST_COLUMN,
+    )]
+    #[tokio::test]
+    async fn list_transform_reads_only_what_its_body_uses(
+        #[case] expr: Expression,
+        #[case] columns: &[&str],
+        #[values(false, true)] nullable: bool,
+        #[values(Mask::new_true(5), Mask::from_iter([false, true, false, true, true]))] mask: Mask,
+    ) -> VortexResult<()> {
+        let table = transform_table(nullable)?;
+        let strategy = TableStrategy::new(chunked_elements_strategy(), chunked_elements_strategy())
+            .with_list_layout();
+        let (segments, layout, session) = write_layout(&strategy, table.clone()).await?;
+        let requested = Arc::new(Mutex::new(Vec::new()));
+        let source = Arc::new(RecordingSegmentSource {
+            inner: segments,
+            requested: Arc::clone(&requested),
+        });
+        let reader = layout.new_reader("".into(), source, &session, &LayoutReaderContext::new())?;
+
+        let bound = expr.bind(reader.dtype())?;
+        let result = reader
+            .projection_evaluation(&(0..5), &bound, MaskFuture::ready(mask.clone()))?
+            .await?;
+        let expected = table.filter(mask)?.apply(&expr)?;
+        let mut exec_ctx = session.create_execution_ctx();
+        assert_arrays_eq!(result, expected, &mut exec_ctx);
+
+        let mut segment_column = HashMap::new();
+        segment_columns(&layout, "", &mut segment_column)?;
+        let read = requested
+            .lock()
+            .iter()
+            .map(|id| segment_column[id].as_str())
+            .collect::<BTreeSet<_>>();
+        let mut expected_read = columns.iter().copied().collect::<BTreeSet<_>>();
+        if nullable {
+            expected_read.insert("l.validity");
+        }
+        assert_eq!(read, expected_read);
         Ok(())
     }
 }
