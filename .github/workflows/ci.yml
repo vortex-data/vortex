@@ -307,7 +307,7 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          # cargo-hack builds crates serially; partition the two workspace-wide builds.
+          # cargo-hack checks crates serially; partition the two workspace-wide checks.
           - name: "all-features partition 1 of 2"
             runner: amd64-ci-small
             args: "--all-features --all-targets --partition 1/2"
@@ -324,12 +324,6 @@ jobs:
             runner: amd64-ci-medium
             # Only build the crates that have the tokio features, not re-building other crates with no-default-features
             args: "--no-default-features --features tokio --all-targets -p vortex -p vortex-io -p vortex-file -p vortex-layout"
-          - name: "wasm32 with default features"
-            runner: amd64-ci-medium
-            target: wasm32-unknown-unknown
-            env:
-              rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"unsupported\"'"
-            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd --exclude vortex-test-e2e-cuda --exclude vortex-python-cuda --exclude vortex-sqllogictest --exclude vortex-parquet-variant"
     steps:
       - parallel:
           - uses: runs-on/action@v2
@@ -340,10 +334,11 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
         with:
           enable-sccache: "true"
-          targets: ${{ matrix.config.target }}
+      # Feature-unification errors appear at type check. Codegen and linking add most of the
+      # time and sccache cannot cache links; the test jobs link the workspace already.
       - uses: ./.github/actions/check-rebuild
         with:
-          command: "${{matrix.config.env.rustflags}} cargo hack build --profile ci --locked ${{matrix.config.args}} --ignore-private"
+          command: "cargo hack check --profile ci --locked ${{matrix.config.args}} --ignore-private"
       - name: "Make sure no files changed after build"
         run: |
           git status --porcelain
@@ -490,6 +485,8 @@ jobs:
       # Stable proc-macro DLL contents let dependent crates reuse sccache entries.
       # duckdb_static.lib is built with /MT and thus requires crt-static
       RUSTFLAGS: "-C link-arg=/Brepro -C target-feature=+crt-static"
+      # link.exe spends ~1.5 min on the test binaries after compilation finishes.
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: rust-lld
     needs: duckdb-ready
     if: ${{ !cancelled() && needs.duckdb-ready.result == 'success' }}
     timeout-minutes: 30
@@ -881,6 +878,22 @@ jobs:
         run: |
           ! cargo tree --target wasm32-unknown-unknown -e normal --prefix none \
             | grep -E '^(wasm-bindgen|js-sys) '
+
+      # Checks each publishable crate on its own, to catch features that only unify in wasm-test.
+      - name: "Check publishable crates for wasm32-unknown-unknown"
+        uses: ./.github/actions/check-rebuild
+        with:
+          command: >-
+            RUSTFLAGS='-A warnings --cfg getrandom_backend="unsupported"'
+            cargo hack check --profile ci --locked --ignore-private --target wasm32-unknown-unknown
+            --exclude vortex --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp
+            --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd
+            --exclude vortex-test-e2e-cuda --exclude vortex-python-cuda --exclude vortex-sqllogictest
+            --exclude vortex-parquet-variant
+      - name: "Make sure no files changed after build"
+        run: |
+          git status --porcelain
+          test -z "$(git status --porcelain)"
 
   generated-files:
     name: "Generated source files and C API"
