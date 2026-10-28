@@ -18,6 +18,7 @@ suite = 'tpcds' if scale and float(scale) > 0 else 'clickbench'
 root = Path.cwd()
 binary = root / 'target/release_debug/datafusion-bench'
 affinity = sorted(os.sched_getaffinity(0))
+profiler_cpus = Path('/sys/devices/system/cpu/online').read_text().strip()
 assert len(affinity) == 8, affinity
 Path('scan-cpu-affinity.json').write_text(json.dumps({'cpus': affinity, 'worker_threads': 8, 'target_partitions': 8}, indent=2))
 archive_name = 'samply-aarch64-unknown-linux-gnu.tar.xz'
@@ -98,15 +99,16 @@ for query, iterations in [('3', 100), ('28', 60), ('30', 100), ('32', 100), ('42
         label = f'scan-q{query}-{label_name}'
         output = root / (label + '.profile.json.gz')
         cmd = ['sudo', '-n', '--preserve-env=TOKIO_WORKER_THREADS,DATAFUSION_EXECUTION_TARGET_PARTITIONS,RUST_LOG',
-               'taskset', '-c', ','.join(map(str, affinity)), str(samply), 'record', '--save-only', '--rate', '1000', '--output', str(output),
-               '--', *command(v2, query, iterations, label)]
-        Path(label + '.command.json').write_text(json.dumps({'command': cmd, 'env': profile_env, 'binary_sha256': binary_sha}, indent=2))
+               'taskset', '-c', profiler_cpus, str(samply), 'record', '--save-only', '--rate', '1000', '--output', str(output),
+               '--', 'taskset', '-c', ','.join(map(str, affinity)), *command(v2, query, iterations, label)]
+        Path(label + '.command.json').write_text(json.dumps({'command': cmd, 'env': profile_env, 'binary_sha256': binary_sha, 'profiler_cpus': profiler_cpus, 'benchmark_cpus': affinity}, indent=2))
         with open(label + '.txt', 'w') as log:
             subprocess.run(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=600, check=True)
         measurements = [json.loads(line) for line in Path(label + '.jsonl').read_text().splitlines()]
         assert any(m.get('kind') == 'query_measurement' and len(m['all_runtimes_ns']) == iterations for m in measurements)
         profile = summary.load_profile(output)
         addresses = summary.collect_symbol_addresses(profile, binary.name)
+        assert addresses, 'Profile is missing benchmark executable mappings'
         result = subprocess.run(['llvm-symbolizer', '--obj=' + str(binary), '--no-inlines', '--demangle'],
                                 input='\n'.join(addresses) + '\n', text=True, capture_output=True, check=True)
         blocks = result.stdout.strip().split('\n\n')
