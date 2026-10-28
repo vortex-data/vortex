@@ -12,6 +12,8 @@ use vortex_error::vortex_ensure_eq;
 use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::RepeatedArrayProbe;
 use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnRef;
@@ -193,6 +195,24 @@ pub trait DynAccumulator: 'static + Send {
     /// input following the input already accumulated.
     fn combine_partials(&mut self, partial: &Scalar) -> VortexResult<()>;
 
+    /// Merge a batch of partial states in array order.
+    ///
+    /// The batch must have this aggregate's partial dtype. An empty batch leaves the
+    /// state unchanged. Implementations may specialize merging without row Scalars.
+    fn combine_partials_batch(
+        &mut self,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let batch = batch.clone().execute::<Columnar>(ctx)?;
+        let len = batch.len();
+        let mut partials = RepeatedArrayProbe::new(batch.into_array());
+        for row in 0..len {
+            self.combine_partials(&partials.execute_scalar(row, ctx)?)?;
+        }
+        Ok(())
+    }
+
     /// Whether the accumulator's result is fully determined.
     fn is_saturated(&self) -> bool;
 
@@ -311,6 +331,23 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         self.fold_partial_scalar(partial)
     }
 
+    fn combine_partials_batch(
+        &mut self,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        vortex_ensure_eq!(batch.dtype(), &self.dtypes.partial_dtype);
+        if batch.is_empty() {
+            return Ok(());
+        }
+        let batch = batch.clone().execute::<Columnar>(ctx)?;
+        let state = self.partial.take();
+        self.partial =
+            self.vtable
+                .merge_partials_batch(self.dtypes.args(&self.options), state, batch, ctx)?;
+        Ok(())
+    }
+
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
@@ -393,14 +430,17 @@ mod tests {
     use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::combined::Combined;
     use crate::aggregate_fn::combined::PairOptions;
+    use crate::aggregate_fn::fns::count::Count;
     use crate::aggregate_fn::fns::mean::Mean;
     use crate::aggregate_fn::fns::min::Min;
     use crate::aggregate_fn::fns::sum::Sum;
     use crate::aggregate_fn::kernels::DynAggregateKernel;
     use crate::aggregate_fn::session::AggregateFnSession;
     use crate::array::VTable;
+    use crate::arrays::ConstantArray;
     use crate::arrays::Dict;
     use crate::arrays::DictArray;
+    use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -737,6 +777,53 @@ mod tests {
         global.merge_from(local.as_mut())?;
 
         assert_eq!(global.finish()?.as_primitive().as_::<f64>(), Some(3.0));
+        Ok(())
+    }
+    #[test]
+    fn batch_partials_preserve_order_overflow_and_dtype_checks() -> VortexResult<()> {
+        let mut ctx = fresh_session().create_execution_ctx();
+        let mut sum = sum_i32_accumulator(NumericalAggregateOpts::include_nans())?;
+        sum.combine_partials(&Scalar::primitive(i64::MAX, Nullability::Nullable))?;
+        let partials = buffer![1_i64, -1]
+            .into_array()
+            .cast(DType::Primitive(PType::I64, Nullability::Nullable))?;
+        sum.combine_partials_batch(&partials, &mut ctx)?;
+        assert!(sum.final_scalar()?.is_null());
+        assert!(
+            sum.combine_partials_batch(&buffer![1_u64].into_array(), &mut ctx)
+                .is_err()
+        );
+        let dtype = DType::Primitive(PType::F64, Nullability::Nullable);
+        let mut float =
+            Accumulator::try_new(Sum, NumericalAggregateOpts::include_nans(), dtype.clone())?;
+        float.combine_partials_batch(&buffer![-0.0_f64].into_array().cast(dtype)?, &mut ctx)?;
+        assert_eq!(
+            float
+                .final_scalar()?
+                .as_primitive()
+                .as_::<f64>()
+                .map(f64::to_bits),
+            Some((-0.0_f64).to_bits())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn batch_partials_merge_typed_counts_and_constants() -> VortexResult<()> {
+        let mut ctx = fresh_session().create_execution_ctx();
+        let mut count = Accumulator::try_new(
+            Count,
+            NumericalAggregateOpts::default(),
+            DType::Bool(Nullability::NonNullable),
+        )?;
+        let counts = buffer![99_u64, 1_u64 << 60, 3].into_array().slice(1..3)?;
+        count.combine_partials_batch(&counts, &mut ctx)?;
+        count.combine_partials_batch(&ConstantArray::new(2_u64, 3).into_array(), &mut ctx)?;
+        count.combine_partials_batch(&counts.slice(0..0)?, &mut ctx)?;
+        assert_eq!(
+            count.finish()?.as_primitive().as_::<u64>(),
+            Some((1_u64 << 60) + 9)
+        );
         Ok(())
     }
 }

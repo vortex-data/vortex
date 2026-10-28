@@ -16,6 +16,8 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::RepeatedArrayProbe;
 use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
@@ -214,6 +216,32 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
         first: Self::Partial,
         second: Self::Partial,
     ) -> VortexResult<Self::Partial>;
+
+    /// Merge an array of partial states in array order.
+    ///
+    /// `batch` has dtype `args.partial_dtype`. `None` means no prior partial: the
+    /// first partial is adopted without merging an artificial identity. An empty batch
+    /// preserves `state`. Override this method to read typed columnar partials directly.
+    fn merge_partials_batch(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        mut state: Option<Self::Partial>,
+        batch: Columnar,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Self::Partial>> {
+        // Compatibility fallback for aggregates without a columnar partial merger.
+        let len = batch.len();
+        let mut partials = RepeatedArrayProbe::new(batch.into_array());
+        for row in 0..len {
+            let scalar = partials.execute_scalar(row, ctx)?;
+            let partial = self.partial_from_scalar(args, &scalar)?;
+            state = Some(match state {
+                None => partial,
+                Some(state) => self.merge_partials(args, state, partial)?,
+            });
+        }
+        Ok(state)
+    }
 
     /// Convert the partial state into a partial scalar of dtype `args.partial_dtype`.
     ///

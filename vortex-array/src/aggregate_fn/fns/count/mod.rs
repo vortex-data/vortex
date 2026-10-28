@@ -9,6 +9,7 @@ use vortex_error::vortex_bail;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateArgs;
@@ -78,6 +79,31 @@ impl AggregateFnVTable for Count {
         second: Self::Partial,
     ) -> VortexResult<Self::Partial> {
         Ok(first + second)
+    }
+
+    fn merge_partials_batch(
+        &self,
+        args: AggregateArgs<'_, Self::Options>,
+        state: Option<Self::Partial>,
+        batch: Columnar,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Self::Partial>> {
+        if batch.is_empty() {
+            return Ok(state);
+        }
+        let mut state = state.unwrap_or(0);
+        match batch {
+            Columnar::Constant(values) => {
+                state += self.partial_from_scalar(args, values.scalar())? * values.len() as u64;
+            }
+            Columnar::Canonical(Canonical::Primitive(values)) => {
+                for count in values.as_slice::<u64>() {
+                    state += *count;
+                }
+            }
+            _ => vortex_bail!("Count partials must be u64"),
+        }
+        Ok(Some(state))
     }
 
     fn to_scalar(
