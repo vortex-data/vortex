@@ -40,7 +40,7 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps((lambda rows: [dict(x, id="tpcds-nvme-"+str(sf), name="TPC-DS SF="+str(sf)+" on NVME", scale_factor=float(sf)) for x in rows if x["id"] == "tpcds-nvme" for sf in (1,10,30)])(json.load(sys.stdin))))')"
+          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps((lambda rows: [dict(x, id="tpcds-nvme-"+str(sf), name="TPC-DS SF="+str(sf)+" on NVME", scale_factor=float(sf)) for x in rows if x["id"] == "tpcds-nvme" for sf in (10,30)])(json.load(sys.stdin))))')"
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   bench:
@@ -182,17 +182,25 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: target/rebalanced
 
-      - name: Repeat TPC-DS tail rebalancing
+      - name: Install LLVM symbolizer if needed
+        shell: bash
+        run: |
+          if ! command -v llvm-symbolizer >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y llvm
+          fi
+
+      - name: Profile remaining TPC-DS gaps
         shell: bash
         run: |
           chmod +x target/rebalanced/datafusion-bench
-          python3 scripts/repeat-rebalanced-tails.py "${{ matrix.scale_factor }}"
+          python3 scripts/profile-remaining-scans.py "${{ matrix.scale_factor }}"
 
       - name: Upload scan comparison
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: scan-rebalanced-repeat-${{ matrix.id }}
+          name: scan-remaining-profiles-${{ matrix.id }}
           path: scan-*
 
       - name: Compare results
