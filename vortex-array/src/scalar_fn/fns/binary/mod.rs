@@ -75,25 +75,24 @@ const KLEENE_LUT: [[[bool; 2]; 2]; 2] = [
 ];
 
 /// Kleene and/or reduction where one argument is constant non-NULL and other
-/// is non-constant.
-/// Reduces `node AND constant` or `node OR constant`, where the result has `nullability`.
+/// is non-constant: reduces `node AND constant` or `node OR constant`, where `node` has
+/// `node_nullability` and the result has `nullability`.
 ///
 /// Returns `None` when the result would be `node` itself but `node` has a different
 /// nullability than the result, which only a cast could fix.
 fn kleene_one_const<T: ReduceNode>(
+    node_nullability: Nullability,
     node: T,
     constant: bool,
     is_and: bool,
     nullability: Nullability,
-) -> VortexResult<Option<T>> {
-    Ok(match (is_and, constant) {
-        (true, true) | (false, false) => {
-            (node.node_dtype()?.nullability() == nullability).then_some(node)
-        }
+) -> Option<T> {
+    match (is_and, constant) {
+        (true, true) | (false, false) => (node_nullability == nullability).then_some(node),
         (is_and, constant) => {
             Some(node.new_constant(Scalar::bool(constant && !is_and, nullability)))
         }
-    })
+    }
 }
 
 impl ScalarFnVTable for Binary {
@@ -314,8 +313,20 @@ impl ScalarFnVTable for Binary {
                 KLEENE_LUT[is_and as usize][left_const as usize][right_const as usize],
                 nullability,
             )))),
-            (Some(constant), None) => kleene_one_const(right, constant, is_and, nullability),
-            (None, Some(constant)) => kleene_one_const(left, constant, is_and, nullability),
+            (Some(constant), None) => Ok(kleene_one_const(
+                right.node_dtype()?.nullability(),
+                right,
+                constant,
+                is_and,
+                nullability,
+            )),
+            (None, Some(constant)) => Ok(kleene_one_const(
+                left.node_dtype()?.nullability(),
+                left,
+                constant,
+                is_and,
+                nullability,
+            )),
         }
     }
 
