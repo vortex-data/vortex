@@ -96,7 +96,10 @@ impl Benchmark for ClickBenchBenchmark {
     }
 
     fn expected_row_counts(&self) -> Option<Vec<usize>> {
-        Some(clickbench_expected_row_counts())
+        // EXPERIMENT ONLY: a subset of shards has other row counts.
+        std::env::var("VX_EXP_CLICKBENCH_SHARDS")
+            .is_err()
+            .then(clickbench_expected_row_counts)
     }
 
     fn dataset(&self) -> BenchmarkDataset {
@@ -144,7 +147,10 @@ impl Benchmark for ClickBenchSortedBenchmark {
     }
 
     fn expected_row_counts(&self) -> Option<Vec<usize>> {
-        Some(clickbench_expected_row_counts())
+        // EXPERIMENT ONLY: a subset of shards has other row counts.
+        std::env::var("VX_EXP_CLICKBENCH_SHARDS")
+            .is_err()
+            .then(clickbench_expected_row_counts)
     }
 
     fn dataset(&self) -> BenchmarkDataset {
