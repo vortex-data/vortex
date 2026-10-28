@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::mem::MaybeUninit;
-
 use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::binary::BooleanKernel;
 use vortex_array::scalar_fn::fns::binary::kleene_boolean_buffer_scalar;
 use vortex_array::scalar_fn::fns::binary::kleene_boolean_buffers;
@@ -98,6 +98,13 @@ impl TakeExecute for ByteBool {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let indices_mask = indices.validity()?.execute_mask(indices.len(), ctx)?;
+        if matches!(indices_mask, Mask::AllFalse(_)) {
+            return Ok(Some(
+                ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
+                    .into_array(),
+            ));
+        }
+
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
         let values = array.truthy_bytes();
 
@@ -113,16 +120,18 @@ impl TakeExecute for ByteBool {
             let value_at = |index: I| values.get(AsPrimitive::<usize>::as_(index)).copied();
             let gathered = match &indices_mask {
                 Mask::AllTrue(_) => indices.try_map_into(out, value_at),
-                Mask::AllFalse(_) => {
-                    out.fill(MaybeUninit::new(0));
-                    Ok(())
-                }
+                Mask::AllFalse(_) => unreachable!("all-null indices return early"),
                 Mask::Values(mask) => indices.try_map_masked_into(mask.bit_buffer(), out, value_at),
             };
             if let Err(position) = gathered {
-                vortex_panic!(OutOfBounds: indices[position].as_(), 0, values.len());
+                let index: usize = indices[position].as_();
+                vortex_panic!(
+                    "take index {index} out of bounds for length {}",
+                    values.len()
+                );
             }
         });
+
         // SAFETY: every branch wrote all `len` lanes before returning `Ok`.
         unsafe { taken.set_len(len) };
 
@@ -347,6 +356,24 @@ mod tests {
     #[case(bb(vec![true]))]
     fn test_take_byte_bool_conformance(#[case] array: ByteBoolArray) {
         test_take_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
+    }
+
+    #[test]
+    fn test_take_all_null_indices() -> VortexResult<()> {
+        let array = bb(vec![true, false, true]);
+        let indices = PrimitiveArray::from_option_iter([None::<u32>, None, None]).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let taken = <ByteBool as TakeExecute>::take(array.as_view(), &indices, &mut ctx)?
+            .ok_or_else(|| vortex_err!("ByteBool should handle take"))?;
+        assert!(taken.is::<Constant>());
+        assert_arrays_eq!(
+            taken,
+            BoolArray::from_iter([None::<bool>, None, None]),
+            &mut ctx
+        );
+
+        Ok(())
     }
 
     #[rstest]
