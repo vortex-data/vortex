@@ -394,8 +394,8 @@ mod tests {
         let directory = tempfile::tempdir()?;
         let path = directory.path().join("test.bin");
         std::fs::write(&path, TEST_DATA)?;
-        let store = Arc::new(LocalFileSystem::new_with_prefix(directory.path())?)
-            as Arc<dyn ObjectStore>;
+        let store =
+            Arc::new(LocalFileSystem::new_with_prefix(directory.path())?) as Arc<dyn ObjectStore>;
         let reader = ObjectStoreReadAt::new(
             Arc::clone(&store),
             ObjectPath::from("test.bin"),

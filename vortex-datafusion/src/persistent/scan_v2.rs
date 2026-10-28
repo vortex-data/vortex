@@ -11,11 +11,13 @@
 //! of the file's segment source. The DataFusion thread polling the stream does no scan work
 //! itself.
 
+use std::collections::VecDeque;
 use std::future;
 use std::sync::Arc;
 use std::task::Poll;
 
 use arrow_array::RecordBatch;
+use datafusion_common::arrow::compute::concat_batches;
 use futures::SinkExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
@@ -241,3 +243,94 @@ fn chunk_stream(
         .filter_map(|result: VortexResult<()>| future::ready(result.err().map(Err)));
     stream::select(recv, errors).boxed()
 }
+
+/// Coalesce only short tails; full portions stay as zero-copy slices before DataFusion splits them.
+pub(crate) fn align_batches(
+    input: BoxStream<'static, VortexResult<RecordBatch>>,
+    batch_size: usize,
+) -> BoxStream<'static, VortexResult<RecordBatch>> {
+    if batch_size == 0 {
+        return input;
+    }
+    let state = BatchAlignment {
+        input,
+        batch_size,
+        tail: Vec::new(),
+        tail_rows: 0,
+        ready: VecDeque::new(),
+        done: false,
+    };
+    stream::try_unfold(state, |mut state| async move {
+        loop {
+            if let Some(batch) = state.ready.pop_front() {
+                return Ok(Some((batch, state)));
+            }
+            if state.done {
+                return Ok(None);
+            }
+            match state.input.next().await {
+                Some(batch) => state.push(batch?)?,
+                None => {
+                    state.done = true;
+                    if state.tail_rows > 0 {
+                        let batch = state.finish_tail()?;
+                        state.ready.push_back(batch);
+                    }
+                }
+            }
+        }
+    })
+    .boxed()
+}
+
+struct BatchAlignment {
+    input: BoxStream<'static, VortexResult<RecordBatch>>,
+    batch_size: usize,
+    tail: Vec<RecordBatch>,
+    tail_rows: usize,
+    ready: VecDeque<RecordBatch>,
+    done: bool,
+}
+
+impl BatchAlignment {
+    fn finish_tail(&mut self) -> VortexResult<RecordBatch> {
+        let mut tail = std::mem::take(&mut self.tail);
+        self.tail_rows = 0;
+        if tail.len() == 1 {
+            return Ok(tail.remove(0));
+        }
+        concat_batches(&tail[0].schema(), &tail)
+            .map_err(|error| vortex_err!("Failed to join scan batch tails: {error}"))
+    }
+
+    fn push(&mut self, batch: RecordBatch) -> VortexResult<()> {
+        let rows = batch.num_rows();
+        if rows == 0 {
+            return Ok(());
+        }
+        let mut offset = 0;
+        if self.tail_rows > 0 {
+            let take = (self.batch_size - self.tail_rows).min(rows);
+            self.tail.push(batch.slice(0, take));
+            self.tail_rows += take;
+            offset = take;
+            if self.tail_rows == self.batch_size {
+                let tail = self.finish_tail()?;
+                self.ready.push_back(tail);
+            }
+        }
+        let full = (rows - offset) / self.batch_size * self.batch_size;
+        if full > 0 {
+            self.ready.push_back(batch.slice(offset, full));
+            offset += full;
+        }
+        if offset < rows {
+            self.tail.push(batch.slice(offset, rows - offset));
+            self.tail_rows += rows - offset;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests;
