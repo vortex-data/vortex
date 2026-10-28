@@ -23,7 +23,8 @@ pub(super) unsafe fn compact_by_bitmap<T: Copy>(
 ) -> usize {
     let mut write_pos = 0;
 
-    for_each_mask_word(bits, |word, word_start, word_len| {
+    // See `byte_compress::compress` for why this closure is always inlined.
+    for_each_mask_word(bits, #[inline(always)] |word, word_start, word_len| {
         let all_selected = low_bits_mask(word_len);
         debug_assert_eq!(word & !all_selected, 0);
 
