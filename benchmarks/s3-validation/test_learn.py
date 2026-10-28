@@ -118,6 +118,30 @@ class LearningTests(unittest.TestCase):
             self.assertEqual(profile["calibration_get_requests"], 4)
             self.assertEqual([s["excluded_startup_samples"] for s in profile["training"]["sources"]], [0, 0])
 
+    def test_windows_keep_sample_identity_without_inventing_independent_ci_runs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            windows = []
+            for index in range(1, 5):
+                records = self.records("123")
+                records[0].update(measurement_window_id=str(index), measurement_window_started_unix=index * 10800)
+                windows.append(self.write(root, f"window-{index}.jsonl", records))
+            with self.assertRaisesRegex(ValueError, "distinct CI runs"):
+                learn.learn(windows)
+            earlier = self.write(root, "earlier.jsonl", self.records("456"))
+            profile = learn.learn([earlier, *windows])
+            self.assertEqual(profile["training"]["run_ids"], ["123", "456"])
+            self.assertEqual(profile["calibration_get_requests"], 10)
+            self.assertEqual(
+                [s.get("measurement_window_id") for s in profile["training"]["sources"]], [None, "1", "2", "3", "4"]
+            )
+            changed = self.records("123")
+            changed[0].update(measurement_window_id="1", measurement_window_started_unix=10800)
+            changed[1]["seconds"] = 99
+            duplicate = self.write(root, "duplicate-window.jsonl", changed)
+            with self.assertRaisesRegex(ValueError, "Duplicate training sample"):
+                learn.learn([earlier, *windows, duplicate])
+
     def test_phase_profile_uses_measured_headers_and_records_held_out_provenance(self):
         with tempfile.TemporaryDirectory() as directory:
             paths = []

@@ -182,6 +182,39 @@ are unchanged. The default remains zero for compatibility; the candidate experim
 explicit warmup to separate initial source startup from steady performance. Request metrics for
 queries exclude this common setup phase.
 
+## Four measurements over time
+
+The separate `S3 Model Over Time` workflow retains one on-demand `c8gd.16xlarge` host and the
+same immutable SF10 objects for four windows at **0, 3, 6 and 9 hours** after preparation. It
+stops after the fourth window. `over_time.py` anchors starts to the initial time, rather than
+waiting three hours after each measurement finishes. A window more than five minutes late is
+reported as failed; measurements are never silently compressed into a catch-up burst.
+
+Each window runs TPC-H 1,2,6,13,15,22 and TPC-DS 1,4,13,20,30,31,41,61,63,80,83,92 at SF10,
+including the earlier diagnostic set and observed full-suite outliers. Twelve rounds balance
+all six orders of two independent S3 controls and the frozen version 4 RAM model. Cold/warm
+samples remain separate, with a recorded 20-second source-only warmup per suite. This focused
+study supplements the full 121-query validation, whose runtime exceeds the three-hour cadence.
+
+The workflow checks unchanged host identity, binary/profile hashes, object metadata and exact
+request/range/byte/row fingerprints across windows. Checkpoint artifacts preserve each window.
+The final CSV/JSON reports include per-query median/p90, bootstrap intervals, S3 and model drift
+relative to the first successful window, request header/body metrics, correlation and ±10% flags.
+These end-to-end query measurements remain proxies for scan performance.
+
+After four successful windows, the workflow combines their request traces with an earlier
+independent CI run to generate `learned-candidate.json`. Window identifiers prevent sample-ID
+collisions without treating windows as distinct CI runs. Provenance records actual run IDs,
+window times, file hashes and observation weighting; query runtimes remain excluded from fitting.
+The candidate needs fresh held-out CI validation and does not replace the frozen profile during
+the time study. Existing two-independent-run and held-out-validation requirements remain in place.
+
+```bash
+gh workflow run s3-model-over-time.yml --ref ji/ci-s3-over-time
+```
+
+This workflow has a separate concurrency group and does not cancel the full-suite validation.
+
 `learn.py --exclude-startup` excludes the first real timed sample from each identifiable unprimed
 process, regardless of query label or runtime, and records the exclusions. Legacy inputs without
 process timestamps can identify only their initial process. Primed inputs retain every sample.

@@ -1,0 +1,180 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+name: S3 Model Over Time
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "Frozen model for all four windows"
+        type: string
+        default: benchmarks/s3-validation/profiles/us-east-1-c8gd-vortex-v4.json
+      training_run:
+        description: "Earlier independent CI run to combine with the four new windows for learning"
+        type: string
+        default: "40591491612"
+  push:
+    branches: ["ji/ci-s3-over-time"]
+    paths:
+      - .github/workflows/s3-model-over-time.yml
+      - benchmarks/s3-validation/over_time.py
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+concurrency:
+  group: s3-over-time-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    timeout-minutes: 60
+    runs-on: runs-on=${{ github.run_id }}/runner=bench-dedicated/family=c8gd.8xlarge/spot=false/image=ubuntu24-full-arm64-pre-v2/tag=s3-build/extras=s3-cache
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
+      - name: Build validator and data generator
+        env:
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+        run: cargo build --locked -p datafusion-bench --bin s3-validate -p vortex-bench --bin data-gen --profile release_debug
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: s3-validation-binaries
+          path: |
+            target/release_debug/s3-validate
+            target/release_debug/data-gen
+
+  measure:
+    needs: build
+    timeout-minutes: 780
+    runs-on: runs-on=${{ github.run_id }}/runner=bench-dedicated/family=c8gd.16xlarge/spot=false/image=ubuntu24-full-arm64-pre-v2/tag=s3-over-time
+    env:
+      AWS_REGION: us-east-1
+      REMOTE_ROOT: s3://vortex-ci-benchmark-datasets/s3-model-over-time/${{ github.run_id }}-${{ github.run_attempt }}
+      S3_VALIDATION_ROLE_ARN: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+      S3_MODEL_PROFILE: ${{ inputs.profile || 'benchmarks/s3-validation/profiles/us-east-1-c8gd-vortex-v4.json' }}
+      RUST_BACKTRACE: "1"
+    steps:
+      - uses: runs-on/action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/system-info
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: s3-validation-binaries
+          path: target/release_debug
+      - name: Generate immutable SF10 datasets
+        run: |
+          chmod +x target/release_debug/s3-validate target/release_debug/data-gen
+          target/release_debug/data-gen tpch --formats vortex --opt scale-factor=10
+          target/release_debug/data-gen tpcds --formats vortex --opt scale-factor=10
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+          role-duration-seconds: 7200
+      - name: Check region and upload canonical objects once
+        run: |
+          set -Eeuo pipefail
+          region=$(curl --silent --show-error --head --max-time 20 https://vortex-ci-benchmark-datasets.s3.amazonaws.com/ |
+            awk 'tolower($1) == "x-amz-bucket-region:" {gsub("\r", "", $2); print $2}')
+          test "$region" = "$AWS_REGION"
+          test "$RUNS_ON_AWS_REGION" = "$AWS_REGION"
+          aws s3 cp --recursive vortex-bench/data/tpch/10/ "$REMOTE_ROOT/tpch/"
+          aws s3 cp --recursive vortex-bench/data/tpcds/10/ "$REMOTE_ROOT/tpcds/"
+      - name: Setup benchmark environment
+        run: sudo bash scripts/setup-benchmark.sh
+      - name: Anchor four windows three hours apart
+        id: schedule
+        run: |
+          python3 benchmarks/s3-validation/over_time.py init \
+            --source-root "$REMOTE_ROOT" --profile "$S3_MODEL_PROFILE" --iterations 12
+      - name: Measure window 1 immediately
+        if: ${{ !cancelled() && steps.schedule.outcome == 'success' }}
+        run: python3 benchmarks/s3-validation/over_time.py measure --window 1
+      - name: Preserve window 1
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: s3-over-time-window-1-${{ github.run_attempt }}
+          path: |
+            s3-over-time-results/schedule.json
+            s3-over-time-results/window-01/
+      - name: Measure window 2 at plus 3 hours
+        if: ${{ !cancelled() && steps.schedule.outcome == 'success' }}
+        run: python3 benchmarks/s3-validation/over_time.py measure --window 2
+      - name: Preserve window 2
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: s3-over-time-window-2-${{ github.run_attempt }}
+          path: |
+            s3-over-time-results/schedule.json
+            s3-over-time-results/window-02/
+      - name: Measure window 3 at plus 6 hours
+        if: ${{ !cancelled() && steps.schedule.outcome == 'success' }}
+        run: python3 benchmarks/s3-validation/over_time.py measure --window 3
+      - name: Preserve window 3
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: s3-over-time-window-3-${{ github.run_attempt }}
+          path: |
+            s3-over-time-results/schedule.json
+            s3-over-time-results/window-03/
+      - name: Measure window 4 at plus 9 hours
+        if: ${{ !cancelled() && steps.schedule.outcome == 'success' }}
+        run: python3 benchmarks/s3-validation/over_time.py measure --window 4
+      - name: Preserve window 4
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: s3-over-time-window-4-${{ github.run_attempt }}
+          path: |
+            s3-over-time-results/schedule.json
+            s3-over-time-results/window-04/
+      - name: Compare time windows
+        if: ${{ !cancelled() && steps.schedule.outcome == 'success' }}
+        run: python3 benchmarks/s3-validation/over_time.py report
+      - name: Download independent earlier training observations
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: s3-validation-results-2
+          run-id: ${{ inputs.training_run || '40591491612' }}
+          github-token: ${{ github.token }}
+          path: s3-prior-training
+      - name: Learn a new candidate from requests across time windows and earlier CI
+        run: |
+          python3 benchmarks/s3-validation/learn.py \
+            s3-prior-training/tuned-tpch.jsonl s3-prior-training/tuned-tpcds.jsonl \
+            s3-over-time-results/window-*/tuned-*.jsonl \
+            --request-phases --exclude-startup --output s3-over-time-results/learned-candidate.json
+      - name: Publish available comparison
+        if: always()
+        run: |
+          if [ -f s3-over-time-results/over-time.md ]; then
+            cat s3-over-time-results/over-time.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Preserve complete series
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: s3-over-time-results-${{ github.run_attempt }}
+          path: s3-over-time-results/
+          retention-days: 30
+      - name: Refresh AWS credentials for cleanup
+        if: always()
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+      - name: Remove this run's dataset copies
+        if: always()
+        run: aws s3 rm --recursive "$REMOTE_ROOT/"

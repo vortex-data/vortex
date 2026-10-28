@@ -49,7 +49,9 @@ def learn(
                     seen_processes.add(process)
         for record in entries:
             if record.get("kind") == "sample":
-                record["_training_run_id"] = str(environment.get("ci_run_id"))
+                run_id = str(environment.get("ci_run_id"))
+                window = environment.get("measurement_window_id")
+                record["_training_run_id"] = (run_id, window) if window is not None else run_id
                 key = (*compare.sample_key(record), record["backend"])
                 if key in seen_samples:
                     raise ValueError(f"Duplicate training sample in {path}: {key}")
@@ -89,6 +91,15 @@ def learn(
                 "real_backends": sorted({r["backend"] for r in samples}),
                 "excluded_startup_samples": sum(r.get("_process_startup", False) for r in samples),
                 "get_requests": len(requests),
+                **{
+                    key: environment[key]
+                    for key in (
+                        "measurement_window_id",
+                        "measurement_window_planned_unix",
+                        "measurement_window_started_unix",
+                    )
+                    if key in environment
+                },
             }
         )
         records.extend(entries)
