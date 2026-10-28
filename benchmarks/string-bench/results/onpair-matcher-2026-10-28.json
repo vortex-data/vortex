@@ -1,0 +1,404 @@
+{
+  "date": "2026-10-28",
+  "cpu": "Intel Xeon 6975P-C",
+  "logical_cpu": 2,
+  "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.1\nLLVM version: 23.1.1",
+  "profile": "release_debug: opt-level=3, codegen-units=1, lto=off, debug=full",
+  "target_cpu": "default x86_64; repository force-frame-pointers config",
+  "candidate_isa": "AVX-512F + POPCNT, runtime dispatch; six lanes for generic Rows",
+  "iterations": 5,
+  "warmup": 2,
+  "runtime": "current-thread; mimalloc with benchmark allocator configuration",
+  "metric": "Vortex end-to-end write: train, encode, integer child compression, layout, in-memory serialization; MB/s of canonical uncompressed bytes",
+  "baseline_vortex_commit": "ac513ce385b84b72bf78727f73db903a29bc68d1",
+  "candidate_source_commit": "6c46ae0fad8e80586b1da15308ce2cbdf651c5ac",
+  "baseline_onpair": "crates.io 0.2.1",
+  "candidate_onpair": "https://github.com/spiraldb/onpair@29672467c0303f5adfebd0cb98511fdf47bdf77f",
+  "candidate_upstream_pr": "https://github.com/spiraldb/onpair/pull/65",
+  "measurements": [
+    {
+      "column": "amazon/book_reviews",
+      "encoder": "onpair-12",
+      "size_percent": 38.21234699605678,
+      "baseline_write_ms": 1665.578787,
+      "candidate_write_ms": 955.045764,
+      "baseline_write_mbps": 76.36,
+      "candidate_write_mbps": 133.16,
+      "throughput_gain_percent": 74.39779849125638,
+      "baseline_read_ms": 24.871194,
+      "candidate_read_ms": 24.453061
+    },
+    {
+      "column": "amazon/book_reviews",
+      "encoder": "onpair-16",
+      "size_percent": 37.9170583191284,
+      "baseline_write_ms": 1487.79553,
+      "candidate_write_ms": 942.559849,
+      "baseline_write_mbps": 85.48,
+      "candidate_write_mbps": 134.93,
+      "throughput_gain_percent": 57.846266375388545,
+      "baseline_read_ms": 26.758858,
+      "candidate_read_ms": 26.283406
+    },
+    {
+      "column": "amazon/book_reviews",
+      "encoder": "fsst",
+      "size_percent": 52.15388272221946,
+      "baseline_write_ms": 691.17864,
+      "candidate_write_ms": 695.0601819999999,
+      "baseline_write_mbps": 184.0,
+      "candidate_write_mbps": 182.97,
+      "throughput_gain_percent": -0.5584468943151122,
+      "baseline_read_ms": 34.016933,
+      "candidate_read_ms": 34.524366
+    },
+    {
+      "column": "amazon/book_titles",
+      "encoder": "onpair-12",
+      "size_percent": 44.44605552323536,
+      "baseline_write_ms": 141.95130699999999,
+      "candidate_write_ms": 86.42138200000001,
+      "baseline_write_mbps": 75.4,
+      "candidate_write_mbps": 123.85,
+      "throughput_gain_percent": 64.2548449410355,
+      "baseline_read_ms": 3.000856,
+      "candidate_read_ms": 2.995549
+    },
+    {
+      "column": "amazon/book_titles",
+      "encoder": "onpair-16",
+      "size_percent": 45.63652648630661,
+      "baseline_write_ms": 181.77627299999997,
+      "candidate_write_ms": 89.75767,
+      "baseline_write_mbps": 58.88,
+      "candidate_write_mbps": 119.25,
+      "throughput_gain_percent": 102.51893013711246,
+      "baseline_read_ms": 3.27516,
+      "candidate_read_ms": 3.064785
+    },
+    {
+      "column": "amazon/book_titles",
+      "encoder": "fsst",
+      "size_percent": 50.766433883428505,
+      "baseline_write_ms": 74.522863,
+      "candidate_write_ms": 73.353923,
+      "baseline_write_mbps": 143.63,
+      "candidate_write_mbps": 145.92,
+      "throughput_gain_percent": 1.5935616694965349,
+      "baseline_read_ms": 3.527524,
+      "candidate_read_ms": 3.400429
+    },
+    {
+      "column": "clickbench/URL/shard-0",
+      "encoder": "onpair-12",
+      "size_percent": 28.289171811342577,
+      "baseline_write_ms": 811.622728,
+      "candidate_write_ms": 596.124996,
+      "baseline_write_mbps": 128.83,
+      "candidate_write_mbps": 175.4,
+      "throughput_gain_percent": 36.14975608236364,
+      "baseline_read_ms": 20.208188,
+      "candidate_read_ms": 19.688323
+    },
+    {
+      "column": "clickbench/URL/shard-0",
+      "encoder": "onpair-16",
+      "size_percent": 28.640909058653367,
+      "baseline_write_ms": 838.848429,
+      "candidate_write_ms": 605.3012650000001,
+      "baseline_write_mbps": 124.65,
+      "candidate_write_mbps": 172.74,
+      "throughput_gain_percent": 38.58362397441874,
+      "baseline_read_ms": 20.477544,
+      "candidate_read_ms": 19.873751
+    },
+    {
+      "column": "clickbench/URL/shard-0",
+      "encoder": "fsst",
+      "size_percent": 47.30267671830977,
+      "baseline_write_ms": 478.779725,
+      "candidate_write_ms": 481.60688400000004,
+      "baseline_write_mbps": 218.39,
+      "candidate_write_mbps": 217.11,
+      "throughput_gain_percent": -0.5870262851143226,
+      "baseline_read_ms": 31.264173,
+      "candidate_read_ms": 32.148279
+    },
+    {
+      "column": "fineweb/text",
+      "encoder": "onpair-12",
+      "size_percent": 44.37700222499731,
+      "baseline_write_ms": 795.524745,
+      "candidate_write_ms": 476.295918,
+      "baseline_write_mbps": 38.39,
+      "candidate_write_mbps": 64.12,
+      "throughput_gain_percent": 67.02321286742585,
+      "baseline_read_ms": 6.843382999999999,
+      "candidate_read_ms": 6.879329
+    },
+    {
+      "column": "fineweb/text",
+      "encoder": "onpair-16",
+      "size_percent": 40.15548950382982,
+      "baseline_write_ms": 674.146428,
+      "candidate_write_ms": 496.18221,
+      "baseline_write_mbps": 45.3,
+      "candidate_write_mbps": 61.55,
+      "throughput_gain_percent": 35.86670670840859,
+      "baseline_read_ms": 6.087949,
+      "candidate_read_ms": 5.98027
+    },
+    {
+      "column": "fineweb/text",
+      "encoder": "fsst",
+      "size_percent": 55.90197294358995,
+      "baseline_write_ms": 280.30328399999996,
+      "candidate_write_ms": 282.210351,
+      "baseline_write_mbps": 108.96,
+      "candidate_write_mbps": 108.22,
+      "throughput_gain_percent": -0.6757608263631809,
+      "baseline_read_ms": 7.878954,
+      "candidate_read_ms": 7.992931
+    },
+    {
+      "column": "news/headlines",
+      "encoder": "onpair-12",
+      "size_percent": 37.73040791346742,
+      "baseline_write_ms": 757.41062,
+      "candidate_write_ms": 464.95000600000003,
+      "baseline_write_mbps": 92.38,
+      "candidate_write_mbps": 150.49,
+      "throughput_gain_percent": 62.901518491431084,
+      "baseline_read_ms": 19.33994,
+      "candidate_read_ms": 19.004197
+    },
+    {
+      "column": "news/headlines",
+      "encoder": "onpair-16",
+      "size_percent": 38.416461583641315,
+      "baseline_write_ms": 833.572081,
+      "candidate_write_ms": 477.69996399999997,
+      "baseline_write_mbps": 83.94,
+      "candidate_write_mbps": 146.47,
+      "throughput_gain_percent": 74.49699472868289,
+      "baseline_read_ms": 19.357255,
+      "candidate_read_ms": 19.428341
+    },
+    {
+      "column": "news/headlines",
+      "encoder": "fsst",
+      "size_percent": 43.83800517124216,
+      "baseline_write_ms": 419.139468,
+      "candidate_write_ms": 420.174552,
+      "baseline_write_mbps": 166.94,
+      "candidate_write_mbps": 166.53,
+      "throughput_gain_percent": -0.24634618995201807,
+      "baseline_read_ms": 19.450848999999998,
+      "candidate_read_ms": 19.773141000000003
+    },
+    {
+      "column": "tpch/l_comment",
+      "encoder": "onpair-12",
+      "size_percent": 22.996683357813467,
+      "baseline_write_ms": 1440.6318250000002,
+      "candidate_write_ms": 1069.7813,
+      "baseline_write_mbps": 172.97,
+      "candidate_write_mbps": 232.94,
+      "throughput_gain_percent": 34.666013043974495,
+      "baseline_read_ms": 60.346686,
+      "candidate_read_ms": 59.421595
+    },
+    {
+      "column": "tpch/l_comment",
+      "encoder": "onpair-16",
+      "size_percent": 23.01119751482703,
+      "baseline_write_ms": 1447.629127,
+      "candidate_write_ms": 1084.5976500000002,
+      "baseline_write_mbps": 172.14,
+      "candidate_write_mbps": 229.75,
+      "throughput_gain_percent": 33.471534536332406,
+      "baseline_read_ms": 60.142311,
+      "candidate_read_ms": 60.051303
+    },
+    {
+      "column": "tpch/l_comment",
+      "encoder": "fsst",
+      "size_percent": 30.07840092706971,
+      "baseline_write_ms": 1165.975797,
+      "candidate_write_ms": 1163.693676,
+      "baseline_write_mbps": 213.72,
+      "candidate_write_mbps": 214.14,
+      "throughput_gain_percent": 0.1961101144627886,
+      "baseline_read_ms": 65.147752,
+      "candidate_read_ms": 65.532727
+    },
+    {
+      "column": "twitter/sentiment140",
+      "encoder": "onpair-12",
+      "size_percent": 44.094038414346976,
+      "baseline_write_ms": 1584.6311719999999,
+      "candidate_write_ms": 930.9193690000001,
+      "baseline_write_mbps": 77.34,
+      "candidate_write_mbps": 131.65,
+      "throughput_gain_percent": 70.22217227064698,
+      "baseline_read_ms": 33.05602,
+      "candidate_read_ms": 33.085575999999996
+    },
+    {
+      "column": "twitter/sentiment140",
+      "encoder": "onpair-16",
+      "size_percent": 46.008546208056515,
+      "baseline_write_ms": 1591.1352279999999,
+      "candidate_write_ms": 1028.676155,
+      "baseline_write_mbps": 77.02,
+      "candidate_write_mbps": 119.14,
+      "throughput_gain_percent": 54.67795382114207,
+      "baseline_read_ms": 36.406819999999996,
+      "candidate_read_ms": 36.131835
+    },
+    {
+      "column": "twitter/sentiment140",
+      "encoder": "fsst",
+      "size_percent": 51.76308196157247,
+      "baseline_write_ms": 757.474915,
+      "candidate_write_ms": 754.686788,
+      "baseline_write_mbps": 161.79,
+      "candidate_write_mbps": 162.39,
+      "throughput_gain_percent": 0.369441607344001,
+      "baseline_read_ms": 37.653394999999996,
+      "candidate_read_ms": 38.431643
+    }
+  ],
+  "upstream_develop_control": {
+    "commit": "5508afcad7b70ff8d2a025514a3cacaa28875ba9",
+    "measurements": [
+      {
+        "column": "clickbench/URL/shard-0",
+        "encoder": "onpair-12",
+        "size_pct": 28.29,
+        "write_mbps": 161.26,
+        "read_mbps": 5109.5
+      },
+      {
+        "column": "clickbench/URL/shard-0",
+        "encoder": "onpair-16",
+        "size_pct": 28.64,
+        "write_mbps": 159.98,
+        "read_mbps": 5113.04
+      },
+      {
+        "column": "tpch/l_comment",
+        "encoder": "onpair-12",
+        "size_pct": 23.0,
+        "write_mbps": 221.09,
+        "read_mbps": 4147.36
+      },
+      {
+        "column": "tpch/l_comment",
+        "encoder": "onpair-16",
+        "size_pct": 23.01,
+        "write_mbps": 218.0,
+        "read_mbps": 4090.52
+      },
+      {
+        "column": "amazon/book_reviews",
+        "encoder": "onpair-12",
+        "size_pct": 38.21,
+        "write_mbps": 119.62,
+        "read_mbps": 5130.11
+      },
+      {
+        "column": "amazon/book_reviews",
+        "encoder": "onpair-16",
+        "size_pct": 37.92,
+        "write_mbps": 114.03,
+        "read_mbps": 4843.47
+      },
+      {
+        "column": "amazon/book_titles",
+        "encoder": "onpair-12",
+        "size_pct": 44.45,
+        "write_mbps": 111.19,
+        "read_mbps": 3519.19
+      },
+      {
+        "column": "amazon/book_titles",
+        "encoder": "onpair-16",
+        "size_pct": 45.64,
+        "write_mbps": 109.65,
+        "read_mbps": 3476.93
+      },
+      {
+        "column": "news/headlines",
+        "encoder": "onpair-12",
+        "size_pct": 37.73,
+        "write_mbps": 138.66,
+        "read_mbps": 3660.16
+      },
+      {
+        "column": "news/headlines",
+        "encoder": "onpair-16",
+        "size_pct": 38.42,
+        "write_mbps": 135.19,
+        "read_mbps": 3512.53
+      },
+      {
+        "column": "twitter/sentiment140",
+        "encoder": "onpair-12",
+        "size_pct": 44.09,
+        "write_mbps": 117.21,
+        "read_mbps": 3708.53
+      },
+      {
+        "column": "twitter/sentiment140",
+        "encoder": "onpair-16",
+        "size_pct": 46.01,
+        "write_mbps": 108.7,
+        "read_mbps": 3365.88
+      },
+      {
+        "column": "fineweb/text",
+        "encoder": "onpair-12",
+        "size_pct": 44.38,
+        "write_mbps": 60.54,
+        "read_mbps": 4443.72
+      },
+      {
+        "column": "fineweb/text",
+        "encoder": "onpair-16",
+        "size_pct": 40.16,
+        "write_mbps": 53.1,
+        "read_mbps": 5118.28
+      }
+    ]
+  },
+  "compatibility": {
+    "benchmark_rows": 9956337,
+    "binary_edge_case_rows": 2006,
+    "chunk_rows": 8192,
+    "budgets": [
+      12,
+      16
+    ],
+    "exact_equal": [
+      "dictionary_bytes",
+      "dictionary_offsets",
+      "codes",
+      "row_offsets"
+    ],
+    "all_serialized_size_metrics_equal": true
+  },
+  "checks": {
+    "onpair_tests": 158,
+    "onpair_doctests": 2,
+    "vortex_onpair_tests": 40,
+    "string_bench_tests": 12,
+    "format": "pass",
+    "clippy_all_targets_all_features": "pass"
+  },
+  "binaries": {
+    "baseline_sha256": "94979bc6f74643429986dd1f6d07fa13bc24de0e5374addca0bdd45d6026adb4",
+    "candidate_sha256": "818e8add9becb6c897992251a82e5366f77fe078b412d6f057bb8309027f7f9e"
+  },
+  "build_metadata_note": "The candidate binary was built from the implementation tree before it was committed; embedded benchmark commit metadata names the base. candidate_source_commit identifies the identical implementation tree."
+}
