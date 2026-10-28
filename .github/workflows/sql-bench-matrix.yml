@@ -40,12 +40,12 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps((lambda rows: [dict(x, id="tpcds-nvme-"+str(sf), name="TPC-DS SF="+str(sf)+" on NVME", scale_factor=float(sf)) for x in rows if x["id"] == "tpcds-nvme" for sf in (10,30)])(json.load(sys.stdin))))')"
+          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET" | python3 -c 'import json,sys; print(json.dumps([y for x in json.load(sys.stdin) for y in ([x] if x["id"] == "clickbench-nvme" else [dict(x, id="tpcds-nvme-"+str(sf), name="TPC-DS SF="+str(sf)+" on NVME", scale_factor=float(sf)) for sf in (1,10,30)] if x["id"] == "tpcds-nvme" else [])]))')"
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   bench:
     needs: [resolve-matrix]
-    timeout-minutes: 120
+    timeout-minutes: 180
     env:
       FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
       # Makes python output nicer
@@ -86,7 +86,7 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
           name: bench-binaries
-          run-id: 40613767503
+          run-id: "40627772121"
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: target/release_debug/
       - name: Make binaries executable
@@ -174,33 +174,16 @@ jobs:
             -o sizes.json
           cat sizes.json >> results.json
 
-      - name: Download tail-rebalancing candidate
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          name: bench-binaries
-          run-id: 40627772121
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: target/rebalanced
-
-      - name: Install LLVM symbolizer if needed
+      - name: Compare all queries and repeated guards
+        timeout-minutes: 165
         shell: bash
-        run: |
-          if ! command -v llvm-symbolizer >/dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y llvm
-          fi
-
-      - name: Profile remaining TPC-DS gaps
-        shell: bash
-        run: |
-          chmod +x target/rebalanced/datafusion-bench
-          python3 scripts/profile-remaining-scans.py "${{ matrix.scale_factor }}"
+        run: python3 scripts/compare-combined-all.py "${{ matrix.subcommand }}" "${{ matrix.scale_factor }}"
 
       - name: Upload scan comparison
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: scan-remaining-profiles-${{ matrix.id }}
+          name: scan-rebalanced-all-${{ matrix.id }}
           path: scan-*
 
       - name: Compare results
