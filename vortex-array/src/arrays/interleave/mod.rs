@@ -26,8 +26,8 @@
 //!   nullability must be resolved into definite indices by the caller *before* the interleave is
 //!   built.
 //! - `array_indices[i] < values.len()` and `row_indices[i] < values[array_indices[i]].len()` for
-//!   every `i`. These per-row bounds depend on the selector *values* and so are a runtime
-//!   precondition of the caller, checked in the execution kernels rather than at construction.
+//!   every `i`. These per-row bounds depend on the selector *values*, so construction does not
+//!   check them. They are a precondition of the caller, and execution panics when one fails.
 //! - All values share a logical type up to nullability. The output type is that shared type with
 //!   the union of the values' nullabilities. This is orthogonal to the selectors: a row's *value*
 //!   may be null even though its `(array_index, row_index)` is definite.
@@ -639,42 +639,31 @@ mod tests {
     }
 
     #[test]
-    fn execute_rejects_out_of_bounds_array_index() -> VortexResult<()> {
+    #[should_panic(expected = "interleave array index 2 out of bounds for 2 values")]
+    fn execute_panics_on_out_of_bounds_array_index() {
         let value = BoolArray::from_iter([true]).into_array();
         let array_indices = PrimitiveArray::from_iter([2u32]).into_array();
         let row_indices = PrimitiveArray::from_iter([0u32]).into_array();
         let interleaved =
-            InterleaveArray::try_new(vec![value.clone(), value], array_indices, row_indices)?
+            InterleaveArray::try_new(vec![value.clone(), value], array_indices, row_indices)
+                .vortex_expect("the selectors are non-nullable unsigned integers of equal length")
                 .into_array();
 
-        let mut ctx = SESSION.create_execution_ctx();
-        let err = interleaved
-            .execute::<Canonical>(&mut ctx)
-            .err()
-            .vortex_expect("expected execution to reject out-of-bounds array index");
-        assert!(
-            err.to_string().contains("array index out of bounds"),
-            "{err}"
-        );
-        Ok(())
+        drop(interleaved.execute::<Canonical>(&mut SESSION.create_execution_ctx()));
     }
 
     #[test]
-    fn execute_rejects_out_of_bounds_row_index() -> VortexResult<()> {
+    #[should_panic(expected = "interleave row index 1 out of bounds for length 1")]
+    fn execute_panics_on_out_of_bounds_row_index() {
         let value = BoolArray::from_iter([true]).into_array();
         let array_indices = PrimitiveArray::from_iter([0u32]).into_array();
         let row_indices = PrimitiveArray::from_iter([1u32]).into_array();
         let interleaved =
-            InterleaveArray::try_new(vec![value.clone(), value], array_indices, row_indices)?
+            InterleaveArray::try_new(vec![value.clone(), value], array_indices, row_indices)
+                .vortex_expect("the selectors are non-nullable unsigned integers of equal length")
                 .into_array();
 
-        let mut ctx = SESSION.create_execution_ctx();
-        let err = interleaved
-            .execute::<Canonical>(&mut ctx)
-            .err()
-            .vortex_expect("expected execution to reject out-of-bounds row index");
-        assert!(err.to_string().contains("row index out of bounds"), "{err}");
-        Ok(())
+        drop(interleaved.execute::<Canonical>(&mut SESSION.create_execution_ctx()));
     }
 
     #[test]

@@ -8,8 +8,6 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
-use vortex_error::vortex_ensure_eq;
 
 use super::super::Interleave;
 use super::super::InterleaveArrayExt;
@@ -59,7 +57,7 @@ pub(super) fn execute(
                 array_indices.as_slice::<A>(),
                 row_indices.as_slice::<R>(),
                 ctx.allocator(),
-            )?
+            )
         })
     });
 
@@ -76,27 +74,32 @@ fn gather<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
     branches: &[A],
     rows: &[R],
     allocator: &BufferAllocatorRef,
-) -> VortexResult<BitBufferMut> {
-    let len = validate_selectors(value_bits, branches, rows)?;
+) -> BitBufferMut {
+    let len = validate_selectors(value_bits, branches, rows);
 
     // SAFETY: `validate_selectors` proved `branches.len() == rows.len() == len`, and for every
     // `i < len` that `branches[i] < value_bits.len()` and `rows[i] < value_bits[branches[i]].len()`.
-    Ok(unsafe { gather_bits(len, value_bits, branches, rows, allocator) })
+    unsafe { gather_bits(len, value_bits, branches, rows, allocator) }
 }
 
 /// Validates the per-row selector bounds, returning the output length (`branches.len()`).
 ///
-/// On success, `rows.len() == branches.len() == len` and, for every `i < len`,
-/// `branches[i] < value_bits.len()` and `rows[i] < value_bits[branches[i]].len()` — exactly the
-/// preconditions of [`gather_bits`]. Errors (rather than panics) on any out-of-bounds selector.
+/// On return, `rows.len() == branches.len() == len` and, for every `i < len`,
+/// `branches[i] < value_bits.len()` and `rows[i] < value_bits[branches[i]].len()`. These are
+/// exactly the preconditions of [`gather_bits`].
+///
+/// # Panics
+///
+/// Panics if the selectors have different lengths, or if a selector names a value or a row that
+/// does not exist.
 fn validate_selectors<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
     value_bits: &[BitBuffer],
     branches: &[A],
     rows: &[R],
-) -> VortexResult<usize> {
+) -> usize {
     // The two selectors are validated to equal length at construction, which is the output length.
     let len = branches.len();
-    vortex_ensure_eq!(
+    assert_eq!(
         rows.len(),
         len,
         "interleave row_indices length does not match array_indices length",
@@ -104,17 +107,20 @@ fn validate_selectors<A: AsPrimitive<usize>, R: AsPrimitive<usize>>(
 
     for i in 0..len {
         let branch = branches[i].as_();
-        vortex_ensure!(
+        assert!(
             branch < value_bits.len(),
-            "interleave array index out of bounds"
+            "interleave array index {branch} out of bounds for {} values",
+            value_bits.len()
         );
-        vortex_ensure!(
-            rows[i].as_() < value_bits[branch].len(),
-            "interleave row index out of bounds"
+        let row = rows[i].as_();
+        assert!(
+            row < value_bits[branch].len(),
+            "interleave row index {row} out of bounds for length {}",
+            value_bits[branch].len()
         );
     }
 
-    Ok(len)
+    len
 }
 
 /// Gathers one bit per output from `bits[branches[i]]` at position `rows[i]`, packing 64 results per

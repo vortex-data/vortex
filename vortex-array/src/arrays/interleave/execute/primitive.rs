@@ -42,7 +42,7 @@ pub(super) fn execute(
     let values = match_each_ptype_width!(
         ptype,
         |W| {
-            gather_values::<W>(&array, ctx.allocator())?
+            gather_values::<W>(&array, ctx.allocator())
                 .into_byte_buffer()
                 .aligned(Alignment::new(W))
         },
@@ -56,7 +56,7 @@ pub(super) fn execute(
 fn gather_values<const W: usize>(
     array: &Array<Interleave>,
     allocator: &BufferAllocatorRef,
-) -> VortexResult<Buffer<[u8; W]>> {
+) -> Buffer<[u8; W]> {
     let sources = (0..array.num_values())
         .map(|i| {
             let value = array.value(i);

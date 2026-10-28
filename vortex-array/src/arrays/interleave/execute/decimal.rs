@@ -61,7 +61,7 @@ fn gather_values<T: NativeDecimalType>(
         .map(|i| prepare_source::<T>(array.value(i), dtype, ctx))
         .collect::<VortexResult<Vec<_>>>()?;
 
-    gather(array, &sources, ctx.allocator())
+    Ok(gather(array, &sources, ctx.allocator()))
 }
 
 /// Normalizes one decimal source while retaining a single payload for a constant.
