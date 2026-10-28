@@ -26,6 +26,10 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
+pub use packed::*;
+
+mod packed;
+
 /// A string that can be used as an error message.
 #[derive(Debug, Clone)]
 pub struct ErrString(Cow<'static, str>);
