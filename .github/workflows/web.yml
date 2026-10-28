@@ -36,6 +36,8 @@ jobs:
             web:
               - "vortex-web/**"
               - ".github/workflows/web.yml"
+              - ".github/workflows/deploy-vercel.yml"
+              - ".github/vercel-cli/**"
 
   check:
     name: Check & Lint
