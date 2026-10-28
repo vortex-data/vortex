@@ -45,3 +45,19 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy docs/ --project-name=vortex-docs --branch=${{ github.head_ref || github.ref_name }}
+
+  # Deploys the same build to Vercel. Both hosts run until docs.vortex.dev
+  # has served from Vercel for two weeks, then the Pages job above goes.
+  deploy-vercel:
+    name: Deploy to Vercel
+    needs: build
+    permissions:
+      contents: read
+      deployments: write
+    uses: ./.github/workflows/deploy-vercel.yml
+    with:
+      environment: vercel-docs
+      artifact-ids: ${{ needs.build.outputs.artifact-id }}
+      config: docs/vercel-output-config.json
+      pages-html-handling: true
+      production: ${{ github.ref == 'refs/heads/develop' }}

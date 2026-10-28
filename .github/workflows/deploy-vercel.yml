@@ -32,6 +32,10 @@ on:
         description: Repository path to the Build Output API config.json.
         type: string
         required: true
+      pages-html-handling:
+        description: Serve HTML at the URLs Cloudflare Pages uses (see .github/vercel-cli/pages-html-routes.py).
+        type: boolean
+        default: false
       production:
         description: Deploy to production instead of a preview.
         type: boolean
@@ -95,6 +99,9 @@ jobs:
         env:
           CONFIG: ${{ inputs.config }}
         run: cp "$CONFIG" "$RUNNER_TEMP/site/.vercel/output/config.json"
+      - name: Add Pages HTML routes
+        if: inputs.pages-html-handling
+        run: python3 -I .github/vercel-cli/pages-html-routes.py "$RUNNER_TEMP/site/.vercel/output"
       - name: Deploy
         id: deploy
         working-directory: ${{ runner.temp }}/site
