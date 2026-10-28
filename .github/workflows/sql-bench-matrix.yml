@@ -193,6 +193,18 @@ jobs:
         if: matrix.remote_key == null || github.event.pull_request.head.repo.fork == true
         shell: bash
         env:
+          VORTEX_USE_SCAN_API: "0"
+          VORTEX_SCAN_V2: "1"
+          VORTEX_IO_BACKEND: "shared-1-mapped"
+          VORTEX_IO_QUEUE_DEPTH: "64"
+          VORTEX_IO_FORCE_ASYNC: "1"
+          VORTEX_IO_CHECK_RESIDENT_PAGES: "1"
+          VORTEX_IO_REUSE_INFLIGHT: "1"
+          VORTEX_SCAN_V2_SHARE_PLANS: "1"
+          VORTEX_SCAN_V2_IO_CACHE_BYTES: "0"
+          VORTEX_SCAN_V2_CHUNK_ROWS: "32768"
+          VORTEX_SCAN_V2_CONSUMER_MAPPING: "1"
+          VORTEX_SCAN_V2_CONSUMER_MAPPING_FIXED_WIDTH_ONLY: "1"
           OTEL_SERVICE_NAME: "vortex-bench"
           OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
           OTEL_EXPORTER_OTLP_ENDPOINT: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_ENDPOINT || '' }}"
@@ -228,23 +240,6 @@ jobs:
             --opt remote-data-dir="$REMOTE_STORAGE" \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
-      - name: Compare V1 and V2 shared-ring IO
-        if: inputs.mode == 'pr' && matrix.remote_key == null
-        shell: bash
-        run: |
-          python3 scripts/bench-scan-io.py "${{ matrix.subcommand }}" \
-            --targets-json '${{ toJSON(matrix.targets) }}' \
-            ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
-            ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
-          cat scan-io-comparison/report.md >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload scan IO comparisons
-        if: always() && inputs.mode == 'pr' && matrix.remote_key == null
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
-        with:
-          name: scan-io-${{ matrix.id }}-${{ inputs.matrix_preset }}
-          path: scan-io-comparison/
-
       - name: Capture file sizes
         if: matrix.remote_key == null
         shell: bash
@@ -267,9 +262,6 @@ jobs:
 
           uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.name }}" \
             > comment.md
-          if [ -f scan-io-comparison/report.md ]; then
-            cat scan-io-comparison/report.md >> comment.md
-          fi
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment PR
