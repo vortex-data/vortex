@@ -13,12 +13,13 @@
 fills commit metadata from `git show`, computes the internal `measurement_id`,
 then atomically upserts the whole file into the RDS fact tables.
 
-The wire contract is shared with the benchmarks-website repository:
+The wire contract is shared with bench, which lives under `bench/` in the
+vortex-data/vortex.dev repository:
 
 - `vortex-bench/src/v3.rs` owns the producer record shape.
-- `benchmarks-website/CONTRACT.md` documents the transport and schema contract.
-- `benchmarks-website/web/lib/schema-version.ts` is the `SCHEMA_VERSION` source
-  of truth that the constant below must match.
+- `bench/CONTRACT.md` documents the transport and schema contract.
+- `bench/web/lib/schema-version.ts` is the `SCHEMA_VERSION` source of truth
+  that the constant below must match.
 """
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import ModuleType
 
-# MUST equal `benchmarks-website/web/lib/schema-version.ts::SCHEMA_VERSION`.
+# MUST equal `bench/web/lib/schema-version.ts::SCHEMA_VERSION` in vortex-data/vortex.dev.
 # Bumping this is a coordinated change across the website contract, v3.rs, and
 # this script.
 SCHEMA_VERSION = 3

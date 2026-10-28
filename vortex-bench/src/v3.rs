@@ -9,9 +9,9 @@
 //! plus `git show`, computes the internal `measurement_id`, and upserts them
 //! directly into the database.
 //!
-//! When changing a shape, update `benchmarks-website/CONTRACT.md`,
-//! `benchmarks-website/web/lib/schema-version.ts`, and
-//! `scripts/post-ingest.py` in the same logical change.
+//! When changing a shape, update `bench/CONTRACT.md` and
+//! `bench/web/lib/schema-version.ts` in the vortex-data/vortex.dev repository,
+//! and `scripts/post-ingest.py` here, in the same logical change.
 //!
 //! ## Producer mapping
 //!
