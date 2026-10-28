@@ -70,6 +70,7 @@
 use std::any::Any;
 use std::fmt;
 use std::fmt::Formatter;
+use std::num::NonZeroUsize;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -106,7 +107,6 @@ use datafusion_physical_expr_common::sort_expr::PhysicalSortExpr;
 use datafusion_physical_plan::DisplayFormatType;
 use datafusion_physical_plan::filter_pushdown::FilterPushdownPropagation;
 use datafusion_physical_plan::filter_pushdown::PushedDown;
-use datafusion_physical_plan::limit::LimitStream;
 use datafusion_physical_plan::metrics::BaselineMetrics;
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
@@ -116,15 +116,20 @@ use futures::TryStreamExt;
 use futures::future::try_join_all;
 use futures::lock::Mutex;
 use futures::stream;
+use futures::stream::BoxStream;
 use futures::task::AtomicWaker;
 use tokio::sync::OnceCell;
+use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
+use vortex::array::stream::SendableArrayStream;
 use vortex::dtype::DType;
 use vortex::dtype::FieldPath;
 use vortex::dtype::Nullability;
 use vortex::error::VortexError;
+use vortex::error::VortexExpect as _;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::get_item;
@@ -134,8 +139,8 @@ use vortex::expr::stats::Precision;
 use vortex::expr::transform::replace;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::scan::DataSourceRef;
-use vortex::scan::PartitionStream;
 use vortex::scan::ScanRequest;
+use vortex::scan::driver::ScanDriver;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_utils::parallelism::get_available_parallelism;
@@ -493,38 +498,39 @@ impl VortexDataSource {
                 ..Default::default()
             };
             let data_source = Arc::clone(&self.data_source);
-            let partitions = stream::try_unfold(Arc::clone(&execution), move |execution| {
-                let data_source = Arc::clone(&data_source);
-                let request = scan_request.clone();
+            let output_count = NonZeroUsize::new(self.output_partition_count())
+                .vortex_expect("positive scan output count");
+            let arrays = stream::once({
+                let execution = Arc::clone(&execution);
                 async move {
                     // Cancellation may retry initialization, but never runs attempts concurrently.
-                    let partitions = execution
-                        .scan_partitions
+                    let streams = execution
+                        .scan_streams
                         .get_or_init(|| async {
-                            data_source
-                                .scan(request)
-                                .await
-                                .map(|scan| Mutex::new(Some(scan.partitions())))
+                            let scan = data_source.scan(scan_request.clone()).await?;
+                            Ok(Mutex::new(
+                                ScanDriver::new(scan, &scan_request)
+                                    .into_streams(
+                                        output_count,
+                                        NonZeroUsize::new(SCAN_PARTITION_READ_AHEAD)
+                                            .vortex_expect("positive scan read-ahead"),
+                                    )
+                                    .into_iter()
+                                    .map(Some)
+                                    .collect(),
+                            ))
                         })
                         .await
                         .as_ref()
                         .map_err(Clone::clone)?;
-                    let partition = {
-                        let mut partitions = partitions.lock().await;
-                        let next = match partitions.as_mut() {
-                            Some(partitions) => partitions.try_next().await?,
-                            None => None,
-                        };
-                        if next.is_none() {
-                            drop(partitions.take());
-                        }
-                        next
-                    };
-                    Ok(partition.map(|partition| (partition, execution)))
+                    streams.lock().await[partition]
+                        .take()
+                        .ok_or_else(|| vortex_err!("scan output partition already opened"))
                 }
             })
+            .try_flatten()
             .boxed();
-            self.batch_stream(partitions, partition, metrics.clone())?
+            self.batch_stream(arrays, metrics.clone())?
         };
         Ok(Box::pin(OutputPartitionStream {
             partition,
@@ -537,8 +543,7 @@ impl VortexDataSource {
 
     fn batch_stream(
         &self,
-        scan_partitions: PartitionStream,
-        partition: usize,
+        arrays: BoxStream<'static, VortexResult<ArrayRef>>,
         metrics: BaselineMetrics,
     ) -> DFResult<SendableRecordBatchStream> {
         let projected_schema = Arc::clone(&self.projected_schema);
@@ -553,8 +558,6 @@ impl VortexDataSource {
         } else {
             1
         };
-        let ordered = self.ordered;
-        let limit = self.limit;
 
         // Pre-build the leftover projector (if any) so we can apply it after batch conversion.
         let leftover_projector = self
@@ -565,22 +568,8 @@ impl VortexDataSource {
 
         // Defer the async DataSource::scan() call to the first poll of the stream.
         let stream = stream::once(async move {
-            let scan_streams = scan_partitions.map(|split| split?.execute());
-
-            // When ordering is requested we must emit partition output in partition order, so we
-            // flatten the split streams sequentially. Otherwise we use try_flatten_unordered to
-            // poll multiple split streams concurrently so that the next split is already warm when
-            // the current one finishes.
-            let flattened = if ordered {
-                scan_streams.try_flatten().left_stream()
-            } else {
-                scan_streams
-                    .try_flatten_unordered(Some(SCAN_PARTITION_READ_AHEAD))
-                    .right_stream()
-            };
-
             let handle = session.handle();
-            let stream = flattened
+            let stream = arrays
                 .map(move |result| {
                     let session = session.clone();
                     let target_field = Arc::clone(&projected_target_field);
@@ -600,20 +589,6 @@ impl VortexDataSource {
                 })
                 .buffered(conversion_concurrency)
                 .map(|result| result.map_err(|e| DataFusionError::External(Box::new(e))));
-
-            // DataFusion drops its own limit operator once `with_fetch` accepts the limit, so the
-            // fetch must be exact here. Unordered scans share the limit across partitions, but
-            // ordered partitions each apply it locally and rely on this trim.
-            let stream = match limit {
-                Some(limit) => LimitStream::new(
-                    Box::pin(RecordBatchStreamAdapter::new(projected_schema, stream)),
-                    0,
-                    Some(limit),
-                    BaselineMetrics::new(&ExecutionPlanMetricsSet::new(), partition),
-                )
-                .boxed(),
-                None => stream.boxed(),
-            };
 
             // Apply leftover projection (expressions that couldn't be pushed into Vortex).
             let stream = if let Some(projector) = leftover_projector {
@@ -646,7 +621,7 @@ struct OutputPartitionState {
 struct ScanExecution {
     output_partitions: Vec<OutputPartitionState>,
     cancelled: AtomicBool,
-    scan_partitions: OnceCell<VortexResult<Mutex<Option<PartitionStream>>>>,
+    scan_streams: OnceCell<VortexResult<Mutex<Vec<Option<SendableArrayStream>>>>>,
 }
 
 impl ScanExecution {
@@ -656,7 +631,7 @@ impl ScanExecution {
                 .map(|_| OutputPartitionState::default())
                 .collect(),
             cancelled: AtomicBool::new(false),
-            scan_partitions: OnceCell::new(),
+            scan_streams: OnceCell::new(),
         }
     }
 
@@ -732,10 +707,12 @@ impl Drop for OutputPartitionStream {
                 .take(),
         );
         if self.execution.cancelled.load(Ordering::Acquire)
-            && let Some(Ok(partitions)) = self.execution.scan_partitions.get()
-            && let Some(mut partitions) = partitions.try_lock()
+            && let Some(Ok(streams)) = self.execution.scan_streams.get()
+            && let Some(mut streams) = streams.try_lock()
         {
-            drop(partitions.take());
+            for stream in streams.iter_mut() {
+                drop(stream.take());
+            }
         }
         self.metrics.done();
     }
