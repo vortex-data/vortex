@@ -315,9 +315,6 @@ impl FileOpener for VortexOpener {
             let projection =
                 projection.try_map_exprs(|p| simplifier.simplify(expr_adapter.rewrite(p)?))?;
 
-            // TODO: support lambda pushdown.
-            let projection_pushdown = projection_pushdown && !contains_lambda(&projection)?;
-
             // Split the adapted filter into conjuncts Vortex evaluates natively and residual
             // conjuncts DataFusion evaluates on the raw scan output.
             let mut native_filters = Vec::new();
@@ -374,11 +371,19 @@ impl FileOpener for VortexOpener {
                     leftover_projection: projection,
                 }
             } else if projection_pushdown {
-                expr_converter.split_projection(
-                    projection,
+                let has_lambda = contains_lambda(&projection)?;
+                let processed = expr_converter.split_projection(
+                    projection.clone(),
                     &this_file_schema,
                     output_schema.as_ref(),
-                )?
+                )?;
+                // A lambda left for DataFusion fails or reads the wrong column over the scan's
+                // output (#10215), so lambdas are pushed down only with the whole projection.
+                if has_lambda && contains_lambda(&processed.leftover_projection)? {
+                    expr_converter.no_pushdown_projection(projection, &this_file_schema)?
+                } else {
+                    processed
+                }
             } else {
                 expr_converter.no_pushdown_projection(projection, &this_file_schema)?
             };

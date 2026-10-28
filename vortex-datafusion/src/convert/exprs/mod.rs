@@ -11,12 +11,15 @@ use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
 use datafusion_common::exec_datafusion_err;
 use datafusion_common::format::DEFAULT_FORMAT_OPTIONS;
+use datafusion_common::tree_node::TreeNode;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_functions::core::getfield::GetFieldFunc;
 use datafusion_functions::string::octet_length::OctetLengthFunc;
 use datafusion_functions_nested::array_sum::ArraySum;
+use datafusion_functions_nested::array_transform::ArrayTransform;
 use datafusion_functions_nested::length::ArrayLength;
 use datafusion_physical_expr::DynamicFilterTracking;
+use datafusion_physical_expr::HigherOrderFunctionExpr;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::ScalarFunctionExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
@@ -29,7 +32,9 @@ use vortex::array::VortexSessionExecute;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
+use vortex::dtype::StructFields;
 use vortex::expr::Expression;
+use vortex::expr::Lambda;
 use vortex::expr::byte_length;
 use vortex::expr::cast;
 use vortex::expr::get_item;
@@ -38,11 +43,16 @@ use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_length;
 use vortex::expr::list_sum_opts;
+use vortex::expr::list_transform;
 use vortex::expr::lit;
 use vortex::expr::nested_case_when;
 use vortex::expr::not;
 use vortex::expr::pack;
 use vortex::expr::root;
+use vortex::expr::traversal::NodeExt;
+use vortex::expr::traversal::Transformed;
+use vortex::expr::traversal::TraversalOrder;
+use vortex::expr::var;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::like::Like;
@@ -333,6 +343,18 @@ impl DefaultExpressionConverter {
             return Ok(get_item(col_expr.name(), root()));
         }
 
+        if let Some(variable) = expr.downcast_ref::<df_expr::LambdaVariable>() {
+            return Ok(var(variable.name()));
+        }
+
+        if let Some(function) = expr.downcast_ref::<HigherOrderFunctionExpr>() {
+            let function_impl: &dyn std::any::Any = function.fun().inner().as_ref();
+            if function_impl.downcast_ref::<ArrayTransform>().is_some() {
+                return self.convert_array_transform(function, schema, input_dtype);
+            }
+            return Err(Unconverted::Unsupported);
+        }
+
         if let Some(literal) = expr.downcast_ref::<df_expr::Literal>() {
             let field = literal.return_field(schema)?;
             let array = literal.value().to_array()?;
@@ -609,6 +631,47 @@ impl DefaultExpressionConverter {
         }
     }
 
+    /// Converts `array_transform` to `list_transform`.
+    ///
+    /// The lambda's body may read only its one parameter, the element: a body that reads a column
+    /// stays in DataFusion. The body is converted over the struct of the lambda's inputs, so
+    /// [`converted_dtype`] can type its parameter.
+    fn convert_array_transform(
+        &self,
+        function: &HigherOrderFunctionExpr,
+        schema: &Schema,
+        input_dtype: &DType,
+    ) -> Conversion<Expression> {
+        let [list, lambda] = function.args() else {
+            return Err(
+                exec_datafusion_err!("array_transform requires a list and a lambda").into(),
+            );
+        };
+        let Some(lambda) = lambda.downcast_ref::<df_expr::LambdaExpr>() else {
+            return Err(Unconverted::Unsupported);
+        };
+        let [param] = lambda.params() else {
+            return Err(Unconverted::Unsupported);
+        };
+        if lambda
+            .body()
+            .exists(|node| Ok(node.downcast_ref::<df_expr::Column>().is_some()))?
+        {
+            return Err(Unconverted::Unsupported);
+        }
+        let list = self.convert_expr(list, schema, input_dtype)?;
+        let DType::List(element, _) = converted_dtype(&list, input_dtype)? else {
+            return Err(Unconverted::Unsupported);
+        };
+        let inputs = DType::Struct(
+            StructFields::from_iter([(param.as_str(), element.as_ref().clone())]),
+            Nullability::NonNullable,
+        );
+        let body = self.convert_expr(lambda.body(), schema, &inputs)?;
+        let lambda = Lambda::new([param.as_str()], body).map_err(|_| Unconverted::Unsupported)?;
+        Ok(list_transform(list, lambda))
+    }
+
     fn convert_case_expr(
         &self,
         case_expr: &df_expr::CaseExpr,
@@ -665,8 +728,21 @@ pub(crate) fn is_infallible(expr: &Expression) -> bool {
 }
 
 /// The Vortex return dtype of a converted expression; unresolvable dtypes are unsupported.
+/// The dtype of `expr` over `input_dtype`. In a lambda's body, `input_dtype` is the struct of the
+/// lambda's inputs and a parameter `@x` reads its field `x`.
 fn converted_dtype(expr: &Expression, input_dtype: &DType) -> Conversion<DType> {
-    expr.return_dtype(input_dtype)
+    expr.clone()
+        .transform_down(|node| {
+            Ok(match &node {
+                Expression::Variable(name) => Transformed {
+                    value: get_item(name.clone(), root()),
+                    changed: true,
+                    order: TraversalOrder::Skip,
+                },
+                _ => Transformed::no(node),
+            })
+        })
+        .and_then(|expr| expr.into_inner().return_dtype(input_dtype))
         .map_err(|_| Unconverted::Unsupported)
 }
 
