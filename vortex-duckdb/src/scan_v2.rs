@@ -4,16 +4,15 @@
 //! Drives a V2 scan for DuckDB.
 //!
 //! A planner says what it needs: compute, or reads. This driver decides where each runs, and
-//! DuckDB's own threads run all of it. Each file is prepared once and its planners are composed
-//! over the prepared scan: with a filter, its pruning plans over the scanned rows first,
-//! continuing into the chunks of the rows they keep; without, the chunks directly. The root
-//! planner's run is shared by every thread scanning the file. A thread takes the next chunk the
-//! root spawns and runs it on a run of its own, inline, waiting only for its reads. Threads keep
-//! taking chunks until the root is done, so the file's work spreads over as many threads as
-//! DuckDB gives the scan, however its rows divide.
+//! DuckDB's own threads run all of it. Each file is prepared once. Its root planner cuts the
+//! scanned rows into parts and spawns, per part, with a filter, its pruning plans over the part,
+//! continuing into the chunks of the rows they keep; without, the part's chunks directly. The
+//! root planner's run is shared by every thread scanning the file and reads nothing. A thread
+//! takes the next part the root spawns and runs it on a run of its own, inline, waiting only for
+//! its reads. Threads keep taking parts until the root is done, so the file's work, its pruning
+//! included, spreads over as many threads as DuckDB gives the scan, however its rows divide.
 //!
-//! The root cuts the scanned rows into parts of whole 65,536-row blocks, a few per thread, and
-//! spawns a chunk planner per part. A filtered scan's chunks are up to 1,048,576 rows, so without
+//! The root cuts the scanned rows into parts of whole 65,536-row blocks, a few per thread. A filtered scan's chunks are up to 1,048,576 rows, so without
 //! parts a file of a few million rows would keep only a few threads busy. A file too short to give
 //! every thread a 65,536-row block, such as a file of wide rows, is cut on 8,192-row blocks
 //! instead.
@@ -27,7 +26,6 @@ use std::sync::atomic::Ordering;
 
 use parking_lot::Mutex;
 use vortex::array::ArrayRef;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::io::request::IoConsumer;
 use vortex::io::request::IoRequestId;
@@ -183,46 +181,32 @@ impl FileScan {
 /// The planners of a scan, composed: with a filter, its pruning plans first over the scan's rows,
 /// continuing into the parts of the rows they keep; without, the parts directly.
 fn compose(scan: &Arc<PreparedScan>) -> Box<dyn Planner> {
-    let rows = scan.rows().clone();
-    let parts = {
-        let scan = Arc::clone(scan);
-        let rows = rows.clone();
-        move |kept: Option<Mask>| -> Box<dyn Planner> {
-            let parallelism = get_available_parallelism().unwrap_or(1) as u64;
-            Box::new(PartPlanner::new(
-                scan,
-                rows,
-                kept,
-                parallelism * PARTS_PER_THREAD,
-            ))
-        }
-    };
-    if scan.filter().is_some() {
-        Box::new(PrunePlanner::new(Arc::clone(scan), rows, Box::new(parts)))
-    } else {
-        parts(None)
-    }
+    let parallelism = get_available_parallelism().unwrap_or(1) as u64;
+    Box::new(PartPlanner::new(
+        Arc::clone(scan),
+        scan.rows().clone(),
+        parallelism * PARTS_PER_THREAD,
+    ))
 }
 
-/// Spawns a chunk planner per part of a scan's rows, in row order. Parts end on whole row blocks,
-/// see [`part_ranges`].
+/// Spawns a planner per part of a scan's rows, in row order: with a filter, its pruning plans
+/// over the part, continuing into the chunks of the rows they keep; without, the part's chunks.
+/// Parts end on whole row blocks, see [`part_ranges`].
+///
+/// Each part prunes on the thread that takes it, so a file's pruning runs on as many threads as
+/// take its parts, and spawning the parts reads nothing: the threads waiting on the root take
+/// their parts at once and move on to the next file once the root has spawned the last.
 struct PartPlanner {
     scan: Arc<PreparedScan>,
     selection: Selection,
-    /// The first row of `kept`.
-    first_row: u64,
-    /// The rows zone pruning kept, from `first_row`, or `None` when nothing was pruned.
-    kept: Option<Mask>,
     parts: std::vec::IntoIter<Range<u64>>,
 }
 
 impl PartPlanner {
-    fn new(scan: Arc<PreparedScan>, rows: Range<u64>, kept: Option<Mask>, parts: u64) -> Self {
+    fn new(scan: Arc<PreparedScan>, rows: Range<u64>, parts: u64) -> Self {
         Self {
             selection: scan.selection().clone(),
             scan,
-            first_row: rows.start,
-            kept,
             parts: part_ranges(rows, parts).into_iter(),
         }
     }
@@ -242,33 +226,31 @@ impl Planner for PartPlanner {
     }
 
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
-        for part in self.parts.by_ref() {
-            let kept = match &self.kept {
-                Some(kept) => {
-                    let offset = |row: u64| {
-                        usize::try_from(row - self.first_row).vortex_expect("a part fits usize")
-                    };
-                    let kept = kept.slice(offset(part.start)..offset(part.end));
-                    if kept.all_false() {
-                        continue;
-                    }
-                    Some(kept)
-                }
-                None => None,
-            };
-            let chunks = ChunkPlanner::new(
+        let Some(part) = self.parts.next() else {
+            return Ok(PlannerOutput::Done);
+        };
+        let chunks = {
+            let scan = Arc::clone(&self.scan);
+            let selection = self.selection.clone();
+            let part = part.clone();
+            move |kept: Option<Mask>| -> Box<dyn Planner> {
+                Box::new(ChunkPlanner::new(scan, part, selection, kept))
+            }
+        };
+        let planner: Box<dyn Planner> = if self.scan.filter().is_some() {
+            Box::new(PrunePlanner::new(
                 Arc::clone(&self.scan),
                 part.clone(),
-                self.selection.clone(),
-                kept,
-            );
-            let scope = WorkScope {
-                file_ordinal: 0,
-                rows: part,
-            };
-            return Ok(PlannerOutput::Spawn(scope, Box::new(chunks)));
-        }
-        Ok(PlannerOutput::Done)
+                Box::new(chunks),
+            ))
+        } else {
+            chunks(None)
+        };
+        let scope = WorkScope {
+            file_ordinal: 0,
+            rows: part,
+        };
+        Ok(PlannerOutput::Spawn(scope, planner))
     }
 }
 
