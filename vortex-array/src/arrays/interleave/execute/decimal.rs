@@ -85,8 +85,10 @@ fn prepare_source<T: NativeDecimalType>(
     let data = if decimal.values_type() == T::DECIMAL_TYPE {
         decimal.buffer::<T>()
     } else {
-        // A source can still store its values at a width other than the canonical width of its
-        // dtype (#10701). The copy widens such values, or checks their precision and narrows them
+        // TODO(connor): Remove this branch once every `DecimalArray` stores its values at the
+        // canonical width of its dtype (#10701). Then all sources share the canonical width `T`,
+        // because they share the dtype up to nullability. Until then, a source can store its values
+        // at another width. The copy widens such values, or checks their precision and narrows them
         // with zeros in the null slots.
         let mask = decimal.validity()?.execute_mask(value.len(), ctx)?;
         let copy = match_each_decimal_value_type!(decimal.values_type(), |S| {
