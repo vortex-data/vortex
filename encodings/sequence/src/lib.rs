@@ -43,6 +43,7 @@ pub fn initialize(session: &VortexSession) {
         Some(IsSorted.id()),
         &compute::is_sorted::SequenceIsSortedKernel,
     );
+    rules::register_parent_rules(session);
 }
 
 // TODO(joe): hook up to the compressor

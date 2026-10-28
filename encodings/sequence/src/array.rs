@@ -52,7 +52,6 @@ use vortex_session::registry::CachedId;
 use crate::compress::sequence_decompress;
 use crate::eval;
 use crate::eval::SequenceValue;
-use crate::rules::RULES;
 
 /// A [`Sequence`]-encoded Vortex array.
 pub type SequenceArray = Array<Sequence>;
@@ -422,14 +421,6 @@ impl VTable for Sequence {
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         sequence_decompress(&array).map(ExecutionResult::done)
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
     }
 }
 

@@ -46,6 +46,10 @@ use crate::delta_compress;
 
 mod operations;
 mod rules;
+
+pub(crate) fn initialize(session: &VortexSession) {
+    rules::register_parent_rules(session);
+}
 mod slice;
 mod validity;
 
@@ -120,14 +124,6 @@ impl VTable for Delta {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_array::vtable::with_empty_buffers(self, array, buffers)
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        rules::RULES.evaluate(array, parent, child_idx)
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

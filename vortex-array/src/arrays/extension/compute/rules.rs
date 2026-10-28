@@ -2,25 +2,32 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::ArrayVTable;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
+use crate::arrays::Dict;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::Filter;
+use crate::arrays::Slice;
 use crate::arrays::dict::TakeReduceAdaptor;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 use crate::scalar::Scalar;
+use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
+use crate::scalar_fn::fns::mask::Mask as MaskFn;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
 pub(crate) const RULES: ReduceRuleSet<Extension> = ReduceRuleSet::new(&[&ExtensionConstantRule]);
@@ -45,14 +52,20 @@ impl ArrayReduceRule<Extension> for ExtensionConstantRule {
     }
 }
 
-pub(crate) const PARENT_RULES: ParentRuleSet<Extension> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&ExtensionFilterPushDownRule),
-    ParentRuleSet::lift(&CastReduceAdaptor(Extension)),
-    ParentRuleSet::lift(&FilterReduceAdaptor(Extension)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(Extension)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(Extension)),
-    ParentRuleSet::lift(&TakeReduceAdaptor(Extension)),
-]);
+/// Registers the parent-reduce rules for [`Extension`] children in the session kernels.
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Filter.id(), Extension.id(), ExtensionFilterPushDownRule);
+    kernels.register_reduce_parent_rule(Cast.id(), Extension.id(), CastReduceAdaptor(Extension));
+    kernels.register_reduce_parent_rule(
+        Filter.id(),
+        Extension.id(),
+        FilterReduceAdaptor(Extension),
+    );
+    kernels.register_reduce_parent_rule(MaskFn.id(), Extension.id(), MaskReduceAdaptor(Extension));
+    kernels.register_reduce_parent_rule(Slice.id(), Extension.id(), SliceReduceAdaptor(Extension));
+    kernels.register_reduce_parent_rule(Dict.id(), Extension.id(), TakeReduceAdaptor(Extension));
+}
 
 /// Push filter operations into the storage array of an extension array.
 #[derive(Debug)]

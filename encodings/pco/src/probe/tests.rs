@@ -19,7 +19,11 @@ use vortex_session::VortexSession;
 
 use crate::Pco;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty();
+    crate::initialize(&session);
+    session
+});
 
 /// A one-off or retained probe over `array`, the retained one living in `retained`.
 fn probe_for<'a>(

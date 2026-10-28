@@ -189,6 +189,7 @@ fn primitive_array_returns_error() -> VortexResult<()> {
 
 static PLUGIN_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty();
+    crate::initialize(&session);
     session.arrays().register(BitPackedPlugin);
     session
 });

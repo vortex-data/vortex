@@ -694,14 +694,6 @@ impl ArrayRef {
         self.0.data.reduce(self)
     }
 
-    pub fn reduce_parent(
-        &self,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        self.0.data.reduce_parent(self, parent, child_idx)
-    }
-
     pub(crate) fn execute_encoding(self, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let inner = Arc::as_ptr(&self.0);
         // SAFETY: the Arc outlives the DynArrayData function call

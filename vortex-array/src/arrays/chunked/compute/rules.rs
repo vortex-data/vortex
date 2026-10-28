@@ -3,8 +3,10 @@
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::ArrayVTable;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Chunked;
@@ -15,19 +17,41 @@ use crate::arrays::ScalarFnArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
+use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
+use crate::scalar_fn::fns::list_contains::ListContains;
 use crate::scalar_fn::fns::list_contains::ListContainsElementReduceAdaptor;
 
-pub(crate) const PARENT_RULES: ParentRuleSet<Chunked> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&CastReduceAdaptor(Chunked)),
-    ParentRuleSet::lift(&ChunkedUnaryScalarFnPushDownRule),
-    ParentRuleSet::lift(&ListContainsElementReduceAdaptor(Chunked)),
-    ParentRuleSet::lift(&ChunkedConstantScalarFnPushDownRule),
-    ParentRuleSet::lift(&FillNullReduceAdaptor(Chunked)),
-]);
+/// Registers the parent-reduce rules for [`Chunked`] children in the session kernels.
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Cast.id(), Chunked.id(), CastReduceAdaptor(Chunked));
+    kernels.register_reduce_parent_rule(
+        AnyScalarFn.id(),
+        Chunked.id(),
+        ChunkedUnaryScalarFnPushDownRule,
+    );
+    kernels.register_reduce_parent_rule(
+        ListContains.id(),
+        Chunked.id(),
+        ListContainsElementReduceAdaptor(Chunked),
+    );
+    kernels.register_reduce_parent_rule(
+        AnyScalarFn.id(),
+        Chunked.id(),
+        ChunkedConstantScalarFnPushDownRule,
+    );
+    kernels.register_reduce_parent_rule(
+        FillNull.id(),
+        Chunked.id(),
+        FillNullReduceAdaptor(Chunked),
+    );
+}
 
 /// Push down any unary scalar function through chunked arrays.
 #[derive(Debug)]

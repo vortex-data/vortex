@@ -57,6 +57,7 @@ pub fn initialize(session: &VortexSession) {
             .register_edition(&editions::DECLARATION)
             .vortex_expect("Zstd edition declaration is valid");
     }
+    rules::register_parent_rules(session);
 }
 
 /// Ensure Vortex metadata agrees with the content size declared by a zstd frame.

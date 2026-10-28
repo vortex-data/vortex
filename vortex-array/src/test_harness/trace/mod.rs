@@ -282,14 +282,12 @@ fn attempts_enabled() -> bool {
 
 #[derive(Clone, Copy, Debug)]
 enum TraceSource {
-    Static,
     Session(usize),
 }
 
 impl Display for TraceSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TraceSource::Static => f.write_str("static"),
             TraceSource::Session(idx) => write!(f, "session[{idx}]"),
         }
     }
@@ -298,14 +296,12 @@ impl Display for TraceSource {
 #[derive(Clone, Copy, Debug)]
 enum AttemptOutcome {
     Declined,
-    NoMatch,
 }
 
 impl Display for AttemptOutcome {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             AttemptOutcome::Declined => f.write_str("declined"),
-            AttemptOutcome::NoMatch => f.write_str("no-match"),
         }
     }
 }
@@ -446,6 +442,7 @@ pub(crate) fn record_session_parent_reduce_applied(
     child: &ArrayRef,
     slot_idx: usize,
     plugin_idx: usize,
+    kernel: &dyn Debug,
     output: &ArrayRef,
 ) {
     record_parent_reduce_applied(
@@ -453,7 +450,7 @@ pub(crate) fn record_session_parent_reduce_applied(
         child,
         slot_idx,
         TraceSource::Session(plugin_idx),
-        "reduce_parent_fn",
+        compact_label(kernel),
         output,
     );
 }
@@ -463,62 +460,14 @@ pub(crate) fn record_session_parent_reduce_declined(
     child: &ArrayRef,
     slot_idx: usize,
     plugin_idx: usize,
+    kernel: &dyn Debug,
 ) {
     record_parent_reduce_attempt(
         parent,
         child,
         slot_idx,
         TraceSource::Session(plugin_idx),
-        "reduce_parent_fn",
-        AttemptOutcome::Declined,
-    );
-}
-
-pub(crate) fn record_static_parent_reduce_no_match(
-    parent: &ArrayRef,
-    child: &ArrayRef,
-    slot_idx: usize,
-    rule: &dyn Debug,
-) {
-    record_parent_reduce_attempt(
-        parent,
-        child,
-        slot_idx,
-        TraceSource::Static,
-        compact_label(rule),
-        AttemptOutcome::NoMatch,
-    );
-}
-
-pub(crate) fn record_static_parent_reduce_applied(
-    parent: &ArrayRef,
-    child: &ArrayRef,
-    slot_idx: usize,
-    rule: &dyn Debug,
-    output: &ArrayRef,
-) {
-    record_parent_reduce_applied(
-        parent,
-        child,
-        slot_idx,
-        TraceSource::Static,
-        compact_label(rule),
-        output,
-    );
-}
-
-pub(crate) fn record_static_parent_reduce_declined(
-    parent: &ArrayRef,
-    child: &ArrayRef,
-    slot_idx: usize,
-    rule: &dyn Debug,
-) {
-    record_parent_reduce_attempt(
-        parent,
-        child,
-        slot_idx,
-        TraceSource::Static,
-        compact_label(rule),
+        compact_label(kernel),
         AttemptOutcome::Declined,
     );
 }

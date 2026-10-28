@@ -436,7 +436,11 @@ mod tests {
     use super::fsst_train_compressor;
     use crate::array::FSSTArrayExt;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     /// Regression for #7833: the i32-vs-i64 codes-offsets decision must cross at
     /// `i32::MAX` against the worst-case bound `2 * total`.

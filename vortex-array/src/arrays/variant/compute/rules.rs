@@ -1,14 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_session::VortexSession;
+
+use crate::ArrayVTable;
+use crate::arrays::Dict;
+use crate::arrays::Filter;
+use crate::arrays::Slice;
 use crate::arrays::Variant;
 use crate::arrays::dict::TakeReduceAdaptor;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::optimizer::kernels::ArrayKernelsExt;
 
-pub(crate) const RULES: ParentRuleSet<Variant> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&SliceReduceAdaptor(Variant)),
-    ParentRuleSet::lift(&FilterReduceAdaptor(Variant)),
-    ParentRuleSet::lift(&TakeReduceAdaptor(Variant)),
-]);
+/// Registers the parent-reduce rules for [`Variant`] children in the session kernels.
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Slice.id(), Variant.id(), SliceReduceAdaptor(Variant));
+    kernels.register_reduce_parent_rule(Filter.id(), Variant.id(), FilterReduceAdaptor(Variant));
+    kernels.register_reduce_parent_rule(Dict.id(), Variant.id(), TakeReduceAdaptor(Variant));
+}

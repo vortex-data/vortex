@@ -2,10 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::ArrayVTable;
 use crate::array::ArrayView;
+use crate::arrays::Dict;
+use crate::arrays::Filter;
 use crate::arrays::Masked;
+use crate::arrays::Slice;
 use crate::arrays::dict::TakeReduceAdaptor;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::masked::MaskedArrayExt;
@@ -14,18 +19,22 @@ use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::builtins::ArrayBuiltins;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::get_item::GetItem;
+use crate::scalar_fn::fns::mask::Mask as MaskFn;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
-pub(crate) const PARENT_RULES: ParentRuleSet<Masked> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&FilterReduceAdaptor(Masked)),
-    ParentRuleSet::lift(&MaskedGetItemRule),
-    ParentRuleSet::lift(&MaskReduceAdaptor(Masked)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(Masked)),
-    ParentRuleSet::lift(&TakeReduceAdaptor(Masked)),
-]);
+/// Registers the parent-reduce rules for [`Masked`] children in the session kernels.
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Filter.id(), Masked.id(), FilterReduceAdaptor(Masked));
+    kernels.register_reduce_parent_rule(GetItem.id(), Masked.id(), MaskedGetItemRule);
+    kernels.register_reduce_parent_rule(MaskFn.id(), Masked.id(), MaskReduceAdaptor(Masked));
+    kernels.register_reduce_parent_rule(Slice.id(), Masked.id(), SliceReduceAdaptor(Masked));
+    kernels.register_reduce_parent_rule(Dict.id(), Masked.id(), TakeReduceAdaptor(Masked));
+}
 
 #[derive(Debug)]
 struct MaskedGetItemRule;

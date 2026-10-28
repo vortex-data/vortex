@@ -35,7 +35,6 @@ use vortex_session::registry::CachedId;
 use crate::EqMode;
 use crate::array::ArrayId;
 use crate::arrays::primitive::array::PrimitiveSlots;
-use crate::arrays::primitive::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 
@@ -201,14 +200,6 @@ impl VTable for Primitive {
         });
 
         vortex_bail!("append_to_builder for Primitive requires a matching PrimitiveBuilder");
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
     }
 }
 

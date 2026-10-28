@@ -2,12 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayVTable;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Filter;
 use vortex_array::arrays::ScalarFnArray;
+use vortex_array::arrays::Slice;
 use vortex_array::arrays::filter::FilterReduceAdaptor;
 use vortex_array::arrays::scalar_fn::AnyScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFn;
@@ -16,26 +18,52 @@ use vortex_array::arrays::slice::SliceReduceAdaptor;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::extension::datetime::Timestamp;
+use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
-use vortex_array::optimizer::rules::ParentRuleSet;
+use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::fns::between::Between;
 use vortex_array::scalar_fn::fns::binary::Binary;
+use vortex_array::scalar_fn::fns::cast::Cast;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
+use vortex_array::scalar_fn::fns::mask::Mask as MaskFn;
 use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::DateTimeParts;
 use crate::array::DateTimePartsArraySlotsExt;
 use crate::timestamp;
-pub(crate) const PARENT_RULES: ParentRuleSet<DateTimeParts> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&DTPFilterPushDownRule),
-    ParentRuleSet::lift(&DTPComparisonPushDownRule),
-    ParentRuleSet::lift(&CastReduceAdaptor(DateTimeParts)),
-    ParentRuleSet::lift(&FilterReduceAdaptor(DateTimeParts)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(DateTimeParts)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(DateTimeParts)),
-]);
+/// Registers the parent-reduce rules for [`DateTimeParts`] children in the session kernels.
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Filter.id(), DateTimeParts.id(), DTPFilterPushDownRule);
+    kernels.register_reduce_parent_rule(
+        AnyScalarFn.id(),
+        DateTimeParts.id(),
+        DTPComparisonPushDownRule,
+    );
+    kernels.register_reduce_parent_rule(
+        Cast.id(),
+        DateTimeParts.id(),
+        CastReduceAdaptor(DateTimeParts),
+    );
+    kernels.register_reduce_parent_rule(
+        Filter.id(),
+        DateTimeParts.id(),
+        FilterReduceAdaptor(DateTimeParts),
+    );
+    kernels.register_reduce_parent_rule(
+        MaskFn.id(),
+        DateTimeParts.id(),
+        MaskReduceAdaptor(DateTimeParts),
+    );
+    kernels.register_reduce_parent_rule(
+        Slice.id(),
+        DateTimeParts.id(),
+        SliceReduceAdaptor(DateTimeParts),
+    );
+}
 
 /// Push the filter into the days column of a date time parts, we could extend this to other fields
 /// but its less clear if that is beneficial.
@@ -208,7 +236,11 @@ mod tests {
     use crate::DateTimeParts;
     use crate::DateTimePartsArray;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     const SECONDS_PER_DAY: i64 = 86400;
 

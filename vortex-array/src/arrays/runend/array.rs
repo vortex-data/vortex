@@ -46,7 +46,6 @@ use crate::arrays::runend::compress::runend_encode;
 use crate::arrays::runend::decompress_bool::runend_decode_bools;
 use crate::arrays::runend::ops::find_physical_index;
 use crate::arrays::runend::ops::find_slice_end_index;
-use crate::arrays::runend::rules::RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -191,14 +190,6 @@ impl VTable for RunEnd {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         RunEndSlots::NAMES[idx].to_string()
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

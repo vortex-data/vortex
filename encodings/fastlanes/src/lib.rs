@@ -71,6 +71,7 @@ pub fn initialize(session: &VortexSession) {
     session.arrays().register(FoRPlugin);
     session.arrays().register(RLE);
     bitpacking::initialize(session);
+    delta::initialize(session);
     for_::initialize(session);
     rle::initialize(session);
 

@@ -451,7 +451,7 @@ fn trace_optimize_contiguous_filter() -> VortexResult<()> {
         pop_frame slot=0 output=vortex.slice(i32, len=2)
       iter 3 current=vortex.slice(i32, len=2) builder_active=false
     optimize root=vortex.slice(i32, len=2)
-      reduce_parent static:SliceReduceAdaptor(Primitive) slot=0 parent=vortex.slice(i32, len=2) child=vortex.primitive(i32, len=4) -> vortex.primitive(i32, len=2)
+      reduce_parent session[0]:SliceReduceAdaptor(Primitive) slot=0 parent=vortex.slice(i32, len=2) child=vortex.primitive(i32, len=4) -> vortex.primitive(i32, len=2)
       done output=vortex.primitive(i32, len=2)
         Done array=vortex.primitive(i32, len=2)
       iter 4 current=vortex.primitive(i32, len=2) builder_active=false
@@ -496,7 +496,7 @@ fn trace_execute_filter_with_scattered_mask() -> VortexResult<()> {
     insta::assert_snapshot!(traced.trace.to_string(), @"
     optimize_recursive root=vortex.filter(i32, len=2)
     optimize root=vortex.filter(i32, len=2)
-      reduce_parent static:FilterReduceAdaptor(Filter) slot=0 parent=vortex.filter(i32, len=2) child=vortex.filter(i32, len=4) -> vortex.filter(i32, len=2)
+      reduce_parent session[0]:FilterReduceAdaptor(Filter) slot=0 parent=vortex.filter(i32, len=2) child=vortex.filter(i32, len=4) -> vortex.filter(i32, len=2)
       done output=vortex.filter(i32, len=2)
     optimize_recursive root=vortex.primitive(i32, len=6)
     execute_until target=AnyCanonical root=vortex.filter(i32, len=2)
@@ -712,7 +712,7 @@ fn trace_filter_on_struct_with_complex_children() -> VortexResult<()> {
     optimize root=vortex.filter({name=utf8, score=i64}, len=3)
       reduce FilterStructRule: vortex.filter({name=utf8, score=i64}, len=3) -> vortex.struct({name=utf8, score=i64}, len=3)
       optimize root=vortex.filter(utf8, len=3)
-        reduce_parent static:FilterReduceAdaptor(Dict) slot=0 parent=vortex.filter(utf8, len=3) child=vortex.dict(utf8, len=5) -> vortex.dict(utf8, len=3)
+        reduce_parent session[0]:FilterReduceAdaptor(Dict) slot=0 parent=vortex.filter(utf8, len=3) child=vortex.dict(utf8, len=5) -> vortex.dict(utf8, len=3)
         done output=vortex.dict(utf8, len=3)
       done output=vortex.struct({name=utf8, score=i64}, len=3)
     ");
@@ -769,7 +769,7 @@ fn trace_compare_on_dict() -> VortexResult<()> {
     let traced = trace_op(|| compared.optimize(&SESSION))?;
     insta::assert_snapshot!(traced.trace.to_string(), @"
     optimize root=vortex.binary(bool, len=5)
-      reduce_parent static:DictionaryScalarFnValuesPushDownRule slot=0 parent=vortex.binary(bool, len=5) child=vortex.dict(i32, len=5) -> vortex.dict(bool, len=5)
+      reduce_parent session[0]:DictionaryScalarFnValuesPushDownRule slot=0 parent=vortex.binary(bool, len=5) child=vortex.dict(i32, len=5) -> vortex.dict(bool, len=5)
       done output=vortex.dict(bool, len=5)
     ");
 
@@ -826,7 +826,7 @@ fn trace_like_on_dict() -> VortexResult<()> {
     let traced = trace_op(|| like.optimize(&SESSION))?;
     insta::assert_snapshot!(traced.trace.to_string(), @"
     optimize root=vortex.like(bool, len=6)
-      reduce_parent static:LikeReduceAdaptor(Dict) slot=0 parent=vortex.like(bool, len=6) child=vortex.dict(utf8, len=6) -> vortex.dict(bool, len=6)
+      reduce_parent session[0]:LikeReduceAdaptor(Dict) slot=0 parent=vortex.like(bool, len=6) child=vortex.dict(utf8, len=6) -> vortex.dict(bool, len=6)
       done output=vortex.dict(bool, len=6)
     ");
 

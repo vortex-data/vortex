@@ -4,27 +4,35 @@
 use std::ops::Range;
 
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::ArrayVTable;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::Masked;
+use crate::arrays::Slice;
 use crate::arrays::slice::SliceReduce;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::match_each_decimal_value_type;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
+use crate::scalar_fn::fns::mask::Mask as MaskFn;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
-pub(crate) static RULES: ParentRuleSet<Decimal> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&DecimalMaskedValidityRule),
-    ParentRuleSet::lift(&CastReduceAdaptor(Decimal)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(Decimal)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(Decimal)),
-]);
+/// Registers the parent-reduce rules for [`Decimal`] children in the session kernels.
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Masked.id(), Decimal.id(), DecimalMaskedValidityRule);
+    kernels.register_reduce_parent_rule(Cast.id(), Decimal.id(), CastReduceAdaptor(Decimal));
+    kernels.register_reduce_parent_rule(MaskFn.id(), Decimal.id(), MaskReduceAdaptor(Decimal));
+    kernels.register_reduce_parent_rule(Slice.id(), Decimal.id(), SliceReduceAdaptor(Decimal));
+}
 
 /// Rule to push down validity masking from MaskedArray parent into DecimalArray child.
 ///

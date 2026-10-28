@@ -67,7 +67,6 @@ use crate::canonical::FSST_DECODE_SLACK;
 use crate::canonical::FsstDecodePlan;
 use crate::canonical::canonicalize_fsst;
 use crate::canonical::fsst_decode_bytes;
-use crate::rules::RULES;
 
 /// A [`FSST`]-encoded Vortex array.
 pub type FSSTArray = Array<FSST>;
@@ -367,14 +366,6 @@ impl VTable for FSST {
             )
         });
         Ok(())
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
     }
 }
 
@@ -1091,7 +1082,11 @@ mod test {
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn slice_reuses_initialized_compressor() -> VortexResult<()> {

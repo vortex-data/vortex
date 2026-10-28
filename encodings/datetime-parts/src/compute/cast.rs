@@ -53,7 +53,11 @@ mod tests {
     use crate::DateTimeParts;
     use crate::DateTimePartsArray;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = VortexSession::empty();
+        crate::initialize(&session);
+        session
+    });
 
     fn date_time_array(validity: Validity) -> ArrayRef {
         DateTimeParts::try_from_temporal(

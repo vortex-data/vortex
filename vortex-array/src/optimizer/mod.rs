@@ -7,8 +7,9 @@
 //! Optimization runs between execution steps, which is what enables cross-step optimizations:
 //! after a child is decoded, new `reduce_parent` rules may match that were previously blocked.
 //!
-//! There are two public entry points on [`ArrayOptimizer`], and both take the session whose
-//! [`kernels::ArrayKernels`] registry is consulted before the static parent-reduce rules:
+//! Parent-reduce rules live in the session's [`kernels::ArrayKernels`] registry, keyed by the
+//! parent and child encoding ids, as execute-parent kernels are. There are two public entry
+//! points on [`ArrayOptimizer`], and both take that session:
 //!
 //! - [`ArrayOptimizer::optimize`] optimizes the root array node.
 //! - [`ArrayOptimizer::optimize_recursive`] optimizes the root and every descendant.
@@ -29,14 +30,16 @@ use std::sync::atomic::Ordering;
 use smallvec::SmallVec;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayRef;
+use crate::array::ArrayId;
+use crate::arrays::ScalarFn;
+use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::kernels::ParentReduceKernels;
-use crate::optimizer::kernels::reduce_parent_key;
-use crate::optimizer::kernels::reduce_parent_marker_key;
 use crate::trace_op;
 
 pub mod kernels;
@@ -85,9 +88,8 @@ impl OptimizedState {
 pub trait ArrayOptimizer {
     /// Optimize the root array node by running reduce and reduce_parent rules to fixpoint.
     ///
-    /// Session kernels are checked for each `(parent_encoding_id, child_encoding_id)` pair before
-    /// the child's static `PARENT_RULES`. The registry comes from the [`kernels::KernelSession`] on
-    /// `session`.
+    /// Parent-reduce kernels are looked up for each `(parent_encoding_id, child_encoding_id)` pair
+    /// in the [`kernels::KernelSession`] on `session`.
     fn optimize(&self, session: &VortexSession) -> VortexResult<ArrayRef>;
 
     /// Optimize the entire array tree recursively (root and all descendants).
@@ -157,27 +159,22 @@ fn optimize_owned(
 
         trace_op!(record_optimize_reduce_none(&current_array));
 
-        // Try children in order; the first parent rewrite restarts the fixpoint loop.
+        // Try children in order; the first parent rewrite restarts the fixpoint loop. A parent
+        // that no kernel is registered for skips its children without probing each pair.
         let mut reduced_parent = None;
-        let parent_has_kernels =
-            kernels.contains_key(&reduce_parent_marker_key(current_array.encoding_id()));
-        for (slot_idx, slot) in current_array.slots().iter().enumerate() {
-            let Some(child) = slot else {
-                continue;
-            };
-
-            // Session kernels take precedence over the child's static parent-reduce rules.
-            if parent_has_kernels
-                && let Some(new_array) =
-                    try_session_parent_reduce(kernels, &current_array, child, slot_idx)?
-            {
-                reduced_parent = Some(new_array);
-                break;
-            }
-
-            if let Some(new_array) = child.reduce_parent(&current_array, slot_idx)? {
-                reduced_parent = Some(new_array);
-                break;
+        let candidates = ReduceParentCandidates::new(kernels, &current_array);
+        if !candidates.is_empty() {
+            for (slot_idx, slot) in current_array.slots().iter().enumerate() {
+                let Some(child) = slot else {
+                    continue;
+                };
+                if candidates.contains(child)
+                    && let Some(new_array) =
+                        reduce_parent_with_kernels(kernels, &current_array, child, slot_idx)?
+                {
+                    reduced_parent = Some(new_array);
+                    break;
+                }
             }
         }
 
@@ -248,26 +245,107 @@ fn optimize_new_slots(
     unsafe { array.with_slots(new_slots) }
 }
 
-fn try_session_parent_reduce(
+/// The child ids that parent-reduce kernels are registered for under one parent: those for the
+/// parent's encoding id and, for a scalar function array, those for [`AnyScalarFn::id`].
+struct ReduceParentCandidates<'a> {
+    exact: &'a [ArrayId],
+    any_scalar_fn: &'a [ArrayId],
+}
+
+impl<'a> ReduceParentCandidates<'a> {
+    fn new(kernels: &'a ParentReduceKernels, parent: &ArrayRef) -> Self {
+        let exact = kernels.children(parent.encoding_id()).unwrap_or_default();
+        let any_scalar_fn = if parent.is::<ScalarFn>() {
+            kernels.children(AnyScalarFn.id()).unwrap_or_default()
+        } else {
+            &[]
+        };
+        Self {
+            exact,
+            any_scalar_fn,
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.exact.is_empty() && self.any_scalar_fn.is_empty()
+    }
+
+    /// Returns whether any kernel may apply to `child` under this parent.
+    fn contains(&self, child: &ArrayRef) -> bool {
+        let id = child.encoding_id();
+        let matches = |ids: &[ArrayId]| {
+            ids.contains(&id) || (ids.contains(&AnyScalarFn.id()) && child.is::<ScalarFn>())
+        };
+        matches(self.exact) || matches(self.any_scalar_fn)
+    }
+}
+
+/// Tries the parent-reduce kernels registered for `child` under `parent`.
+///
+/// Kernels registered for the exact encoding ids come first. A scalar function array also matches
+/// kernels registered under [`AnyScalarFn::id`], on either side, which are tried after them.
+pub(crate) fn reduce_parent_with_kernels(
     kernels: &ParentReduceKernels,
     parent: &ArrayRef,
     child: &ArrayRef,
     slot_idx: usize,
 ) -> VortexResult<Option<ArrayRef>> {
-    let Some(reduce_parent_fns) =
-        kernels.get(&reduce_parent_key(parent.encoding_id(), child.encoding_id()))
-    else {
+    let any_scalar_fn = AnyScalarFn.id();
+    let parent_ids = [
+        Some(parent.encoding_id()),
+        parent.is::<ScalarFn>().then_some(any_scalar_fn),
+    ];
+    let child_ids = [
+        Some(child.encoding_id()),
+        child.is::<ScalarFn>().then_some(any_scalar_fn),
+    ];
+    for parent_id in parent_ids.into_iter().flatten() {
+        for child_id in child_ids.into_iter().flatten() {
+            if let Some(reduced) =
+                try_parent_reduce_kernels(kernels, parent_id, child_id, parent, child, slot_idx)?
+            {
+                return Ok(Some(reduced));
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn try_parent_reduce_kernels(
+    kernels: &ParentReduceKernels,
+    parent_id: ArrayId,
+    child_id: ArrayId,
+    parent: &ArrayRef,
+    child: &ArrayRef,
+    slot_idx: usize,
+) -> VortexResult<Option<ArrayRef>> {
+    let Some(reduce_parent_kernels) = kernels.get(parent_id, child_id) else {
         return Ok(None);
     };
 
     #[allow(clippy::unused_enumerate_index)]
-    for (_kernel_idx, reduce_parent) in reduce_parent_fns.iter().enumerate() {
-        if let Some(new_array) = reduce_parent(child, parent, slot_idx)? {
+    for (_kernel_idx, kernel) in reduce_parent_kernels.iter().enumerate() {
+        if let Some(new_array) = kernel.reduce_parent(child, parent, slot_idx)? {
+            vortex_ensure_eq!(
+                new_array.len(),
+                parent.len(),
+                "parent-reduce kernel for {} under {} changed the length",
+                child.encoding_id(),
+                parent.encoding_id(),
+            );
+            vortex_ensure_eq!(
+                new_array.dtype(),
+                parent.dtype(),
+                "parent-reduce kernel for {} under {} changed the dtype",
+                child.encoding_id(),
+                parent.encoding_id(),
+            );
             trace_op!(record_session_parent_reduce_applied(
                 parent,
                 child,
                 slot_idx,
                 _kernel_idx,
+                kernel,
                 &new_array,
             ));
 
@@ -279,6 +357,7 @@ fn try_session_parent_reduce(
             child,
             slot_idx,
             _kernel_idx,
+            kernel,
         ));
     }
 
@@ -297,30 +376,34 @@ fn try_optimize_recursive(
 
     let (mut current_array, mut any_optimizations) = optimize_owned(current_array, kernels)?;
 
-    let mut new_slots = SmallVec::with_capacity(current_array.slots().len());
-    let mut any_slot_optimized = false;
-    for slot in current_array.slots() {
-        match slot {
-            Some(child) => {
-                let (new_child, new_slot_optimized) =
-                    try_optimize_recursive(child.clone(), kernels)?;
-                if new_slot_optimized {
-                    trace_op!(record_optimize_recursive_slot(
-                        new_slots.len(),
-                        child,
-                        &new_child,
-                    ));
-                }
-                new_slots.push(Some(new_child));
-                any_slot_optimized |= new_slot_optimized;
+    // The new slots are only collected once a child changes, so a parent whose children are all
+    // optimized already, such as a chunked array of many chunks, copies none of them.
+    let mut new_slots: Option<SmallVec<_>> = None;
+    for (slot_idx, slot) in current_array.slots().iter().enumerate() {
+        let Some(child) = slot else {
+            if let Some(new_slots) = &mut new_slots {
+                new_slots.push(None);
             }
-            None => new_slots.push(None),
+            continue;
+        };
+        let (new_child, new_slot_optimized) = try_optimize_recursive(child.clone(), kernels)?;
+        if new_slot_optimized {
+            trace_op!(record_optimize_recursive_slot(slot_idx, child, &new_child));
+            new_slots
+                .get_or_insert_with(|| {
+                    let mut slots = SmallVec::with_capacity(current_array.slots().len());
+                    slots.extend(current_array.slots()[..slot_idx].iter().cloned());
+                    slots
+                })
+                .push(Some(new_child));
+        } else if let Some(new_slots) = &mut new_slots {
+            new_slots.push(Some(new_child));
         }
     }
 
     // New children may let a rule rewrite the parent, so only an unchanged tree is marked; the
     // next pass tries a rebuilt parent again.
-    if any_slot_optimized {
+    if let Some(new_slots) = new_slots {
         // SAFETY: optimizer rules only replace child slots with logically equivalent arrays, so
         // parent logical values and statistics remain valid.
         current_array = unsafe { current_array.with_slots(new_slots) }?;

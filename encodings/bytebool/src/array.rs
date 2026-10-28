@@ -163,14 +163,6 @@ impl VTable for ByteBool {
         ByteBoolSlots::NAMES[idx].to_string()
     }
 
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        crate::rules::RULES.evaluate(array, parent, child_idx)
-    }
-
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         // convert truthy values to set/unset bits
         let boolean_buffer = BitBufferMut::from(array.truthy_bytes()).freeze();

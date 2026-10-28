@@ -203,18 +203,6 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         _ = array;
         Ok(None)
     }
-
-    /// Attempt to reduce `parent` after this array appears as one of its children.
-    ///
-    /// This is used by lazy arrays to let child execution unlock parent simplifications.
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        _ = (array, parent, child_idx);
-        Ok(None)
-    }
 }
 
 /// Alias for migration — downstream code can start using `ArrayVTable`.

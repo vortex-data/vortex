@@ -29,7 +29,6 @@ use crate::array::VTable;
 use crate::array::unsupported_buffer_replacement;
 use crate::arrays::ExtensionArray;
 use crate::arrays::constant::ConstantData;
-use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -167,14 +166,6 @@ impl VTable for Constant {
             ConstantData::new(scalar),
             ArraySlots::new(),
         ))
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

@@ -9,12 +9,14 @@ use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::filter::FilterExecuteAdaptor;
 use vortex_array::arrays::slice::SliceExecuteAdaptor;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
-use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::fns::between::Between;
 use vortex_array::scalar_fn::fns::between::BetweenReduceAdaptor;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
+use vortex_array::scalar_fn::fns::cast::Cast;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
+use vortex_array::scalar_fn::fns::mask::Mask as MaskFn;
 use vortex_array::scalar_fn::fns::mask::Mask;
 use vortex_array::scalar_fn::fns::mask::MaskExecuteAdaptor;
 use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
@@ -31,8 +33,10 @@ pub(super) fn initialize(session: &VortexSession) {
     kernels.register_execute_parent_kernel(Dict.id(), ALP, TakeExecuteAdaptor(ALP));
 }
 
-pub(super) const RULES: ParentRuleSet<ALP> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&BetweenReduceAdaptor(ALP)),
-    ParentRuleSet::lift(&CastReduceAdaptor(ALP)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(ALP)),
-]);
+/// Registers the parent-reduce rules for [`ALP`] children in the session kernels.
+pub(crate) fn register_parent_rules(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Between.id(), ALP.id(), BetweenReduceAdaptor(ALP));
+    kernels.register_reduce_parent_rule(Cast.id(), ALP.id(), CastReduceAdaptor(ALP));
+    kernels.register_reduce_parent_rule(MaskFn.id(), ALP.id(), MaskReduceAdaptor(ALP));
+}

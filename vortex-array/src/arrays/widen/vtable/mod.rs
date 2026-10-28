@@ -27,7 +27,6 @@ use crate::array::with_empty_buffers;
 use crate::arrays::widen::WidenArraySlotsExt;
 use crate::arrays::widen::WidenSlots;
 use crate::arrays::widen::array::validate_dtypes;
-use crate::arrays::widen::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -126,13 +125,5 @@ impl VTable for Widen {
 
         let flattened = WidenArray::try_new(array.values().clone(), array.dtype().clone())?;
         Ok(Some(flattened.into_array()))
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }

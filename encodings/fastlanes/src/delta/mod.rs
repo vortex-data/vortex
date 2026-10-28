@@ -16,3 +16,7 @@ mod tests;
 mod vtable;
 pub use vtable::Delta;
 pub use vtable::DeltaArray;
+
+pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+    vtable::initialize(session);
+}

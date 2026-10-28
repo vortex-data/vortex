@@ -28,7 +28,6 @@ use crate::array::VTable;
 use crate::arrays::varbinview::BinaryView;
 use crate::arrays::varbinview::VarBinViewData;
 use crate::arrays::varbinview::array::VarBinViewSlots;
-use crate::arrays::varbinview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
@@ -243,14 +242,6 @@ impl VTable for VarBinView {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         VarBinViewSlots::NAMES[idx].to_string()
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn append_to_builder(
