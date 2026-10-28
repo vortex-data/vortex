@@ -12,8 +12,12 @@ use std::sync::OnceLock;
 
 use itertools::Itertools;
 use vortex_array::ArrayRef;
+use vortex_array::aggregate_fn::AggregateFnVTableExt;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
+use vortex_array::dtype::FieldPath;
 use vortex_array::expr::Expression;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
@@ -56,12 +60,29 @@ pub struct VortexFile {
     scan_cache: Option<FileScanCache>,
 }
 
-/// What repeated V2 scans of a file share: its segment locations, read from the footer once, and
-/// the plan state derived from them.
+/// What repeated V2 scans of a file share: its segment locations and column sizes, read from the
+/// footer once, and the plan state derived from them.
 #[derive(Clone)]
 struct FileScanCache {
     locations: Arc<[SegmentLocation]>,
+    column_bytes: Option<Arc<[(FieldPath, u64)]>>,
     plans: ScanCache,
+}
+
+/// The uncompressed bytes of each column the footer's statistics record a size for.
+fn column_bytes(footer: &Footer) -> Option<Arc<[(FieldPath, u64)]>> {
+    let stats = footer.statistics()?;
+    let size = UncompressedSizeInBytes.bind(UncompressedSizeOpts::exact());
+    let column_bytes: Arc<[(FieldPath, u64)]> = stats
+        .paths()
+        .iter()
+        .zip(stats.aggregates().iter())
+        .filter_map(|(path, aggregates)| {
+            let bytes = aggregates.get(&size).into_inner()?;
+            Some((path.clone(), u64::try_from(&bytes).ok()?))
+        })
+        .collect();
+    (!column_bytes.is_empty()).then_some(column_bytes)
 }
 
 fn segment_locations(footer: &Footer) -> Arc<[SegmentLocation]> {
@@ -127,6 +148,7 @@ impl VortexFile {
     pub fn with_caching(self) -> Self {
         let scan_cache = FileScanCache {
             locations: segment_locations(&self.footer),
+            column_bytes: column_bytes(&self.footer),
             plans: ScanCache::default(),
         };
         Self {
@@ -264,15 +286,24 @@ impl VortexFile {
     /// Pass this to [`vortex_layout::scan::v2::ScanBuilder::new`] to build a V2 scan explicitly.
     /// With [caching](Self::with_caching), every returned [`ScanFile`] shares one [`ScanCache`].
     pub fn scan_file(&self) -> ScanFile {
-        let (locations, cache) = match &self.scan_cache {
-            Some(cache) => (Arc::clone(&cache.locations), Some(cache.plans.clone())),
-            None => (segment_locations(&self.footer), None),
+        let (locations, column_bytes, cache) = match &self.scan_cache {
+            Some(cache) => (
+                Arc::clone(&cache.locations),
+                cache.column_bytes.clone(),
+                Some(cache.plans.clone()),
+            ),
+            None => (
+                segment_locations(&self.footer),
+                column_bytes(&self.footer),
+                None,
+            ),
         };
         ScanFile {
             layout: Arc::clone(self.footer.layout()),
             locations,
             segments: Arc::clone(&self.segment_source),
             cache,
+            column_bytes,
         }
     }
 

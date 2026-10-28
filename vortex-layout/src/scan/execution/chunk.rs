@@ -29,6 +29,22 @@ pub(crate) const MAX_ROWS_PER_CHUNK: usize = 8 * ROW_BLOCK_SIZE;
 /// The rows of a filtered chunk: large, so a conjunct's reads coalesce and its mask is cheap.
 pub(crate) const FILTERED_ROWS_PER_CHUNK: usize = 16 * MAX_ROWS_PER_CHUNK;
 const TARGET_BYTES_PER_CHUNK: u64 = 8 * 1024 * 1024;
+/// The uncompressed bytes a chunk decodes across the columns its scan reads.
+const TARGET_UNCOMPRESSED_BYTES_PER_CHUNK: u64 = 16 * 1024 * 1024;
+
+/// The rows of a chunk that decodes about [`TARGET_UNCOMPRESSED_BYTES_PER_CHUNK`] of the columns a
+/// scan reads, given those columns' uncompressed `bytes` over the file's `row_count` rows: a
+/// multiple of the row grid, at least one block and at most `max_rows`.
+pub(crate) fn rows_for_uncompressed_bytes(bytes: u64, row_count: u64, max_rows: usize) -> usize {
+    let max_blocks = (max_rows / ROW_BLOCK_SIZE).max(1);
+    if bytes == 0 {
+        return max_blocks * ROW_BLOCK_SIZE;
+    }
+    let rows = u128::from(TARGET_UNCOMPRESSED_BYTES_PER_CHUNK) * u128::from(row_count)
+        / u128::from(bytes);
+    let blocks = usize::try_from(rows / ROW_BLOCK_SIZE as u128).unwrap_or(usize::MAX);
+    blocks.clamp(1, max_blocks) * ROW_BLOCK_SIZE
+}
 
 /// Limit estimated bytes per chunk without changing the writer-aligned row granularity.
 pub(crate) fn rows_per_chunk(row_count: u64, locations: &[SegmentLocation]) -> usize {

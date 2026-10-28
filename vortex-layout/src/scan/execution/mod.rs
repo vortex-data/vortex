@@ -36,6 +36,7 @@ pub(crate) use self::chunk::MAX_ROWS_PER_CHUNK;
 pub(crate) use self::chunk::ROW_BLOCK_SIZE;
 #[cfg(test)]
 pub(crate) use self::chunk::row_chunks;
+pub(crate) use self::chunk::rows_for_uncompressed_bytes;
 pub(crate) use self::chunk::rows_per_chunk;
 use self::filter::FilterPlanner;
 pub use self::filter::FilterPlans;

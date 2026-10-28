@@ -14,8 +14,9 @@
 //! and supports projection, filters, row ranges, and selections. Unsupported layouts return an
 //! error when the plan is prepared; limits are not part of this builder's API. Work is cut into
 //! chunks of up to 65,536 rows, or 1,048,576 rows for filtered scans, independently of the stored
-//! layout's chunk boundaries. Full-file projections use smaller 8,192-row multiples when
-//! serialized bytes per row are high.
+//! layout's chunk boundaries. When the file records its columns' uncompressed sizes, chunks shrink
+//! to 8,192-row multiples that decode about 16 MiB of the columns the scan reads; otherwise only
+//! full-file projections shrink, when serialized bytes per row are high.
 //!
 //! A [`ScanFile`] carrying a [`ScanCache`] shares its lowered plan, filter plans and pruned
 //! zones, segment index, and dictionary values with every other scan of that file, like a cached
@@ -30,7 +31,11 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Field;
+use vortex_array::dtype::FieldPath;
 use vortex_array::expr::BoundExpression;
+use vortex_array::scalar_fn::fns::get_item::GetItem;
+use vortex_array::scalar_fn::fns::select::Select;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_scan::selection::Selection;
@@ -52,6 +57,7 @@ pub use crate::scan::execution::PruneNext;
 pub use crate::scan::execution::PrunePlanner;
 use crate::scan::execution::ROW_BLOCK_SIZE;
 pub use crate::scan::execution::SegmentLocation;
+use crate::scan::execution::rows_for_uncompressed_bytes;
 use crate::scan::execution::rows_per_chunk;
 use crate::scan::v2::io::segment_ranges;
 use crate::segments::SegmentSource;
@@ -83,6 +89,9 @@ pub struct ScanFile {
     pub segments: Arc<dyn SegmentSource>,
     /// State shared by every scan of this file, or `None` to rebuild it for each scan.
     pub cache: Option<ScanCache>,
+    /// The uncompressed bytes of each column the file records a size for, by field path, or
+    /// `None` if it records none. A scan sizes its chunks by the columns it reads.
+    pub column_bytes: Option<Arc<[(FieldPath, u64)]>>,
 }
 
 /// Prepares a scan on the planner-driven V2 executor.
@@ -169,6 +178,12 @@ impl ScanBuilder {
             None => cache.insert_root(lower(&file.layout)?),
         };
         let row_count = root.row_count();
+        let bytes_read = file.column_bytes.as_deref().and_then(|column_bytes| {
+            read_bytes(
+                column_bytes,
+                self.filter.iter().chain(std::iter::once(&self.projection)),
+            )
+        });
         let filter = self
             .filter
             .map(|filter| -> VortexResult<_> {
@@ -195,12 +210,15 @@ impl ScanBuilder {
                 cache.insert_projection(self.projection, plan)
             }
         };
-        let chunk_rows = if filter.is_some() {
+        let max_rows = if filter.is_some() {
             FILTERED_ROWS_PER_CHUNK
-        } else if identity {
-            rows_per_chunk(row_count, &file.locations)
         } else {
             MAX_ROWS_PER_CHUNK
+        };
+        let chunk_rows = match bytes_read {
+            Some(bytes) => rows_for_uncompressed_bytes(bytes, row_count, max_rows),
+            None if identity && filter.is_none() => rows_per_chunk(row_count, &file.locations),
+            None => max_rows,
         };
         let ranges = match cache.ranges() {
             Some(ranges) => ranges,
@@ -222,4 +240,74 @@ impl ScanBuilder {
             chunk_rows,
         })
     }
+}
+
+/// The uncompressed bytes of the columns `exprs` read, or `None` if one of them has no size in
+/// `column_bytes`.
+fn read_bytes<'a>(
+    column_bytes: &[(FieldPath, u64)],
+    exprs: impl IntoIterator<Item = &'a BoundExpression>,
+) -> Option<u64> {
+    let mut read = vec![false; column_bytes.len()];
+    let mut pending: Vec<&BoundExpression> = exprs.into_iter().collect();
+    while let Some(expr) = pending.pop() {
+        let Some(paths) = accessed_paths(expr) else {
+            pending.extend(expr.children());
+            continue;
+        };
+        for path in paths {
+            let mut found = false;
+            for ((column, _), read) in column_bytes.iter().zip(&mut read) {
+                if column.parts().starts_with(path.parts()) {
+                    *read = true;
+                    found = true;
+                }
+            }
+            if !found {
+                return None;
+            }
+        }
+    }
+    Some(
+        column_bytes
+            .iter()
+            .zip(read)
+            .filter(|(_, read)| *read)
+            .map(|((_, bytes), _)| bytes)
+            .sum(),
+    )
+}
+
+/// The field paths `expr` reads when it is a chain of field accesses from the scope root, or a
+/// selection of fields from one, or `None` if it computes something from its children.
+fn accessed_paths(expr: &BoundExpression) -> Option<Vec<FieldPath>> {
+    if let Some(selection) = expr.as_opt::<Select>() {
+        let input = expr.child(0);
+        let path = field_path(input)?;
+        let Some(fields) = input
+            .dtype()
+            .as_struct_fields_opt()
+            .and_then(|fields| selection.normalize_to_included_fields(fields.names()).ok())
+        else {
+            return Some(vec![path]);
+        };
+        return Some(
+            fields
+                .iter()
+                .map(|name| path.clone().push(name.clone()))
+                .collect(),
+        );
+    }
+    field_path(expr).map(|path| vec![path])
+}
+
+/// The field path of a chain of field accesses from the scope root.
+fn field_path(expr: &BoundExpression) -> Option<FieldPath> {
+    let mut names = Vec::new();
+    let mut node = expr;
+    while let Some(name) = node.as_opt::<GetItem>() {
+        names.push(Field::from(name.clone()));
+        node = node.child(0);
+    }
+    node.is_root().then(|| names.into_iter().rev().collect())
 }

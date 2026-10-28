@@ -25,6 +25,8 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
 use vortex_array::expr::eq;
@@ -35,6 +37,8 @@ use vortex_array::expr::lit;
 use vortex_array::expr::lt;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
+use vortex_array::expr::select;
+use vortex_array::field_path;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowSessionExt;
 use vortex_buffer::Alignment;
@@ -53,6 +57,7 @@ use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 
 use super::ChunkPlanner;
+use super::FILTERED_ROWS_PER_CHUNK;
 use super::MAX_ROWS_PER_CHUNK;
 use super::PreparedScan;
 use super::PrunePlanner;
@@ -60,6 +65,8 @@ use super::ROW_BLOCK_SIZE;
 use super::ScanBuilder;
 use super::ScanCache;
 use super::ScanFile;
+use super::read_bytes;
+use super::rows_for_uncompressed_bytes;
 use super::rows_per_chunk;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -183,6 +190,7 @@ fn scan_file(segments: &Arc<dyn SegmentSource>, layout: &LayoutRef) -> VortexRes
         locations,
         segments: Arc::clone(segments),
         cache: None,
+        column_bytes: None,
     })
 }
 
@@ -466,6 +474,81 @@ async fn arrow_stream_projects_across_chunks() -> VortexResult<()> {
         })
         .collect();
     assert_eq!(values, (990_i32..1010).collect::<Vec<_>>());
+    Ok(())
+}
+
+/// A chunk decodes about 16 MiB of the columns its scan reads, in whole row blocks, between one
+/// block and the scan's cap.
+#[rstest]
+#[case::narrow_filtered(4_000_000, FILTERED_ROWS_PER_CHUNK, FILTERED_ROWS_PER_CHUNK)]
+#[case::string_column(70_000_000, FILTERED_ROWS_PER_CHUNK, 29 * ROW_BLOCK_SIZE)]
+#[case::wide_row(700_000_000, FILTERED_ROWS_PER_CHUNK, 2 * ROW_BLOCK_SIZE)]
+#[case::wider_than_target(10_000_000_000, FILTERED_ROWS_PER_CHUNK, ROW_BLOCK_SIZE)]
+#[case::narrow_unfiltered(4_000_000, MAX_ROWS_PER_CHUNK, MAX_ROWS_PER_CHUNK)]
+#[case::nothing_read(0, MAX_ROWS_PER_CHUNK, MAX_ROWS_PER_CHUNK)]
+fn chunks_are_sized_by_uncompressed_bytes(
+    #[case] bytes: u64,
+    #[case] max_rows: usize,
+    #[case] expected: usize,
+) {
+    assert_eq!(
+        rows_for_uncompressed_bytes(bytes, 1_000_000, max_rows),
+        expected
+    );
+}
+
+fn sized_table() -> DType {
+    DType::struct_(
+        [
+            ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+            ("b", DType::Utf8(Nullability::NonNullable)),
+            (
+                "s",
+                DType::struct_(
+                    [
+                        ("x", DType::Primitive(PType::I64, Nullability::NonNullable)),
+                        ("y", DType::Primitive(PType::I64, Nullability::NonNullable)),
+                    ],
+                    Nullability::NonNullable,
+                ),
+            ),
+        ],
+        Nullability::NonNullable,
+    )
+}
+
+/// A scan reads the bytes of every column its expressions access, counting a struct as all of
+/// its columns and each column once.
+#[rstest]
+#[case::column(get_item("a", root()), 100)]
+#[case::nested_column(get_item("x", get_item("s", root())), 300)]
+#[case::struct_column(get_item("s", root()), 700)]
+#[case::computed(and(is_null(get_item("a", root())), is_null(get_item("b", root()))), 300)]
+#[case::column_twice(gt(get_item("a", root()), get_item("a", root())), 100)]
+#[case::selection(select(["a", "b"], root()), 300)]
+#[case::whole_row(root(), 1_000)]
+#[case::no_column(lit(1i32), 0)]
+fn reads_the_bytes_of_accessed_columns(
+    #[case] expr: Expression,
+    #[case] expected: u64,
+) -> VortexResult<()> {
+    let column_bytes = [
+        (field_path!(a), 100),
+        (field_path!(b), 200),
+        (field_path!(s.x), 300),
+        (field_path!(s.y), 400),
+    ];
+    let expr = expr.bind(&sized_table())?;
+    assert_eq!(read_bytes(&column_bytes, [&expr]), Some(expected));
+    Ok(())
+}
+
+/// Without the size of a column a scan reads, the scan falls back to its default chunks.
+#[test]
+fn unknown_column_size_reads_no_bytes() -> VortexResult<()> {
+    let column_bytes = [(field_path!(a), 100)];
+    let expr = get_item("b", root()).bind(&sized_table())?;
+    assert_eq!(read_bytes(&column_bytes, [&expr]), None);
     Ok(())
 }
 

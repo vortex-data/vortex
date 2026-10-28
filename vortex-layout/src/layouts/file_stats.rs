@@ -24,6 +24,8 @@ use vortex_array::aggregate_fn::fns::max::Max;
 use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::fns::null_count::NullCount;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
@@ -319,10 +321,13 @@ fn is_varlen_dtype(dtype: &DType) -> bool {
     matches!(dtype, DType::Utf8(_) | DType::Binary(_))
 }
 
-/// Default file-level pruning aggregates for `dtype`, chosen the way `default_zoned_aggregate_fns`
-/// picks zoned aggregates: a byte-bounded min/max (capped at [`default_bounded_stat_max_bytes`])
-/// for variable-length columns, and exact min/max otherwise. Callers wanting a different bound pass
+/// Default file-level aggregates for `dtype`, chosen the way `default_zoned_aggregate_fns` picks
+/// zoned aggregates: a byte-bounded min/max (capped at [`default_bounded_stat_max_bytes`]) for
+/// variable-length columns, and exact min/max otherwise. Callers wanting a different bound pass
 /// their own `BoundedMax`/`BoundedMin` instead.
+///
+/// Leaf columns also record their exact uncompressed size, which scans use to size their work
+/// chunks. A struct's own entry does not, as its children already count its bytes.
 fn default_pruning_aggregate_fns(dtype: &DType) -> Vec<AggregateFnRef> {
     let (max, min) = if is_varlen_dtype(dtype) {
         // These read back as inexact even when nothing was truncated, until a V2 of the bounded
@@ -340,12 +345,16 @@ fn default_pruning_aggregate_fns(dtype: &DType) -> Vec<AggregateFnRef> {
     };
 
     // `Sum` is left out until the footer records the overflow-aware `SumV2`.
-    vec![
+    let mut fns = vec![
         max,
         min,
         NullCount.bind(EmptyOptions),
         NanCount.bind(EmptyOptions),
-    ]
+    ];
+    if !dtype.is_struct() && UncompressedSizeInBytes::supports_dtype(dtype) {
+        fns.push(UncompressedSizeInBytes.bind(UncompressedSizeOpts::exact()));
+    }
+    fns
 }
 
 /// Computes the post-order sequence of `(FieldPath, DType)` entries that file-level statistics

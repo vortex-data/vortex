@@ -2396,6 +2396,41 @@ async fn file_sum_is_absent_when_a_chunk_overflows() -> VortexResult<()> {
     Ok(())
 }
 
+/// The footer records each leaf column's uncompressed size by default, and a V2 scan file carries
+/// those sizes so scans can size their chunks by the columns they read.
+#[tokio::test]
+async fn default_stats_record_column_uncompressed_sizes() -> VortexResult<()> {
+    let array = StructArray::from_fields(&[
+        ("ints", PrimitiveArray::from_iter(0i32..1_000).into_array()),
+        (
+            "strs",
+            VarBinViewArray::from_iter_str(["apple", "banana"]).into_array(),
+        ),
+    ])?
+    .into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    let file = SESSION.open_options().open_buffer(ByteBuffer::from(buf))?;
+
+    let column_bytes = file
+        .scan_file()
+        .column_bytes
+        .expect("the footer records column sizes");
+    let bytes = |path: &FieldPath| {
+        column_bytes
+            .iter()
+            .find(|(column, _)| column == path)
+            .map(|(_, bytes)| *bytes)
+    };
+    assert_eq!(bytes(&field_path!(ints)), Some(4_000));
+    assert!(bytes(&field_path!(strs)).is_some_and(|bytes| bytes > 0));
+    Ok(())
+}
+
 #[tokio::test]
 async fn default_string_stats_are_inexact_bounds_after_reopening() -> VortexResult<()> {
     // The default string min/max are byte-bounded, and the footer doesn't record whether a bound
