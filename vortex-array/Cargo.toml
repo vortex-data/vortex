@@ -342,6 +342,10 @@ name = "widen"
 harness = false
 
 [[bench]]
+name = "widen_decimal"
+harness = false
+
+[[bench]]
 name = "run_end_null_count"
 harness = false
 
