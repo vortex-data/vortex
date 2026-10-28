@@ -12,6 +12,7 @@ import dev.vortex.relocated.org.apache.arrow.vector.complex.MapVector;
 import dev.vortex.relocated.org.apache.arrow.vector.complex.StructVector;
 import dev.vortex.relocated.org.apache.arrow.vector.holders.NullableLargeVarCharHolder;
 import dev.vortex.relocated.org.apache.arrow.vector.holders.NullableVarCharHolder;
+import dev.vortex.relocated.org.apache.arrow.vector.holders.NullableViewVarCharHolder;
 import dev.vortex.relocated.org.apache.arrow.vector.types.TimeUnit;
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.ArrowType;
 import dev.vortex.spark.ArrowUtils;
@@ -670,6 +671,7 @@ public class VortexArrowColumnVector extends ColumnVector {
     static class StringViewAccessor extends VortexArrowColumnVector.ArrowVectorAccessor {
 
         private final ViewVarCharVector accessor;
+        private final NullableViewVarCharHolder stringResult = new NullableViewVarCharHolder();
 
         StringViewAccessor(ViewVarCharVector vector) {
             super(vector);
@@ -678,9 +680,16 @@ public class VortexArrowColumnVector extends ColumnVector {
 
         @Override
         final UTF8String getUTF8String(int rowId) {
-            // View values may be inlined in the view buffer rather than contiguous in a data
-            // buffer, so copy out rather than aliasing vector memory.
-            return UTF8String.fromBytes(accessor.get(rowId));
+            // Values alias vector memory until the batch is released, as Spark's own vectors do.
+            accessor.get(rowId, stringResult);
+            if (stringResult.isSet == 0) {
+                return null;
+            } else {
+                return UTF8String.fromAddress(
+                        null,
+                        stringResult.buffer.memoryAddress() + stringResult.start,
+                        stringResult.end - stringResult.start);
+            }
         }
     }
 

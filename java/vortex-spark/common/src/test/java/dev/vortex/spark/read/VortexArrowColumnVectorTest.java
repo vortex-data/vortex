@@ -6,6 +6,7 @@ package dev.vortex.spark.read;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -215,6 +216,33 @@ final class VortexArrowColumnVectorTest {
             assertEquals(
                     UTF8String.fromString("a string long enough to not be inlined"), utf8ViewColumn.getUTF8String(0));
             assertTrue(utf8ViewColumn.isNullAt(1));
+        }
+    }
+
+    @Test
+    @DisplayName("String view values are read in place from inline and out-of-line views")
+    void stringViewValues() {
+        // Inline boundary (12 and 13 bytes), empty, multi-byte inline and out-of-line.
+        String[] values = {
+            "", "exactly12byt", "thirteen byte", "héllo", "长字符串长字符串", "a string long enough to not be inlined"
+        };
+        try (ViewVarCharVector vector = new ViewVarCharVector("utf8_view", ALLOCATOR)) {
+            // Small data buffers, so the out-of-line values land in two buffers, one of them at a nonzero offset.
+            vector.setInitialCapacity(4, 16.0);
+            vector.allocateNew();
+            for (int i = 0; i < values.length; i++) {
+                vector.setSafe(i, values[i].getBytes(StandardCharsets.UTF_8));
+            }
+            vector.setValueCount(values.length);
+            assertTrue(vector.getDataBuffers().size() > 1);
+
+            VortexArrowColumnVector column = new VortexArrowColumnVector(vector);
+            for (int i = 0; i < values.length; i++) {
+                UTF8String value = column.getUTF8String(i);
+                assertEquals(UTF8String.fromString(values[i]), value);
+                // Off-heap: the value aliases vector memory instead of a copied byte[].
+                assertNull(value.getBaseObject());
+            }
         }
     }
 
