@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Operations that run on the values of a [`Widen`](crate::arrays::Widen) instead of on a
-//! widened copy.
+//! Operations that run on the values of a [`Widen`] instead of on a widened copy.
 //!
 //! An operation runs on the values only where it gives the canonical result. Decoding a value is a
 //! strictly increasing, one-to-one map that keeps validity, so comparisons, sortedness, constancy
