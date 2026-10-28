@@ -181,6 +181,8 @@ impl Benchmark for ClickBenchSortedBenchmark {
     }
 }
 
+/// The data directory for the first `files` files, e.g. `clickbench_partitioned_10`. The full
+/// dataset stays `clickbench_partitioned`, not `clickbench_partitioned_100`, for backcompat.
 fn clickbench_data_dir(flavor: Flavor, files: u32) -> String {
     if files == CLICKBENCH_FILES {
         format!("clickbench_{flavor}")
