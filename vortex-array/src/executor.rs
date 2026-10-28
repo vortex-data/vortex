@@ -43,11 +43,13 @@ use crate::dtype::DType;
 use crate::matcher::Matcher;
 use crate::memory::BufferAllocatorRef;
 use crate::memory::MemorySessionExt;
-use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::kernels::ParentExecutionKernels;
+use crate::optimizer::kernels::ParentReduceKernels;
 use crate::optimizer::kernels::execute_parent_key;
 use crate::optimizer::kernels::execute_parent_marker_key;
+use crate::optimizer::optimize_recursive_with_kernels;
+use crate::optimizer::optimize_with_kernels;
 use crate::stats::ArrayStats;
 use crate::trace_op;
 
@@ -179,8 +181,10 @@ impl ArrayRef {
         self,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        let reduce_parent_kernels = Arc::clone(&ctx.reduce_parent_kernels);
+        let reduce_kernels = reduce_parent_kernels.as_ref();
         // Constructors build lazy arrays, so optimize the whole tree before executing it.
-        let mut current_array = self.optimize_recursive(ctx.session())?;
+        let mut current_array = optimize_recursive_with_kernels(self, reduce_kernels)?;
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
         let mut stack: Vec<StackFrame> = Vec::new();
         let execute_parent_kernels = Arc::clone(&ctx.execute_parent_kernels);
@@ -218,7 +222,8 @@ impl ArrayRef {
                         // Kernels build their results with lazy constructors too, such as a
                         // filtered validity, so optimize whatever execution produced.
                         if iteration > 0 {
-                            current_array = current_array.optimize_recursive(ctx.session())?;
+                            current_array =
+                                optimize_recursive_with_kernels(current_array, reduce_kernels)?;
                         }
                         trace_op!(record_execute_until_return(&current_array));
                         return Ok(current_array);
@@ -256,7 +261,7 @@ impl ArrayRef {
                 }
             {
                 let frame = stack.pop().vortex_expect("just peeked");
-                let optimized = result.optimize(ctx.session())?;
+                let optimized = optimize_with_kernels(result.clone(), reduce_kernels)?;
                 trace_op!(record_execute_optimized(&result, &optimized));
                 current_array = optimized;
                 current_builder = frame.parent_builder;
@@ -274,7 +279,7 @@ impl ArrayRef {
                 && has_execute_parent_kernels(kernels, &current_array)
                 && let Some(rewritten) = try_execute_parent(&current_array, kernels, ctx)?
             {
-                let optimized = rewritten.optimize(ctx.session())?;
+                let optimized = optimize_with_kernels(rewritten.clone(), reduce_kernels)?;
                 trace_op!(record_execute_optimized(&rewritten, &optimized));
                 current_array = optimized;
                 continue;
@@ -349,6 +354,9 @@ impl ArrayRef {
                     if had_builder {
                         trace_op!(record_builder_finish(&current_array));
                     }
+                    // Kernels build their results with lazy constructors, such as a cast that only
+                    // changes nullability. Reduce them before execute-parent kernels see them.
+                    current_array = optimize_with_kernels(current_array, reduce_kernels)?;
                 }
             }
         }
@@ -376,6 +384,7 @@ pub struct ExecutionCtx {
     // OnceLock avoids cloning the session allocator when a context does not allocate.
     allocator: OnceLock<BufferAllocatorRef>,
     execute_parent_kernels: Arc<ParentExecutionKernels>,
+    reduce_parent_kernels: Arc<ParentReduceKernels>,
     // OnceLock avoids snapshotting the aggregate kernels when a context does not aggregate.
     aggregate_kernels: OnceLock<AggregateKernels>,
     #[cfg(debug_assertions)]
@@ -387,15 +396,19 @@ pub struct ExecutionCtx {
 impl ExecutionCtx {
     /// Create a new execution context with the given session.
     ///
-    /// This captures a snapshot of the session's execute-parent kernel registry. Kernels
-    /// registered after this context is created are not visible to it; create a new
-    /// [`ExecutionCtx`] after registration to use newly registered kernels.
+    /// This captures a snapshot of the session's execute-parent and parent-reduce kernel
+    /// registries. Kernels registered after this context is created are not visible to it; create
+    /// a new [`ExecutionCtx`] after registration to use newly registered kernels.
     pub fn new(session: VortexSession) -> Self {
-        let execute_parent_kernels = session.kernels().execute_parent_snapshot();
+        let kernels = session.kernels();
+        let execute_parent_kernels = kernels.execute_parent_snapshot();
+        let reduce_parent_kernels = kernels.reduce_parent_snapshot();
+        drop(kernels);
         Self {
             session,
             allocator: OnceLock::new(),
             execute_parent_kernels,
+            reduce_parent_kernels,
             aggregate_kernels: OnceLock::new(),
             #[cfg(debug_assertions)]
             id: {
@@ -410,6 +423,11 @@ impl ExecutionCtx {
     /// Get the session associated with this execution context.
     pub fn session(&self) -> &VortexSession {
         &self.session
+    }
+
+    /// Get the snapshot of the session's parent-reduce kernels taken when this context was made.
+    pub(crate) fn reduce_parent_kernels(&self) -> &ParentReduceKernels {
+        &self.reduce_parent_kernels
     }
 
     /// Get the allocator for this execution context.
@@ -502,7 +520,7 @@ impl Executable for ArrayRef {
         }
         trace_op!(record_single_step_phase_none("canonical", &array));
 
-        let optimized = array.optimize(ctx.session())?;
+        let optimized = optimize_with_kernels(array.clone(), &ctx.reduce_parent_kernels)?;
         if !ArrayRef::ptr_eq(&optimized, &array) {
             optimized.statistics().inherit_from(array.statistics());
             trace_op!(record_single_step_applied("optimize", &array, &optimized));

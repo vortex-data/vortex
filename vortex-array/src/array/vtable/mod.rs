@@ -45,6 +45,7 @@ use crate::dtype::Nullability;
 use crate::executor::ExecutionCtx;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
+use crate::optimizer::optimize_with_kernels;
 use crate::patches::Patches;
 use crate::scalar::ScalarValue;
 use crate::serde::ArrayChildren;
@@ -146,18 +147,21 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
 
     /// Writes the array's logical values into a canonical builder.
     ///
-    /// The default implementation executes the full array to [`Canonical`] and appends that result.
-    /// Encodings may override this to avoid materializing an intermediate canonical array.
+    /// The default implementation optimizes the array, and appends through the encoding it
+    /// reduces to if that differs, so a lazy slice of a constant appends as a constant. Otherwise
+    /// it executes the full array to [`Canonical`] and appends that result. Encodings may override
+    /// this to avoid materializing an intermediate canonical array.
     fn append_to_builder(
         array: ArrayView<'_, Self>,
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        let canonical = array
-            .array()
-            .clone()
-            .execute::<Canonical>(ctx)?
-            .into_array();
+        let array = array.array();
+        let optimized = optimize_with_kernels(array.clone(), ctx.reduce_parent_kernels())?;
+        if !ArrayRef::ptr_eq(&optimized, array) {
+            return optimized.append_to_builder(builder, ctx);
+        }
+        let canonical = optimized.execute::<Canonical>(ctx)?.into_array();
         canonical.append_to_builder(builder, ctx)
     }
 

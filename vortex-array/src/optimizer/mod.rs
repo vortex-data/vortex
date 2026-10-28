@@ -33,8 +33,10 @@ use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayRef;
-use crate::optimizer::kernels::ArrayKernels;
 use crate::optimizer::kernels::ArrayKernelsExt;
+use crate::optimizer::kernels::ParentReduceKernels;
+use crate::optimizer::kernels::reduce_parent_key;
+use crate::optimizer::kernels::reduce_parent_marker_key;
 use crate::trace_op;
 
 pub mod kernels;
@@ -97,24 +99,49 @@ pub trait ArrayOptimizer {
 
 impl ArrayOptimizer for ArrayRef {
     fn optimize(&self, session: &VortexSession) -> VortexResult<ArrayRef> {
-        Ok(optimize_owned(self.clone(), session)?.0)
+        if self.optimized_state().is_root_optimized() {
+            return Ok(self.clone());
+        }
+        let kernels = session.kernels().reduce_parent_snapshot();
+        optimize_with_kernels(self.clone(), &kernels)
     }
 
     fn optimize_recursive(&self, session: &VortexSession) -> VortexResult<ArrayRef> {
-        Ok(try_optimize_recursive(self.clone(), session)?.0)
+        if self.optimized_state().is_tree_optimized() {
+            return Ok(self.clone());
+        }
+        let kernels = session.kernels().reduce_parent_snapshot();
+        optimize_recursive_with_kernels(self.clone(), &kernels)
     }
+}
+
+/// [`ArrayOptimizer::optimize`] against a snapshot of the session's parent-reduce kernels, so a
+/// caller that optimizes repeatedly, such as the executor, reads the session once.
+pub(crate) fn optimize_with_kernels(
+    array: ArrayRef,
+    kernels: &ParentReduceKernels,
+) -> VortexResult<ArrayRef> {
+    Ok(optimize_owned(array, kernels)?.0)
+}
+
+/// [`ArrayOptimizer::optimize_recursive`] against a snapshot of the session's parent-reduce
+/// kernels.
+pub(crate) fn optimize_recursive_with_kernels(
+    array: ArrayRef,
+    kernels: &ParentReduceKernels,
+) -> VortexResult<ArrayRef> {
+    Ok(try_optimize_recursive(array, kernels)?.0)
 }
 
 fn optimize_owned(
     mut current_array: ArrayRef,
-    session: &VortexSession,
+    kernels: &ParentReduceKernels,
 ) -> VortexResult<(ArrayRef, bool)> {
     if current_array.optimized_state().is_root_optimized() {
         return Ok((current_array, false));
     }
 
     let mut any_optimizations = false;
-    let session_kernels = session.kernels();
 
     trace_op!(record_optimize_start(&current_array));
 
@@ -122,7 +149,7 @@ fn optimize_owned(
         trace_op!(record_optimize_loop_start(&current_array));
 
         if let Some(new_array) = current_array.reduce()? {
-            current_array = optimize_new_nodes(new_array, &current_array, session)?;
+            current_array = optimize_new_nodes(new_array, &current_array, kernels)?;
             any_optimizations = true;
             trace_op!(record_optimize_loop_end());
             continue;
@@ -132,14 +159,17 @@ fn optimize_owned(
 
         // Try children in order; the first parent rewrite restarts the fixpoint loop.
         let mut reduced_parent = None;
+        let parent_has_kernels =
+            kernels.contains_key(&reduce_parent_marker_key(current_array.encoding_id()));
         for (slot_idx, slot) in current_array.slots().iter().enumerate() {
             let Some(child) = slot else {
                 continue;
             };
 
             // Session kernels take precedence over the child's static parent-reduce rules.
-            if let Some(new_array) =
-                try_session_parent_reduce(&session_kernels, &current_array, child, slot_idx)?
+            if parent_has_kernels
+                && let Some(new_array) =
+                    try_session_parent_reduce(kernels, &current_array, child, slot_idx)?
             {
                 reduced_parent = Some(new_array);
                 break;
@@ -152,7 +182,7 @@ fn optimize_owned(
         }
 
         if let Some(new_array) = reduced_parent {
-            current_array = optimize_new_nodes(new_array, &current_array, session)?;
+            current_array = optimize_new_nodes(new_array, &current_array, kernels)?;
             any_optimizations = true;
             trace_op!(record_optimize_loop_end());
             continue;
@@ -180,7 +210,7 @@ fn optimize_owned(
 fn optimize_new_nodes(
     array: ArrayRef,
     old: &ArrayRef,
-    session: &VortexSession,
+    kernels: &ParentReduceKernels,
 ) -> VortexResult<ArrayRef> {
     let mut existing = HashSet::new();
     let mut stack = vec![old];
@@ -189,21 +219,21 @@ fn optimize_new_nodes(
             stack.extend(node.slots().iter().flatten());
         }
     }
-    optimize_new_slots(array, &existing, session)
+    optimize_new_slots(array, &existing, kernels)
 }
 
 fn optimize_new_slots(
     array: ArrayRef,
     existing: &HashSet<usize>,
-    session: &VortexSession,
+    kernels: &ParentReduceKernels,
 ) -> VortexResult<ArrayRef> {
     let mut new_slots = SmallVec::with_capacity(array.slots().len());
     let mut any_slot_optimized = false;
     for slot in array.slots() {
         match slot {
             Some(child) if !existing.contains(&child.addr()) => {
-                let (optimized, _) = optimize_owned(child.clone(), session)?;
-                let optimized = optimize_new_slots(optimized, existing, session)?;
+                let (optimized, _) = optimize_owned(child.clone(), kernels)?;
+                let optimized = optimize_new_slots(optimized, existing, kernels)?;
                 any_slot_optimized |= !ArrayRef::ptr_eq(&optimized, child);
                 new_slots.push(Some(optimized));
             }
@@ -219,13 +249,13 @@ fn optimize_new_slots(
 }
 
 fn try_session_parent_reduce(
-    kernels: &ArrayKernels,
+    kernels: &ParentReduceKernels,
     parent: &ArrayRef,
     child: &ArrayRef,
     slot_idx: usize,
 ) -> VortexResult<Option<ArrayRef>> {
     let Some(reduce_parent_fns) =
-        kernels.find_reduce_parent(parent.encoding_id(), child.encoding_id())
+        kernels.get(&reduce_parent_key(parent.encoding_id(), child.encoding_id()))
     else {
         return Ok(None);
     };
@@ -257,7 +287,7 @@ fn try_session_parent_reduce(
 
 fn try_optimize_recursive(
     current_array: ArrayRef,
-    session: &VortexSession,
+    kernels: &ParentReduceKernels,
 ) -> VortexResult<(ArrayRef, bool)> {
     if current_array.optimized_state().is_tree_optimized() {
         return Ok((current_array, false));
@@ -265,7 +295,7 @@ fn try_optimize_recursive(
 
     trace_op!(record_optimize_recursive_start(&current_array));
 
-    let (mut current_array, mut any_optimizations) = optimize_owned(current_array, session)?;
+    let (mut current_array, mut any_optimizations) = optimize_owned(current_array, kernels)?;
 
     let mut new_slots = SmallVec::with_capacity(current_array.slots().len());
     let mut any_slot_optimized = false;
@@ -273,7 +303,7 @@ fn try_optimize_recursive(
         match slot {
             Some(child) => {
                 let (new_child, new_slot_optimized) =
-                    try_optimize_recursive(child.clone(), session)?;
+                    try_optimize_recursive(child.clone(), kernels)?;
                 if new_slot_optimized {
                     trace_op!(record_optimize_recursive_slot(
                         new_slots.len(),

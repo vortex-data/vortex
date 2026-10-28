@@ -67,7 +67,7 @@ pub type ReduceParentFn =
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 #[repr(transparent)]
-struct ReduceParentFnId(u64);
+pub(crate) struct ReduceParentFnId(u64);
 
 impl From<u64> for ReduceParentFnId {
     fn from(id: u64) -> Self {
@@ -109,6 +109,8 @@ pub trait DynExecuteParentKernel: Debug + Send + Sync + 'static {
 }
 
 pub(crate) type ExecuteParentKernelRef = Arc<dyn DynExecuteParentKernel>;
+
+pub(crate) type ParentReduceKernels = HashMap<ReduceParentFnId, Arc<[ReduceParentFn]>>;
 
 pub(crate) type ParentExecutionKernels = HashMap<ExecuteParentFnId, Arc<[ExecuteParentKernelRef]>>;
 
@@ -225,6 +227,8 @@ impl ArrayKernels {
     pub fn register_reduce_parent(&self, parent: Id, child: Id, fns: &[ReduceParentFn]) {
         self.reduce_parent
             .extend(hash_fn_id(parent, child).into(), fns);
+        self.reduce_parent
+            .insert_if_absent(reduce_parent_marker_key(parent).into(), Arc::from([]));
     }
 
     /// Look up the [`ReduceParentFn`]s registered for `(parent, child)`.
@@ -294,6 +298,14 @@ impl ArrayKernels {
             .is_some()
     }
 
+    /// Return the currently published parent-reduce kernel snapshot.
+    ///
+    /// Like the execute-parent snapshot, it also records which parents own any kernel, under
+    /// [`reduce_parent_marker_key`].
+    pub(crate) fn reduce_parent_snapshot(&self) -> Arc<ParentReduceKernels> {
+        self.reduce_parent.snapshot()
+    }
+
     /// Return the currently published execute-parent kernel snapshot.
     pub(crate) fn execute_parent_snapshot(&self) -> Arc<ParentExecutionKernels> {
         self.execute_parent.snapshot()
@@ -302,6 +314,19 @@ impl ArrayKernels {
 
 fn hash_fn_id(parent: Id, child: Id) -> u64 {
     FN_HASHER.hash_one((parent, child))
+}
+
+/// Return the registry key for parent-reduce kernels registered for `(parent, child)`.
+pub(crate) fn reduce_parent_key(parent: Id, child: Id) -> u64 {
+    hash_fn_id(parent, child)
+}
+
+/// Return the registry key under which `parent` is marked as owning parent-reduce kernels.
+///
+/// Like [`execute_parent_marker_key`], it cannot equal a pair key except by a 64-bit collision,
+/// which is harmless: the marker's function list is empty.
+pub(crate) fn reduce_parent_marker_key(parent: Id) -> u64 {
+    FN_HASHER.hash_one(("reduce_parent", parent))
 }
 
 /// Return the registry key for execute-parent kernels registered for `(parent, child)`.
