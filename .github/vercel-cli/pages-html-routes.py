@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-"""Add Cloudflare Pages' HTML URL handling to a Build Output API config.
+"""Add the HTML URL handling the docs had on Cloudflare Pages to a Build Output API config.
 
-Pages serves `page.html` at `/page` and `dir/index.html` at `/dir/`, and
-redirects every other spelling of those URLs to them. Sphinx output relies
+Pages served `page.html` at `/page` and `dir/index.html` at `/dir/`, and
+redirected every other spelling of those URLs to them. Sphinx output relies
 on this: its links are relative, so a directory page must be served with
-its trailing slash, and links shared since the docs moved to Pages use the
+its trailing slash, and links shared while the docs were on Pages use the
 URLs without `.html`.
 
 Usage: pages-html-routes.py OUTPUT_DIR

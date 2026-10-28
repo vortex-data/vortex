@@ -428,7 +428,7 @@ inherits = "release"
 inherits = "release"
 opt-level = "z"
 
-# Used by the vortex-web WASM build. Cloudflare Pages rejects files over 25 MiB.
+# Used by the vortex-web WASM build. Optimized for size because the browser downloads it.
 [profile.wasm_release]
 inherits = "release"
 lto = "fat"

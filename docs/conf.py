@@ -87,7 +87,6 @@ html_theme = "vortex"
 html_theme_path = ["_theme"]
 html_baseurl = "https://docs.vortex.dev/"
 html_static_path = ["_static", "_build/_gen_static"]
-html_extra_path = ["_headers"]  # Cloudflare Pages CSP headers
 html_favicon = "_static/vortex_logo.svg"  # relative to _static/
 
 os.makedirs(Path(__file__).parent / "_build" / "_gen_static", exist_ok=True)

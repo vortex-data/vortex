@@ -30,7 +30,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
         with:
           # Apply the same policy before building and immediately before uploading.
-          script: &preview-state |
+          script: |
             const original = context.payload.pull_request;
             const {data: pr} = await github.rest.pulls.get({
               ...context.repo, pull_number: original.number,
@@ -71,83 +71,10 @@ jobs:
       cancel-in-progress: true
     uses: ./.github/workflows/docs-build.yml
 
+  # Each Vercel deployment has its own URL, so a stale build cannot replace
+  # a newer preview, and the PR needs no recheck before publishing.
   publish:
     name: Publish preview
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      pull-requests: read
-      deployments: write
-    environment:
-      # Reuse the Cloudflare credentials, but track each PR independently.
-      name: github-pages
-      deployment: false
-    # Let uploads finish. Cancelling a job can leave its upload running on Cloudflare.
-    concurrency:
-      group: docs-preview-publish-${{ github.event.pull_request.number }}
-      cancel-in-progress: false
-    steps:
-      - name: Download HTML
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
-        with:
-          artifact-ids: ${{ needs.build.outputs.artifact-id }}
-          path: ${{ runner.temp }}/docs-preview/assets
-          merge-multiple: true
-      - name: Recheck PR before publishing
-        id: state
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
-        with:
-          script: *preview-state
-      # No checkout: Wrangler runs outside the downloaded assets.
-      - name: Publish to Cloudflare Pages
-        id: upload
-        if: steps.state.outputs.eligible == 'true'
-        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0  # v4
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: ${{ runner.temp }}/docs-preview
-          packageManager: npm
-          command: >-
-            pages deploy assets --project-name=vortex-docs
-            --branch=pr-${{ github.event.pull_request.number }}
-            --commit-hash=${{ github.event.pull_request.head.sha }}
-      - name: Link preview to PR
-        if: steps.upload.outcome == 'success'
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
-        env:
-          PREVIEW_URL: ${{ steps.upload.outputs.pages-deployment-alias-url }}
-          DEPLOYMENT_URL: ${{ steps.upload.outputs.deployment-url }}
-        with:
-          script: |
-            const pr = context.payload.pull_request;
-            const url = process.env.PREVIEW_URL;
-            if (!url) throw new Error('Cloudflare did not return a preview URL.');
-            const {data: deployment} = await github.rest.repos.createDeployment({
-              ...context.repo,
-              ref: pr.head.sha,
-              environment: `docs-preview/pr-${pr.number}`,
-              auto_merge: false,
-              required_contexts: [],
-              production_environment: false,
-            });
-            await github.rest.repos.createDeploymentStatus({
-              ...context.repo, deployment_id: deployment.id, state: 'success',
-              environment_url: url,
-              log_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-            });
-            await core.summary
-              .addLink('Docs preview', url)
-              .addRaw(`\n\nCommit: \`${pr.head.sha}\`\n\n`)
-              .addLink('Immutable deployment', process.env.DEPLOYMENT_URL)
-              .write();
-
-  # Publishes the same preview to Vercel while docs move off Pages. Each
-  # Vercel deployment has its own URL, so a stale build cannot replace a
-  # newer preview, and this job skips the recheck that the Pages job needs.
-  publish-vercel:
-    name: Publish preview to Vercel
     needs: build
     permissions:
       contents: read

@@ -33,7 +33,7 @@ on:
         type: string
         required: true
       pages-html-handling:
-        description: Serve HTML at the URLs Cloudflare Pages uses (see .github/vercel-cli/pages-html-routes.py).
+        description: Serve HTML at the URLs Cloudflare Pages used (see .github/vercel-cli/pages-html-routes.py).
         type: boolean
         default: false
       production:

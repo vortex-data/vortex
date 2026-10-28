@@ -22,33 +22,6 @@ jobs:
     uses: ./.github/workflows/docs-build.yml
 
   deploy:
-    permissions:
-      deployments: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.deployment-url }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: build
-    steps:
-      # Note, since we provide the job with a CloudFlare scoped API token, we run it in a separate job that doesn't
-      # execute any repository code.
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
-        with:
-          artifact-ids: ${{ needs.build.outputs.artifact-id }}
-          path: docs
-          merge-multiple: true
-      - name: Upload artifacts to CloudFlare Pages
-        id: deployment
-        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0  # v4
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy docs/ --project-name=vortex-docs --branch=${{ github.head_ref || github.ref_name }}
-
-  # Deploys the same build to Vercel. Both hosts run until docs.vortex.dev
-  # has served from Vercel for two weeks, then the Pages job above goes.
-  deploy-vercel:
     name: Deploy to Vercel
     needs: build
     permissions:
