@@ -1,0 +1,716 @@
+{
+  "date": "2026-10-28",
+  "cpu": "Intel Xeon 6975P-C",
+  "logical_cpu": 2,
+  "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.1\nLLVM version: 23.1.1",
+  "profile": "release_debug: opt-level=3, codegen-units=1, lto=off, debug=full",
+  "target_cpu": "default x86_64; repository force-frame-pointers config",
+  "runtime": "current-thread; mimalloc with benchmark allocator configuration",
+  "metric": "Vortex end-to-end write: train, encode, integer child compression, layout, in-memory serialization; MB/s of canonical uncompressed bytes",
+  "workloads": [
+    {
+      "column": "amazon/book_reviews",
+      "rows": 200000,
+      "cache": "string-bench/amazon_book_reviews.parquet"
+    },
+    {
+      "column": "amazon/book_titles",
+      "rows": 158864,
+      "cache": "string-bench/amazon_book_titles.parquet"
+    },
+    {
+      "column": "clickbench/URL/shard-0",
+      "rows": 1000000,
+      "cache": "clickbench_partitioned/parquet/hits_0.parquet"
+    },
+    {
+      "column": "fineweb/text",
+      "rows": 10000,
+      "cache": "string-bench/fineweb_text.parquet"
+    },
+    {
+      "column": "news/headlines",
+      "rows": 1226258,
+      "cache": "string-bench/news_headlines.parquet"
+    },
+    {
+      "column": "tpch/l_comment",
+      "rows": 6001215,
+      "cache": "tpch/1.0/parquet/lineitem_0001.parquet"
+    },
+    {
+      "column": "twitter/sentiment140",
+      "rows": 1360000,
+      "cache": "string-bench/twitter_sentiment140.parquet"
+    }
+  ],
+  "iterations": 7,
+  "warmup": 3,
+  "candidate_isa": "AVX-512F + POPCNT, existing once-per-parse runtime dispatch; six generic Rows lanes",
+  "baseline_vortex_commit": "288a70a1d74f5460e1e7ea0c4eee2308eaf15edd",
+  "candidate_vortex_commit": "3b616edf874bac8b9435409c93565169519fd4a0",
+  "baseline_onpair_commit": "29672467c0303f5adfebd0cb98511fdf47bdf77f",
+  "candidate_onpair_commit": "9b12a198545a5fd7dff6109e4fc32797d861e94f",
+  "change": "Two-line upstream change: first_blocks is Box<[u16; 65537]> rather than Vec<u16>. Its length is known to the compiler, so the two prefix indices can be proven valid. The u16 allocation, search, lanes, training settings, and wire format are preserved. No new unsafe code.",
+  "command_per_column": "taskset -c 2 <frozen-string-bench> --columns ^<column>$ --encoders onpair,fsst --iterations 7 --warmup 3 --display-format gh-json --output-path <column>.jsonl",
+  "method": "Each column ran in a separate process. Before/after matrices ran sequentially, with no competing builds, tests, other timings, or profiling. Preparation and downloads are outside timing; normal round-trip verification is enabled.",
+  "build_metadata_note": "Frozen executables were built before the implementation commit. Raw gh-json commit_id records checkout HEAD at build time (288a70a1d7), while candidate_vortex_commit identifies the exact implementation tree. The dependency is the final git pin, not a local path override.",
+  "summary": {
+    "onpair-12": {
+      "geometric_mean_throughput_gain_percent": 0.44202942090290076,
+      "minimum_throughput_gain_percent": -0.4747638317017411,
+      "maximum_throughput_gain_percent": 1.513336785805186
+    },
+    "onpair-16": {
+      "geometric_mean_throughput_gain_percent": 0.7823322103756247,
+      "minimum_throughput_gain_percent": 0.036791724977836004,
+      "maximum_throughput_gain_percent": 1.9749409183710709
+    },
+    "fsst": {
+      "geometric_mean_throughput_gain_percent": 0.377685265144323,
+      "minimum_throughput_gain_percent": -0.025485662040958257,
+      "maximum_throughput_gain_percent": 1.0894766979929749
+    }
+  },
+  "measurements": [
+    {
+      "column": "amazon/book_reviews",
+      "encoder": "fsst",
+      "size_percent": 52.15388272221946,
+      "baseline_write_ms": 694.000532,
+      "candidate_write_ms": 691.842906,
+      "baseline_write_mbps": 183.25,
+      "candidate_write_mbps": 183.82,
+      "throughput_gain_percent": 0.31186646293370757,
+      "baseline_read_ms": 34.491123,
+      "candidate_read_ms": 34.71295
+    },
+    {
+      "column": "amazon/book_reviews",
+      "encoder": "onpair-12",
+      "size_percent": 38.21234699605678,
+      "baseline_write_ms": 898.654102,
+      "candidate_write_ms": 902.9409390000001,
+      "baseline_write_mbps": 141.52,
+      "candidate_write_mbps": 140.85,
+      "throughput_gain_percent": -0.4747638317017411,
+      "baseline_read_ms": 24.711717,
+      "candidate_read_ms": 24.747719
+    },
+    {
+      "column": "amazon/book_reviews",
+      "encoder": "onpair-16",
+      "size_percent": 37.9170583191284,
+      "baseline_write_ms": 899.7668130000001,
+      "candidate_write_ms": 891.591436,
+      "baseline_write_mbps": 141.34,
+      "candidate_write_mbps": 142.64,
+      "throughput_gain_percent": 0.9169420734543632,
+      "baseline_read_ms": 26.102252999999997,
+      "candidate_read_ms": 26.197634
+    },
+    {
+      "column": "amazon/book_titles",
+      "encoder": "fsst",
+      "size_percent": 50.766433883428505,
+      "baseline_write_ms": 73.254654,
+      "candidate_write_ms": 72.96398900000001,
+      "baseline_write_mbps": 146.12,
+      "candidate_write_mbps": 146.7,
+      "throughput_gain_percent": 0.3983677482326087,
+      "baseline_read_ms": 3.3897749999999998,
+      "candidate_read_ms": 3.396873
+    },
+    {
+      "column": "amazon/book_titles",
+      "encoder": "onpair-12",
+      "size_percent": 44.44605552323536,
+      "baseline_write_ms": 82.59327599999999,
+      "candidate_write_ms": 81.36199500000001,
+      "baseline_write_mbps": 129.59,
+      "candidate_write_mbps": 131.56,
+      "throughput_gain_percent": 1.513336785805186,
+      "baseline_read_ms": 3.071857,
+      "candidate_read_ms": 3.012999
+    },
+    {
+      "column": "amazon/book_titles",
+      "encoder": "onpair-16",
+      "size_percent": 45.63652648630661,
+      "baseline_write_ms": 86.77124,
+      "candidate_write_ms": 85.09074799999999,
+      "baseline_write_mbps": 123.35,
+      "candidate_write_mbps": 125.79,
+      "throughput_gain_percent": 1.9749409183710709,
+      "baseline_read_ms": 3.208881,
+      "candidate_read_ms": 3.050187
+    },
+    {
+      "column": "clickbench/URL/shard-0",
+      "encoder": "fsst",
+      "size_percent": 47.30267671830977,
+      "baseline_write_ms": 476.95165099999997,
+      "candidate_write_ms": 471.811376,
+      "baseline_write_mbps": 219.23,
+      "candidate_write_mbps": 221.62,
+      "throughput_gain_percent": 1.0894766979929749,
+      "baseline_read_ms": 31.382611999999998,
+      "candidate_read_ms": 31.135103
+    },
+    {
+      "column": "clickbench/URL/shard-0",
+      "encoder": "onpair-12",
+      "size_percent": 28.289171811342577,
+      "baseline_write_ms": 566.6672590000001,
+      "candidate_write_ms": 568.5279049999999,
+      "baseline_write_mbps": 184.52,
+      "candidate_write_mbps": 183.92,
+      "throughput_gain_percent": -0.32727434900488017,
+      "baseline_read_ms": 19.702895,
+      "candidate_read_ms": 20.004345
+    },
+    {
+      "column": "clickbench/URL/shard-0",
+      "encoder": "onpair-16",
+      "size_percent": 28.640909058653367,
+      "baseline_write_ms": 578.658058,
+      "candidate_write_ms": 575.703623,
+      "baseline_write_mbps": 180.7,
+      "candidate_write_mbps": 181.62,
+      "throughput_gain_percent": 0.5131867999378592,
+      "baseline_read_ms": 19.831969,
+      "candidate_read_ms": 19.807123
+    },
+    {
+      "column": "fineweb/text",
+      "encoder": "fsst",
+      "size_percent": 55.90197294358995,
+      "baseline_write_ms": 277.73676800000004,
+      "candidate_write_ms": 276.951693,
+      "baseline_write_mbps": 109.96,
+      "candidate_write_mbps": 110.27,
+      "throughput_gain_percent": 0.2834700129455747,
+      "baseline_read_ms": 7.799848,
+      "candidate_read_ms": 7.918678
+    },
+    {
+      "column": "fineweb/text",
+      "encoder": "onpair-12",
+      "size_percent": 44.37700222499731,
+      "baseline_write_ms": 447.913557,
+      "candidate_write_ms": 443.394699,
+      "baseline_write_mbps": 68.18,
+      "candidate_write_mbps": 68.88,
+      "throughput_gain_percent": 1.0191502086496662,
+      "baseline_read_ms": 6.908791,
+      "candidate_read_ms": 6.900370000000001
+    },
+    {
+      "column": "fineweb/text",
+      "encoder": "onpair-16",
+      "size_percent": 40.15548950382982,
+      "baseline_write_ms": 484.097196,
+      "candidate_write_ms": 475.874627,
+      "baseline_write_mbps": 63.09,
+      "candidate_write_mbps": 64.18,
+      "throughput_gain_percent": 1.7278855676413407,
+      "baseline_read_ms": 5.955577,
+      "candidate_read_ms": 5.961407
+    },
+    {
+      "column": "news/headlines",
+      "encoder": "fsst",
+      "size_percent": 43.83800517124216,
+      "baseline_write_ms": 418.118058,
+      "candidate_write_ms": 418.157938,
+      "baseline_write_mbps": 167.35,
+      "candidate_write_mbps": 167.33,
+      "throughput_gain_percent": -0.009537066351228418,
+      "baseline_read_ms": 19.728366,
+      "candidate_read_ms": 19.665778
+    },
+    {
+      "column": "news/headlines",
+      "encoder": "onpair-12",
+      "size_percent": 37.73040791346742,
+      "baseline_write_ms": 445.169076,
+      "candidate_write_ms": 440.363491,
+      "baseline_write_mbps": 157.18,
+      "candidate_write_mbps": 158.89,
+      "throughput_gain_percent": 1.0912768878925894,
+      "baseline_read_ms": 19.152091,
+      "candidate_read_ms": 19.022633
+    },
+    {
+      "column": "news/headlines",
+      "encoder": "onpair-16",
+      "size_percent": 38.416461583641315,
+      "baseline_write_ms": 453.66828399999997,
+      "candidate_write_ms": 453.501433,
+      "baseline_write_mbps": 154.23,
+      "candidate_write_mbps": 154.29,
+      "throughput_gain_percent": 0.036791724977836004,
+      "baseline_read_ms": 19.36124,
+      "candidate_read_ms": 19.443092
+    },
+    {
+      "column": "tpch/l_comment",
+      "encoder": "fsst",
+      "size_percent": 30.07840092706971,
+      "baseline_write_ms": 1156.410492,
+      "candidate_write_ms": 1156.705286,
+      "baseline_write_mbps": 215.49,
+      "candidate_write_mbps": 215.43,
+      "throughput_gain_percent": -0.025485662040958257,
+      "baseline_read_ms": 65.698165,
+      "candidate_read_ms": 65.044878
+    },
+    {
+      "column": "tpch/l_comment",
+      "encoder": "onpair-12",
+      "size_percent": 22.996683357813467,
+      "baseline_write_ms": 1029.610697,
+      "candidate_write_ms": 1030.110352,
+      "baseline_write_mbps": 242.02,
+      "candidate_write_mbps": 241.91,
+      "throughput_gain_percent": -0.04850499745291392,
+      "baseline_read_ms": 60.152731,
+      "candidate_read_ms": 60.270855999999995
+    },
+    {
+      "column": "tpch/l_comment",
+      "encoder": "onpair-16",
+      "size_percent": 23.01119751482703,
+      "baseline_write_ms": 1036.747646,
+      "candidate_write_ms": 1035.215167,
+      "baseline_write_mbps": 240.36,
+      "candidate_write_mbps": 240.71,
+      "throughput_gain_percent": 0.1480348287826061,
+      "baseline_read_ms": 59.478156999999996,
+      "candidate_read_ms": 59.60175
+    },
+    {
+      "column": "twitter/sentiment140",
+      "encoder": "fsst",
+      "size_percent": 51.76308196157247,
+      "baseline_write_ms": 752.421118,
+      "candidate_write_ms": 747.9333310000001,
+      "baseline_write_mbps": 162.88,
+      "candidate_write_mbps": 163.86,
+      "throughput_gain_percent": 0.6000250041002575,
+      "baseline_read_ms": 37.450129,
+      "candidate_read_ms": 37.236189
+    },
+    {
+      "column": "twitter/sentiment140",
+      "encoder": "onpair-12",
+      "size_percent": 44.094038414346976,
+      "baseline_write_ms": 878.079537,
+      "candidate_write_ms": 875.114431,
+      "baseline_write_mbps": 139.57,
+      "candidate_write_mbps": 140.04,
+      "throughput_gain_percent": 0.3388249461972359,
+      "baseline_read_ms": 33.465884,
+      "candidate_read_ms": 33.147421
+    },
+    {
+      "column": "twitter/sentiment140",
+      "encoder": "onpair-16",
+      "size_percent": 46.008546208056515,
+      "baseline_write_ms": 978.10937,
+      "candidate_write_ms": 976.38114,
+      "baseline_write_mbps": 125.3,
+      "candidate_write_mbps": 125.52,
+      "throughput_gain_percent": 0.177003623810279,
+      "baseline_read_ms": 35.788385,
+      "candidate_read_ms": 35.752108
+    }
+  ],
+  "validation": {
+    "all_21_exact_serialized_sizes_match": true,
+    "onpair_tests": "158 unit/property/brute-force tests and 2 doctests passed",
+    "vortex_tests": "1044 FastLanes, 40 OnPair, and 12 string-bench library tests passed",
+    "format_and_clippy": "Workspace formatting check and affected Vortex all-target/all-feature Clippy with warnings denied passed; upstream Clippy passed on pinned Rust1.91 with standalone configuration",
+    "exact_encoder_compatibility": "Old2967246 versus new9b12: identical dictionary bytes and offsets, code streams, and row offsets on all9956337 real benchmark rows in8192-row batches, bothbudgets, plus2006 binary/empty/0x00/0xFF/random rows",
+    "platform_scope": "Performance measured on this x86-64 host; other architectures not benchmarked"
+  },
+  "prototype_confirmation": {
+    "onpair-12": {
+      "geometric_mean_throughput_gain_percent": 0.7302053622427973,
+      "minimum_throughput_gain_percent": 0.14113200841918694,
+      "maximum_throughput_gain_percent": 2.231116687723911
+    },
+    "onpair-16": {
+      "geometric_mean_throughput_gain_percent": 0.8536192906829942,
+      "minimum_throughput_gain_percent": 0.4443930962332976,
+      "maximum_throughput_gain_percent": 1.5045354627116758
+    },
+    "fsst": {
+      "geometric_mean_throughput_gain_percent": -0.35420388544337156,
+      "minimum_throughput_gain_percent": -0.9455068072746875,
+      "maximum_throughput_gain_percent": 0.23376816388400723
+    }
+  },
+  "eight_byte_diagnostic": {
+    "method": "Count actual active parser lookups during the same Vortex workload, one timed iteration and zero warmups. Includes normal verification/probe work. Diagnostic timings are not performance evidence. Table reports whether the last key with matching upper64 bits exceeds the full128-bit window.",
+    "results": [
+      {
+        "column": "URL",
+        "budget": 12,
+        "lookups": 54012864,
+        "equal_hi": 14184108,
+        "corrections": 4366608,
+        "equal_hi_fraction": 0.2626061080560364,
+        "correction_fraction": 0.08084385230896106,
+        "mean_equal_hi_run": 6.749412018013399,
+        "maximum_equal_hi_run": 98,
+        "max_windows": 0
+      },
+      {
+        "column": "URL",
+        "budget": 16,
+        "lookups": 48414732,
+        "equal_hi": 15154434,
+        "corrections": 5337468,
+        "equal_hi_fraction": 0.3130128655881024,
+        "correction_fraction": 0.11024470816031781,
+        "mean_equal_hi_run": 10.856970573760789,
+        "maximum_equal_hi_run": 165,
+        "max_windows": 0
+      },
+      {
+        "column": "l_comment",
+        "budget": 12,
+        "lookups": 73188507,
+        "equal_hi": 32733342,
+        "corrections": 16202049,
+        "equal_hi_fraction": 0.44724702472753,
+        "correction_fraction": 0.22137422478094818,
+        "mean_equal_hi_run": 7.975723743698397,
+        "maximum_equal_hi_run": 47,
+        "max_windows": 0
+      },
+      {
+        "column": "l_comment",
+        "budget": 16,
+        "lookups": 72601095,
+        "equal_hi": 32869056,
+        "corrections": 16404360,
+        "equal_hi_fraction": 0.45273498974085724,
+        "correction_fraction": 0.2259519639476512,
+        "mean_equal_hi_run": 8.2504980672399,
+        "maximum_equal_hi_run": 44,
+        "max_windows": 0
+      },
+      {
+        "column": "amazon_book_reviews",
+        "budget": 12,
+        "lookups": 114140037,
+        "equal_hi": 8425878,
+        "corrections": 983604,
+        "equal_hi_fraction": 0.07382052977606797,
+        "correction_fraction": 0.008617519547501111,
+        "mean_equal_hi_run": 1.7108408168264482,
+        "maximum_equal_hi_run": 19,
+        "max_windows": 0
+      },
+      {
+        "column": "amazon_book_reviews",
+        "budget": 16,
+        "lookups": 84867384,
+        "equal_hi": 19846089,
+        "corrections": 6697002,
+        "equal_hi_fraction": 0.23384824728425704,
+        "correction_fraction": 0.0789113754230954,
+        "mean_equal_hi_run": 3.3223953092218825,
+        "maximum_equal_hi_run": 64,
+        "max_windows": 0
+      },
+      {
+        "column": "amazon_book_titles",
+        "budget": 12,
+        "lookups": 9108768,
+        "equal_hi": 266820,
+        "corrections": 22494,
+        "equal_hi_fraction": 0.02929265516478189,
+        "correction_fraction": 0.002469488738762476,
+        "mean_equal_hi_run": 1.1947829997751294,
+        "maximum_equal_hi_run": 4,
+        "max_windows": 0
+      },
+      {
+        "column": "amazon_book_titles",
+        "budget": 16,
+        "lookups": 8367072,
+        "equal_hi": 409920,
+        "corrections": 58440,
+        "equal_hi_fraction": 0.048992048831419166,
+        "correction_fraction": 0.006984522184104547,
+        "mean_equal_hi_run": 1.4141978922716627,
+        "maximum_equal_hi_run": 7,
+        "max_windows": 0
+      },
+      {
+        "column": "news_headlines",
+        "budget": 12,
+        "lookups": 45513447,
+        "equal_hi": 2053185,
+        "corrections": 274257,
+        "equal_hi_fraction": 0.04511161283828931,
+        "correction_fraction": 0.006025845504516501,
+        "mean_equal_hi_run": 1.7825407841962608,
+        "maximum_equal_hi_run": 23,
+        "max_windows": 0
+      },
+      {
+        "column": "news_headlines",
+        "budget": 16,
+        "lookups": 40982646,
+        "equal_hi": 3266937,
+        "corrections": 561603,
+        "equal_hi_fraction": 0.0797151311313574,
+        "correction_fraction": 0.013703434375613522,
+        "mean_equal_hi_run": 2.0585272994245067,
+        "maximum_equal_hi_run": 45,
+        "max_windows": 0
+      },
+      {
+        "column": "twitter_sentiment140",
+        "budget": 12,
+        "lookups": 102972627,
+        "equal_hi": 2926125,
+        "corrections": 176028,
+        "equal_hi_fraction": 0.028416532482948113,
+        "correction_fraction": 0.0017094640112464063,
+        "mean_equal_hi_run": 1.1839651416122003,
+        "maximum_equal_hi_run": 6,
+        "max_windows": 0
+      },
+      {
+        "column": "twitter_sentiment140",
+        "budget": 16,
+        "lookups": 92687952,
+        "equal_hi": 5173482,
+        "corrections": 788721,
+        "equal_hi_fraction": 0.05581612160337732,
+        "correction_fraction": 0.008509423101720922,
+        "mean_equal_hi_run": 1.4669108735663912,
+        "maximum_equal_hi_run": 13,
+        "max_windows": 0
+      },
+      {
+        "column": "fineweb_text",
+        "budget": 12,
+        "lookups": 57277308,
+        "equal_hi": 1947060,
+        "corrections": 48246,
+        "equal_hi_fraction": 0.03399356687643211,
+        "correction_fraction": 0.0008423231063862149,
+        "mean_equal_hi_run": 1.0393254445163478,
+        "maximum_equal_hi_run": 3,
+        "max_windows": 0
+      },
+      {
+        "column": "fineweb_text",
+        "budget": 16,
+        "lookups": 37302309,
+        "equal_hi": 8760036,
+        "corrections": 3182508,
+        "equal_hi_fraction": 0.23483897471333476,
+        "correction_fraction": 0.08531664889698919,
+        "mean_equal_hi_run": 2.838298952196087,
+        "maximum_equal_hi_run": 33,
+        "max_windows": 0
+      }
+    ]
+  },
+  "rejected_experiments": [
+    {
+      "description": "64KiB first-two-byte short-length bitmap and direct singles",
+      "baseline_run": "before-training-prefix-lens",
+      "candidate_run": "training-prefix-lens",
+      "decision": "Rejected: regression or no clear gain sufficient to retain the extra code",
+      "summary": {
+        "onpair-12": {
+          "geometric_mean_throughput_gain_percent": 0.6720199351857747,
+          "minimum_throughput_gain_percent": -1.0720372529517852,
+          "maximum_throughput_gain_percent": 4.164621915005995
+        },
+        "onpair-16": {
+          "geometric_mean_throughput_gain_percent": -1.5484983196751512,
+          "minimum_throughput_gain_percent": -3.266147297243438,
+          "maximum_throughput_gain_percent": 1.0956567001723316
+        },
+        "fsst": {
+          "geometric_mean_throughput_gain_percent": -0.39430376299047776,
+          "minimum_throughput_gain_percent": -1.0028732946370855,
+          "maximum_throughput_gain_percent": 0.07919270684650925
+        }
+      },
+      "patch_sha256": "20edcc0d5158f2eee0b6845d50496d53308d6c253f1121311b1758c579b67244"
+    },
+    {
+      "description": "LZCNT/BMI2 specialization and explicit hot loops",
+      "baseline_run": "before-training-prefix-lens",
+      "candidate_run": "parser-bitops",
+      "decision": "Rejected: regression or no clear gain sufficient to retain the extra code",
+      "summary": {
+        "onpair-12": {
+          "geometric_mean_throughput_gain_percent": 0.8606317678001574,
+          "minimum_throughput_gain_percent": -1.7331916949774984,
+          "maximum_throughput_gain_percent": 3.6638740588125884
+        },
+        "onpair-16": {
+          "geometric_mean_throughput_gain_percent": 0.6801462333483554,
+          "minimum_throughput_gain_percent": -0.3564907074585677,
+          "maximum_throughput_gain_percent": 1.876740219014339
+        },
+        "fsst": {
+          "geometric_mean_throughput_gain_percent": -0.19349209996659678,
+          "minimum_throughput_gain_percent": -0.6583160083556527,
+          "maximum_throughput_gain_percent": 0.19942833676678262
+        }
+      },
+      "patch_sha256": "629e41e497b6bbdd301547d937965619096bbbb510e207d5569c15692ad9e002"
+    },
+    {
+      "description": "Upper64-only ranks, bounded full-key correction",
+      "baseline_run": "before-training-prefix-lens",
+      "candidate_run": "hi64",
+      "decision": "Rejected: regression or no clear gain sufficient to retain the extra code",
+      "summary": {
+        "onpair-12": {
+          "geometric_mean_throughput_gain_percent": -4.317668470207514,
+          "minimum_throughput_gain_percent": -12.275189618080407,
+          "maximum_throughput_gain_percent": -1.5410646910657855
+        },
+        "onpair-16": {
+          "geometric_mean_throughput_gain_percent": -4.6328620719564455,
+          "minimum_throughput_gain_percent": -13.103283400262988,
+          "maximum_throughput_gain_percent": -1.4815400962164493
+        },
+        "fsst": {
+          "geometric_mean_throughput_gain_percent": 0.2554152216049044,
+          "minimum_throughput_gain_percent": -0.7976647358260314,
+          "maximum_throughput_gain_percent": 0.9666492149120964
+        }
+      },
+      "patch_sha256": "b0691c0803ce4ecc864c8c2d6daea91d6478393778b39cc1f0ae148ad3db1c93"
+    },
+    {
+      "description": "Overlap row-offset loads and simplify row-end selection",
+      "baseline_run": "before-row-end",
+      "candidate_run": "row-end",
+      "decision": "Rejected: regression or no clear gain sufficient to retain the extra code",
+      "summary": {
+        "onpair-12": {
+          "geometric_mean_throughput_gain_percent": 0.36266981893313677,
+          "minimum_throughput_gain_percent": -0.4861284760569018,
+          "maximum_throughput_gain_percent": 1.6073077333113472
+        },
+        "onpair-16": {
+          "geometric_mean_throughput_gain_percent": -0.17215063568847278,
+          "minimum_throughput_gain_percent": -1.379055330562995,
+          "maximum_throughput_gain_percent": 1.0579126791165905
+        },
+        "fsst": {
+          "geometric_mean_throughput_gain_percent": -0.19402384083267998,
+          "minimum_throughput_gain_percent": -1.3637722522506168,
+          "maximum_throughput_gain_percent": 0.5022384869950214
+        }
+      },
+      "patch_sha256": "9ef5951561a570b1aa8edd1b4b5aa534facad0135f48e78457fa800ae55021b1"
+    },
+    {
+      "description": "Separate short-token hash maps by length; direct singles",
+      "baseline_run": "before-row-end",
+      "candidate_run": "short-maps",
+      "decision": "Rejected: regression or no clear gain sufficient to retain the extra code",
+      "summary": {
+        "onpair-12": {
+          "geometric_mean_throughput_gain_percent": -0.04710218370402863,
+          "minimum_throughput_gain_percent": -0.9239327067752545,
+          "maximum_throughput_gain_percent": 0.42628888208859905
+        },
+        "onpair-16": {
+          "geometric_mean_throughput_gain_percent": 0.06304664033944807,
+          "minimum_throughput_gain_percent": -0.8387912782056417,
+          "maximum_throughput_gain_percent": 1.1542786793388826
+        },
+        "fsst": {
+          "geometric_mean_throughput_gain_percent": -1.3016899570924334,
+          "minimum_throughput_gain_percent": -3.504999543139231,
+          "maximum_throughput_gain_percent": -0.7180259778191256
+        }
+      },
+      "patch_sha256": "428af82b12581fd0ee169fda6c582e194bccedae402518bcb750b658d90e6a96"
+    },
+    {
+      "description": "Membership filter before large long-prefix hash tables",
+      "baseline_run": "before-row-end",
+      "candidate_run": "long-filter",
+      "decision": "Rejected: regression or no clear gain sufficient to retain the extra code",
+      "summary": {
+        "onpair-12": {
+          "geometric_mean_throughput_gain_percent": 0.37093916771320234,
+          "minimum_throughput_gain_percent": -0.5670825217858111,
+          "maximum_throughput_gain_percent": 1.1766724256363714
+        },
+        "onpair-16": {
+          "geometric_mean_throughput_gain_percent": 0.255354150762388,
+          "minimum_throughput_gain_percent": -0.468491432213447,
+          "maximum_throughput_gain_percent": 1.8127499320226503
+        },
+        "fsst": {
+          "geometric_mean_throughput_gain_percent": -0.11600716672057754,
+          "minimum_throughput_gain_percent": -0.7958757912312819,
+          "maximum_throughput_gain_percent": 0.4010855123250723
+        }
+      },
+      "patch_sha256": "c8aa5f074b172178fa161de836f160faac98aadaee30449c446c456fa384f1b1"
+    },
+    {
+      "description": "One unaligned u32 read for adjacent prefix boundaries",
+      "baseline_run": "before-packed-range-confirm",
+      "candidate_run": "packed-range-confirm",
+      "decision": "Rejected: regression or no clear gain sufficient to retain the extra code",
+      "summary": {
+        "onpair-12": {
+          "geometric_mean_throughput_gain_percent": 0.41947350681159623,
+          "minimum_throughput_gain_percent": -0.7279833077230236,
+          "maximum_throughput_gain_percent": 1.0594384500399956
+        },
+        "onpair-16": {
+          "geometric_mean_throughput_gain_percent": 0.2511405350457352,
+          "minimum_throughput_gain_percent": -0.5820381686263976,
+          "maximum_throughput_gain_percent": 0.7912874076260845
+        },
+        "fsst": {
+          "geometric_mean_throughput_gain_percent": -1.2836909624370896,
+          "minimum_throughput_gain_percent": -2.8732109509365222,
+          "maximum_throughput_gain_percent": -0.4124415632648537
+        }
+      },
+      "patch_sha256": "8c083b1a9b6860ad3c8c07904adc08d44fb8e627344d989225f69bae6d567f14"
+    }
+  ],
+  "binary_sha256": {
+    "string-bench-simd-histogram": "8f76ee2db4167341bcf52650b12552cffc4bbff1f490ed25570c2210302e39cf",
+    "string-bench-fixed-range-final": "677f96f8adc3dba45626f6bd08d8e5fb69a2c971db72c036308ae05ad7874fee"
+  },
+  "interpretation": "Final incremental gains are small: +0.44% at12bits and +0.78% at16bits, with FSST +0.38%. Treat12bit as effectively flat and16bit as a small improvement, not another large gain. The retained source change encodes an existing fixed-size invariant in safe Rust.",
+  "profile_observation": {
+    "workload": "amazon/book_reviews, both budgets, three timed iterations and one warmup; normal read and round-trip verification retained",
+    "build_id": "d2e0093005b9e1cc748f46f1b742a8988dc22091",
+    "method": "1000Hz Samply, CPU-weighted main-thread samples, ELF build ID verified before symbolication",
+    "self_cpu_percent": {
+      "parse_batch_rank": 42.72,
+      "compress_rows_inlined_work": 13.39,
+      "training_longest_prefix_matcher": 13.19,
+      "integer_statistics": 6.1,
+      "bit_width_histogram": 2.23
+    },
+    "note": "Whole-harness samples include warmup, reads and verification. Throughput claims use the separate unprofiled matrices."
+  },
+  "assembly_observation": "Compared frozen baseline and final parse_batch_rank: the twelve prefix-index bounds checks per six-lane lookup are removed. The table still uses ordinary u16 loads; no unchecked or forced u32 reader is retained."
+}
