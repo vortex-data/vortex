@@ -106,3 +106,77 @@ held-out workloads on the same CI hardware must measure this effect before a pro
 Conditional service cost approximates shared bandwidth but omits temporal correlation, network
 routing, throttling dynamics and retry feedback. Profiles are opt-in benchmark models, not claims of
 S3 equivalence. The third branch wires this endpoint into benchmark workloads.
+
+## Run existing benchmarks through the model
+
+Prepare data with the normal generators first. The launcher mirrors `--data-root` directly at the
+bucket root; for SQL this is the suite's prepared directory (including the scale factor), whereas
+random access uses the full `vortex-bench/data` layout. Each command starts a fresh endpoint, reserves
+query RAM, supplies dummy child credentials and writes a separate provenance/counter manifest.
+
+```bash
+cargo build --profile release_debug --bin s3-simulate --bin data-gen --bin datafusion-bench \
+  --bin duckdb-bench --bin random-access-bench --bin compress-bench
+target/release_debug/data-gen tpch --formats parquet,vortex --opt scale-factor=10.0
+
+python3 benchmarks/s3/run.py --profile /tmp/s3-profile.json --kind sql \
+  --data-root vortex-bench/data/tpch/10.0 --output /tmp/tpch-model-manifest.json -- \
+  target/release_debug/datafusion-bench tpch --formats parquet,vortex --iterations 5 --opt scale-factor=10.0
+
+# The same SQL path works with duckdb-bench or lance-bench and every BenchmarkArg suite.
+# Prepare Lance locally through lance-bench before taking the snapshot.
+# CPU-native DuckDB databases and LitData have no remote object-read variant.
+
+target/release_debug/random-access-bench --prepare-data --datasets nested-lists --formats parquet,vortex
+python3 benchmarks/s3/run.py --profile /tmp/s3-profile.json --kind random-access \
+  --data-root vortex-bench/data --output /tmp/random-model-manifest.json -- \
+  target/release_debug/random-access-bench --datasets nested-lists --formats parquet,vortex --open-mode both
+
+python3 benchmarks/s3/run.py --profile /tmp/s3-profile.json --kind compress \
+  --output /tmp/decode-model-manifest.json -- target/release_debug/compress-bench \
+  --datasets '^wide table cols=100 chunks=1 rows=1000$' --formats parquet,vortex,arrow-ipc \
+  --ops decompress --iterations 5
+```
+
+SQL forwards `remote-data-dir` without changing plans, pushdown, coalescing or caching. This includes
+StatPopGen, PolarSignals, Public BI and custom Vortex queries, whose factory paths now honor this
+option. DuckDB's native Parquet reader receives a loopback S3 secret; its Vortex reader and the other
+clients use the same endpoint environment. Unsupported local-only formats fail explicitly.
+
+Random access uses the existing Parquet/Vortex range readers and optional Lance reader, including
+cached-handle and reopen measurements. Arrow IPC random access remains local-only. Build with
+`--features random-access-bench/lance,compress-bench/lance` for optional Lance variants.
+
+Compression keeps its CPU-only metric. With `--remote-data-dir`, decompression uploads the exact
+compressed fixture outside timing, then every timed iteration reads and decodes it. Parquet, Vortex
+and Arrow IPC use a full object GET followed by their CPU decoder; these results measure full-file
+read+decode, not selective range-scan performance. Lance uploads its directory and uses its native
+remote scanner. Remote read/decode and random-access results have distinct identities from local
+and real-S3 records. The launcher does not publish benchmark results to the ordinary CI baseline.
+
+The `S3 Model Benchmarks` workflow learns on two real request sweeps, freezes the profile, and runs
+an independent held-out real sweep, the learned endpoint and a zero-delay loopback baseline. Its
+probe table requires exactly matching GET/byte coverage and separates header, first-byte, body and
+total median/p90. All clients run sequentially on one on-demand c8gd.16xlarge in the bucket's region.
+It then runs all 22 TPC-H and 99 TPC-DS queries through DataFusion, DuckDB and Lance, plus synthetic
+random access and read/decode, against real/model/second-real controls using identical files.
+
+Branch pushes exercise **all queries at SF0.01, three iterations**. Manual dispatch defaults to
+**SF10, five iterations**. `comparison.csv` recomputes median/p90 from raw iteration times,
+reports model/pooled-real and real-repeat/real ratios, Spearman and ±10%/±30% flags. Native SQL
+results preserve the ordinary cache sequence; they do not replace the separate controlled cold/warm
+validation study. Endpoint counters cover whole commands, including registration/warmups; real
+per-query request parity is not measured by this native-client smoke workflow. These limitations
+remain explicit in the report, and real S3 stays the default reference.
+
+The earlier frozen V4 controlled SF10 study (research branch `ji/ci-s3-over-time`) covered all 121
+queries and matched all 1,368,393 GETs and 380,744,124,525 bytes per backend. It reached Spearman
+0.9947, with 173/242 query/cache medians within ±10%. Its first three-hour window reached 23/36
+within ±10%, with five groups exceeding measured S3 repeatability. That evidence supports an opt-in
+simulator and more calibration; it does not establish the accuracy of this new native HTTP model.
+
+For paired remote decoding, pass the same `--fixture-cache /tmp/run-fixtures` to both backend runs.
+Use a fresh directory for each revision/input. The first run atomically saves its encoded file or
+Lance directory; subsequent runs upload those exact objects, preserving generated data filenames and
+manifests. CI uses one such cache for all three controls. This avoids comparing independently
+re-encoded fixtures while keeping file creation and upload outside the read/decode timer.

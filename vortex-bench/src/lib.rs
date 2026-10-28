@@ -27,6 +27,7 @@ use serde::Serialize;
 use statpopgen::StatPopGenBenchmark;
 use tpcds::TpcDsBenchmark;
 use tpch::benchmark::TpcHBenchmark;
+use url::Url;
 pub use utils::file::*;
 pub use utils::logging::*;
 use vortex::compressor::BtrBlocksCompressorBuilder;
@@ -411,7 +412,10 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
         }
         BenchmarkArg::StatPopGen => {
             let scale_factor = opts.get_as::<u64>(SCALE_FACTOR_KEY).unwrap_or(1);
-            let benchmark = StatPopGenBenchmark::new(scale_factor)?;
+            let mut benchmark = StatPopGenBenchmark::new(scale_factor)?;
+            if let Some(remote) = opts.get(REMOTE_DATA_KEY) {
+                benchmark.data_url = Url::parse(remote)?;
+            }
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::Fineweb => {
@@ -431,14 +435,20 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
         }
         BenchmarkArg::PolarSignals => {
             let scale_factor = opts.get_as::<usize>(SCALE_FACTOR_KEY).unwrap_or(1);
-            let benchmark = PolarSignalsBenchmark::new(scale_factor)?;
+            let mut benchmark = PolarSignalsBenchmark::new(scale_factor)?;
+            if let Some(remote) = opts.get(REMOTE_DATA_KEY) {
+                benchmark.data_url = Url::parse(remote)?;
+            }
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::PublicBi => {
             let dataset = opts.get_as::<PBIDataset>("dataset").ok_or_else(|| {
                 anyhow::anyhow!("public-bi benchmark requires --opt dataset=<name>")
             })?;
-            let benchmark = PublicBiBenchmark::new(dataset)?;
+            let mut benchmark = PublicBiBenchmark::new(dataset)?;
+            if let Some(remote) = opts.get(REMOTE_DATA_KEY) {
+                benchmark.data_url = Url::parse(remote)?;
+            }
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::SpatialBench => {
@@ -449,6 +459,9 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
         }
         BenchmarkArg::VortexQueries => {
             let mut benchmark = VortexBenchmark::new()?;
+            if let Some(remote) = opts.get(REMOTE_DATA_KEY) {
+                benchmark = benchmark.with_data_url(Url::parse(remote)?);
+            }
             if let Some(query) = opts.get("query") {
                 benchmark = benchmark.with_query(query)?;
             }
@@ -566,4 +579,24 @@ where
     }
 
     sql_statements
+}
+
+#[cfg(test)]
+mod remote_benchmark_tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    #[case(BenchmarkArg::StatPopGen)]
+    #[case(BenchmarkArg::PolarSignals)]
+    #[case(BenchmarkArg::VortexQueries)]
+    fn remote_option_reaches_previously_local_only_suites(
+        #[case] suite: BenchmarkArg,
+    ) -> anyhow::Result<()> {
+        let options = Opts::from(vec!["remote-data-dir=s3://benchmark/prepared/".parse()?]);
+        let benchmark = create_benchmark(suite, &options)?;
+        assert_eq!(benchmark.data_url().as_str(), "s3://benchmark/prepared/");
+        Ok(())
+    }
 }

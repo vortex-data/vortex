@@ -24,6 +24,7 @@ use vortex_bench::Format;
 use vortex_bench::compress::Compressed;
 use vortex_bench::compress::CompressedData;
 use vortex_bench::compress::Compressor;
+use vortex_bench::compress::RemoteCompressed;
 use vortex_bench::compress::Uncompressed;
 use vortex_bench::compress::read_projection;
 
@@ -174,6 +175,12 @@ impl Compressor for LanceCompressor {
 
         let start = Instant::now();
         lance_decompress_read(path_str).await?;
+        Ok(start.elapsed())
+    }
+
+    async fn decompress_remote(&self, remote: &RemoteCompressed) -> anyhow::Result<Duration> {
+        let start = Instant::now();
+        lance_decompress_read(&remote.uri).await?;
         Ok(start.elapsed())
     }
 }

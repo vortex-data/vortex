@@ -34,6 +34,12 @@ pub struct VortexBenchmark {
 }
 
 impl VortexBenchmark {
+    /// Reads prepared benchmark tables from a remote or local dataset root.
+    pub fn with_data_url(mut self, data_url: Url) -> Self {
+        self.data_url = data_url;
+        self
+    }
+
     pub fn new() -> Result<Self> {
         let queries_dir = bench_dir().join("sql").join("vortex");
         let data_url = resolve_data_url(None, "vortex")?;
