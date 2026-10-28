@@ -11,11 +11,17 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
+use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::NativeDecimalType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::i256;
 use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::validity::Validity;
+use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
 #[global_allocator]
@@ -61,6 +67,62 @@ fn max_i64(bencher: Bencher) {
             )
         })
         .bench_refs(|(a, ctx)| a.statistics().compute_max::<i64>(ctx));
+}
+
+#[derive(Clone, Copy, Debug)]
+enum DecimalValidity {
+    NonNullable,
+    ScatteredNulls,
+}
+
+const DECIMAL_VALIDITIES: &[DecimalValidity] = &[
+    DecimalValidity::NonNullable,
+    DecimalValidity::ScatteredNulls,
+];
+
+fn bench_decimal_min_max<T: NativeDecimalType>(
+    bencher: Bencher,
+    values: Buffer<T>,
+    decimal_dtype: DecimalDType,
+    validity: DecimalValidity,
+) {
+    let validity = match validity {
+        DecimalValidity::NonNullable => Validity::NonNullable,
+        DecimalValidity::ScatteredNulls => {
+            let mut rng = StdRng::seed_from_u64(8);
+            Validity::from_iter((0..N).map(|_| rng.random_bool(0.5)))
+        }
+    };
+
+    bencher
+        .with_inputs(|| {
+            (
+                DecimalArray::new(values.clone(), decimal_dtype, validity.clone()).into_array(),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(array, ctx)| min_max(array, ctx, NumericalAggregateOpts::default()));
+}
+
+#[divan::bench(args = DECIMAL_VALIDITIES)]
+fn min_max_decimal_i128(bencher: Bencher, validity: DecimalValidity) {
+    let mut rng = StdRng::seed_from_u64(9);
+    let bound = 10i128.pow(38) - 1;
+    let values = (0..N).map(|_| rng.random_range(-bound..=bound)).collect();
+
+    bench_decimal_min_max(bencher, values, DecimalDType::new(38, 2), validity);
+}
+
+#[divan::bench(args = DECIMAL_VALIDITIES)]
+fn min_max_decimal_i256(bencher: Bencher, validity: DecimalValidity) {
+    let mut rng = StdRng::seed_from_u64(10);
+    let factor = i256::from_i128(10i128.pow(38));
+    let bound = 10i128.pow(37) - 1;
+    let values = (0..N)
+        .map(|_| i256::from_i128(rng.random_range(-bound..=bound)) * factor)
+        .collect();
+
+    bench_decimal_min_max(bencher, values, DecimalDType::new(76, 2), validity);
 }
 
 #[divan::bench]
