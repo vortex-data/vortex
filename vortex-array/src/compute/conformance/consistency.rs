@@ -1257,6 +1257,14 @@ fn test_repeated_probe_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     }
 }
 
+/// Check one-off and retained scalar probes, including nullness, revisits, and slices.
+///
+/// Use this for encodings that do not support the full compute conformance suite.
+pub fn test_scalar_probe_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
+    test_repeated_probe_consistency(array, ctx);
+    test_probe_consistency(array, ctx);
+}
+
 /// Run all consistency tests on an array.
 ///
 /// This function executes a comprehensive suite of consistency tests that verify

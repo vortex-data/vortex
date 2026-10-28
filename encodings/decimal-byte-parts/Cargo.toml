@@ -44,3 +44,7 @@ harness = false
 [[bench]]
 name = "dbp_split"
 harness = false
+
+[[bench]]
+name = "probe"
+harness = false
