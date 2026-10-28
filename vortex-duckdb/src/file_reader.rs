@@ -19,10 +19,10 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 use vortex::file::Footer;
+use vortex::file::VortexFile;
 use vortex::file::multi::MultiFileSession;
 use vortex::file::multi::open_cached;
 use vortex::file::multi::parse_uri_or_path;
-use vortex::file::v2::FileStatsLayoutReader;
 use vortex::io::compat::Compat;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
@@ -30,8 +30,6 @@ use vortex::io::runtime::BlockingRuntime as _;
 use vortex::io::std_file::StdFileSystem;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::scan::scan_builder::ScanBuilder;
-use vortex::layout::scan::scan_builder::referenced_field_masks;
-use vortex::layout::scan::split_by::SplitBy;
 use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
 use vortex::layout::scan::v2::ScanFile;
 use vortex::mask::Mask;
@@ -111,7 +109,7 @@ fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
 }
 
 pub struct OpenFileReader {
-    /// The layout reader and conversion cache of the file. `None` after the file is skipped or
+    /// The scan state and conversion cache of the file. `None` after the file is skipped or
     /// all its splits are taken.
     ///
     /// DuckDB releases its last reference to a file while it holds the global lock of the
@@ -126,7 +124,7 @@ pub struct OpenFileReader {
 
 /// The state of an open file that the threads scanning it share.
 pub struct FileScanState {
-    reader: LayoutReaderRef,
+    file: VortexFile,
     /// The file as the V2 executor reads it.
     scan_file: ScanFile,
     /// The file's V2 scan, which every thread scanning the file drives. Set when the file is
@@ -139,12 +137,15 @@ impl OpenFileReader {
     async fn open(path: String) -> VortexResult<Self> {
         let (fs, fs_path) = resolve_filesystem(&parse_uri_or_path(&path)?)?;
         let source = fs.open_read(&fs_path).await?;
-        let file = open_cached(&SESSION, Some(&path), source, None, &|options| options).await?;
+        let file = open_cached(&SESSION, Some(&path), source, None, &|options| {
+            options.with_layout_reader_cache()
+        })
+        .await?;
         let mut scan_file = file.scan_file();
         scan_file.cache.get_or_insert_default();
         Ok(OpenFileReader {
             scan_state: Some(Arc::new(FileScanState {
-                reader: file.layout_reader()?,
+                file,
                 scan_file,
                 v2: OnceLock::new(),
                 cache: ConversionCache::default(),
@@ -160,18 +161,22 @@ impl OpenFileReader {
             .vortex_expect("file used after its scan state was released")
     }
 
-    fn reader(&self) -> &LayoutReaderRef {
-        &self.scan_state().reader
+    fn reader(&self) -> VortexResult<LayoutReaderRef> {
+        self.scan_state().file.layout_reader()
     }
 
-    fn can_skip(&self, filter: &Filter) -> VortexResult<bool> {
+    fn can_skip(&self, filter: &Filter, scan_v2: bool) -> VortexResult<bool> {
         let Some(filter) = &filter.filter else {
             return Ok(false);
         };
-        let row_count = self.reader().row_count();
+        if scan_v2 {
+            return self.scan_state().file.can_prune_bound(filter);
+        }
+        let reader = self.reader()?;
+        let row_count = reader.row_count();
         let row_range = 0..row_count;
         let mask = Mask::new_true(usize::try_from(row_count).unwrap_or(usize::MAX));
-        let evaluation = self.reader().pruning_evaluation(&row_range, filter, mask)?;
+        let evaluation = reader.pruning_evaluation(&row_range, filter, mask)?;
         match evaluation.now_or_never() {
             Some(mask) => mask.map(|mask| mask.all_false()),
             None => Ok(false),
@@ -190,7 +195,7 @@ pub fn reader_open(file_path: &str) -> VortexResult<OpenFileReader> {
 /// support schema evolution, so if any file schema doesn't match first schema,
 /// we break.
 pub fn reader_bind(file: &OpenFileReader, result: &mut BindResultRef) -> VortexResult<BindState> {
-    let dtype = file.reader().dtype().clone();
+    let dtype = file.scan_state().file.dtype().clone();
     let columns = extract_schema_from_dtype(&dtype)?;
 
     for column in &columns {
@@ -199,7 +204,7 @@ pub fn reader_bind(file: &OpenFileReader, result: &mut BindResultRef) -> VortexR
 
     Ok(BindState {
         dtype,
-        first_file_row_count: file.reader().row_count(),
+        first_file_row_count: file.scan_state().file.row_count(),
         filters: vec![],
         columns,
         has_non_optional_filter: AtomicBool::new(false),
@@ -212,7 +217,7 @@ pub fn reader_bind(file: &OpenFileReader, result: &mut BindResultRef) -> VortexR
 /// whether the opened file should be skipped. If this function returns false,
 /// duckdb closes the file and doesn't call reader_try_initialize_scan on it.
 pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> VortexResult<bool> {
-    if file.can_skip(&global.filter)? {
+    if file.can_skip(&global.filter, global.scan_v2)? {
         // DuckDB releases a skipped file under the global lock. Here only the
         // file-local lock is held, so drop the scan state now.
         file.scan_state = None;
@@ -231,18 +236,14 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
             .map(|filter| filter.contains::<DynamicComparison>())
             .transpose()?
             .unwrap_or(false);
-        let scan = FileScan::try_new(
-            v2_builder(state, global),
-            &v2_boundaries(state, global)?,
-            dynamic,
-        )?;
+        let scan = FileScan::try_new(v2_builder(state, global), dynamic)?;
         if state.v2.set(scan).is_err() {
             vortex_panic!("file initialized twice");
         }
         return Ok(false);
     }
 
-    let reader = Arc::clone(file.reader());
+    let reader = file.reader()?;
     let filter = &global.filter;
     let builder = ScanBuilder::new(SESSION.clone(), reader)
         .with_projection(global.projection.clone())
@@ -265,7 +266,7 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
 /// The V2 scan of the file's rows that the scan's row range and selection keep.
 fn v2_builder(state: &FileScanState, global: &GlobalState) -> V2ScanBuilder {
     let filter = &global.filter;
-    let row_count = state.reader.row_count();
+    let row_count = state.file.row_count();
     let rows = filter.row_range.as_ref().map_or(0..row_count, |range| {
         range.start.min(row_count)..range.end.min(row_count)
     });
@@ -274,16 +275,6 @@ fn v2_builder(state: &FileScanState, global: &GlobalState) -> V2ScanBuilder {
         .with_some_filter(filter.filter.clone())
         .with_selection(filter.row_selection.clone())
         .with_row_range(rows)
-}
-
-/// The rows the file's chunks of the columns the scan reads end at, the boundaries V1 splits on.
-fn v2_boundaries(state: &FileScanState, global: &GlobalState) -> VortexResult<Vec<u64>> {
-    let field_mask = referenced_field_masks(&global.projection, global.filter.filter.as_ref())?;
-    SplitBy::default().splits(
-        state.reader.as_ref(),
-        &(0..state.reader.row_count()),
-        &field_mask,
-    )
 }
 
 /// What a thread's split yields next.
@@ -431,20 +422,7 @@ pub fn reader_get_statistics(
         return None;
     }
 
-    let reader = file
-        .reader()
-        .as_any()
-        .downcast_ref::<FileStatsLayoutReader>()?;
-
-    let (stats, dtype) = reader
-        .file_stats()
-        .get_by_path(&FieldPath::from_name(column))?;
-
-    let stats = ColumnStatisticsAggregate::new(stats);
-    match ColumnStatistics::try_from(stats, dtype.clone()) {
-        Ok(stats) => Some(stats),
-        Err(e) => vortex_panic!(e),
-    }
+    footer_get_statistics(file.scan_state().file.footer(), column)
 }
 
 /// Called from a separate thread (not related to threads for Vortex

@@ -16,9 +16,8 @@
 //! Queued and running parts share the file execution's read coordinator. Each queued planner
 //! owns its row claim so reads remain available until all possible consumers have finished.
 //!
-//! Chunks end only on the file's own chunk boundaries for the columns the scan reads. Spans
-//! between boundaries are merged up to the scan's chunk size, while leaving enough work for
-//! the workers. The driver groups whole chunks into a few parts per available thread.
+//! Chunks use the prepared scan's fixed row grid, shared with DataFusion and independent of
+//! stored layout boundaries. The driver groups these chunks into a few parts per available thread.
 
 use std::collections::VecDeque;
 use std::future;
@@ -74,19 +73,13 @@ struct Part {
 }
 
 impl FileScan {
-    /// Prepares `builder`, prunes its rows, and queues planners for groups of chunks cut on
-    /// `boundaries`. With `dynamic`, each queued part prunes again when a worker takes it.
-    pub(crate) fn try_new(
-        builder: ScanBuilder,
-        boundaries: &[u64],
-        dynamic: bool,
-    ) -> VortexResult<Self> {
+    /// Prepares `builder`, prunes its rows, and queues planners for groups of fixed-size chunks.
+    /// With `dynamic`, each queued part prunes again when a worker takes it.
+    pub(crate) fn try_new(builder: ScanBuilder, dynamic: bool) -> VortexResult<Self> {
         let scan = Arc::new(builder.prepare()?);
         let io = Arc::new(FileReads::new(scan.io(), scan.read_lifetimes()));
-        let rows = scan.rows().clone();
         let mut parts = get_available_parallelism().unwrap_or(1) * PARTS_PER_THREAD;
-        let max_rows = (scan.chunk_rows() as u64).min(merged_rows(&rows, parts));
-        let mut chunks = chunk_ranges(rows, boundaries, max_rows);
+        let mut chunks = scan.row_chunks();
         if scan.sparse_selection() {
             // A sparse selection, such as an engine's fetch of a few rows by id, selects rows in
             // few chunks: each of them is its own part, and the rest are not planned at all, so
@@ -266,36 +259,6 @@ fn part_planners(
     work
 }
 
-/// The most rows spans merge into while `rows` still divides into `parts` chunks.
-fn merged_rows(rows: &Range<u64>, parts: usize) -> u64 {
-    (rows.end - rows.start).div_ceil(parts.max(1) as u64).max(1)
-}
-
-/// Cuts `rows` into chunks that end only on `boundaries` or at the end of `rows`, merging the
-/// spans between boundaries into chunks of at most `max_rows` rows. A span wider than `max_rows`
-/// stays one chunk, so no chunk of the file is split.
-fn chunk_ranges(rows: Range<u64>, boundaries: &[u64], max_rows: u64) -> Vec<Range<u64>> {
-    let mut chunks = Vec::new();
-    let mut start = rows.start;
-    let mut end = rows.start;
-    let ends = boundaries
-        .iter()
-        .copied()
-        .filter(|&row| row > rows.start && row < rows.end)
-        .chain((!rows.is_empty()).then_some(rows.end));
-    for row in ends {
-        if row - start > max_rows && end > start {
-            chunks.push(start..end);
-            start = end;
-        }
-        end = row;
-    }
-    if end > start {
-        chunks.push(start..end);
-    }
-    chunks
-}
-
 /// Groups `chunks` into up to `parts` runs of consecutive chunks, of as even a count as they
 /// divide into.
 fn parts(chunks: Vec<Range<u64>>, parts: usize) -> Vec<Vec<Range<u64>>> {
@@ -313,40 +276,9 @@ fn parts(chunks: Vec<Range<u64>>, parts: usize) -> Vec<Vec<Range<u64>>> {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Range;
-
     use rstest::rstest;
 
-    use super::chunk_ranges;
-    use super::merged_rows;
     use super::parts;
-
-    #[rstest]
-    #[case::merged(0..400, &[100, 200, 300, 400], 200, vec![0..200, 200..400])]
-    #[case::wide_spans(0..300, &[0, 87, 182, 300], 64, vec![0..87, 87..182, 182..300])]
-    #[case::clipped(50..250, &[100, 200, 300], 100, vec![50..100, 100..200, 200..250])]
-    #[case::no_boundaries(0..10, &[], 4, vec![0..10])]
-    #[case::empty(5..5, &[5], 4, vec![])]
-    fn chunks_end_on_boundaries(
-        #[case] rows: Range<u64>,
-        #[case] boundaries: &[u64],
-        #[case] max_rows: u64,
-        #[case] expected: Vec<Range<u64>>,
-    ) {
-        assert_eq!(chunk_ranges(rows, boundaries, max_rows), expected);
-    }
-
-    #[rstest]
-    #[case::few_parts(0..1_000, 4, 250)]
-    #[case::many_parts(0..10, 384, 1)]
-    #[case::empty(5..5, 4, 1)]
-    fn merging_leaves_chunks_for_every_part(
-        #[case] rows: Range<u64>,
-        #[case] parts: usize,
-        #[case] expected: u64,
-    ) {
-        assert_eq!(merged_rows(&rows, parts), expected);
-    }
 
     #[rstest]
     #[case::even(4, 2, vec![2, 2])]

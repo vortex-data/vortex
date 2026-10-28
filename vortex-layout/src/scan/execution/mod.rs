@@ -37,7 +37,6 @@ pub use self::chunk::ChunkPlanner;
 pub(crate) use self::chunk::FILTERED_ROWS_PER_CHUNK;
 pub(crate) use self::chunk::MAX_ROWS_PER_CHUNK;
 pub(crate) use self::chunk::ROW_BLOCK_SIZE;
-#[cfg(test)]
 pub(crate) use self::chunk::row_chunks;
 pub(crate) use self::chunk::rows_per_chunk;
 #[cfg(test)]
@@ -132,6 +131,12 @@ impl PreparedScan {
     /// The most rows of one chunk a [`ChunkPlanner`] cuts the scan's rows into.
     pub fn chunk_rows(&self) -> usize {
         self.chunk_rows
+    }
+
+    /// The scan's row ranges on the same fixed grid used by [`ChunkPlanner`], clipped to
+    /// the scan's rows and independent of stored layout boundaries.
+    pub fn row_chunks(&self) -> Vec<Range<u64>> {
+        row_chunks(self.rows.clone(), self.chunk_rows)
     }
 
     /// Whether the scan selects at most one row in 1024 of its rows, as an

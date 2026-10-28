@@ -14,6 +14,7 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
+use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
@@ -282,16 +283,20 @@ impl VortexFile {
     /// Row-count-aware pruning predicates are evaluated with the file's total
     /// row count as their scope.
     pub fn can_prune(&self, filter: &Expression) -> VortexResult<bool> {
+        if self.footer.statistics().is_none() {
+            return Ok(false);
+        }
+        self.can_prune_bound(&filter.bind(self.footer.dtype())?)
+    }
+
+    /// Returns whether file-level statistics prove that a filter bound to this file's dtype
+    /// cannot match any rows, without constructing a layout reader.
+    pub fn can_prune_bound(&self, filter: &BoundExpression) -> VortexResult<bool> {
         let Some(stats) = self.footer.statistics() else {
             return Ok(false);
         };
 
-        is_falsified_by_file_stats(
-            &filter.bind(self.footer.dtype())?,
-            self.footer.row_count(),
-            stats,
-            &self.session,
-        )
+        is_falsified_by_file_stats(filter, self.footer.row_count(), stats, &self.session)
     }
 
     /// Return the file's natural row splits as root-coordinate ranges.

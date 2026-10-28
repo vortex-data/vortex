@@ -600,6 +600,30 @@ async fn sequential_int_chunks(
 }
 
 #[rstest]
+#[case::projection(false, vec![25_000..65_536, 65_536..131_072, 131_072..196_608, 196_608..205_000])]
+#[case::filtered(true, vec![25_000..205_000])]
+#[tokio::test]
+async fn prepared_chunks_use_the_fixed_grid(
+    #[case] filtered: bool,
+    #[case] expected: Vec<Range<u64>>,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let segments = Arc::new(TestSegments::default());
+    let layout = sequential_int_chunks(&session, &segments, 70_000, 3).await?;
+    let segments = segments as Arc<dyn SegmentSource>;
+    let scan = builder(&session, &segments, &layout)?
+        .with_row_range(25_000..205_000)
+        .with_some_filter(
+            filtered
+                .then(|| gt(root(), lit(0i32)).bind(layout.dtype()))
+                .transpose()?,
+        )
+        .prepare()?;
+    assert_eq!(scan.row_chunks(), expected);
+    Ok(())
+}
+
+#[rstest]
 #[case::flat(false)]
 #[case::dictionary(true)]
 #[tokio::test]

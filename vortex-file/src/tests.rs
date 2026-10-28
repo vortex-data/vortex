@@ -3247,6 +3247,9 @@ async fn test_can_prune_composite_predicates() -> VortexResult<()> {
     assert!(!file.can_prune(&eq(col("age"), lit(18)))?);
     assert!(!file.can_prune(&and(gt(col("age"), lit(20)), gt(col("price"), lit(100))))?);
 
+    assert!(file.can_prune_bound(&gt(col("age"), lit(30)).bind(file.dtype())?)?);
+    assert!(!file.can_prune_bound(&gt(col("age"), lit(20)).bind(file.dtype())?)?);
+
     Ok(())
 }
 

@@ -1412,9 +1412,11 @@ fn query_i64_column(path: &str, query: &str) -> Result<Vec<i64>> {
 #[case::filtered_top_n("SELECT a FROM ? WHERE b < 500 ORDER BY a DESC LIMIT 10")]
 // DuckDB fetches the columns beyond the sort key by row id, as in ClickBench q23.
 #[case::late_materialized_top_n("SELECT * FROM ? WHERE b < 700 ORDER BY a DESC LIMIT 5")]
-fn test_vortex_scan_v2_matches_v1(#[case] query: &str) -> Result<()> {
-    // Many row blocks, so the file is cut into several V2 splits.
-    let rows = 100_000i64;
+fn test_vortex_scan_v2_matches_v1(
+    #[case] query: &str,
+    #[values(100_000i64, 1_100_000)] rows: i64,
+) -> Result<()> {
+    // Exercise files both below and above the fixed filtered-chunk size.
     let file = RUNTIME.block_on(write_vortex_file(
         [
             ("a", (0..rows).collect::<PrimitiveArray>().into_array()),
