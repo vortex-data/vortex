@@ -84,6 +84,7 @@ use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
 use crate::persistent::reader::VortexReaderFactory;
 use crate::persistent::scan_v2::ScanDriver;
+use crate::persistent::scan_v2::rebalance_batches;
 use crate::persistent::source::FileVersion;
 use crate::persistent::stream::PrunableStream;
 
@@ -142,6 +143,7 @@ pub(crate) struct VortexOpener {
     /// How many partitions the engine runs the scan on, so a V2 scan parallelises inside a
     /// partition only as far as the engine has not.
     pub partitions: usize,
+    pub batch_size: usize,
 }
 
 impl FileOpener for VortexOpener {
@@ -181,6 +183,7 @@ impl FileOpener for VortexOpener {
         let has_output_ordering = self.has_output_ordering;
         let scan_concurrency = self.scan_concurrency;
         let partitions = self.partitions.max(1);
+        let batch_size = self.batch_size;
         let scan_v2 = self.scan_v2;
 
         let expr_converter = Arc::clone(&self.expression_converter);
@@ -375,7 +378,18 @@ impl FileOpener for VortexOpener {
                 }
             }
             let residual_filter = conjunction_opt(residual_filters);
-            let native_filter = and_collect(native_filters)
+            let native_filter = and_collect(native_filters);
+            // V1's layout reader checks footer statistics before reading zone maps. V2
+            // lowers the layout directly, so apply the same file-level check here.
+            if scan_v2
+                && let Some(filter) = &native_filter
+                && vxf
+                    .can_prune(filter)
+                    .map_err(|error| DataFusionError::External(Box::new(error)))?
+            {
+                return Ok(stream::empty().boxed());
+            }
+            let native_filter = native_filter
                 .map(|filter| filter.bind(vxf.dtype())?.optimize_recursive())
                 .transpose()
                 .map_err(|e| {
@@ -448,6 +462,7 @@ impl FileOpener for VortexOpener {
                 )?;
                 Ok(RecordBatch::from(arrow.as_struct().clone()))
             };
+            let rebalance = limit.is_none() && native_filter.is_none() && residual_filter.is_none();
             let stream = if scan_v2 {
                 let mut scan_file = vxf.scan_file();
                 scan_file.segments =
@@ -503,7 +518,12 @@ impl FileOpener for VortexOpener {
                 };
 
                 let driver = ScanDriver::new(handle, concurrency, has_output_ordering);
-                Ok(driver.run(scan, root, map_batch))
+                let batches = driver.run(scan, root, map_batch);
+                Ok(if rebalance {
+                    rebalance_batches(batches, batch_size)
+                } else {
+                    batches
+                })
             } else {
                 // Share V1 layout readers across partitions of the file.
                 let layout_reader = match layout_readers.entry(file.object_meta.location.clone()) {
@@ -1162,6 +1182,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            batch_size: 8192,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1226,6 +1247,40 @@ mod tests {
         let num_rows = data.iter().map(|rb| rb.num_rows()).sum::<usize>();
         assert_eq!((num_batches, num_rows), (0, 0));
 
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(100, 0)]
+    #[case(1, 2)]
+    #[tokio::test]
+    async fn test_v2_footer_pruning_before_scan_preparation(
+        #[case] threshold: i32,
+        #[case] expected_rows: usize,
+    ) -> anyhow::Result<()> {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let batch = record_batch!(("a", Int32, vec![1, 2, 3]))?;
+        let size =
+            write_arrow_to_vortex(Arc::clone(&store), "footer-pruning.vortex", batch.clone())
+                .await?;
+        let table_schema = TableSchema::from(batch.schema());
+        let filter = logical2physical(&col("a").gt(lit(threshold)), table_schema.table_schema());
+        let mut opener = make_opener(store, table_schema, Some(filter));
+        opener.scan_v2 = true;
+        let batches = opener
+            .open(PartitionedFile::new(
+                "footer-pruning.vortex".to_string(),
+                size,
+            ))?
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+        assert_eq!(
+            batches.iter().map(RecordBatch::num_rows).sum::<usize>(),
+            expected_rows
+        );
+        assert_eq!(opener.scan_caches.is_empty(), expected_rows == 0);
+        assert_eq!(opener.segment_sources.is_empty(), expected_rows == 0);
         Ok(())
     }
 
@@ -1572,6 +1627,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            batch_size: 8192,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1664,6 +1720,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            batch_size: 8192,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1847,6 +1904,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            batch_size: 8192,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -1912,6 +1970,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            batch_size: 8192,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
@@ -2128,6 +2187,7 @@ mod tests {
             segment_sources: Default::default(),
             scan_caches: Default::default(),
             partitions: 1,
+            batch_size: 8192,
             natural_splits: Default::default(),
             file_schemas: Default::default(),
             has_output_ordering: false,
