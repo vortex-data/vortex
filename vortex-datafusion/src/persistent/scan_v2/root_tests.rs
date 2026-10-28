@@ -28,7 +28,7 @@ use vortex::io::request::IoRequestId;
 use vortex::io::request::IoResult;
 use vortex::io::request::IoSource;
 use vortex::io::request::IoTarget;
-use vortex::io::runtime::TokioRuntime;
+use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::scan::planning::planner::Planner;
 use vortex::scan::planning::planner::PlannerOutput;
 use vortex::scan::planning::planner::State;
