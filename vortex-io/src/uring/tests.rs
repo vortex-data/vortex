@@ -12,6 +12,7 @@ use rustix::thread::CpuSet;
 use rustix::thread::Pid;
 use tempfile::NamedTempFile;
 use vortex_buffer::Alignment;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 
 use super::FileMode;
@@ -336,8 +337,8 @@ fn mapped_read_ahead_policy_survives_releasing_mapping(
                 .next()
                 .and_then(|range| range.split_once('-'))
             {
-                let start = usize::from_str_radix(start, 16).expect("hexadecimal mapping start");
-                let end = usize::from_str_radix(end, 16).expect("hexadecimal mapping end");
+                let start = usize::from_str_radix(start, 16).map_err(VortexError::external)?;
+                let end = usize::from_str_radix(end, 16).map_err(VortexError::external)?;
                 contains_mapping = (start..end).contains(&address);
             }
         }

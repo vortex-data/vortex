@@ -15,6 +15,7 @@ use rustix::thread::CpuSet;
 use rustix::thread::Pid;
 use tempfile::NamedTempFile;
 use vortex_buffer::Alignment;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -59,7 +60,7 @@ fn same_range_from_independent_producers_uses_one_ring_and_read(
                 scope.spawn(move || {
                     let reader = factory()?;
                     reader.submit(&[request(0, 64, 4096)])?;
-                    Ok::<_, vortex_error::VortexError>(reader)
+                    Ok::<_, VortexError>(reader)
                 })
             })
             .collect();
@@ -293,7 +294,7 @@ async fn concurrent_scopes_can_move_between_compute_threads(
             assert_eq!(bytes.as_ref(), &data[start..start + 1307]);
             assert!(bytes.is_aligned(Alignment::new(64)));
             assert!(reader.try_complete()?.is_none());
-            Ok::<_, vortex_error::VortexError>(())
+            Ok::<_, VortexError>(())
         }));
     }
     for task in tasks {
@@ -400,8 +401,9 @@ fn reactor_and_eager_kernel_worker_affinity(
                 .file_name()
                 .to_string_lossy()
                 .parse::<i32>()
-                .expect("numeric task directory");
-            let worker = Pid::from_raw(worker).expect("positive task id");
+                .map_err(VortexError::external)?;
+            let worker =
+                Pid::from_raw(worker).ok_or_else(|| vortex_err!("Task ID must be positive"))?;
             let actual =
                 rustix::thread::sched_getaffinity(Some(worker)).map_err(io::Error::from)?;
             for cpu in 0..CpuSet::MAX_CPU {

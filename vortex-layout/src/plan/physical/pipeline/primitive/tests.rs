@@ -28,7 +28,7 @@ fn coalesces_byte_ranges(#[case] indices: Vec<usize>, #[case] expected: Vec<Rang
 
 #[rstest]
 #[case::empty(Mask::new_false(1024), None)]
-#[case::small_contiguous(Mask::new_true(1024), Some(vec![80..8272]))]
+#[case::small_contiguous(Mask::new_true(1024), Some(std::iter::once(80..8272).collect()))]
 #[case::too_many_bytes(Mask::new_true(32768), None)]
 fn handles_uniform_masks(#[case] mask: Mask, #[case] expected: Option<Vec<Range<usize>>>) {
     let demand = PrimitiveRead::new(

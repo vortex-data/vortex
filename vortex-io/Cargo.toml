@@ -48,7 +48,11 @@ custom-labels = { workspace = true }
 io-uring = { workspace = true, optional = true }
 libc = { workspace = true, optional = true }
 memmap2 = { workspace = true, optional = true }
-rustix = { workspace = true, features = ["thread", "mm", "param"], optional = true }
+rustix = { workspace = true, features = [
+    "thread",
+    "mm",
+    "param",
+], optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Smol is our default impl, so we don't want it to be optional, but it cannot be part of wasm

@@ -25,6 +25,8 @@ use object_store::aws::AmazonS3Builder;
 use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::local::LocalFileSystem;
 use url::Url;
+use vortex::error::VortexError;
+use vortex::error::VortexExpect;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
 use vortex_datafusion::VortexFormat;
@@ -136,7 +138,8 @@ fn vortex_table_options() -> VortexTableOptions {
         .map(|value| {
             value
                 .parse()
-                .expect("VORTEX_SCAN_V2_IO_CACHE_BYTES must be an integer")
+                .map_err(VortexError::external)
+                .vortex_expect("VORTEX_SCAN_V2_IO_CACHE_BYTES must be an integer")
         })
         .unwrap_or(0);
     opts.scan_v2_chunk_rows = std::env::var("VORTEX_SCAN_V2_CHUNK_ROWS")
@@ -144,7 +147,8 @@ fn vortex_table_options() -> VortexTableOptions {
         .map(|value| {
             value
                 .parse()
-                .expect("VORTEX_SCAN_V2_CHUNK_ROWS must be an integer")
+                .map_err(VortexError::external)
+                .vortex_expect("VORTEX_SCAN_V2_CHUNK_ROWS must be an integer")
         });
     opts.scan_v2_consumer_mapping =
         std::env::var("VORTEX_SCAN_V2_CONSUMER_MAPPING").as_deref() == Ok("1");
@@ -153,7 +157,8 @@ fn vortex_table_options() -> VortexTableOptions {
     opts.scan_concurrency = std::env::var("VORTEX_SCAN_CONCURRENCY").ok().map(|value| {
         value
             .parse()
-            .expect("VORTEX_SCAN_CONCURRENCY must be an integer")
+            .map_err(VortexError::external)
+            .vortex_expect("VORTEX_SCAN_CONCURRENCY must be an integer")
     });
 
     opts

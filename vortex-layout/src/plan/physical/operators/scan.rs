@@ -94,7 +94,10 @@ impl ScanSource {
         {
             return None;
         }
-        let selected = self.filter.as_ref().map_or(slice.len(), Mask::true_count);
+        let selected = self
+            .filter
+            .as_ref()
+            .map_or_else(|| slice.len(), Mask::true_count);
         if selected == 0 || selected > row_count / 8 {
             return None;
         }

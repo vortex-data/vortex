@@ -131,7 +131,7 @@ impl SharedUringPool {
                         let mut driver = match setup {
                             Ok(driver) => {
                                 #[cfg(test)]
-                                drop(tid_send.send(rustix::thread::gettid()));
+                                let _ = tid_send.send(rustix::thread::gettid());
                                 drop(started_send.send(Ok(())));
                                 driver
                             }

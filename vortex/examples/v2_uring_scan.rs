@@ -31,6 +31,7 @@ mod linux {
     use futures::SinkExt;
     use futures::StreamExt;
     use futures::TryStreamExt;
+    use futures::channel::mpsc;
     use futures::stream::BoxStream;
     use serde_json::json;
     use vortex::VortexSessionDefault;
@@ -59,6 +60,7 @@ mod linux {
     use vortex::scan::planning::driver::Run;
     use vortex::scan::planning::planner::WorkScope;
     use vortex::session::VortexSession;
+    use vortex::utils::parallelism::get_available_parallelism;
 
     #[global_allocator]
     static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -88,7 +90,7 @@ mod linux {
         let workers: usize = args[3].parse()?;
         ensure!(iterations > 0, "Iterations must be positive");
         ensure!(
-            Some(workers) == vortex::utils::parallelism::get_available_parallelism(),
+            Some(workers) == get_available_parallelism(),
             "Set process affinity with taskset so all backends have the requested CPU count"
         );
         let directory = PathBuf::from(&args[4]);
@@ -234,9 +236,9 @@ mod linux {
         handle: Handle,
         workers: Option<UringWorkerPool>,
     ) -> BoxStream<'static, VortexResult<ArrayRef>> {
-        let (mut send, recv) = futures::channel::mpsc::channel(1);
+        let (mut send, recv) = mpsc::channel(1);
         let work = move || async move {
-            let io = scan.io().session();
+            let io = scan.io();
             let mut run = Run::new();
             run.admit(
                 Box::new(ChunkPlanner::new(
@@ -249,7 +251,7 @@ mod linux {
                     file_ordinal: 0,
                     rows: scan.rows().clone(),
                 },
-                Arc::clone(&io),
+                io.session(),
             );
             loop {
                 match run.advance()? {
@@ -259,7 +261,7 @@ mod linux {
                         }
                     }
                     Progress::Spawn(scope, child) => {
-                        run.admit(child, scope, Arc::clone(&io));
+                        run.admit(child, scope, io.session());
                     }
                     Progress::RootDone(_) if run.live_roots() > 0 => {}
                     Progress::RootDone(_) | Progress::Idle => return Ok(()),

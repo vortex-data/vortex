@@ -19,6 +19,7 @@ all-features = true
 workspace = true
 
 [dependencies]
+futures = { workspace = true }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-arrow = { workspace = true }
@@ -32,7 +33,6 @@ vortex-edition = { workspace = true }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 vortex-fastlanes = { workspace = true }
-futures = { workspace = true }
 vortex-file = { workspace = true, optional = true }
 vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }

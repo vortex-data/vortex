@@ -62,7 +62,7 @@ pub fn factory(scan_v2: bool) -> anyhow::Result<Option<Arc<dyn VortexReaderFacto
         .ok()
         .map(|value| value.parse())
         .transpose()?
-        .unwrap_or(get_available_parallelism().unwrap_or(1));
+        .unwrap_or_else(|| get_available_parallelism().unwrap_or(1));
     let per_core_reactors = backend.starts_with("per-core-reactor-");
     let (mode, rings, mapped) = match backend.strip_suffix("-unmerged").unwrap_or(&backend) {
         "per-core-buffered" => (FileMode::Buffered, None, false),
@@ -87,10 +87,10 @@ pub fn factory(scan_v2: bool) -> anyhow::Result<Option<Arc<dyn VortexReaderFacto
     let options = UringOptions {
         queue_depth,
         coalesce: !backend.ends_with("unmerged"),
-        reuse_inflight: std::env::var("VORTEX_IO_REUSE_INFLIGHT")
-            .map_or(rings.is_some() && !backend.ends_with("unmerged"), |value| {
-                value == "1"
-            }),
+        reuse_inflight: std::env::var("VORTEX_IO_REUSE_INFLIGHT").map_or_else(
+            |_| rings.is_some() && !backend.ends_with("unmerged"),
+            |value| value == "1",
+        ),
         reuse_live_buffers: std::env::var("VORTEX_IO_REUSE_LIVE_BUFFERS")
             .is_ok_and(|value| value == "1"),
         check_resident_pages: std::env::var("VORTEX_IO_CHECK_RESIDENT_PAGES")
