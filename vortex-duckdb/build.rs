@@ -373,6 +373,8 @@ fn download_prebuilt(version: &DuckDBVersion, library_dir: &Path, target: &str) 
         }
     };
 
+    // This isn't exactly required, but a separate name IMO is better since
+    // windows builds require static libs
     let archive_name = if platform == "windows" {
         format!("libduckdb-{platform}-{arch}-static.zip")
     } else {
@@ -562,15 +564,7 @@ fn compile_cpp(duckdb_include_dir: &Path) {
             .flag(duckdb_include_dir);
     }
 
-    build
-        .std("c++20")
-        .cpp(true)
-        // Duckdb 1.5.5 uses C++11. spatial_overrides.o uses
-        // duckdb::ScalarFunctionCatalogEntry::Name which is constexpr but not
-        // inline. Our code uses C++20 where constexpr implies inline. GCC
-        // emits this symbol with STB_GNU_UNIQUE and this conflicts on link stage
-        // in duckdb-vortex where libvortex_duckdb.a is linked statically
-        .flag_if_supported("-fno-gnu-unique");
+    build.std("c++20").cpp(true);
 
     if let Some(root) = duckdb_include_dir.parent().and_then(Path::parent) {
         let third_party = root.join("third_party");
@@ -744,7 +738,8 @@ fn main() {
 
     println!("cargo:info=building DuckDB in {build_type} mode");
 
-    // Windows builds should be separate entries in the cache
+    // windows builds should be separate entries in the cache as they use
+    // static libraries
     let prebuilt_kind = if target.contains("windows") {
         "static-prebuilt"
     } else {
@@ -783,30 +778,27 @@ fn main() {
     let library_dir_str = library_dir.display();
     println!("cargo:rustc-link-search=native={library_dir_str}");
     if target.contains("windows") {
+        // If we got here, we're not building inside duckdb-vortex.
+        // Running tests under Linux requires linking a single .so because ELF
+        // has public visibility by default. Windows, however, has multiple
+        // static libraries each exporting a subset of symbols we need
+        println!("cargo:rustc-link-lib=static=duckdb_loadable_extensions");
+        println!("cargo:rustc-link-lib=static=duckdb_httplib");
+        println!("cargo:rustc-link-lib=static=core_functions_extension");
+        println!("cargo:rustc-link-lib=static=icu_extension");
         println!("cargo:rustc-link-lib=static=duckdb_static");
-        println!("cargo:rustc-link-lib=ws2_32");
-        println!("cargo:rustc-link-lib=rstrtmgr");
-        println!("cargo:rustc-link-lib=bcrypt");
+        // We also need symbols from standard library runtime
         println!("cargo:rustc-link-lib=libcpmt");
+        // And this is needed by duckdb_static
+        println!("cargo:rustc-link-lib=rstrtmgr");
     } else {
         println!("cargo:rustc-link-lib=dylib=duckdb");
-    }
 
-    // Set rpath for binaries built directly from this crate. This is not
-    // inherited by downstream crates.
-    if !target.contains("windows") {
+        // Set rpath for binaries built directly from this crate. This is not
+        // inherited by downstream crates.
         println!("cargo:rustc-link-arg=-Wl,-rpath,{library_dir_str}");
     }
 
-    // Export the library path for downstream crates via the `links` manifest key.
-    // Downstream crates can access this via `env::var("DEP_DUCKDB_LIB_DIR")` in their build.rs
-    // and add their own rpath:
-    //
-    //   if let Ok(duckdb_lib) = env::var("DEP_DUCKDB_LIB_DIR") {
-    //       println!("cargo:rustc-link-arg=-Wl,-rpath,{duckdb_lib}");
-    //   }
-    //
-    // Alternatively, set LD_LIBRARY_PATH (Linux) or DYLD_LIBRARY_PATH (macOS) at runtime.
     println!("cargo:lib_dir={library_dir_str}");
 
     let duckdb_include_dir = inner_dir.join("src").join("include");

@@ -3,6 +3,6 @@
 
 include ../setup.slt.no
 
-statement error No such file or directory
+statement error No such file or directory|Path not found
 COPY (SELECT list_value(1, generate_series) AS a FROM generate_series(10))
 TO '${WORK_DIR}/does-not-exist/probe.vortex';

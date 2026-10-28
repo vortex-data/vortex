@@ -50,6 +50,7 @@ vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [features]
 opendal = ["vortex/opendal"]
+static-extensions = []
 
 [dev-dependencies]
 anyhow = { workspace = true }
@@ -60,6 +61,7 @@ mimalloc = { workspace = true }
 rstest = { workspace = true }
 tempfile = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-duckdb = { path = ".", features = ["static-extensions"] }
 vortex-sequence = { workspace = true }
 wkb = { workspace = true }
 
