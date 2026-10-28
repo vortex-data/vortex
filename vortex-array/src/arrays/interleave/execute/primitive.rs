@@ -23,7 +23,6 @@ use crate::dtype::ToBytes;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 use crate::match_each_ptype_width;
-use crate::match_each_unsigned_integer_ptype;
 use crate::require_child;
 
 pub(super) fn execute(
@@ -58,10 +57,9 @@ fn gather_values<const W: usize>(
     array: &Array<Interleave>,
     allocator: &BufferAllocatorRef,
 ) -> VortexResult<Buffer<[u8; W]>> {
-    let values = (0..array.num_values())
+    let sources = (0..array.num_values())
         .map(|i| {
             let value = array.value(i);
-            let len = value.len();
             if let Some(constant) = value.as_opt::<Constant>() {
                 // Validity carries nullness; a null constant's payload is never observed.
                 let payload = constant
@@ -74,33 +72,14 @@ fn gather_values<const W: usize>(
                         bytes
                     })
                     .unwrap_or([0; W]);
-                Source {
-                    data: Buffer::full_in(payload, 1, allocator.clone()),
-                    len,
-                    row_mask: 0,
-                }
+                Source::constant(payload, value.len(), allocator)
             } else {
-                Source {
-                    data: Buffer::<[u8; W]>::from_byte_buffer(
-                        value.as_::<Primitive>().buffer_handle().to_host_sync(),
-                    ),
-                    len,
-                    row_mask: usize::MAX,
-                }
+                Source::decoded(Buffer::<[u8; W]>::from_byte_buffer(
+                    value.as_::<Primitive>().buffer_handle().to_host_sync(),
+                ))
             }
         })
         .collect::<Vec<_>>();
-    let branches = array.array_indices().as_::<Primitive>();
-    let rows = array.row_indices().as_::<Primitive>();
 
-    match_each_unsigned_integer_ptype!(branches.ptype(), |A| {
-        match_each_unsigned_integer_ptype!(rows.ptype(), |R| {
-            gather(
-                &values,
-                branches.as_slice::<A>(),
-                rows.as_slice::<R>(),
-                allocator,
-            )
-        })
-    })
+    gather(array, &sources, allocator)
 }

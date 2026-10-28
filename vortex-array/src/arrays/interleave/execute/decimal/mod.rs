@@ -29,7 +29,6 @@ use crate::dtype::NativeDecimalType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 use crate::match_each_decimal_value_type;
-use crate::match_each_unsigned_integer_ptype;
 use crate::require_child;
 
 pub(super) fn execute(
@@ -58,23 +57,11 @@ fn gather_values<T: NativeDecimalType>(
     dtype: DecimalDType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Buffer<T>> {
-    let allocator = ctx.allocator().clone();
-    let values = (0..array.num_values())
+    let sources = (0..array.num_values())
         .map(|i| prepare_source::<T>(array.value(i), dtype, ctx))
         .collect::<VortexResult<Vec<_>>>()?;
-    let branches = array.array_indices().as_::<Primitive>();
-    let rows = array.row_indices().as_::<Primitive>();
 
-    match_each_unsigned_integer_ptype!(branches.ptype(), |A| {
-        match_each_unsigned_integer_ptype!(rows.ptype(), |R| {
-            gather(
-                &values,
-                branches.as_slice::<A>(),
-                rows.as_slice::<R>(),
-                &allocator,
-            )
-        })
-    })
+    gather(array, &sources, ctx.allocator())
 }
 
 /// Normalizes one decimal source while retaining a single payload for a constant.
@@ -83,7 +70,6 @@ fn prepare_source<T: NativeDecimalType>(
     dtype: DecimalDType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Source<T>> {
-    let len = value.len();
     if let Some(constant) = value.as_opt::<Constant>() {
         let payload = match constant.scalar().as_decimal().decimal_value() {
             Some(value) => value.cast::<T>().ok_or_else(|| {
@@ -92,11 +78,7 @@ fn prepare_source<T: NativeDecimalType>(
             None => T::default(),
         };
 
-        return Ok(Source {
-            data: Buffer::full_in(payload, 1, ctx.allocator().clone()),
-            len,
-            row_mask: 0,
-        });
+        return Ok(Source::constant(payload, value.len(), ctx.allocator()));
     }
 
     let decimal = value.as_::<Decimal>();
@@ -106,18 +88,14 @@ fn prepare_source<T: NativeDecimalType>(
         // A source can still store its values at a width other than the canonical width of its
         // dtype (#10701). The copy widens such values, or checks their precision and narrows them
         // with zeros in the null slots.
-        let mask = decimal.validity()?.execute_mask(len, ctx)?;
+        let mask = decimal.validity()?.execute_mask(value.len(), ctx)?;
         let copy = match_each_decimal_value_type!(decimal.values_type(), |S| {
             copy_to_canonical_width(decimal.buffer::<S>().as_slice(), &mask, dtype)?
         });
         Buffer::<T>::from_byte_buffer(copy.unwrap_host())
     };
 
-    Ok(Source {
-        data,
-        len,
-        row_mask: usize::MAX,
-    })
+    Ok(Source::decoded(data))
 }
 
 #[cfg(test)]
