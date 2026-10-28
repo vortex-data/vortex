@@ -7,9 +7,9 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
@@ -96,14 +96,11 @@ fn take_chunked_via_sort(
 
     if let Some(&(index, _)) = pairs.last() {
         let index = usize::try_from(index)?;
-        if index >= array.len() {
-            vortex_bail!(
-                "index {} out of bounds from {} to {}",
-                index,
-                0,
-                array.len()
-            );
-        }
+        let len = array.len();
+        assert!(
+            index < len,
+            "take index {index} out of bounds for length {len}"
+        );
     }
 
     let chunk_offsets = array.chunk_offset_values();
@@ -213,14 +210,11 @@ fn take_chunked(
         }
 
         let index = usize::try_from(index)?;
-        if index >= array.len() {
-            vortex_bail!(
-                "index {} out of bounds from {} to {}",
-                index,
-                0,
-                array.len()
-            );
-        }
+        let len = array.len();
+        assert!(
+            index < len,
+            "take index {index} out of bounds for length {len}"
+        );
 
         let still_sorted = last_index.is_none_or(|last_index| index >= last_index);
         let chunk_idx = if monotonic && still_sorted {
@@ -322,13 +316,10 @@ fn take_chunked_sorted(
         }
         cursor = range_end;
     }
-    if cursor != indices_values.len() {
-        vortex_bail!(
-            "index {} out of bounds from {} to {}",
-            usize::try_from(indices_values[cursor])?,
-            0,
-            array.as_ref().len()
-        );
+    // The chunk loop stops at the first index that no chunk holds.
+    if let Some(&index) = indices_values.get(cursor) {
+        let len = array.as_ref().len();
+        vortex_panic!("take index {index} out of bounds for length {len}");
     }
 
     if chunks.len() == 1 {
@@ -446,14 +437,11 @@ fn take_piecewise_chunked(
         let end = start
             .checked_add(length)
             .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
-        if end > array_len {
-            vortex_bail!(
-                "index {} out of bounds from {} to {}",
-                end - 1,
-                0,
-                array_len
-            );
-        }
+        assert!(
+            end <= array_len,
+            "take index {} out of bounds for length {array_len}",
+            end - 1
+        );
         total_len = total_len
             .checked_add(length)
             .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
@@ -579,9 +567,11 @@ fn contiguous_runs(starts: Vec<u64>, lengths: Vec<u64>, total: usize) -> ArrayRe
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_buffer::Buffer;
     use vortex_buffer::bitbuffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -743,17 +733,16 @@ mod tests {
     }
 
     #[test]
-    fn test_take_piecewise_out_of_bounds() -> VortexResult<()> {
+    #[should_panic(expected = "take index 16 out of bounds for length 15")]
+    fn test_take_piecewise_out_of_bounds() {
         let mut ctx = SESSION.create_execution_ctx();
-        let arr = chunked_i32()?;
+        let arr = chunked_i32().vortex_expect("the chunks have the dtype of the array");
+        let indices = contiguous_pieces(&[12], &[5]).vortex_expect("the pieces are valid");
 
-        let indices = contiguous_pieces(&[12], &[5])?;
-        let result = arr
-            .take(indices)
-            .and_then(|taken| taken.execute::<Canonical>(&mut ctx));
-
-        assert!(result.is_err());
-        Ok(())
+        drop(
+            arr.take(indices)
+                .and_then(|taken| taken.execute::<Canonical>(&mut ctx)),
+        );
     }
 
     #[test]
@@ -1351,19 +1340,19 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_take_out_of_bounds() -> VortexResult<()> {
+    /// Sorted indices take the sorted path, and unsorted indices take the generic path.
+    #[rstest]
+    #[case::sorted(buffer![0u64, 100])]
+    #[case::unsorted(buffer![100u64, 0])]
+    #[should_panic(expected = "take index 100 out of bounds for length 15")]
+    fn test_take_out_of_bounds(#[case] indices: Buffer<u64>) {
         let mut ctx = SESSION.create_execution_ctx();
-        let arr = chunked_i32()?;
+        let arr = chunked_i32().vortex_expect("the chunks have the dtype of the array");
 
-        // Sorted indices hit the fast path, unsorted the generic path; both must fail.
-        for indices in [buffer![0u64, 100], buffer![100u64, 0]] {
-            let result = arr
-                .take(indices.into_array())
-                .and_then(|taken| taken.execute::<Canonical>(&mut ctx));
-            assert!(result.is_err(), "expected out-of-bounds error");
-        }
-        Ok(())
+        drop(
+            arr.take(indices.into_array())
+                .and_then(|taken| taken.execute::<Canonical>(&mut ctx)),
+        );
     }
 
     #[test]

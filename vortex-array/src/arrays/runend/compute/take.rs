@@ -6,7 +6,6 @@ use num_traits::NumCast;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
@@ -90,7 +89,7 @@ fn take_indices<T: AsPrimitive<usize>>(
         );
     }
 
-    let stats = valid_indices_stats(indices, validity_mask, array.len(), check_bounds)?;
+    let stats = valid_indices_stats(indices, validity_mask, array.len(), check_bounds);
     let ends = array.ends().clone().execute::<PrimitiveArray>(ctx)?;
 
     let physical_indices = match_each_unsigned_integer_ptype!(ends.ptype(), |I| {
@@ -183,54 +182,58 @@ where
 
 /// Count the valid indices and determine whether they are sorted, bounds-checking each valid
 /// index against `array_len` when `check_bounds` is set.
+///
+/// # Panics
+///
+/// Panics if `check_bounds` is set and a valid index is not below `array_len`.
 fn valid_indices_stats<T: AsPrimitive<usize>>(
     indices: &[T],
     validity_mask: &Mask,
     array_len: usize,
     check_bounds: bool,
-) -> VortexResult<ValidIndicesStats> {
+) -> ValidIndicesStats {
     debug_assert_eq!(indices.len(), validity_mask.len());
 
     let count = validity_mask.true_count();
     if count == 0 {
-        return Ok(ValidIndicesStats {
+        return ValidIndicesStats {
             count,
             sorted: true,
-        });
+        };
     }
 
     let sorted = match validity_mask.bit_buffer() {
-        AllOr::All => valid_indices_sorted_all(indices, array_len, check_bounds)?,
+        AllOr::All => valid_indices_sorted_all(indices, array_len, check_bounds),
         AllOr::None => true,
         AllOr::Some(validity) => {
-            valid_indices_sorted_masked(indices, validity.iter(), array_len, check_bounds)?
+            valid_indices_sorted_masked(indices, validity.iter(), array_len, check_bounds)
         }
     };
 
-    Ok(ValidIndicesStats { count, sorted })
+    ValidIndicesStats { count, sorted }
 }
 
 fn valid_indices_sorted_all<T: AsPrimitive<usize>>(
     indices: &[T],
     array_len: usize,
     check_bounds: bool,
-) -> VortexResult<bool> {
+) -> bool {
     // Seed the comparison with the first index; an empty or single-element slice is trivially
     // sorted, so the loop below starts from the second element.
     let Some((first, rest)) = indices.split_first() else {
-        return Ok(true);
+        return true;
     };
 
     let mut previous_idx = first.as_();
     if check_bounds {
-        check_index(previous_idx, array_len)?;
+        check_index(previous_idx, array_len);
     }
 
     let mut sorted = true;
     for idx in rest {
         let idx = idx.as_();
         if check_bounds {
-            check_index(idx, array_len)?;
+            check_index(idx, array_len);
         }
         if previous_idx > idx {
             sorted = false;
@@ -241,7 +244,7 @@ fn valid_indices_sorted_all<T: AsPrimitive<usize>>(
         previous_idx = idx;
     }
 
-    Ok(sorted)
+    sorted
 }
 
 fn valid_indices_sorted_masked<T: AsPrimitive<usize>>(
@@ -249,7 +252,7 @@ fn valid_indices_sorted_masked<T: AsPrimitive<usize>>(
     is_valid: impl Iterator<Item = bool>,
     array_len: usize,
     check_bounds: bool,
-) -> VortexResult<bool> {
+) -> bool {
     // Invalid positions are skipped without a bounds check, matching the take path that never
     // dereferences them.
     let mut valid = is_valid
@@ -260,16 +263,16 @@ fn valid_indices_sorted_masked<T: AsPrimitive<usize>>(
     // Seed the comparison with the first valid index; zero or one valid index is trivially
     // sorted, so the loop below starts from the second valid index.
     let Some(mut previous_idx) = valid.next() else {
-        return Ok(true);
+        return true;
     };
     if check_bounds {
-        check_index(previous_idx, array_len)?;
+        check_index(previous_idx, array_len);
     }
 
     let mut sorted = true;
     for idx in valid {
         if check_bounds {
-            check_index(idx, array_len)?;
+            check_index(idx, array_len);
         }
         if previous_idx > idx {
             sorted = false;
@@ -280,7 +283,7 @@ fn valid_indices_sorted_masked<T: AsPrimitive<usize>>(
         previous_idx = idx;
     }
 
-    Ok(sorted)
+    sorted
 }
 
 fn prefer_linear_scan(
@@ -291,11 +294,11 @@ fn prefer_linear_scan(
     ends_len <= valid_count.saturating_mul(runs_per_index_threshold)
 }
 
-fn check_index(index: usize, array_len: usize) -> VortexResult<()> {
-    if index >= array_len {
-        vortex_bail!("index {} out of bounds from {} to {}", index, 0, array_len);
-    }
-    Ok(())
+fn check_index(index: usize, array_len: usize) {
+    assert!(
+        index < array_len,
+        "take index {index} out of bounds for length {array_len}"
+    );
 }
 
 fn physical_indices_linear_sorted<I, T, O>(
@@ -542,7 +545,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "take index 12 out of bounds for length 12")]
     fn ree_take_out_of_bounds() {
         let _array = ree_array()
             .take(buffer![12].into_array())
