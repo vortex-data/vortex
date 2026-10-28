@@ -594,6 +594,10 @@ mod tests {
     struct SuffixRead(ByteBuffer);
 
     impl VortexReadAt for SuffixRead {
+        fn concurrency(&self) -> usize {
+            self.0.concurrency()
+        }
+
         fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
             async { vortex_bail!("Opening through suffix reads must not request the size") }.boxed()
         }

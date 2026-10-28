@@ -99,7 +99,7 @@ impl Admission {
     fn reserve(&self) {
         let previous = self.active.fetch_add(1, Ordering::Relaxed);
         // Crossing an admission threshold can unblock workers awaiting external events.
-        if (previous + 1) % self.workers() == 0 {
+        if (previous + 1).is_multiple_of(self.workers()) {
             self.wake_all();
         }
     }

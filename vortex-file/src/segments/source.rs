@@ -390,7 +390,8 @@ impl SegmentSource for FileSegmentSource {
         self.request_spec(
             SegmentSpec {
                 offset: spec.offset + range.start as u64,
-                length: (range.end - range.start) as u32,
+                length: u32::try_from(range.end - range.start)
+                    .vortex_expect("Range length is bounded by the segment length"),
                 alignment: Alignment::none(),
             },
             false,

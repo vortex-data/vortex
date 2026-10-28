@@ -475,7 +475,8 @@ impl VortexReadAt2 for Reader {
                         alignment,
                     } => (offset, length, alignment, false),
                     ReadTarget::Suffix { length, alignment } => {
-                        let length = (length as u64).min(self.file.size) as usize;
+                        let length =
+                            length.min(usize::try_from(self.file.size).unwrap_or(usize::MAX));
                         (self.file.size - length as u64, length, alignment, true)
                     }
                 };

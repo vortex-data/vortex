@@ -763,7 +763,10 @@ fn selective_dictionary_predicate_shares_values_with_projection(
     let expression = like(root(), lit("c%"))
         .bind(projection.dtype())?
         .optimize_recursive()?;
-    let predicate = optimize(EvalPlan::try_new(expression, projection.clone())?.into_plan())?;
+    let predicate = optimize(
+        EvalPlan::try_new(expression, projection.clone())?.into_plan(),
+        &SESSION,
+    )?;
     let rows = selected..selected + 1;
     let mask = Mask::new_true(1);
     let cache = ValueCache::default();

@@ -140,7 +140,7 @@ async fn exact_bytes_alignment_eof_and_bounded_queue(
     #[values(false, true)] eager_kernel_worker: bool,
 ) -> VortexResult<()> {
     let mut temporary = NamedTempFile::new()?;
-    let data: Vec<u8> = (0..17003).map(|i| (i % 251) as u8).collect();
+    let data: Vec<u8> = (0_u8..251).cycle().take(17003).collect();
     temporary.write_all(&data)?;
     let file = mode.open(temporary.path())?;
     let allowed = rustix::thread::sched_getaffinity(None).map_err(io::Error::from)?;
@@ -196,7 +196,8 @@ async fn exact_bytes_alignment_eof_and_bounded_queue(
             seen.push(completion.id.0);
             match completion.id.0 {
                 id @ 0..=3 => {
-                    let ReadTarget::Range { offset, length, .. } = requests[id as usize].target
+                    let ReadTarget::Range { offset, length, .. } =
+                        requests[usize::try_from(id)?].target
                     else {
                         unreachable!()
                     };
@@ -204,10 +205,8 @@ async fn exact_bytes_alignment_eof_and_bounded_queue(
                         panic!("expected bytes")
                     };
                     let bytes = bytes.try_into_host_sync()?;
-                    assert_eq!(
-                        bytes.as_ref(),
-                        &data[offset as usize..offset as usize + length]
-                    );
+                    let offset = usize::try_from(offset)?;
+                    assert_eq!(bytes.as_ref(), &data[offset..offset + length]);
                     assert!(bytes.is_aligned(Alignment::new(64)));
                 }
                 4 => assert!(completion.result.is_err()),

@@ -25,7 +25,7 @@ fn mapped_misses_use_owned_buffers_then_resident_views(
     #[values(false, true)] read_mapped_misses: bool,
 ) -> VortexResult<()> {
     let page = rustix::param::page_size();
-    let data: Vec<u8> = (0..page * 2 + 3).map(|i| (i % 251) as u8).collect();
+    let data: Vec<u8> = (0_u8..251).cycle().take(page * 2 + 3).collect();
     let mut temporary = NamedTempFile::new()?;
     temporary.write_all(&data)?;
     let file = TestMode::Mapped.open(temporary.path())?;

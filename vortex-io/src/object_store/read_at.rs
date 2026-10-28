@@ -185,7 +185,7 @@ impl VortexReadAt for ObjectStoreReadAt {
                     )
                     .await?;
                 let size = response.meta.size;
-                let expected = (length as u64).min(size) as usize;
+                let expected = length.min(usize::try_from(size).unwrap_or(usize::MAX));
                 vortex_ensure_eq!(response.range.start, size - expected as u64);
                 vortex_ensure_eq!(response.range.end, size);
                 let bytes = response.bytes().await?;

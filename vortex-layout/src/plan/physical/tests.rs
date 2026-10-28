@@ -256,10 +256,10 @@ fn struct_selection_preserves_dtype_and_prunes_unused_fields(
     let plan = make_plan(layout)?;
     let projection = projection.bind(plan.dtype())?;
     let expected_dtype = projection.dtype().clone();
-    let optimized = optimize(EvalPlan::try_new(projection, plan)?.into_plan())?;
+    let optimized = optimize(EvalPlan::try_new(projection, plan)?.into_plan(), &SESSION)?;
     assert_eq!(optimized.dtype(), &expected_dtype);
     assert_eq!(optimized.row_count(), 3);
-    let reoptimized = optimize(optimized.clone())?;
+    let reoptimized = optimize(optimized.clone(), &SESSION)?;
     assert!(PlanRef::ptr_eq(&optimized, &reoptimized));
 
     // Resolve every retained child: the unsupported field must have been pruned.
@@ -1334,7 +1334,7 @@ fn predicate_pushes_through_zones_into_dictionary(
     let expression = like(root(), lit("%google%"));
     let plan = make_eval(expression, zoned)?.into_plan();
     let expected_dtype = plan.dtype().clone();
-    let optimized = optimize(plan)?;
+    let optimized = optimize(plan, &SESSION)?;
     assert_eq!(optimized.dtype(), &expected_dtype);
     assert_eq!(optimized.row_count(), 5);
     let take = optimized.as_opt::<Take>().ok_or_else(|| {
@@ -1344,7 +1344,10 @@ fn predicate_pushes_through_zones_into_dictionary(
         )
     })?;
     assert!(take.values()?.is::<Eval>());
-    assert!(PlanRef::ptr_eq(&optimized, &optimize(optimized.clone())?));
+    assert!(PlanRef::ptr_eq(
+        &optimized,
+        &optimize(optimized.clone(), &SESSION)?
+    ));
     Ok(())
 }
 

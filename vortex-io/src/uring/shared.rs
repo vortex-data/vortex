@@ -18,6 +18,7 @@ use rustix::thread::CpuSet;
 #[cfg(test)]
 use rustix::thread::Pid;
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -215,7 +216,7 @@ impl SharedUringPool {
         for work in works {
             let shard = ((work.offset >> 20) ^ work.file.file.as_raw_fd() as u64)
                 % self.0.endpoints.len() as u64;
-            batches[shard as usize].push(work);
+            batches[usize::try_from(shard).vortex_expect("Shard index fits usize")].push(work);
         }
         for (endpoint, batch) in self.0.endpoints.iter().zip(batches) {
             if batch.is_empty() {
@@ -299,7 +300,7 @@ impl VortexReadAt2 for SharedReader {
                     alignment,
                 } => (offset, length, alignment, false),
                 ReadTarget::Suffix { length, alignment } => {
-                    let length = (length as u64).min(self.file.size) as usize;
+                    let length = length.min(usize::try_from(self.file.size).unwrap_or(usize::MAX));
                     (self.file.size - length as u64, length, alignment, true)
                 }
             };

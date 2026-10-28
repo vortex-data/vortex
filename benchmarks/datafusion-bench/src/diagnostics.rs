@@ -317,7 +317,7 @@ fn evict_file(path: &Path) -> anyhow::Result<usize> {
     // SAFETY: sysconf has no pointer arguments.
     let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
     anyhow::ensure!(page_size > 0, "Could not determine page size");
-    let pages = length.div_ceil(page_size as usize);
+    let pages = length.div_ceil(usize::try_from(page_size)?);
     // SAFETY: mapping a valid file with PROT_NONE does not access or fault in data. We never
     // dereference the mapping; it is used only to query residency and is then unmapped.
     let mapping = unsafe {

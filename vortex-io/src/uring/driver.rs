@@ -15,6 +15,7 @@ use rustix::mm::Advice;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -176,9 +177,10 @@ impl Driver {
                     .build()
             }
             Destination::Mapped(mapping) => {
+                let offset = usize::try_from(operation.offset)?;
                 // SAFETY: validated nonempty requests lie within this immutable mapping. Its
                 // page-aligned range remains mapped until its CQE, including on cancellation.
-                let pointer = unsafe { mapping.as_ptr().add(operation.offset as usize) };
+                let pointer = unsafe { mapping.as_ptr().add(offset) };
                 opcode::Madvise::new(
                     pointer.cast(),
                     length as _,
@@ -279,7 +281,7 @@ impl Driver {
                     offset_alignment,
                     length,
                     initialized: 0,
-                    required: (end - offset) as usize,
+                    required: usize::try_from(end - offset)?,
                     failed: false,
                     in_kernel: false,
                 },
@@ -312,7 +314,7 @@ impl Driver {
             }
             if let Destination::Mapped(mapping) = &operation.buffer {
                 if result == 0 {
-                    mapping.mark_populated(operation.offset as usize, operation.length);
+                    mapping.mark_populated(usize::try_from(operation.offset)?, operation.length);
                     self.complete(operation.works, mapped::buffer(Arc::clone(mapping)), 0);
                 } else {
                     for work in operation.works {
@@ -356,7 +358,7 @@ impl Driver {
             if let Some(mapping) = &operation.works[0].mapping {
                 // A buffered read warms the OS cache without installing this mapping's PTEs.
                 // Future fast-path reads still check current residency before using the mapping.
-                mapping.mark_populated(operation.offset as usize, operation.initialized);
+                mapping.mark_populated(usize::try_from(operation.offset)?, operation.initialized);
             }
             self.complete(operation.works, buffer.freeze(), operation.offset);
         }
@@ -368,7 +370,8 @@ impl Driver {
             if !work.live() {
                 continue;
             }
-            let start = (work.offset - offset) as usize;
+            let start = usize::try_from(work.offset - offset)
+                .vortex_expect("Read lies within the completed buffer");
             let mut buffer = bytes
                 .slice_unaligned(start..start + work.length)
                 .aligned(work.alignment);

@@ -103,7 +103,9 @@ impl VortexReadAt for Delayed {
             if offset == 0 {
                 tokio::time::sleep(std::time::Duration::from_millis(30)).await;
             }
-            Ok(BufferHandle::new_host(ByteBuffer::from(vec![offset as u8])))
+            Ok(BufferHandle::new_host(ByteBuffer::from(vec![
+                u8::try_from(offset)?,
+            ])))
         }
         .boxed()
     }

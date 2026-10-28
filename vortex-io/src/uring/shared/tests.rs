@@ -37,7 +37,7 @@ fn same_range_from_independent_producers_uses_one_ring_and_read(
     #[values(TestMode::Buffered, TestMode::Direct, TestMode::Mapped)] mode: TestMode,
 ) -> VortexResult<()> {
     let mut temporary = NamedTempFile::new()?;
-    let data: Vec<u8> = (0..16384).map(|value| (value % 251) as u8).collect();
+    let data: Vec<u8> = (0_u8..251).cycle().take(16384).collect();
     temporary.write_all(&data)?;
     let file = mode.open(temporary.path())?;
     // Delay reactor intake until every producer has submitted so batching is deterministic.
@@ -252,7 +252,7 @@ async fn concurrent_scopes_can_move_between_compute_threads(
     let mut temporary = NamedTempFile::new()?;
     // Different 1 MiB windows exercise both reactors when the pool has two rings.
     let window = 1 << 20;
-    let data: Vec<u8> = (0..2 * window + 17003).map(|i| (i % 251) as u8).collect();
+    let data: Vec<u8> = (0_u8..251).cycle().take(2 * window + 17003).collect();
     temporary.write_all(&data)?;
     let file = mode.open(temporary.path())?;
     let options = UringOptions {

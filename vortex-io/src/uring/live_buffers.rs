@@ -9,6 +9,7 @@ use bytes::Bytes;
 use parking_lot::Mutex;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_map::RandomState;
 
@@ -35,7 +36,8 @@ impl AsRef<[u8]> for Owner {
 
 impl LiveBuffers {
     fn shard(&self, key: Key) -> &Mutex<HashMap<Key, Weak<Lease>>> {
-        &self.shards[self.hash.hash_one(key) as usize % SHARDS]
+        let shard = self.hash.hash_one(key) % SHARDS as u64;
+        &self.shards[usize::try_from(shard).vortex_expect("Shard index fits usize")]
     }
 
     pub(super) fn get(
