@@ -33,6 +33,25 @@ def cdf_quantile(values: Sequence[float], probabilities: Sequence[float], probab
     return values[bisect.bisect_left(probabilities, probability)] if probabilities else quantile(values, probability)
 
 
+def phase_summary(samples: list[Record]) -> Record:
+    previous = 0.0
+    weighted = []
+    for sample in samples:
+        weighted.append((sample, sample["cdf_probability"] - previous))
+        previous = sample["cdf_probability"]
+    summary = {"joint_samples": len(samples)}
+    for field in ("header_ms", "body_ms"):
+        ordered = sorted(weighted, key=lambda pair: pair[0][field])
+        for p in (0.5, 0.9):
+            cumulative = 0.0
+            for sample, mass in ordered:
+                cumulative += mass
+                if cumulative >= p:
+                    summary[f"{field}_p{int(p * 100)}"] = sample[field]
+                    break
+    return summary
+
+
 def ranks(values: Sequence[float]) -> list[float]:
     ordered = sorted(enumerate(values), key=lambda pair: pair[1])
     result = [0.0] * len(values)
@@ -93,7 +112,123 @@ def weighted_latency(residuals: Sequence[float], timer_overhead: float) -> tuple
     return delays, probabilities
 
 
-def calibrate(records: list[Record], preserve_tail: bool = False) -> Record:
+def joint_latency_samples(
+    requests: list[Record], header_overhead: float, body_overhead: float, rate: float
+) -> list[Record]:
+    values = sorted(
+        (
+            (
+                max(0.0, r["response_ms"] - header_overhead),
+                max(
+                    0.0,
+                    r["duration_ms"]
+                    - r["response_ms"]
+                    - body_overhead
+                    + header_overhead
+                    - r["bytes"] / 1048576 / rate * 1000,
+                ),
+            )
+            for r in requests
+        ),
+        key=lambda pair: (sum(pair), pair),
+    )
+    n = len(values)
+    cutoff = max(1, math.floor(n * 0.999))
+    points = []
+    for bucket in range(1000):
+        low, high = cutoff * bucket // 1000, cutoff * (bucket + 1) // 1000
+        if high > low:
+            points.append((values[(low + high - 1) // 2], high / n))
+    points.extend((values[index], (index + 1) / n) for index in range(cutoff, n))
+    samples = []
+    for (header, body), probability in points:
+        header, body = round(header, 3), round(body, 3)
+        if samples and (samples[-1]["header_ms"], samples[-1]["body_ms"]) == (header, body):
+            samples[-1]["cdf_probability"] = probability
+        else:
+            samples.append(dict(header_ms=header, body_ms=body, cdf_probability=probability))
+    return samples
+
+
+def phase_overheads(samples: list[Record], lower: int = -1, upper: int = 2**64 - 1) -> tuple[float, float]:
+    headers, bodies = [], []
+    for sample in samples:
+        rate = sample["model"]["request_mib_per_sec"]
+        for r in sample["requests"]:
+            if r["operation"] != "GET" or r.get("response_ms") is None or not lower < r["bytes"] <= upper:
+                continue
+            delay = r["model_delay_ms"]
+            total = delay + (r.get("model_body_delay_ms") or 0.0) + r["bytes"] / 1048576 / rate * 1000
+            headers.append(r["response_ms"] - delay)
+            bodies.append(r["duration_ms"] - r["response_ms"] - max(0.0, total - r["response_ms"]))
+    if not headers:
+        raise ValueError("Joint calibration needs model response-header measurements")
+    return max(0.0, statistics.median(headers)), max(0.0, statistics.median(bodies))
+
+
+def calibrate_phases(requests: list[Record], models: list[Record], result: Record) -> Record:
+    if any(
+        r.get("response_ms") is None
+        or not math.isfinite(r["response_ms"])
+        or not 0 <= r["response_ms"] <= r["duration_ms"]
+        for r in requests
+    ):
+        raise ValueError("Joint calibration needs complete real response-header measurements")
+    header_overhead, body_overhead = phase_overheads(models)
+    rates, all_rates = [], []
+    for r in requests:
+        body_budget = r["duration_ms"] - r["response_ms"] - body_overhead + header_overhead
+        if r["bytes"] < 262144 or body_budget <= 0.1:
+            continue
+        value = r["bytes"] / 1048576 / body_budget * 1000
+        all_rates.append(value)
+        if r["inflight_at_start"] <= 4:
+            rates.append(value)
+    if not all_rates:
+        raise ValueError("Joint calibration needs large body-transfer measurements")
+    rate = round(min(10000.0, max(1.0, quantile(rates or all_rates, 0.75))), 3)
+    samples = joint_latency_samples(requests, header_overhead, body_overhead, rate)
+    bins, overheads = [], []
+    lower = -1
+    for info in result["calibration_bins"]:
+        upper = info["max_bytes"]
+        selected = [r for r in requests if lower < r["bytes"] <= upper]
+        if info["fallback_global"]:
+            joint, timers = samples, (header_overhead, body_overhead)
+        else:
+            timers = phase_overheads(models, lower, upper)
+            joint = joint_latency_samples(selected, *timers, rate)
+        bins.append(dict(max_bytes=upper, latency_cdf_ms=[], latency_samples=joint))
+        overheads.append(dict(max_bytes=upper, header_ms=round(timers[0], 3), body_ms=round(timers[1], 3)))
+        lower = upper
+    small = [r["response_ms"] for r in requests if r["bytes"] <= 65536 and r["inflight_at_start"] <= 4]
+    if not small:
+        small = [r["response_ms"] for r in requests if r["bytes"] <= 65536]
+    result.update(
+        ttfb_ms=round(max(0.0, statistics.median(small) - header_overhead), 3),
+        request_mib_per_sec=rate,
+        latency_cdf_ms=[],
+        latency_samples=samples,
+        latency_bins=bins,
+        phase_calibration=dict(
+            header_timer_ms=round(header_overhead, 3),
+            body_timer_ms=round(body_overhead, 3),
+            bin_timers=overheads,
+            throughput_samples=len(rates or all_rates),
+            method="paired response-header and body residuals; subtract measured RAM timer/consumer overhead",
+        ),
+    )
+    result.pop("cdf_probabilities", None)
+    residuals = [max(0.0, r["duration_ms"] - r["bytes"] / 1048576 / rate * 1000) for r in requests]
+    result["latency_quantiles_ms"] = {str(p): round(quantile(residuals, p), 3) for p in (0.5, 0.9, 0.99, 0.999)}
+    result["latency_tail"] = dict(
+        bulk_buckets=1000, preserved_upper_fraction=0.001, max_observed_residual_ms=round(max(residuals), 3)
+    )
+    result["calibration_large_requests"] = len(rates or all_rates)
+    return result
+
+
+def calibrate(records: list[Record], preserve_tail: bool = False, request_phases: bool = False) -> Record:
     model_samples = {
         sample_key(record): record
         for record in records
@@ -105,6 +240,7 @@ def calibrate(records: list[Record], preserve_tail: bool = False) -> Record:
         overheads = [
             r["duration_ms"]
             - r.get("model_delay_ms", record["model"]["ttfb_ms"])
+            - (r.get("model_body_delay_ms") or 0.0)
             - r["bytes"] / 1048576 / record["model"]["request_mib_per_sec"] * 1000
             for r in record["requests"]
             if r["operation"] == "GET" and r["first_byte_ms"] is not None
@@ -142,6 +278,7 @@ def calibrate(records: list[Record], preserve_tail: bool = False) -> Record:
     timer_overheads = [
         request["first_byte_ms"]
         - request.get("model_delay_ms", record["model"]["ttfb_ms"])
+        - (request.get("model_body_delay_ms") or 0.0)
         - request["bytes"] / 1048576 / record["model"]["request_mib_per_sec"] * 1000
         for record in records
         if record.get("kind") == "sample"
@@ -215,6 +352,9 @@ def calibrate(records: list[Record], preserve_tail: bool = False) -> Record:
             "preserved_upper_fraction": 0.001,
             "max_observed_residual_ms": round(max(residuals), 3),
         }
+    if request_phases:
+        eligible_models = [record for key, record in model_samples.items() if key not in loaded]
+        result = calibrate_phases(requests, eligible_models, result)
     return result
 
 
@@ -276,6 +416,7 @@ def compare(records: list[Record], iterations: int, suites: list[str]) -> Record
                     "real_p90_ms": quantile(real, 0.9) * 1000 if real else None,
                     "model_p90_ms": quantile(model, 0.9) * 1000 if model else None,
                     "ratio": ratio,
+                    "query_median_within_10pct": ratio is not None and 0.9 <= ratio <= 1.1,
                     "outside_band": ratio is None or not 0.7 <= ratio <= 1.3,
                     "requests_match": not failures,
                     "failures": "; ".join(sorted(set(failures))),
@@ -336,6 +477,15 @@ def compare(records: list[Record], iterations: int, suites: list[str]) -> Record
         "adequate": adequate,
         "default_ci_recommended": adequate and all(e.get("adaptive_io") for e in environments),
         "correlations": correlations,
+        "accuracy_target": {
+            "relative_tolerance": 0.1,
+            "measurement": "end-to-end query median; a proxy for read-heavy scans, not isolated scan timing",
+            "reference": "real S3 median on this CI host and run",
+            "measured_groups": sum(row["ratio"] is not None for row in rows),
+            "valid_groups_within_target": sum(
+                row["requests_match"] and row["query_median_within_10pct"] for row in rows
+            ),
+        },
         "rows": rows,
         "environments": environments,
     }
@@ -348,6 +498,9 @@ def markdown(result: Record) -> str:
         model = dict(host.get("model", {}))
         cdf = model.pop("latency_cdf_ms", [])
         probabilities = model.pop("cdf_probabilities", [])
+        joint = model.pop("latency_samples", [])
+        if joint:
+            model["latency_phase_distribution"] = phase_summary(joint)
         if cdf:
             model["latency_distribution_ms"] = {
                 "quantiles": len(cdf),
@@ -358,7 +511,9 @@ def markdown(result: Record) -> str:
         bins = model.pop("latency_bins", [])
         if bins:
             model["latency_bins_summary"] = [
-                {
+                {"max_bytes": b["max_bytes"], **phase_summary(b["latency_samples"])}
+                if b.get("latency_samples")
+                else {
                     "max_bytes": b["max_bytes"],
                     "p50": cdf_quantile(b["latency_cdf_ms"], b.get("cdf_probabilities", []), 0.5),
                     "p90": cdf_quantile(b["latency_cdf_ms"], b.get("cdf_probabilities", []), 0.9),
@@ -382,6 +537,10 @@ def markdown(result: Record) -> str:
         "Fit gate: complete TPC-H/TPC-DS SF10 coverage, at least three paired samples per cache state, exact "
         "request/byte/row-count agreement, every median ratio in 0.7–1.3, and Spearman ≥0.95 per suite/cache "
         "state.",
+        "The requested scan-median target is ±10%. It is reported separately for each end-to-end "
+        "query median as a proxy for read-heavy scans; isolated scan operators are not timed here. "
+        "The historical 0.7–1.3 flags and gate remain separately visible. A short S3 sample cannot "
+        "by itself establish equivalence within 10%.",
         "",
         "Cold samples use new DataFusion and Vortex sessions. Warm samples immediately repeat the same query "
         "in that session. Footer metadata and statistics caches are cleared after registration. "
@@ -433,17 +592,18 @@ def markdown(result: Record) -> str:
         "## Per-query comparison",
         "",
         "| Suite | Query | Cache | Samples | Real median ms | Model median ms | Real p90 ms | Model p90 ms | Ratio | "
-        "Requests | Status |",
-        "| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+        "Within 10% | Requests | Status |",
+        "| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |",
     ]
     for row in result["rows"]:
         values = [
-            f"{row[key]:.2f}" if row[key] is not None else "—"
+            format(row[key], ".4f" if key == "ratio" else ".2f") if row[key] is not None else "—"
             for key in ("real_median_ms", "model_median_ms", "real_p90_ms", "model_p90_ms", "ratio")
         ]
         status = "INVALID" if not row["requests_match"] else "OUTSIDE" if row["outside_band"] else "OK"
         lines.append(
             f"| {row['suite']} | {row['query']} | {row['cache']} | {row['iterations']} | {' | '.join(values)} | "
+            f"{'yes' if row['ratio'] is not None and 0.9 <= row['ratio'] <= 1.1 else 'no'} | "
             f"{'match' if row['requests_match'] else 'MISMATCH'} | {status} |"
         )
     problems = [r for r in result["rows"] if r["failures"]]

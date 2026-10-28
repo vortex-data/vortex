@@ -1,0 +1,28 @@
+{
+  "ci_run_id": "40591491612",
+  "url": "https://github.com/vortex-data/vortex/actions/runs/40591491612",
+  "attempt": 2,
+  "sha": "05995d3b4f769574c5f024d50359ff6e987ef76f",
+  "scope": "focused same-host diagnostics, not full-suite validation",
+  "groups": 24,
+  "samples": 2304,
+  "iterations": 24,
+  "source_warmup_seconds": 20,
+  "candidate_profile_sha256": "7ecb584d4e7c92ccb0b4156ca325f8735be85d086193446697acf2965bcb79d5",
+  "baseline_profile_sha256": "2aa62e3fe8486e3183d6b92de095a5429f22e3262242202891adb7b4400469fe",
+  "requests_match": true,
+  "get_requests_per_backend": 605832,
+  "bytes_read_per_backend": 165408534792,
+  "accuracy_target": {
+    "tolerance": 0.1,
+    "reference": "median of pooled real controls",
+    "measurement": "end-to-end query median; a proxy for read-heavy scans, not isolated scan timing"
+  },
+  "candidate_within_target": 18,
+  "baseline_within_target": 15,
+  "improvement_ci_positive": 1,
+  "improvement_ci_negative": 2,
+  "artifact_id": 12782523852,
+  "artifact_sha256": "be4e805a5d788e303becd08da2e69d7dbcd0531b8c39330fb6b75175f2f43668",
+  "note": "Exploratory paired block-bootstrap intervals, no multiple-comparison adjustment; incomplete query coverage."
+}

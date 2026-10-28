@@ -16,7 +16,11 @@ import compare
 
 
 def learn(
-    paths: Sequence[Path], minimum_runs: int = 2, preserve_tail: bool = False, exclude_startup: bool = False
+    paths: Sequence[Path],
+    minimum_runs: int = 2,
+    preserve_tail: bool = False,
+    exclude_startup: bool = False,
+    request_phases: bool = False,
 ) -> compare.Record:
     records = []
     sources = []
@@ -93,9 +97,10 @@ def learn(
     run_ids = sorted({s["ci_run_id"] for s in sources})
     if len(run_ids) < minimum_runs:
         raise ValueError(f"Need {minimum_runs} distinct CI runs; found {len(run_ids)}")
-    parameters = compare.calibrate(records, preserve_tail=preserve_tail)
+    preserve_tail |= request_phases
+    parameters = compare.calibrate(records, preserve_tail=preserve_tail, request_phases=request_phases)
     region, cpus, format_name = next(iter(hosts))
-    parameters["profile_version"] = 3 if preserve_tail else 2
+    parameters["profile_version"] = 4 if request_phases else 3 if preserve_tail else 2
     parameters["training"] = {
         "created_at": datetime.now(UTC).isoformat(),
         "run_ids": run_ids,
@@ -119,12 +124,18 @@ def learn(
         else "include startup",
         "sources": sources,
     }
+    if request_phases:
+        parameters["training"]["method"] = (
+            "joint response-header/body residual samples by request size; seeded weighted sampling; "
+            "subtract measured RAM timer/consumer overhead; preserve sparse-tail observation probabilities; "
+            "exclude samples with median model timer overshoot above 5 ms"
+        )
     return parameters
 
 
 def validate_profile(profile: compare.Record, run_id: str | None, region: str, format_name: str):
     training = profile.get("training", {})
-    if profile.get("profile_version") not in (1, 2, 3) or len(set(training.get("run_ids", []))) < 2:
+    if profile.get("profile_version") not in (1, 2, 3, 4) or len(set(training.get("run_ids", []))) < 2:
         raise ValueError("A frozen profile needs provenance from at least two distinct CI runs")
     if run_id is not None and str(run_id) in training["run_ids"]:
         raise ValueError("Validation must use a CI run excluded from training")
@@ -155,10 +166,15 @@ def main():
     parser.add_argument("--minimum-runs", type=int, default=2)
     parser.add_argument("--preserve-tail", action="store_true")
     parser.add_argument("--exclude-startup", action="store_true")
+    parser.add_argument("--request-phases", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     parameters = learn(
-        args.inputs, args.minimum_runs, preserve_tail=args.preserve_tail, exclude_startup=args.exclude_startup
+        args.inputs,
+        args.minimum_runs,
+        preserve_tail=args.preserve_tail,
+        exclude_startup=args.exclude_startup,
+        request_phases=args.request_phases,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(parameters, indent=2) + "\n")

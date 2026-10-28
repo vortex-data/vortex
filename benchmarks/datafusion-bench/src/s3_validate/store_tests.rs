@@ -17,6 +17,7 @@ async fn model(cap: usize) -> anyhow::Result<(Store, ObjectMeta)> {
         max_inflight: cap,
         latency_cdf_ms: Vec::new(),
         cdf_probabilities: Vec::new(),
+        latency_samples: Vec::new(),
         latency_bins: Vec::new(),
         seed: 42,
     };
@@ -44,6 +45,7 @@ fn latency_draws_are_repeatable_and_independent_of_request_order() {
         max_inflight: 0,
         latency_cdf_ms: (0..1000).map(f64::from).collect(),
         cdf_probabilities: Vec::new(),
+        latency_samples: Vec::new(),
         latency_bins: Vec::new(),
         seed: 42,
     };
@@ -74,6 +76,7 @@ fn weighted_cdf_samples_rare_events_without_promoting_them_to_a_uniform_quantile
         max_inflight: 0,
         latency_cdf_ms: vec![10.0, 23000.0],
         cdf_probabilities: vec![0.999, 1.0],
+        latency_samples: Vec::new(),
         latency_bins: Vec::new(),
         seed: 42,
     };
@@ -102,6 +105,54 @@ fn learned_probabilities_preserve_their_exact_floating_point_values() -> anyhow:
     Ok(())
 }
 
+#[test]
+fn joint_samples_keep_header_and_body_delays_coupled() -> anyhow::Result<()> {
+    let model: Model = serde_json::from_value(serde_json::json!({
+        "ttfb_ms": 10.0, "request_mib_per_sec": 100.0, "max_inflight": 0,
+        "latency_samples": [
+            {"header_ms": 5.0, "body_ms": 40.0, "cdf_probability": 0.5},
+            {"header_ms": 40.0, "body_ms": 5.0, "cdf_probability": 1.0}
+        ]
+    }))?;
+    let draws = (0..100)
+        .map(|key| model.timing_ms("GET", &format!("file/{key}"), "0..3", 1, 0, 3))
+        .collect::<Vec<_>>();
+    assert!(draws.contains(&(5.0, 40.0)));
+    assert!(draws.contains(&(40.0, 5.0)));
+    assert!(
+        draws
+            .iter()
+            .all(|pair| *pair == (5.0, 40.0) || *pair == (40.0, 5.0))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn joint_body_delay_does_not_block_response_headers() -> anyhow::Result<()> {
+    let (mut store, meta) = model(0).await?;
+    let parameters = Arc::make_mut(store.model.as_mut().vortex_expect("test model"));
+    parameters.latency_samples = vec![LatencySample {
+        header_ms: 0.0,
+        body_ms: 100.0,
+        cdf_probability: 1.0,
+    }];
+    store.reset()?;
+    let response = store.get(&meta.location);
+    futures::pin_mut!(response);
+    let std::task::Poll::Ready(response) = futures::poll!(response) else {
+        panic!("headers waited for the body");
+    };
+    let body = response?.bytes();
+    futures::pin_mut!(body);
+    assert!(futures::poll!(body.as_mut()).is_pending());
+    assert_eq!(body.await?.len(), 8);
+    let (counts, requests) = store.take()?;
+    assert_eq!((counts.get, counts.bytes), (1, 8));
+    assert!(requests[0].duration_ms >= 100.0);
+    assert_eq!(requests[0].model_body_delay_ms, Some(100.0));
+    Ok(())
+}
+
 #[tokio::test]
 async fn range_size_selects_the_learned_latency_class() -> anyhow::Result<()> {
     let (mut store, meta) = model(0).await?;
@@ -111,11 +162,13 @@ async fn range_size_selects_the_learned_latency_class() -> anyhow::Result<()> {
             max_bytes: 3,
             latency_cdf_ms: vec![2.0],
             cdf_probabilities: Vec::new(),
+            latency_samples: Vec::new(),
         },
         LatencyBin {
             max_bytes: u64::MAX,
             latency_cdf_ms: vec![20.0],
             cdf_probabilities: Vec::new(),
+            latency_samples: Vec::new(),
         },
     ];
     store.get_range(&meta.location, 0..3).await?;
@@ -153,6 +206,7 @@ async fn run_specific_prefixes_do_not_change_seeded_delays() -> anyhow::Result<(
                 max_inflight: 0,
                 latency_cdf_ms: vec![1.0, 3.0, 7.0],
                 cdf_probabilities: Vec::new(),
+                latency_samples: Vec::new(),
                 latency_bins: Vec::new(),
                 seed: 42,
             }),

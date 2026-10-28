@@ -44,6 +44,11 @@ SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "Apache-2.0"
 
 [[annotations]]
+path = "benchmarks/s3-validation/results/*.csv"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
 path = "vortex-ffi/cmake/tests/fixtures/native/vortex-ffi/header-version"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "Apache-2.0"

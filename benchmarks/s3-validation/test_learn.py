@@ -118,6 +118,32 @@ class LearningTests(unittest.TestCase):
             self.assertEqual(profile["calibration_get_requests"], 4)
             self.assertEqual([s["excluded_startup_samples"] for s in profile["training"]["sources"]], [0, 0])
 
+    def test_phase_profile_uses_measured_headers_and_records_held_out_provenance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = []
+            for run_id in ("123", "456"):
+                records = self.records(run_id)
+                for request in records[1]["requests"]:
+                    request["response_ms"] = 9.0
+                model = copy.deepcopy(records[1])
+                model.update(backend="model", model=dict(ttfb_ms=8.0, request_mib_per_sec=100.0))
+                for request in model["requests"]:
+                    request.update(
+                        model_delay_ms=8.0,
+                        response_ms=9.0,
+                        duration_ms=8.0 + request["bytes"] / 1048576 / 100 * 1000 + 2.0,
+                    )
+                records.append(model)
+                paths.append(self.write(Path(directory), run_id + ".jsonl", records))
+            profile = learn.learn(paths, request_phases=True)
+            self.assertEqual(profile["profile_version"], 4)
+            self.assertEqual(profile["latency_cdf_ms"], [])
+            self.assertEqual(profile["latency_samples"][-1]["cdf_probability"], 1)
+            self.assertIn("body_timer_ms", profile["phase_calibration"])
+            learn.validate_profile(profile, "789", "us-east-1", "vortex")
+            with self.assertRaisesRegex(ValueError, "excluded from training"):
+                learn.validate_profile(profile, "456", "us-east-1", "vortex")
+
     def test_rejects_mixed_regions_and_changed_model(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

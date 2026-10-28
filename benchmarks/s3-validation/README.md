@@ -147,6 +147,12 @@ errors with real/real errors. Paired circular blocks of consecutive rounds provi
 including one is inconclusive, rather than proof of equivalence. Query runtimes are diagnostic
 outcomes and remain excluded from profile learning.
 
+The scan accuracy target is ±10% against the pooled real-control median. Reports distinguish
+the point estimate from whether its full bootstrap interval fits inside that band. The suites
+measure end-to-end query medians, which serve as proxies for read-heavy scans. Full-suite
+reports also flag this target against their real-S3 query medians. Historical ±30% flags remain
+separate, and request/range/byte/row equality remains exact.
+
 A candidate can be compared directly with a frozen baseline using the dispatch input
 `baseline_profile` (or `run.py --baseline-profile`). Both models then run beside the two real
 controls on the same host; 24 rounds visit all 24 backend orders. The paired bootstrap also
@@ -160,6 +166,14 @@ its observed probability. This avoids the old quantile table's truncation of ver
 It uses the same request-size classes and request-derived transfer cost, without query runtime
 factors. Empty probability arrays retain the legacy sampler and serialized profile shape.
 The default checked-in version 2 profile remains unchanged until a candidate is validated in CI.
+
+`learn.py --request-phases` produces a version 4 candidate from traces that also record
+`response_ms`. It samples header and body residual delays jointly, preserving their observed
+relationship and sparse-tail probabilities. Header arrival and body transfer use separate
+deadlines. Calibration subtracts measured RAM timer and body-consumer overhead, and estimates
+transfer cost from the measured body phase. Every source must contain response-header timings;
+older traces cannot establish these phases. This remains an opt-in model requiring fresh CI
+validation before promotion.
 
 The optional dispatch input `source_warmup_seconds` (or driver flag `--source-warmup-seconds`)
 primes S3 directly with 32 concurrent 64 KiB range reads before database sessions or query timers.

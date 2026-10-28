@@ -190,6 +190,31 @@ fn validate_model(model: &Model) -> anyhow::Result<()> {
                 .all(|bins| bins[0].max_bytes < bins[1].max_bytes),
         "latency CDF must be finite, nonnegative and sorted"
     );
+    anyhow::ensure!(
+        std::iter::once((&model.latency_cdf_ms, &model.latency_samples))
+            .chain(
+                model
+                    .latency_bins
+                    .iter()
+                    .map(|bin| (&bin.latency_cdf_ms, &bin.latency_samples))
+            )
+            .all(|(cdf, samples)| samples.is_empty()
+                || (cdf.is_empty()
+                    && samples.iter().all(|sample| sample.header_ms.is_finite()
+                        && sample.header_ms >= 0.0
+                        && sample.body_ms.is_finite()
+                        && sample.body_ms >= 0.0
+                        && sample.cdf_probability.is_finite()
+                        && sample.cdf_probability > 0.0
+                        && sample.cdf_probability <= 1.0)
+                    && samples
+                        .windows(2)
+                        .all(|w| w[0].cdf_probability < w[1].cdf_probability)
+                    && samples
+                        .last()
+                        .is_some_and(|sample| sample.cdf_probability == 1.0))),
+        "Joint latency samples need finite nonnegative phases, complete increasing probability mass, and no legacy CDF"
+    );
     Ok(())
 }
 
@@ -282,6 +307,7 @@ async fn main() -> anyhow::Result<()> {
             max_inflight: args.max_inflight,
             latency_cdf_ms: Vec::new(),
             cdf_probabilities: Vec::new(),
+            latency_samples: Vec::new(),
             latency_bins: Vec::new(),
             seed: args.seed,
         },
@@ -448,10 +474,13 @@ async fn main() -> anyhow::Result<()> {
                     &json!({"kind": "sample", "suite": benchmark.dataset_name(),
                         "query": index, "backend": backend, "cache": cache, "iteration": iteration,
                         "position": position, "started_ms": started_ms,
-                    "process_started_unix_ms": process_started_unix_ms,
+                        "process_started_unix_ms": process_started_unix_ms,
                         "seconds": seconds, "rows": rows, "error": error, "counts": counts,
                         "avg_inflight": counts.request_seconds / seconds, "requests": requests,
-                    "setup_seconds": setup_seconds, "setup_counts": setup_counts, "model": measurement_model }),
+                        "setup_seconds": setup_seconds, "setup_counts": setup_counts,
+                        "model": {"ttfb_ms": measurement_model.ttfb_ms,
+                            "request_mib_per_sec": measurement_model.request_mib_per_sec,
+                            "max_inflight": measurement_model.max_inflight, "seed": measurement_model.seed} }),
                 )?;
                 writeln!(writer)?;
                 writer.flush()?;
@@ -520,6 +549,24 @@ mod tests {
         }
         model.cdf_probabilities = vec![0.9, 1.0];
         validate_model(&model)?;
+        Ok(())
+    }
+
+    #[test]
+    fn joint_latency_samples_require_valid_phases_and_complete_mass() -> anyhow::Result<()> {
+        let mut model: Model = serde_json::from_value(serde_json::json!({
+            "ttfb_ms": 10.0, "request_mib_per_sec": 100.0, "max_inflight": 0,
+            "latency_samples": [{"header_ms": 10.0, "body_ms": 20.0, "cdf_probability": 1.0}]
+        }))?;
+        validate_model(&model)?;
+        model.latency_samples[0].body_ms = -1.0;
+        assert!(validate_model(&model).is_err());
+        model.latency_samples[0].body_ms = 20.0;
+        model.latency_samples[0].cdf_probability = 0.9;
+        assert!(validate_model(&model).is_err());
+        model.latency_samples[0].cdf_probability = 1.0;
+        model.latency_cdf_ms = vec![10.0];
+        assert!(validate_model(&model).is_err());
         Ok(())
     }
 

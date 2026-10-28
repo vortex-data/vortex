@@ -160,6 +160,38 @@ class ComparisonTests(unittest.TestCase):
         self.assertEqual(probabilities[-1], 1.0)
         self.assertEqual(delays[-1], 9998.0)
 
+    def test_joint_samples_preserve_coupling_and_a_rare_body_stall(self):
+        requests = [dict(bytes=1024, response_ms=10.0, duration_ms=12.0)] * 9999
+        requests.append(dict(bytes=1024, response_ms=10.0, duration_ms=23010.0))
+        samples = compare.joint_latency_samples(requests, 1.0, 1.0, 1000000.0)
+        self.assertEqual(len(samples), 2)
+        self.assertEqual(samples[0]["cdf_probability"], 0.9999)
+        self.assertEqual(samples[-1]["cdf_probability"], 1)
+        self.assertEqual(samples[0]["header_ms"], 9)
+        self.assertEqual(samples[-1]["header_ms"], 9)
+        self.assertAlmostEqual(samples[-1]["body_ms"], 23000, places=2)
+
+    def test_phase_timer_compensation_and_missing_headers(self):
+        model = dict(request_mib_per_sec=100.0)
+        modeled = dict(
+            operation="GET",
+            bytes=1048576,
+            model_delay_ms=10.0,
+            model_body_delay_ms=0.0,
+            response_ms=11.0,
+            duration_ms=22.0,
+        )
+        headers, body = compare.phase_overheads([dict(model=model, requests=[modeled])])
+        self.assertEqual((headers, body), (1.0, 2.0))
+        sample = compare.joint_latency_samples(
+            [dict(bytes=1048576, response_ms=20.0, duration_ms=35.0)], headers, body, 100.0
+        )[0]
+        self.assertEqual((sample["header_ms"], sample["body_ms"]), (19.0, 4.0))
+        # Header overshoot and RAM body overhead reconstruct the observed 35 ms total.
+        self.assertEqual(sample["header_ms"] + sample["body_ms"] + 10 + body, 35)
+        with self.assertRaisesRegex(ValueError, "real response-header"):
+            compare.calibrate_phases([dict(duration_ms=20)], [], {})
+
     def test_calibration_learns_different_request_size_distributions(self):
         requests = [
             {"operation": "GET", "bytes": size, "first_byte_ms": 10, "duration_ms": duration, "inflight_at_start": 1}

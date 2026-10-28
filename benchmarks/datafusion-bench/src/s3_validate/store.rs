@@ -53,6 +53,8 @@ pub(super) struct Model {
     pub latency_cdf_ms: Vec<f64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cdf_probabilities: Vec<f64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub latency_samples: Vec<LatencySample>,
     #[serde(default)]
     pub latency_bins: Vec<LatencyBin>,
     #[serde(default)]
@@ -65,10 +67,19 @@ pub(super) struct LatencyBin {
     pub latency_cdf_ms: Vec<f64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cdf_probabilities: Vec<f64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub latency_samples: Vec<LatencySample>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(super) struct LatencySample {
+    pub header_ms: f64,
+    pub body_ms: f64,
+    pub cdf_probability: f64,
 }
 
 impl Model {
-    fn delay_ms(
+    fn timing_ms(
         &self,
         operation: &str,
         path: &str,
@@ -76,15 +87,28 @@ impl Model {
         sample: u64,
         ordinal: u64,
         bytes: u64,
-    ) -> f64 {
-        let (cdf, probabilities) = self
+    ) -> (f64, f64) {
+        let (cdf, probabilities, samples) = self
             .latency_bins
             .iter()
-            .find(|bin| bytes <= bin.max_bytes && !bin.latency_cdf_ms.is_empty())
-            .map(|bin| (&bin.latency_cdf_ms, &bin.cdf_probabilities))
-            .unwrap_or((&self.latency_cdf_ms, &self.cdf_probabilities));
-        if operation != "GET" || cdf.is_empty() {
-            return self.ttfb_ms;
+            .find(|bin| {
+                bytes <= bin.max_bytes
+                    && (!bin.latency_cdf_ms.is_empty() || !bin.latency_samples.is_empty())
+            })
+            .map(|bin| {
+                (
+                    &bin.latency_cdf_ms,
+                    &bin.cdf_probabilities,
+                    &bin.latency_samples,
+                )
+            })
+            .unwrap_or((
+                &self.latency_cdf_ms,
+                &self.cdf_probabilities,
+                &self.latency_samples,
+            ));
+        if operation != "GET" || (cdf.is_empty() && samples.is_empty()) {
+            return (self.ttfb_ms, 0.0);
         }
         // Stable request keys make draws independent of the order concurrent tasks are polled.
         let mut hash = 0xcbf29ce484222325u64;
@@ -104,14 +128,32 @@ impl Model {
         hash = (hash ^ (hash >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
         hash = (hash ^ (hash >> 27)).wrapping_mul(0x94d049bb133111eb);
         hash ^= hash >> 31;
+        let uniform = (hash >> 11) as f64 / (1u64 << 53) as f64;
+        if !samples.is_empty() {
+            let index = samples.partition_point(|sample| sample.cdf_probability <= uniform);
+            return (samples[index].header_ms, samples[index].body_ms);
+        }
         let index = if probabilities.is_empty() {
             usize::try_from(hash % cdf.len() as u64)
                 .vortex_expect("quantile index is bounded by the vector length")
         } else {
-            let uniform = (hash >> 11) as f64 / (1u64 << 53) as f64;
             probabilities.partition_point(|probability| *probability <= uniform)
         };
-        cdf[index]
+        (cdf[index], 0.0)
+    }
+
+    #[cfg(test)]
+    fn delay_ms(
+        &self,
+        operation: &str,
+        path: &str,
+        range: &str,
+        sample: u64,
+        ordinal: u64,
+        bytes: u64,
+    ) -> f64 {
+        self.timing_ms(operation, path, range, sample, ordinal, bytes)
+            .0
     }
 }
 
@@ -143,6 +185,8 @@ pub(super) struct Request {
     duration_ms: f64,
     inflight_at_start: usize,
     model_delay_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model_body_delay_ms: Option<f64>,
 }
 
 #[derive(Debug, Default)]
@@ -160,6 +204,7 @@ struct Guard {
     start: Instant,
     request: Request,
     delay_ms: f64,
+    body_delay_ms: f64,
     // Hold admission until the response stream completes or is cancelled.
     _permit: Option<OwnedSemaphorePermit>,
 }
@@ -192,6 +237,7 @@ impl Drop for Guard {
             duration_ms: self.request.duration_ms,
             inflight_at_start: self.request.inflight_at_start,
             model_delay_ms: self.request.model_delay_ms,
+            model_body_delay_ms: self.request.model_body_delay_ms,
         });
     }
 }
@@ -448,7 +494,7 @@ impl Store {
                 .elapsed()
                 .as_secs_f64()
                 * 1000.0;
-            let delay_ms = self.model.as_ref().map(|model| {
+            let timing = self.model.as_ref().map(|model| {
                 let sample = metrics.sample;
                 let ordinal = metrics
                     .ordinals
@@ -458,7 +504,7 @@ impl Store {
                     .strip_prefix(self.sampling_prefix.as_ref())
                     .unwrap_or(&path);
                 let delay =
-                    model.delay_ms(operation, logical_path, &range, sample, *ordinal, bytes);
+                    model.timing_ms(operation, logical_path, &range, sample, *ordinal, bytes);
                 *ordinal += 1;
                 delay
             });
@@ -475,7 +521,8 @@ impl Store {
             Guard {
                 metrics: Arc::clone(&self.metrics),
                 start: Instant::now(),
-                delay_ms: delay_ms.unwrap_or(0.0),
+                delay_ms: timing.map_or(0.0, |(header, _)| header),
+                body_delay_ms: timing.map_or(0.0, |(_, body)| body),
                 request: Request {
                     operation,
                     path,
@@ -486,7 +533,8 @@ impl Store {
                     first_byte_ms: None,
                     duration_ms: 0.0,
                     inflight_at_start: metrics.counts.inflight,
-                    model_delay_ms: delay_ms,
+                    model_delay_ms: timing.map(|(header, _)| header),
+                    model_body_delay_ms: timing.map(|(_, body)| body),
                 },
                 _permit: permit,
             }
@@ -504,6 +552,7 @@ impl Store {
         objects: &Snapshot,
         request_start: Instant,
         delay_ms: f64,
+        body_delay_ms: f64,
     ) -> Result<GetResult> {
         let object = objects
             .get(location)
@@ -551,7 +600,9 @@ impl Store {
             if let Some(rate) = rate {
                 // Absolute deadlines avoid adding a timer tick for each response chunk.
                 let deadline = start
-                    + Duration::from_secs_f64(delay_ms / 1000.0 + end as f64 / (rate * 1048576.0));
+                    + Duration::from_secs_f64(
+                        (delay_ms + body_delay_ms) / 1000.0 + end as f64 / (rate * 1048576.0),
+                    );
                 tokio::time::sleep_until(deadline).await;
             }
             Ok(Some((data.slice(offset..end), (data, end))))
@@ -610,7 +661,14 @@ impl Store {
             )
             .await?;
         let result = match self.snapshot.as_ref().filter(|_| self.model.is_some()) {
-            Some(objects) => self.ram_get(location, &options, objects, guard.start, guard.delay_ms),
+            Some(objects) => self.ram_get(
+                location,
+                &options,
+                objects,
+                guard.start,
+                guard.delay_ms,
+                guard.body_delay_ms,
+            ),
             None => self.source.get_opts(location, options).await,
         };
         guard.request.response_ms = Some(guard.start.elapsed().as_secs_f64() * 1000.0);

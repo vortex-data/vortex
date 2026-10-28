@@ -134,6 +134,11 @@ def analyze(records: list[compare.Record], draws: int = 1000) -> compare.Record:
             )
             row["improvement_ci_low"], row["improvement_ci_high"] = interval(improvement_draws)
         row["bias_ci_excludes_one"] = row["model_ratio_ci_low"] > 1 or row["model_ratio_ci_high"] < 1
+        row["median_within_10pct_target"] = 0.9 <= row["model_vs_pooled_real_ratio"] <= 1.1
+        row["median_ci_within_10pct_target"] = row["model_ratio_ci_low"] >= 0.9 and row["model_ratio_ci_high"] <= 1.1
+        if old:
+            row["baseline_vs_pooled_real_ratio"] = statistics.median(old) / statistics.median(a + b)
+            row["baseline_median_within_10pct_target"] = 0.9 <= row["baseline_vs_pooled_real_ratio"] <= 1.1
         row["error_exceeds_s3_repeatability"] = row["excess_log_mae_ci_low"] > 0
         row["model_outside_band"] = not 0.7 <= row["model_median_ratio"] <= 1.3
         row["real_repeat_outside_band"] = not 0.7 <= row["real_repeat_median_ratio"] <= 1.3
@@ -144,6 +149,11 @@ def analyze(records: list[compare.Record], draws: int = 1000) -> compare.Record:
         "bootstrap_draws": draws,
         "bootstrap": "circular blocks of consecutive query rounds; controls resampled together",
         "metric": "excess mean absolute log(model/real) minus mean absolute log(real_repeat/real)",
+        "accuracy_target": {
+            "tolerance": 0.1,
+            "reference": "median of pooled real controls",
+            "measurement": "end-to-end query median; a proxy for read-heavy scans, not isolated scan timing",
+        },
         "environments": environments,
         "rows": rows,
     }
@@ -165,6 +175,9 @@ def write_reports(result: compare.Record, destination: Path):
         "spread repetitions over time. Confidence intervals use a paired circular block bootstrap. "
         "A confidence interval including one does not establish equivalence. The fixed 0.7–1.3 "
         "flags are retained separately. Tail estimates remain limited by sample count.",
+        "The scan accuracy target is ±10% against the pooled real-control median. These suites "
+        "measure end-to-end query time; read-heavy queries are proxies for scans. CSV/JSON reports "
+        "distinguish the point estimate from whether its whole 95% interval falls inside the target.",
         "",
         "| Suite/query/cache | Real/real median | Model/real median | Model/pooled real 95% CI | "
         "Error exceeds S3 repeatability |",

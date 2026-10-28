@@ -46,7 +46,7 @@ concurrency:
 jobs:
   build:
     timeout-minutes: 60
-    runs-on: runs-on=${{ github.run_id }}/runner=bench-dedicated/family=c8gd.8xlarge/image=ubuntu24-full-arm64-pre-v2/tag=s3-build/extras=s3-cache
+    runs-on: runs-on=${{ github.run_id }}/runner=bench-dedicated/family=c8gd.8xlarge/spot=false/image=ubuntu24-full-arm64-pre-v2/tag=s3-build/extras=s3-cache
     steps:
       - uses: runs-on/action@v2
         with:
