@@ -7,22 +7,21 @@ use std::task::Poll;
 
 use datafusion_common::Result as DFResult;
 use datafusion_common::arrow::array::RecordBatch;
+use datafusion_pruning::FilePruner;
 use futures::Stream;
 use futures::StreamExt;
 use futures::stream::BoxStream;
-
-use super::pruning::Pruner;
 
 /// Utility to end a stream early if its backing [`PartitionedFile`] can be pruned away by an updated dynamic expression.
 ///
 /// [`PartitionedFile`]: datafusion_datasource::PartitionedFile
 pub(crate) struct PrunableStream {
-    file_pruner: Pruner,
+    file_pruner: FilePruner,
     stream: Option<BoxStream<'static, DFResult<RecordBatch>>>,
 }
 
 impl PrunableStream {
-    pub fn new(file_pruner: Pruner, stream: BoxStream<'static, DFResult<RecordBatch>>) -> Self {
+    pub fn new(file_pruner: FilePruner, stream: BoxStream<'static, DFResult<RecordBatch>>) -> Self {
         Self {
             file_pruner,
             stream: Some(stream),

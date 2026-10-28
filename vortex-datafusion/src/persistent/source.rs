@@ -46,7 +46,6 @@ use vortex_utils::aliases::dash_map::DashMap;
 
 use super::opener::NaturalSplits;
 use super::opener::VortexOpener;
-use super::pruning::FilePruners;
 use crate::VortexTableOptions;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
@@ -238,7 +237,6 @@ pub struct VortexSource {
     ///
     /// Sharing the readers allows us to only read every layout once from the file, even across partitions.
     layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
-    file_pruners: Arc<FilePruners>,
     scan_state: Arc<SharedScanState>,
     /// Shared full-file natural splits keyed by path.
     natural_splits: Arc<DashMap<Path, Arc<NaturalSplits>>>,
@@ -282,7 +280,6 @@ impl VortexSource {
             vortex_predicate: None,
             df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
-            file_pruners: Arc::default(),
             scan_state: Arc::new(SharedScanState::default()),
             natural_splits: Arc::new(DashMap::default()),
             file_schemas: Arc::new(DashMap::default()),
@@ -410,7 +407,6 @@ impl VortexSource {
             metrics_registry: Arc::clone(&self.vx_metrics_registry),
             df_metrics: self.df_metrics.clone(),
             layout_readers: Arc::clone(&self.layout_readers),
-            file_pruners: Arc::clone(&self.file_pruners),
             segment_sources: Arc::clone(&self.scan_state.segment_sources),
             scan_caches: Arc::clone(&self.scan_state.scan_caches),
             natural_splits: Arc::clone(&self.natural_splits),
