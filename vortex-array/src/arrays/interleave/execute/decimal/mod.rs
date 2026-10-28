@@ -16,6 +16,7 @@ use super::super::InterleaveSlots;
 use super::fixed_width::Source;
 use super::fixed_width::gather;
 use crate::AnyColumnar;
+use crate::ArrayRef;
 use crate::array::Array;
 use crate::arrays::Constant;
 use crate::arrays::Decimal;
@@ -59,40 +60,7 @@ fn gather_values<T: NativeDecimalType>(
 ) -> VortexResult<Buffer<T>> {
     let allocator = ctx.allocator().clone();
     let values = (0..array.num_values())
-        .map(|i| {
-            let value = array.value(i);
-            let len = value.len();
-            let (data, row_mask) = if let Some(constant) = value.as_opt::<Constant>() {
-                let payload = match constant.scalar().as_decimal().decimal_value() {
-                    Some(value) => value.cast::<T>().ok_or_else(|| {
-                        vortex_err!("interleave decimal constant must fit {dtype}, got {value}")
-                    })?,
-                    None => T::default(),
-                };
-                (Buffer::full_in(payload, 1, allocator.clone()), 0)
-            } else {
-                let decimal = value.as_::<Decimal>();
-                let data = if decimal.values_type() == T::DECIMAL_TYPE {
-                    decimal.buffer::<T>()
-                } else {
-                    // A decimal source can have noncanonical storage. Normalize before indexing
-                    // rows so that every source has the same physical width. A narrowing copy
-                    // checks the precision and zeros arbitrary null payloads.
-                    let mask = decimal.validity()?.execute_mask(len, ctx)?;
-                    let copy = match_each_decimal_value_type!(decimal.values_type(), |S| {
-                        copy_to_canonical_width(decimal.buffer::<S>().as_slice(), &mask, dtype)?
-                    });
-                    Buffer::<T>::from_byte_buffer(copy.unwrap_host())
-                };
-                (data, usize::MAX)
-            };
-
-            Ok(Source {
-                data,
-                len,
-                row_mask,
-            })
-        })
+        .map(|i| prepare_source::<T>(array.value(i), dtype, ctx))
         .collect::<VortexResult<Vec<_>>>()?;
     let branches = array.array_indices().as_::<Primitive>();
     let rows = array.row_indices().as_::<Primitive>();
@@ -106,6 +74,48 @@ fn gather_values<T: NativeDecimalType>(
                 &allocator,
             )
         })
+    })
+}
+
+/// Normalizes one decimal source while retaining a single payload for a constant.
+fn prepare_source<T: NativeDecimalType>(
+    value: &ArrayRef,
+    dtype: DecimalDType,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Source<T>> {
+    let len = value.len();
+    if let Some(constant) = value.as_opt::<Constant>() {
+        let payload = match constant.scalar().as_decimal().decimal_value() {
+            Some(value) => value.cast::<T>().ok_or_else(|| {
+                vortex_err!("interleave decimal constant must fit {dtype}, got {value}")
+            })?,
+            None => T::default(),
+        };
+
+        return Ok(Source {
+            data: Buffer::full_in(payload, 1, ctx.allocator().clone()),
+            len,
+            row_mask: 0,
+        });
+    }
+
+    let decimal = value.as_::<Decimal>();
+    let data = if decimal.values_type() == T::DECIMAL_TYPE {
+        decimal.buffer::<T>()
+    } else {
+        // Decimal sources can still have noncanonical storage. A narrowing copy must check the
+        // precision and zero null slots before the gather reads the buffer.
+        let mask = decimal.validity()?.execute_mask(len, ctx)?;
+        let copy = match_each_decimal_value_type!(decimal.values_type(), |S| {
+            copy_to_canonical_width(decimal.buffer::<S>().as_slice(), &mask, dtype)?
+        });
+        Buffer::<T>::from_byte_buffer(copy.unwrap_host())
+    };
+
+    Ok(Source {
+        data,
+        len,
+        row_mask: usize::MAX,
     })
 }
 

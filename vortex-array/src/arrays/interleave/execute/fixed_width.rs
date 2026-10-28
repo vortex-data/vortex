@@ -65,11 +65,22 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use rstest::rstest;
+    use vortex_buffer::Buffer;
+    use vortex_error::VortexResult;
+
+    use super::Source;
+    use super::gather;
     use crate::memory::BufferAllocatorRef;
 
-    #[test]
-    fn rejects_out_of_bounds_selectors() {
+    #[rstest]
+    #[case::array_index(1, 0, "array index out of bounds")]
+    #[case::row_index(0, 1, "row index out of bounds")]
+    fn rejects_out_of_bounds_selectors(
+        #[case] branch: u8,
+        #[case] row: u8,
+        #[case] message: &str,
+    ) -> VortexResult<()> {
         let values = [Source {
             data: Buffer::full_in(1u32, 1, BufferAllocatorRef::statically_allocated()),
             len: 1,
@@ -77,15 +88,9 @@ mod tests {
         }];
 
         let allocator = BufferAllocatorRef::statically_allocated();
-        let error = gather(&values, &[1u8], &[0u8], &allocator).unwrap_err();
-        assert!(
-            error.to_string().contains("array index out of bounds"),
-            "{error}"
-        );
-        let error = gather(&values, &[0u8], &[1u8], &allocator).unwrap_err();
-        assert!(
-            error.to_string().contains("row index out of bounds"),
-            "{error}"
-        );
+        let error = gather(&values, &[branch], &[row], &allocator).unwrap_err();
+        assert!(error.to_string().contains(message), "{error}");
+
+        Ok(())
     }
 }

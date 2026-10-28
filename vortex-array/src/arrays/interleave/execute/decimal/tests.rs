@@ -30,7 +30,12 @@ use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 /// Executes the gather, checks its physical width and dtype, and compares it with a canonical oracle.
-fn check(values: Vec<ArrayRef>, indices: &[(u8, u64)], expected: DecimalArray) -> VortexResult<()> {
+#[track_caller]
+fn assert_interleaved(
+    values: Vec<ArrayRef>,
+    indices: &[(u8, u64)],
+    expected: DecimalArray,
+) -> VortexResult<()> {
     let branches = PrimitiveArray::from_iter(indices.iter().map(|&(branch, _)| branch));
     let rows = PrimitiveArray::from_iter(indices.iter().map(|&(_, row)| row));
     let array = InterleaveArray::try_new(values, branches.into_array(), rows.into_array())?;
@@ -87,7 +92,7 @@ fn test_decimal_interleave(
             dtype,
             output_validity,
         );
-        check(
+        assert_interleaved(
             vec![first.into_array(), second.into_array()],
             &[(1, 2), (0, 0), (0, 1), (1, 0), (0, 2), (0, 0)],
             expected,
@@ -133,7 +138,7 @@ fn test_decimal_interleave_constants(
                 Validity::NonNullable
             },
         );
-        check(
+        assert_interleaved(
             vec![constant, column],
             &[(0, 2), (1, 0), (0, 1), (0, 2)],
             expected,
@@ -167,7 +172,7 @@ fn test_decimal_interleave_mixed_stored_widths(#[case] precision: u8) -> VortexR
             dtype,
             Validity::from_iter([true, true, false, true, false]),
         );
-        check(
+        assert_interleaved(
             vec![first, second],
             &[(1, 0), (0, 1), (1, 1), (0, 0), (1, 2)],
             expected,
@@ -196,7 +201,7 @@ fn test_decimal_interleave_without_valid_values(#[case] indices: &[(u8, u64)]) -
         dtype,
         Validity::AllInvalid,
     );
-    check(vec![first, second], indices, expected)
+    assert_interleaved(vec![first, second], indices, expected)
 }
 
 #[test]
@@ -204,7 +209,7 @@ fn test_decimal_interleave_empty_sources() -> VortexResult<()> {
     let dtype = DecimalDType::new(9, 0);
     let empty = DecimalArray::new(Buffer::<i8>::empty(), dtype, Validity::NonNullable).into_array();
     let expected = DecimalArray::new(Buffer::<i32>::empty(), dtype, Validity::NonNullable);
-    check(vec![empty.clone(), empty], &[], expected)
+    assert_interleaved(vec![empty.clone(), empty], &[], expected)
 }
 
 #[test]
