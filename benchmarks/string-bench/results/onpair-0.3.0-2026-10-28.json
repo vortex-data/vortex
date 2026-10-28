@@ -1,0 +1,798 @@
+{
+  "date": "2026-10-28",
+  "cpu": "Intel Xeon 6975P-C",
+  "logical_cpu": 2,
+  "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.1\nLLVM version: 23.1.1",
+  "profile": "release_debug: opt-level=3, codegen-units=1, lto=off, debug=full",
+  "target_cpu": "default x86_64; repository force-frame-pointers config",
+  "iterations": 5,
+  "warmup": 2,
+  "runtime": "current-thread; mimalloc with benchmark allocator configuration",
+  "metric": "Vortex end-to-end write: train, encode, integer child compression, layout, in-memory serialization; MB/s of canonical uncompressed bytes",
+  "histogram_source_commit": "b17ab4e7620efe2fd244aa84db893e1d4718d088",
+  "onpair_release_0_3_0_vcs_sha": "5508afcad7b70ff8d2a025514a3cacaa28875ba9",
+  "onpair_release_0_3_0_vcs_dirty": true,
+  "onpair_release_0_3_0_matcher_source_matches_develop": true,
+  "onpair_simd_commit": "29672467c0303f5adfebd0cb98511fdf47bdf77f",
+  "variants": {
+    "published_0_2_1": "Vortex ac513ce385b84b72bf78727f73db903a29bc68d1, crates.io onpair 0.2.1",
+    "published_0_3_0": "Vortex 95bc88eb58de56f0494c02779ad42d588841fdd8, Cargo dependency replaced by crates.io onpair 0.3.0; no SIMD",
+    "published_0_3_0_histogram": "Same published 0.3.0 build plus the histogram change",
+    "simd": "Vortex 6c46ae0fad8e80586b1da15308ce2cbdf651c5ac, existing pin to OnPair PR65; AVX-512F + POPCNT, six generic Rows lanes",
+    "simd_histogram": "Same SIMD matcher plus the histogram change"
+  },
+  "histogram_change": "All-valid integer arrays of at least 1024 values use four independent bit-width counters, merged exactly. Short and nullable paths retain their existing loops. No ISA-specific intrinsics or unsafe code.",
+  "measurement_order": [
+    "published_0_2_1",
+    "published_0_3_0",
+    "published_0_3_0_histogram",
+    "simd",
+    "simd_histogram"
+  ],
+  "measurement_order_note": "Published0.2.1 data is the preceding same-machine baseline. The remaining four matrices were run in the listed order in this follow-up. Measurements never overlapped builds, tests, profiles, or other measurements.",
+  "command_per_column": "taskset -c 2 <frozen-string-bench> --columns ^<column>$ --encoders onpair,fsst --iterations 5 --warmup 2 --display-format gh-json --output-path <column>.jsonl",
+  "metadata_note": "Frozen binaries were built before their changes were committed. Raw gh-json commit_id records the checkout HEAD at build time; the variants above identify the code actually built. Each binary is retained with its SHA256. The histogram source commit records the final source, including formatting and tests.",
+  "binary_sha256": {
+    "string-bench-baseline": "94979bc6f74643429986dd1f6d07fa13bc24de0e5374addca0bdd45d6026adb4",
+    "string-bench-final": "818e8add9becb6c897992251a82e5366f77fe078b412d6f057bb8309027f7f9e",
+    "string-bench-030": "42c6c34c587f6a45e7d47253cedec672cd7c2e297ba2ff64e6f0932ad24bb0c2",
+    "string-bench-030-histogram": "d30cfbfb07b1e63d2571a8d0631128b7cb9af5314f95bb73f0eb5568d31349c1",
+    "string-bench-simd-histogram": "8f76ee2db4167341bcf52650b12552cffc4bbff1f490ed25570c2210302e39cf"
+  },
+  "controls_note": "FSST controls the dependency comparisons. The histogram change is shared integer compression code and can also affect FSST children.",
+  "workloads": [
+    {
+      "column": "amazon/book_reviews",
+      "rows": 200000,
+      "cache": "string-bench/amazon_book_reviews.parquet"
+    },
+    {
+      "column": "amazon/book_titles",
+      "rows": 158864,
+      "cache": "string-bench/amazon_book_titles.parquet"
+    },
+    {
+      "column": "clickbench/URL/shard-0",
+      "rows": 1000000,
+      "cache": "clickbench_partitioned/parquet/hits_0.parquet"
+    },
+    {
+      "column": "fineweb/text",
+      "rows": 10000,
+      "cache": "string-bench/fineweb_text.parquet"
+    },
+    {
+      "column": "news/headlines",
+      "rows": 1226258,
+      "cache": "string-bench/news_headlines.parquet"
+    },
+    {
+      "column": "tpch/l_comment",
+      "rows": 6001215,
+      "cache": "tpch/1.0/parquet/lineitem_0001.parquet"
+    },
+    {
+      "column": "twitter/sentiment140",
+      "rows": 1360000,
+      "cache": "string-bench/twitter_sentiment140.parquet"
+    }
+  ],
+  "sampling_profiles": {
+    "workload": "amazon/book_reviews; both OnPair budgets; three timed iterations, one warmup; normal read and round-trip verification retained",
+    "sampler": "Samply 1000Hz; recorder unpinned, target pinned to CPU2; CPU-weighted main-thread summary; ELF build IDs verified before offline symbolication",
+    "published_0_3_0": {
+      "build_id": "2f4c08c78b92d5a63e2dd9cc2fe57b02cf17ef15",
+      "bit_width_histogram_self_cpu_percent": 6.1
+    },
+    "simd_histogram": {
+      "build_id": "1a3d5bed81d73b297e4b0183f2d3c23d6946c293",
+      "bit_width_histogram_self_cpu_percent": 2.42,
+      "parse_batch_rank_self_cpu_percent": 42.99
+    },
+    "note": "These are whole-harness sample shares, not separately timed write-only functions. Throughput changes come from unprofiled matrices above."
+  },
+  "validation": {
+    "all_21_serialized_size_metrics_identical_across_all_five_variants": true,
+    "normal_benchmark_round_trip_verification_enabled": true,
+    "onpair_0_3_0_vs_simd_exact_dictionary_codes_and_row_offsets": "All 9956337 benchmark rows in 8192-row batches, both budgets, plus 2006 binary/empty/0x00/0xFF/random rows",
+    "fastlanes_library_tests_passed": 1044,
+    "new_histogram_reference_cases": 192,
+    "onpair_vortex_library_tests_passed": 40,
+    "string_bench_library_tests_passed": 12,
+    "fmt_and_all_target_all_feature_clippy": "Passed; vortex-fastlanes, vortex-onpair, string-bench; warnings denied"
+  },
+  "summaries": [
+    {
+      "baseline": "published_0_2_1",
+      "candidate": "published_0_3_0",
+      "encoder": "onpair-12",
+      "geometric_mean_throughput_gain_percent": 44.412712045928224,
+      "minimum_throughput_gain_percent": 25.61832954742527,
+      "maximum_throughput_gain_percent": 56.828133188406426
+    },
+    {
+      "baseline": "published_0_2_1",
+      "candidate": "published_0_3_0",
+      "encoder": "onpair-16",
+      "geometric_mean_throughput_gain_percent": 41.14549019597109,
+      "minimum_throughput_gain_percent": 17.251614617553024,
+      "maximum_throughput_gain_percent": 87.26493135952582
+    },
+    {
+      "baseline": "published_0_2_1",
+      "candidate": "published_0_3_0",
+      "encoder": "fsst",
+      "geometric_mean_throughput_gain_percent": 0.10117185490754466,
+      "minimum_throughput_gain_percent": -0.6888842977793463,
+      "maximum_throughput_gain_percent": 1.1334504492951147
+    },
+    {
+      "baseline": "published_0_3_0",
+      "candidate": "simd",
+      "encoder": "onpair-12",
+      "geometric_mean_throughput_gain_percent": 8.437135715095657,
+      "minimum_throughput_gain_percent": 5.087268732443095,
+      "maximum_throughput_gain_percent": 11.90757420894295
+    },
+    {
+      "baseline": "published_0_3_0",
+      "candidate": "simd",
+      "encoder": "onpair-16",
+      "geometric_mean_throughput_gain_percent": 10.223563545808867,
+      "minimum_throughput_gain_percent": 5.5175741789320165,
+      "maximum_throughput_gain_percent": 18.51482025350628
+    },
+    {
+      "baseline": "published_0_3_0",
+      "candidate": "simd",
+      "encoder": "fsst",
+      "geometric_mean_throughput_gain_percent": 0.329794340556,
+      "minimum_throughput_gain_percent": -0.09219525351483737,
+      "maximum_throughput_gain_percent": 0.8346602134939429
+    },
+    {
+      "baseline": "published_0_3_0",
+      "candidate": "published_0_3_0_histogram",
+      "encoder": "onpair-12",
+      "geometric_mean_throughput_gain_percent": 5.146107569655878,
+      "minimum_throughput_gain_percent": 3.47630722516028,
+      "maximum_throughput_gain_percent": 7.793311922717128
+    },
+    {
+      "baseline": "published_0_3_0",
+      "candidate": "published_0_3_0_histogram",
+      "encoder": "onpair-16",
+      "geometric_mean_throughput_gain_percent": 3.7668788991193303,
+      "minimum_throughput_gain_percent": 1.1432852544273508,
+      "maximum_throughput_gain_percent": 5.298652183259334
+    },
+    {
+      "baseline": "published_0_3_0",
+      "candidate": "published_0_3_0_histogram",
+      "encoder": "fsst",
+      "geometric_mean_throughput_gain_percent": 0.36016153840303655,
+      "minimum_throughput_gain_percent": -0.35572816234266114,
+      "maximum_throughput_gain_percent": 1.3126773403501213
+    },
+    {
+      "baseline": "simd",
+      "candidate": "simd_histogram",
+      "encoder": "onpair-12",
+      "geometric_mean_throughput_gain_percent": 6.443056246436951,
+      "minimum_throughput_gain_percent": 4.379153406130198,
+      "maximum_throughput_gain_percent": 9.66658577549624
+    },
+    {
+      "baseline": "simd",
+      "candidate": "simd_histogram",
+      "encoder": "onpair-16",
+      "geometric_mean_throughput_gain_percent": 4.028597655796862,
+      "minimum_throughput_gain_percent": 0.8508230195833466,
+      "maximum_throughput_gain_percent": 6.603058763339775
+    },
+    {
+      "baseline": "simd",
+      "candidate": "simd_histogram",
+      "encoder": "fsst",
+      "geometric_mean_throughput_gain_percent": 0.21388758727045598,
+      "minimum_throughput_gain_percent": -0.9786865956560753,
+      "maximum_throughput_gain_percent": 1.0829796915906353
+    },
+    {
+      "baseline": "published_0_3_0",
+      "candidate": "simd_histogram",
+      "encoder": "onpair-12",
+      "geometric_mean_throughput_gain_percent": 15.423801361244438,
+      "minimum_throughput_gain_percent": 9.689201440549077,
+      "maximum_throughput_gain_percent": 19.330342639227794
+    },
+    {
+      "baseline": "published_0_3_0",
+      "candidate": "simd_histogram",
+      "encoder": "onpair-16",
+      "geometric_mean_throughput_gain_percent": 14.664027442951078,
+      "minimum_throughput_gain_percent": 10.059692579006052,
+      "maximum_throughput_gain_percent": 22.926477868709362
+    },
+    {
+      "baseline": "published_0_3_0",
+      "candidate": "simd_histogram",
+      "encoder": "fsst",
+      "geometric_mean_throughput_gain_percent": 0.5443873169844293,
+      "minimum_throughput_gain_percent": -0.5030480750389921,
+      "maximum_throughput_gain_percent": 1.2271376384036525
+    },
+    {
+      "baseline": "published_0_2_1",
+      "candidate": "simd_histogram",
+      "encoder": "onpair-12",
+      "geometric_mean_throughput_gain_percent": 66.6866418922781,
+      "minimum_throughput_gain_percent": 40.08839452432837,
+      "maximum_throughput_gain_percent": 85.78988667780231
+    },
+    {
+      "baseline": "published_0_2_1",
+      "candidate": "simd_histogram",
+      "encoder": "onpair-16",
+      "geometric_mean_throughput_gain_percent": 61.8431036127961,
+      "minimum_throughput_gain_percent": 38.827504113369656,
+      "maximum_throughput_gain_percent": 112.08422172694439
+    },
+    {
+      "baseline": "published_0_2_1",
+      "candidate": "simd_histogram",
+      "encoder": "fsst",
+      "geometric_mean_throughput_gain_percent": 0.6461099386384506,
+      "minimum_throughput_gain_percent": -0.25590874067017433,
+      "maximum_throughput_gain_percent": 1.858883273971923
+    }
+  ],
+  "measurements": [
+    {
+      "column": "amazon/book_reviews",
+      "encoder": "fsst",
+      "size_percent_all_variants": 52.15388272221946,
+      "write_ms": {
+        "published_0_2_1": 691.17864,
+        "published_0_3_0": 692.883054,
+        "published_0_3_0_histogram": 692.492401,
+        "simd": 692.410737,
+        "simd_histogram": 691.271
+      },
+      "write_mbps": {
+        "published_0_2_1": 184.0,
+        "published_0_3_0": 183.55,
+        "published_0_3_0_histogram": 183.65,
+        "simd": 183.67,
+        "simd_histogram": 183.97
+      },
+      "read_ms": {
+        "published_0_2_1": 34.016933,
+        "published_0_3_0": 34.382488,
+        "published_0_3_0_histogram": 34.125152,
+        "simd": 34.32052,
+        "simd_histogram": 34.335539999999995
+      }
+    },
+    {
+      "column": "amazon/book_reviews",
+      "encoder": "onpair-12",
+      "size_percent_all_variants": 38.21234699605678,
+      "write_ms": {
+        "published_0_2_1": 1665.578787,
+        "published_0_3_0": 1062.040817,
+        "published_0_3_0_histogram": 1009.351906,
+        "simd": 959.7634889999999,
+        "simd_histogram": 896.4851729999999
+      },
+      "write_mbps": {
+        "published_0_2_1": 76.36,
+        "published_0_3_0": 119.75,
+        "published_0_3_0_histogram": 126.0,
+        "simd": 132.51,
+        "simd_histogram": 141.86
+      },
+      "read_ms": {
+        "published_0_2_1": 24.871194,
+        "published_0_3_0": 24.771043,
+        "published_0_3_0_histogram": 24.97144,
+        "simd": 24.623783,
+        "simd_histogram": 24.35606
+      }
+    },
+    {
+      "column": "amazon/book_reviews",
+      "encoder": "onpair-16",
+      "size_percent_all_variants": 37.9170583191284,
+      "write_ms": {
+        "published_0_2_1": 1487.79553,
+        "published_0_3_0": 1111.26951,
+        "published_0_3_0_histogram": 1070.9069630000001,
+        "simd": 937.662908,
+        "simd_histogram": 904.011511
+      },
+      "write_mbps": {
+        "published_0_2_1": 85.48,
+        "published_0_3_0": 114.44,
+        "published_0_3_0_histogram": 118.76,
+        "simd": 135.63,
+        "simd_histogram": 140.68
+      },
+      "read_ms": {
+        "published_0_2_1": 26.758858,
+        "published_0_3_0": 26.27909,
+        "published_0_3_0_histogram": 26.103621,
+        "simd": 26.049815,
+        "simd_histogram": 26.555895
+      }
+    },
+    {
+      "column": "amazon/book_titles",
+      "encoder": "fsst",
+      "size_percent_all_variants": 50.766433883428505,
+      "write_ms": {
+        "published_0_2_1": 74.522863,
+        "published_0_3_0": 73.68764999999999,
+        "published_0_3_0_histogram": 73.54242900000001,
+        "simd": 73.543862,
+        "simd_histogram": 73.162851
+      },
+      "write_mbps": {
+        "published_0_2_1": 143.63,
+        "published_0_3_0": 145.26,
+        "published_0_3_0_histogram": 145.54,
+        "simd": 145.54,
+        "simd_histogram": 146.3
+      },
+      "read_ms": {
+        "published_0_2_1": 3.527524,
+        "published_0_3_0": 3.403862,
+        "published_0_3_0_histogram": 3.418963,
+        "simd": 3.439491,
+        "simd_histogram": 3.397184
+      }
+    },
+    {
+      "column": "amazon/book_titles",
+      "encoder": "onpair-12",
+      "size_percent_all_variants": 44.44605552323536,
+      "write_ms": {
+        "published_0_2_1": 141.95130699999999,
+        "published_0_3_0": 95.638371,
+        "published_0_3_0_histogram": 91.30786400000001,
+        "simd": 87.33147600000001,
+        "simd_histogram": 81.90256
+      },
+      "write_mbps": {
+        "published_0_2_1": 75.4,
+        "published_0_3_0": 111.92,
+        "published_0_3_0_histogram": 117.23,
+        "simd": 122.56,
+        "simd_histogram": 130.69
+      },
+      "read_ms": {
+        "published_0_2_1": 3.000856,
+        "published_0_3_0": 3.011165,
+        "published_0_3_0_histogram": 3.081673,
+        "simd": 3.1822399999999997,
+        "simd_histogram": 3.0798750000000004
+      }
+    },
+    {
+      "column": "amazon/book_titles",
+      "encoder": "onpair-16",
+      "size_percent_all_variants": 45.63652648630661,
+      "write_ms": {
+        "published_0_2_1": 181.77627299999997,
+        "published_0_3_0": 97.069041,
+        "published_0_3_0_histogram": 93.779072,
+        "simd": 91.36892200000001,
+        "simd_histogram": 85.709475
+      },
+      "write_mbps": {
+        "published_0_2_1": 58.88,
+        "published_0_3_0": 110.27,
+        "published_0_3_0_histogram": 114.14,
+        "simd": 117.15,
+        "simd_histogram": 124.88
+      },
+      "read_ms": {
+        "published_0_2_1": 3.27516,
+        "published_0_3_0": 3.14781,
+        "published_0_3_0_histogram": 3.2184549999999996,
+        "simd": 3.283977,
+        "simd_histogram": 3.062325
+      }
+    },
+    {
+      "column": "clickbench/URL/shard-0",
+      "encoder": "fsst",
+      "size_percent_all_variants": 47.30267671830977,
+      "write_ms": {
+        "published_0_2_1": 478.779725,
+        "published_0_3_0": 482.100842,
+        "published_0_3_0_histogram": 475.854409,
+        "simd": 478.110246,
+        "simd_histogram": 476.25651899999997
+      },
+      "write_mbps": {
+        "published_0_2_1": 218.39,
+        "published_0_3_0": 216.89,
+        "published_0_3_0_histogram": 219.74,
+        "simd": 218.7,
+        "simd_histogram": 219.55
+      },
+      "read_ms": {
+        "published_0_2_1": 31.264173,
+        "published_0_3_0": 31.356099999999998,
+        "published_0_3_0_histogram": 31.027858,
+        "simd": 30.946344,
+        "simd_histogram": 31.742344999999997
+      }
+    },
+    {
+      "column": "clickbench/URL/shard-0",
+      "encoder": "onpair-12",
+      "size_percent_all_variants": 28.289171811342577,
+      "write_ms": {
+        "published_0_2_1": 811.622728,
+        "published_0_3_0": 646.10215,
+        "published_0_3_0_histogram": 617.73433,
+        "simd": 602.477872,
+        "simd_histogram": 574.215986
+      },
+      "write_mbps": {
+        "published_0_2_1": 128.83,
+        "published_0_3_0": 161.84,
+        "published_0_3_0_histogram": 169.27,
+        "simd": 173.55,
+        "simd_histogram": 182.1
+      },
+      "read_ms": {
+        "published_0_2_1": 20.208188,
+        "published_0_3_0": 19.902624,
+        "published_0_3_0_histogram": 19.900281999999997,
+        "simd": 19.820975,
+        "simd_histogram": 19.939263
+      }
+    },
+    {
+      "column": "clickbench/URL/shard-0",
+      "encoder": "onpair-16",
+      "size_percent_all_variants": 28.640909058653367,
+      "write_ms": {
+        "published_0_2_1": 838.848429,
+        "published_0_3_0": 645.941262,
+        "published_0_3_0_histogram": 620.501505,
+        "simd": 605.9538650000001,
+        "simd_histogram": 580.682287
+      },
+      "write_mbps": {
+        "published_0_2_1": 124.65,
+        "published_0_3_0": 161.88,
+        "published_0_3_0_histogram": 168.51,
+        "simd": 172.56,
+        "simd_histogram": 180.07
+      },
+      "read_ms": {
+        "published_0_2_1": 20.477544,
+        "published_0_3_0": 19.981905,
+        "published_0_3_0_histogram": 19.846748,
+        "simd": 19.597939,
+        "simd_histogram": 19.841834
+      }
+    },
+    {
+      "column": "fineweb/text",
+      "encoder": "fsst",
+      "size_percent_all_variants": 55.90197294358995,
+      "write_ms": {
+        "published_0_2_1": 280.30328399999996,
+        "published_0_3_0": 279.608767,
+        "published_0_3_0_histogram": 280.606965,
+        "simd": 278.27211600000004,
+        "simd_histogram": 281.022445
+      },
+      "write_mbps": {
+        "published_0_2_1": 108.96,
+        "published_0_3_0": 109.23,
+        "published_0_3_0_histogram": 108.84,
+        "simd": 109.75,
+        "simd_histogram": 108.68
+      },
+      "read_ms": {
+        "published_0_2_1": 7.878954,
+        "published_0_3_0": 7.916604,
+        "published_0_3_0_histogram": 7.8776660000000005,
+        "simd": 7.814374000000001,
+        "simd_histogram": 7.84967
+      }
+    },
+    {
+      "column": "fineweb/text",
+      "encoder": "onpair-12",
+      "size_percent_all_variants": 44.37700222499731,
+      "write_ms": {
+        "published_0_2_1": 795.524745,
+        "published_0_3_0": 512.4369720000001,
+        "published_0_3_0_histogram": 475.388466,
+        "simd": 480.520419,
+        "simd_histogram": 438.164839
+      },
+      "write_mbps": {
+        "published_0_2_1": 38.39,
+        "published_0_3_0": 59.6,
+        "published_0_3_0_histogram": 64.24,
+        "simd": 63.56,
+        "simd_histogram": 69.7
+      },
+      "read_ms": {
+        "published_0_2_1": 6.843382999999999,
+        "published_0_3_0": 7.075849000000001,
+        "published_0_3_0_histogram": 6.93686,
+        "simd": 6.93474,
+        "simd_histogram": 6.818248
+      }
+    },
+    {
+      "column": "fineweb/text",
+      "encoder": "onpair-16",
+      "size_percent_all_variants": 40.15548950382982,
+      "write_ms": {
+        "published_0_2_1": 674.146428,
+        "published_0_3_0": 574.957053,
+        "published_0_3_0_histogram": 568.457957,
+        "simd": 489.731646,
+        "simd_histogram": 485.60004899999996
+      },
+      "write_mbps": {
+        "published_0_2_1": 45.3,
+        "published_0_3_0": 53.12,
+        "published_0_3_0_histogram": 53.73,
+        "simd": 62.36,
+        "simd_histogram": 62.89
+      },
+      "read_ms": {
+        "published_0_2_1": 6.087949,
+        "published_0_3_0": 5.982494,
+        "published_0_3_0_histogram": 5.9957400000000005,
+        "simd": 5.966669,
+        "simd_histogram": 6.048167
+      }
+    },
+    {
+      "column": "news/headlines",
+      "encoder": "fsst",
+      "size_percent_all_variants": 43.83800517124216,
+      "write_ms": {
+        "published_0_2_1": 419.139468,
+        "published_0_3_0": 419.598184,
+        "published_0_3_0_histogram": 418.023509,
+        "simd": 416.514897,
+        "simd_histogram": 416.338981
+      },
+      "write_mbps": {
+        "published_0_2_1": 166.94,
+        "published_0_3_0": 166.75,
+        "published_0_3_0_histogram": 167.38,
+        "simd": 167.99,
+        "simd_histogram": 168.06
+      },
+      "read_ms": {
+        "published_0_2_1": 19.450848999999998,
+        "published_0_3_0": 19.482917,
+        "published_0_3_0_histogram": 19.532019000000002,
+        "simd": 19.501103999999998,
+        "simd_histogram": 19.691086
+      }
+    },
+    {
+      "column": "news/headlines",
+      "encoder": "onpair-12",
+      "size_percent_all_variants": 37.73040791346742,
+      "write_ms": {
+        "published_0_2_1": 757.41062,
+        "published_0_3_0": 507.0024829999999,
+        "published_0_3_0_histogram": 482.915104,
+        "simd": 468.705941,
+        "simd_histogram": 442.607599
+      },
+      "write_mbps": {
+        "published_0_2_1": 92.38,
+        "published_0_3_0": 138.01,
+        "published_0_3_0_histogram": 144.89,
+        "simd": 149.28,
+        "simd_histogram": 158.09
+      },
+      "read_ms": {
+        "published_0_2_1": 19.33994,
+        "published_0_3_0": 19.374834,
+        "published_0_3_0_histogram": 19.264504,
+        "simd": 19.415748999999998,
+        "simd_histogram": 19.40843
+      }
+    },
+    {
+      "column": "news/headlines",
+      "encoder": "onpair-16",
+      "size_percent_all_variants": 38.416461583641315,
+      "write_ms": {
+        "published_0_2_1": 833.572081,
+        "published_0_3_0": 515.2557340000001,
+        "published_0_3_0_histogram": 489.327948,
+        "simd": 473.282202,
+        "simd_histogram": 455.40261100000004
+      },
+      "write_mbps": {
+        "published_0_2_1": 83.94,
+        "published_0_3_0": 135.8,
+        "published_0_3_0_histogram": 142.99,
+        "simd": 147.84,
+        "simd_histogram": 153.64
+      },
+      "read_ms": {
+        "published_0_2_1": 19.357255,
+        "published_0_3_0": 19.505798000000002,
+        "published_0_3_0_histogram": 19.299087,
+        "simd": 19.478652999999998,
+        "simd_histogram": 19.666370999999998
+      }
+    },
+    {
+      "column": "tpch/l_comment",
+      "encoder": "fsst",
+      "size_percent_all_variants": 30.07840092706971,
+      "write_ms": {
+        "published_0_2_1": 1165.975797,
+        "published_0_3_0": 1162.1635720000002,
+        "published_0_3_0_histogram": 1154.6055150000002,
+        "simd": 1161.169541,
+        "simd_histogram": 1157.840754
+      },
+      "write_mbps": {
+        "published_0_2_1": 213.72,
+        "published_0_3_0": 214.42,
+        "published_0_3_0_histogram": 215.82,
+        "simd": 214.6,
+        "simd_histogram": 215.22
+      },
+      "read_ms": {
+        "published_0_2_1": 65.147752,
+        "published_0_3_0": 65.449862,
+        "published_0_3_0_histogram": 64.887487,
+        "simd": 65.085939,
+        "simd_histogram": 65.59210999999999
+      }
+    },
+    {
+      "column": "tpch/l_comment",
+      "encoder": "onpair-12",
+      "size_percent_all_variants": 22.996683357813467,
+      "write_ms": {
+        "published_0_2_1": 1440.6318250000002,
+        "published_0_3_0": 1128.014601,
+        "published_0_3_0_histogram": 1090.118725,
+        "simd": 1073.407478,
+        "simd_histogram": 1028.373428
+      },
+      "write_mbps": {
+        "published_0_2_1": 172.97,
+        "published_0_3_0": 220.91,
+        "published_0_3_0_histogram": 228.59,
+        "simd": 232.15,
+        "simd_histogram": 242.32
+      },
+      "read_ms": {
+        "published_0_2_1": 60.346686,
+        "published_0_3_0": 59.634764,
+        "published_0_3_0_histogram": 60.619396,
+        "simd": 60.33985800000001,
+        "simd_histogram": 60.543828
+      }
+    },
+    {
+      "column": "tpch/l_comment",
+      "encoder": "onpair-16",
+      "size_percent_all_variants": 23.01119751482703,
+      "write_ms": {
+        "published_0_2_1": 1447.629127,
+        "published_0_3_0": 1138.209588,
+        "published_0_3_0_histogram": 1096.2018719999999,
+        "simd": 1078.691959,
+        "simd_histogram": 1034.174784
+      },
+      "write_mbps": {
+        "published_0_2_1": 172.14,
+        "published_0_3_0": 218.93,
+        "published_0_3_0_histogram": 227.32,
+        "simd": 231.01,
+        "simd_histogram": 240.96
+      },
+      "read_ms": {
+        "published_0_2_1": 60.142311,
+        "published_0_3_0": 60.307784000000005,
+        "published_0_3_0_histogram": 59.904792,
+        "simd": 59.358662,
+        "simd_histogram": 59.416187
+      }
+    },
+    {
+      "column": "twitter/sentiment140",
+      "encoder": "fsst",
+      "size_percent_all_variants": 51.76308196157247,
+      "write_ms": {
+        "published_0_2_1": 757.474915,
+        "published_0_3_0": 757.080071,
+        "published_0_3_0_histogram": 754.912595,
+        "simd": 757.778707,
+        "simd_histogram": 749.6600410000001
+      },
+      "write_mbps": {
+        "published_0_2_1": 161.79,
+        "published_0_3_0": 161.88,
+        "published_0_3_0_histogram": 162.34,
+        "simd": 161.73,
+        "simd_histogram": 163.48
+      },
+      "read_ms": {
+        "published_0_2_1": 37.653394999999996,
+        "published_0_3_0": 36.633595,
+        "published_0_3_0_histogram": 36.990093,
+        "simd": 37.404075,
+        "simd_histogram": 36.556779
+      }
+    },
+    {
+      "column": "twitter/sentiment140",
+      "encoder": "onpair-12",
+      "size_percent_all_variants": 44.094038414346976,
+      "write_ms": {
+        "published_0_2_1": 1584.6311719999999,
+        "published_0_3_0": 1047.724894,
+        "published_0_3_0_histogram": 995.380053,
+        "simd": 936.24127,
+        "simd_histogram": 878.0037590000001
+      },
+      "write_mbps": {
+        "published_0_2_1": 77.34,
+        "published_0_3_0": 116.97,
+        "published_0_3_0_histogram": 123.12,
+        "simd": 130.9,
+        "simd_histogram": 139.58
+      },
+      "read_ms": {
+        "published_0_2_1": 33.05602,
+        "published_0_3_0": 33.432248,
+        "published_0_3_0_histogram": 33.862756,
+        "simd": 33.967815,
+        "simd_histogram": 32.888773
+      }
+    },
+    {
+      "column": "twitter/sentiment140",
+      "encoder": "onpair-16",
+      "size_percent_all_variants": 46.008546208056515,
+      "write_ms": {
+        "published_0_2_1": 1591.1352279999999,
+        "published_0_3_0": 1119.9098199999999,
+        "published_0_3_0_histogram": 1068.946562,
+        "simd": 1025.5928459999998,
+        "simd_histogram": 981.1983250000001
+      },
+      "write_mbps": {
+        "published_0_2_1": 77.02,
+        "published_0_3_0": 109.43,
+        "published_0_3_0_histogram": 114.65,
+        "simd": 119.49,
+        "simd_histogram": 124.9
+      },
+      "read_ms": {
+        "published_0_2_1": 36.406819999999996,
+        "published_0_3_0": 35.77832,
+        "published_0_3_0_histogram": 35.379695000000005,
+        "simd": 35.111602,
+        "simd_histogram": 36.089358000000004
+      }
+    }
+  ]
+}
