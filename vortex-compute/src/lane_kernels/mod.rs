@@ -20,12 +20,14 @@
 //!   the sink itself).
 //! - [`collect_bits`](mod@collect_bits) — allocating wrappers that bit-pack a predicate into a
 //!   `BitBuffer`.
+//! - [`fold`] — masked reductions via [`IndexedFoldExt`], reading null lanes as an identity.
 //!
 //! The kernels outside [`collect_bits`](mod@collect_bits) never allocate. Both kernel families
 //! handle a mask with a non-byte-aligned offset and with a logical `len` shorter than the
 //! underlying byte buffer, via [`for_each_mask_word`].
 
 pub mod collect_bits;
+pub mod fold;
 pub mod map_in_place;
 pub mod map_into;
 pub mod mask_words;
@@ -35,6 +37,7 @@ pub mod source;
 pub use collect_bits::bit_buffer_from_words;
 pub use collect_bits::collect_bits;
 pub use collect_bits::collect_zip_bits;
+pub use fold::IndexedFoldExt;
 pub use map_in_place::IndexedSinkExt;
 pub use map_into::IndexedSourceExt;
 pub use mask_words::for_each_mask_word;
