@@ -368,10 +368,12 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
         DType::Utf8(_) => constant_varbinview_value_size(
             array.len(),
             array.scalar().as_utf8().value().map(|value| value.len()),
+            opts,
         )?,
         DType::Binary(_) => constant_varbinview_value_size(
             array.len(),
             array.scalar().as_binary().value().map(|value| value.len()),
+            opts,
         )?,
         DType::List(..)
         | DType::Map(..)
@@ -392,12 +394,20 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
         .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))
 }
 
-fn constant_varbinview_value_size(len: usize, scalar_len: Option<usize>) -> VortexResult<u64> {
+fn constant_varbinview_value_size(
+    len: usize,
+    scalar_len: Option<usize>,
+    opts: UncompressedSizeOpts,
+) -> VortexResult<u64> {
     let views_size = checked_len_mul(len, size_of::<BinaryView>(), "binary view")?;
-    // Only a value too long to inline adds a data buffer, matching `constant_canonicalize`.
+    // Only a value too long to inline adds a data buffer, matching `constant_canonicalize`. Every
+    // row references it, so the exact size counts it once per row, like a canonical array's
+    // views, while the buffer canonicalization creates holds it once.
     let data_size = match scalar_len {
-        Some(scalar_len) if scalar_len > BinaryView::MAX_INLINED_SIZE => u64::try_from(scalar_len)
-            .map_err(|e| vortex_err!("Failed to convert data buffer length to u64: {e}"))?,
+        Some(scalar_len) if scalar_len > BinaryView::MAX_INLINED_SIZE => {
+            let rows = if opts.is_exact() { len } else { 1 };
+            checked_len_mul(rows, scalar_len, "binary data")?
+        }
         _ => 0,
     };
 
