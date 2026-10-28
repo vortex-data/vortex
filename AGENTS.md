@@ -251,8 +251,8 @@ ambiguous, ask the user instead of inventing a prefix.
 
 ## Commits
 
-Use the name and email of the user as the commit author. Do not use the name or email of the
-agent. Get them from the Git configuration (`git config user.name` and `git config user.email`) or
+Use the name and email of the user as the commit author. 
+Get them from the Git configuration (`git config user.name` and `git config user.email`) or
 from the identity that the user gives.
 
 All commits must be signed off by the same user in this form:
