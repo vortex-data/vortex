@@ -77,14 +77,14 @@ def download(index, destination=DESTINATION, base=BASE):
                     headers_path = Path(temporary) / 'headers'
                     body_path = Path(temporary) / 'body'
                     command = ['curl', '--silent', '--show-error', '--fail',
-                               '--connect-timeout', '10', '--max-time', '60',
+                               '--connect-timeout', '5', '--max-time', '10',
                                '--range', f'{offset}-{end}',
                                '--header', f'If-Match: {info["etag"]}',
                                '--user-agent', HEADERS['User-Agent'],
                                '--dump-header', str(headers_path),
                                '--output', str(body_path), url]
                     started = time.monotonic()
-                    result = subprocess.run(command, capture_output=True, text=True, timeout=65)
+                    result = subprocess.run(command, capture_output=True, text=True, timeout=15)
                     if result.returncode:
                         raise OSError(f'curl range failed ({result.returncode}): {result.stderr.strip()}')
                     # Proxies can prepend a CONNECT response; validate the final response block.
