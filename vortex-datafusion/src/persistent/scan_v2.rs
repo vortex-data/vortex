@@ -329,7 +329,7 @@ impl BatchRebalance {
         }
         self.pending_rows += batch.num_rows();
         self.pending.push_back(batch);
-        // Every final batch must exceed DataFusion's half-batch coalescing threshold.
+        // Keep normal-size final batches above DataFusion's half-batch coalescing threshold.
         // This reserve permits that without waiting for two full tail batches.
         let reserve = (self.batch_size / 2 + 1) * 2;
         if self.pending_rows < reserve + self.batch_size {

@@ -203,11 +203,19 @@ async fn rebalanced_tails_exceed_the_coalescing_threshold(
             batches.iter().map(RecordBatch::num_rows).sum::<usize>(),
             rows
         );
-        assert!(
-            batches
-                .iter()
-                .all(|batch| batch.num_rows() > batch_size / 2)
-        );
+        if batch_size == 2 {
+            // An odd row count cannot be partitioned entirely into two-row batches.
+            assert_eq!(
+                batches.iter().filter(|batch| batch.num_rows() == 1).count(),
+                rows % 2
+            );
+        } else {
+            assert!(
+                batches
+                    .iter()
+                    .all(|batch| batch.num_rows() > batch_size / 2)
+            );
+        }
     }
     Ok(())
 }
