@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::future;
 use std::iter;
 use std::sync::Arc;
 
@@ -35,15 +34,16 @@ use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::scalar::Scalar;
 use vortex_array::stats::StatsSet;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_panic;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutWriterContext;
 use crate::layouts::zoned::default_bounded_stat_max_bytes;
 use crate::sequence::SendableSequentialStream;
-use crate::sequence::SequenceId;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt;
 
@@ -65,14 +65,42 @@ pub fn accumulate_stats(
     ctx: &LayoutWriterContext,
 ) -> VortexResult<(FileStatsAccumulator, SendableSequentialStream)> {
     let accumulator =
-        FileStatsAccumulator::try_new(stream.dtype(), stats, session, write_legacy_stats, ctx)?;
+        FileStatsAccumulator::try_new(stream.dtype(), stats, write_legacy_stats, ctx)?;
+    let dtype = stream.dtype().clone();
+
+    // Each chunk's stats are computed into their own accumulators on a CPU task, so chunks are
+    // processed in parallel instead of serially in front of the rest of the write pipeline.
+    let chunk_accumulator = accumulator.clone();
+    let handle = session.handle();
+
+    // Every task clones one context, which shares its kernel snapshot instead of taking a new
+    // snapshot of the session for each chunk.
+    let exec_ctx = session.create_execution_ctx();
+    let concurrency = get_available_parallelism().unwrap_or(1);
+    let stream = stream
+        .map(move |item| {
+            let accumulator = chunk_accumulator.clone();
+            let mut exec_ctx = exec_ctx.clone();
+            handle.spawn_cpu(move || {
+                let (sequence_id, chunk) = item?;
+                let stats = accumulator.chunk_stats(&chunk, &mut exec_ctx)?;
+                Ok::<_, VortexError>((sequence_id, chunk, stats))
+            })
+        })
+        .buffered(concurrency);
+
+    // Merge the per-chunk stats in stream order, which keeps order-dependent aggregates correct.
+    let merge_accumulator = accumulator.clone();
     let stream = SequentialStreamAdapter::new(
-        stream.dtype().clone(),
-        stream.scan(accumulator.clone(), |acc, item| {
-            future::ready(Some(acc.process(item)))
+        dtype,
+        stream.map(move |item| {
+            let (sequence_id, chunk, stats) = item?;
+            merge_accumulator.merge(stats)?;
+            Ok((sequence_id, chunk))
         }),
     )
     .sendable();
+
     Ok((accumulator, stream))
 }
 
@@ -230,9 +258,16 @@ impl StatsAccumulator {
 
         let mut aggregates = Vec::new();
         for aggregate_fn in stats {
-            // A dtype that doesn't support a given aggregate simply fails to build an
-            // accumulator, which is silently skipped, matching this stat's absence from the
-            // result.
+            // A dtype that doesn't support a given aggregate is silently skipped, matching this
+            // stat's absence from the result. Check the dtypes first: a failed `accumulator` call
+            // builds an error, and an error captures a backtrace, which is expensive for wide
+            // schemas.
+            if aggregate_fn.return_dtype(dtype).is_none()
+                || aggregate_fn.state_dtype(dtype).is_none()
+            {
+                continue;
+            }
+
             if let Ok(accumulator) = aggregate_fn.accumulator(dtype) {
                 aggregates.push((aggregate_fn.clone(), accumulator));
             }
@@ -244,6 +279,18 @@ impl StatsAccumulator {
     fn push_chunk(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
         for (_, accumulator) in &mut self.aggregates {
             accumulator.accumulate(array, ctx)?;
+        }
+        Ok(())
+    }
+
+    /// Drains the state of `other`, built for the same dtype and aggregates, into `self`.
+    fn merge_from(&mut self, other: &mut Self) -> VortexResult<()> {
+        for ((_, accumulator), (_, other)) in self
+            .aggregates
+            .iter_mut()
+            .zip_eq(other.aggregates.iter_mut())
+        {
+            accumulator.merge_from(other.as_mut())?;
         }
         Ok(())
     }
@@ -345,6 +392,11 @@ enum StatsNode {
     Leaf(StatsAccumulator),
     /// A dtype that does not support file stats (e.g. [`DType::Variant`]); contributes no entries.
     Skipped,
+    /// Stats accumulated only for the legacy top-level-only layout; contributes no nested entries.
+    ///
+    /// Used for the own stats of a non-nullable top-level struct field, which the nested layout
+    /// doesn't record but the legacy layout does.
+    LegacyOnly(StatsAccumulator),
     /// A subtree beneath a nullable struct, which contributes `entries` entries that record no
     /// aggregates.
     ///
@@ -372,6 +424,33 @@ enum StatsNode {
 }
 
 impl StatsNode {
+    /// Builds the root node for a file of `dtype`.
+    fn build_root(
+        dtype: &DType,
+        stats: Option<&[AggregateFnRef]>,
+        write_legacy_stats: bool,
+    ) -> Self {
+        let mut root = Self::build(dtype, stats);
+
+        // The legacy layout records each top-level field's stats over its own dtype. The nested
+        // layout already accumulates those for every top-level field except a non-nullable struct,
+        // whose own stats are only accumulated for the legacy layout.
+        if write_legacy_stats
+            && let (Self::Container { children, .. }, Some(struct_fields)) =
+                (&mut root, dtype.as_struct_fields_opt())
+        {
+            for ((_, child), field_dtype) in children.iter_mut().zip_eq(struct_fields.fields()) {
+                if let Self::Container { own, .. } = child
+                    && matches!(**own, Self::Skipped)
+                {
+                    **own = Self::LegacyOnly(StatsAccumulator::new(&field_dtype, stats));
+                }
+            }
+        }
+
+        root
+    }
+
     fn build(dtype: &DType, stats: Option<&[AggregateFnRef]>) -> Self {
         match dtype.as_struct_fields_opt() {
             Some(struct_fields) => {
@@ -408,50 +487,58 @@ impl StatsNode {
         }
     }
 
-    fn push_chunk(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
-        match self {
-            Self::Skipped | Self::Unrecorded { .. } => Ok(()),
-            Self::Leaf(acc) => acc.push_chunk(array, ctx),
-            Self::Container { .. } => {
-                let struct_array = array.clone().execute::<StructArray>(ctx)?;
-                self.push_struct_chunk(array, &struct_array, ctx)
-            }
-        }
-    }
-
-    /// Pushes a chunk into a `Container` node given an already-executed `StructArray` for `array`.
-    ///
-    /// Lets callers that already had to execute the chunk to a `StructArray` for another purpose
-    /// (e.g. [`FileStatsAccumulator::process`], which also feeds the legacy per-top-level-field
-    /// accumulators from the same execution) avoid doing so a second time.
+    /// Pushes a chunk of this node's dtype into its accumulators.
     ///
     /// `Container` is only ever built for `DType::Struct` today, so every child is addressed by
     /// [`Field::Name`] and extracted via [`StructArrayExt::iter_unmasked_fields`]. A future `List`/
     /// `Map` container would need a different extraction here (e.g. flattened elements, or
     /// derived per-row shape arrays), dispatched per child's [`Field`] kind.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `self` is not `Self::Container`.
-    fn push_struct_chunk(
-        &mut self,
-        array: &ArrayRef,
-        struct_array: &StructArray,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        let Self::Container { children, own } = self else {
-            vortex_panic!("push_struct_chunk is only called on Container nodes");
-        };
-        // The container's own `ArrayRef` already carries the validity needed to compute its own
-        // stats (e.g. null count), so we push it directly rather than building a synthetic array.
-        own.push_chunk(array, ctx)?;
-        for ((_, child), field) in children
-            .iter_mut()
-            .zip_eq(struct_array.iter_unmasked_fields())
-        {
-            child.push_chunk(field, ctx)?;
+    fn push_chunk(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+        match self {
+            Self::Skipped | Self::Unrecorded { .. } => Ok(()),
+            Self::Leaf(acc) | Self::LegacyOnly(acc) => acc.push_chunk(array, ctx),
+            Self::Container { children, own } => {
+                // The container's own `ArrayRef` already carries the validity needed to compute
+                // its own stats (e.g. null count), so we push it directly rather than building a
+                // synthetic array.
+                own.push_chunk(array, ctx)?;
+                let struct_array = array.clone().execute::<StructArray>(ctx)?;
+                for ((_, child), field) in children
+                    .iter_mut()
+                    .zip_eq(struct_array.iter_unmasked_fields())
+                {
+                    child.push_chunk(field, ctx)?;
+                }
+                Ok(())
+            }
         }
-        Ok(())
+    }
+
+    /// Drains the state of `other`, a node built for the same dtype and aggregates, into `self`.
+    fn merge_from(&mut self, other: &mut Self) -> VortexResult<()> {
+        match (self, other) {
+            (Self::Skipped, Self::Skipped) | (Self::Unrecorded { .. }, Self::Unrecorded { .. }) => {
+                Ok(())
+            }
+            (Self::Leaf(acc), Self::Leaf(other))
+            | (Self::LegacyOnly(acc), Self::LegacyOnly(other)) => acc.merge_from(other),
+            (
+                Self::Container { children, own },
+                Self::Container {
+                    children: other_children,
+                    own: other_own,
+                },
+            ) => {
+                own.merge_from(other_own)?;
+                for ((_, child), (_, other)) in
+                    children.iter_mut().zip_eq(other_children.iter_mut())
+                {
+                    child.merge_from(other)?;
+                }
+                Ok(())
+            }
+            _ => vortex_bail!("Cannot merge file stats nodes of different shapes"),
+        }
     }
 
     /// Appends this node's aggregates that `allowed` permits, in the same post-order as
@@ -462,7 +549,7 @@ impl StatsNode {
         out: &mut Vec<AggregateStats>,
     ) -> VortexResult<()> {
         match self {
-            Self::Skipped => Ok(()),
+            Self::Skipped | Self::LegacyOnly(_) => Ok(()),
             Self::Unrecorded { entries } => {
                 out.extend(iter::repeat_n(AggregateStats::default(), *entries));
                 Ok(())
@@ -479,30 +566,38 @@ impl StatsNode {
             }
         }
     }
+
+    /// Returns this node's stats over its own, undecomposed dtype, as the legacy layout records
+    /// them for a top-level field.
+    fn legacy_aggregate_stats(&self) -> VortexResult<AggregateStats> {
+        match self {
+            Self::Skipped | Self::Unrecorded { .. } => Ok(AggregateStats::default()),
+            Self::Leaf(acc) | Self::LegacyOnly(acc) => acc.aggregate_stats(|_| true),
+            Self::Container { own, .. } => own.legacy_aggregate_stats(),
+        }
+    }
 }
 
 /// An array stream processor that computes aggregate statistics for every field, recursing into
 /// nested (possibly nullable) structs. See [`postorder_stats_layout`] for the entry ordering.
 ///
-/// Alongside `root`'s post-order nested layout, this also maintains a `legacy` accumulation
-/// covering only the top-level struct fields (or the whole array, for a non-struct root),
-/// matching the layout file stats had before nested struct support: one entry per top-level
-/// field, with no recursion into nested structs. When `write_legacy_stats` is `false`, `legacy`
-/// keeps that shape but records nothing, and is never accumulated into.
+/// The same accumulators also produce the legacy layout covering only the top-level struct fields
+/// (or the whole array, for a non-struct root), matching the layout file stats had before nested
+/// struct support: one entry per top-level field, with no recursion into nested structs. When
+/// `write_legacy_stats` is `false`, the legacy layout keeps that shape but records nothing.
 #[derive(Clone)]
 pub struct FileStatsAccumulator {
     root: Arc<Mutex<StatsNode>>,
-    legacy: Arc<Mutex<Vec<StatsAccumulator>>>,
+    dtype: DType,
+    stats: Option<Arc<[AggregateFnRef]>>,
     write_legacy_stats: bool,
     writer_ctx: LayoutWriterContext,
-    ctx: Arc<Mutex<ExecutionCtx>>,
 }
 
 impl FileStatsAccumulator {
     fn try_new(
         dtype: &DType,
         stats: Option<Arc<[AggregateFnRef]>>,
-        session: &VortexSession,
         write_legacy_stats: bool,
         writer_ctx: &LayoutWriterContext,
     ) -> VortexResult<Self> {
@@ -512,67 +607,29 @@ impl FileStatsAccumulator {
             }
         }
 
-        let root = Arc::new(Mutex::new(StatsNode::build(dtype, stats.as_deref())));
-
-        // Readers that predate nested stats reject a file whose legacy layout doesn't have one entry
-        // per top-level field, so entries that aren't recorded are still written, empty.
-        let legacy = Arc::new(Mutex::new(match dtype.as_struct_fields_opt() {
-            Some(struct_fields) => {
-                // The fields of a nullable root aren't recorded, like `StatsNode::Unrecorded`.
-                let record = write_legacy_stats && !dtype.is_nullable();
-                struct_fields
-                    .fields()
-                    .map(|field_dtype| {
-                        if record {
-                            StatsAccumulator::new(&field_dtype, stats.as_deref())
-                        } else {
-                            StatsAccumulator::empty()
-                        }
-                    })
-                    .collect()
-            }
-            None if write_legacy_stats => vec![StatsAccumulator::new(dtype, stats.as_deref())],
-            None => vec![StatsAccumulator::empty()],
-        }));
+        let root = StatsNode::build_root(dtype, stats.as_deref(), write_legacy_stats);
 
         Ok(Self {
-            root,
-            legacy,
+            root: Arc::new(Mutex::new(root)),
+            dtype: dtype.clone(),
+            stats,
             write_legacy_stats,
             writer_ctx: writer_ctx.clone(),
-            ctx: Arc::new(Mutex::new(session.create_execution_ctx())),
         })
     }
 
-    fn process(
-        &self,
-        chunk: VortexResult<(SequenceId, ArrayRef)>,
-    ) -> VortexResult<(SequenceId, ArrayRef)> {
-        let (sequence_id, chunk) = chunk?;
-        let mut ctx = self.ctx.lock();
-        if chunk.dtype().is_struct() {
-            let struct_chunk = chunk.clone().execute::<StructArray>(&mut ctx)?;
-            // In the future we should avoid computing stats twice.
-            if self.write_legacy_stats {
-                for (acc, field) in self
-                    .legacy
-                    .lock()
-                    .iter_mut()
-                    .zip_eq(struct_chunk.iter_unmasked_fields())
-                {
-                    acc.push_chunk(field, &mut ctx)?;
-                }
-            }
-            self.root
-                .lock()
-                .push_struct_chunk(&chunk, &struct_chunk, &mut ctx)?;
-        } else {
-            if self.write_legacy_stats {
-                self.legacy.lock()[0].push_chunk(&chunk, &mut ctx)?;
-            }
-            self.root.lock().push_chunk(&chunk, &mut ctx)?;
-        }
-        Ok((sequence_id, chunk))
+    /// Computes the stats of one chunk into a new tree of accumulators, to [merge](Self::merge)
+    /// later.
+    fn chunk_stats(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<StatsNode> {
+        let mut node =
+            StatsNode::build_root(&self.dtype, self.stats.as_deref(), self.write_legacy_stats);
+        node.push_chunk(chunk, ctx)?;
+        Ok(node)
+    }
+
+    /// Merges the stats of the chunk that follows all chunks merged so far.
+    fn merge(&self, mut chunk_stats: StatsNode) -> VortexResult<()> {
+        self.root.lock().merge_from(&mut chunk_stats)
     }
 
     /// Returns the accumulated aggregates of every entry in the post-order nested layout (see
@@ -594,10 +651,25 @@ impl FileStatsAccumulator {
     /// The legacy `ArrayStats` format has a fixed slot per [`Stat`] rather than open-ended
     /// aggregates, so it isn't restricted by the writer context.
     pub fn legacy_aggregate_stats(&self) -> VortexResult<Vec<AggregateStats>> {
-        self.legacy
-            .lock()
-            .iter()
-            .map(|acc| acc.aggregate_stats(|_| true))
+        let root = self.root.lock();
+        // Readers that predate nested stats reject a file whose legacy layout doesn't have one
+        // entry per top-level field, so entries that aren't recorded are still written, empty. The
+        // fields of a nullable root are `StatsNode::Unrecorded`, so they come out empty too.
+        let fields = match &*root {
+            StatsNode::Container { children, .. } => {
+                children.iter().map(|(_, child)| child).collect()
+            }
+            node => vec![node],
+        };
+        fields
+            .into_iter()
+            .map(|node| {
+                if self.write_legacy_stats {
+                    node.legacy_aggregate_stats()
+                } else {
+                    Ok(AggregateStats::default())
+                }
+            })
             .collect()
     }
 }
@@ -622,11 +694,21 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
+    use vortex_error::vortex_panic;
     use vortex_utils::aliases::hash_set::HashSet;
 
     use super::*;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    /// Pushes `chunk` through `acc` the way the write stream does.
+    fn push(
+        acc: &FileStatsAccumulator,
+        chunk: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        acc.merge(acc.chunk_stats(chunk, ctx)?)
+    }
 
     fn stats_set(acc: &StatsAccumulator) -> VortexResult<StatsSet> {
         Ok(acc.aggregate_stats(|_| true)?.to_stats_set())
@@ -999,7 +1081,7 @@ mod tests {
     fn legacy_aggregate_stats_cover_only_top_level_fields() -> VortexResult<()> {
         // The legacy accumulation must have exactly one entry per top-level field, built against
         // that field's own dtype without recursing into it, even though it's a nested struct.
-        let session = VortexSession::empty();
+        let mut exec_ctx = SESSION.create_execution_ctx();
         let inner_dtype = DType::struct_([("b", i32_dtype())], Nullability::Nullable);
         let dtype = DType::struct_([("a", inner_dtype)], Nullability::NonNullable);
 
@@ -1010,7 +1092,6 @@ mod tests {
                 agg(Stat::Min),
                 agg(Stat::Max),
             ])),
-            &session,
             true,
             &LayoutWriterContext::new(ArrayContext::empty()),
         )?;
@@ -1022,8 +1103,7 @@ mod tests {
         let outer = StructArray::new(FieldNames::from(["a"]), [inner], 3, Validity::NonNullable)
             .into_array();
 
-        let (mut ptr, _eof) = SequenceId::root().split();
-        acc.process(Ok((ptr.advance(), outer)))?;
+        push(&acc, &outer, &mut exec_ctx)?;
 
         let legacy = acc.legacy_aggregate_stats()?;
         assert_eq!(legacy.len(), 1);
@@ -1037,14 +1117,47 @@ mod tests {
     }
 
     #[test]
+    fn legacy_aggregate_stats_record_non_nullable_struct_field() -> VortexResult<()> {
+        // The nested layout has no entry for a non-nullable struct's own stats, but the legacy
+        // layout still records them for a top-level field.
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        let inner_dtype = DType::struct_([("b", i32_dtype())], Nullability::NonNullable);
+        let dtype = DType::struct_([("a", inner_dtype)], Nullability::NonNullable);
+
+        let acc = FileStatsAccumulator::try_new(
+            &dtype,
+            Some(Arc::from([agg(Stat::NullCount)])),
+            true,
+            &LayoutWriterContext::new(ArrayContext::empty()),
+        )?;
+
+        let b = buffer![1i32, 2, 3].into_array();
+        let inner =
+            StructArray::new(FieldNames::from(["b"]), [b], 3, Validity::NonNullable).into_array();
+        let outer = StructArray::new(FieldNames::from(["a"]), [inner], 3, Validity::NonNullable)
+            .into_array();
+
+        push(&acc, &outer, &mut exec_ctx)?;
+
+        let legacy = acc.legacy_aggregate_stats()?;
+        assert_eq!(legacy.len(), 1);
+        assert_eq!(
+            legacy[0].get(&agg(Stat::NullCount)),
+            Precision::exact(Scalar::from(0u64))
+        );
+        // Only `a.b` has a nested entry.
+        assert_eq!(acc.aggregate_stats()?.len(), 1);
+        Ok(())
+    }
+
+    #[test]
     fn legacy_aggregate_stats_of_nullable_root_are_unrecorded() -> VortexResult<()> {
-        let session = VortexSession::empty();
+        let mut exec_ctx = SESSION.create_execution_ctx();
         let dtype = DType::struct_([("a", i32_dtype())], Nullability::Nullable);
 
         let acc = FileStatsAccumulator::try_new(
             &dtype,
             Some(Arc::from([agg(Stat::NullCount), agg(Stat::Max)])),
-            &session,
             true,
             &LayoutWriterContext::new(ArrayContext::empty()),
         )?;
@@ -1053,8 +1166,7 @@ mod tests {
         let validity = Validity::Array(BoolArray::from_iter([true, false, true]).into_array());
         let root = StructArray::new(FieldNames::from(["a"]), [a], 3, validity).into_array();
 
-        let (mut ptr, _eof) = SequenceId::root().split();
-        acc.process(Ok((ptr.advance(), root)))?;
+        push(&acc, &root, &mut exec_ctx)?;
 
         let legacy = acc.legacy_aggregate_stats()?;
         assert_eq!(legacy.len(), 1);
@@ -1072,17 +1184,15 @@ mod tests {
     ) -> VortexResult<()> {
         // Readers that predate nested stats reject a legacy layout without one entry per
         // top-level field, so excluding legacy stats keeps the entries and records nothing.
-        let session = VortexSession::empty();
+        let mut exec_ctx = SESSION.create_execution_ctx();
         let acc = FileStatsAccumulator::try_new(
             &dtype,
             Some(Arc::from([agg(Stat::Min), agg(Stat::Max)])),
-            &session,
             false,
             &LayoutWriterContext::new(ArrayContext::empty()),
         )?;
 
-        let (mut ptr, _eof) = SequenceId::root().split();
-        acc.process(Ok((ptr.advance(), chunk)))?;
+        push(&acc, &chunk, &mut exec_ctx)?;
 
         let legacy = acc.legacy_aggregate_stats()?;
         assert_eq!(legacy.len(), top_level_fields);
@@ -1163,26 +1273,21 @@ mod tests {
 
     #[test]
     fn forbidden_aggregates_are_gated() -> VortexResult<()> {
-        let session = VortexSession::empty();
+        let mut exec_ctx = SESSION.create_execution_ctx();
         let dtype = DType::struct_([("a", i32_dtype())], Nullability::NonNullable);
         let ctx = LayoutWriterContext::new(ArrayContext::empty())
             .with_allowed_aggregates(HashSet::from_iter([Min.id(), Max.id(), NanCount.id()]));
 
         // An explicitly requested aggregate the context forbids fails the write.
-        let error = FileStatsAccumulator::try_new(
-            &dtype,
-            Some(Arc::from([agg(Stat::Sum)])),
-            &session,
-            true,
-            &ctx,
-        )
-        .err()
-        .vortex_expect("Sum is not permitted");
+        let error =
+            FileStatsAccumulator::try_new(&dtype, Some(Arc::from([agg(Stat::Sum)])), true, &ctx)
+                .err()
+                .vortex_expect("Sum is not permitted");
         assert!(error.to_string().contains("not permitted by ctx"));
 
         // The defaults leave a forbidden aggregate out of the nested aggregates, but the legacy
         // stats keep it.
-        let acc = FileStatsAccumulator::try_new(&dtype, None, &session, true, &ctx)?;
+        let acc = FileStatsAccumulator::try_new(&dtype, None, true, &ctx)?;
         let chunk = StructArray::new(
             FieldNames::from(["a"]),
             [buffer![1i32, 2, 3].into_array()],
@@ -1190,8 +1295,7 @@ mod tests {
             Validity::NonNullable,
         )
         .into_array();
-        let (mut ptr, _eof) = SequenceId::root().split();
-        acc.process(Ok((ptr.advance(), chunk)))?;
+        push(&acc, &chunk, &mut exec_ctx)?;
 
         let aggregates = acc.aggregate_stats()?;
         assert!(
@@ -1215,12 +1319,11 @@ mod tests {
 
     #[test]
     fn defaults_do_not_record_sum() -> VortexResult<()> {
-        let session = VortexSession::empty();
+        let mut exec_ctx = SESSION.create_execution_ctx();
         let dtype = DType::struct_([("a", i32_dtype())], Nullability::NonNullable);
         let acc = FileStatsAccumulator::try_new(
             &dtype,
             None,
-            &session,
             true,
             &LayoutWriterContext::new(ArrayContext::empty()),
         )?;
@@ -1231,8 +1334,7 @@ mod tests {
             Validity::NonNullable,
         )
         .into_array();
-        let (mut ptr, _eof) = SequenceId::root().split();
-        acc.process(Ok((ptr.advance(), chunk)))?;
+        push(&acc, &chunk, &mut exec_ctx)?;
 
         let sum = agg(Stat::Sum);
         assert!(acc.aggregate_stats()?[0].get(&sum).is_absent());

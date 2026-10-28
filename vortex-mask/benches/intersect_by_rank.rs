@@ -98,12 +98,16 @@ fn create_bernoulli_mask(rng: &mut StdRng, len: usize, density: f64) -> Mask {
     ))
 }
 
-fn create_random_mask(len: usize, selectivity: f64) -> Mask {
-    Mask::from_buffer(BitBuffer::from_iter((0..len).map(|i| {
+fn create_random_bits(len: usize, selectivity: f64) -> BitBuffer {
+    BitBuffer::from_iter((0..len).map(|i| {
         #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let threshold = (selectivity * 1000.0) as usize;
         (i * 7 + 13) % 1000 < threshold
-    })))
+    }))
+}
+
+fn create_random_mask(len: usize, selectivity: f64) -> Mask {
+    Mask::from_buffer(create_random_bits(len, selectivity))
 }
 
 fn create_random_indices_mask(len: usize, selectivity: f64) -> Mask {
@@ -135,13 +139,6 @@ fn create_fixture(size: usize, pattern: &str) -> (Mask, Mask) {
         }
         _ => unreachable!(),
     }
-}
-
-fn create_sparse_fixture(size: usize, selectivity: f64) -> (Mask, Mask) {
-    let base = create_random_mask(size, selectivity);
-    let rank_len = base.true_count();
-    let rank = create_random_mask(rank_len, 0.5);
-    (base, rank)
 }
 
 fn create_density_matrix_fixture(
@@ -193,9 +190,15 @@ fn intersect_by_rank(bencher: Bencher, (size, pattern): (usize, &str)) {
 /// Sparse base masks (varying selectivity)
 #[divan::bench(args = SPARSE_ARGS)]
 fn sparse(bencher: Bencher, (size, selectivity, _name): (usize, f64, &str)) {
-    let (base, rank) = create_sparse_fixture(size, selectivity);
+    let base_bits = create_random_bits(size, selectivity);
+    let rank_bits = create_random_bits(base_bits.true_count(), 0.5);
     bencher
-        .with_inputs(|| (&base, &rank))
+        .with_inputs(|| {
+            (
+                Mask::from_buffer(base_bits.clone()),
+                Mask::from_buffer(rank_bits.clone()),
+            )
+        })
         .bench_refs(|(base, rank)| base.intersect_by_rank(rank));
 }
 
@@ -211,9 +214,10 @@ fn density_matrix(bencher: Bencher, (self_density, mask_density, _name): (f64, f
 /// Density matrix where the rank mask is backed by cached indices.
 #[divan::bench(args = RANK_INDICES_ARGS)]
 fn rank_indices(bencher: Bencher, (self_density, mask_density, _name): (f64, f64, &str)) {
-    let (base, rank) = create_rank_indices_fixture(100_000, self_density, mask_density);
+    let base_bits = create_random_bits(100_000, self_density);
+    let rank = create_random_indices_mask(base_bits.true_count(), mask_density);
     bencher
-        .with_inputs(|| (&base, &rank))
+        .with_inputs(|| (Mask::from_buffer(base_bits.clone()), &rank))
         .bench_refs(|(base, rank)| base.intersect_by_rank(rank));
 }
 

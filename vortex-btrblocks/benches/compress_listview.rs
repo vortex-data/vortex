@@ -24,6 +24,7 @@ mod benchmarks {
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::dtype::FieldNames;
+    use vortex_array::expr::stats::Stat;
     use vortex_array::memory::MemorySession;
     use vortex_array::optimizer::kernels::KernelSession;
     use vortex_array::session::ArraySession;
@@ -193,6 +194,15 @@ mod benchmarks {
         Overlapping,
     }
 
+    fn clear_stats(array: &ArrayRef) {
+        for stat in enum_iterator::all::<Stat>() {
+            array.statistics().clear(stat);
+        }
+        for child in array.children_iter() {
+            clear_stats(child);
+        }
+    }
+
     #[divan::bench(args = [OffsetLayout::Zctl, OffsetLayout::Overlapping])]
     fn compress_listview(bencher: Bencher, layout: OffsetLayout) {
         let array = build_nested_listview(NUM_ROWS, layout);
@@ -201,7 +211,10 @@ mod benchmarks {
             .unrestricted()
             .build();
         bencher
-            .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+            .with_inputs(|| {
+                clear_stats(&array);
+                (&array, SESSION.create_execution_ctx())
+            })
             .input_counter(|_| ItemsCount::new(NUM_ROWS))
             .input_counter(move |_| BytesCount::new(nbytes as usize))
             .bench_refs(|(array, ctx)| compressor.compress(array, ctx).unwrap());

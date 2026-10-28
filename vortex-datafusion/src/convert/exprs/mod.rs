@@ -593,7 +593,7 @@ impl ExpressionConverter for DefaultExpressionConverter {
 }
 
 /// Whether evaluating `expr` cannot fail, so Vortex may evaluate it on rows DataFusion skips.
-fn is_infallible(expr: &Expression) -> bool {
+pub(crate) fn is_infallible(expr: &Expression) -> bool {
     expr.as_scalar()
         .is_none_or(|scalar_fn| scalar_fn.signature().is_infallible())
         && expr.children().iter().all(is_infallible)

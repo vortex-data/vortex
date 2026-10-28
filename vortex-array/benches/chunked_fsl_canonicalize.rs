@@ -36,13 +36,13 @@ static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
 
 /// Number of lists in each chunk.
-const LISTS_PER_CHUNK: usize = 1_000;
+const LISTS_PER_CHUNK: usize = 128;
 
 /// Number of chunks in the source array.
 const NUM_CHUNKS: &[usize] = &[2, 8, 32];
 
 /// Fixed size list lengths (elements per list).
-const LIST_SIZES: &[usize] = &[16, 256, 1024];
+const LIST_SIZES: &[usize] = &[16, 256];
 
 /// Creates a `FixedSizeListArray` with the given list size and number of lists.
 fn create_fsl(list_size: usize, num_lists: usize) -> FixedSizeListArray {

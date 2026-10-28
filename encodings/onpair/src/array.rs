@@ -145,7 +145,9 @@ struct OnPairDictionaryStorage {
     offsets: Buffer<u32>,
 }
 
-impl DictionaryStorage<u32> for OnPairDictionaryStorage {
+// SAFETY: `ByteBuffer` and `Buffer<u32>` are immutable and reference-counted. Every accessor
+// returns the same slice across calls and moves, and a clone shares the same contents.
+unsafe impl DictionaryStorage<u32> for OnPairDictionaryStorage {
     #[inline]
     fn bytes(&self) -> &[u8] {
         self.bytes.as_slice()

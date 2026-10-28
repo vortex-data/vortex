@@ -81,17 +81,27 @@ fn cast_u32_to_u8(bencher: Bencher, n: usize) {
         });
 }
 
-/// Sign-change cast i32 → u32. Values are non-negative so the kernel succeeds
-/// but still pays the per-lane `try_from` check.
+/// Sign-change cast i32 -> u32. Values are non-negative so min/max range scan proves
+/// they fit and cast reinterprets the buffer in O(1)
 #[divan::bench(args = SIZES)]
 fn cast_i32_to_u32(bencher: Bencher, n: usize) {
     let mut rng = StdRng::seed_from_u64(42);
-    let arr = PrimitiveArray::from_option_iter(
+    let parts = PrimitiveArray::from_option_iter(
         (0..n).map(|_| rng.random_bool(0.7).then(|| rng.random_range(0..i32::MAX))),
     )
-    .into_array();
+    .into_data_parts();
     bencher
-        .with_inputs(|| (arr.clone(), SESSION.create_execution_ctx()))
+        .with_inputs(|| {
+            (
+                PrimitiveArray::from_buffer_handle(
+                    parts.buffer.clone(),
+                    parts.ptype,
+                    parts.validity.clone(),
+                )
+                .into_array(),
+                SESSION.create_execution_ctx(),
+            )
+        })
         .bench_refs(|(a, ctx)| {
             a.cast(DType::Primitive(PType::U32, Nullability::Nullable))
                 .unwrap()

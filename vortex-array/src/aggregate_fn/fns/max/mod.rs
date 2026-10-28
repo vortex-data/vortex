@@ -18,6 +18,7 @@ use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::bounded_max::BoundedMax;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::columnar_min_max;
+use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::fns::min_max::nan_scalar;
 use crate::aggregate_fn::fns::min_max::scalar_is_nan;
 use crate::dtype::DType;
@@ -175,13 +176,17 @@ impl AggregateFnVTable for Max {
         args: AggregateArgs<'_, Self::Options>,
         partial: &mut Self::Partial,
         batch: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
-        // NaN-aware shortcircuits only apply to the NaN-including float maximum; everything else
-        // takes the default dispatch path.
         if args.options.skip_nans || !args.dtype.is_float() {
-            return Ok(false);
+            // `min_max` computes both extrema in one pass and caches both on `batch`, so a
+            // `Min` over the same batch reads the cached value instead of a second scan.
+            if let Some(result) = min_max(batch, ctx, *args.options)? {
+                partial.merge(args, result.max);
+            }
+            return Ok(true);
         }
+
         match batch.statistics().get_as::<u64>(Stat::NaNCount) {
             Precision::Exact(0) => {
                 // NaN-free batch: the cached NaN-skipping maximum (if any) is valid. `to_scalar`
