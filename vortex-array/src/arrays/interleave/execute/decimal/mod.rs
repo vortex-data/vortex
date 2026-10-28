@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Execution for decimal [`Interleave`](super::super::Interleave) values.
+//! Execution for decimal [`Interleave`] values.
 //!
 //! Sources can use different stored widths for the same logical dtype. Decimal execution
 //! normalizes them to the logical canonical width before gathering rows.
@@ -103,8 +103,9 @@ fn prepare_source<T: NativeDecimalType>(
     let data = if decimal.values_type() == T::DECIMAL_TYPE {
         decimal.buffer::<T>()
     } else {
-        // Decimal sources can still have noncanonical storage. A narrowing copy must check the
-        // precision and zero null slots before the gather reads the buffer.
+        // A source can still store its values at a width other than the canonical width of its
+        // dtype (#10701). The copy widens such values, or checks their precision and narrows them
+        // with zeros in the null slots.
         let mask = decimal.validity()?.execute_mask(len, ctx)?;
         let copy = match_each_decimal_value_type!(decimal.values_type(), |S| {
             copy_to_canonical_width(decimal.buffer::<S>().as_slice(), &mask, dtype)?

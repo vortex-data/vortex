@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use rstest::rstest;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
@@ -29,6 +31,8 @@ use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
 /// Executes the gather, checks its physical width and dtype, and compares it with a canonical oracle.
 #[track_caller]
 fn assert_interleaved(
@@ -39,7 +43,7 @@ fn assert_interleaved(
     let branches = PrimitiveArray::from_iter(indices.iter().map(|&(branch, _)| branch));
     let rows = PrimitiveArray::from_iter(indices.iter().map(|&(_, row)| row));
     let array = InterleaveArray::try_new(values, branches.into_array(), rows.into_array())?;
-    let mut ctx = VortexSession::empty().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let output = array.into_array().execute::<DecimalArray>(&mut ctx)?;
     assert_eq!(
         output.values_type(),
@@ -229,7 +233,7 @@ fn test_decimal_interleave_executes_lazy_children() -> VortexResult<()> {
         Validity::NonNullable,
     )
     .into_array();
-    let mut ctx = VortexSession::empty().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     assert_arrays_eq!(interleaved, expected, &mut ctx);
 
     Ok(())
@@ -262,7 +266,7 @@ fn test_decimal_interleave_rejects_out_of_bounds_selectors(
     )?
     .into_array();
     let error = array
-        .execute::<DecimalArray>(&mut VortexSession::empty().create_execution_ctx())
+        .execute::<DecimalArray>(&mut SESSION.create_execution_ctx())
         .unwrap_err();
     assert!(error.to_string().contains(message), "{error}");
 
@@ -281,7 +285,7 @@ fn test_decimal_interleave_rejects_wide_values_outside_precision() -> VortexResu
     )?
     .into_array();
     let error = array
-        .execute::<DecimalArray>(&mut VortexSession::empty().create_execution_ctx())
+        .execute::<DecimalArray>(&mut SESSION.create_execution_ctx())
         .unwrap_err();
     assert!(error.to_string().contains("precision"), "{error}");
 
