@@ -8,19 +8,13 @@
 
 name: Benchmark Compare
 run-name: >-
-  Bench compare ${{ inputs.head_ref || (github.event_name == 'push' && 'ji/duckdb-v2-scan-driver') || github.ref_name }} vs ${{ inputs.base_ref || 'develop' }}:
-  ${{ inputs.benchmarks || 'test defaults' }}
+  Bench compare ${{ inputs.head_ref || github.ref_name }} vs ${{ inputs.base_ref }}: ${{ inputs.benchmarks }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 on:
-  # TEMPORARY: exercises the workflow before it reaches develop, where workflow_dispatch becomes
-  # usable. Remove before merging.
-  push:
-    branches: ["ji/affectionate-meitner-4y7yum"]
-    paths: [".github/workflows/bench-compare.yml", "scripts/bench-compare.py"]
   workflow_dispatch:
     inputs:
       benchmarks:
@@ -65,15 +59,14 @@ permissions:
   contents: read
   pull-requests: write  # for commenting on PRs
 
-# Inputs are empty on push; fall back to the dispatch defaults (and the temporary test case).
 env:
-  HEAD_REF: ${{ inputs.head_ref || (github.event_name == 'push' && 'ji/duckdb-v2-scan-driver') || github.ref_name }}
-  BASE_REF: ${{ inputs.base_ref || 'develop' }}
-  BENCHMARKS: ${{ inputs.benchmarks || 'vortex-layout/pipeline_scan vortex-file/split_collection' }}
-  ROUNDS: ${{ inputs.rounds || '3' }}
-  THRESHOLD: ${{ inputs.threshold || '5' }}
+  HEAD_REF: ${{ inputs.head_ref || github.ref_name }}
+  BASE_REF: ${{ inputs.base_ref }}
+  BENCHMARKS: ${{ inputs.benchmarks }}
+  ROUNDS: ${{ inputs.rounds }}
+  THRESHOLD: ${{ inputs.threshold }}
   DIVAN_ARGS: ${{ inputs.divan_args }}
-  COMMENT_PR: ${{ github.event_name == 'workflow_dispatch' && inputs.comment_pr }}
+  COMMENT_PR: ${{ inputs.comment_pr }}
 
 jobs:
   build:
