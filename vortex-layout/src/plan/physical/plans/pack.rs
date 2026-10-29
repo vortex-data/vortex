@@ -403,7 +403,7 @@ impl PlanParentReduceRule<Pack> for ExpressionPackRule {
     }
 }
 
-fn is_identity_expression(expression: &BoundExpression, input_dtype: &DType) -> bool {
+pub(super) fn is_identity_expression(expression: &BoundExpression, input_dtype: &DType) -> bool {
     if expression.is_root() {
         return expression.dtype() == input_dtype;
     }

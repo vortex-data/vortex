@@ -45,6 +45,29 @@ pub(crate) fn rows_per_chunk(row_count: u64, locations: &[SegmentLocation]) -> u
     blocks.clamp(1, 8) as usize * ROW_BLOCK_SIZE
 }
 
+/// The rows of a filtered chunk for a scan of `rows` running `concurrency` chunks at once: as
+/// large as `max_rows`, but small enough that every chunk the scan can run at once has rows to
+/// filter, and never below [`MAX_ROWS_PER_CHUNK`].
+pub(crate) fn filtered_rows_per_chunk(rows: u64, concurrency: usize, max_rows: usize) -> usize {
+    rows_per_concurrent_chunk(rows, concurrency).clamp(MAX_ROWS_PER_CHUNK, max_rows)
+}
+
+/// The rows of a projection chunk for a scan of `rows` running `concurrency` chunks at once: as
+/// large as `max_rows`, but small enough that every chunk the scan can run at once has rows to
+/// project, and never below [`ROW_BLOCK_SIZE`].
+pub(crate) fn projected_rows_per_chunk(rows: u64, concurrency: usize, max_rows: usize) -> usize {
+    rows_per_concurrent_chunk(rows, concurrency).clamp(ROW_BLOCK_SIZE, max_rows)
+}
+
+/// `rows` split evenly over `concurrency` chunks, rounded up to the row grid.
+fn rows_per_concurrent_chunk(rows: u64, concurrency: usize) -> usize {
+    let per_chunk = rows.div_ceil(concurrency.max(1) as u64);
+    let blocks = per_chunk.div_ceil(ROW_BLOCK_SIZE as u64);
+    usize::try_from(blocks)
+        .unwrap_or(usize::MAX)
+        .saturating_mul(ROW_BLOCK_SIZE)
+}
+
 /// Fixed boundaries in the file's row domain, clipped to the requested range.
 pub(crate) fn row_chunks(rows: Range<u64>, rows_per_chunk: usize) -> Vec<Range<u64>> {
     if rows.is_empty() {

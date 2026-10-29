@@ -16,7 +16,8 @@
 //! chunks of up to 65,536 rows, or 131,072 rows for filtered scans. Filtered scans reading only
 //! one primitive or boolean field use 1,048,576 rows to amortize setup, independently of the stored
 //! layout's chunk boundaries. Full-file projections use smaller 8,192-row multiples when
-//! serialized bytes per row are high.
+//! serialized bytes per row are high. A scan running many chunks at once cuts smaller chunks, down
+//! to 65,536 rows when filtered and 8,192 otherwise, so every chunk it runs at once has rows.
 //!
 //! A [`ScanFile`] carrying a [`ScanCache`] shares its lowered plan, filter plans and pruned
 //! zones, segment index, dictionary values, and recently read segments with every other scan of
@@ -39,6 +40,7 @@ use vortex_expr::analysis::referenced_field_paths;
 use vortex_scan::selection::Selection;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 pub use self::cache::ScanCache;
 pub use self::cache::WeakScanCache;
@@ -54,6 +56,8 @@ pub use crate::scan::execution::PruneNext;
 pub use crate::scan::execution::PrunePlanner;
 use crate::scan::execution::ROW_BLOCK_SIZE;
 pub use crate::scan::execution::SegmentLocation;
+use crate::scan::execution::filtered_rows_per_chunk;
+use crate::scan::execution::projected_rows_per_chunk;
 use crate::scan::execution::rows_per_chunk;
 use crate::scan::v2::io::segment_ranges;
 use crate::segments::SegmentSource;
@@ -98,6 +102,7 @@ pub struct ScanBuilder {
     filter: Option<BoundExpression>,
     row_range: Option<Range<u64>>,
     selection: Selection,
+    concurrency: usize,
     row_offset: u64,
     skip_unselective_dynamic: bool,
 }
@@ -112,6 +117,7 @@ impl ScanBuilder {
             file,
             row_range: None,
             selection: Selection::default(),
+            concurrency: get_available_parallelism().unwrap_or(1),
             row_offset: 0,
             skip_unselective_dynamic: false,
         }
@@ -168,6 +174,15 @@ impl ScanBuilder {
         self.with_selection(Selection::IncludeByIndex(row_indices))
     }
 
+    /// Sets the number of the scan's chunks its driver runs at once, one per worker thread by
+    /// default, which sizes a filtered scan's chunks so each of them has rows to filter. Must be
+    /// greater than zero.
+    pub fn with_concurrency(mut self, concurrency: usize) -> Self {
+        assert!(concurrency > 0);
+        self.concurrency = concurrency;
+        self
+    }
+
     /// Sets the root row offset used by row-index expressions.
     pub fn with_row_offset(mut self, row_offset: u64) -> Self {
         self.row_offset = row_offset;
@@ -180,69 +195,53 @@ impl ScanBuilder {
     pub fn prepare(self) -> VortexResult<PreparedScan> {
         let file = self.file;
         let cache = file.cache.unwrap_or_default();
-        let root = match cache.root() {
-            Some(root) => root,
-            None => cache.insert_root(file.layout.new_plan()?),
-        };
+        let root = cache.root_or_try_init(|| file.layout.new_plan())?;
         let row_count = root.row_count();
-        let filtered_chunk_rows = self
+        let session = &self.session;
+        let max_filtered_rows = self
             .filter
             .as_ref()
-            .map(|filter| filtered_rows_per_chunk(root.dtype(), &self.projection, filter))
+            .map(|filter| max_filtered_rows_per_chunk(root.dtype(), &self.projection, filter))
             .transpose()?;
         let filter = self
             .filter
             .map(|filter| -> VortexResult<_> {
                 let skip = self.skip_unselective_dynamic;
-                match cache.filter_plans(&filter) {
-                    Some(plans) if plans.skips_unselective_dynamic() == skip => Ok(plans),
-                    // A scan whose skipping differs from the cached plans' plans its own.
-                    Some(_) => Ok(Arc::new(FilterPlans::new(
-                        filter,
-                        &root,
-                        &self.session,
-                        skip,
-                    )?)),
-                    None => {
-                        let plans = Arc::new(FilterPlans::new(
-                            filter.clone(),
-                            &root,
-                            &self.session,
-                            skip,
-                        )?);
-                        Ok(cache.insert_filter_plans(filter, plans))
-                    }
+                let plans = cache.filter_plans_or_try_init(&filter, || {
+                    FilterPlans::new(filter.clone(), &root, session, skip)
+                })?;
+                if plans.skips_unselective_dynamic() == skip {
+                    return Ok(plans);
                 }
+                // A scan whose skipping differs from the cached plans' plans its own.
+                Ok(Arc::new(FilterPlans::new(filter, &root, session, skip)?))
             })
             .transpose()?;
         // Optimizing drops the zone tables a projection never reads and keeps the chunks of a
         // chunked column lazy, so an identity projection is optimized like any other.
         let identity = self.projection.is_root() && self.projection.dtype() == root.dtype();
-        let projection = match cache.projection(&self.projection) {
-            Some(plan) => plan,
-            None => {
-                let plan = optimize(
-                    plan_row_idx_expression(self.projection.clone(), root, &self.session)?,
-                    &self.session,
-                )?;
-                cache.insert_projection(self.projection, plan)
-            }
-        };
-        let chunk_rows = if let Some(rows) = filtered_chunk_rows {
-            rows
-        } else if identity {
-            rows_per_chunk(row_count, &file.locations)
+        let projection = cache.projection_or_try_init(&self.projection, || {
+            optimize(
+                plan_row_idx_expression(self.projection.clone(), root.clone(), session)?,
+                session,
+            )
+        })?;
+        let rows = self.row_range.unwrap_or(0..row_count);
+        let chunk_rows = if let Some(max_rows) = max_filtered_rows {
+            filtered_rows_per_chunk(rows.end - rows.start, self.concurrency, max_rows)
         } else {
-            MAX_ROWS_PER_CHUNK
+            let max_rows = if identity {
+                rows_per_chunk(row_count, &file.locations)
+            } else {
+                MAX_ROWS_PER_CHUNK
+            };
+            projected_rows_per_chunk(rows.end - rows.start, self.concurrency, max_rows)
         };
-        let ranges = match cache.ranges() {
-            Some(ranges) => ranges,
-            None => cache.insert_ranges(segment_ranges(&file.locations)),
-        };
+        let ranges = cache.ranges_or_init(|| segment_ranges(&file.locations));
         let values = cache.values();
         Ok(PreparedScan {
             session: self.session,
-            rows: self.row_range.unwrap_or(0..row_count),
+            rows,
             selection: self.selection,
             segments: cache.retaining(file.segments),
             ranges,
@@ -257,7 +256,8 @@ impl ScanBuilder {
     }
 }
 
-fn filtered_rows_per_chunk(
+/// The most rows a filtered chunk of this scan may hold.
+fn max_filtered_rows_per_chunk(
     dtype: &DType,
     projection: &BoundExpression,
     filter: &BoundExpression,

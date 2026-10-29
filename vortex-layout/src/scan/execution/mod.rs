@@ -34,6 +34,8 @@ pub use self::chunk::ChunkPlanner;
 pub(crate) use self::chunk::FILTERED_ROWS_PER_CHUNK;
 pub(crate) use self::chunk::MAX_ROWS_PER_CHUNK;
 pub(crate) use self::chunk::ROW_BLOCK_SIZE;
+pub(crate) use self::chunk::filtered_rows_per_chunk;
+pub(crate) use self::chunk::projected_rows_per_chunk;
 #[cfg(test)]
 pub(crate) use self::chunk::row_chunks;
 pub(crate) use self::chunk::rows_per_chunk;

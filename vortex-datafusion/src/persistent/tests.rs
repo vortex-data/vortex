@@ -630,9 +630,10 @@ async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits(
     let session = VortexSession::default();
     let path = object_store::path::Path::parse("/split-aligned-repartition.vortex")?;
 
-    let chunk_1_len = 2_000;
-    let chunk_2_len = 5_000;
-    let chunk_3_len = 6_000;
+    // Enough rows that a V2 scan, which keeps a minimum of rows per partition, still splits.
+    let chunk_1_len = 200_000;
+    let chunk_2_len = 250_000;
+    let chunk_3_len = 300_000;
     let row_count = chunk_1_len + chunk_2_len + chunk_3_len;
 
     let chunk_1 = StructArray::try_new(
@@ -726,7 +727,7 @@ async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits(
     Ok(())
 }
 
-/// With a scan concurrency of 0, a V2 scan runs every chunk on its own run as another root. Each
+/// With a scan concurrency of 1, a V2 scan runs every chunk on its own run as another root. Each
 /// root needs an IO session of its own: the run clears a root's session when the root retires, so
 /// a shared session left the remaining chunks waiting for reads that were never issued.
 #[tokio::test]
@@ -764,7 +765,7 @@ async fn v2_inline_chunks_read_through_their_own_sessions() -> anyhow::Result<()
     let factory = Arc::new(
         VortexFormatFactory::new().with_options(crate::VortexTableOptions {
             scan_v2: true,
-            scan_concurrency: Some(0),
+            scan_concurrency: Some(1),
             ..Default::default()
         }),
     );
@@ -791,6 +792,38 @@ async fn v2_inline_chunks_read_through_their_own_sessions() -> anyhow::Result<()
         (0..chunk_count * chunk_len).collect::<Vec<_>>()
     );
 
+    Ok(())
+}
+
+/// A filtered V2 scan of a file smaller than the minimum rows per partition reads it in one
+/// partition. An unfiltered scan keeps the engine's partitions: every row it reads flows into the
+/// operators above it.
+#[tokio::test]
+async fn v2_scan_keeps_partitions_unless_filtered() -> anyhow::Result<()> {
+    let store = Arc::new(InMemory::new()) as _;
+    let session = VortexSession::default();
+    let path = object_store::path::Path::parse("/small.vortex")?;
+    let table = StructArray::try_new(
+        ["value"].into(),
+        vec![Buffer::from_iter(0_i32..100_000).into_array()],
+        100_000,
+        Validity::NonNullable,
+    )?
+    .into_array();
+    let mut writer = ObjectStoreWrite::new(Arc::clone(&store), &path).await?;
+    session
+        .write_options()
+        .write(&mut writer, table.to_array_stream())
+        .await?;
+    writer.shutdown().await?;
+
+    let ctx = make_session(store, true, true);
+    let unfiltered = count_query_partitions(&ctx, "SELECT value FROM '/small.vortex'").await?;
+    let filtered =
+        count_query_partitions(&ctx, "SELECT value FROM '/small.vortex' WHERE value > 10").await?;
+
+    assert_eq!(unfiltered, 4);
+    assert_eq!(filtered, 1);
     Ok(())
 }
 
