@@ -187,7 +187,7 @@ jobs:
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
           AWS_REGION: "us-east-1"
         run: |
-          python3 scripts/random-access-split.py \
+          python3 scripts/random-access-split.py --emit-ingest-records \
             ${{ inputs.remote_data_dir != '' && format('--remote-data-dir {0}', inputs.remote_data_dir) || '' }}
 
       - name: Run ${{ inputs.benchmark_name }} benchmark (per-dataset)
@@ -197,7 +197,7 @@ jobs:
           RUST_BACKTRACE: full
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
-          python3 scripts/compress-split.py
+          python3 scripts/compress-split.py --emit-ingest-records
 
       - name: Run ${{ inputs.benchmark_name }} benchmark (per-column-encoder)
         if: inputs.benchmark_id == 'string-bench'
@@ -208,16 +208,22 @@ jobs:
         run: |
           python3 scripts/string-split.py
 
+      - name: Fetch baseline from the benchmarks database
+        uses: ./.github/actions/fetch-bench-baseline
+        with:
+          pr-records: results.ingest.jsonl
+          output: base.ingest.jsonl
+          password: ${{ secrets.BENCH_READ_PASSWORD }}
+          endpoint: ${{ vars.RDS_BENCH_INSTANCE_ENDPOINT }}
+          database: ${{ vars.RDS_BENCH_DB_NAME }}
+
       - name: Compare results
         shell: bash
         run: |
           set -Eeu -o pipefail -x
 
-          python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz data.json.gz --no-sign-request
-          gzip -d -c data.json.gz > base.json
-
-          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ inputs.benchmark_name }}" \
-            > comment.md
+          uv run --no-project scripts/compare-benchmark-jsons.py base.ingest.jsonl results.json \
+            "${{ inputs.benchmark_name }}" --pr-records results.ingest.jsonl > comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment PR

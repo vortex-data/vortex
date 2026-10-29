@@ -15,6 +15,16 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPARE_SCRIPT = REPO_ROOT / "scripts" / "compare-benchmark-jsons.py"
 CAPTURE_SCRIPT = REPO_ROOT / "scripts" / "capture-file-sizes.py"
 RANDOM_ACCESS_SPLIT_SCRIPT = REPO_ROOT / "scripts" / "random-access-split.py"
+FETCH_BASELINE_SCRIPT = REPO_ROOT / "scripts" / "fetch-benchmark-baseline.py"
+
+
+def load_module(name: str, path: Path) -> ModuleType:
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
 
 
 def load_compare_module() -> ModuleType:
@@ -100,6 +110,34 @@ def stored_timing_row(
     return row
 
 
+def query_record(commit: str, query_idx: int, engine: str, file_format: str, value: int) -> dict[str, object]:
+    return {
+        "kind": "query_measurement",
+        "commit_sha": commit,
+        "dataset": "tpch",
+        "dataset_variant": None,
+        "scale_factor": "1",
+        "query_idx": query_idx,
+        "storage": "nvme",
+        "engine": engine,
+        "format": file_format,
+        "value_ns": value,
+        "all_runtimes_ns": [value, value, value],
+    }
+
+
+def random_access_record(commit: str, file_format: str, open_mode: str, value: int) -> dict[str, object]:
+    return {
+        "kind": "random_access_time",
+        "commit_sha": commit,
+        "dataset": "taxi/uniform",
+        "format": file_format,
+        "open_mode": open_mode,
+        "value_ns": value,
+        "all_runtimes_ns": [value, value, value],
+    }
+
+
 def stored_custom_row(
     commit: str,
     name: str,
@@ -139,28 +177,19 @@ def render_report(
     base_rows: list[dict[str, object]],
     pr_rows: list[dict[str, object]],
     benchmark_name: str,
+    pr_records: list[dict[str, object]] | None = None,
 ) -> str:
-    repo = git_repo_with_one_commit(tmp_path / "repo")
-    head_commit = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    base_rows = [row | {"commit_id": head_commit} for row in base_rows]
     base_path = tmp_path / "base.jsonl"
     pr_path = tmp_path / "pr.jsonl"
     base_path.write_text("".join(f"{json.dumps(row)}\n" for row in base_rows), encoding="utf-8")
     pr_path.write_text("".join(f"{json.dumps(row)}\n" for row in pr_rows), encoding="utf-8")
+    command = [sys.executable, str(COMPARE_SCRIPT), str(base_path), str(pr_path), benchmark_name]
+    if pr_records is not None:
+        records_path = tmp_path / "pr.ingest.jsonl"
+        records_path.write_text("".join(f"{json.dumps(row)}\n" for row in pr_records), encoding="utf-8")
+        command += ["--pr-records", str(records_path)]
 
-    result = subprocess.run(
-        [sys.executable, str(COMPARE_SCRIPT), str(base_path), str(pr_path), benchmark_name],
-        cwd=repo,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    result = subprocess.run(command, check=False, capture_output=True, text=True)
 
     assert result.returncode == 0, result.stderr
     return result.stdout
@@ -169,139 +198,6 @@ def render_report(
 def markdown_row(report: str, name: str) -> list[str]:
     line = next(line for line in report.splitlines() if line.startswith(f"| {name} "))
     return [cell.strip() for cell in line.strip("|").split("|")]
-
-
-def test_read_latest_baseline_rows_streams_latest_matching_benchmark_commit(tmp_path: Path) -> None:
-    compare = load_compare_module()
-    history_path = tmp_path / "history.jsonl"
-    history_rows = [
-        stored_timing_row(
-            "base-old",
-            "tpch_q01/datafusion:parquet",
-            100,
-            "nvme",
-            {"scale_factor": "1.0"},
-        ),
-        file_size_record_for("base-old", 100, "tpch", "1.0", "vortex-file-compressed", "part-0.vortex"),
-        stored_timing_row(
-            "base-current",
-            "tpch_q01/datafusion:parquet",
-            110,
-            "nvme",
-            {"scale_factor": "1.0"},
-        ),
-        file_size_record_for("base-current", 120, "tpch", "1.0", "vortex-file-compressed", "part-0.vortex"),
-        stored_timing_row(
-            "base-wrong-unit",
-            "tpch_q01/datafusion:parquet",
-            111,
-            "nvme",
-            {"scale_factor": "1.0"},
-        )
-        | {"unit": "ms"},
-        stored_timing_row(
-            "base-wrong-target",
-            "tpch_q01/datafusion:parquet",
-            112,
-            "nvme",
-            {"scale_factor": "1.0"},
-            file_format="vortex",
-        ),
-        stored_timing_row("base-other", "clickbench_q01/datafusion:parquet", 200, "nvme"),
-    ]
-    history_path.write_text(
-        "".join(f"{json.dumps(row)}\n" for row in history_rows),
-        encoding="utf-8",
-    )
-    pr = pd.DataFrame(
-        [
-            stored_timing_row(
-                "pr-sha",
-                "tpch_q01/datafusion:parquet",
-                115,
-                "nvme",
-                {"scale_factor": "1.0"},
-            ),
-        ]
-    )
-
-    selected = compare.read_latest_baseline_rows(
-        history_path,
-        pr,
-        {"base-old", "base-current", "base-wrong-unit", "base-wrong-target", "base-other"},
-    )
-
-    pd.testing.assert_frame_equal(selected, pd.DataFrame(history_rows[2:4]))
-
-
-def test_read_latest_baseline_rows_skips_commits_outside_git_tree(tmp_path: Path) -> None:
-    compare = load_compare_module()
-    history_path = tmp_path / "history.jsonl"
-    history_rows = [
-        stored_timing_row("base-reachable", "tpch_q01/datafusion:parquet", 100),
-        file_size_record_for(
-            "base-reachable",
-            100,
-            "tpch",
-            "1.0",
-            "vortex-file-compressed",
-            "part-0.vortex",
-        ),
-        stored_timing_row("base-off-tree", "tpch_q01/datafusion:parquet", 110),
-        file_size_record_for(
-            "base-off-tree",
-            120,
-            "tpch",
-            "1.0",
-            "vortex-file-compressed",
-            "part-0.vortex",
-        ),
-    ]
-    history_path.write_text(
-        "".join(f"{json.dumps(row)}\n" for row in history_rows),
-        encoding="utf-8",
-    )
-    pr = pd.DataFrame([stored_timing_row("pr", "tpch_q01/datafusion:parquet", 105)])
-
-    selected = compare.read_latest_baseline_rows(history_path, pr, {"base-reachable"})
-
-    pd.testing.assert_frame_equal(selected, pd.DataFrame(history_rows[:2]))
-
-
-def test_read_latest_baseline_rows_returns_empty_without_reachable_match(tmp_path: Path) -> None:
-    compare = load_compare_module()
-    history_path = tmp_path / "history.jsonl"
-    history_path.write_text(
-        f"{json.dumps(stored_timing_row('base-off-tree', 'tpch_q01/datafusion:parquet', 100))}\n",
-        encoding="utf-8",
-    )
-    pr = pd.DataFrame([stored_timing_row("pr", "tpch_q01/datafusion:parquet", 105)])
-
-    selected = compare.read_latest_baseline_rows(history_path, pr, set())
-
-    assert selected.empty
-
-
-def test_read_latest_baseline_rows_uses_last_result_from_rerun(tmp_path: Path) -> None:
-    compare = load_compare_module()
-    history_path = tmp_path / "history.jsonl"
-    history_path.write_text(
-        "".join(
-            f"{json.dumps(row)}\n"
-            for row in [
-                stored_timing_row("base", "tpch_q01/datafusion:parquet", 100),
-                stored_timing_row("base", "tpch_q01/datafusion:parquet", 110),
-            ]
-        ),
-        encoding="utf-8",
-    )
-    pr = pd.DataFrame([stored_timing_row("pr", "tpch_q01/datafusion:parquet", 105)])
-
-    selected = compare.read_latest_baseline_rows(history_path, pr, {"base"})
-
-    pd.testing.assert_frame_equal(
-        selected, pd.DataFrame([stored_timing_row("base", "tpch_q01/datafusion:parquet", 110)])
-    )
 
 
 def test_within_engine_analysis_uses_each_engines_own_parquet_control() -> None:
@@ -405,10 +301,9 @@ def test_comparison_report_groups_by_target_and_unit(tmp_path: Path) -> None:
 
 
 def test_comparison_report_handles_missing_benchmark_baseline(tmp_path: Path) -> None:
-    base_rows = [stored_custom_row("base-sha", "other timing/fixture", "ms", 12.5)]
     pr_rows = [stored_custom_row("pr-sha", "new timing/fixture", "ms", 3.125)]
 
-    report = render_report(tmp_path, base_rows, pr_rows, "New benchmark")
+    report = render_report(tmp_path, [], pr_rows, "New benchmark")
 
     assert "No baseline is available for this benchmark yet" in report
     assert "vs base `none`" in report
@@ -731,7 +626,7 @@ def test_capture_file_sizes_emits_shared_benchmark_rows(tmp_path: Path) -> None:
     ]
 
 
-def test_shallow_checkout_fails_instead_of_reporting_no_baseline(tmp_path: Path) -> None:
+def test_baseline_fetch_refuses_a_shallow_checkout(tmp_path: Path) -> None:
     """A shallow clone must fail loudly, not render a baseline-free report.
 
     `git rev-list HEAD` reaches only the tip of a shallow clone, so every
@@ -746,19 +641,11 @@ def test_shallow_checkout_fails_instead_of_reporting_no_baseline(tmp_path: Path)
         check=True,
         capture_output=True,
     )
-    base_path = tmp_path / "base.jsonl"
-    pr_path = tmp_path / "pr.jsonl"
-    base_path.write_text(
-        f"{json.dumps(stored_timing_row('recorded', 'tpch_q01/datafusion:parquet', 100))}\n",
-        encoding="utf-8",
-    )
-    pr_path.write_text(
-        f"{json.dumps(stored_timing_row('pr', 'tpch_q01/datafusion:parquet', 105))}\n",
-        encoding="utf-8",
-    )
+    pr_path = tmp_path / "pr.ingest.jsonl"
+    pr_path.write_text(f"{json.dumps(query_record('pr', 1, 'datafusion', 'parquet', 105))}\n", encoding="utf-8")
 
     result = subprocess.run(
-        [sys.executable, str(COMPARE_SCRIPT), str(base_path), str(pr_path), "TPC-H"],
+        [sys.executable, str(FETCH_BASELINE_SCRIPT), str(pr_path), str(tmp_path / "base.jsonl"), "--postgres", ""],
         cwd=shallow,
         check=False,
         capture_output=True,
@@ -768,7 +655,83 @@ def test_shallow_checkout_fails_instead_of_reporting_no_baseline(tmp_path: Path)
     assert result.returncode != 0
     assert "shallow checkout" in result.stderr
     assert "fetch-depth: 0" in result.stderr
-    assert "No baseline is available" not in result.stdout
+
+
+def test_baseline_fetch_groups_distinct_pr_identities_by_kind() -> None:
+    fetch = load_module("fetch_benchmark_baseline", FETCH_BASELINE_SCRIPT)
+    records = [
+        query_record("pr", 1, "datafusion", "parquet", 100),
+        query_record("pr", 1, "datafusion", "parquet", 100),
+        random_access_record("pr", "parquet", "cached", 100),
+        {"kind": "vector_search_run", "dataset": "cohere"},
+    ]
+
+    assert fetch.identities_by_kind(records) == {
+        "query_measurement": [("tpch", None, "1", 1, "nvme", "datafusion", "parquet")],
+        "random_access_time": [("taxi/uniform", "parquet", "cached")],
+    }
+
+
+def test_baseline_fetch_matches_absent_dims_as_equal() -> None:
+    fetch = load_module("fetch_benchmark_baseline", FETCH_BASELINE_SCRIPT)
+
+    join, arrays = fetch._identity_join("compression_size", [("taxi", None, "parquet"), ("taxi", "gpu", "lance")])
+
+    assert "unnest(%s::text[], %s::text[], %s::text[]) AS p(dataset, dataset_variant, format)" in join
+    assert "t.dataset_variant IS NOT DISTINCT FROM p.dataset_variant" in join
+    assert arrays == [["taxi", "taxi"], [None, "gpu"], ["parquet", "lance"]]
+
+
+def test_report_compares_ingest_records(tmp_path: Path) -> None:
+    targets = [("parquet", 100, 105), ("vortex-file-compressed", 80, 70)]
+    base_records = [query_record("base-sha", 1, "datafusion", target, base) for target, base, _pr in targets]
+    base_records += [random_access_record("base-sha", target, "cached", base) for target, base, _pr in targets]
+    pr_records = [query_record("pr-sha", 1, "datafusion", target, pr) for target, _base, pr in targets]
+    pr_records += [random_access_record("pr-sha", target, "cached", pr) for target, _base, pr in targets]
+    pr_records.append(random_access_record("pr-sha", "lance", "cached", 300))
+    pr_results = [
+        stored_timing_row("pr-sha", "ignored when records exist", 1) | {"doc": "benchmarks/tpch.md"},
+        file_size_record("pr-sha", 125),
+    ]
+
+    report = render_report(tmp_path, base_records, pr_results, "TPC-H", pr_records)
+
+    assert "vs base `base-sha`" in report
+    assert "**Verdict**:" in report
+    assert "**Engines**: DataFusion " in report
+    assert "random-access " in report
+    assert "ignored when records exist" not in report
+    assert markdown_row(report, "tpch/sf=1_q01/datafusion:vortex-file-compressed")[1] == "70 / 80 / -12.5% 🟢"
+    assert markdown_row(report, "random-access/taxi/uniform/parquet-cached")[1] == "105 / 100 / +5.0%"
+    assert markdown_row(report, "random-access/taxi/uniform/lance-cached")[1] == "300 / — / no baseline"
+    assert "<summary>random-access / lance / ns " in report
+    assert "_No baseline file sizes found for base commit._" in report
+
+
+def test_report_converts_compression_records() -> None:
+    compare = load_compare_module()
+    common = {"commit_sha": "sha", "dataset": "taxi", "dataset_variant": None, "format": "parquet"}
+
+    encode = compare.ingest_record_row(
+        common | {"kind": "compression_time", "op": "encode", "value_ns": 5, "all_runtimes_ns": [6, 5]}
+    )
+    decode = compare.ingest_record_row(
+        common
+        | {
+            "kind": "compression_time",
+            "dataset_variant": "gpu",
+            "op": "decode",
+            "value_ns": 5,
+            "all_runtimes_ns": [6, 5],
+        }
+    )
+    size = compare.ingest_record_row(common | {"kind": "compression_size", "value_bytes": 10, "uncompressed_bytes": 20})
+
+    assert encode is not None and decode is not None and size is not None
+    assert encode["name"] == "compress time/taxi"
+    assert decode["name"] == "decompress time/taxi/gpu"
+    assert (size["name"], size["unit"], size["value"]) == ("parquet size/taxi", "bytes", 10)
+    assert compare.ingest_record_row({"kind": "vector_search_run"}) is None
 
 
 def test_summary_reports_hot_alone_when_no_row_recorded_its_runs(tmp_path: Path) -> None:

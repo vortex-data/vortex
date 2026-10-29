@@ -78,18 +78,23 @@ jobs:
           # (cuda.yaml), which also sets only FLAT_LAYOUT_INLINE_ARRAY_NODE.
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
-          python3 scripts/compress-split.py --gpu-decompress
+          python3 scripts/compress-split.py --gpu-decompress --emit-ingest-records
+      - name: Fetch baseline from the benchmarks database
+        uses: ./.github/actions/fetch-bench-baseline
+        with:
+          pr-records: results.ingest.jsonl
+          output: base.ingest.jsonl
+          password: ${{ secrets.BENCH_READ_PASSWORD }}
+          endpoint: ${{ vars.RDS_BENCH_INSTANCE_ENDPOINT }}
+          database: ${{ vars.RDS_BENCH_DB_NAME }}
+
       - name: Publish results
         shell: bash
         run: |
           set -Eeu -o pipefail -x
 
-          python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz \
-            data.json.gz --no-sign-request
-          gzip -d -c data.json.gz > base.json
-
-          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json \
-            "GPU Compression" > comment.md
+          uv run --no-project scripts/compare-benchmark-jsons.py base.ingest.jsonl results.json \
+            "GPU Compression" --pr-records results.ingest.jsonl > comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
       - name: Comment PR
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
