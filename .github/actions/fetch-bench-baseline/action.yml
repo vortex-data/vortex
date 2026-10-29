@@ -4,8 +4,8 @@
 name: "Fetch benchmark baseline"
 description: >-
   Write the develop baseline for a PR benchmark run, read from the benchmarks Postgres as the
-  read-only bench_read role. Without a password (fork PRs get no secrets), it writes an empty
-  baseline and the report shows the PR measurements alone.
+  read-only bench_read role. Without a password (fork PRs get no secrets), it writes no
+  baseline and the report says the baseline could not be read.
 
 inputs:
   pr-records:
@@ -39,8 +39,8 @@ runs:
       run: |
         set -Eeu -o pipefail
         if [[ -z "$PGPASSWORD" ]]; then
+          # No baseline file tells the report that the baseline could not be read.
           echo "::warning::No benchmarks database credential; reporting without a baseline."
-          : > "$OUTPUT"
           exit 0
         fi
         curl -fsSL https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \

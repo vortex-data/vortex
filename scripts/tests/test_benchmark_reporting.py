@@ -701,11 +701,47 @@ def test_report_compares_ingest_records(tmp_path: Path) -> None:
     assert "**Engines**: DataFusion " in report
     assert "random-access " in report
     assert "ignored when records exist" not in report
-    assert markdown_row(report, "tpch/sf=1_q01/datafusion:vortex-file-compressed")[1] == "70 / 80 / -12.5% 🟢"
+    assert markdown_row(report, "tpch_q01/datafusion:vortex-file-compressed")[1] == "70 / 80 / -12.5% 🟢"
     assert markdown_row(report, "random-access/taxi/uniform/parquet-cached")[1] == "105 / 100 / +5.0%"
     assert markdown_row(report, "random-access/taxi/uniform/lance-cached")[1] == "300 / — / no baseline"
     assert "<summary>random-access / lance / ns " in report
-    assert "_No baseline file sizes found for base commit._" in report
+    assert "File Size" not in report
+
+
+def test_report_says_when_the_baseline_could_not_be_read(tmp_path: Path) -> None:
+    pr_records = [query_record("pr-sha", 1, "datafusion", "parquet", 100)]
+    records_path = tmp_path / "pr.ingest.jsonl"
+    records_path.write_text(f"{json.dumps(pr_records[0])}\n", encoding="utf-8")
+    results_path = tmp_path / "results.json"
+    results_path.write_text(f"{json.dumps(stored_timing_row('pr-sha', 'unused', 1))}\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(COMPARE_SCRIPT),
+            str(tmp_path / "missing.jsonl"),
+            str(results_path),
+            "TPC-H",
+            "--pr-records",
+            str(records_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "The baseline could not be read from the benchmarks database" in result.stdout
+    assert "No baseline is available for this benchmark yet" not in result.stdout
+
+
+def test_query_records_keep_scale_factors_apart() -> None:
+    compare = load_compare_module()
+    sf1 = compare.ingest_record_row(query_record("sha", 1, "duckdb", "parquet", 5))
+    sf10 = compare.ingest_record_row(query_record("sha", 1, "duckdb", "parquet", 5) | {"scale_factor": "10"})
+
+    assert sf1 is not None and sf10 is not None
+    assert sf1["name"] == sf10["name"] == "tpch_q01/duckdb:parquet"
+    assert compare.dataset_key(sf1["dataset"]) != compare.dataset_key(sf10["dataset"])
 
 
 def test_report_converts_compression_records() -> None:

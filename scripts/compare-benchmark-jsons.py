@@ -165,13 +165,11 @@ def extract_target_fields(name: str, target: object = None) -> pd.Series:
 
 
 def ingest_dataset_label(record: dict[str, Any]) -> str:
-    """Join a record's dataset dims into one label, skipping the absent ones."""
+    """Join a record's dataset and variant into one label, skipping an absent variant."""
 
     label = str(record["dataset"])
     if record.get("dataset_variant") is not None:
         label += f"/{record['dataset_variant']}"
-    if record.get("scale_factor") is not None:
-        label += f"/sf={record['scale_factor']}"
     return label
 
 
@@ -188,8 +186,13 @@ def ingest_record_row(record: dict[str, Any]) -> dict[str, Any] | None:
     row: dict[str, Any] = {"commit_id": record.get("commit_sha"), "storage": None, "unit": "ns"}
     if kind == "query_measurement":
         engine = record["engine"]
-        row["name"] = f"{ingest_dataset_label(record)}_q{record['query_idx']:02d}/{engine}:{file_format}"
+        row["name"] = f"{record['dataset']}_q{record['query_idx']:02d}/{engine}:{file_format}"
         row["storage"] = record["storage"]
+        # Like the results JSON, the scale factor and variant stay out of the name and in the
+        # dataset join key.
+        dims = {dim: record.get(dim) for dim in ("dataset_variant", "scale_factor") if record.get(dim) is not None}
+        if dims:
+            row["dataset"] = dims
         row["target"] = {"engine": engine, "format": file_format}
     elif kind == "random_access_time":
         ext = "vortex" if str(file_format).startswith("vortex") else file_format
@@ -1081,6 +1084,7 @@ def main() -> None:
         pr_records = read_benchmark_rows(args.pr_records)
         if not pr_records.empty:
             pr = pr_records
+    base_fetched = os.path.exists(args.base_records)
     base_file_sizes, base = split_file_size_rows(read_benchmark_rows(args.base_records))
 
     base_commit_ids = set(base["commit_id"].unique())
@@ -1161,7 +1165,13 @@ def main() -> None:
     if summary_fields:
         print("<br>".join(summary_fields))
         print("")
-    if base_commit_id is None:
+    if not base_fetched:
+        print(
+            "_The baseline could not be read from the benchmarks database; "
+            "PR measurements are shown without comparison._"
+        )
+        print("")
+    elif base_commit_id is None:
         print("_No baseline is available for this benchmark yet; PR measurements are shown without comparison._")
         print("")
     if verdict is not None or engine_summary is not None:
@@ -1235,7 +1245,8 @@ def main() -> None:
         print("")
         print("</details>")
 
-    file_size_report = format_file_size_report(base_file_sizes, pr_file_sizes)
+    # File sizes are not stored in the benchmarks database, so they have no baseline to compare.
+    file_size_report = "" if base_file_sizes.empty else format_file_size_report(base_file_sizes, pr_file_sizes)
     if file_size_report:
         print("")
         print("---")
