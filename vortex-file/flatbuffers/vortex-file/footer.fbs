@@ -65,6 +65,10 @@ table PostscriptSegment {
     _compression: CompressionSpec;
     /// Encryption of the segment. Absent means the segment is stored in plaintext.
     encryption: EncryptionSpec;
+    /// With `encryption`, marks a segment stored in plaintext and signed with the encryption key,
+    /// rather than encrypted. The signature is `nonce (12 bytes) || tag (16 bytes)` of AES-GMAC
+    /// over the segment's additional authenticated data, a 0xFF byte, and the segment's bytes.
+    signature: [ubyte];
 }
 // [postscript]
 
