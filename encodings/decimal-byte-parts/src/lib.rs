@@ -6,7 +6,10 @@
 //! A decimal is split into a signed most significant part (MSP) plus up to three `u64` lower
 //! parts, and each part can be compressed independently. A decimal whose values fit an `i64`
 //! needs no lower parts. Only the MSP narrows: it can use the smallest signed integer dtype that
-//! holds its values, while every lower part stays `u64`.
+//! holds its values, while every lower part stays `u64`. Decoding returns the canonical decimal
+//! array, or a decimal [`Widen`] over a narrower child that can reuse a narrow MSP.
+//!
+//! [`Widen`]: vortex_array::arrays::Widen
 
 mod decimal_byte_parts;
 

@@ -18,6 +18,14 @@
 //! fit. Every lower part has the dtype `u64`. An array has at most as many lower parts as the
 //! canonical width of its decimal dtype holds, so the assembled values are never wider than that
 //! width.
+//!
+//! Decoding returns the canonical decimal array, or a decimal [`Widen`] over a child at a smaller
+//! precision with a narrower canonical width. The `Widen` lets a narrow MSP be read without a
+//! widening copy, and only an export to the canonical width pays for that copy. See
+//! [`assemble_decimal`] for the rules that pick the result.
+//!
+//! [`assemble_decimal`]: assemble::assemble_decimal
+//! [`Widen`]: vortex_array::arrays::Widen
 
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;

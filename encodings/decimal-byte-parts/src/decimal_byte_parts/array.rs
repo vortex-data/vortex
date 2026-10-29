@@ -64,9 +64,14 @@ pub type DecimalBytePartsArray = Array<DecimalByteParts>;
 /// allows no lower parts, precision 19 to 38 allows at most one, and precision 39 to 76 allows
 /// up to three.
 ///
+/// Executing the array decodes it into the canonical decimal array or a decimal [`Widen`], as
+/// [`assemble_decimal`] describes.
+///
 /// e.g. for a decimal i128 \[ 127..64 | 63..0 \] msp = 127..64 and lower_part\[0\] = 63..0
 ///
 /// All parts live in slots, so the array carries no additional data.
+///
+/// [`Widen`]: vortex_array::arrays::Widen
 #[derive(Clone, Debug)]
 pub struct DecimalBytePartsData;
 
@@ -413,8 +418,11 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::Widen;
+    use vortex_array::arrays::widen::WidenArraySlotsExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
@@ -423,6 +431,8 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::i256;
+    use vortex_array::expr::stats::Precision;
+    use vortex_array::expr::stats::Stat;
     use vortex_array::scalar::DecimalValue;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar::ScalarValue;
@@ -786,6 +796,39 @@ mod tests {
                 Validity::from_iter([false, false, true]),
             ),
             &mut ctx
+        );
+        Ok(())
+    }
+
+    /// Execution keeps the statistics of an encoded MSP, so its exact extrema pick the child of
+    /// the `Widen`. The extrema are looser than the value, so a scan would pick `Decimal(1, 0)`.
+    #[rstest]
+    fn test_execute_keeps_stats_of_encoded_msp(
+        #[values(false, true)] single_step: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let msp = ConstantArray::new(5i32, 3).into_array();
+        msp.statistics().set(Stat::Min, Precision::exact(-999i32));
+        msp.statistics().set(Stat::Max, Precision::exact(999i32));
+        let array = DecimalByteParts::try_new(msp, DecimalDType::new(18, 0))?.into_array();
+
+        let decoded = if single_step {
+            let mut decoded = array;
+            // One step executes the MSP, and the next one decodes.
+            for _ in 0..2 {
+                decoded = decoded.execute::<ArrayRef>(&mut ctx)?;
+            }
+            decoded
+        } else {
+            array.execute_until::<Widen>(&mut ctx)?
+        };
+
+        let widen = decoded
+            .as_opt::<Widen>()
+            .unwrap_or_else(|| panic!("expected a Widen, got {}", decoded.encoding_id()));
+        assert_eq!(
+            widen.values().dtype(),
+            &DType::Decimal(DecimalDType::new(3, 0), Nullability::NonNullable)
         );
         Ok(())
     }
