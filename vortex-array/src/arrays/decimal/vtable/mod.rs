@@ -4,7 +4,6 @@
 use std::hash::Hasher;
 
 use prost::Message;
-use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -25,10 +24,10 @@ use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::DecimalBuilder;
 use crate::dtype::DType;
+use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
-use crate::dtype::NativeDecimalType;
-use crate::match_each_decimal_value_type;
 use crate::serde::ArrayChildren;
+use crate::validity::Validity;
 mod kernel;
 mod operations;
 mod validity;
@@ -65,6 +64,86 @@ impl DecimalMetadata {
                 self.values_type
             )
         })
+    }
+}
+
+/// A `vortex.decimal` node as it is stored, with its parts checked against its dtype and length.
+///
+/// Older writers stored a decimal dtype at any width that held its values, so the stored width
+/// `values_type` can differ from the canonical width of `decimal_dtype`. The checks here make every
+/// later read of the node safe, so a malformed node returns an error and never panics.
+struct StoredDecimal {
+    decimal_dtype: DecimalDType,
+    /// The stored width of `values`.
+    values_type: DecimalType,
+    /// One `values_type` integer per row, aligned to its width, in host or device memory.
+    values: BufferHandle,
+    /// The validity, with one entry per row and the nullability of the dtype.
+    validity: Validity,
+}
+
+impl StoredDecimal {
+    /// Decodes the parts of a node with `len` rows of the decimal dtype `dtype`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `dtype` is not a decimal dtype, if the metadata names no known width,
+    /// if the node does not have exactly one buffer, if the buffer does not hold `len` values of
+    /// the stored width or is not aligned to it, or if the validity children do not match the
+    /// nullability of `dtype`.
+    fn deserialize(
+        dtype: &DType,
+        len: usize,
+        metadata: &[u8],
+        buffers: &[BufferHandle],
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<Self> {
+        let Some(&decimal_dtype) = dtype.as_decimal_opt() else {
+            vortex_bail!("Decimal node requires a decimal dtype, got {dtype}");
+        };
+        let values_type = DecimalMetadata::decode(metadata)?.get_values_type()?;
+        let values = fixed_width::single_buffer(buffers)?;
+
+        // NB: every later read takes the row count from the buffer, so a buffer of another length
+        // must fail here. A read that returns another row count panics at the length assert of
+        // the deserializer.
+        let byte_len = len.checked_mul(values_type.byte_width()).ok_or_else(|| {
+            vortex_err!(
+                "Decimal node of {values_type} values must have a byte length that fits in usize, \
+                 got length {len}"
+            )
+        })?;
+        vortex_ensure!(
+            values.len() == byte_len,
+            "Decimal buffer of {len} {values_type} values must have {byte_len} bytes, got {}",
+            values.len()
+        );
+
+        DecimalData::validate(&values, values_type)?;
+
+        let validity = fixed_width::deserialize_validity(dtype.nullability(), len, children)?;
+        vortex_ensure_eq!(
+            validity.nullability(),
+            dtype.nullability(),
+            "Decimal validity must match the nullability of the dtype",
+        );
+
+        Ok(Self {
+            decimal_dtype,
+            values_type,
+            values,
+            validity,
+        })
+    }
+
+    /// Returns the parts of a [`DecimalArray`] at the stored width, with the same buffer.
+    fn into_array_parts(self) -> VortexResult<ArrayParts<Decimal>> {
+        let dtype = DType::Decimal(self.decimal_dtype, self.validity.nullability());
+        let len = self.values.len() / self.values_type.byte_width();
+        let slots = DecimalData::make_slots(&self.validity, len);
+        let data = DecimalData::try_new_handle(self.values, self.values_type, self.decimal_dtype)?;
+
+        Ok(ArrayParts::new(Decimal, dtype, len, data, slots))
     }
 }
 
@@ -169,33 +248,7 @@ impl VTable for Decimal {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = DecimalMetadata::decode(metadata)?;
-        let values_type = metadata.get_values_type()?;
-        let values = fixed_width::single_buffer(buffers)?;
-
-        let validity = fixed_width::deserialize_validity(dtype.nullability(), len, children)?;
-
-        let Some(decimal_dtype) = dtype.as_decimal_opt() else {
-            vortex_bail!("Expected Decimal dtype, got {:?}", dtype)
-        };
-
-        let slots = DecimalData::make_slots(&validity, len);
-        let data = match_each_decimal_value_type!(values_type, |D| {
-            // Check and reinterpret-cast the buffer
-            vortex_ensure!(
-                values.is_aligned_to(Alignment::of::<D>()),
-                "DecimalArray buffer not aligned for values type {:?}",
-                D::DECIMAL_TYPE
-            );
-            DecimalData::try_new_handle(values, values_type, *decimal_dtype)
-        })?;
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            data,
-            slots,
-        ))
+        StoredDecimal::deserialize(dtype, len, metadata, buffers, children)?.into_array_parts()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
