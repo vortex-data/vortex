@@ -265,7 +265,7 @@ are not reviewed.
 | D3 without `Widen` forces the full width on every column | `Widen` for decimals lands in the in-memory change, before `try_new` rejects other widths |
 | An in-memory `Widen` reaches a writer that cannot write `vortex.widen` | The serializer writes the canonical array (D26). The code documents this as a workaround until `vortex.widen` is in `core` |
 | Moving the narrowing call sites to `encode_values` changes the signedness of internal children in new files | Readers on `develop` accept any integer type there, and the PR checks that the latest release reads its files (D28) |
-| A narrow buffer does not give a precision | Every producer finds the precision from the values. Readers convert old nodes by their max (D9). DecimalByteParts decoding widens a narrow MSP (D16) |
+| A narrow buffer does not give a precision | Every producer finds the precision from the values. Readers convert old nodes by their range (D9). DecimalByteParts decoding takes the range of a narrow MSP from `min_max` and returns a `Widen` (D16) |
 | Compute on DecimalByteParts regresses when its decoding stops returning narrow leaves | In the final state, the compressor narrows the decimal type first, so decoding reuses the buffer. Until then, the maintainer accepts the cost (D19). The max pass of D16 can come later, and new benchmarks measure the cost |
 | Gap columns use the next width in memory in the final state | Accepted (D19). Pushdown of sum, min and max into the MSP can come later |
 | The conversion of old `vortex.decimal` nodes scans their buffer, because the plugin cannot use stored statistics | Old narrow nodes are rare, and the speed of this path matters little (D9) |
