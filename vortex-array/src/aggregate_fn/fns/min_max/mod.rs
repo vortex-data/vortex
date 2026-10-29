@@ -3,6 +3,7 @@
 
 mod bool;
 mod decimal;
+pub use decimal::valid_range;
 mod extension;
 mod fixed_size_list;
 mod primitive;
@@ -535,6 +536,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
@@ -566,8 +568,10 @@ mod tests {
     use crate::arrays::NullArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
+    use crate::dtype::BigCast;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
+    use crate::dtype::DecimalType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::extension::ExtDType;
@@ -576,6 +580,7 @@ mod tests {
     use crate::expr::stats::Precision;
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProvider;
+    use crate::match_each_decimal_value_type;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
@@ -993,6 +998,66 @@ mod tests {
         assert_eq!(result.min, expected_min);
         assert_eq!(result.max, expected_max);
         Ok(())
+    }
+
+    #[rstest]
+    #[case::non_nullable(vec![Some(-3), Some(7), Some(5)], false, Some((-3, 7)))]
+    #[case::all_valid(vec![Some(-3), Some(7), Some(5)], true, Some((-3, 7)))]
+    #[case::null_extremes(vec![None, Some(-3), Some(7), None], true, Some((-3, 7)))]
+    #[case::single_valid(vec![None, Some(5), None], true, Some((5, 5)))]
+    #[case::single_row(vec![Some(5)], false, Some((5, 5)))]
+    #[case::equal_values(vec![Some(5), Some(5)], true, Some((5, 5)))]
+    #[case::all_null(vec![None, None], true, None)]
+    #[case::empty_non_nullable(vec![], false, None)]
+    #[case::empty_nullable(vec![], true, None)]
+    fn test_decimal_valid_range(
+        #[case] values: Vec<Option<i8>>,
+        #[case] nullable: bool,
+        #[case] expected: Option<(i8, i8)>,
+        #[values(
+            DecimalType::I8,
+            DecimalType::I16,
+            DecimalType::I32,
+            DecimalType::I64,
+            DecimalType::I128,
+            DecimalType::I256
+        )]
+        storage: DecimalType,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let decimal_dtype = DecimalDType::new(9, 2);
+        let validity = if nullable {
+            Validity::from_iter(values.iter().map(Option::is_some))
+        } else {
+            Validity::NonNullable
+        };
+        let expected = expected.map(|(min, max)| MinMaxResult {
+            min: Scalar::decimal(min.into(), decimal_dtype, Nullability::NonNullable),
+            max: Scalar::decimal(max.into(), decimal_dtype, Nullability::NonNullable),
+        });
+
+        match_each_decimal_value_type!(storage, |T| {
+            let buffer: Buffer<T> = values
+                .iter()
+                .enumerate()
+                .map(|(row, value)| match value {
+                    Some(value) => <T as BigCast>::from(*value)
+                        .vortex_expect("i8 fixture values fit every decimal storage type"),
+                    None if row % 2 == 0 => T::MIN,
+                    None => T::MAX,
+                })
+                .collect();
+            let array = DecimalArray::new(buffer, decimal_dtype, validity).into_array();
+            let actual = min_max(&array, &mut ctx, NumericalAggregateOpts::default())?;
+            assert_eq!(actual, expected);
+            if let Some(actual) = actual {
+                let dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
+                assert_eq!(actual.min.dtype(), &dtype);
+                assert_eq!(actual.max.dtype(), &dtype);
+            }
+
+            Ok(())
+        })
     }
 
     #[test]

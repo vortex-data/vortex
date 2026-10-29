@@ -11615,7 +11615,9 @@ dependencies = [
  "rstest",
  "vortex-array",
  "vortex-buffer",
+ "vortex-compute",
  "vortex-error",
+ "vortex-mask",
  "vortex-session",
 ]
 
@@ -11886,6 +11888,7 @@ dependencies = [
  "object_store 0.13.2",
  "parking_lot",
  "paste",
+ "prost 0.14.4",
  "reqwest 0.13.5",
  "rstest",
  "static_assertions",
@@ -11895,6 +11898,7 @@ dependencies = [
  "url",
  "vortex",
  "vortex-array",
+ "vortex-duckdb",
  "vortex-sequence",
  "vortex-spatial",
  "vortex-utils",
@@ -11907,6 +11911,22 @@ name = "vortex-edition"
 version = "0.1.0"
 dependencies = [
  "parking_lot",
+ "vortex-error",
+ "vortex-session",
+]
+
+[[package]]
+name = "vortex-elias-fano"
+version = "0.1.0"
+dependencies = [
+ "codspeed-divan-compat",
+ "mimalloc",
+ "num-traits",
+ "prost 0.14.4",
+ "rand 0.10.3",
+ "rstest",
+ "vortex-array",
+ "vortex-buffer",
  "vortex-error",
  "vortex-session",
 ]

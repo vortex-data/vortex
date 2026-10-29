@@ -267,12 +267,11 @@ mod tests {
             builder.append_value("Another string that's meant to be smaller than the previous value, though still need extra padding");
             let array = builder.finish();
             let mut stats_ctx = session.create_execution_ctx();
-            array.statistics().set_iter(
+            array.statistics().set_all(
                 array
                     .statistics()
                     .compute_all(&Stat::all().collect::<Vec<_>>(), &mut stats_ctx)
-                    .vortex_expect("stats computation should succeed for test array")
-                    .into_iter(),
+                    .vortex_expect("stats computation should succeed for test array"),
             );
 
             let layout = FlatLayoutStrategy::default()

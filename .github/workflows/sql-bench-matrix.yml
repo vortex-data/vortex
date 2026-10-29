@@ -235,6 +235,7 @@ jobs:
           uv run --no-project scripts/capture-file-sizes.py \
             vortex-bench/data \
             --benchmark ${{ matrix.subcommand }} \
+            --dataset-dir ${{ matrix.dataset_dir }} \
             --commit ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }} \
             -o sizes.json
           cat sizes.json >> results.json

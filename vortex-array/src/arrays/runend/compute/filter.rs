@@ -7,7 +7,8 @@ use std::ops::AddAssign;
 use num_traits::AsPrimitive;
 use num_traits::NumCast;
 use vortex_buffer::BitBuffer;
-use vortex_buffer::buffer_mut;
+use vortex_buffer::BufferAllocatorRef;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -72,6 +73,7 @@ impl FilterKernel for RunEnd {
                     array.offset() as u64,
                     array.len() as u64,
                     mask_values.bit_buffer(),
+                    ctx.allocator(),
                 )?
             });
         let filtered_values = array.values().filter(values_mask)?;
@@ -103,8 +105,9 @@ pub fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrim
     offset: u64,
     length: u64,
     mask: &BitBuffer,
+    allocator: &BufferAllocatorRef,
 ) -> VortexResult<(PrimitiveArray, Mask)> {
-    let mut filtered_run_ends = buffer_mut![R::zero(); run_ends.len()];
+    let mut filtered_run_ends = BufferMut::<R>::zeroed_in(run_ends.len(), allocator.clone());
 
     let mut run_start = 0u64;
     let mut retained_run_count = 0;

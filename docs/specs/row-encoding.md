@@ -275,7 +275,7 @@ null_sentinel || zero(width(T))
 ## Decimal
 
 Decimals are encoded as their scaled signed integer storage value. The selected storage
-width is the smallest decimal value type for the decimal precision:
+width is the canonical width of the decimal precision, `DecimalDType::canonical_values_type()`:
 
 | Precision | Storage |
 | --- | --- |

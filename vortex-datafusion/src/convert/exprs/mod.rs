@@ -273,7 +273,14 @@ impl DefaultExpressionConverter {
             )
             .map_err(|_| Unconverted::Unsupported)?;
         let converted = self.convert_expr(expr, schema, &input_dtype)?;
-        let expected_dtype = self.arrow_dtype(expr.return_field(schema)?.as_ref())?;
+        // `return_field` names the field by formatting the whole expression. For the IN list of a
+        // hash join filter, with thousands of keys, that costs more than the conversion. A
+        // predicate has no field metadata, so its type and nullability are enough.
+        let expected_dtype = if expr.data_type(schema)? == DataType::Boolean {
+            DType::Bool(expr.nullable(schema)?.into())
+        } else {
+            self.arrow_dtype(expr.return_field(schema)?.as_ref())?
+        };
         if !converted_dtype(&converted, &input_dtype)?.eq_ignore_nullability(&expected_dtype) {
             return Err(Unconverted::Unsupported);
         }
@@ -442,9 +449,16 @@ impl DefaultExpressionConverter {
         }
         let value_dtype = converted_dtype(&value, input_dtype)?;
 
+        // The list of a hash join filter holds every build-side key, which repeat. Each element
+        // converts through Arrow, so equal elements are converted once.
         let elements = in_list
             .list()
             .iter()
+            .unique_by(|element| {
+                element
+                    .downcast_ref::<df_expr::Literal>()
+                    .map(|literal| literal.value().clone())
+            })
             .map(|element| {
                 let element = self.convert_expr(element, schema, input_dtype)?;
                 element
