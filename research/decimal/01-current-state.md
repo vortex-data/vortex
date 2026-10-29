@@ -59,8 +59,8 @@ design: operations that derive from the storage, and operations that the type mu
 | Casts | Owned by the type | Owned by the type |
 
 One precision and scale is one dtype. In the terms of the extension design, `=`, `<`, hash, `min`,
-`max` and sort within one precision and scale are derives for one dtype. The other operations are
-rewrites that the type owns.
+`max` and sort within one precision and scale are covered by the `Eq` and `Ord` claims of one
+dtype. The other operations are rewrites that the type owns.
 
 Equality and hashing need care. On `develop`, one value can have several physical widths, so the
 storage bytes do not identify a value. For this reason, `DecimalValue` converts to `i256` before it

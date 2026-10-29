@@ -21,11 +21,14 @@ That causes wrong results, panics, and code paths that disagree with each other.
   The outcome depends on the encoding of the input, and on whether one row or the whole array is
   read.
 - The proposal: extension types are opaque by default. A typing check rejects every semantic
-  operation that no declaration covers. Rewrite rules turn the allowed ones into storage
-  operations. The kernels of generic operations, statistics and pruning see only storage.
-- Each extension dtype declares the storage behavior that it inherits, such as equality and order.
-  Each type also owns rewrite rules for its own operations, such as casts. Engines convert
-  operands of different dtypes before Vortex sees them.
+  operation that no claim, rule or declaration covers. Rewrite rules turn the allowed ones into
+  storage operations. The kernels of generic operations, statistics and pruning see only storage.
+- Each extension dtype makes claims about its storage, such as `Eq` and `Ord`. Each function
+  declares how it uses extension operands, and a function that runs on storage says how its result
+  gets the extension dtype back. Each type also owns rewrite rules for its own operations, such as
+  casts. Engines convert operands of different dtypes before Vortex sees them.
+- A design pass on 2026-10-29 settled this mechanism. Part 3 describes it, and part 5 has the new
+  phase plan.
 - A rewrite rule keeps generic structural arrays such as `Constant` and `Dict` above the extension
   wrapper. So code finds them without any knowledge of extension types.
 - [`../decisions.md`](../decisions.md) records which of these points are decided and which are
@@ -39,7 +42,7 @@ That causes wrong results, panics, and code paths that disagree with each other.
 - [`agents/findings.md`](agents/findings.md): every finding, with file and line references,
   reproductions, observed and expected behavior, and fix sketches.
 - [`agents/design-notes.md`](agents/design-notes.md): API sketches, invariants, rewrite rules, the
-  derive table for each type, the validation model, and file lists for each phase.
+  claims of each type, the validation model, and file lists for each phase.
 - [`agents/probe.rs`](agents/probe.rs) and [`agents/probe_followup.rs`](agents/probe_followup.rs):
   the throwaway tests that reproduced the confirmed findings.
 

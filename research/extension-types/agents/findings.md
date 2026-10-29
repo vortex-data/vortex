@@ -205,7 +205,8 @@ Terms:
 - **Impact:** The result is wrong for any type whose storage order or storage equality differs from
   its value order or value equality. Examples in the repository: JSON (key order and whitespace),
   WKB geometry (two encodings of one geometry), vectors and tensors (no natural order).
-- **Fix:** See `design-notes.md` (derives for one dtype, which typing and the derive rules read).
+- **Fix:** Claims for one dtype (X13), which typing reads (X17). See `design-notes.md`, sections 3
+  and 4.
 
 ### EXT-Q3: `DateTimeParts` compare kernel trusts its operand types
 
@@ -267,8 +268,9 @@ Terms:
   (`min_max/mod.rs:306-318`), now also `Uuid` through the byte order. #10851 added NaN handling
   for extension types over float storage (`min_max/mod.rs:169-200`), which applies storage
   semantics in one more place. The `vortex-row` and `sum` rejections are unchanged.
-- **Fix:** Make every ordering-based operation read one declaration (see `design-notes.md`). The
-  adapter of #10566 stays, and a declaration on the type registers it (X10).
+- **Fix:** Make every ordering-based operation read one claim, `Ord` (X13, see `design-notes.md`).
+  The body of the adapter of #10566 becomes the default storage path of aggregate binding, and the
+  composite IDs go away (X10, X21).
 
 ### EXT-A2: Zone maps fall back to storage statistics
 
@@ -280,8 +282,17 @@ Terms:
     top-level `Utf8` and `Binary`. An extension over `Utf8` or `Binary` (JSON, WKB) stores exact,
     unbounded bounds.
 - **Impact:** WKB zone maps store whole geometry blobs as their min and max, ordered by bytes.
-- **Fix:** Store storage statistics explicitly for every extension column, and have pruning use them
-  through `ext_storage` (see `design-notes.md`).
+- **History:** Vortex has computed storage-order min and max for every extension type for at least
+  a year, and writers have stored them. The extension `MinMaxKernel` ran `min_max` on the storage
+  and wrapped the result (`vortex-array/src/arrays/extension/compute/min_max.rs` at `3e7955446c`,
+  2025-10-17). The `MinMax` aggregate of #7006 (2026-03-18) kept that behavior. On `develop`,
+  `min_max` accepts every extension dtype
+  (`vortex-array/src/aggregate_fn/fns/min_max/mod.rs:306-318` at `c56ee8803b`). So files hold
+  storage-order min and max for `Json` and WKB columns. They give no wrong result today, because
+  compare on those types also uses storage order.
+- **Fix:** Zone maps keep logical `Min` and `Max` for types that claim `Ord`, and write no min and
+  max for other extension types. Readers ignore stored min and max of an extension type without
+  `Ord`, and log a warning once for each file and column (X22, `design-notes.md`, section 7).
 
 ### EXT-A3: The storage pushdown returns storage values
 
@@ -318,7 +329,7 @@ Terms:
 - **Fix:** Return an error from these read paths (U3). Make `ExtensionArray::try_new` check values
   with a batch `validate_array`, and add `ExtensionArray::new_unchecked` for kernels
   (`design-notes.md`, section 8). Make the row path of `ext_storage` read the storage without a
-  value check (phase 2).
+  value check (phase 3).
 
 ### EXT-V2: `Extension::validate` never checks the storage dtype
 
@@ -482,9 +493,16 @@ Terms:
   - `vortex-arrow/src/session.rs:873-876`: export falls back to `execute_arrow_naive` with the bare
     Arrow data type.
   - `vortex-arrow/src/scalar.rs:242`: scalar export supports temporal extension types only.
+- **State at `c56ee8803b`.** `to_arrow_field` returns an error for an extension type without a
+  plugin, other than the temporal types: "extension type cannot be converted to Arrow without a
+  plugin" (`vortex-arrow/src/session.rs:328-336`). So the default schema export fails, while a
+  caller that passes a storage-like target type gets storage.
 - **Impact:** A caller can ask for a storage-like Arrow type, for example `Int64` for a timestamp
   column through `to_arrow_array(arrow_type=...)` in Python. The caller then gets the storage
   values with no error.
+- **Fix:** U1 makes a storage-like target an error unless the caller uses `ext_storage`. Phase 7
+  exports a type without a plugin as storage with `ARROW:extension:name` and
+  `ARROW:extension:metadata`, and imports Vortex IDs (X24).
 
 ### EXT-B3: Python returns and builds raw storage values
 
@@ -690,3 +708,18 @@ design, not defects.
   and row input elements (`TensorRow`, `GeometryRow`).
 - DuckDB, DataFusion and Python have no plugin hooks for extension types, so each new type needs
   code in those crates.
+
+## Appendix D: lossy primitive casts
+
+This note is not specific to extension types. The design pass of 2026-10-29 records it as a known
+issue, out of scope for the extension work (C2).
+
+Primitive casts check only the range of a value, not exactness. When a conversion is not always
+lossless, `cast_values` uses `NumCast::from`
+(`vortex-array/src/arrays/primitive/compute/cast.rs` at `c56ee8803b`). `NumCast::from` returns
+`None` only for a value outside the target range. The num-traits 0.2.19 source shows three lossy
+cases that return no error:
+
+- A float to integer cast truncates toward zero, so `1.5f64` becomes `1i64`.
+- An integer to float cast rounds, so `2^53 + 1` becomes `2^53` as an `f64`.
+- An `f64` to `f32` cast rounds, and a finite value outside the `f32` range becomes infinity.

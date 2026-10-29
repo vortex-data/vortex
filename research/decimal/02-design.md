@@ -510,8 +510,7 @@ FixedSizeBinary is a core type for opaque bytes of a fixed length (decided, D6).
   casts to and from `Binary` and `FixedSizeList<u8, n>`. No arithmetic and no integer semantics.
 - **UUID.** `Uuid` storage becomes `FixedSizeBinary(16)` in memory. Files keep the current
   `FixedSizeList` storage until an edition allows the new form. A 128-bit lane can implement UUID
-  equality and hashing. Whether `Uuid` orders by its bytes is open (XQ6), with no recommendation
-  yet.
+  equality and hashing. `Uuid` orders by its bytes (X16).
 
 Recommendation (DQ7): FixedSizeBinary appears on the wire as a new core dtype tag behind an
 edition.
@@ -569,8 +568,8 @@ an unknown width. Today the decimal fixture covers only canonical `i32` and `i64
 `Decimal` stays a built-in type (decided, D1). It behaves like a hardcoded extension type:
 
 - It is opaque by default. Integer semantics apply only where a rule of the type says so.
-- It derives `eq` and `ord` for one precision and scale. With one width for each precision, the
-  integers on the view then give value equality and value order.
+- It holds the `Eq` and `Ord` claims for one precision and scale (X13). With one width for each
+  precision, the integers on the view then give value equality and value order.
 - Its other operations are rewrite rules that the type owns.
 
 A move to an extension type adds no capability. If the built-in type and an extension type become

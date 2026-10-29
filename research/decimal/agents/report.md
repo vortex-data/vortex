@@ -12,7 +12,9 @@ accepted design, and it changes no code. Paths and line numbers are for `develop
 The maintainer reviewed these notes on 2026-10-19, 2026-10-22 and 2026-10-23.
 [`decisions.md`](../../decisions.md) records the decisions (D1 to D20, X1 to X9, C1) and the open
 questions (DQ5 to DQ7, XQ1 to XQ6, CQ1, CQ2). This report follows that file. If the two disagree,
-the decisions file wins. Issue #10701 tracks the fix of the canonical decimal encoding.
+the decisions file wins. Issue #10701 tracks the fix of the canonical decimal encoding. A design
+pass on 2026-10-29 later added X10 to X24 and C2, and it settled XQ2 to XQ7. Section 7.5 maps the
+extension items onto the graph.
 
 D20 makes the integer view, wide integers, FixedSizeBinary, decimal arithmetic across precisions
 and scales, and casts that lose information future work. Sections 3.2, 3.4, 4, 5 and 6 describe
@@ -776,7 +778,7 @@ pair of dtypes exists (C1). `Decimal` ships built-in rules for the common pairs 
 
 | Operation on `Decimal(p, s)` | Rule over the integer view | Notes |
 | --- | --- | --- |
-| Compare, same `(p, s)` | `compare(view(a), view(b))` | A derive for one dtype (X2). Valid because the unscaled value is unique within one `(p, s)` after D3 |
+| Compare, same `(p, s)` | `compare(view(a), view(b))` | A claim for one dtype (X2, X13). Valid because the unscaled value is unique within one `(p, s)` after D3 |
 | Compare across `(p1, s1)` and `(p2, s2)` | None in Vortex | The engine casts both operands to one dtype first (X3). Rejected today (`scalar_fn/fns/binary/mod.rs:162-168`) |
 | Compare a column cast to a larger scale with a constant | Fold the cast into the constant and adjust the operator. `cast(x, s = 3) < 1.005` at `s = 2` becomes `view(x) <= 100` | An optimization for engine casts. Needs floor and ceiling rounding |
 | Add, subtract, same dtype | Widen to the result width, checked operation, precision check | Arrow rules (`scalar/typed_view/decimal/arithmetic.rs:49-101`). Equal dtypes only today (`scalar_fn/fns/binary/mod.rs:146-153`) |
@@ -791,7 +793,7 @@ pair of dtypes exists (C1). `Decimal` ships built-in rules for the common pairs 
 | Min, max, min_max, bounded_min, bounded_max | Integer aggregate on the view, then a decimal of the input dtype for each result value | Matches `min_max/extension.rs:17-35`. `min_max` returns a struct of two values. Truncation applies only to `Utf8` and `Binary`, so the bounded variants return exact values for decimals |
 | is_sorted, is_constant | Integer aggregate on the view. The `Bool` result stays as it is | Valid within one `(p, s)` |
 | Hash, group by, distinct, join keys | Integer hash and equality on the view | Valid within one `(p, s)` |
-| Zone-map pruning | Rewrite the predicate onto the integer statistics | Decimal statistics hold the same integers. Recommendation XQ2 writes rules over `ReduceNode`, so they also rewrite bound expressions for pruning |
+| Zone-map pruning | Rewrite the predicate onto the integer statistics | Decimal statistics hold the same integers. X20 writes rules over `ReduceNode`, so they also rewrite bound expressions for pruning |
 | IN list | Integer set over the needles, which have the column dtype (X3) | Replaces `haystack/mod.rs:118-125` |
 | Row encoding | The canonical width, big-endian with the sign bit flipped | Already done (`vortex-row/src/codec.rs:19`, `:1466-1480`) |
 
@@ -978,7 +980,7 @@ extension type:
 
 - It is opaque by default. No code applies integer semantics to a decimal value unless a rule of
   the type says so, as X1 requires of extension types.
-- It derives `eq` and `ord` for one `(p, s)`, as X2 describes. After D3, the unscaled value is
+- It holds the `Eq` and `Ord` claims for one `(p, s)` (X2, X13). After D3, the unscaled value is
   unique within one dtype, so integer equality and order on the view are value equality and order.
 - Its other operations are rewrite rules that the type owns (X4, section 3.4).
 
@@ -1356,7 +1358,8 @@ boundary. The question stays open (section 9).
   new storage. The conversion is zero-copy for flat data. The existing Arrow plugin already does
   the same conversion (`encodings/uuid/src/arrow.rs`, `try_fsl_to_fsb`).
 - The DuckDB exporter keeps its big-endian sign-flip transform.
-- XQ6 asks whether `Uuid` orders by its bytes. It is open, and there is no recommendation yet.
+- X16 settles that `Uuid` claims `Eq` and `Ord` and orders by its bytes, as
+  `register_storage_ordered(Uuid)` already does.
 
 ### 6.8 Relation to decimals and wide integers
 
@@ -1375,10 +1378,10 @@ needs an **optional** node.
 
 | Id | Node | Kind | Notes |
 | --- | --- | --- | --- |
-| N1 | Extension opacity fixes | impl, urgent | The urgent changes U1 to U9 of the extension notes. They cover storage casts, lone-side storage compares, errors from reads, nullability, temporal validation, storage checks, zero values, debug output and the results of the storage pushdown |
-| N2 | Rewrite rules that the type owns | research, then impl | X4: a type implements its behavior as rewrite rules on arrays, registered with the type. There is no `ext_wrap`. X5 and X6 add the placement rule and the removal of nested extension layers. Recommendation (XQ2): the rules live on `ExtVTable`, written over `ReduceNode` |
-| N3 | Derives for one dtype | impl | X2: `eq` and `ord` are properties of one dtype and never apply across dtypes. Operations across dtypes need a rule of the type (N2) or a cast by the engine (X3) |
-| N4 | Cast rules (#8570) | impl | C1: a cast exists only if a rule for the pair exists. Extension types own cast rules (X4), in place of the `cast_to` and `cast_from` closures of #8570. CQ1, the default for inexact values, is open |
+| N1 | Extension opacity fixes | impl, urgent | The urgent changes U1 to U9 of the extension notes. They cover storage casts, lone-side storage compares, errors from reads, nullability, temporal validation, storage checks, zero values, debug output and the results of the storage pushdown. U9 lands in phase 2 of the extension plan, after the declaration types |
+| N2 | Rewrite rules that the type owns | research, then impl | X4: a type implements its behavior as rewrite rules on arrays, registered with the type. There is no `ext_wrap`. X5 and X6 add the placement rule and the removal of nested extension layers. X20 settles that the rules live on `ExtVTable`, written over `ReduceNode`, and that only the crate of the type adds them |
+| N3 | Claims for one dtype | impl | X2 and X13: `Eq` and `Ord` are claims of one dtype and never apply across dtypes. Each function declares the claims it needs (X17), and typing checks them. Operations across dtypes need a rule of the type (N2) or a cast by the engine (X3) |
+| N4 | Cast rules (#8570) | impl | C1: a cast exists only if a rule for the pair exists. Extension types own cast rules (X4), in place of the `cast_to` and `cast_from` closures of #8570. C2 makes every extension cast exact. CQ1 stays open for decimals and primitive casts |
 | N5 | Value checks in `try_new` | impl | X7: a checked `try_new` and a `new_unchecked` for kernels. `ExtensionArray::try_new` checks every non-null value. Checks: UTF-8 and FixedSizeBinary length. The decimal precision check moves into N11 (D14) |
 | N6 | Nullability restructure | research, optional | Remove nullability duplication between wrapper and storage dtypes |
 | N7 | Fixed-width structural layer | impl | Extend `FixedWidthArray` (PR #8864) to run-end, sparse, dict, constant, and builders, keyed by record width |
@@ -1392,7 +1395,7 @@ needs an **optional** node.
 | N15 | Decimal as an extension type | impl, optional, later | D1 keeps the built-in type. A later change can remove it if the two become identical. Wire tag unchanged |
 | N16 | Wire translation layer for well-known types | research, then impl | Rust representation and wire representation chosen separately |
 | N17 | FixedSizeBinary core type | impl | D6 and section 6. Recommendation (DQ7): a new core dtype tag behind an edition |
-| N18 | UUID on FixedSizeBinary | impl | Accept frozen storage, write frozen storage. XQ6, the byte order of `Uuid`, is open |
+| N18 | UUID on FixedSizeBinary | impl | Accept frozen storage, write frozen storage. X16 orders `Uuid` by its bytes |
 | N19 | Utf8 as a well-known extension | research, low priority | 776 lines in 212 files mention `DType::Utf8` |
 | N20 | FixedSizeList and Map as well-known extensions | research, low priority | Needs requested layouts for the offset-free FixedSizeList form |
 | N21 | Duration and Interval extensions (PRs #10467, #10468) | impl, in flight | Both PRs leave edition membership open |
@@ -1422,7 +1425,7 @@ flowchart TD
     N11["N11 One canonical decimal width"]:::urgent
     N28["N28 One Widen encoding"]:::critical
     N2["N2 Rewrite rules owned by the type"]:::research
-    N3["N3 Derives for one dtype"]:::impl
+    N3["N3 Claims for one dtype"]:::impl
     N4["N4 Cast rules #8570"]:::impl
     N5["N5 Value checks in try_new"]:::impl
     N6["N6 Nullability restructure"]:::research
@@ -1449,7 +1452,7 @@ flowchart TD
     N1 --> N15
     N1 --> N21
     N1 -.-> N18
-    N2 --> N3
+    N3 --> N2
     N2 --> N4
     N2 -.-> N13
     N3 --> N15
@@ -1503,15 +1506,17 @@ soft: the target works without the source, but it is cheaper, safer, or faster w
 3. N1 to N18 (soft): after N1, a UUID column no longer compares with a storage literal. The
    engine literal paths then change once, before the storage changes. PR #9886 shows the
    current workaround.
-4. N2 to N3: the opt-in of N3 needs the typing check, which lands with N2 in phase 2 of the
-   extension notes. The opt-in itself need not be a rule that the type owns: the design notes
-   sketch derives as rules of the core functions. The mechanism is open (X11, XQ7).
+4. N3 to N2: a rule of the type covers a call that typing would otherwise reject, so the rules need
+   the typing check. In the extension plan of 2026-10-29, typing lands with the claims in phase 3,
+   and the rules of the type follow in phase 5. Claims are not rules that the type owns: typing
+   reads them through the declaration of each function (X13, X17). Until 2026-10-29 this edge ran
+   from N2 to N3, because the typing check was planned with the rules.
 5. N2 to N13 (soft): the decimal rules can reuse the rule mechanism of extension types. With
-   recommendation XQ2, rules over `ReduceNode` also rewrite bound expressions for pruning. The
+   X20, rules over `ReduceNode` also rewrite bound expressions for pruning. The
    built-in type can own its rules without N2.
-6. N3 to N15: after N1 and N2, a decimal extension type without derives loses compare, hash,
+6. N3 to N15: after N1 and N2, a decimal extension type without claims loses compare, hash,
    `min`, `max` and sort within one `(p, s)`. Comparisons across scales stay with the engine (X3).
-7. N3 to N21 (soft): `Duration` declares `eq` and `ord` for one unit. Before N3, the shared storage
+7. N3 to N21 (soft): `Duration` claims `Eq` and `Ord` for one unit. Before N3, the shared storage
    compare kernel gives the same answer for one unit. Across units, the engine casts first (X3).
 8. N4 to N15: rescaling casts and casts to and from integers and floats must be rules of the type
    (C1).
@@ -1568,7 +1573,7 @@ soft: the target works without the source, but it is cheaper, safer, or faster w
     nullability change rebuilds the extension dtype
     (`vortex-array/src/dtype/extension/typed.rs:91-99`).
 36. N2 to N4: cast rules are rules that the type owns (X4, C1), so they need the rule mechanism.
-    Phase 3 of the extension notes lands after phase 2 for the same reason.
+    Phase 5 of the extension notes holds both, after typing in phase 3.
 
 ### 7.4 Critical path and parallel work
 
@@ -1581,7 +1586,7 @@ soft: the target works without the source, but it is cheaper, safer, or faster w
 - **Critical path for delegated decimal kernels (future work, D20):** N9, N12, N13. N8 must land
   before N13. N7 is soft, but it shrinks N9, so do it first. N12 for precision 1 to 18 can land at
   any point.
-- **The optional move (N15):** after N13, with N1, N2 then N3 and N4, and N16 joining at N15.
+- **The optional move (N15):** after N13, with N1, N3 then N2 and N4, and N16 joining at N15.
 - **Parallel tracks:**
   - Extension correctness: N1, N2, N3, N4, N5.
   - Decimal: N28, N11, N12, N7, N8, N9, N13, N14.
@@ -1594,24 +1599,27 @@ soft: the target works without the source, but it is cheaper, safer, or faster w
 ### 7.5 Mapping to the extension-type research
 
 The extension-type notes in `../../extension-types/` use their own ids for urgent changes (U1 to
-U9) and phases (0 to 6, with phase 4 split into 4a and 4b). The decisions file adds ids X1 to X12
-and XQ1 to XQ7. This table maps them onto the graph.
+U9) and phases (0 to 7, from the plan of 2026-10-29, plus two low-priority items). The decisions
+file adds ids X1 to X24 and XQ1 to XQ8. This table maps them onto the graph.
 
 | Extension research item | Node here |
 | --- | --- |
-| U1 to U9, the urgent changes | N1, item P3 in section 8.3. U5 and U6 are dtype and storage checks, not the value validation of N5 |
+| U1 to U9, the urgent changes | N1, item P3 in section 8.3. U5 and U6 are dtype and storage checks, not the value validation of N5. U9 lands in phase 2 |
 | U4 infallible nullability changes | Part of N1. It also removes the panic in the rebuild that edge 35 describes |
-| Phase 1, contract and conformance harness | Not a separate node. Its decimal-like reference type over `i64` is an early acceptance test for N3 and N13 |
-| Phase 2, typing, derives and rewrite rules (X2, X4) | N2 and N3. Part 5 of the extension notes lands them after phases 0 and 1, which the graph does not show |
-| Phase 3, cast rules that the types own (C1) | N4 |
-| Phase 4a, the lift rule for structural arrays (X5, XQ1, #10748) | The placement rule of section 3.3, shared with `Widen` (D25) |
-| Phase 4b, storage statistics and `DateTimeParts` under the wrapper | DateTimeParts below the structural encodings is the temporal twin of DBP |
-| Phase 5, value checks in `ExtensionArray::try_new`, and nullability (X7) | N5 and N6 |
-| Phase 6, authoring and boundaries | N23 |
+| Phase 0, urgent fixes U1 to U8 | N1 |
+| Phase 1, claims and the conformance harness (X13 to X16) | N3. Its decimal-like reference type over `i64` is an early acceptance test for N3 and N13 |
+| Phase 2, declarations and U9 (X17, X19) | N3 |
+| Phase 3, typing and the default storage paths (X18, X21) | N3, with X6 from N2. Part 5 of the extension notes lands it after phases 0 and 2, which the graph does not show |
+| Phase 4, statistics (X22) | Not a separate node. It keeps the format for types with `Ord` |
+| Phase 5, rules that the type owns and exact casts (X20, C1, C2) | N2 and N4 |
+| Phase 6, value checks in `ExtensionArray::try_new`, and nullability (X7, X23) | N5 and N6 |
+| Phase 7, boundaries (X24) | N23 |
+| Low priority, the lift rule for structural arrays (X5, XQ1, #10748) | The placement rule of section 3.3, shared with `Widen` (D25) |
+| Low priority, `DateTimeParts` under the wrapper | DateTimeParts below the structural encodings is the temporal twin of DBP |
 
 The decimal fix (N28 and N11) does not wait for the extension phases. The built-in Decimal
-owns its rules (D1, section 3.4). The optional move (N15) needs phases 0, 2 and 3 first (N1, N3
-and N4).
+owns its rules (D1, section 3.4). The optional move (N15) needs phases 0, 3 and 5 first (N1, N3,
+N2 and N4).
 
 ## 8. Recommendations
 
@@ -1803,9 +1811,9 @@ Wave 2, foundations, in parallel with the canonical decimal fix:
 12. N7: width-keyed structural kernels for run-end, sparse, dict, constant, and builders.
 13. N8: `vortex.int.rescale`, `vortex.int.check_range`, and the fused scaled kernels. Use them for
     the Timestamp unit casts of N4.
-14. N4: cast rules (#8570). Land N21 (Duration first, then Interval) on top of N1 and N4.
-15. N2, then N3: the rewrite rules that types own, then derives for one dtype. Use the decimal
-    rules of section 3.4 as acceptance tests.
+14. N3, then N2: claims and the typing check, then the rewrite rules that types own. Use the
+    decimal rules of section 3.4 as acceptance tests.
+15. N4: cast rules (#8570). Land N21 (Duration first, then Interval) on top of N1 and N4.
 16. N23: plugin registries for DuckDB and DataFusion type mapping.
 
 Wave 3, new types:
@@ -1843,10 +1851,10 @@ notes, which the maintainer has not confirmed. DQ5, DQ6, DQ7 and CQ1 belong to f
 | DQ6 | Does decimal arithmetic accept operands with different precision and scale? | Yes, with the Arrow rules for the result type. Comparisons keep the rule of equal dtypes (X3) |
 | DQ7 | How does FixedSizeBinary appear on the wire? | As a new core dtype tag behind an edition |
 | XQ1 | Which arrays does the rule of X5 pull out, and what stays under the wrapper? | `Constant`, `Dict`, `RunEnd`, `Sparse`, `Chunked`, `Masked` and `Interleave`. For `Decimal`, the wire forms already have this shape (section 3.3) |
-| XQ2 | Where do the rules of X4 live? | On `ExtVTable`, written over `ReduceNode`. The built-in `Decimal` owns the same kind of rules |
-| XQ3 | Do file reads check extension values, or trust the file? | Check only what memory safety needs, and never panic. For decimals, D14 settles this: file reads trust the precision. A read that makes a narrowing copy reads the values anyway, so it checks the precision (D21) |
-| XQ6 | Does `Uuid` order by its bytes? | No recommendation yet. The answer affects N18 |
-| CQ1 | What does the default cast do with a value that it cannot represent exactly? | It returns an error. Lossy steps such as `trunc` and `round` are separate expressions. The decimal-to-integer rule of section 3.4 keeps the current truncation until CQ1 is settled |
+| XQ2 | Where do the rules of X4 live? | Settled by X20: on `ExtVTable`, written over `ReduceNode`. The built-in `Decimal` owns the same kind of rules |
+| XQ3 | Do file reads check extension values, or trust the file? | Settled by X23: check only what memory safety needs, and never panic. For decimals, D14 settles this: file reads trust the precision. A read that makes a narrowing copy reads the values anyway, so it checks the precision (D21) |
+| XQ6 | Does `Uuid` order by its bytes? | Settled by X16: yes. The answer affects N18 |
+| CQ1 | What does the default cast do with a value that it cannot represent exactly? | It returns an error. Lossy steps such as `trunc` and `round` are separate expressions. C2 settles this for extension types. The decimal-to-integer rule of section 3.4 keeps the current truncation until CQ1 is settled |
 
 ### 9.2 Other open questions
 

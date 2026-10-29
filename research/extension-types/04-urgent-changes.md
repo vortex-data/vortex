@@ -5,10 +5,11 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 # 4. Urgent changes
 
-These changes fix wrong results and panics. They do not depend on the design in part 3, and each one
-fits in a small PR with a regression test. Finding IDs refer to
-[`agents/findings.md`](agents/findings.md). On 2026-10-29, every change was still needed on
-`develop` at `1d09649bbd`, and the line numbers in this part are for that commit.
+These changes fix wrong results and panics. U1 to U8 do not depend on the design in part 3, and
+each one fits in a small PR with a regression test. U9 needs the declaration types of the design, so
+it lands in phase 2 of part 5. Finding IDs refer to [`agents/findings.md`](agents/findings.md). On
+2026-10-29, every change was still needed on `develop` at `1d09649bbd`, and the line numbers in this
+part are for that commit.
 
 | ID | Change | Fixes | Visible effect |
 | --- | --- | --- | --- |
@@ -40,7 +41,8 @@ must be errors. The table in EXT-P1 lists the first cases.
   path still cast `Timestamp(ms)` to `i64` after the array path stops.
 - Return the storage error instead of "no `CastKernel`" (EXT-C3).
 - Change the Arrow exporters that call `array.cast(target)` (EXT-B2). An exporter that exports
-  storage on purpose calls `ext_storage`. Every other exporter returns an error.
+  storage on purpose calls `ext_storage`. Every other exporter returns an error. Phase 7 later adds
+  the default export of a type without a plugin, as storage with extension metadata (X24).
 
 Visible changes: `cast(Timestamp, i64)` returns an error, and `ext_storage` replaces it. Python
 `vx.scalar(5, dtype=timestamp)` returns an error. The dedicated temporal constructors keep working.
@@ -131,21 +133,27 @@ when the dtype is built is the better place.
 
 ## U9. Storage pushdown results
 
-- `ExtensionStoragePushdown` gives each result of `A` that is a value of the input the extension
-  dtype `E` back, before it returns the result (X12). This changes `return_dtype`, `finalize` and
-  `finalize_scalar` (`vortex-array/src/aggregate_fn/storage_pushdown.rs:200`, `:299`, `:307`). For
-  `min_max`, the `min` and `max` fields become values of `E`. The `Bool` of `is_sorted` stays as
-  it is.
-- The adapter must know which parts of a result are values of the input. A method on
-  `AggregateFnVTable` can say this, with a default of "none". `MinMax` declares both of its fields.
-  This is a narrow form of XQ5, so the method must leave room for the bound kind.
-- Partial states can stay in storage form. The docs of the adapter allow partials to combine only
-  when the aggregate, the options and the full input dtype match.
+U9 lands at the end of phase 2, after `ExtensionUse` and `ResultMapping` exist (X17, X19).
+
+- `MinMax`, `Min`, `Max`, `IsSorted`, `BoundedMin` and `BoundedMax` implement `extension_use`. Each
+  answers `Storage` with the `Ord` claim and a result mapping:
+  - `Min` and `Max` answer `Rewrap` with the input dtype.
+  - `MinMax` answers `Fields` with two `Rewrap`s.
+  - `IsSorted` answers `Keep`.
+  - `BoundedMin` and `BoundedMax` answer `Keep` over `Utf8` and `Binary` storage, where they can
+    truncate, and `Rewrap` over other storage.
+- `ExtensionStoragePushdown` applies the mapping of `A` to its results (X12). This changes
+  `return_dtype`, `finalize` and `finalize_scalar`
+  (`vortex-array/src/aggregate_fn/storage_pushdown.rs:200`, `:299`, `:307`).
+- Partial states stay in storage form in memory. `to_scalar` gives them the logical form, and
+  `partial_from_scalar` removes it (X21). So a partial that leaves the adapter has the same dtype as
+  a partial of plain `min_max`.
 - Remove the docs sentence that results are not converted back to `E` (`storage_pushdown.rs:57-59`).
 
 Visible change: `vortex.min_max[vortex.timestamp]` returns `Timestamp` values, like plain `min_max`.
 Only tests ask for the composite IDs today, so no other caller changes. The regression test compares
-the result of the adapter with the result of plain `min_max`.
+the result of the adapter with the result of plain `min_max`. Phase 3 later moves the body of the
+adapter into aggregate binding, and the composite IDs go away (X10, X21).
 
 ## Coordination with open work
 
@@ -156,15 +164,20 @@ Three PRs added or add mechanisms for extension semantics:
 - [#10566](https://github.com/vortex-data/vortex/pull/10566) added `ExtensionStoragePushdown`, an
   aggregate adapter with a composite ID, and
   [#10616](https://github.com/vortex-data/vortex/pull/10616) registered it for the temporal types
-  and `Uuid`. Both merged on 2026-10-20. The adapter stays, and U9 fixes its results. In phase 2, a
-  declaration on the type registers it (X10).
+  and `Uuid`. Both merged on 2026-10-20. U9 fixes its results. In phase 3, its body becomes the
+  default storage path of aggregate binding, and its composite IDs go away (X10, X21).
 - [#10408](https://github.com/vortex-data/vortex/pull/10408) adds `between` pushdown for
   `AnyTemporal`. It is an open draft.
 
-Phase 2 moves the `between` pushdown onto the opt-in mechanism of part 3, and it replaces the
-hand-written registrations of the adapter with declarations on the types.
+Phase 3 turns the `between` pushdown into a `Storage` declaration, and it replaces the
+hand-written registrations of the adapter with the claims of the types.
+
+[#10769](https://github.com/vortex-data/vortex/pull/10769) (draft) moves the aggregate
+implementations into a new `vortex-aggregates` crate, including the tests of the storage pushdown.
+U9 changes the same code, so the order of the two needs agreement.
 
 The new extension types `Duration` ([#10467](https://github.com/vortex-data/vortex/pull/10467))
 and `Interval` ([#10468](https://github.com/vortex-data/vortex/pull/10468)) are open. Both edit
-the `AnyTemporal` matcher and the Arrow, DataFusion and DuckDB converters. U1, U2 and phase 3
-change the same code, and both types need rows in the table of derives.
+the `AnyTemporal` matcher and the Arrow, DataFusion and DuckDB converters. U1, U2 and phase 5
+change the same code. `Duration` claims `Eq` and `Ord`, and `Interval` claims nothing until its PR
+decides what interval equality means (X16).

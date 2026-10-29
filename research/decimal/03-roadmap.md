@@ -9,14 +9,14 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 Many planned type changes depend on each other. The IDs below match the full graph in section 7
 of [`agents/report.md`](agents/report.md), which gives a reason for each edge. There is no N25.
-The decision IDs (D1 to D38, X1 to X9, C1) and the open questions (DQ5 to DQ7, XQ1 to XQ6, CQ1)
-come from [`decisions.md`](../decisions.md).
+The decision IDs (D1 to D42, X1 to X24, C1 and C2) and the open questions (DQ5 to DQ7, XQ1, XQ8,
+CQ1 and CQ2) come from [`decisions.md`](../decisions.md).
 
 | ID | Work | Kind |
 | --- | --- | --- |
 | N1 | Extension opacity fixes ([part 4](../extension-types/04-urgent-changes.md) of the extension notes) | Urgent |
 | N2 | Rewrite rules that the type owns, registered with the type (X4) | Research, then implementation |
-| N3 | Derives for one dtype (X2) | Implementation |
+| N3 | Claims for one dtype (X2, X13) | Implementation |
 | N4 | Cast rules for pairs of dtypes (C1), with cast hooks for extension types ([#8570](https://github.com/vortex-data/vortex/issues/8570)) | Implementation |
 | N5 | Value checks in `try_new`, with `new_unchecked` for kernels (X7) | Implementation |
 | N6 | Nullability on the extension dtype | Research, optional |
@@ -56,7 +56,7 @@ flowchart TD
     subgraph EXT["Extension types"]
         N1["N1 Opacity fixes"]
         N2["N2 Rules owned by the type"]
-        N3["N3 Derives for one dtype"]
+        N3["N3 Claims for one dtype"]
         N4["N4 Cast rules"]
     end
     subgraph DEC["Decimal"]
@@ -86,7 +86,7 @@ flowchart TD
     end
     N21["N21 Duration and Interval"]
 
-    N2 --> N3
+    N3 --> N2
     N2 --> N4
     N1 --> N21
     N4 --> N21
@@ -230,7 +230,7 @@ the bar of no compute regression applies to the final state (decided, D19).
 | --- | --- |
 | 0, independent | Strict enum decoding, the DecimalByteParts nullability fix, N1, the integer `Widen` in memory followed by the `encode_values` PR, and the decimal benchmarks and fixtures |
 | 1, one canonical form | N11 as two changes (D11). The in-memory change holds the width owner, N28 for decimals, DecimalByteParts decoding, the read plugin, the DecimalByteParts scheme on the canonical array and the strict `try_new`, each as its own PR. The wire change holds the `vortex.widen` wire format, the preview edition with DecimalByteParts lower parts, and the decimal `Narrow` scheme |
-| 2, foundations | N7 fixed-width kernels. N8 scaled-integer kernels, used first by `Timestamp` unit casts. N2, then N3 and N4, with the decimal rules as acceptance tests. N21 `Duration` and `Interval` after N1 and N4. N23 engine plugins |
+| 2, foundations | N7 fixed-width kernels. N8 scaled-integer kernels, used first by `Timestamp` unit casts. N3, then N2 and N4, with the decimal rules as acceptance tests. N21 `Duration` and `Interval` after N1 and N4. N23 engine plugins |
 | 3, new types | N9 wide integers, user-visible only behind an edition (recommendation DQ5). N10 edition gates and the protobuf `oneof`. N17 FixedSizeBinary, after DQ7. N5 array validation |
 | 4, decimal kernels | N12 for precision 19 to 76. N13 rules over the view, which delete most decimal kernels. N14, which is optional. N18 and N27 |
 | 5, optional | N16, then N15 if the built-in type and an extension type become identical. N19 and N20 after N22 |
@@ -245,7 +245,7 @@ are not reviewed.
 
 - The scaled-integer kernels (N8) serve decimal rescales and the unit casts of `Timestamp`, `Time`
   and `Duration`.
-- The decimal rules are acceptance tests for the rules and derives of extension types (N2 and
+- The decimal rules are acceptance tests for the rules and claims of extension types (N2 and
   N3). Phase 1 of the extension notes adds a decimal-like extension type over `i64`, and that type
   can run the same tests against the built-in `Decimal`.
 - The fixed-width structural kernels (N7) serve wide integers and FixedSizeBinary.
