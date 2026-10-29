@@ -3,6 +3,10 @@
 
 use std::cmp::min;
 
+use fearless_simd::Level;
+use fearless_simd::Simd;
+use fearless_simd::dispatch;
+use fearless_simd_macros::simd;
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
@@ -133,43 +137,18 @@ where
     u64: AsPrimitive<R>,
 {
     // The x86-64 baseline has no POPCNT, so a plain build lowers every per-run popcount to a
-    // bit-twiddling sequence that dominates the loop.
-    #[cfg(target_arch = "x86_64")]
-    {
-        if std::arch::is_x86_feature_detected!("popcnt") {
-            // SAFETY: POPCNT support was detected above.
-            return unsafe { run_end_ranks_popcnt(run_ends, offset, length, mask) };
-        }
-    }
-    run_end_ranks_inline::<R, false>(run_ends, offset, length, mask)
+    // bit-twiddling sequence that dominates the loop. Levels from SSE4.2 up enable POPCNT.
+    dispatch!(Level::new(), simd => run_end_ranks_simd(simd, run_ends, offset, length, mask))
 }
 
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "popcnt")]
-unsafe fn run_end_ranks_popcnt<R: NativePType + AsPrimitive<u64>>(
-    run_ends: &[R],
-    offset: u64,
-    length: u64,
-    mask: &BitBuffer,
-) -> (Buffer<R>, BitBuffer)
-where
-    u64: AsPrimitive<R>,
-{
-    run_end_ranks_inline::<R, true>(run_ends, offset, length, mask)
-}
-
-/// Rank loop shared by the POPCNT and portable paths.
+/// Rank loop compiled with the target features of `simd`.
 ///
-/// `POPCNT` is unused in the body. It gives each path its own instantiation, and so its own
-/// closure type, so each `BitBuffer::collect_bool` instantiation has one caller and LLVM inlines it.
-/// With a shared closure type LLVM keeps `collect_bool` out of line, where the predicate is
-/// compiled without POPCNT.
-#[expect(
-    clippy::inline_always,
-    reason = "the loop must inline into the POPCNT-enabled caller to use the instruction"
-)]
-#[inline(always)]
-fn run_end_ranks_inline<R: NativePType + AsPrimitive<u64>, const POPCNT: bool>(
+/// Each level has its own instantiation, so each `BitBuffer::collect_bool` instantiation has one
+/// caller and LLVM inlines it into the feature-enabled body. An out-of-line `collect_bool` would
+/// compile the predicate without POPCNT.
+#[simd]
+fn run_end_ranks_simd<S: Simd, R: NativePType + AsPrimitive<u64>>(
+    _: S,
     run_ends: &[R],
     offset: u64,
     length: u64,
@@ -210,7 +189,7 @@ struct RankDirectory {
 impl RankDirectory {
     #[expect(
         clippy::inline_always,
-        reason = "must inline into the POPCNT-enabled caller to use the instruction"
+        reason = "must inline into the SIMD-level body to use its POPCNT"
     )]
     #[inline(always)]
     fn new(bits: &BitBuffer) -> Self {
@@ -234,7 +213,7 @@ impl RankDirectory {
     /// Returns the number of set bits before position `n`, for `n <= len`.
     #[expect(
         clippy::inline_always,
-        reason = "must inline into the POPCNT-enabled caller to use the instruction"
+        reason = "must inline into the SIMD-level body to use its POPCNT"
     )]
     #[inline(always)]
     fn rank(&self, n: u64) -> u64 {
