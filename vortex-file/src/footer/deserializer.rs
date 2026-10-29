@@ -28,6 +28,7 @@ use crate::encryption::SegmentCipher;
 use crate::encryption::SegmentRole;
 use crate::footer::FileStatistics;
 use crate::footer::SegmentSpec;
+use crate::footer::postscript::EncryptedStatistics;
 use crate::footer::postscript::Postscript;
 use crate::footer::postscript::PostscriptSegment;
 
@@ -97,14 +98,15 @@ impl FooterDeserializer {
     /// Failures are reported by the next call to [`deserialize`](Self::deserialize), and only for
     /// keys the footer cannot be read without.
     pub async fn resolve_keys(&mut self) {
-        for spec in self.footer_specs() {
+        for (spec, _) in self.footer_specs() {
             // Errors are cached by the resolver, and surface when the footer is deserialized.
             drop(self.resolver.cipher(&spec).await);
         }
     }
 
-    /// The encryption specs of the footer segments that must be decrypted.
-    fn footer_specs(&self) -> Vec<EncryptionSpec> {
+    /// The encryption specs of the footer segments that must be decrypted, and whether the
+    /// footer can be read without them.
+    fn footer_specs(&self) -> Vec<(EncryptionSpec, bool)> {
         let Some(postscript) = &self.postscript else {
             return Vec::new();
         };
@@ -114,13 +116,29 @@ impl FooterDeserializer {
             .then_some(&postscript.dtype)
             .into_iter()
             .flatten();
-        let mut specs: Vec<EncryptionSpec> = Vec::new();
-        for segment in dtype
+        let required = dtype
             .chain(&postscript.statistics)
             .chain([&postscript.layout, &postscript.footer])
-        {
-            if segment.encryption.is_encrypted() && !specs.contains(&segment.encryption) {
-                specs.push(segment.encryption.clone());
+            .map(|segment| (&segment.encryption, false));
+        // Statistics encrypted with a field's key are left empty without the key, and readers
+        // may choose not to retrieve field keys for them.
+        let field_statistics = self
+            .resolver
+            .decryption()
+            .is_some_and(|decryption| decryption.field_key_statistics);
+        let optional = postscript
+            .encrypted_statistics
+            .iter()
+            .filter(|_| field_statistics)
+            .map(|entry| (&entry.segment.encryption, true));
+        let mut specs: Vec<(EncryptionSpec, bool)> = Vec::new();
+        for (spec, optional) in required.chain(optional) {
+            if !spec.is_encrypted() {
+                continue;
+            }
+            match specs.iter_mut().find(|(known, _)| known == spec) {
+                Some((_, known_optional)) => *known_optional &= optional,
+                None => specs.push((spec.clone(), optional)),
             }
         }
         specs
@@ -215,6 +233,9 @@ impl FooterDeserializer {
         }
         read_more_offset = read_more_offset.min(postscript.layout.offset);
         read_more_offset = read_more_offset.min(postscript.footer.offset);
+        for entry in &postscript.encrypted_statistics {
+            read_more_offset = read_more_offset.min(entry.segment.offset);
+        }
 
         // Read more bytes if necessary.
         if read_more_offset < initial_offset {
@@ -231,7 +252,7 @@ impl FooterDeserializer {
         if self
             .footer_specs()
             .iter()
-            .any(|spec| self.resolver.resolved(spec).is_none())
+            .any(|(spec, _)| self.resolver.resolved(spec).is_none())
         {
             return Ok(DeserializeStep::NeedKeys);
         }
@@ -258,7 +279,7 @@ impl FooterDeserializer {
             .unwrap_or_else(|| self.dtype.clone().vortex_expect("DType was provided"));
         // File statistics are optional, so ones that can't be parsed are dropped rather than
         // failing the open. Ones that fail to decrypt were tampered with, which fails the open.
-        let file_stats = match &postscript.statistics {
+        let mut file_stats = match &postscript.statistics {
             None => None,
             Some(segment) => {
                 let bytes = match segments.read(segment, SegmentRole::Statistics) {
@@ -280,6 +301,12 @@ impl FooterDeserializer {
                 })
             }
         };
+        let encrypted_statistics = self.read_encrypted_statistics(
+            &segments,
+            &postscript.encrypted_statistics,
+            &dtype,
+            &mut file_stats,
+        )?;
         let metadata = postscript
             .metadata
             .iter()
@@ -331,6 +358,7 @@ impl FooterDeserializer {
             dtype,
             file_stats,
             metadata,
+            encrypted_statistics,
             &self.session,
         )?;
         self.validate_footer_protection(postscript, &footer)?;
@@ -405,6 +433,72 @@ impl FooterDeserializer {
         Ok(())
     }
 
+    /// Merge the statistics of fields encrypted with their own key into `file_stats`, where the
+    /// key can be retrieved. Returns the fields and encryption spec of every entry.
+    fn read_encrypted_statistics(
+        &self,
+        segments: &InitialSegments<'_>,
+        entries: &[EncryptedStatistics],
+        dtype: &DType,
+        file_stats: &mut Option<FileStatistics>,
+    ) -> VortexResult<Vec<(Vec<u32>, EncryptionSpec)>> {
+        if entries.is_empty() {
+            return Ok(Vec::new());
+        }
+        let Some(fields) = dtype.as_struct_fields_opt() else {
+            vortex_bail!("Encrypted statistics require a struct dtype, got {dtype}");
+        };
+        let mut seen = vec![false; fields.nfields()];
+        let mut result = Vec::with_capacity(entries.len());
+        for (position, entry) in entries.iter().enumerate() {
+            let position = u16::try_from(position)?;
+            for &field in &entry.fields {
+                let seen = seen.get_mut(field as usize).ok_or_else(|| {
+                    vortex_err!("Encrypted statistics refer to missing field {field}")
+                })?;
+                if std::mem::replace(seen, true) {
+                    vortex_bail!("Statistics of field {field} are encrypted more than once");
+                }
+            }
+
+            // The key of a field's statistics may be unavailable to a reader that cannot read
+            // the field either, so leave its statistics empty rather than failing.
+            match segments.cipher(&entry.segment.encryption) {
+                Ok(cipher) => {
+                    let bytes = segments.read_with(
+                        &entry.segment,
+                        SegmentRole::KeyStatistics {
+                            position,
+                            fields: &entry.fields,
+                        },
+                        &cipher,
+                    )?;
+                    // Like the shared statistics, ones that can't be parsed are dropped.
+                    match root::<crate::flatbuffers::footer::FileStatistics>(&bytes)
+                        .map_err(VortexError::from)
+                        .and_then(|fb| FileStatistics::from_flatbuffer(&fb, dtype, &self.session))
+                    {
+                        Ok(stats) => {
+                            let merged = file_stats
+                                .take()
+                                .unwrap_or_else(|| FileStatistics::empty_with_dtype(dtype));
+                            *file_stats =
+                                Some(merged.with_field_stats(&entry.fields, Some(&stats), dtype));
+                        }
+                        Err(error) => {
+                            tracing::warn!(%error, "ignoring unreadable encrypted file statistics");
+                        }
+                    }
+                }
+                Err(err) => {
+                    tracing::debug!("Statistics of fields {:?} unavailable: {err}", entry.fields);
+                }
+            }
+            result.push((entry.fields.clone(), entry.segment.encryption.clone()));
+        }
+        Ok(result)
+    }
+
     /// The current buffer being used for deserialization.
     pub fn buffer(&self) -> &ByteBuffer {
         &self.buffer
@@ -468,6 +562,17 @@ impl<'a> InitialSegments<'a> {
                 vortex_err!("Footer key not resolved; await FooterDeserializer::resolve_keys")
             })??
             .ok_or_else(|| vortex_err!("Encrypted footer segment has a plaintext encryption spec"))
+    }
+
+    /// Slice a segment out of the buffer, decrypting it with `cipher`.
+    fn read_with(
+        &self,
+        segment: &PostscriptSegment,
+        role: SegmentRole<'_>,
+        cipher: &SegmentCipher,
+    ) -> VortexResult<ByteBuffer> {
+        let bytes = checked_segment_slice(self.initial_read, self.initial_offset, segment)?;
+        cipher.decrypt(role, ByteBuffer::copy_from(bytes), segment.alignment)
     }
 
     /// Slice a segment out of the buffer, decrypting it if necessary.
@@ -604,6 +709,7 @@ mod tests {
             statistics: None,
             footer: footer_segment,
             metadata: Vec::new(),
+            encrypted_statistics: Vec::new(),
         };
         let buffer = eof_buffer(&postscript)?;
         let file_size = buffer.len() as u64;
@@ -624,6 +730,7 @@ mod tests {
             statistics: None,
             footer: segment(1, 1),
             metadata: Vec::new(),
+            encrypted_statistics: Vec::new(),
         };
         let buffer = eof_buffer(&postscript)?;
         let declared_size = buffer.len() as u64 - 1;

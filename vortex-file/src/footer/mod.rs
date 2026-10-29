@@ -21,6 +21,7 @@ pub use serializer::*;
 mod deserializer;
 pub use deserializer::*;
 pub use field_sizes::CompressedFieldSizes;
+pub(crate) use field_sizes::attribute_segments;
 pub use file_statistics::FileStatistics;
 use flatbuffers::root;
 use itertools::Itertools;
@@ -73,6 +74,9 @@ pub struct Footer {
     segments_end: Option<u64>,
     // The encryption specs indexed by `SegmentSpec::encryption`. Empty if no segment is encrypted.
     encryption_specs: Arc<[EncryptionSpec]>,
+    // The top-level fields whose statistics are stored in a separate segment encrypted with the
+    // key at the given index of `encryption_specs`, sorted by field.
+    statistics_encryption: Arc<[(u32, u16)]>,
     // The specific arrays used within the file, in the order they were registered.
     array_read_ctx: ReadContext,
     // The approximate size of the footer in bytes, used for caching and memory management.
@@ -94,9 +98,44 @@ impl Footer {
             statistics,
             metadata: Arc::from([]),
             encryption_specs: Arc::from([]),
+            statistics_encryption: Arc::from([]),
             array_read_ctx,
             approx_byte_size: None,
         }
+    }
+
+    /// Store the statistics of the given top-level fields in separate segments, each encrypted
+    /// with the key at the given index of the [encryption specs](Self::encryption_specs), so that
+    /// only readers with that key see them.
+    ///
+    /// Call after [`with_encryption_specs`](Self::with_encryption_specs).
+    pub fn with_statistics_encryption(
+        mut self,
+        statistics_encryption: impl Into<Arc<[(u32, u16)]>>,
+    ) -> VortexResult<Self> {
+        let mut statistics_encryption: Vec<(u32, u16)> = statistics_encryption.into().to_vec();
+        statistics_encryption.sort_unstable();
+        let nfields = self
+            .dtype()
+            .as_struct_fields_opt()
+            .map(|fields| fields.nfields());
+        for (position, &(field, key)) in statistics_encryption.iter().enumerate() {
+            if nfields.is_none_or(|nfields| field as usize >= nfields) {
+                vortex_bail!("Statistics encryption refers to missing field {field}");
+            }
+            if position > 0 && statistics_encryption[position - 1].0 == field {
+                vortex_bail!("Statistics of field {field} are encrypted with more than one key");
+            }
+            if key == 0 || usize::from(key) >= self.encryption_specs.len() {
+                vortex_bail!(
+                    "Statistics of field {field} refer to encryption spec {key}, but the footer \
+                     has only {} encrypted specs",
+                    self.encryption_specs.len().saturating_sub(1)
+                );
+            }
+        }
+        self.statistics_encryption = statistics_encryption.into();
+        Ok(self)
     }
 
     /// Set the encryption specs that the segments' [`SegmentSpec::encryption`] indices refer to.
@@ -123,6 +162,7 @@ impl Footer {
         dtype: DType,
         statistics: Option<FileStatistics>,
         metadata: Vec<(String, SegmentSpec, EncryptionSpec)>,
+        encrypted_statistics: Vec<(Vec<u32>, EncryptionSpec)>,
         session: &VortexSession,
     ) -> VortexResult<Self> {
         let metadata_bytes: usize = metadata
@@ -194,11 +234,22 @@ impl Footer {
             })
             .collect::<VortexResult<_>>()?;
 
+        // Encrypted statistics segments carry their spec inline too.
+        let mut statistics_encryption = Vec::new();
+        for (fields, encryption) in encrypted_statistics {
+            let key = encryption_index(
+                &encryption_specs,
+                &encryption,
+                &format!("statistics of fields {fields:?}"),
+            )?;
+            statistics_encryption.extend(fields.into_iter().map(|field| (field, key)));
+        }
+
         let segments_with_metadata = segments_with_metadata(&segments, &metadata);
         let encryption_specs: Arc<[EncryptionSpec]> = encryption_specs.into();
         validate_encryption_specs(&encryption_specs, &segments_with_metadata)?;
 
-        Ok(Self {
+        Self {
             root_layout,
             segments_end: segments_end(&segments_with_metadata),
             segments_with_metadata,
@@ -206,9 +257,11 @@ impl Footer {
             statistics,
             metadata,
             encryption_specs,
+            statistics_encryption: Arc::from([]),
             array_read_ctx,
             approx_byte_size: Some(approx_byte_size),
-        })
+        }
+        .with_statistics_encryption(statistics_encryption)
     }
 
     /// Returns the root [`LayoutRef`] of the file.
@@ -234,6 +287,15 @@ impl Footer {
     /// how it is stored.
     pub fn encryption_specs(&self) -> &Arc<[EncryptionSpec]> {
         &self.encryption_specs
+    }
+
+    /// Returns the top-level fields whose statistics are stored in a separate segment, encrypted
+    /// with the key at the given index of the [encryption specs](Self::encryption_specs).
+    ///
+    /// [`statistics`](Self::statistics) holds empty statistics for such a field when the reader
+    /// could not retrieve its key.
+    pub fn statistics_encryption(&self) -> &Arc<[(u32, u16)]> {
+        &self.statistics_encryption
     }
 
     /// Returns the encryption spec of `segment`.
@@ -338,8 +400,8 @@ fn segments_with_metadata(
 
 /// The index of a postscript segment's inline `spec` in the footer's `specs`.
 ///
-/// The postscript is not authenticated, so an encrypted file's metadata segments must be
-/// encrypted with a spec the footer lists; otherwise an attacker could strip their
+/// The postscript is not authenticated, so an encrypted file's metadata and statistics segments
+/// must be encrypted with a spec the footer lists; otherwise an attacker could strip their
 /// encryption, or point them at a key of their choice.
 fn encryption_index(
     specs: &[EncryptionSpec],

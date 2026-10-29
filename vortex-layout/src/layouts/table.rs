@@ -15,10 +15,13 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use itertools::Itertools;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldPath;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -26,8 +29,10 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::LayoutWriterContext;
+use crate::layouts::encrypting::EncryptingStrategy;
 use crate::layouts::list::writer::ListLayoutStrategy;
 use crate::layouts::struct_::StructStrategy;
+use crate::segments::EncryptionKeyName;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -61,6 +66,9 @@ pub struct TableStrategy {
     ///
     /// [`ListLayoutStrategy`]: ListLayoutStrategy
     list_layout_factory: Option<ListLayoutFactory>,
+    /// Fields whose segments, including those of their whole subtree, are encrypted with a named
+    /// key. Keys are paths relative to the level this dispatcher sits at.
+    field_encryption: HashMap<FieldPath, EncryptionKeyName>,
 }
 
 impl TableStrategy {
@@ -88,6 +96,7 @@ impl TableStrategy {
             validity,
             leaf: fallback,
             list_layout_factory: None,
+            field_encryption: Default::default(),
         }
     }
 
@@ -124,8 +133,58 @@ impl TableStrategy {
         field_path: impl Into<FieldPath>,
         writer: Arc<dyn LayoutStrategy>,
     ) -> Self {
-        self.leaf_writers
-            .insert(self.validate_path(field_path.into()), writer);
+        let field_path = self.validate_path(field_path.into());
+        self.leaf_writers.insert(field_path, writer);
+        self
+    }
+
+    /// Encrypt every segment of the given field, including its statistics and any nested fields,
+    /// with the named key.
+    ///
+    /// The segment sink resolves the key name. Writing fails if the path does not name a field
+    /// reachable through structs, or if the sink cannot encrypt with the key.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the path is the root, contains anything but field names, overlaps another
+    /// encrypted field, or lies beneath a field writer override, which would ignore it.
+    pub fn with_field_encryption(
+        mut self,
+        field_path: impl Into<FieldPath>,
+        key: impl Into<EncryptionKeyName>,
+    ) -> Self {
+        let field_path = field_path.into();
+        assert!(!field_path.is_root(), "Cannot encrypt the root field");
+        assert!(
+            field_path
+                .parts()
+                .iter()
+                .all(|part| matches!(part, Field::Name(_))),
+            "Encrypted field path {field_path} must consist of field names"
+        );
+        for encrypted in self.field_encryption.keys() {
+            assert!(
+                !field_path.overlap(encrypted),
+                "Encryption of field_path {field_path} conflicts with encryption of {encrypted}"
+            );
+        }
+        for overridden in self.leaf_writers.keys() {
+            assert_encryption_not_beneath_override(&field_path, overridden);
+        }
+        self.field_encryption.insert(field_path, key.into());
+        self
+    }
+
+    /// Encrypt several fields at once.
+    ///
+    /// See also: [`with_field_encryption`][Self::with_field_encryption].
+    pub fn with_field_encryptions(
+        mut self,
+        fields: impl IntoIterator<Item = (FieldPath, EncryptionKeyName)>,
+    ) -> Self {
+        for (field_path, key) in fields {
+            self = self.with_field_encryption(field_path, key);
+        }
         self
     }
 
@@ -137,8 +196,8 @@ impl TableStrategy {
         writers: impl IntoIterator<Item = (FieldPath, Arc<dyn LayoutStrategy>)>,
     ) -> Self {
         for (field_path, strategy) in writers {
-            self.leaf_writers
-                .insert(self.validate_path(field_path), strategy);
+            let field_path = self.validate_path(field_path);
+            self.leaf_writers.insert(field_path, strategy);
         }
         self
     }
@@ -188,21 +247,26 @@ impl TableStrategy {
         // The distinct named first-segments of our override paths are the only fields that need
         // anything other than the default dispatcher.
         let mut named_first: HashSet<FieldName> = HashSet::default();
-        for path in self.leaf_writers.keys() {
+        for path in self.leaf_writers.keys().chain(self.field_encryption.keys()) {
             if let Some(Field::Name(name)) = path.parts().first() {
                 named_first.insert(name.clone());
             }
         }
 
         for name in named_first {
+            let path = FieldPath::from_name(name.clone());
             // `validate_path` forbids overlapping overrides, so a name has *either* an exact
             // single-segment override *or* deeper overrides, never both.
-            let writer = match self.leaf_writers.get(&FieldPath::from_name(name.clone())) {
+            let mut writer = match self.leaf_writers.get(&path) {
                 Some(exact) => Arc::clone(exact),
                 None => {
                     Arc::new(self.descend(&Field::Name(name.clone()))) as Arc<dyn LayoutStrategy>
                 }
             };
+            // Likewise, a name is either encrypted itself, or has encrypted fields beneath it.
+            if let Some(key) = self.field_encryption.get(&path) {
+                writer = Arc::new(EncryptingStrategy::new(writer, key.clone()));
+            }
             field_writers.insert(name, writer);
         }
 
@@ -228,22 +292,12 @@ impl TableStrategy {
     /// Descend into a subfield, retaining only the overrides that apply beneath it (rebased to be
     /// relative to the child).
     fn descend(&self, field: &Field) -> Self {
-        let mut new_writers = HashMap::with_capacity(self.leaf_writers.len());
-
-        for (field_path, strategy) in &self.leaf_writers {
-            if field_path.parts().first() == Some(field)
-                && let Some(subpath) = field_path.clone().step_into()
-                && !subpath.is_root()
-            {
-                new_writers.insert(subpath, Arc::clone(strategy));
-            }
-        }
-
         Self {
-            leaf_writers: new_writers,
+            leaf_writers: descend_paths(&self.leaf_writers, field),
             validity: Arc::clone(&self.validity),
             leaf: Arc::clone(&self.leaf),
             list_layout_factory: self.list_layout_factory.clone(),
+            field_encryption: descend_paths(&self.field_encryption, field),
         }
     }
 
@@ -255,7 +309,30 @@ impl TableStrategy {
             validity: Arc::clone(&self.validity),
             leaf: Arc::clone(&self.leaf),
             list_layout_factory: self.list_layout_factory.clone(),
+            field_encryption: HashMap::default(),
         }
+    }
+
+    /// Fail if a field configured for encryption does not exist, so that it is never silently
+    /// written in plaintext.
+    fn validate_encrypted_fields(&self, dtype: &DType) -> VortexResult<()> {
+        if self.field_encryption.is_empty() {
+            return Ok(());
+        }
+        let Some(fields) = dtype.as_struct_fields_opt() else {
+            vortex_bail!(
+                "Cannot encrypt fields {} of non-struct dtype {dtype}",
+                self.field_encryption.keys().join(", ")
+            );
+        };
+        for path in self.field_encryption.keys() {
+            if let Some(Field::Name(name)) = path.parts().first()
+                && fields.find(name).is_none()
+            {
+                vortex_bail!("Cannot encrypt field {path}: no field {name} in {dtype}");
+            }
+        }
+        Ok(())
     }
 
     fn validate_path(&self, path: FieldPath) -> FieldPath {
@@ -272,9 +349,33 @@ impl TableStrategy {
                 "Override for field_path {path} conflicts with existing override for {field_path}"
             );
         }
+        for encrypted in self.field_encryption.keys() {
+            assert_encryption_not_beneath_override(encrypted, &path);
+        }
 
         path
     }
+}
+
+/// An override writes its whole subtree, so it would ignore encryption configured beneath it.
+fn assert_encryption_not_beneath_override(encrypted: &FieldPath, overridden: &FieldPath) {
+    assert!(
+        !(encrypted.parts().len() > overridden.parts().len() && encrypted.overlap(overridden)),
+        "Encryption of field_path {encrypted} lies beneath the override for {overridden}; \
+         encrypt {overridden} instead"
+    );
+}
+
+/// The entries of `paths` beneath `field`, rebased to be relative to it.
+fn descend_paths<V: Clone>(paths: &HashMap<FieldPath, V>, field: &Field) -> HashMap<FieldPath, V> {
+    paths
+        .iter()
+        .filter(|(path, _)| path.parts().first() == Some(field))
+        .filter_map(|(path, value)| {
+            let subpath = path.clone().step_into()?;
+            (!subpath.is_root()).then(|| (subpath, value.clone()))
+        })
+        .collect()
 }
 
 /// Dispatches each stream to the structural writer for its dtype.
@@ -289,6 +390,7 @@ impl LayoutStrategy for TableStrategy {
         session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
+        self.validate_encrypted_fields(&dtype)?;
 
         if dtype.is_struct() {
             return self
@@ -352,6 +454,10 @@ mod tests {
     use crate::layouts::zoned::Zoned;
     use crate::layouts::zoned::writer::ZonedLayoutOptions;
     use crate::layouts::zoned::writer::ZonedStrategy;
+    use crate::segments::EncryptionKeyName;
+    use crate::segments::SegmentId;
+    use crate::segments::SegmentSink;
+    use crate::segments::SegmentWriteOptions;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
@@ -720,5 +826,138 @@ mod tests {
             )
             .await
             .unwrap();
+    }
+
+    /// A sink that records the key each segment must be encrypted with.
+    #[derive(Default)]
+    struct KeyRecordingSink {
+        segments: TestSegments,
+        keys: parking_lot::Mutex<Vec<Option<EncryptionKeyName>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl SegmentSink for KeyRecordingSink {
+        async fn write(
+            &self,
+            sequence_id: SequenceId,
+            buffers: Vec<vortex_buffer::ByteBuffer>,
+        ) -> VortexResult<SegmentId> {
+            self.write_with_options(sequence_id, buffers, SegmentWriteOptions::default())
+                .await
+        }
+
+        async fn write_with_options(
+            &self,
+            sequence_id: SequenceId,
+            buffers: Vec<vortex_buffer::ByteBuffer>,
+            options: SegmentWriteOptions,
+        ) -> VortexResult<SegmentId> {
+            let id = self.segments.write(sequence_id, buffers).await?;
+            let mut keys = self.keys.lock();
+            let index = usize::try_from(*id)?;
+            keys.resize(index + 1, None);
+            keys[index] = options.encryption;
+            Ok(id)
+        }
+    }
+
+    async fn write_with_sink(
+        strategy: &TableStrategy,
+        sink: Arc<dyn SegmentSink>,
+        array: ArrayRef,
+    ) -> VortexResult<LayoutRef> {
+        let (ptr, eof) = SequenceId::root().split();
+        let stream = array.to_array_stream().sequenced(ptr);
+        let session = new_session().with_tokio();
+        strategy
+            .write_stream(ArrayContext::empty().into(), sink, stream, eof, &session)
+            .await
+    }
+
+    fn nested_struct() -> VortexResult<ArrayRef> {
+        let inner = StructArray::from_fields(
+            [
+                ("x", buffer![1i32, 2, 3].into_array()),
+                ("y", buffer![4i32, 5, 6].into_array()),
+            ]
+            .as_slice(),
+        )?
+        .into_array();
+        Ok(StructArray::from_fields(
+            [("a", buffer![7i32, 8, 9].into_array()), ("b", inner)].as_slice(),
+        )?
+        .into_array())
+    }
+
+    /// Encrypted fields route their segments, and only theirs, to the named key.
+    #[tokio::test]
+    async fn field_encryption_routes_segments() -> VortexResult<()> {
+        let strategy = flat_table()
+            .with_field_encryption(field_path!(a), "key-a")
+            .with_field_encryption(field_path!(b.y), "key-y");
+        let sink = Arc::new(KeyRecordingSink::default());
+        let layout = write_with_sink(&strategy, Arc::clone(&sink) as _, nested_struct()?).await?;
+        insta::assert_snapshot!(layout.display_tree(), @r"
+        vortex.struct, dtype: {a=i32, b={x=i32, y=i32}}, children: 2
+        ├── a: vortex.flat, dtype: i32, segment: 0
+        └── b: vortex.struct, dtype: {x=i32, y=i32}, children: 2
+            ├── x: vortex.flat, dtype: i32, segment: 1
+            └── y: vortex.flat, dtype: i32, segment: 2
+        ");
+        assert_eq!(
+            *sink.keys.lock(),
+            [
+                Some(EncryptionKeyName::from("key-a")),
+                None,
+                Some(EncryptionKeyName::from("key-y")),
+            ]
+        );
+        Ok(())
+    }
+
+    /// A sink without encryption support rejects encrypted segments instead of writing plaintext.
+    #[tokio::test]
+    async fn field_encryption_requires_sink_support() -> VortexResult<()> {
+        let strategy = flat_table().with_field_encryption(field_path!(a), "key-a");
+        let err = write(&strategy, nested_struct()?).await.unwrap_err();
+        assert!(
+            err.to_string().contains("does not support encryption"),
+            "{err}"
+        );
+        Ok(())
+    }
+
+    /// Encrypting a field that does not exist fails instead of silently writing it in plaintext.
+    #[rstest::rstest]
+    #[case::missing_field(field_path!(c))]
+    #[case::missing_nested_field(field_path!(b.z))]
+    #[case::beneath_leaf(field_path!(a.z))]
+    #[tokio::test]
+    async fn field_encryption_rejects_unknown_fields(#[case] path: FieldPath) -> VortexResult<()> {
+        let strategy = flat_table().with_field_encryption(path, "key");
+        let sink = Arc::new(KeyRecordingSink::default());
+        assert!(
+            write_with_sink(&strategy, sink, nested_struct()?)
+                .await
+                .is_err()
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "lies beneath the override for $b")]
+    fn field_encryption_beneath_override_fails() {
+        let flat = Arc::new(FlatLayoutStrategy::default());
+        let _strategy = flat_table()
+            .with_field_writer(field_path!(b), flat)
+            .with_field_encryption(field_path!(b.y), "key");
+    }
+
+    #[test]
+    #[should_panic(expected = "conflicts with encryption of $b.$y")]
+    fn overlapping_field_encryption_fails() {
+        let _strategy = flat_table()
+            .with_field_encryption(field_path!(b.y), "key-1")
+            .with_field_encryption(field_path!(b), "key-2");
     }
 }

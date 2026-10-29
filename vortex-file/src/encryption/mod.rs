@@ -7,12 +7,13 @@
 //! footer, and user metadata segments referenced by the postscript. The postscript itself stays in
 //! plaintext, since it only records segment locations and the [`EncryptionSpec`] of each.
 //!
-//! Writers configure a [`FileEncryption`] with a footer key. Keys are never written to the file.
-//! Each key's opaque key metadata is stored instead, so that readers configured with a
-//! [`FileDecryption`] can resolve the key again through a [`KeyRetriever`].
+//! Writers configure a [`FileEncryption`] with a footer key, and optionally keys for individual
+//! fields. Keys are never written to the file. Each key's opaque key metadata is stored instead,
+//! so that readers configured with a [`FileDecryption`] can resolve the key again through a
+//! [`KeyRetriever`].
 //!
-//! Every segment, including the footer, is encrypted with the footer key, which also hides the
-//! schema.
+//! The footer is encrypted with the footer key, which also hides the schema. Fields without their
+//! own key are encrypted with the footer key.
 //!
 //! Segments are encrypted with AES-GCM. The additional authenticated data binds every segment to its
 //! file, through random per-file bytes, and to its position in the file, so that segments cannot
@@ -24,6 +25,7 @@
 mod cipher;
 mod resolver;
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
@@ -32,9 +34,12 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use flatbuffers::FlatBufferBuilder;
 use flatbuffers::WIPOffset;
+use vortex_array::dtype::Field;
+use vortex_array::dtype::FieldPath;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+pub use vortex_layout::segments::EncryptionKeyName;
 use zeroize::Zeroize;
 
 pub(crate) use self::cipher::*;
@@ -112,7 +117,9 @@ impl Debug for EncryptionKey {
 ///
 /// Implementations typically look the key up in a key management service. Each key is retrieved
 /// at most once per opened file: the keys of the footer and of encrypted file statistics when the
-/// footer is read, and other keys when a segment encrypted with them is first read.
+/// footer is read, unless the reader opts out with
+/// [`FileDecryption::without_field_key_statistics`], and other keys when a segment encrypted with
+/// them is first read.
 /// Implementations must return an error if the key is unknown. A wrong key is detected when the
 /// first segment fails to decrypt. An error is kept for the rest of the opened file, so every
 /// segment that needs the key fails with it, and a transient failure, such as an unavailable key
@@ -215,15 +222,20 @@ pub struct FileEncryption {
     footer_key: KeyConfig,
     algorithm: EncryptionAlgorithm,
     aad_prefix: Option<Arc<[u8]>>,
+    named_keys: BTreeMap<EncryptionKeyName, KeyConfig>,
+    field_keys: Vec<(FieldPath, EncryptionKeyName)>,
 }
 
 impl FileEncryption {
-    /// Encrypt every segment of the file, including the footer, with `footer_key`.
+    /// Encrypt the file with `footer_key`, which encrypts the footer and every field that has no
+    /// key of its own.
     pub fn new(footer_key: KeyConfig) -> Self {
         Self {
             footer_key,
             algorithm: EncryptionAlgorithm::AesGcm,
             aad_prefix: None,
+            named_keys: BTreeMap::new(),
+            field_keys: Vec::new(),
         }
     }
 
@@ -244,9 +256,87 @@ impl FileEncryption {
         self
     }
 
+    /// Register a named key, replacing any key registered under the same name, for segments that
+    /// a layout strategy requires to be encrypted with it, e.g. through
+    /// [`WriteStrategyBuilder::with_field_encryption`](crate::WriteStrategyBuilder::with_field_encryption).
+    pub fn with_named_key(mut self, name: impl Into<EncryptionKeyName>, key: KeyConfig) -> Self {
+        self.named_keys.insert(name.into(), key);
+        self
+    }
+
+    /// Encrypt a field, including its statistics and nested fields, with its own key when writing
+    /// with the default layout strategy.
+    ///
+    /// This registers `key` under `name`, as [`with_named_key`](Self::with_named_key) does. A
+    /// reader without the key can still read every other field, and does not see the file-level
+    /// statistics of this one, which are encrypted with its key.
+    ///
+    /// With a custom strategy configure the field on the strategy instead; the write fails
+    /// otherwise. The write also fails if `field` is the root, contains anything but field names,
+    /// or overlaps another field passed to this method.
+    pub fn with_field_key(
+        mut self,
+        field: impl Into<FieldPath>,
+        name: impl Into<EncryptionKeyName>,
+        key: KeyConfig,
+    ) -> Self {
+        let name = name.into();
+        self.field_keys.push((field.into(), name.clone()));
+        self.with_named_key(name, key)
+    }
+
     /// The footer key.
     pub(crate) fn footer_key(&self) -> &KeyConfig {
         &self.footer_key
+    }
+
+    /// The index of the encryption spec whose readers can read the footer: the footer key's.
+    pub(crate) fn footer_spec_index(&self) -> u16 {
+        1
+    }
+
+    /// Validate the field keys and key metadata before a file is written.
+    pub(crate) fn validate(&self) -> VortexResult<()> {
+        for (index, (path, _)) in self.field_keys.iter().enumerate() {
+            if path.is_root() {
+                vortex_bail!("Cannot encrypt the root field with a field key");
+            }
+            if !path
+                .parts()
+                .iter()
+                .all(|part| matches!(part, Field::Name(_)))
+            {
+                vortex_bail!("Encrypted field path {path} must consist of field names");
+            }
+            if let Some((other, _)) = self.field_keys[..index]
+                .iter()
+                .find(|(other, _)| other.overlap(path))
+            {
+                vortex_bail!("Field keys of {path} and {other} overlap");
+            }
+        }
+
+        // Readers resolve keys by their metadata, so it must identify a single key.
+        let keys: Vec<&KeyConfig> = std::iter::once(&self.footer_key)
+            .chain(self.named_keys.values())
+            .collect();
+        for (index, key) in keys.iter().enumerate() {
+            if keys[..index].iter().any(|other| {
+                other.key_metadata() == key.key_metadata()
+                    && other.key().as_bytes() != key.key().as_bytes()
+            }) {
+                vortex_bail!("Different encryption keys share the same key metadata");
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn named_keys(&self) -> &BTreeMap<EncryptionKeyName, KeyConfig> {
+        &self.named_keys
+    }
+
+    pub(crate) fn field_keys(&self) -> &[(FieldPath, EncryptionKeyName)] {
+        &self.field_keys
     }
 
     /// Create the cipher of `key` for one file.
@@ -281,6 +371,7 @@ pub struct FileDecryption {
     pub(crate) aad_prefix: Option<Arc<[u8]>>,
     pub(crate) allow_plaintext_files: bool,
     pub(crate) cache_plaintext: bool,
+    pub(crate) field_key_statistics: bool,
 }
 
 impl FileDecryption {
@@ -291,6 +382,7 @@ impl FileDecryption {
             aad_prefix: None,
             allow_plaintext_files: false,
             cache_plaintext: false,
+            field_key_statistics: true,
         }
     }
 
@@ -316,6 +408,19 @@ impl FileDecryption {
         self
     }
 
+    /// Do not retrieve field keys when the file is opened, to read the file statistics of fields
+    /// encrypted with their own key.
+    ///
+    /// By default, opening a file retrieves the key of every field whose statistics are encrypted
+    /// with it, even if no scan reads the field, so that its statistics are available for pruning.
+    /// With a key management service, this calls the service for every such key on every open,
+    /// and fails, unseen, for keys the reader may not use. With this option, field keys are only
+    /// retrieved when a field's segments are read, and the statistics of such fields are empty.
+    pub fn without_field_key_statistics(mut self) -> Self {
+        self.field_key_statistics = false;
+        self
+    }
+
     /// Allow reading files that are not encrypted.
     ///
     /// By default, a reader configured for decryption rejects unencrypted files, so that an
@@ -332,6 +437,7 @@ impl Debug for FileDecryption {
             .field("aad_prefix", &self.aad_prefix)
             .field("allow_plaintext_files", &self.allow_plaintext_files)
             .field("cache_plaintext", &self.cache_plaintext)
+            .field("field_key_statistics", &self.field_key_statistics)
             .finish_non_exhaustive()
     }
 }

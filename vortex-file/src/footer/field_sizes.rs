@@ -35,39 +35,11 @@ pub struct CompressedFieldSizes {
 
 impl CompressedFieldSizes {
     pub(crate) fn try_new(root: &LayoutRef, segments: &[SegmentSpec]) -> VortexResult<Self> {
-        // Every segment is attributed to the deepest field path referencing it, collapsing to the
-        // longest common ancestor if multiple fields reference the same segment.
-        let mut attribution = HashMap::<SegmentId, FieldPath>::default();
         // Seed every field path present in the layout tree so empty fields report a zero size.
         let mut sizes = HashMap::<FieldPath, u64>::default();
-        sizes.insert(FieldPath::root(), 0);
-
-        let mut stack = vec![(LayoutRef::clone(root), FieldPath::root())];
-        while let Some((layout, path)) = stack.pop() {
-            for segment_id in layout.segment_ids() {
-                match attribution.entry(segment_id) {
-                    Entry::Occupied(mut entry) => {
-                        let ancestor = common_prefix(entry.get(), &path);
-                        entry.insert(ancestor);
-                    }
-                    Entry::Vacant(entry) => {
-                        entry.insert(path.clone());
-                    }
-                }
-            }
-
-            for (child, child_type) in layout.children()?.into_iter().zip(layout.child_types()) {
-                let child_path = match child_type {
-                    LayoutChildType::Field(name) => {
-                        let child_path = path.clone().push(name);
-                        sizes.entry(child_path.clone()).or_insert(0);
-                        child_path
-                    }
-                    _ => path.clone(),
-                };
-                stack.push((child, child_path));
-            }
-        }
+        let attribution = attribute_segments(root, |path| {
+            sizes.entry(path.clone()).or_insert(0);
+        })?;
 
         for (segment_id, path) in attribution {
             let segment = segments.get(*segment_id as usize).ok_or_else(|| {
@@ -105,6 +77,45 @@ impl CompressedFieldSizes {
     pub fn iter(&self) -> impl Iterator<Item = (&FieldPath, u64)> {
         self.sizes.iter().map(|(path, size)| (path, *size))
     }
+}
+
+/// Attribute every segment referenced by the layout tree under `root` to the deepest field path
+/// referencing it, collapsing to the longest common ancestor if multiple fields reference the same
+/// segment. `on_field` is called with every field path present in the tree, the root included.
+pub(crate) fn attribute_segments(
+    root: &LayoutRef,
+    mut on_field: impl FnMut(&FieldPath),
+) -> VortexResult<HashMap<SegmentId, FieldPath>> {
+    let mut attribution = HashMap::<SegmentId, FieldPath>::default();
+    on_field(&FieldPath::root());
+
+    let mut stack = vec![(LayoutRef::clone(root), FieldPath::root())];
+    while let Some((layout, path)) = stack.pop() {
+        for segment_id in layout.segment_ids() {
+            match attribution.entry(segment_id) {
+                Entry::Occupied(mut entry) => {
+                    let ancestor = common_prefix(entry.get(), &path);
+                    entry.insert(ancestor);
+                }
+                Entry::Vacant(entry) => {
+                    entry.insert(path.clone());
+                }
+            }
+        }
+
+        for (child, child_type) in layout.children()?.into_iter().zip(layout.child_types()) {
+            let child_path = match child_type {
+                LayoutChildType::Field(name) => {
+                    let child_path = path.clone().push(name);
+                    on_field(&child_path);
+                    child_path
+                }
+                _ => path.clone(),
+            };
+            stack.push((child, child_path));
+        }
+    }
+    Ok(attribution)
 }
 
 fn common_prefix(left: &FieldPath, right: &FieldPath) -> FieldPath {

@@ -17,8 +17,12 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::dtype::FieldPath;
+use vortex_array::expr::root;
+use vortex_array::expr::select;
 use vortex_array::flatbuffers::ReadFlatBuffer;
 use vortex_array::flatbuffers::WriteFlatBufferExt;
+use vortex_array::stream::ArrayStreamExt;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
@@ -39,6 +43,7 @@ use crate::Footer;
 use crate::OpenOptionsSessionExt;
 use crate::VortexFile;
 use crate::WriteOptionsSessionExt;
+use crate::WriteStrategyBuilder;
 use crate::footer::postscript::Postscript;
 use crate::footer::postscript::PostscriptSegment;
 
@@ -52,6 +57,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 });
 
 const FOOTER_KEY_METADATA: &[u8] = b"kms://keys/footer";
+const COLUMN_KEY_METADATA: &[u8] = b"kms://keys/pii";
 const SECRET: &str = "a-secret-string-value";
 const SECRET_COLUMN: &str = "secret_column_name";
 const VISIBLE: &str = "a-visible-string-value";
@@ -61,16 +67,21 @@ fn footer_key() -> KeyConfig {
     KeyConfig::new(EncryptionKey::from([42; 32]), FOOTER_KEY_METADATA)
 }
 
-/// Resolves the footer key.
-fn keys() -> Arc<dyn KeyRetriever> {
+fn column_key() -> KeyConfig {
+    KeyConfig::new(EncryptionKey::from([7; 32]), COLUMN_KEY_METADATA)
+}
+
+/// Resolves the footer key, and the column key only if `with_column_key`.
+fn keys(with_column_key: bool) -> Arc<dyn KeyRetriever> {
     Arc::new(move |key_metadata: &[u8]| match key_metadata {
         FOOTER_KEY_METADATA => Ok(footer_key().key().clone()),
+        COLUMN_KEY_METADATA if with_column_key => Ok(column_key().key().clone()),
         _ => vortex_bail!("access denied to key {key_metadata:?}"),
     })
 }
 
 fn decryption() -> FileDecryption {
-    FileDecryption::new(keys())
+    FileDecryption::new(keys(true))
 }
 
 fn array() -> VortexResult<ArrayRef> {
@@ -83,6 +94,11 @@ fn array() -> VortexResult<ArrayRef> {
         ("numbers", numbers),
     ])?
     .into_array())
+}
+
+/// Encrypt the secret column with its own key.
+fn with_column_key(encryption: FileEncryption) -> FileEncryption {
+    encryption.with_field_key(FieldPath::from_name(SECRET_COLUMN), "pii", column_key())
 }
 
 async fn write(encryption: Option<FileEncryption>) -> VortexResult<ByteBuffer> {
@@ -108,6 +124,17 @@ fn open(bytes: ByteBuffer, decryption: Option<FileDecryption>) -> VortexResult<V
 async fn read_all(file: &VortexFile) -> VortexResult<ArrayRef> {
     let chunks: Vec<ArrayRef> = file.scan()?.into_array_stream()?.try_collect().await?;
     Ok(ChunkedArray::try_new(chunks, file.dtype().clone())?.into_array())
+}
+
+async fn read_field(file: &VortexFile, field: &str) -> VortexResult<ArrayRef> {
+    let projection = select([field], root())
+        .bind(file.dtype())?
+        .optimize_recursive()?;
+    file.scan()?
+        .with_projection(projection)
+        .into_array_stream()?
+        .read_all()
+        .await
 }
 
 /// Deserialize a standalone footer, retrieving its keys when asked to.
@@ -243,7 +270,7 @@ async fn open_with_cache(
 /// By default the segment cache holds ciphertext; with a plaintext cache it holds plaintext.
 #[tokio::test]
 async fn plaintext_cache() -> VortexResult<()> {
-    let bytes = write(Some(FileEncryption::new(footer_key()))).await?;
+    let bytes = write(Some(with_column_key(FileEncryption::new(footer_key())))).await?;
     let cached_data_segment = |file: &VortexFile, cache: &RecordingCache| {
         let segment = file.footer().segment_map()[0];
         let ciphertext = bytes.slice(
@@ -270,7 +297,18 @@ async fn plaintext_cache() -> VortexResult<()> {
     assert_eq!(cached.len() + NONCE_TAG_LEN, ciphertext.len());
     assert_ne!(cached.as_slice(), &ciphertext[..cached.len()]);
     // A second scan is served from the plaintext cache.
-    assert_reads_all(&file).await
+    assert_reads_all(&file).await?;
+
+    // Without the column key, its segments stay out of the plaintext cache and the other
+    // fields remain readable.
+    let (file, _) = open_with_cache(
+        bytes,
+        FileDecryption::new(keys(false)).with_plaintext_cache(),
+    )
+    .await?;
+    read_field(&file, "numbers").await?;
+    expect_err(read_field(&file, SECRET_COLUMN).await, "access denied");
+    Ok(())
 }
 
 #[tokio::test]
@@ -400,9 +438,154 @@ async fn standalone_footer() -> VortexResult<()> {
     assert_reads_all(&file).await
 }
 
+/// A standalone footer keeps the statistics of a column-keyed field under that key.
+#[tokio::test]
+async fn standalone_footer_with_field_key() -> VortexResult<()> {
+    let encryption = with_column_key(FileEncryption::new(footer_key()));
+    let bytes = write(Some(encryption.clone())).await?;
+    let footer = open(bytes, Some(decryption()))?.footer().clone();
+
+    let footer_bytes = footer
+        .into_serializer()
+        .with_encryption(&encryption)?
+        .serialize()?
+        .iter()
+        .flat_map(|buffer| buffer.as_slice().iter().copied())
+        .collect::<Vec<u8>>();
+    for (with_column_key, expect_secret_stats) in [(true, true), (false, false)] {
+        let footer =
+            deserialize_footer(&footer_bytes, FileDecryption::new(keys(with_column_key))).await?;
+        assert_eq!(footer.statistics_encryption().as_ref(), [(0, 2)]);
+        let stats = footer.statistics().vortex_expect("file statistics");
+        assert_eq!(!stats.aggregates()[0].is_empty(), expect_secret_stats);
+        assert!(!stats.aggregates()[2].is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn field_key() -> VortexResult<()> {
+    let bytes = write(Some(with_column_key(FileEncryption::new(footer_key())))).await?;
+    for value in [SECRET, SECRET_COLUMN, VISIBLE] {
+        assert!(!contains(&bytes, value.as_bytes()), "{value}");
+    }
+
+    let file = open(bytes, Some(decryption()))?;
+    let footer = file.footer();
+    let key_metadata: Vec<&[u8]> = footer
+        .encryption_specs()
+        .iter()
+        .map(|spec| spec.key_metadata())
+        .collect();
+    assert_eq!(
+        key_metadata,
+        [b"".as_slice(), FOOTER_KEY_METADATA, COLUMN_KEY_METADATA]
+    );
+
+    // Every segment of the secret column, and only those, uses the column key.
+    // Slot 0 holds the struct validity, followed by the fields.
+    let secret_field = footer.layout().slot(1)?.vortex_expect("secret column");
+    let mut secret_segments = Vec::new();
+    for layout in secret_field.depth_first_traversal() {
+        secret_segments.extend(layout?.segment_ids().iter().map(|id| **id as usize));
+    }
+    assert!(!secret_segments.is_empty());
+    for (index, segment) in footer.segment_map().iter().enumerate() {
+        let expected = if secret_segments.contains(&index) {
+            2
+        } else {
+            1
+        };
+        assert_eq!(segment.encryption, expected, "segment {index}");
+    }
+
+    // The secret column's statistics are encrypted with its key, in a segment of their own.
+    assert_eq!(footer.statistics_encryption().as_ref(), [(0, 2)]);
+    let stats = footer.statistics().vortex_expect("file statistics");
+    assert!(stats.aggregates().iter().all(|stats| !stats.is_empty()));
+
+    assert_reads_all(&file).await
+}
+
+#[tokio::test]
+async fn column_key_unavailable() -> VortexResult<()> {
+    let bytes = write(Some(with_column_key(FileEncryption::new(footer_key())))).await?;
+    let file = open(bytes, Some(FileDecryption::new(keys(false))))?;
+
+    // Without the column key, the secret column's statistics are unavailable too.
+    let stats = file.footer().statistics().vortex_expect("file statistics");
+    assert!(stats.aggregates()[0].is_empty());
+    assert!(!stats.aggregates()[2].is_empty());
+
+    // Columns encrypted with the footer key remain readable.
+    let expected = StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3, 4].into_array())])?;
+    assert_arrays_eq!(
+        read_field(&file, "numbers").await?,
+        expected,
+        &mut SESSION.create_execution_ctx()
+    );
+    expect_err(read_field(&file, SECRET_COLUMN).await, "access denied");
+    Ok(())
+}
+
+#[tokio::test]
+async fn unregistered_key_name_fails() -> VortexResult<()> {
+    let strategy = WriteStrategyBuilder::from_session(&SESSION)
+        .with_field_encryption(FieldPath::from_name(SECRET_COLUMN), "missing")
+        .build();
+    let result = SESSION
+        .write_options()
+        .with_strategy(strategy)
+        .with_encryption(FileEncryption::new(footer_key()))
+        .write(ByteBufferMut::empty(), array()?.to_array_stream())
+        .await;
+    expect_err(result, "No encryption key named missing");
+    Ok(())
+}
+
+#[tokio::test]
+async fn field_key_requires_default_strategy() -> VortexResult<()> {
+    let result = SESSION
+        .write_options()
+        .with_strategy(WriteStrategyBuilder::from_session(&SESSION).build())
+        .with_encryption(with_column_key(FileEncryption::new(footer_key())))
+        .write(ByteBufferMut::empty(), array()?.to_array_stream())
+        .await;
+    expect_err(result, "default strategy only");
+    Ok(())
+}
+
+/// A custom strategy that encrypts a field with a named key gets the same statistics protection,
+/// since the keys are taken from the segments each field wrote.
+#[tokio::test]
+async fn custom_strategy_statistics_encryption() -> VortexResult<()> {
+    let strategy = WriteStrategyBuilder::from_session(&SESSION)
+        .with_field_encryption(FieldPath::from_name(SECRET_COLUMN), "pii")
+        .build();
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .with_strategy(strategy)
+        .with_encryption(FileEncryption::new(footer_key()).with_named_key("pii", column_key()))
+        .write(&mut buf, array()?.to_array_stream())
+        .await?;
+    let bytes = buf.freeze();
+
+    let file = open(bytes.clone(), Some(FileDecryption::new(keys(false))))?;
+    assert_eq!(file.footer().statistics_encryption().as_ref(), [(0, 2)]);
+    let stats = file.footer().statistics().vortex_expect("file statistics");
+    assert!(stats.aggregates()[0].is_empty());
+    assert!(!stats.aggregates()[1].is_empty());
+
+    let file = open(bytes, Some(decryption()))?;
+    let stats = file.footer().statistics().vortex_expect("file statistics");
+    assert!(stats.aggregates().iter().all(|stats| !stats.is_empty()));
+    assert_reads_all(&file).await
+}
+
 #[tokio::test]
 async fn aad_prefix() -> VortexResult<()> {
-    let encryption = FileEncryption::new(footer_key()).with_aad_prefix(AAD);
+    let encryption = with_column_key(FileEncryption::new(footer_key()).with_aad_prefix(AAD));
     let bytes = write(Some(encryption)).await?;
     assert!(!contains(&bytes, AAD));
 
@@ -592,6 +775,86 @@ async fn encrypted_standalone_footer_of_plaintext_file() -> VortexResult<()> {
     assert_reads_all(&file).await
 }
 
+/// Swapping the fields of encrypted statistics would attribute one field's statistics to
+/// another, and prune wrongly.
+#[tokio::test]
+async fn rejects_swapped_statistics_fields() -> VortexResult<()> {
+    let encryption = FileEncryption::new(footer_key())
+        .with_field_key(FieldPath::from_name(SECRET_COLUMN), "pii", column_key())
+        .with_field_key(FieldPath::from_name("visible"), "pii", column_key());
+    let bytes = write(Some(encryption)).await?;
+    assert_eq!(
+        open(bytes.clone(), Some(decryption()))?
+            .footer()
+            .statistics_encryption()
+            .as_ref(),
+        [(0, 2), (1, 2)]
+    );
+    let swapped = edit_postscript(&bytes, |postscript| {
+        postscript.encrypted_statistics[0].fields.reverse();
+    })?;
+    expect_err(open(swapped, Some(decryption())), "Failed to decrypt");
+    Ok(())
+}
+
+/// Invalid field keys fail the write instead of panicking.
+#[rstest]
+#[case::root(FieldPath::root(), FieldPath::from_name("numbers"), "root field")]
+#[case::overlap(
+    FieldPath::from_name(SECRET_COLUMN),
+    FieldPath::from_name(SECRET_COLUMN),
+    "overlap"
+)]
+#[tokio::test]
+async fn rejects_invalid_field_keys(
+    #[case] first: FieldPath,
+    #[case] second: FieldPath,
+    #[case] expected: &str,
+) -> VortexResult<()> {
+    let encryption = FileEncryption::new(footer_key())
+        .with_field_key(first, "first", column_key())
+        .with_field_key(second, "second", column_key());
+    expect_err(write(Some(encryption)).await, expected);
+    Ok(())
+}
+
+/// Readers resolve keys by their metadata, so it must not identify two different keys.
+#[tokio::test]
+async fn rejects_shared_key_metadata() -> VortexResult<()> {
+    let other = KeyConfig::new(EncryptionKey::from([9; 32]), COLUMN_KEY_METADATA);
+    let encryption =
+        with_column_key(FileEncryption::new(footer_key())).with_named_key("other", other);
+    expect_err(write(Some(encryption)).await, "share the same key metadata");
+    Ok(())
+}
+
+/// The footer authenticates the encrypted statistics entries of the postscript.
+#[tokio::test]
+async fn rejects_dropped_encrypted_statistics() -> VortexResult<()> {
+    let bytes = write(Some(with_column_key(FileEncryption::new(footer_key())))).await?;
+    let edited = edit_postscript(&bytes, |postscript| postscript.encrypted_statistics.clear())?;
+    expect_err(open(edited, Some(decryption())), "Failed to decrypt Footer");
+    Ok(())
+}
+
+/// Readers can open a file without retrieving field keys, until they read the field.
+#[tokio::test]
+async fn field_keys_are_retrieved_on_demand() -> VortexResult<()> {
+    let bytes = write(Some(with_column_key(FileEncryption::new(footer_key())))).await?;
+    let counting = Arc::new(CountingKeys(Mutex::default()));
+    let file = open(
+        bytes,
+        Some(FileDecryption::new(Arc::clone(&counting) as _).without_field_key_statistics()),
+    )?;
+    assert_eq!(counting.0.lock().get(COLUMN_KEY_METADATA), None);
+    let stats = file.footer().statistics().vortex_expect("file statistics");
+    assert!(stats.aggregates()[0].is_empty());
+
+    assert_reads_all(&file).await?;
+    assert_eq!(counting.0.lock().get(COLUMN_KEY_METADATA), Some(&1));
+    Ok(())
+}
+
 /// A [`KeyRetriever`] counting the keys it retrieves.
 struct CountingKeys(Mutex<HashMap<Vec<u8>, usize>>);
 
@@ -599,14 +862,14 @@ struct CountingKeys(Mutex<HashMap<Vec<u8>, usize>>);
 impl KeyRetriever for CountingKeys {
     async fn retrieve_key(&self, key_metadata: &[u8]) -> VortexResult<EncryptionKey> {
         *self.0.lock().entry(key_metadata.to_vec()).or_default() += 1;
-        keys().retrieve_key(key_metadata).await
+        keys(true).retrieve_key(key_metadata).await
     }
 }
 
 /// The footer and the segments share key resolution, so each key is retrieved once per open.
 #[tokio::test]
 async fn retrieves_each_key_once() -> VortexResult<()> {
-    let bytes = write(Some(FileEncryption::new(footer_key()))).await?;
+    let bytes = write(Some(with_column_key(FileEncryption::new(footer_key())))).await?;
     let counting = Arc::new(CountingKeys(Mutex::default()));
     let file = SESSION
         .open_options()
@@ -618,5 +881,6 @@ async fn retrieves_each_key_once() -> VortexResult<()> {
     assert_reads_all(&file).await?;
     let counts = counting.0.lock();
     assert_eq!(counts.get(FOOTER_KEY_METADATA), Some(&1));
+    assert_eq!(counts.get(COLUMN_KEY_METADATA), Some(&1));
     Ok(())
 }

@@ -18,6 +18,7 @@ use vortex_array::aggregate_fn::AggregateFnId;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldPath;
 use vortex_array::flatbuffers::FlatBufferRoot;
 use vortex_array::flatbuffers::WriteFlatBuffer;
@@ -287,6 +288,76 @@ impl FileStatistics {
         self.path_index
             .get(path)
             .map(|&idx| (&self.aggregates[idx], &self.dtypes[idx]))
+    }
+
+    /// An empty entry for every field of `file_dtype`.
+    pub(crate) fn empty_with_dtype(file_dtype: &DType) -> Self {
+        let entries = postorder_stats_layout(file_dtype).len();
+        let legacy = file_dtype
+            .as_struct_fields_opt()
+            .map_or(1, |fields| fields.nfields());
+        Self::new_with_dtype(
+            vec![AggregateStats::default(); entries].into(),
+            vec![AggregateStats::default(); legacy].into(),
+            file_dtype,
+        )
+    }
+
+    /// Whether the `index`th entry belongs to one of the top-level `fields` of `file_dtype`.
+    fn entry_in_fields(&self, index: usize, fields: &[u32], file_dtype: &DType) -> bool {
+        let (Some(struct_fields), Some(Field::Name(name))) = (
+            file_dtype.as_struct_fields_opt(),
+            self.paths[index].parts().first(),
+        ) else {
+            return false;
+        };
+        struct_fields
+            .find(name)
+            .is_some_and(|field| fields.iter().any(|&f| f as usize == field))
+    }
+
+    /// The statistics of the top-level `fields` of `file_dtype`, with every other entry empty.
+    pub(crate) fn retain_fields(&self, fields: &[u32], file_dtype: &DType) -> Self {
+        let empty = Self::empty_with_dtype(file_dtype);
+        empty.with_field_stats(fields, Some(self), file_dtype)
+    }
+
+    /// Replace the statistics of the top-level `fields` of `file_dtype` with those of `stats`,
+    /// which must describe the same dtype, or with empty statistics if `None`.
+    pub(crate) fn with_field_stats(
+        &self,
+        fields: &[u32],
+        stats: Option<&Self>,
+        file_dtype: &DType,
+    ) -> Self {
+        let aggregates = (0..self.aggregates.len())
+            .map(|index| {
+                if !self.entry_in_fields(index, fields, file_dtype) {
+                    return self.aggregates[index].clone();
+                }
+                stats
+                    .and_then(|stats| stats.aggregates.get(index))
+                    .cloned()
+                    .unwrap_or_default()
+            })
+            .collect();
+        let legacy_aggregates = (0..self.legacy_aggregates.len())
+            .map(|field| {
+                if !fields.iter().any(|&f| f as usize == field) {
+                    return self.legacy_aggregates[field].clone();
+                }
+                stats
+                    .and_then(|stats| stats.legacy_aggregates.get(field))
+                    .cloned()
+                    .unwrap_or_default()
+            })
+            .collect();
+        Self::from_parts(
+            aggregates,
+            Arc::clone(&self.dtypes),
+            Arc::clone(&self.paths),
+            legacy_aggregates,
+        )
     }
 }
 

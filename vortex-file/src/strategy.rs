@@ -29,6 +29,7 @@ use vortex_layout::layouts::repartition::RepartitionWriterOptions;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
 use vortex_layout::layouts::zoned::writer::ZonedStrategy;
+use vortex_layout::segments::EncryptionKeyName;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -60,6 +61,7 @@ pub struct WriteStrategyBuilder {
     row_block_size: usize,
     data_block_target_bytes: Option<u64>,
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
+    field_encryption: HashMap<FieldPath, EncryptionKeyName>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
     probe_compressor: Option<Arc<dyn CompressorPlugin>>,
     /// Whether to write list fields using [`ListLayoutStrategy`].
@@ -79,6 +81,7 @@ impl WriteStrategyBuilder {
             row_block_size: 8192,
             data_block_target_bytes: Some(ONE_MEG),
             field_writers: HashMap::new(),
+            field_encryption: HashMap::new(),
             flat_strategy: None,
             probe_compressor: None,
             use_list_layout: session
@@ -115,6 +118,21 @@ impl WriteStrategyBuilder {
         writer: Arc<dyn LayoutStrategy>,
     ) -> Self {
         self.field_writers.insert(field.into(), writer);
+        self
+    }
+
+    /// Encrypt every segment of a field, including its statistics and any nested fields, with the
+    /// named key.
+    ///
+    /// The key must be registered with
+    /// [`FileEncryption::with_named_key`](crate::encryption::FileEncryption::with_named_key).
+    /// See [`TableStrategy::with_field_encryption`] for the restrictions on the path.
+    pub fn with_field_encryption(
+        mut self,
+        field: impl Into<FieldPath>,
+        key: impl Into<EncryptionKeyName>,
+    ) -> Self {
+        self.field_encryption.insert(field.into(), key.into());
         self
     }
 
@@ -251,7 +269,8 @@ impl WriteStrategyBuilder {
         // Take any field overrides from the builder and apply them to the final strategy.
         let mut table_strategy =
             TableStrategy::new(Arc::new(validity_strategy), Arc::new(repartition))
-                .with_field_writers(self.field_writers);
+                .with_field_writers(self.field_writers)
+                .with_field_encryptions(self.field_encryption);
 
         if self.use_list_layout {
             // We need a closure here to enable recursive application of list layout.

@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_array::flatbuffers::FlatBuffer;
 use vortex_array::flatbuffers::FlatBufferRoot;
 use vortex_array::flatbuffers::WriteFlatBuffer;
@@ -27,6 +28,7 @@ use crate::encryption::SegmentCipher;
 use crate::encryption::SegmentRole;
 use crate::footer::SegmentSpec;
 use crate::footer::file_layout::FooterFlatBufferWriter;
+use crate::footer::postscript::EncryptedStatistics;
 use crate::footer::postscript::Postscript;
 use crate::footer::postscript::PostscriptMetadata;
 use crate::footer::postscript::PostscriptSegment;
@@ -40,6 +42,9 @@ pub struct FooterSerializer {
     offset: u64,
     layout_ctx: LayoutContext,
     cipher: Option<SegmentCipher>,
+    /// Ciphers for the statistics of fields encrypted with the key at an index of the footer's
+    /// encryption specs.
+    key_ciphers: HashMap<u16, SegmentCipher>,
 }
 
 impl FooterSerializer {
@@ -51,6 +56,7 @@ impl FooterSerializer {
             offset: 0,
             layout_ctx: LayoutContext::default(),
             cipher: None,
+            key_ciphers: HashMap::default(),
         }
     }
 
@@ -93,13 +99,26 @@ impl FooterSerializer {
     /// This is required to serialize the footer of a file with encrypted segments, so that a
     /// standalone footer does not leak the file's metadata in plaintext.
     pub fn with_encryption(mut self, encryption: &FileEncryption) -> VortexResult<Self> {
+        // The statistics of fields with their own key are encrypted with it. Match the footer's
+        // specs to the configured keys by their key metadata.
+        let keys = std::iter::once(encryption.footer_key()).chain(encryption.named_keys().values());
+        let mut key_ciphers = HashMap::default();
+        for (index, spec) in self.footer.encryption_specs().iter().enumerate().skip(1) {
+            if let Some(key) = keys
+                .clone()
+                .find(|key| key.key_metadata() == spec.key_metadata())
+            {
+                key_ciphers.insert(
+                    u16::try_from(index)?,
+                    encryption.cipher_for_spec(key, spec)?,
+                );
+            }
+        }
         // Readers require the footer segments to be protected by the footer's own footer key
         // spec, so reuse it when the footer describes an encrypted file.
-        let footer_cipher = match self.footer.encryption_specs().get(1) {
-            Some(spec) if spec.key_metadata() == encryption.footer_key().key_metadata() => {
-                encryption.cipher_for_spec(encryption.footer_key(), spec)?
-            }
-            Some(_) => vortex_bail!(
+        let footer_cipher = match key_ciphers.get(&1) {
+            Some(cipher) => cipher.clone(),
+            None if !self.footer.encryption_specs().is_empty() => vortex_bail!(
                 "The footer key of the FileEncryption does not match the footer's footer key"
             ),
             None => {
@@ -115,10 +134,19 @@ impl FooterSerializer {
                 self.footer = self.footer.with_encryption_specs(
                     vec![EncryptionSpec::plaintext(), cipher.spec().clone()].into(),
                 )?;
+                key_ciphers.insert(1, cipher.clone());
                 cipher
             }
         };
-        Ok(self.with_cipher(footer_cipher))
+        Ok(self
+            .with_cipher(footer_cipher)
+            .with_key_ciphers(key_ciphers))
+    }
+
+    /// Encrypt the statistics of fields with their own key with the cipher at their key's index.
+    pub(crate) fn with_key_ciphers(mut self, key_ciphers: HashMap<u16, SegmentCipher>) -> Self {
+        self.key_ciphers = key_ciphers;
+        self
     }
 
     /// Encrypt the footer and metadata segments with `cipher`.
@@ -243,12 +271,52 @@ impl FooterSerializer {
         )?;
         buffers.push(buffer);
 
+        let mut encrypted_statistics = Vec::new();
         let statistics_segment = match footer.statistics() {
             None => None,
             Some(stats) if stats.is_empty() => None,
             Some(stats) => {
+                // The statistics of fields with their own key go into a segment per key, and are
+                // left empty in the shared statistics segment.
+                let encrypted_fields: Vec<u32> = footer
+                    .statistics_encryption()
+                    .iter()
+                    .map(|(field, _)| *field)
+                    .collect();
+                // Entries are sorted by key, so their position identifies them to readers, which
+                // read them before the footer that defines the key indices.
+                for (position, (key, fields)) in footer
+                    .statistics_encryption()
+                    .iter()
+                    .map(|(field, key)| (*key, *field))
+                    .into_group_map()
+                    .into_iter()
+                    .sorted_unstable()
+                    .enumerate()
+                {
+                    let cipher = self.key_ciphers.get(&key).ok_or_else(|| {
+                        vortex_err!(
+                            "Footer encrypts the statistics of fields {fields:?} with encryption \
+                             spec {key}, whose key FooterSerializer::with_encryption was not given"
+                        )
+                    })?;
+                    let (buffer, segment) = write_flatbuffer(
+                        &mut self.offset,
+                        &stats.retain_fields(&fields, footer.dtype()),
+                        Protection::Encrypt(
+                            cipher,
+                            SegmentRole::KeyStatistics {
+                                position: u16::try_from(position)?,
+                                fields: &fields,
+                            },
+                        ),
+                    )?;
+                    buffers.push(buffer);
+                    encrypted_statistics.push(EncryptedStatistics { fields, segment });
+                }
+                let shared = stats.with_field_stats(&encrypted_fields, None, footer.dtype());
                 let (buffer, stats_segment) =
-                    write_flatbuffer(&mut self.offset, stats, protect(SegmentRole::Statistics))?;
+                    write_flatbuffer(&mut self.offset, &shared, protect(SegmentRole::Statistics))?;
                 buffers.push(buffer);
                 Some(stats_segment)
             }
@@ -261,6 +329,9 @@ impl FooterSerializer {
             metadata_segments
                 .iter()
                 .map(|entry: &PostscriptMetadata| entry.key.as_str()),
+            encrypted_statistics
+                .iter()
+                .map(|entry: &EncryptedStatistics| entry.fields.as_slice()),
         );
         let (buffer, footer_segment) = write_flatbuffer(
             &mut self.offset,
@@ -281,6 +352,7 @@ impl FooterSerializer {
             statistics: statistics_segment,
             footer: footer_segment,
             metadata: metadata_segments,
+            encrypted_statistics,
         };
         let postscript_buffer = postscript.write_flatbuffer_bytes()?;
         if postscript_buffer.len() > MAX_POSTSCRIPT_SIZE as usize {
