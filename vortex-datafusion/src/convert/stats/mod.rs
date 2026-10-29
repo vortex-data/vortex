@@ -18,6 +18,12 @@ use crate::PrecisionExt;
 use crate::convert::TryToDataFusion;
 
 /// Convert a stats set for an array with the given dtype.
+///
+/// The uncompressed size is left out of `byte_size`. DataFusion's join selection picks
+/// `CollectLeft` below `hash_join_single_partition_threshold` (1 MiB) when a byte size is known
+/// and below `hash_join_single_partition_threshold_rows` (128 Ki rows) otherwise, so known sizes
+/// turn small build sides into partitioned joins. DataFusion's `project_statistics` also keeps
+/// the whole table's size for any projection with a variable-width column.
 pub(crate) fn stats_set_to_df(
     stats_set: &StatsSet,
     dtype: &DType,
@@ -36,8 +42,6 @@ pub(crate) fn stats_set_to_df(
         max_value,
         sum_value: scalar_stat_to_df(stats_set, Stat::Sum, dtype).to_df(),
         distinct_count,
-        // TODO(joe): report `Stat::UncompressedSizeInBytes` once DataFusion's join selection no
-        // longer regresses TPC-H and TPC-DS when given it.
         byte_size: Precision::Absent,
     })
 }

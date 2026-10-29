@@ -709,8 +709,7 @@ impl FileFormat for VortexFormat {
                     max_value: max,
                     sum_value: DFPrecision::Absent,
                     distinct_count,
-                    // TODO(joe): report `Stat::UncompressedSizeInBytes` once DataFusion's join
-                    // selection no longer regresses TPC-H and TPC-DS when given it.
+                    // See `stats_set_to_df` for why the uncompressed size is not reported.
                     byte_size: DFPrecision::Absent,
                 })
             }
