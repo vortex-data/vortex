@@ -897,6 +897,51 @@ async fn pruning_subdivides_sparse_work(
     Ok(())
 }
 
+#[tokio::test]
+async fn unfiltered_tasks_keep_output_batches_bounded() -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let segments = Arc::new(TestSegments::default());
+    let (mut sequence, eof) = SequenceId::root().split();
+    let values = PrimitiveArray::from_iter(0i32..262_144).into_array();
+    let dtype = values.dtype().clone();
+    let projection = pack([("ints", root())], false.into()).bind(&dtype)?;
+    let expected = StructArray::from_fields(&[("ints", values.clone())])?;
+    let layout = FlatLayoutStrategy::default()
+        .write_stream(
+            ArrayContext::empty().into(),
+            Arc::<TestSegments>::clone(&segments),
+            SequentialStreamAdapter::new(dtype, stream::iter([Ok((sequence.advance(), values))]))
+                .sendable(),
+            eof,
+            &session,
+        )
+        .await?;
+    let segments = segments as Arc<dyn SegmentSource>;
+    let scan = Arc::new(
+        builder(&session, &segments, &layout)?
+            .with_projection(projection.clone())
+            .prepare()?,
+    );
+    let mut planner = compose(&scan, scan.rows().clone());
+    let PlannerOutput::Spawn(scope, _) = planner.compute()? else {
+        vortex_bail!("unfiltered scan did not produce a work scope");
+    };
+    assert_eq!(scope.rows, 0..262_144);
+    assert!(matches!(planner.compute()?, PlannerOutput::Done));
+
+    let arrays = run_rows(&scan, scan.rows().clone()).await?;
+    assert_eq!(
+        arrays.iter().map(|array| array.len()).collect::<Vec<_>>(),
+        [65_536; 4]
+    );
+    assert_arrays_eq!(
+        ChunkedArray::try_new(arrays, projection.dtype().clone())?.into_array(),
+        expected,
+        &mut session.create_execution_ctx()
+    );
+    Ok(())
+}
+
 /// A repeated projection reuses its optimized plan, so later scans find the dictionary values the
 /// first one kept instead of reading them again.
 #[tokio::test]
