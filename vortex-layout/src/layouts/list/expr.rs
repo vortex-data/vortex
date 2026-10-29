@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::StructFields;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::BoundLambda;
+use vortex_array::expr::bound::get_item;
 use vortex_array::expr::bound::not;
+use vortex_array::expr::bound::pack;
 use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
 use vortex_array::expr::traversal::TraversalOrder;
@@ -57,52 +63,150 @@ pub(super) fn get_necessary_bound_list_children(expr: &BoundExpression) -> ListC
         .unwrap_or(ListChildrenNeeded::Validity)
 }
 
-/// Split an expression that reads the list only through `list_transform($, λ)` into λ's body over
-/// the elements and the expression over the transformed list.
+/// How a read of the list splits between its elements reader and the lists built over what that
+/// reader returns.
+pub(super) struct ElementsSplit {
+    /// Evaluated by the elements reader, once per element.
+    pub(super) elements: BoundExpression,
+    /// When `elements` packs several values per element, their names. The lists are then a struct
+    /// with one list per name, all sharing the offsets and validity.
+    pub(super) fields: Option<FieldNames>,
+    /// The expression over the lists.
+    pub(super) outer: BoundExpression,
+    /// Whether nothing in `elements` can fail. A fallible one must not see the elements of null
+    /// lists, which can hold anything.
+    pub(super) infallible: bool,
+}
+
+impl ElementsSplit {
+    /// Read whole elements and evaluate `expr` over the list.
+    pub(super) fn whole_elements(element_dtype: &DType, expr: &BoundExpression) -> Self {
+        Self {
+            elements: BoundExpression::new_root(element_dtype.clone()),
+            fields: None,
+            outer: expr.clone(),
+            infallible: true,
+        }
+    }
+}
+
+/// Split an expression that reads the list through `list_transform($, λ)` into what the elements
+/// reader evaluates and the expression over the lists of its values.
 ///
-/// The elements reader then evaluates the body, so it reads only the element fields the body uses.
-/// λ's body is bound over its inputs, `{x: element}`, and stepping into `x` puts it over the
-/// elements. Every use must share one λ, and λ must be infallible: the reader runs it over every
-/// element between the first and last list read, including those of null and unselected lists.
-pub(super) fn split_list_transform(
-    expr: &BoundExpression,
-) -> VortexResult<Option<(BoundExpression, BoundExpression)>> {
-    let mut lambda: Option<BoundLambda> = None;
-    let mut reads_list = false;
-    let over_transformed = expr
+/// The elements reader evaluates each distinct λ's body, so it reads only the element fields the
+/// bodies use. λ's body is bound over its inputs, `{x: element}`, and stepping into `x` puts it
+/// over the elements. When the list is also read whole (anything but its validity and lengths),
+/// the elements reader reads the elements too. With one value per element the lists are over it;
+/// with more, the elements reader packs them, and the lists are a struct with one list per value.
+pub(super) fn split_list_transform(expr: &BoundExpression) -> VortexResult<Option<ElementsSplit>> {
+    let mut lambdas = Vec::new();
+    let mut whole = ListChildrenNeeded::Validity;
+    let mut list_dtype = None;
+    collect_list_uses(expr, &mut lambdas, &mut whole, &mut list_dtype);
+    let Some(DType::List(element_dtype, nullability)) = list_dtype else {
+        return Ok(None);
+    };
+
+    let infallible = lambdas.iter().all(BoundLambda::is_infallible);
+    let mut values = lambdas
+        .iter()
+        .map(|lambda| {
+            let param = Item::Field(lambda.params().names()[0].clone());
+            let element = lambda
+                .params()
+                .field_by_index(0)
+                .vortex_expect("list_transform's lambda takes the element");
+            step_into_struct_field(lambda.body().clone(), &param, element)
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+    let whole_index = if whole == ListChildrenNeeded::All {
+        values.push(BoundExpression::new_root(element_dtype.as_ref().clone()));
+        values.len() - 1
+    } else {
+        0
+    };
+
+    let list_of =
+        |value: &BoundExpression| DType::List(Arc::new(value.dtype().clone()), nullability);
+    let (elements, fields, lists) = if let [value] = values.as_slice() {
+        let lists = BoundExpression::new_root(list_of(value));
+        (value.clone(), None, vec![lists])
+    } else {
+        let names: FieldNames = (0..values.len()).map(|index| index.to_string()).collect();
+        let lists_dtype = DType::Struct(
+            StructFields::new(names.clone(), values.iter().map(list_of).collect()),
+            Nullability::NonNullable,
+        );
+        let lists = names
+            .iter()
+            .map(|name| get_item(name.clone(), BoundExpression::new_root(lists_dtype.clone())))
+            .collect();
+        let elements = pack(names.iter().cloned().zip(values), Nullability::NonNullable);
+        (elements, Some(names), lists)
+    };
+
+    let outer = expr
         .clone()
         .transform_down(|node| {
-            if let Some(ListTransformOptions::Bound(found)) = node.as_opt::<ListTransform>()
-                && node.child(0).is_root()
-                && found.is_infallible()
-                && lambda.as_ref().is_none_or(|lambda| lambda == found)
-            {
-                lambda = Some(found.clone());
-                return Ok(Transformed {
-                    value: BoundExpression::new_root(node.dtype().clone()),
+            let index = match list_transform_lambda(&node) {
+                Some(lambda) => lambdas.iter().position(|found| found == lambda),
+                None => node.is_root().then_some(whole_index),
+            };
+            Ok(match index {
+                Some(index) => Transformed {
+                    value: lists[index].clone(),
                     changed: true,
                     order: TraversalOrder::Skip,
-                });
-            }
-            reads_list |= node.is_root();
-            Ok(Transformed::no(node))
+                },
+                None => Transformed::no(node),
+            })
         })?
         .into_inner();
 
-    let Some(lambda) = lambda else {
-        return Ok(None);
-    };
-    if reads_list {
-        return Ok(None);
-    }
+    Ok(Some(ElementsSplit {
+        elements,
+        fields,
+        outer,
+        infallible,
+    }))
+}
 
-    let param = Item::Field(lambda.params().names()[0].clone());
-    let element = lambda
-        .params()
-        .field_by_index(0)
-        .vortex_expect("list_transform's lambda takes the element");
-    let over_elements = step_into_struct_field(lambda.body().clone(), &param, element)?;
-    Ok(Some((over_elements, over_transformed)))
+/// The bound lambda of a `list_transform($, λ)` node.
+fn list_transform_lambda(node: &BoundExpression) -> Option<&BoundLambda> {
+    match node.as_opt::<ListTransform>() {
+        Some(ListTransformOptions::Bound(lambda)) if node.child(0).is_root() => Some(lambda),
+        _ => None,
+    }
+}
+
+/// Collect the distinct lambdas of `list_transform($, λ)` nodes and what the rest of the
+/// expression needs of the list. `list_dtype` is set once a lambda is found.
+fn collect_list_uses(
+    expr: &BoundExpression,
+    lambdas: &mut Vec<BoundLambda>,
+    whole: &mut ListChildrenNeeded,
+    list_dtype: &mut Option<DType>,
+) {
+    if let Some(lambda) = list_transform_lambda(expr) {
+        if !lambdas.contains(lambda) {
+            lambdas.push(lambda.clone());
+        }
+        *list_dtype = Some(expr.child(0).dtype().clone());
+        return;
+    }
+    let needs = if is_bound_null_root(expr) {
+        ListChildrenNeeded::Validity
+    } else if is_bound_list_length_root(expr) {
+        ListChildrenNeeded::OffsetsAndValidity
+    } else if expr.is_root() {
+        ListChildrenNeeded::All
+    } else {
+        for child in expr.children() {
+            collect_list_uses(child, lambdas, whole, list_dtype);
+        }
+        return;
+    };
+    *whole = (*whole).max(needs);
 }
 
 fn is_bound_null_root(expr: &BoundExpression) -> bool {
