@@ -26,4 +26,4 @@ runs:
         S3_BENCHMARK_TASK: ${{ inputs.task }}
       run: >-
         python3 benchmarks/s3/ci.py --remote-root "$REMOTE_ROOT" --scale "$BENCH_SCALE"
-        --iterations "$BENCH_ITERATIONS" --task "$S3_BENCHMARK_TASK"
+        --iterations "$BENCH_ITERATIONS" --model "$BENCH_MODEL" --task "$S3_BENCHMARK_TASK"

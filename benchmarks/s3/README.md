@@ -183,7 +183,9 @@ ordinary benchmark jobs and never silently changes their model. A new profile st
 comparison history. The server rejects snapshots exceeding its resident-memory allowance rather
 than falling back to local disk; choose a suitable runner/profile for datasets that do not fit.
 
-The `S3 Model Benchmarks` workflow learns on two real request sweeps, freezes the profile, and runs
+The `S3 Model Benchmarks` workflow learns a candidate from two real request sweeps and saves it
+separately. By default it validates the exact pinned CI profile; dispatch with `model=learned` to
+evaluate the candidate instead. Neither choice promotes a new profile. It runs
 an independent held-out real sweep, the learned endpoint and a zero-delay loopback baseline. Its
 probe table requires exactly matching GET/byte coverage and separates header, first-byte, body and
 total median/p90. All clients run sequentially on one on-demand c8gd.16xlarge in the bucket's region.

@@ -4,6 +4,7 @@
 """Run native S3 benchmark tasks using credentials supplied by the workflow."""
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -44,6 +45,28 @@ def simulate(args: argparse.Namespace, kind: str, name: str, cmd: list[str], loc
     return [*command, "--", *cmd]
 
 
+def freeze_profile(args: argparse.Namespace, learned: dict) -> Path:
+    candidate = args.output / "learned-profile.json"
+    candidate.write_text(json.dumps(learned, separators=(",", ":")) + "\n")
+    selected = args.profile if args.model == "pinned" else candidate
+    profile = args.output / "profile.json"
+    profile.write_bytes(selected.read_bytes())
+    (args.output / "model-selection.json").write_text(
+        json.dumps(
+            {
+                "model": args.model,
+                "source": str(selected),
+                "profile_sha256": hashlib.sha256(profile.read_bytes()).hexdigest(),
+                "candidate_sha256": hashlib.sha256(candidate.read_bytes()).hexdigest(),
+                "promoted": False,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    return profile
+
+
 def calibrate(args: argparse.Namespace):
     root = args.output
     root.mkdir(parents=True, exist_ok=False)
@@ -62,8 +85,7 @@ def calibrate(args: argparse.Namespace):
             root / f"training-{window}.log",
         )
     model = learn.learn([root / "training-1.jsonl", root / "training-2.jsonl"])
-    profile = root / "profile.json"
-    profile.write_text(json.dumps(model, separators=(",", ":")) + "\n")
+    profile = freeze_profile(args, model)
     fixtures = root / "probe-fixtures"
     fixtures.mkdir()
     for index in range(1, 5):
@@ -258,6 +280,8 @@ def main():
     parser.add_argument("--binaries", type=Path, default=Path("target/release_debug"))
     parser.add_argument("--output", type=Path, default=Path("s3-benchmarks"))
     parser.add_argument("--engines", default="datafusion,duckdb,lance")
+    parser.add_argument("--model", choices=("pinned", "learned"), default="pinned")
+    parser.add_argument("--profile", type=Path, default=Path("benchmarks/s3/profiles/ci-us-east-1-c8gd16.json"))
     parser.add_argument(
         "--task", help="One task; CI configures standard AWS credentials before each authenticated task"
     )

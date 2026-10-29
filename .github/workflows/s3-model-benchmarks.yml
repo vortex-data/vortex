@@ -14,6 +14,11 @@ on:
         description: "Per-query iterations (at least three)"
         type: number
         default: 5
+      model:
+        description: "Validate the pinned CI profile, or explicitly evaluate a newly learned candidate"
+        type: choice
+        options: [pinned, learned]
+        default: pinned
   push:
     branches: ["ji/s3-simulated-benchmarks"]
     paths:
@@ -41,6 +46,7 @@ jobs:
       REMOTE_ROOT: s3://vortex-ci-benchmark-datasets/s3-model-benchmarks/${{ github.run_id }}-${{ github.run_attempt }}
       BENCH_SCALE: ${{ inputs.scale || '0.01' }}
       BENCH_ITERATIONS: ${{ inputs.iterations || '3' }}
+      BENCH_MODEL: ${{ inputs.model || 'pinned' }}
     steps:
       - uses: runs-on/action@v2
         with:
