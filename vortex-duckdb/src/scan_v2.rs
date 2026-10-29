@@ -51,7 +51,8 @@ use vortex::scan::planning::planner::WorkScope;
 use crate::RUNTIME;
 
 /// The parts of a file's rows per thread, so threads that finish early find more work.
-const PARTS_PER_THREAD: usize = 4;
+// Keep enough assignments to absorb skew in per-row work, such as string expressions.
+const PARTS_PER_THREAD: usize = 16;
 /// Avoid tiny worker assignments while allowing filtered chunks to use multiple workers.
 const MIN_ROWS_PER_PART: u64 = 65_536;
 /// Bound assignments even when the input already has enough files to fill the worker pool.
@@ -337,14 +338,15 @@ mod tests {
     use super::parts_per_file;
 
     #[rstest]
-    #[case(8, 1, 32)]
-    #[case(8, 4, 8)]
-    #[case(8, 8, 4)]
-    #[case(8, 32, 1)]
-    #[case(8, 100, 1)]
-    #[case(96, 100, 4)]
+    #[case(8, 1, 128)]
+    #[case(8, 4, 32)]
+    #[case(8, 8, 16)]
+    #[case(8, 32, 4)]
+    #[case(8, 100, 2)]
+    #[case(32, 100, 6)]
+    #[case(96, 100, 16)]
     #[case(1, 100, 1)]
-    #[case(0, 0, 4)]
+    #[case(0, 0, 16)]
     fn work_accounts_for_threads_and_files(
         #[case] threads: usize,
         #[case] files: usize,

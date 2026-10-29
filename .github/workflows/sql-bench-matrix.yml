@@ -207,19 +207,6 @@ jobs:
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
-      - name: Diagnose DuckDB ClickBench Q28
-        if: matrix.subcommand == 'clickbench' && inputs.mode == 'pr'
-        shell: bash
-        env:
-          RUST_LOG: "warn,vortex_duckdb::exporter=debug"
-        run: |
-          for scan_v2 in false true; do
-            echo "Q28 dictionary diagnostics: scan_v2=$scan_v2"
-            bash scripts/bench-taskset.sh target/release_debug/duckdb-bench clickbench \
-              --formats vortex --queries 28 --iterations 1 --scan-v2 "$scan_v2" \
-              --display-format gh-json --hide-progress-bar
-          done
-
       - name: Run ${{ matrix.name }} benchmark (remote)
         if: matrix.remote_key != null && (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false)
         shell: bash
