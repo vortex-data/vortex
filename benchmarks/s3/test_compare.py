@@ -40,6 +40,8 @@ class ComparisonTests(unittest.TestCase):
             self.assertEqual(rows[0]["real_p90_ms"], 28)
             self.assertEqual(rows[0]["real_repeat_ratio"], 1.1)
             self.assertEqual(rows[0]["model_ratio"], 24 / 21)
+            self.assertEqual(rows[0]["pooled_real_median_ms"], 21)
+            self.assertEqual(rows[0]["pooled_real_p90_ms"], 31.5)
             self.assertTrue(rows[0]["outside_10pct"])
             self.assertEqual(summary["spearman"], 1)
             (root / "tpch-real-repeat.jsonl").unlink()

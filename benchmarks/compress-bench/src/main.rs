@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::borrow::Cow;
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -591,23 +592,11 @@ async fn run_benchmark_for_dataset(
                         .iter()
                         .map(|d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
                         .collect();
-                    let remote_variant = remote.map(|_| {
-                        format!(
-                            "{}-{}-read-decode",
-                            v3_variant.unwrap_or("default"),
-                            vortex_bench::s3::storage_name()
-                        )
-                    });
+                    let variant = decompression_variant(mode, remote.is_some(), v3_variant);
                     v3_records.push(v3::compression_time_record(
                         &result.timing,
                         v3_dataset,
-                        if mode.is_gpu() {
-                            Some("gpu")
-                        } else if let Some(variant) = &remote_variant {
-                            Some(variant.as_str())
-                        } else {
-                            v3_variant
-                        },
+                        variant.as_deref(),
                         CompressOp::Decompress,
                         all_runs_ns,
                     ));
@@ -639,6 +628,24 @@ async fn run_benchmark_for_dataset(
     Ok((CompressMeasurements { timings, ratios }, v3_records))
 }
 
+fn decompression_variant(
+    mode: BenchMode,
+    remote: bool,
+    variant: Option<&str>,
+) -> Option<Cow<'_, str>> {
+    if mode.is_gpu() {
+        Some(Cow::Borrowed("gpu"))
+    } else if remote {
+        Some(Cow::Owned(format!(
+            "{}-{}-read-decode",
+            variant.unwrap_or("default"),
+            vortex_bench::s3::storage_name()
+        )))
+    } else {
+        variant.map(Cow::Borrowed)
+    }
+}
+
 /// Emit the Vortex-versus-Parquet decompression ratio for a GPU run.
 fn push_gpu_ratio(
     measurements: &HashMap<(Format, CompressOp), Duration>,
@@ -659,7 +666,7 @@ fn push_gpu_ratio(
             options.codec.name()
         ),
         format: Format::OnDiskVortex,
-        unit: std::borrow::Cow::from("ratio"),
+        unit: Cow::from("ratio"),
         value: vortex_time.as_nanos() as f64 / parquet_time.as_nanos() as f64,
     });
 }

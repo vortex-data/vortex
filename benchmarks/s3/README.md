@@ -206,12 +206,56 @@ ordinary S3 CI benchmark variants use the pinned model.
 
 The earlier frozen V4 controlled SF10 study (research branch `ji/ci-s3-over-time`) covered all 121
 queries and matched all 1,368,393 GETs and 380,744,124,525 bytes per backend. It reached Spearman
-0.9947, with 173/242 query/cache medians within ±10%. Its first three-hour window reached 23/36
-within ±10%, with five groups exceeding measured S3 repeatability. That evidence supports further
-calibration; it does not establish the accuracy of this new native HTTP model.
+0.9947, with 173/242 query/cache medians within ±10%. Its [four-window study](https://github.com/vortex-data/vortex/actions/runs/40661847573)
+completed all fixed starts, with 23/36, 32/36, 30/36 and 31/36 medians within ±10% and exact request
+counts in all 144 groups. That evidence supports further calibration; it does not establish the
+accuracy of this new native HTTP model.
 
 For paired remote decoding, pass the same `--fixture-cache /tmp/run-fixtures` to both backend runs.
 Use a fresh directory for each revision/input. The first run atomically saves its encoded file or
 Lance directory; subsequent runs upload those exact objects, preserving generated data filenames and
 manifests. CI uses one such cache for all three controls. This avoids comparing independently
 re-encoded fixtures while keeping file creation and upload outside the read/decode timer.
+
+## Measured native fit
+
+[Pinned-profile run 40911291453](https://github.com/vortex-data/vortex/actions/runs/40911291453)
+passed all 22 TPC-H and 99 TPC-DS queries through DataFusion, DuckDB and Lance at **SF0.01,
+three iterations**, plus cached/reopen random access and remote decompression. All three backends
+ran sequentially on one c8gd.16xlarge. The [per-case table](results/native-40911291453.csv)
+contains 620 cases, backend median/p90, the pooled real median/p90 used as the ratio denominator,
+repeat-real variation and ±10%/±30% flags. These are native cache sequences, not isolated cold/warm
+measurements. Overall Spearman against the first real control was **0.9644**, median absolute
+model error **14.1%**, with **228/620 within ±10%** and **541/620 within ±30%**.
+
+| SQL engine/format (121 queries each) | Median absolute model error | Median real-repeat variation |
+| --- | ---: | ---: |
+| DataFusion / Vortex | 9.6% | 10.8% |
+| DataFusion / Parquet | 15.3% | 8.3% |
+| DuckDB / Vortex | 17.4% | 7.6% |
+| DuckDB / Parquet | 16.4% | 6.6% |
+| Lance / Lance | 11.3% | 10.6% |
+
+The profile SHA-256 was `859b5ec996de8e026364d5c1b6b893da878f8914642495decf41b37e6c2273c2`:
+seed 20261027, metadata delay 26.513 ms, joint empirical GET phases conditioned on size and
+in-flight requests, byte-scaled transfer cost and no hard concurrency cap. The held-out probe
+matched all 3,840 measured GETs and bytes per backend with no errors. Its median absolute cell
+error was 6.0%, with 40/60 cells within ±10%. The freshly learned candidate was saved separately;
+its request-header distributions were not consistently closer, so it was not promoted.
+
+The ordinary [SQL workflow](https://github.com/vortex-data/vortex/actions/runs/40910838537) also
+passed all 22 TPC-H SF1 queries with DataFusion/DuckDB and Parquet/Vortex, ten iterations each
+(88 cases, 880 measurements), and posted its [standard comment](https://github.com/vortex-data/vortex/pull/10976#issuecomment-6502527256).
+The ordinary [random-access S3 workflow](https://github.com/vortex-data/vortex/actions/runs/40910534015)
+passed all combinations and posted its [standard comment](https://github.com/vortex-data/vortex/pull/10976#issuecomment-6503381549).
+Both artifacts were independently checked for their frozen profile identity and zero outstanding
+requests. SQL observed 43,560 GETs / 39,907,740,977 bytes; random access observed 210,844 GETs /
+90,663,539,712 bytes. Both reached 192 in-flight requests, above the initial training range of 64.
+
+Recommendation: use the pinned model as the requested reproducible CI regression baseline, while
+retaining real S3 as the validation reference. It does not yet support a general ±10% prediction
+claim. DataFusion/Vortex error is comparable to S3 repeatability; Parquet and DuckDB show additional
+model bias. Prioritize real per-query request parity, coverage above 64 in-flight requests and
+response-tail correlation before claiming that fit. Validate the native model at SF10 and with
+isolated cold/warm trials as well. A global runtime multiplier would hide those differences;
+future profiles should continue to learn request behavior and pass held-out validation.

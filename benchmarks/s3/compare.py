@@ -84,8 +84,10 @@ def compare(directory: Path) -> tuple[list[dict], dict]:
             row[f"{name}_n"] = len(values)
             row[f"{name}_median_ms"] = statistics.median(values)
             row[f"{name}_p90_ms"] = percentile(values, 0.9)
-        reference = statistics.median(backends["real"] + backends["real-repeat"])
-        row["model_ratio"] = row["simulated_median_ms"] / reference
+        reference = backends["real"] + backends["real-repeat"]
+        row["pooled_real_median_ms"] = statistics.median(reference)
+        row["pooled_real_p90_ms"] = percentile(reference, 0.9)
+        row["model_ratio"] = row["simulated_median_ms"] / row["pooled_real_median_ms"]
         row["real_repeat_ratio"] = row["real-repeat_median_ms"] / row["real_median_ms"]
         row["outside_10pct"] = not 0.9 <= row["model_ratio"] <= 1.1
         row["outside_30pct"] = not 0.7 <= row["model_ratio"] <= 1.3
@@ -96,6 +98,8 @@ def compare(directory: Path) -> tuple[list[dict], dict]:
         "within_30pct": sum(not row["outside_30pct"] for row in rows),
         "median_absolute_error": statistics.median(abs(row["model_ratio"] - 1) for row in rows),
         "spearman": correlation([row["real_median_ms"] for row in rows], [row["simulated_median_ms"] for row in rows]),
+        "ratio_reference": "pooled real and repeat-real samples",
+        "spearman_reference": "first real control",
         "scope": "native benchmark cache sequence; SQL first/warm iterations pooled, not isolated cold/warm trials",
         "request_parity": "Simulated command HTTP counters retained; real per-query parity is not measured here",
         "recommendation": "Keep simulation opt-in pending isolated cache trials and real per-query request counts",
@@ -149,13 +153,14 @@ def main():
         "Random access reports cached/reopen separately. File decompression uses full GET plus decode; "
         "Lance uses its native range reader. Calibration GETs, preparation and query timing are separate.",
         "",
-        "| Kind/dataset/query | Engine/format/mode | Real ms | Model ms | Model/real | Repeat/real | ±10% |",
+        "| Kind/dataset/query | Engine/format/mode | Pooled real ms | Model ms | "
+        "Model/pooled real | Repeat/first real | ±10% |",
         "| --- | --- | ---: | ---: | ---: | ---: | --- |",
     ]
     for row in rows:
         text.append(
             f"| {row['kind']}/{row['dataset']}/{row['query']} | "
-            f"{row['engine']}/{row['format']}/{row['open_mode']} | {row['real_median_ms']:.3f} | "
+            f"{row['engine']}/{row['format']}/{row['open_mode']} | {row['pooled_real_median_ms']:.3f} | "
             f"{row['simulated_median_ms']:.3f} | {row['model_ratio']:.3f} | "
             f"{row['real_repeat_ratio']:.3f} | {'flag' if row['outside_10pct'] else 'pass'} |"
         )
