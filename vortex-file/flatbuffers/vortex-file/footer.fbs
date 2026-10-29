@@ -34,6 +34,20 @@ table Postscript {
     /// User-defined metadata segments keyed by string. Keys must be unique, non-empty, and at most
     /// 64 UTF-8 bytes; readers reject postscripts that violate these limits.
     metadata: [PostscriptMetadata];
+    /// File-level statistics of fields whose segments are encrypted with a key other than the one
+    /// protecting the `statistics` segment, stored in a segment encrypted with that key, so that
+    /// only readers with the field's key see its statistics. One entry per key. The `statistics`
+    /// segment holds empty statistics for these fields.
+    encrypted_statistics: [EncryptedStatistics];
+}
+
+/// File-level statistics of some fields, encrypted with those fields' key.
+table EncryptedStatistics {
+    /// Indices in the root struct of the fields whose statistics the segment holds, in order.
+    /// A field appears in at most one entry.
+    fields: [uint32] (required);
+    /// Segment containing a `FileStatistics` flatbuffer with one entry per listed field.
+    segment: PostscriptSegment (required);
 }
 
 /// A keyed user-defined metadata segment.
