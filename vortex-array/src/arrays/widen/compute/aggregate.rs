@@ -5,8 +5,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::Columnar;
 use crate::ExecutionCtx;
+use crate::aggregate_fn::AggregateDTypes;
 use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::is_constant::IsConstant;
 use crate::aggregate_fn::fns::is_sorted::IsSorted;
@@ -29,9 +32,9 @@ use crate::scalar::Scalar;
 /// batch or a single null match by construction, and the values keep their own cached statistics
 /// and kernels. [`MinMax`] runs [`min_max`] on the values instead, which reads their exact cached
 /// extrema before it scans them. Decimal widening preserves order, equality and validity, so
-/// extrema, constancy and sortedness have the same partial after widening. Decimal sums must use
-/// the logical precision to select their accumulator, so they fall back to execution. Integer
-/// [`Sum`] is served only when [`is_exact_sum`] holds.
+/// extrema, constancy and sortedness have the same partial after widening. A decimal [`Sum`] is
+/// served only with `skip_nans`, by [`decimal_sum_partial`] with the sum dtype of the logical
+/// dtype. Integer [`Sum`] is served only when [`is_exact_sum`] holds.
 #[derive(Debug)]
 pub(crate) struct WidenArrayAggregate;
 
@@ -45,6 +48,17 @@ impl DynAggregateKernel for WidenArrayAggregate {
         let Some(widen) = batch.as_opt::<Widen>() else {
             return Ok(None);
         };
+
+        if batch.dtype().is_decimal() && aggregate_fn.is::<Sum>() {
+            // `decimal_sum_partial` is exact only with the legacy `Stat::Sum` slot.
+            if Stat::from_aggregate_fn(aggregate_fn) != Some(Stat::Sum) {
+                return Ok(None);
+            }
+
+            let options = aggregate_fn.as_::<Sum>();
+            let partial = decimal_sum_partial(widen.values(), options, batch.dtype(), ctx)?;
+            return Ok(Some(partial));
+        }
 
         match batch.dtype() {
             DType::Decimal(..) => {
@@ -80,6 +94,61 @@ impl DynAggregateKernel for WidenArrayAggregate {
 
         Ok(Some(accumulator.flush()?.cast(&partial_dtype)?))
     }
+}
+
+/// Returns the [`Sum`] partial of a decimal `Widen` with the logical dtype `logical` from its
+/// `values`, in the sum dtype of `logical`.
+///
+/// The partial **must** equal the partial of the canonical batch. A child accumulator would sum
+/// in the [`sum_decimal_dtype`] of the child, whose precision is lower, so it can overflow where
+/// the canonical batch does not. So this calls [`Sum`] with the dtypes of `logical`.
+/// [`Sum::accumulate`] sends a canonical child to [`accumulate_decimal`], which reads any stored
+/// width into the canonical width of the sum dtype of `logical`. It sends a constant child to
+/// [`multiply_constant`], so a constant child never materializes.
+///
+/// The partial is exact only for [`Sum`] with `skip_nans`, which has the legacy [`Stat::Sum`]
+/// slot:
+///
+/// - With the slot, the accumulator sums each batch from an empty partial, and then folds the
+///   batch partial into the running sum. So this function and the canonical batch both sum from
+///   zero, and their partials are equal, including an overflow to null:
+///   - For a canonical child, both make the same checked adds, in the same accumulator width, on
+///     the same values, in the same order, and check the precision once at the end. Unlike the
+///     integer [`is_exact_sum`], this needs no length bound.
+///   - For a constant child, [`multiply_constant`] makes one checked multiply in `i256` and
+///     checks the product against the sum precision. The canonical batch adds the same value `n`
+///     times. Its running sums all have one sign and grow in magnitude toward the product, and
+///     its accumulator width is the canonical width of the sum precision. So the adds overflow
+///     that width, or fail the final precision check, exactly when the product does not fit the
+///     sum precision. A null constant adds nothing on either path.
+/// - Without the slot, as for [`SumV2`] or [`Sum`] without `skip_nans`, the running sum is the
+///   start value of [`accumulate_decimal`], which checks the precision only at the end. A batch
+///   total can then fail the precision where the running sum does not. For example, a parent
+///   `Decimal(3, 0)` over a child `Decimal(2, 0)` sums in `Decimal(13, 0)`. From a running sum of
+///   `-(10^13 - 1)`, a batch of `1.5e11` rows of `99` totals `1.485e13`, which fails precision 13
+///   alone, while the running sum plus that total fits. So these stay on the default path.
+///
+/// This function neither reads nor caches [`Stat::Sum`] on the values, because a sum of the values
+/// has the [`sum_decimal_dtype`] of the child. The accumulator caches the partial on the `Widen`.
+///
+/// [`accumulate_decimal`]: crate::aggregate_fn::fns::sum::accumulate_decimal
+/// [`multiply_constant`]: crate::aggregate_fn::fns::sum::multiply_constant
+/// [`sum_decimal_dtype`]: crate::aggregate_fn::fns::sum::sum_decimal_dtype
+/// [`SumV2`]: crate::aggregate_fn::fns::sum_v2::SumV2
+fn decimal_sum_partial(
+    values: &ArrayRef,
+    options: &NumericalAggregateOpts,
+    logical: &DType,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Scalar> {
+    let dtypes = AggregateDTypes::try_new(&Sum, options, logical.clone())?;
+    let args = dtypes.args(options);
+    let values = values.clone().execute::<Columnar>(ctx)?;
+
+    let mut partial = Sum.empty_partial(args)?;
+    Sum.accumulate(args, &mut partial, &values, ctx)?;
+
+    Sum.to_scalar(args, &partial)
 }
 
 /// Returns the [`MinMax`] partial of a `Widen` with the logical dtype `logical` from its values.
