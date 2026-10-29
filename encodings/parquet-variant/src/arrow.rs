@@ -142,79 +142,71 @@ impl Matcher for ParquetVariantExportable {
     }
 }
 
-struct PreparedVariant {
-    storage: ArrayRef,
-    is_null_fallback: bool,
-}
-
 fn prepare_variant_for_export(
     array: ArrayRef,
+    typed_value: Option<ArrayRef>,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<PreparedVariant> {
+) -> VortexResult<ArrayRef> {
     let executed = array.execute_until::<ParquetVariantExportable>(ctx)?;
     let Some(variant) = executed.as_opt::<Variant>() else {
-        return prepare_variant_core(executed, ctx);
+        return prepare_variant_core(executed, typed_value, ctx);
     };
-    let core = prepare_variant_core(variant.core_storage().clone(), ctx)?;
     let Some(shredded) = variant.shredded() else {
-        return Ok(core);
+        return prepare_variant_core(variant.core_storage().clone(), typed_value, ctx);
     };
-    let parquet_core = core.storage.as_::<ParquetVariant>();
-    let typed_value = parquet_typed_value_from_logical_shredded(shredded.clone(), ctx)?;
-    let value = match parquet_core.value() {
-        // Synthesized nulls are fallbacks, not residual objects to merge with shredded fields.
-        Some(value) if core.is_null_fallback => Some(value.clone().mask(typed_value.is_null()?)?),
-        value => value.cloned(),
-    };
-    let storage = ParquetVariant::try_new(
-        ParquetVariantArrayExt::parquet_variant_validity(&parquet_core),
-        parquet_core.metadata().clone(),
-        value,
-        Some(typed_value),
-    )?
-    .into_array();
-    Ok(PreparedVariant {
-        storage,
-        is_null_fallback: false,
-    })
+    let own_typed_value = parquet_typed_value_from_logical_shredded(shredded.clone(), ctx)?;
+    let storage = prepare_variant_core(variant.core_storage().clone(), Some(own_typed_value), ctx)?;
+    attach_typed_value(storage, typed_value)
 }
 
-fn prepare_variant_core(core: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<PreparedVariant> {
+fn prepare_variant_core(
+    core: ArrayRef,
+    typed_value: Option<ArrayRef>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
     let core = core.execute_until::<ParquetVariantExportable>(ctx)?;
     if core.is::<ParquetVariant>() {
-        return Ok(PreparedVariant {
-            storage: core,
-            is_null_fallback: false,
-        });
+        return attach_typed_value(core, typed_value);
     }
     if let Some(masked) = core.as_opt::<Masked>() {
-        let child = prepare_variant_for_export(masked.child().clone(), ctx)?;
-        let storage = child.storage.as_::<ParquetVariant>();
-        let storage = ParquetVariant::try_new(
+        let child = prepare_variant_for_export(masked.child().clone(), typed_value, ctx)?;
+        let storage = child.as_::<ParquetVariant>();
+        return ParquetVariant::try_new(
             masked.masked_validity(),
             storage.metadata().clone(),
             storage.value().cloned(),
             storage.typed_value().cloned(),
-        )?
-        .into_array();
-        return Ok(PreparedVariant {
-            storage,
-            is_null_fallback: child.is_null_fallback,
-        });
+        )
+        .map(IntoArray::into_array);
     }
     if let Some(constant) = core.as_opt::<Constant>() {
         let scalar = constant.scalar();
         if scalar.is_null() || scalar.as_variant().is_variant_null() == Some(true) {
-            return Ok(PreparedVariant {
-                storage: constant_null_variant_storage(scalar, core.len())?,
-                is_null_fallback: true,
-            });
+            return constant_null_variant_storage(scalar, core.len(), typed_value);
         }
     }
     vortex_bail!("cannot export Variant without ParquetVariant core storage")
 }
 
-fn constant_null_variant_storage(scalar: &Scalar, len: usize) -> VortexResult<ArrayRef> {
+fn attach_typed_value(storage: ArrayRef, typed_value: Option<ArrayRef>) -> VortexResult<ArrayRef> {
+    let Some(typed_value) = typed_value else {
+        return Ok(storage);
+    };
+    let storage = storage.as_::<ParquetVariant>();
+    ParquetVariant::try_new(
+        ParquetVariantArrayExt::parquet_variant_validity(&storage),
+        storage.metadata().clone(),
+        storage.value().cloned(),
+        Some(typed_value),
+    )
+    .map(IntoArray::into_array)
+}
+
+fn constant_null_variant_storage(
+    scalar: &Scalar,
+    len: usize,
+    typed_value: Option<ArrayRef>,
+) -> VortexResult<ArrayRef> {
     let mut builder = VariantBuilder::new();
     builder.append_value(PqVariant::Null);
     let (metadata, value) = builder.finish();
@@ -227,11 +219,16 @@ fn constant_null_variant_storage(scalar: &Scalar, len: usize) -> VortexResult<Ar
     };
     let value =
         ConstantArray::new(Scalar::binary(value, Nullability::NonNullable), len).into_array();
+    // Synthesized nulls are fallbacks, not residual objects to merge with shredded fields.
+    let value = match &typed_value {
+        Some(typed_value) => value.mask(typed_value.is_null()?)?,
+        None => value,
+    };
     ParquetVariant::try_new(
         validity,
         ConstantArray::new(Scalar::binary(metadata, Nullability::NonNullable), len).into_array(),
         Some(value),
-        None,
+        typed_value,
     )
     .map(IntoArray::into_array)
 }
@@ -272,7 +269,7 @@ impl ArrowExportVTable for ParquetVariant {
             return Ok(ArrowExport::Unsupported(array));
         }
 
-        let parquet_array = prepare_variant_for_export(array, ctx)?.storage;
+        let parquet_array = prepare_variant_for_export(array, None, ctx)?;
         let parquet_array = parquet_array.as_::<ParquetVariant>();
 
         if let DataType::Struct(fields) = target.data_type()
