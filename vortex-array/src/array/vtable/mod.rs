@@ -45,7 +45,7 @@ use crate::dtype::Nullability;
 use crate::executor::ExecutionCtx;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::optimizer::ArrayOptimizer;
+use crate::optimizer::optimize_with_kernels;
 use crate::patches::Patches;
 use crate::scalar::ScalarValue;
 use crate::serde::ArrayChildren;
@@ -157,7 +157,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let array = array.array();
-        let optimized = array.optimize(ctx.session())?;
+        let optimized = optimize_with_kernels(array.clone(), ctx.reduce_parent_kernels())?;
         if !ArrayRef::ptr_eq(&optimized, array) {
             return optimized.append_to_builder(builder, ctx);
         }

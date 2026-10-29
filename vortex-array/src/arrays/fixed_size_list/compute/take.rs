@@ -34,7 +34,7 @@ use crate::dtype::IntegerPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
-use crate::optimizer::ArrayOptimizer;
+use crate::optimizer::optimize_with_kernels;
 use crate::validity::Validity;
 
 /// Take implementation for [`FixedSizeListArray`].
@@ -87,11 +87,11 @@ fn take_empty_fsl(
 
     // SAFETY: empty output needs no child values; otherwise the index validity mask proves every
     // output row is null. Placeholder child elements have the exact length required by FSL.
-    unsafe {
+    let taken = unsafe {
         FixedSizeListArray::new_unchecked(new_elements, array.list_size(), new_validity, new_len)
     }
-    .into_array()
-    .optimize(ctx.session())
+    .into_array();
+    optimize_with_kernels(taken, ctx.reduce_parent_kernels())
 }
 
 fn take_non_empty_fsl(
@@ -221,12 +221,11 @@ fn take_piecewise_fsl(
 
     // SAFETY: `new_elements` has `new_len * list_size` elements, and `Validity::take` produces
     // validity for `new_len`.
-    unsafe {
+    let taken = unsafe {
         FixedSizeListArray::new_unchecked(new_elements, array.list_size(), new_validity, new_len)
     }
-    .into_array()
-    .optimize(ctx.session())
-    .map(Some)
+    .into_array();
+    optimize_with_kernels(taken, ctx.reduce_parent_kernels()).map(Some)
 }
 
 fn take_non_empty_degenerate_fsl(
@@ -250,7 +249,7 @@ fn take_non_empty_degenerate_fsl(
 
     // SAFETY: degenerate FSL inputs have no elements, valid index payloads were checked against
     // the source length, and `Validity::take` produces validity for `new_len`.
-    unsafe {
+    let taken = unsafe {
         FixedSizeListArray::new_unchecked(
             array.elements().clone(),
             array.list_size(),
@@ -258,8 +257,8 @@ fn take_non_empty_degenerate_fsl(
             new_len,
         )
     }
-    .into_array()
-    .optimize(ctx.session())
+    .into_array();
+    optimize_with_kernels(taken, ctx.reduce_parent_kernels())
 }
 
 fn take_non_empty_non_degenerate_fsl<I: IntegerPType>(
@@ -277,11 +276,11 @@ fn take_non_empty_non_degenerate_fsl<I: IntegerPType>(
 
     // SAFETY: `new_elements` has `new_len * list_size` elements, and `Validity::take` produces
     // validity for `new_len`.
-    unsafe {
+    let taken = unsafe {
         FixedSizeListArray::new_unchecked(new_elements, array.list_size(), new_validity, new_len)
     }
-    .into_array()
-    .optimize(ctx.session())
+    .into_array();
+    optimize_with_kernels(taken, ctx.reduce_parent_kernels())
 }
 
 fn take_non_empty_non_degenerate_elements<I: IntegerPType>(

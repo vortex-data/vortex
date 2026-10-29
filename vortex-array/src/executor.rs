@@ -427,6 +427,12 @@ impl ExecutionCtx {
         &self.session
     }
 
+    /// The parent-reduce kernels this context snapshotted from its session, for optimizing with
+    /// [`optimize_with_kernels`] without looking up the session's kernels again.
+    pub(crate) fn reduce_parent_kernels(&self) -> &ParentReduceKernels {
+        &self.reduce_parent_kernels
+    }
+
     /// Get the allocator for this execution context.
     pub fn allocator(&self) -> &BufferAllocatorRef {
         self.allocator.get_or_init(|| self.session.allocator())
