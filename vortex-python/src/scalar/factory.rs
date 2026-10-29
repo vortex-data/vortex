@@ -17,6 +17,7 @@ use pyo3::types::PyString;
 use vortex::dtype::BigCast;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
+use vortex::dtype::DecimalType;
 use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
 use vortex::dtype::MAX_PRECISION;
@@ -603,29 +604,23 @@ fn decimal_scalar(value: &Bound<'_, PyAny>, hint: Option<&DecimalDType>) -> PyVo
 
     Ok(Scalar::try_new(
         DType::Decimal(decimal_dtype, Nullability::NonNullable),
-        Some(ScalarValue::from(narrowest_decimal_value(
+        Some(ScalarValue::from(canonical_decimal_value(
             unscaled,
             &decimal_dtype,
         )?)),
     )?)
 }
 
-/// The narrowest [`DecimalValue`] variant able to hold every value of `dtype`'s precision.
-fn narrowest_decimal_value(value: i256, dtype: &DecimalDType) -> PyResult<DecimalValue> {
+/// The [`DecimalValue`] variant of the canonical width of `dtype`'s precision.
+fn canonical_decimal_value(value: i256, dtype: &DecimalDType) -> PyResult<DecimalValue> {
     let overflow = || PyValueError::new_err(format!("Decimal value {value} overflows {dtype}"));
-    let required_bits = dtype.required_bit_width();
-    Ok(if required_bits <= 8 {
-        DecimalValue::I8(BigCast::from(value).ok_or_else(overflow)?)
-    } else if required_bits <= 16 {
-        DecimalValue::I16(BigCast::from(value).ok_or_else(overflow)?)
-    } else if required_bits <= 32 {
-        DecimalValue::I32(BigCast::from(value).ok_or_else(overflow)?)
-    } else if required_bits <= 64 {
-        DecimalValue::I64(BigCast::from(value).ok_or_else(overflow)?)
-    } else if required_bits <= 128 {
-        DecimalValue::I128(value.maybe_i128().ok_or_else(overflow)?)
-    } else {
-        DecimalValue::I256(value)
+    Ok(match dtype.canonical_values_type() {
+        DecimalType::I8 => DecimalValue::I8(BigCast::from(value).ok_or_else(overflow)?),
+        DecimalType::I16 => DecimalValue::I16(BigCast::from(value).ok_or_else(overflow)?),
+        DecimalType::I32 => DecimalValue::I32(BigCast::from(value).ok_or_else(overflow)?),
+        DecimalType::I64 => DecimalValue::I64(BigCast::from(value).ok_or_else(overflow)?),
+        DecimalType::I128 => DecimalValue::I128(value.maybe_i128().ok_or_else(overflow)?),
+        DecimalType::I256 => DecimalValue::I256(value),
     })
 }
 

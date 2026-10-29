@@ -143,7 +143,7 @@ fn cast_to_decimal(
     let validity = source_validity
         .clone()
         .cast_nullability(nullability, array.len(), ctx)?;
-    let values_type = DecimalType::smallest_decimal_value_type(&decimal_dtype);
+    let values_type = decimal_dtype.canonical_values_type();
 
     if decimal_dtype.scale() == 0
         && signed_primitive_decimal_type(array.ptype()) == Some(values_type)
@@ -1058,10 +1058,7 @@ mod test {
             .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))?
             .execute::<DecimalArray>(&mut ctx)?;
 
-        assert_eq!(
-            casted.values_type(),
-            DecimalType::smallest_decimal_value_type(&decimal_dtype)
-        );
+        assert_eq!(casted.values_type(), decimal_dtype.canonical_values_type());
         match_each_decimal_value_type!(casted.values_type(), |T| {
             let expected = [10i8, 3].map(<T as crate::dtype::BigCast>::from);
             let actual = casted

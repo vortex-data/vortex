@@ -168,6 +168,13 @@ def test_resolver_rejects_duplicate_ids() -> None:
         _ = render_matrix("develop", catalog)
 
 
+def test_matrix_entries_name_their_data_directory() -> None:
+    entries = {entry["id"]: entry for entry in render_matrix("develop", CATALOG)}
+
+    assert entries["clickbench-nvme"]["dataset_dir"] == "clickbench_partitioned"
+    assert entries["tpch-nvme"]["dataset_dir"] == "tpch"
+
+
 def test_matrix_command() -> None:
     result = runner.invoke(cli_module.app, ["matrix", "develop"])
     assert result.exit_code == 0

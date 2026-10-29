@@ -9,11 +9,13 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
+#[cfg(unix)]
 use custom_labels::CURRENT_LABELSET;
 use futures::future::BoxFuture;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use parking_lot::Mutex;
+use prost::Message;
 use static_assertions::assert_impl_all;
 use tracing::debug;
 use vortex::aggregate_fn::DynAccumulator;
@@ -23,18 +25,26 @@ use vortex::array::ExecutionCtx;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
 use vortex::dtype::DType;
+use vortex::dtype::Nullability;
 use vortex::dtype::PType;
+use vortex::dtype::StructFields;
 use vortex::encodings::uuid::Uuid;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_ensure;
+use vortex::error::vortex_err;
 use vortex::expr::BoundExpression;
 use vortex::expr::Expression;
+use vortex::expr::proto::ExprSerializeProtoExt;
+#[cfg(unix)]
 use vortex::metrics::tracing::get_global_labels;
+use vortex::proto::expr as expr_pb;
 use vortex::scalar::Scalar;
 use vortex::scan::planning::driver::Run;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::SESSION;
 use crate::convert::PushedAggregate;
 use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_projection_aggregate;
@@ -90,6 +100,20 @@ pub(crate) struct BindState {
 }
 assert_impl_all!(BindState: Send, Clone);
 
+impl BindState {
+    pub fn empty() -> Self {
+        Self {
+            dtype: DType::Struct(StructFields::empty(), Nullability::NonNullable),
+            first_file_row_count: 0,
+            filters: vec![],
+            columns: vec![],
+            has_non_optional_filter: AtomicBool::new(false),
+            aggregates: vec![],
+            no_footer_caches: true,
+        }
+    }
+}
+
 impl Clone for BindState {
     fn clone(&self) -> Self {
         Self {
@@ -120,6 +144,23 @@ impl fmt::Debug for BindState {
             )
             .finish()
     }
+}
+
+const COUNT_STAR_KIND: &str = "count_star";
+#[derive(Clone, PartialEq, prost::Message)]
+struct SerializedBindState {
+    #[prost(bool, tag = "1")]
+    has_non_optional_filter: bool,
+    #[prost(message, repeated, tag = "2")]
+    filters: Vec<expr_pb::Expr>,
+    #[prost(uint64, repeated, tag = "3")]
+    aggregate_projection_ids: Vec<u64>,
+    #[prost(string, repeated, tag = "4")]
+    aggregate_kinds: Vec<String>,
+    #[prost(uint64, repeated, tag = "5")]
+    projection_columns: Vec<u64>,
+    #[prost(message, repeated, tag = "6")]
+    projection_exprs: Vec<expr_pb::Expr>,
 }
 
 impl<'a> TableInitInput<'a> {
@@ -352,19 +393,21 @@ fn build_partials(
 }
 
 pub fn init_local(bind_data: &BindState, global: &GlobalState) -> LocalState {
-    unsafe {
-        use custom_labels::sys;
+    #[cfg(unix)]
+    {
+        unsafe {
+            use custom_labels::sys;
+            if sys::current().is_null() {
+                let ls = sys::new(0);
+                sys::replace(ls);
+            };
+        }
 
-        if sys::current().is_null() {
-            let ls = sys::new(0);
-            sys::replace(ls);
-        };
-    }
+        let global_labels = get_global_labels();
 
-    let global_labels = get_global_labels();
-
-    for (key, value) in global_labels {
-        CURRENT_LABELSET.set(key, value);
+        for (key, value) in global_labels {
+            CURRENT_LABELSET.set(key, value);
+        }
     }
 
     let partials = build_partials(&global.aggregates, &bind_data.columns, &bind_data.dtype)
@@ -662,4 +705,86 @@ pub fn to_string(bind_data: &BindState, map: &mut DuckdbStringMapRef) {
     if !projections.is_empty() {
         map.push("SELECT projections", &projections);
     }
+}
+
+pub fn serialize(bind_data: &BindState) -> VortexResult<Vec<u8>> {
+    let mut state = SerializedBindState {
+        has_non_optional_filter: bind_data.has_non_optional_filter.load(Ordering::Relaxed),
+        ..Default::default()
+    };
+    for expr in &bind_data.filters {
+        state.filters.push(expr.serialize_proto()?);
+    }
+    for aggregate in &bind_data.aggregates {
+        let (projection_id, kind) = match aggregate {
+            ColumnAggregate::Real {
+                projection_id,
+                aggregate,
+            } => (*projection_id, aggregate.to_string()),
+            ColumnAggregate::CountStar => (COUNT_STAR_PROJ_IDX, COUNT_STAR_KIND.to_string()),
+        };
+        state.aggregate_projection_ids.push(projection_id);
+        state.aggregate_kinds.push(kind);
+    }
+    for (column, field) in bind_data.columns.iter().enumerate() {
+        if let Some(expr) = &field.projection_expr {
+            state.projection_columns.push(column.as_());
+            state.projection_exprs.push(expr.serialize_proto()?);
+        }
+    }
+    Ok(state.encode_to_vec())
+}
+
+pub fn deserialize(
+    bind_data: &mut BindState,
+    bytes: &[u8],
+    types: &[&LogicalTypeRef],
+) -> VortexResult<()> {
+    let state = SerializedBindState::decode(bytes)
+        .map_err(|e| vortex_err!("failed to decode bind state: {e}"))?;
+    vortex_ensure!(
+        state.aggregate_projection_ids.len() == state.aggregate_kinds.len()
+            && state.projection_columns.len() == state.projection_exprs.len(),
+        "bind state length mismatch"
+    );
+
+    bind_data
+        .has_non_optional_filter
+        .store(state.has_non_optional_filter, Ordering::Relaxed);
+    bind_data.filters = state
+        .filters
+        .iter()
+        .map(|expr| Expression::from_proto(expr, &SESSION))
+        .collect::<VortexResult<Vec<_>>>()?;
+    bind_data.aggregates = state
+        .aggregate_projection_ids
+        .iter()
+        .zip(&state.aggregate_kinds)
+        .map(|(projection_id, kind)| {
+            Ok(if kind == COUNT_STAR_KIND {
+                ColumnAggregate::CountStar
+            } else {
+                ColumnAggregate::Real {
+                    projection_id: *projection_id,
+                    aggregate: kind.parse()?,
+                }
+            })
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+
+    for (column, expr) in state.projection_columns.iter().zip(&state.projection_exprs) {
+        let column: usize = column.as_();
+        let expr = Expression::from_proto(expr, &SESSION)?;
+        let dtype = expr.return_dtype(&bind_data.dtype)?;
+        let (Some(field), Some(logical_type)) = (
+            bind_data.columns.get_mut(column),
+            types.get(column).copied(),
+        ) else {
+            vortex_bail!("pushed projection {column} is out of range");
+        };
+        field.logical_type = logical_type.to_owned();
+        field.dtype = dtype;
+        field.projection_expr = Some(expr);
+    }
+    Ok(())
 }

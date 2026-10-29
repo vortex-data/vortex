@@ -11,7 +11,6 @@ use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::arrays::DecimalArray;
-use crate::dtype::DecimalDType;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability::NonNullable;
 use crate::match_each_decimal_value_type;
@@ -38,45 +37,67 @@ fn compute_min_max_with_validity<D>(
 where
     D: Into<DecimalValue> + NativeDecimalType,
 {
+    let validity = array
+        .as_ref()
+        .validity()?
+        .execute_mask(array.as_ref().len(), ctx)?;
+    if matches!(&validity, Mask::AllFalse(_)) {
+        return Ok(None);
+    }
+
+    let decimal_dtype = array.decimal_dtype();
+
     Ok(
-        match array
-            .as_ref()
-            .validity()?
-            .execute_mask(array.as_ref().len(), ctx)?
-        {
-            Mask::AllTrue(_) => compute_min_max(array.buffer::<D>().iter(), array.decimal_dtype()),
-            Mask::AllFalse(_) => None,
-            Mask::Values(v) => compute_min_max(
-                array
-                    .buffer::<D>()
-                    .iter()
-                    .zip(v.bit_buffer().iter())
-                    .filter_map(|(v, m)| m.then_some(v)),
-                array.decimal_dtype(),
-            ),
-        },
+        valid_range(array.buffer::<D>().as_slice(), &validity).map(|(min, max)| {
+            let min_scalar = Scalar::decimal(min.into(), decimal_dtype, NonNullable);
+            let max_scalar = if min == max {
+                min_scalar.clone()
+            } else {
+                Scalar::decimal(max.into(), decimal_dtype, NonNullable)
+            };
+
+            MinMaxResult {
+                min: min_scalar,
+                max: max_scalar,
+            }
+        }),
     )
 }
 
-fn compute_min_max<'a, T>(
-    iter: impl Iterator<Item = &'a T>,
-    decimal_dtype: DecimalDType,
-) -> Option<MinMaxResult>
+/// Returns the smallest and the largest valid value, or `None` when no value is valid.
+///
+/// Null slots can hold any value and do not contribute to the range. The scan allocates nothing
+/// and does not check decimal precision.
+///
+/// # Panics
+///
+/// Panics if `validity` and `values` have different lengths.
+pub fn valid_range<T: NativeDecimalType>(values: &[T], validity: &Mask) -> Option<(T, T)> {
+    assert_eq!(
+        validity.len(),
+        values.len(),
+        "valid_range requires one validity bit per value"
+    );
+
+    match validity {
+        Mask::AllTrue(_) => compute_min_max(values.iter()),
+        Mask::AllFalse(_) => None,
+        Mask::Values(validity) => compute_min_max(
+            values
+                .iter()
+                .zip(validity.bit_buffer().iter())
+                .filter_map(|(value, valid)| valid.then_some(value)),
+        ),
+    }
+}
+
+fn compute_min_max<'a, T>(iter: impl Iterator<Item = &'a T>) -> Option<(T, T)>
 where
-    T: Into<DecimalValue> + NativeDecimalType + Ord + Copy + 'a,
+    T: NativeDecimalType,
 {
     match iter.minmax_by(|a, b| a.cmp(b)) {
         itertools::MinMaxResult::NoElements => None,
-        itertools::MinMaxResult::OneElement(&x) => {
-            let scalar = Scalar::decimal(x.into(), decimal_dtype, NonNullable);
-            Some(MinMaxResult {
-                min: scalar.clone(),
-                max: scalar,
-            })
-        }
-        itertools::MinMaxResult::MinMax(&min, &max) => Some(MinMaxResult {
-            min: Scalar::decimal(min.into(), decimal_dtype, NonNullable),
-            max: Scalar::decimal(max.into(), decimal_dtype, NonNullable),
-        }),
+        itertools::MinMaxResult::OneElement(&value) => Some((value, value)),
+        itertools::MinMaxResult::MinMax(&min, &max) => Some((min, max)),
     }
 }
