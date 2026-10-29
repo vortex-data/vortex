@@ -54,28 +54,33 @@ pub(super) unsafe fn compress<T: Copy>(
     // The word walk calls this closure from three places. Without `inline(always)`, LLVM keeps
     // it out of line in large callers such as `filter_records`, and sparse masks then pay for
     // one call per word.
-    for_each_mask_word(bits, #[inline(always)] |word, word_start, word_len| {
-        let (chunks, tail) = src[word_start..][..word_len].as_chunks::<8>();
-        let mask_bytes = word.to_le_bytes();
+    for_each_mask_word(
+        bits,
+        #[inline(always)]
+        |word, word_start, word_len| {
+            let (chunks, tail) = src[word_start..][..word_len].as_chunks::<8>();
+            let mask_bytes = word.to_le_bytes();
 
-        for (chunk, &mask_byte) in chunks.iter().zip(&mask_bytes) {
-            // SAFETY: the mask byte selects only elements of `chunk`, and `dst` has room for
-            // every selected element.
-            written += unsafe { compress_byte(chunk, mask_byte, dst.get_unchecked_mut(written..)) };
-        }
+            for (chunk, &mask_byte) in chunks.iter().zip(&mask_bytes) {
+                // SAFETY: the mask byte selects only elements of `chunk`, and `dst` has room for
+                // every selected element.
+                written +=
+                    unsafe { compress_byte(chunk, mask_byte, dst.get_unchecked_mut(written..)) };
+            }
 
-        if !tail.is_empty() {
-            // SAFETY: the bits past `word_len` are cleared, so the mask byte selects only
-            // elements of `tail`.
-            written += unsafe {
-                compress_byte(
-                    tail,
-                    mask_bytes[chunks.len()],
-                    dst.get_unchecked_mut(written..),
-                )
-            };
-        }
-    });
+            if !tail.is_empty() {
+                // SAFETY: the bits past `word_len` are cleared, so the mask byte selects only
+                // elements of `tail`.
+                written += unsafe {
+                    compress_byte(
+                        tail,
+                        mask_bytes[chunks.len()],
+                        dst.get_unchecked_mut(written..),
+                    )
+                };
+            }
+        },
+    );
 
     written
 }
