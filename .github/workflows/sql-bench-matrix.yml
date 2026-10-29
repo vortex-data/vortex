@@ -232,10 +232,16 @@ jobs:
         if: matrix.remote_key == null
         shell: bash
         run: |
+          # PR runs take this workflow from the merge ref but check out the PR head, so a PR
+          # branched before --dataset-dir existed still carries the old script.
+          dataset_dir_args=()
+          if grep -q -- '--dataset-dir' scripts/capture-file-sizes.py; then
+            dataset_dir_args=(--dataset-dir "${{ matrix.dataset_dir }}")
+          fi
           uv run --no-project scripts/capture-file-sizes.py \
             vortex-bench/data \
             --benchmark ${{ matrix.subcommand }} \
-            --dataset-dir ${{ matrix.dataset_dir }} \
+            "${dataset_dir_args[@]}" \
             --commit ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }} \
             -o sizes.json
           cat sizes.json >> results.json
