@@ -644,6 +644,9 @@ impl Patches {
             Mask::AllTrue(_) => Ok(Some(self.clone())),
             Mask::AllFalse(_) => Ok(None),
             Mask::Values(mask_values) => {
+                if self.prefer_index_probes(mask_values.true_count()) {
+                    return self.filter_by_probing(mask_values, ctx);
+                }
                 let flat_indices = self.indices().clone().execute::<PrimitiveArray>(ctx)?;
                 match_each_unsigned_integer_ptype!(flat_indices.ptype(), |I| {
                     filter_patches_with_mask(
@@ -796,7 +799,9 @@ impl Patches {
         }
 
         let take_indices = take_indices.clone().execute::<PrimitiveArray>(ctx)?;
-        if self.is_map_faster_than_search(&take_indices) {
+        if self.prefer_index_probes(take_indices.len()) {
+            self.take_by_probing(take_indices, true, ctx)
+        } else if self.is_map_faster_than_search(&take_indices) {
             self.take_map(take_indices, true, ctx)
         } else {
             self.take_search(take_indices, true, ctx)
@@ -816,7 +821,9 @@ impl Patches {
         }
 
         let take_indices = take_indices.clone().execute::<PrimitiveArray>(ctx)?;
-        if self.is_map_faster_than_search(&take_indices) {
+        if self.prefer_index_probes(take_indices.len()) {
+            self.take_by_probing(take_indices, false, ctx)
+        } else if self.is_map_faster_than_search(&take_indices) {
             self.take_map(take_indices, false, ctx)
         } else {
             self.take_search(take_indices, false, ctx)
@@ -966,6 +973,139 @@ impl Patches {
             // TODO(0ax1): Chunk offsets are invalid after take is applied.
             chunk_offsets: None,
             offset_within_chunk: self.offset_within_chunk,
+        }))
+    }
+
+    /// Whether `lookups` binary searches over the indices are cheaper than decoding them.
+    ///
+    /// Canonical indices are read in place, so this only applies to compressed indices. Each
+    /// search reads about `log2(num_patches)` indices through a probe, while decoding reads all
+    /// of them.
+    fn prefer_index_probes(&self, lookups: usize) -> bool {
+        if self.indices.is::<Primitive>() {
+            return false;
+        }
+        let num_patches = self.num_patches();
+        let reads_per_lookup = (usize::BITS - num_patches.leading_zeros()) as usize;
+        lookups.saturating_mul(reads_per_lookup) < num_patches
+    }
+
+    /// Calls `f` with a function that searches the indices for a position of the patched array,
+    /// reading the indices through a probe instead of decoding them.
+    fn with_index_search<R>(
+        &self,
+        ctx: &mut ExecutionCtx,
+        f: impl FnOnce(&mut dyn FnMut(usize) -> VortexResult<SearchResult>) -> VortexResult<R>,
+    ) -> VortexResult<R> {
+        if self.chunk_offsets.is_some() {
+            return f(&mut |index| self.search_index(index, ctx));
+        }
+        match_each_unsigned_integer_ptype!(self.indices.dtype().as_ptype(), |T| {
+            let searcher = SearchSortedPrimitiveArray::<T>::new(&self.indices, ctx);
+            f(&mut |index| searcher.search_sorted(&(index + self.offset), SearchSortedSide::Left))
+        })
+    }
+
+    /// [`Self::filter`] that searches for each kept position instead of decoding the indices.
+    fn filter_by_probing(
+        &self,
+        mask: &MaskValues,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Self>> {
+        let allocator = ctx.allocator().clone();
+        let capacity = mask.true_count().min(self.num_patches());
+        let mut new_indices = BufferMut::<u64>::with_capacity_in(capacity, allocator.clone());
+        let mut value_indices = BufferMut::<u64>::with_capacity_in(capacity, allocator);
+
+        self.with_index_search(ctx, |search| {
+            for (rank, &position) in mask.indices().iter().enumerate() {
+                if let Some(patch_idx) = search(position)?.to_found() {
+                    new_indices.push(rank as u64);
+                    value_indices.push(patch_idx as u64);
+                }
+            }
+            Ok(())
+        })?;
+
+        if new_indices.is_empty() {
+            return Ok(None);
+        }
+
+        let values = self.values.take(value_indices.into_array())?;
+        // SAFETY: there is one index and one value per found position. The indices are strictly
+        // increasing non-nullable `u64` mask ranks below `true_count`.
+        Ok(Some(unsafe {
+            Patches::new_unchecked(
+                mask.true_count(),
+                0,
+                new_indices.into_array(),
+                values,
+                None,
+                None,
+            )
+        }))
+    }
+
+    /// [`Self::take_search`] that searches for each taken position instead of decoding the
+    /// indices.
+    fn take_by_probing(
+        &self,
+        take_indices: PrimitiveArray,
+        include_nulls: bool,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Self>> {
+        let take_indices_validity = take_indices.validity()?;
+        let take_mask = take_indices_validity.execute_mask(take_indices.len(), ctx)?;
+        // Take indices are non-negative; reinterpret to unsigned (4 widths instead of 8).
+        let take_indices_unsigned =
+            take_indices.reinterpret_cast(take_indices.ptype().to_unsigned());
+
+        let allocator = ctx.allocator().clone();
+        let mut new_indices =
+            BufferMut::<u64>::with_capacity_in(take_indices.len(), allocator.clone());
+        let mut value_indices = BufferMut::<u64>::with_capacity_in(take_indices.len(), allocator);
+
+        match_each_unsigned_integer_ptype!(take_indices_unsigned.ptype(), |T| {
+            let take_slice = take_indices_unsigned.as_slice::<T>();
+            self.with_index_search(ctx, |search| {
+                for (new_patch_idx, &take_idx) in take_slice.iter().enumerate() {
+                    if !take_mask.value(new_patch_idx) {
+                        if include_nulls {
+                            // The value index of a null patch doesn't matter.
+                            new_indices.push(new_patch_idx as u64);
+                            value_indices.push(0);
+                        }
+                        continue;
+                    }
+                    let Some(position) = <usize as NumCast>::from(take_idx) else {
+                        continue;
+                    };
+                    if let Some(patch_idx) = search(position)?.to_found() {
+                        new_indices.push(new_patch_idx as u64);
+                        value_indices.push(patch_idx as u64);
+                    }
+                }
+                Ok(())
+            })
+        })?;
+
+        if new_indices.is_empty() {
+            return Ok(None);
+        }
+
+        let new_indices = new_indices.into_array();
+        let values_validity = take_indices_validity.take(&new_indices)?;
+        let values = self
+            .values
+            .take(PrimitiveArray::new(value_indices, values_validity).into_array())?;
+
+        Ok(Some(Self {
+            array_len: take_indices.len(),
+            offset: 0,
+            indices: new_indices,
+            values,
+            chunk_offsets: None,
+            offset_within_chunk: None,
         }))
     }
 
@@ -1368,7 +1508,12 @@ mod test {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::arrays::ChunkedArray;
     use crate::assert_arrays_eq;
+    use crate::builtins::ArrayBuiltins;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::patches::Patches;
     use crate::patches::PrimitiveArray;
     use crate::search_sorted::SearchResult;
@@ -2750,5 +2895,107 @@ mod test {
             patches.search_index(2048, &mut ctx).unwrap(),
             SearchResult::NotFound(1)
         );
+    }
+
+    /// The same patches twice: with chunked indices, which filter and take search through a
+    /// probe, and with canonical indices, which they decode.
+    fn probed_and_decoded_patches(offset: u32) -> VortexResult<(Patches, Patches)> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let indices: Vec<u32> = (0..64).map(|i| offset + 3 * i).collect();
+        let values: Buffer<i32> = (0..64).map(|i| i * 10).collect();
+        let chunked_indices = ChunkedArray::try_new(
+            indices
+                .chunks(10)
+                .map(|chunk| Buffer::copy_from(chunk).into_array()),
+            DType::Primitive(PType::U32, Nullability::NonNullable),
+        )?
+        .into_array();
+
+        let probed = Patches::new(
+            200,
+            offset as usize,
+            chunked_indices,
+            values.clone().into_array(),
+            None,
+            &mut ctx,
+        )?;
+        let decoded = Patches::new(
+            200,
+            offset as usize,
+            Buffer::copy_from(&indices).into_array(),
+            values.into_array(),
+            None,
+            &mut ctx,
+        )?;
+        Ok((probed, decoded))
+    }
+
+    fn assert_patches_eq(actual: Option<Patches>, expected: Option<Patches>) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let (actual, expected) = match (actual, expected) {
+            (None, None) => return Ok(()),
+            (Some(actual), Some(expected)) => (actual, expected),
+            (actual, expected) => panic!(
+                "expected patches: {}, got patches: {}",
+                expected.is_some(),
+                actual.is_some()
+            ),
+        };
+        assert_eq!(actual.array_len(), expected.array_len());
+        assert_eq!(actual.offset(), expected.offset());
+        let actual_indices = actual.indices().cast(expected.indices().dtype().clone())?;
+        assert_arrays_eq!(actual_indices, expected.indices(), &mut ctx);
+        assert_arrays_eq!(actual.values(), expected.values(), &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(0)]
+    #[case(10)]
+    fn filter_compressed_indices_by_probing(#[case] offset: u32) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let (probed, decoded) = probed_and_decoded_patches(offset)?;
+        let mask = Mask::from_indices(200, vec![3, 4, 189]);
+        assert!(probed.prefer_index_probes(mask.true_count()));
+
+        let actual = probed.filter(&mask, &mut ctx)?;
+        let expected = decoded.filter(&mask, &mut ctx)?;
+        assert!(actual.is_some());
+        assert_patches_eq(actual, expected)?;
+
+        let unpatched = Mask::from_indices(200, vec![1, 2, 199]);
+        assert!(probed.filter(&unpatched, &mut ctx)?.is_none());
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(0, false)]
+    #[case(0, true)]
+    #[case(10, false)]
+    #[case(10, true)]
+    fn take_compressed_indices_by_probing(
+        #[case] offset: u32,
+        #[case] include_nulls: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let (probed, decoded) = probed_and_decoded_patches(offset)?;
+        let take_indices =
+            PrimitiveArray::from_option_iter([Some(189u32), None, Some(3), Some(4), Some(3)])
+                .into_array();
+        assert!(probed.prefer_index_probes(take_indices.len()));
+
+        let (actual, expected) = if include_nulls {
+            (
+                probed.take_with_nulls(&take_indices, &mut ctx)?,
+                decoded.take_with_nulls(&take_indices, &mut ctx)?,
+            )
+        } else {
+            (
+                probed.take(&take_indices, &mut ctx)?,
+                decoded.take(&take_indices, &mut ctx)?,
+            )
+        };
+        assert!(actual.is_some());
+        assert_patches_eq(actual, expected)
     }
 }
