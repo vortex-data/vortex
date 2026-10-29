@@ -36,7 +36,11 @@ impl ArrayReduceRule<Extension> for ExtensionConstantRule {
         };
 
         let storage_scalar = const_array.scalar().clone();
-        let ext_scalar = Scalar::extension_ref(array.ext_dtype().clone(), storage_scalar);
+        let Ok(ext_scalar) = Scalar::try_extension_ref(array.ext_dtype().clone(), storage_scalar)
+        else {
+            // Invalid extension values must not prevent storage access or structural operations.
+            return Ok(None);
+        };
 
         let constant_with_extension_scalar =
             ConstantArray::new(ext_scalar, array.len()).into_array();
