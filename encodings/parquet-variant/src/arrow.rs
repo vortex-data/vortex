@@ -22,10 +22,15 @@ use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Masked;
 use vortex_array::arrays::Variant;
+use vortex_array::arrays::masked::MaskedArrayExt;
+use vortex_array::arrays::masked::MaskedArraySlotsExt;
 use vortex_array::arrays::variant::VariantArraySlotsExt;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::matcher::Matcher;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_arrow::ArrowExport;
@@ -38,7 +43,6 @@ use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::to_arrow_null_buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
 
@@ -126,66 +130,115 @@ pub(crate) fn export_unshredded_storage_to_target<T: ParquetVariantArrayExt>(
     export_storage_to_target(&unshredded_parquet, target_fields, options, ctx)
 }
 
+/// Stop before canonicalization hides constant and masked storage behind a Variant wrapper.
+struct ParquetVariantExportable;
+
+impl Matcher for ParquetVariantExportable {
+    type Match<'a> = &'a ArrayRef;
+
+    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
+        (array.is::<ParquetVariant>() || array.is::<Constant>() || array.is::<Masked>())
+            .then_some(array)
+    }
+}
+
+struct PreparedVariant {
+    storage: ArrayRef,
+    is_null_fallback: bool,
+}
+
 pub(crate) fn parquet_variant_for_export(
     array: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let executed = array.execute_until::<ParquetVariant>(ctx)?;
-    if executed.is::<ParquetVariant>() {
-        return Ok(executed);
-    }
+    Ok(prepare_variant_for_export(array, ctx)?.storage)
+}
 
-    let variant = executed
-        .as_opt::<Variant>()
-        .ok_or_else(|| vortex_err!("cannot export Variant without ParquetVariant storage"))?;
-    let core = variant.core_storage();
+fn prepare_variant_for_export(
+    array: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PreparedVariant> {
+    let executed = array.execute_until::<ParquetVariantExportable>(ctx)?;
+    let Some(variant) = executed.as_opt::<Variant>() else {
+        return prepare_variant_core(executed, ctx);
+    };
+    let core = prepare_variant_core(variant.core_storage().clone(), ctx)?;
+    let Some(shredded) = variant.shredded() else {
+        return Ok(core);
+    };
+    let parquet_core = core.storage.as_::<ParquetVariant>();
+    let typed_value = parquet_typed_value_from_logical_shredded(shredded.clone(), ctx)?;
+    let value = match parquet_core.value() {
+        // Synthesized nulls are fallbacks, not residual objects to merge with shredded fields.
+        Some(value) if core.is_null_fallback => Some(value.clone().mask(typed_value.is_null()?)?),
+        value => value.cloned(),
+    };
+    let storage = ParquetVariant::try_new(
+        ParquetVariantArrayExt::parquet_variant_validity(&parquet_core),
+        parquet_core.metadata().clone(),
+        value,
+        Some(typed_value),
+    )?
+    .into_array();
+    Ok(PreparedVariant {
+        storage,
+        is_null_fallback: false,
+    })
+}
+
+fn prepare_variant_core(core: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<PreparedVariant> {
+    let core = core.execute_until::<ParquetVariantExportable>(ctx)?;
+    if core.is::<ParquetVariant>() {
+        return Ok(PreparedVariant {
+            storage: core,
+            is_null_fallback: false,
+        });
+    }
+    if let Some(masked) = core.as_opt::<Masked>() {
+        let child = prepare_variant_for_export(masked.child().clone(), ctx)?;
+        let storage = child.storage.as_::<ParquetVariant>();
+        let storage = ParquetVariant::try_new(
+            masked.masked_validity(),
+            storage.metadata().clone(),
+            storage.value().cloned(),
+            storage.typed_value().cloned(),
+        )?
+        .into_array();
+        return Ok(PreparedVariant {
+            storage,
+            is_null_fallback: child.is_null_fallback,
+        });
+    }
     if let Some(constant) = core.as_opt::<Constant>() {
         let scalar = constant.scalar();
         if scalar.is_null() || scalar.as_variant().is_variant_null() == Some(true) {
-            let mut builder = VariantBuilder::new();
-            builder.append_value(PqVariant::Null);
-            let (metadata, value) = builder.finish();
-            let validity = if scalar.is_null() {
-                Validity::AllInvalid
-            } else if scalar.dtype().is_nullable() {
-                Validity::AllValid
-            } else {
-                Validity::NonNullable
-            };
-            return ParquetVariant::try_new(
-                validity,
-                ConstantArray::new(
-                    Scalar::binary(metadata, Nullability::NonNullable),
-                    core.len(),
-                )
-                .into_array(),
-                Some(
-                    ConstantArray::new(Scalar::binary(value, Nullability::NonNullable), core.len())
-                        .into_array(),
-                ),
-                None,
-            )
-            .map(IntoArray::into_array);
+            return Ok(PreparedVariant {
+                storage: constant_null_variant_storage(scalar, core.len())?,
+                is_null_fallback: true,
+            });
         }
     }
-    let core_storage = core.clone().execute_until::<ParquetVariant>(ctx)?;
-    let parquet_core = core_storage
-        .as_opt::<ParquetVariant>()
-        .ok_or_else(|| vortex_err!("cannot export Variant without ParquetVariant core storage"))?;
-    let Some(shredded) = variant.shredded() else {
-        return Ok(core_storage);
+    vortex_bail!("cannot export Variant without ParquetVariant core storage")
+}
+
+fn constant_null_variant_storage(scalar: &Scalar, len: usize) -> VortexResult<ArrayRef> {
+    let mut builder = VariantBuilder::new();
+    builder.append_value(PqVariant::Null);
+    let (metadata, value) = builder.finish();
+    let validity = if scalar.is_null() {
+        Validity::AllInvalid
+    } else if scalar.dtype().is_nullable() {
+        Validity::AllValid
+    } else {
+        Validity::NonNullable
     };
-
-    // The canonical shredded child has had its Parquet `value`/`typed_value` wrapper shells
-    // stripped; rebuild them so the reattached `typed_value` is valid Parquet storage that
-    // `to_arrow` and `unshred_variant` can consume.
-    let typed_value = parquet_typed_value_from_logical_shredded(shredded.clone(), ctx)?;
-
+    let value =
+        ConstantArray::new(Scalar::binary(value, Nullability::NonNullable), len).into_array();
     ParquetVariant::try_new(
-        ParquetVariantArrayExt::parquet_variant_validity(&parquet_core),
-        parquet_core.metadata().clone(),
-        parquet_core.value().cloned(),
-        Some(typed_value),
+        validity,
+        ConstantArray::new(Scalar::binary(metadata, Nullability::NonNullable), len).into_array(),
+        Some(value),
+        None,
     )
     .map(IntoArray::into_array)
 }
@@ -343,6 +396,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::MaskedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::VariantArray;
@@ -352,6 +406,7 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_arrow::ArrowSessionExt;
+    use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -385,6 +440,7 @@ mod tests {
     #[rstest]
     #[case::outer_null(Scalar::null(DType::Variant(Nullability::Nullable)), true)]
     #[case::variant_null(Scalar::variant(Scalar::null(DType::Null)), false)]
+    #[case::nullable_variant_null(Scalar::variant(Scalar::null(DType::Null)).into_nullable(), false)]
     fn test_export_canonical_constant_null_variant(
         session: VortexSession,
         #[case] scalar: Scalar,
@@ -407,6 +463,71 @@ mod tests {
                 assert_eq!(result.value(index), PqVariant::Null);
             }
         }
+        Ok(())
+    }
+
+    #[rstest]
+    fn test_export_constant_variant_with_shredded_values(
+        session: VortexSession,
+        #[values(false, true)] mask_core: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = session.create_execution_ctx();
+        let core = ConstantArray::new(Scalar::variant(Scalar::null(DType::Null)), 3).into_array();
+        let core = if mask_core {
+            let validity = Validity::from(BitBuffer::from_iter([true, true, false]));
+            MaskedArray::try_new(core, validity, &mut ctx)?.into_array()
+        } else {
+            core
+        };
+        let shredded = PrimitiveArray::from_option_iter([Some(10i32), None, Some(30)]).into_array();
+        let array = VariantArray::try_new(core, Some(shredded))?.into_array();
+        let field = session.arrow().to_arrow_field("variant", array.dtype())?;
+        let result = session
+            .arrow()
+            .execute_arrow(array, Some(&field), &mut ctx)?;
+        let result = ArrowVariantArray::try_new(result.as_ref())?;
+        assert_eq!(result.value(0), PqVariant::Int32(10));
+        assert_eq!(result.value(1), PqVariant::Null);
+        assert_eq!(result.is_null(2), mask_core);
+        if !mask_core {
+            assert_eq!(result.value(2), PqVariant::Int32(30));
+        }
+        assert_eq!(result.inner().null_count(), usize::from(mask_core));
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::masked_core(false)]
+    #[case::masked_canonical(true)]
+    fn test_export_masked_constant_variant(
+        session: VortexSession,
+        #[case] wrap_canonical: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = session.create_execution_ctx();
+        let core = ConstantArray::new(Scalar::variant(Scalar::null(DType::Null)), 3).into_array();
+        let child = if wrap_canonical {
+            VariantArray::try_new(core, None)?.into_array()
+        } else {
+            core
+        };
+        let validity = Validity::from(BitBuffer::from_iter([true, false, true]));
+        let masked = MaskedArray::try_new(child, validity, &mut ctx)?.into_array();
+        let array = if wrap_canonical {
+            masked
+        } else {
+            VariantArray::try_new(masked, None)?.into_array()
+        };
+        let field = session.arrow().to_arrow_field("variant", array.dtype())?;
+        let result = session
+            .arrow()
+            .execute_arrow(array, Some(&field), &mut ctx)?;
+        let result = ArrowVariantArray::try_new(result.as_ref())?;
+        assert_eq!(result.len(), 3);
+        assert!(!result.is_null(0));
+        assert!(result.is_null(1));
+        assert!(!result.is_null(2));
+        assert_eq!(result.value(0), PqVariant::Null);
+        assert_eq!(result.value(2), PqVariant::Null);
         Ok(())
     }
 
