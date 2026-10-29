@@ -10,7 +10,7 @@
 //! Writers configure a [`FileEncryption`] with a footer key, and optionally keys for individual
 //! fields. Keys are never written to the file. Each key's opaque key metadata is stored instead,
 //! so that readers configured with a [`FileDecryption`] can resolve the key again through a
-//! [`KeyRetriever`].
+//! [`KeyRetriever`]. The [`envelope`] module builds both from a key management service.
 //!
 //! The footer is either encrypted, which also hides the schema, or stored in plaintext and signed
 //! with the footer key, so that readers without encryption support can still read the fields that
@@ -25,6 +25,7 @@
 //! it.
 
 mod cipher;
+pub mod envelope;
 mod resolver;
 
 use std::collections::BTreeMap;
@@ -171,8 +172,7 @@ impl KeyConfig {
     ///
     /// Every segment is encrypted with a random 96-bit nonce, so a key must not encrypt more than
     /// about 2<sup>32</sup> segments across all files. Prefer a fresh key for every file, such as
-    /// a data key generated for the file and wrapped by a key management service, over one key
-    /// shared by many files.
+    /// the data keys of [`envelope::EnvelopeEncryption`], over one key shared by many files.
     pub fn new(key: EncryptionKey, key_metadata: impl Into<Arc<[u8]>>) -> Self {
         Self {
             key,

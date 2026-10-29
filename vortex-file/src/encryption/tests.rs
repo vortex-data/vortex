@@ -4,6 +4,9 @@
 use std::fs;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use flatbuffers::FlatBufferBuilder;
 use futures::TryStreamExt;
@@ -29,6 +32,7 @@ use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::segments::SegmentCache;
 use vortex_layout::segments::SegmentId;
@@ -36,6 +40,10 @@ use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use super::envelope::EnvelopeEncryption;
+use super::envelope::InMemoryKeyMaterialStore;
+use super::envelope::KeyMaterialStore;
+use super::envelope::KmsClient;
 use super::*;
 use crate::DeserializeStep;
 use crate::EOF_SIZE;
@@ -744,6 +752,214 @@ async fn aad_prefix_for_file_without_one_fails() -> VortexResult<()> {
     Ok(())
 }
 
+/// A KMS with versioned master keys, counting its calls. Wrapped keys are the master key version
+/// followed by the AES-GCM encrypted key.
+#[derive(Default)]
+struct TestKms {
+    master_keys: Mutex<HashMap<String, Vec<Option<EncryptionKey>>>>,
+    wraps: AtomicUsize,
+    unwraps: AtomicUsize,
+}
+
+impl TestKms {
+    fn new(master_key_ids: &[&str]) -> Self {
+        let kms = Self::default();
+        for id in master_key_ids {
+            kms.rotate(id);
+        }
+        kms
+    }
+
+    /// Add a new version of the master key.
+    fn rotate(&self, master_key_id: &str) {
+        self.master_keys
+            .lock()
+            .entry(master_key_id.to_string())
+            .or_default()
+            .push(Some(
+                EncryptionKey::generate(32).vortex_expect("random key"),
+            ));
+    }
+
+    /// Destroy every version of the master key but the current one.
+    fn retire_old_versions(&self, master_key_id: &str) {
+        let mut master_keys = self.master_keys.lock();
+        let versions = master_keys
+            .get_mut(master_key_id)
+            .vortex_expect("master key");
+        let current = versions.len() - 1;
+        versions[..current].fill(None);
+    }
+}
+
+#[async_trait::async_trait]
+impl KmsClient for TestKms {
+    async fn wrap_key(&self, key: &[u8], master_key_id: &str) -> VortexResult<Vec<u8>> {
+        self.wraps.fetch_add(1, Ordering::Relaxed);
+        let master_keys = self.master_keys.lock();
+        let versions = master_keys
+            .get(master_key_id)
+            .ok_or_else(|| vortex_err!("unknown master key {master_key_id}"))?;
+        let version = versions.len() - 1;
+        let master = versions[version].as_ref().vortex_expect("current version");
+        let mut wrapped = key.to_vec();
+        let nonce_tag = Aead::new(master)?.seal(master_key_id.as_bytes(), &mut wrapped)?;
+        wrapped.extend_from_slice(&nonce_tag);
+        wrapped.insert(0, u8::try_from(version)?);
+        Ok(wrapped)
+    }
+
+    async fn unwrap_key(&self, wrapped_key: &[u8], master_key_id: &str) -> VortexResult<Vec<u8>> {
+        self.unwraps.fetch_add(1, Ordering::Relaxed);
+        let master_keys = self.master_keys.lock();
+        let (version, wrapped) = wrapped_key
+            .split_first()
+            .ok_or_else(|| vortex_err!("empty wrapped key"))?;
+        let master = master_keys
+            .get(master_key_id)
+            .and_then(|versions| versions.get(usize::from(*version)))
+            .and_then(Option::as_ref)
+            .ok_or_else(|| vortex_err!("master key {master_key_id} v{version} unavailable"))?;
+        let len = wrapped
+            .len()
+            .checked_sub(NONCE_TAG_LEN)
+            .ok_or_else(|| vortex_err!("wrapped key too short"))?;
+        let mut key = wrapped[..len].to_vec();
+        Aead::new(master)?
+            .open(master_key_id.as_bytes(), &mut key, &wrapped[len..])
+            .map_err(|()| vortex_err!("failed to unwrap key"))?;
+        Ok(key)
+    }
+}
+
+async fn write_envelope(envelope: &EnvelopeEncryption) -> VortexResult<ByteBuffer> {
+    let encryption = FileEncryption::new(envelope.key_config("footer-mek").await?).with_field_key(
+        FieldPath::from_name(SECRET_COLUMN),
+        "pii",
+        envelope.key_config("pii-mek").await?,
+    );
+    write(Some(encryption)).await
+}
+
+#[tokio::test]
+async fn envelope_double_wrapping() -> VortexResult<()> {
+    let kms = Arc::new(TestKms::new(&["footer-mek", "pii-mek"]));
+    let writer = EnvelopeEncryption::new(Arc::clone(&kms) as _);
+    let first = write_envelope(&writer).await?;
+    let second = write_envelope(&writer).await?;
+    // One key encryption key is wrapped per master key, however many files are written.
+    assert_eq!(kms.wraps.load(Ordering::Relaxed), 2);
+
+    let reader = Arc::new(EnvelopeEncryption::new(Arc::clone(&kms) as _));
+    for bytes in [first, second] {
+        let file = open(bytes, Some(FileDecryption::new(Arc::clone(&reader) as _)))?;
+        assert_reads_all(&file).await?;
+    }
+    // Key encryption keys are cached by id when reading.
+    assert_eq!(kms.unwraps.load(Ordering::Relaxed), 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn envelope_single_wrapping() -> VortexResult<()> {
+    let kms = Arc::new(TestKms::new(&["footer-mek", "pii-mek"]));
+    let envelope = Arc::new(
+        EnvelopeEncryption::new(Arc::clone(&kms) as _)
+            .with_single_wrapping()
+            .with_data_key_length(32)?,
+    );
+    assert_eq!(
+        envelope
+            .key_config("footer-mek")
+            .await?
+            .key()
+            .as_bytes()
+            .len(),
+        32
+    );
+    let bytes = write_envelope(&envelope).await?;
+    assert_eq!(kms.wraps.load(Ordering::Relaxed), 3);
+
+    let file = open(bytes, Some(FileDecryption::new(envelope)))?;
+    assert_reads_all(&file).await
+}
+
+#[tokio::test]
+async fn envelope_master_key_rotation() -> VortexResult<()> {
+    let kms = Arc::new(TestKms::new(&["footer-mek", "pii-mek"]));
+    let store = Arc::new(InMemoryKeyMaterialStore::default());
+    let envelope = Arc::new(
+        EnvelopeEncryption::new(Arc::clone(&kms) as _)
+            .with_external_key_material(Arc::clone(&store) as _),
+    );
+    let bytes = write_envelope(&envelope).await?;
+    assert_eq!(store.ids().await?.len(), 2);
+
+    // After rotating the master keys and retiring their old versions, a reader without cached
+    // keys can still read the file.
+    for id in ["footer-mek", "pii-mek"] {
+        kms.rotate(id);
+    }
+    let report = envelope.rotate_master_keys().await?;
+    assert_eq!(report.rewrapped, 2);
+    assert!(report.failed.is_empty());
+    for id in ["footer-mek", "pii-mek"] {
+        kms.retire_old_versions(id);
+    }
+    let reader = EnvelopeEncryption::new(Arc::clone(&kms) as _)
+        .with_external_key_material(Arc::clone(&store) as _);
+    let file = open(bytes.clone(), Some(FileDecryption::new(Arc::new(reader))))?;
+    assert_reads_all(&file).await?;
+
+    // The file only references the key material, so a reader needs the store.
+    let without_store = EnvelopeEncryption::new(Arc::clone(&kms) as _);
+    expect_err(
+        open(bytes, Some(FileDecryption::new(Arc::new(without_store)))),
+        "no key material store",
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn envelope_rotation_requires_external_key_material() {
+    let envelope = EnvelopeEncryption::new(Arc::new(TestKms::new(&["mek"])));
+    expect_err(envelope.rotate_master_keys().await, "external key material");
+}
+
+/// Expired KEKs are replaced, so that new files pick up master key rotations.
+#[tokio::test]
+async fn envelope_kek_lifetime() -> VortexResult<()> {
+    let kms = Arc::new(TestKms::new(&["mek"]));
+    let envelope = EnvelopeEncryption::new(Arc::clone(&kms) as _).with_kek_lifetime(Duration::ZERO);
+    envelope.key_config("mek").await?;
+    envelope.key_config("mek").await?;
+    assert_eq!(kms.wraps.load(Ordering::Relaxed), 2);
+    Ok(())
+}
+
+/// Key material that fails to rewrap is reported, and the rest is still rewrapped.
+#[tokio::test]
+async fn envelope_rotation_reports_failures() -> VortexResult<()> {
+    let kms = Arc::new(TestKms::new(&["mek"]));
+    let store = Arc::new(InMemoryKeyMaterialStore::default());
+    let envelope = EnvelopeEncryption::new(Arc::clone(&kms) as _)
+        .with_external_key_material(Arc::clone(&store) as _);
+    envelope.key_config("mek").await?;
+    store.put("corrupt", b"not key material").await?;
+
+    let report = envelope.rotate_master_keys().await?;
+    assert_eq!(report.rewrapped, 1);
+    assert_eq!(report.failed.len(), 1);
+    assert_eq!(report.failed[0].0, "corrupt");
+    Ok(())
+}
+
+#[test]
+fn envelope_rejects_invalid_data_key_length() {
+    let envelope = EnvelopeEncryption::new(Arc::new(TestKms::new(&["mek"])));
+    expect_err(envelope.with_data_key_length(7), "16, 24, or 32 bytes");
+}
+
 /// Rewrite the postscript of `bytes` with `edit`, as an attacker without keys could, since the
 /// postscript is not authenticated.
 fn edit_postscript(
@@ -1040,5 +1256,48 @@ async fn retrieves_each_key_once() -> VortexResult<()> {
     let counts = counting.0.lock();
     assert_eq!(counts.get(FOOTER_KEY_METADATA), Some(&1));
     assert_eq!(counts.get(COLUMN_KEY_METADATA), Some(&1));
+    Ok(())
+}
+
+/// Key material claiming a cached KEK under another master key must not be served from the
+/// cache, or a reader could use a master key the KMS would not let it use.
+#[tokio::test]
+async fn envelope_kek_cache_is_scoped_to_master_key() -> VortexResult<()> {
+    use crate::flatbuffers::key_material as km;
+
+    let kms = Arc::new(TestKms::new(&["mek-1", "mek-2"]));
+    let envelope = EnvelopeEncryption::new(Arc::clone(&kms) as _);
+    let key = envelope.key_config("mek-1").await?;
+    // The KEK of "mek-1" is now cached; unwrapping the genuine material needs no KMS call.
+    let unwraps = kms.unwraps.load(Ordering::Relaxed);
+    envelope.retrieve_key(key.key_metadata()).await?;
+    assert_eq!(kms.unwraps.load(Ordering::Relaxed), unwraps);
+
+    // Copy the material, but claim that "mek-2" wraps the KEK.
+    let forged = {
+        let metadata = flatbuffers::root::<km::EnvelopeKeyMetadata>(key.key_metadata())?;
+        let material = metadata.material().vortex_expect("inline key material");
+        let mut fbb = FlatBufferBuilder::new();
+        let args = km::KeyMaterialArgs {
+            master_key_id: Some(fbb.create_string("mek-2")),
+            wrapped_dek: Some(fbb.create_vector(material.wrapped_dek().bytes())),
+            kek_id: material.kek_id().map(|id| fbb.create_vector(id.bytes())),
+            wrapped_kek: material
+                .wrapped_kek()
+                .map(|kek| fbb.create_vector(kek.bytes())),
+        };
+        let material = km::KeyMaterial::create(&mut fbb, &args);
+        let metadata = km::EnvelopeKeyMetadata::create(
+            &mut fbb,
+            &km::EnvelopeKeyMetadataArgs {
+                material: Some(material),
+                external_id: None,
+            },
+        );
+        fbb.finish_minimal(metadata);
+        fbb.finished_data().to_vec()
+    };
+    expect_err(envelope.retrieve_key(&forged).await, "failed to unwrap key");
+    assert_eq!(kms.unwraps.load(Ordering::Relaxed), unwraps + 1);
     Ok(())
 }
