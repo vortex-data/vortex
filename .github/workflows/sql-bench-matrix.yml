@@ -282,12 +282,6 @@ jobs:
             Benchmark `${{ matrix.name }}` (${{ inputs.matrix_preset }}) failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
           comment-tag: bench-pr-comment-${{ matrix.id }}-${{ inputs.matrix_preset }}
 
-      - name: Upload Benchmark Results
-        if: inputs.mode == 'develop'
-        shell: bash
-        run: |
-          bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
-
       # v4 (Postgres) ingest -- the REQUIRED benchmark-results pipeline feeding the live
       # benchmarks website (see develop-bench.yml for the full rationale); a failure here fails the
       # job. Gated on inputs.mode == 'develop' + the ingest-role ARN var (the assume-role

@@ -12,25 +12,6 @@ permissions:
   contents: write
 
 jobs:
-  commit-metadata:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-      - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
-        with:
-          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
-          aws-region: us-east-1
-      - name: Upload Commit Metadata
-        shell: bash
-        run: |
-          set -Eeu -o pipefail -x
-
-          sudo apt-get update && sudo apt-get install -y jq
-          bash scripts/commit-json.sh > new-commit.json
-          bash scripts/cat-s3.sh vortex-ci-benchmark-results commits.json new-commit.json
-
   build:
     timeout-minutes: 60
     runs-on: >-
@@ -217,15 +198,10 @@ jobs:
         run: |
           python3 scripts/string-split.py
 
-      - name: Upload Benchmark Results
-        shell: bash
-        run: |
-          bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
-
       # v4 (Postgres) ingest -- the REQUIRED benchmark-results pipeline feeding the live
       # benchmarks website for suites that emit v4 records; a failure here fails the job.
-      # All suites also upload S3 results above. string-bench does not emit
-      # results.ingest.jsonl, so these steps are disabled for it.
+      # string-bench does not emit results.ingest.jsonl, so these steps are disabled for it
+      # and its results are not stored.
       # Also gated on the ingest-role ARN var (the assume-role input that MUST exist for
       # OIDC to succeed). post-ingest.py mints the RDS IAM token internally (boto3) from
       # the assumed GitHubBenchmarkIngestRole; sslmode=verify-full validates the cert.
