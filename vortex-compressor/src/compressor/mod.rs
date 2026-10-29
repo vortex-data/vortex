@@ -9,6 +9,8 @@ mod sample;
 mod select;
 mod structural;
 
+use vortex_array::ArrayId;
+
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;
 use crate::scheme::DescendantExclusion;
@@ -46,6 +48,9 @@ pub struct CascadingCompressor {
     /// Descendant exclusion rules for the compressor's own cascading (e.g. excluding Dict from
     /// list offsets).
     root_exclusions: Vec<DescendantExclusion>,
+
+    /// Encodings kept as they are: only their child slots are compressed.
+    preserved_encodings: Vec<ArrayId>,
 }
 
 impl CascadingCompressor {
@@ -63,7 +68,18 @@ impl CascadingCompressor {
         Self {
             schemes,
             root_exclusions,
+            preserved_encodings: Vec::new(),
         }
+    }
+
+    /// Keeps arrays of the given encodings instead of canonicalizing them.
+    ///
+    /// The compressor rebuilds a preserved array from its compressed child slots. This keeps an
+    /// encoding a reader wants back as-is, such as a dictionary that is exported to an Arrow
+    /// dictionary, at the cost of the better compression decoding it might allow.
+    pub fn with_preserved_encodings(mut self, ids: impl IntoIterator<Item = ArrayId>) -> Self {
+        self.preserved_encodings.extend(ids);
+        self
     }
 }
 

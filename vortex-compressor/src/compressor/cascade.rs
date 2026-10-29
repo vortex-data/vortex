@@ -63,7 +63,10 @@ impl Selection {
 impl CascadingCompressor {
     /// Compresses an array using cascading adaptive compression.
     ///
-    /// First canonicalizes and compacts the array, then applies optimal compression schemes.
+    /// First canonicalizes and compacts the array, then applies optimal compression schemes. An
+    /// array whose encoding is [preserved] keeps its encoding and has its child slots compressed.
+    ///
+    /// [preserved]: CascadingCompressor::with_preserved_encodings
     ///
     /// # Errors
     ///
@@ -77,9 +80,13 @@ impl CascadingCompressor {
         let span = trace::compress_span(array.len(), array.dtype(), before_nbytes);
         let _enter = span.enter();
 
-        let canonical = array.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
-        let compact = canonical.compact(exec_ctx)?;
-        let compressed = self.compress_canonical(compact, CompressorContext::new(), exec_ctx)?;
+        let compressed = if self.preserved_encodings.contains(&array.encoding_id()) {
+            self.compress_physical_slots(array, exec_ctx)?
+        } else {
+            let canonical = array.clone().execute::<CanonicalValidity>(exec_ctx)?.0;
+            let compact = canonical.compact(exec_ctx)?;
+            self.compress_canonical(compact, CompressorContext::new(), exec_ctx)?
+        };
 
         trace::record_compress_outcome(&span, before_nbytes, compressed.nbytes());
 

@@ -6,6 +6,7 @@
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use vortex_array::ArrayId;
 use vortex_array::dtype::FieldPath;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
@@ -67,6 +68,8 @@ pub struct WriteStrategyBuilder {
     ///
     /// [`ListLayoutStrategy`]: vortex_layout::layouts::list::writer::ListLayoutStrategy
     use_list_layout: bool,
+    /// Encodings kept through repartitioning and compression.
+    preserved_encodings: Vec<ArrayId>,
 }
 
 impl WriteStrategyBuilder {
@@ -85,6 +88,7 @@ impl WriteStrategyBuilder {
             use_list_layout: session
                 .enabled_component_ids(ComponentKind::Layout)
                 .contains(&List.id()),
+            preserved_encodings: Vec::new(),
         }
     }
 
@@ -146,6 +150,18 @@ impl WriteStrategyBuilder {
         self
     }
 
+    /// Keep arrays of the given encodings as they are written, compressing only their children.
+    ///
+    /// Repartitioning passes preserved chunks on instead of canonicalizing them, merging blocks of
+    /// dictionary chunks into one dictionary, and the BtrBlocks compressor compresses their child
+    /// slots. Columns whose chunks arrive already dictionary-encoded skip the dictionary layout.
+    /// Use this when readers want an encoding back as written, for example an Arrow dictionary
+    /// column. A compressor set with [`Self::with_compressor`] must preserve them itself.
+    pub fn with_preserved_encodings(mut self, ids: impl IntoIterator<Item = ArrayId>) -> Self {
+        self.preserved_encodings.extend(ids);
+        self
+    }
+
     /// Override the compressor used to probe whether a column is dict-eligible.
     pub fn with_probe_compressor<C: CompressorPlugin>(mut self, compressor: C) -> Self {
         self.probe_compressor = Some(Arc::new(compressor));
@@ -162,6 +178,7 @@ impl WriteStrategyBuilder {
         };
 
         let compressor = self.compressor;
+        let preserved = self.preserved_encodings;
 
         // 7. for each chunk create a flat layout
         let chunked = ChunkedLayoutStrategy::new(Arc::clone(&flat));
@@ -177,6 +194,7 @@ impl WriteStrategyBuilder {
                 builder
                     .clone()
                     .exclude_schemes([IntDictScheme.id()])
+                    .preserve_encodings(preserved.iter().copied())
                     .build(),
             ),
             CompressorConfig::Opaque(compressor) => Arc::clone(compressor),
@@ -198,11 +216,16 @@ impl WriteStrategyBuilder {
                 block_size_target: self.data_block_target_bytes,
                 canonicalize: true,
             },
-        );
+        )
+        .with_preserved_encodings(preserved.iter().copied());
 
         // 2.1. | 3.1. compress stats tables and dict values.
         let stats_compressor: Arc<dyn CompressorPlugin> = match compressor {
-            CompressorConfig::BtrBlocks(builder) => Arc::new(builder.build()),
+            CompressorConfig::BtrBlocks(builder) => Arc::new(
+                builder
+                    .preserve_encodings(preserved.iter().copied())
+                    .build(),
+            ),
             CompressorConfig::Opaque(compressor) => compressor,
         };
         let compress_then_flat = CompressingStrategy::new(flat, Arc::clone(&stats_compressor));
@@ -247,7 +270,8 @@ impl WriteStrategyBuilder {
                 block_size_target: None,
                 canonicalize: false,
             },
-        );
+        )
+        .with_preserved_encodings(preserved.iter().copied());
 
         // 0. start with splitting columns
         let validity_strategy = CollectStrategy::new(compress_then_flat.clone());
@@ -258,6 +282,7 @@ impl WriteStrategyBuilder {
                 .with_field_writers(self.field_writers);
 
         if self.use_list_layout {
+            let preserved: Arc<[ArrayId]> = preserved.into();
             // We need a closure here to enable recursive application of list layout.
             table_strategy = table_strategy.with_list_layout_factory(
                 move |list_layout: ListLayoutStrategy| -> Arc<dyn LayoutStrategy> {
@@ -269,15 +294,18 @@ impl WriteStrategyBuilder {
                             ..Default::default()
                         },
                     );
-                    Arc::new(RepartitionStrategy::new(
-                        zoned,
-                        RepartitionWriterOptions {
-                            block_size_minimum: 0,
-                            block_len_multiple: row_block_size.get(),
-                            block_size_target: None,
-                            canonicalize: false,
-                        },
-                    ))
+                    Arc::new(
+                        RepartitionStrategy::new(
+                            zoned,
+                            RepartitionWriterOptions {
+                                block_size_minimum: 0,
+                                block_len_multiple: row_block_size.get(),
+                                block_size_target: None,
+                                canonicalize: false,
+                            },
+                        )
+                        .with_preserved_encodings(preserved.iter().copied()),
+                    )
                 },
             );
         }

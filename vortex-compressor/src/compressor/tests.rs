@@ -5,16 +5,19 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use parking_lot::Mutex;
+use rstest::rstest;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Constant;
+use vortex_array::arrays::Dict;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
@@ -23,8 +26,11 @@ use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Slice;
 use vortex_array::arrays::SliceArray;
+use vortex_array::arrays::Struct;
+use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::assert_arrays_eq;
 use vortex_array::builders::MapBuilder;
@@ -956,6 +962,35 @@ fn extension_with_lazy_storage_is_not_passed_through() -> VortexResult<()> {
     assert!(
         !compressed.depth_first_traversal().any(|a| a.is::<Slice>()),
         "compressed array still contains a lazy slice:\n{}",
+        compressed.display_tree()
+    );
+    assert_arrays_eq!(&compressed, &array, &mut exec_ctx);
+    Ok(())
+}
+
+#[rstest]
+#[case::canonicalized(false)]
+#[case::preserved(true)]
+fn preserved_dict_keeps_encoding_inside_struct(#[case] preserve: bool) -> VortexResult<()> {
+    let codes = PrimitiveArray::from_iter((0..1024u32).map(|i| i % 4)).into_array();
+    let values = VarBinViewArray::from_iter_str(["alpha", "beta", "gamma", "delta"]).into_array();
+    let dict = DictArray::try_new(codes, values)?.into_array();
+    let array = StructArray::from_fields(&[("labels", dict)])?.into_array();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let compressor = CascadingCompressor::new(vec![&IntDictScheme]);
+    let compressor = if preserve {
+        compressor.with_preserved_encodings([VTable::id(&Dict)])
+    } else {
+        compressor
+    };
+    let compressed = compressor.compress(&array, &mut exec_ctx)?;
+
+    let field = compressed.as_::<Struct>().unmasked_field(0).clone();
+    assert_eq!(
+        field.is::<Dict>(),
+        preserve,
+        "{}",
         compressed.display_tree()
     );
     assert_arrays_eq!(&compressed, &array, &mut exec_ctx);

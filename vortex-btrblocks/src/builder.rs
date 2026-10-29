@@ -137,6 +137,7 @@ pub struct BtrBlocksCompressorBuilder {
     schemes: Vec<&'static dyn Scheme>,
     allowed: AllowedIds,
     mode: CompressionMode,
+    preserved_encodings: Vec<ArrayId>,
 }
 
 impl BtrBlocksCompressorBuilder {
@@ -148,6 +149,7 @@ impl BtrBlocksCompressorBuilder {
             schemes: session.compression().schemes().to_vec(),
             allowed: AllowedIds::from_session(session),
             mode: CompressionMode::Default,
+            preserved_encodings: Vec::new(),
         }
     }
 
@@ -160,6 +162,7 @@ impl BtrBlocksCompressorBuilder {
             schemes: Vec::new(),
             allowed: AllowedIds::all(),
             mode: CompressionMode::All,
+            preserved_encodings: Vec::new(),
         }
     }
 
@@ -202,6 +205,14 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
+    /// Keeps arrays of the given encodings, compressing only their child slots.
+    ///
+    /// See [`CascadingCompressor::with_preserved_encodings`].
+    pub fn preserve_encodings(mut self, ids: impl IntoIterator<Item = ArrayId>) -> Self {
+        self.preserved_encodings.extend(ids);
+        self
+    }
+
     /// Removes the specified compression schemes by their [`SchemeId`].
     pub fn exclude_schemes(mut self, ids: impl IntoIterator<Item = SchemeId>) -> Self {
         let ids: HashSet<_> = ids.into_iter().collect();
@@ -228,7 +239,10 @@ impl BtrBlocksCompressorBuilder {
     /// Builds the configured [`BtrBlocksCompressor`] from the schemes that its preset does not
     /// exclude and whose produced serialized IDs are all allowed.
     pub fn build(self) -> BtrBlocksCompressor {
-        BtrBlocksCompressor(CascadingCompressor::new(self.allowed_schemes()))
+        BtrBlocksCompressor(
+            CascadingCompressor::new(self.allowed_schemes())
+                .with_preserved_encodings(self.preserved_encodings),
+        )
     }
 
     fn allowed_schemes(&self) -> Vec<&'static dyn Scheme> {
