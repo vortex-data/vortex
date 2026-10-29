@@ -7,9 +7,13 @@ use async_trait::async_trait;
 use futures::StreamExt as _;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
+use vortex_array::arrays::Dict;
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::expr::stats::Stat;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_error::VortexResult;
@@ -51,6 +55,35 @@ where
 impl CompressorPlugin for BtrBlocksCompressor {
     fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         self.compress(chunk, ctx)
+    }
+}
+
+/// Compresses a dictionary's codes and values separately, keeping the dictionary itself.
+///
+/// Readers that export the column to an Arrow dictionary then get the stored dictionary back
+/// instead of re-encoding the decoded values. Chunks that are not dictionaries, such as a
+/// constant slice of one, go to the inner compressor unchanged.
+pub struct DictChildrenCompressor {
+    inner: Arc<dyn CompressorPlugin>,
+}
+
+impl DictChildrenCompressor {
+    /// Creates a compressor that compresses dictionary children with `inner`.
+    pub fn new<C: CompressorPlugin>(inner: C) -> Self {
+        Self {
+            inner: Arc::new(inner),
+        }
+    }
+}
+
+impl CompressorPlugin for DictChildrenCompressor {
+    fn compress_chunk(&self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        let Some(dict) = chunk.as_opt::<Dict>() else {
+            return self.inner.compress_chunk(chunk, ctx);
+        };
+        let codes = self.inner.compress_chunk(dict.codes(), ctx)?;
+        let values = self.inner.compress_chunk(dict.values(), ctx)?;
+        Ok(DictArray::try_new(codes, values)?.into_array())
     }
 }
 

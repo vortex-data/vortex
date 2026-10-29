@@ -31,10 +31,8 @@ use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
-use vortex::array::VTable;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ChunkedArray;
-use vortex::array::arrays::Dict;
 use vortex::array::arrays::ExtensionArray;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
@@ -45,6 +43,7 @@ use vortex::array::stream::ArrayStreamAdapter;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::dtype::DType;
+use vortex::dtype::Field;
 use vortex::dtype::FieldPath;
 use vortex::dtype::StructFields;
 use vortex::dtype::extension::ExtDType;
@@ -270,7 +269,8 @@ pub async fn convert_parquet_file_to_vortex(
     )?;
     // Dictionary columns are kept dictionary-encoded on disk, so that scans exporting them to
     // Arrow dictionaries hand back the stored dictionaries instead of re-encoding the values.
-    let preserve_dicts = has_dictionary_field(metadata.schema().fields());
+    let dict_fields = dictionary_field_paths(metadata.schema().fields());
+    let preserve_dicts = !dict_fields.is_empty();
     let concurrency = row_group_decode_concurrency(metadata.metadata());
     let stream = if concurrency > 1 {
         StreamExt::boxed(parquet_row_groups_to_vortex_stream(
@@ -296,7 +296,7 @@ pub async fn convert_parquet_file_to_vortex(
         compaction,
         &dtype,
         is_spatialbench(parquet_path),
-        preserve_dicts,
+        dict_fields,
     )
     .write(
         &mut output_file,
@@ -313,24 +313,38 @@ fn is_spatialbench(path: &Path) -> bool {
         .any(|component| component.as_os_str() == "spatialbench")
 }
 
-/// Whether any field, at any depth, is an Arrow dictionary.
-fn has_dictionary_field(fields: &Fields) -> bool {
-    fields
-        .iter()
-        .any(|field| data_type_has_dictionary(field.data_type()))
+/// The paths of the Arrow dictionary fields at any depth of structs and lists.
+fn dictionary_field_paths(fields: &Fields) -> Vec<FieldPath> {
+    let mut paths = Vec::new();
+    for field in fields {
+        collect_dictionary_paths(
+            field.data_type(),
+            FieldPath::from_name(field.name().as_str()),
+            &mut paths,
+        );
+    }
+    paths
 }
 
-fn data_type_has_dictionary(data_type: &DataType) -> bool {
+fn collect_dictionary_paths(data_type: &DataType, path: FieldPath, paths: &mut Vec<FieldPath>) {
     match data_type {
-        DataType::Dictionary(..) => true,
-        DataType::Struct(fields) => has_dictionary_field(fields),
+        DataType::Dictionary(..) => paths.push(path),
+        DataType::Struct(fields) => {
+            for field in fields {
+                collect_dictionary_paths(
+                    field.data_type(),
+                    path.clone().push(field.name().as_str()),
+                    paths,
+                );
+            }
+        }
         DataType::List(field)
         | DataType::LargeList(field)
         | DataType::ListView(field)
-        | DataType::LargeListView(field)
-        | DataType::FixedSizeList(field, _)
-        | DataType::Map(field, _) => data_type_has_dictionary(field.data_type()),
-        _ => false,
+        | DataType::LargeListView(field) => {
+            collect_dictionary_paths(field.data_type(), path.push(Field::ElementType), paths)
+        }
+        _ => {}
     }
 }
 
@@ -339,13 +353,13 @@ fn data_type_has_dictionary(data_type: &DataType) -> bool {
 /// For SpatialBench (`skip_binary_dict`), the geometry blobs are large and
 /// unique, so the dictionary builder balloons memory (tens of GB) for zero gain.
 ///
-/// With `preserve_dicts`, dictionary-encoded input keeps its encoding and only the codes and
-/// values are compressed.
+/// The `dict_fields` keep the dictionary encoding they arrive with, compressing only their codes
+/// and values.
 fn write_options_for(
     compaction: CompactionStrategy,
     dtype: &DType,
     skip_binary_dict: bool,
-    preserve_dicts: bool,
+    dict_fields: Vec<FieldPath>,
 ) -> VortexWriteOptions {
     let binary_fields: Vec<_> = match dtype {
         DType::Struct(fields, _) if skip_binary_dict => fields
@@ -357,13 +371,13 @@ fn write_options_for(
             .collect(),
         _ => Vec::new(),
     };
-    if binary_fields.is_empty() && !preserve_dicts {
+    if binary_fields.is_empty() && dict_fields.is_empty() {
         return compaction.apply_options(SESSION.write_options());
     }
 
     let mut builder = WriteStrategyBuilder::from_session(&SESSION);
-    if preserve_dicts {
-        builder = builder.with_preserved_encodings([Dict.id()]);
+    for field in dict_fields {
+        builder = builder.with_dict_field(field);
     }
     if matches!(compaction, CompactionStrategy::Compact) {
         builder = builder.with_btrblocks_builder(

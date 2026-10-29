@@ -6,7 +6,6 @@
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use vortex_array::ArrayId;
 use vortex_array::dtype::FieldPath;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
@@ -21,6 +20,7 @@ use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::collect::CollectStrategy;
 use vortex_layout::layouts::compressed::CompressingStrategy;
 use vortex_layout::layouts::compressed::CompressorPlugin;
+use vortex_layout::layouts::compressed::DictChildrenCompressor;
 use vortex_layout::layouts::dict::writer::DictLayoutOptions;
 use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
@@ -62,14 +62,13 @@ pub struct WriteStrategyBuilder {
     row_block_size: usize,
     data_block_target_bytes: Option<u64>,
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
+    dict_fields: Vec<FieldPath>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
     probe_compressor: Option<Arc<dyn CompressorPlugin>>,
     /// Whether to write list fields using [`ListLayoutStrategy`].
     ///
     /// [`ListLayoutStrategy`]: vortex_layout::layouts::list::writer::ListLayoutStrategy
     use_list_layout: bool,
-    /// Encodings kept through repartitioning and compression.
-    preserved_encodings: Vec<ArrayId>,
 }
 
 impl WriteStrategyBuilder {
@@ -83,12 +82,12 @@ impl WriteStrategyBuilder {
             row_block_size: 8192,
             data_block_target_bytes: Some(ONE_MEG),
             field_writers: HashMap::new(),
+            dict_fields: Vec::new(),
             flat_strategy: None,
             probe_compressor: None,
             use_list_layout: session
                 .enabled_component_ids(ComponentKind::Layout)
                 .contains(&List.id()),
-            preserved_encodings: Vec::new(),
         }
     }
 
@@ -123,6 +122,17 @@ impl WriteStrategyBuilder {
         self
     }
 
+    /// Keep the dictionary encoding of the field at `field`, compressing only its codes and values.
+    ///
+    /// Use this for a column whose chunks arrive dictionary-encoded and whose readers want the
+    /// dictionary back, such as an Arrow dictionary column: the column is written without being
+    /// decoded, and a scan hands back the stored dictionary. Blocks of dictionary chunks are merged
+    /// into one dictionary of the values they reference. The path may step into list elements.
+    pub fn with_dict_field(mut self, field: impl Into<FieldPath>) -> Self {
+        self.dict_fields.push(field.into());
+        self
+    }
+
     /// Override the flat layout strategy used for leaf chunks.
     ///
     /// By default, this uses [`FlatLayoutStrategy`]. This can be used to substitute a custom
@@ -150,18 +160,6 @@ impl WriteStrategyBuilder {
         self
     }
 
-    /// Keep arrays of the given encodings as they are written, compressing only their children.
-    ///
-    /// Repartitioning passes preserved chunks on instead of canonicalizing them, merging blocks of
-    /// dictionary chunks into one dictionary, and the BtrBlocks compressor compresses their child
-    /// slots. Columns whose chunks arrive already dictionary-encoded skip the dictionary layout.
-    /// Use this when readers want an encoding back as written, for example an Arrow dictionary
-    /// column. A compressor set with [`Self::with_compressor`] must preserve them itself.
-    pub fn with_preserved_encodings(mut self, ids: impl IntoIterator<Item = ArrayId>) -> Self {
-        self.preserved_encodings.extend(ids);
-        self
-    }
-
     /// Override the compressor used to probe whether a column is dict-eligible.
     pub fn with_probe_compressor<C: CompressorPlugin>(mut self, compressor: C) -> Self {
         self.probe_compressor = Some(Arc::new(compressor));
@@ -178,7 +176,6 @@ impl WriteStrategyBuilder {
         };
 
         let compressor = self.compressor;
-        let preserved = self.preserved_encodings;
 
         // 7. for each chunk create a flat layout
         let chunked = ChunkedLayoutStrategy::new(Arc::clone(&flat));
@@ -194,12 +191,11 @@ impl WriteStrategyBuilder {
                 builder
                     .clone()
                     .exclude_schemes([IntDictScheme.id()])
-                    .preserve_encodings(preserved.iter().copied())
                     .build(),
             ),
             CompressorConfig::Opaque(compressor) => Arc::clone(compressor),
         };
-        let compressing = CompressingStrategy::new(buffered, data_compressor);
+        let compressing = CompressingStrategy::new(buffered, Arc::clone(&data_compressor));
 
         // 4. prior to compression, coalesce up to a minimum size
         let coalescing = RepartitionStrategy::new(
@@ -216,19 +212,15 @@ impl WriteStrategyBuilder {
                 block_size_target: self.data_block_target_bytes,
                 canonicalize: true,
             },
-        )
-        .with_preserved_encodings(preserved.iter().copied());
+        );
 
         // 2.1. | 3.1. compress stats tables and dict values.
         let stats_compressor: Arc<dyn CompressorPlugin> = match compressor {
-            CompressorConfig::BtrBlocks(builder) => Arc::new(
-                builder
-                    .preserve_encodings(preserved.iter().copied())
-                    .build(),
-            ),
+            CompressorConfig::BtrBlocks(builder) => Arc::new(builder.build()),
             CompressorConfig::Opaque(compressor) => compressor,
         };
-        let compress_then_flat = CompressingStrategy::new(flat, Arc::clone(&stats_compressor));
+        let compress_then_flat =
+            CompressingStrategy::new(Arc::clone(&flat), Arc::clone(&stats_compressor));
 
         // 3. apply dict encoding or fallback
         let probe_compressor = if let Some(probe_compressor) = self.probe_compressor {
@@ -270,8 +262,50 @@ impl WriteStrategyBuilder {
                 block_size_target: None,
                 canonicalize: false,
             },
-        )
-        .with_preserved_encodings(preserved.iter().copied());
+        );
+
+        // Dictionary fields follow the same steps without dictionary encoding, keeping the
+        // dictionaries they arrive with and compressing only their codes and values.
+        let mut field_writers = self.field_writers;
+        if !self.dict_fields.is_empty() {
+            let dict_compressing = CompressingStrategy::new(
+                BufferedStrategy::new(ChunkedLayoutStrategy::new(Arc::clone(&flat)), 2 * ONE_MEG),
+                DictChildrenCompressor::new(data_compressor),
+            );
+            let dict_coalescing = RepartitionStrategy::new(
+                dict_compressing,
+                RepartitionWriterOptions {
+                    block_size_minimum: self.data_block_target_bytes.unwrap_or(0),
+                    block_len_multiple: self.row_block_size,
+                    block_size_target: self.data_block_target_bytes,
+                    canonicalize: true,
+                },
+            )
+            .with_keep_dicts();
+            let dict_stats = ZonedStrategy::new(
+                dict_coalescing,
+                compress_then_flat.clone(),
+                ZonedLayoutOptions {
+                    block_size: row_block_size,
+                    ..Default::default()
+                },
+            );
+            let dict_writer: Arc<dyn LayoutStrategy> = Arc::new(
+                RepartitionStrategy::new(
+                    dict_stats,
+                    RepartitionWriterOptions {
+                        block_size_minimum: 0,
+                        block_len_multiple: self.row_block_size,
+                        block_size_target: None,
+                        canonicalize: false,
+                    },
+                )
+                .with_keep_dicts(),
+            );
+            for field in self.dict_fields {
+                field_writers.insert(field, Arc::clone(&dict_writer));
+            }
+        }
 
         // 0. start with splitting columns
         let validity_strategy = CollectStrategy::new(compress_then_flat.clone());
@@ -279,10 +313,9 @@ impl WriteStrategyBuilder {
         // Take any field overrides from the builder and apply them to the final strategy.
         let mut table_strategy =
             TableStrategy::new(Arc::new(validity_strategy), Arc::new(repartition))
-                .with_field_writers(self.field_writers);
+                .with_field_writers(field_writers);
 
         if self.use_list_layout {
-            let preserved: Arc<[ArrayId]> = preserved.into();
             // We need a closure here to enable recursive application of list layout.
             table_strategy = table_strategy.with_list_layout_factory(
                 move |list_layout: ListLayoutStrategy| -> Arc<dyn LayoutStrategy> {
@@ -294,6 +327,8 @@ impl WriteStrategyBuilder {
                             ..Default::default()
                         },
                     );
+                    // Dictionaries nested in the list's elements stay encoded until the elements
+                    // reach their own field writers.
                     Arc::new(
                         RepartitionStrategy::new(
                             zoned,
@@ -304,7 +339,7 @@ impl WriteStrategyBuilder {
                                 canonicalize: false,
                             },
                         )
-                        .with_preserved_encodings(preserved.iter().copied()),
+                        .with_keep_dicts(),
                     )
                 },
             );

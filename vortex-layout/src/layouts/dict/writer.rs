@@ -24,10 +24,8 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::Chunked;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Dict;
-use vortex_array::arrays::chunked::ChunkedArrayExt;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::DictEncoder;
 use vortex_array::builders::dict::dict_encoder_in;
@@ -171,9 +169,6 @@ impl LayoutStrategy for DictStrategy {
 
         let should_fallback = match sample {
             None => true, // empty stream
-            // Chunks that arrive dictionary-encoded were preserved upstream, so they keep their
-            // own dictionaries rather than being decoded into a shared one.
-            Some(sample) if is_dict_encoded(&sample) => true,
             Some(sample) => {
                 let mut exec_ctx = session.create_execution_ctx();
                 let compressed = self
@@ -532,14 +527,6 @@ impl Stream for DictionaryTransformer {
 
 /// Peeks chunks until they hold `probe_len` rows, returning the stream with those chunks back in
 /// front and its first `probe_len` rows, or `None` if the stream is empty.
-/// Whether `sample` is a dictionary, or a chunked array of dictionaries.
-fn is_dict_encoded(sample: &ArrayRef) -> bool {
-    sample.is::<Dict>()
-        || sample
-            .as_opt::<Chunked>()
-            .is_some_and(|chunked| chunked.iter_chunks().all(|chunk| chunk.is::<Dict>()))
-}
-
 async fn peek_probe_sample(
     mut stream: BoxStream<'static, SequencedChunk>,
     probe_len: usize,
