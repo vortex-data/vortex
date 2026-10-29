@@ -110,7 +110,7 @@ impl VortexWriteOptions {
             session,
             exclude_dtype: false,
             file_statistics: None,
-            write_nested_statistics: true,
+            write_nested_statistics: false,
             write_legacy_statistics: true,
             metadata: HashMap::default(),
         }
@@ -173,6 +173,9 @@ impl VortexWriteOptions {
     /// Exclude legacy top-level-only statistics (`field_stats`) from the file, computing and
     /// writing only the full nested post-order statistics (`entry_sets` and `partials`).
     ///
+    /// Nested statistics are only written if enabled with [`Self::include_nested_statistics`];
+    /// otherwise no file-level statistics are written.
+    ///
     /// Readers built before nested file stats existed only look at `field_stats` and reject a file
     /// whose `field_stats` doesn't have one entry per top-level struct field. To keep the file
     /// readable by them, `field_stats` is still written with one entry per field, each empty, so
@@ -182,16 +185,15 @@ impl VortexWriteOptions {
         self
     }
 
-    /// Exclude the full nested post-order statistics (`entry_sets` and `partials`) from the file,
-    /// computing and writing only the legacy top-level-only statistics (`field_stats`).
+    /// Include the full nested post-order statistics (`entry_sets` and `partials`) in the file,
+    /// alongside the legacy top-level-only statistics (`field_stats`).
     ///
-    /// Readers then see the file the way they see one written before nested file stats existed:
-    /// with statistics for top-level fields only. Since the legacy format has a fixed slot per
+    /// By default only the legacy statistics are written, and readers see the file the way they
+    /// see one written before nested file stats existed: with statistics for top-level fields
+    /// only. Since the legacy format has a fixed slot per
     /// [`Stat`](vortex_array::expr::stats::Stat), aggregates without one are not recorded.
-    ///
-    /// Combined with [`Self::exclude_legacy_statistics`], no file-level statistics are written.
-    pub fn exclude_nested_statistics(mut self) -> Self {
-        self.write_nested_statistics = false;
+    pub fn include_nested_statistics(mut self) -> Self {
+        self.write_nested_statistics = true;
         self
     }
 

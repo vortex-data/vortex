@@ -1494,6 +1494,7 @@ async fn write_nullable_top_level_struct() -> VortexResult<()> {
     let mut buf = ByteBufferMut::empty();
     let summary = SESSION
         .write_options()
+        .include_nested_statistics()
         .with_file_statistics(pruning_aggregate_fns())
         .write(&mut buf, array.to_array_stream())
         .await?;
@@ -1538,6 +1539,7 @@ async fn exclude_legacy_statistics_empties_legacy_but_keeps_nested() -> VortexRe
     let mut buf_with_legacy = ByteBufferMut::empty();
     SESSION
         .write_options()
+        .include_nested_statistics()
         .with_file_statistics(pruning_aggregate_fns())
         .write(&mut buf_with_legacy, array.to_array_stream())
         .await?;
@@ -1545,6 +1547,7 @@ async fn exclude_legacy_statistics_empties_legacy_but_keeps_nested() -> VortexRe
     let mut buf_without_legacy = ByteBufferMut::empty();
     let summary = SESSION
         .write_options()
+        .include_nested_statistics()
         .with_file_statistics(pruning_aggregate_fns())
         .exclude_legacy_statistics()
         .write(&mut buf_without_legacy, array.to_array_stream())
@@ -1585,7 +1588,7 @@ async fn exclude_legacy_statistics_empties_legacy_but_keeps_nested() -> VortexRe
 }
 
 #[tokio::test]
-async fn exclude_nested_statistics_writes_only_legacy() -> VortexResult<()> {
+async fn nested_statistics_are_excluded_by_default() -> VortexResult<()> {
     let inner = StructArray::try_new(
         ["b"].into(),
         vec![PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array()],
@@ -1601,7 +1604,6 @@ async fn exclude_nested_statistics_writes_only_legacy() -> VortexResult<()> {
     let summary = SESSION
         .write_options()
         .with_file_statistics(pruning_aggregate_fns())
-        .exclude_nested_statistics()
         .write(&mut buf, array.to_array_stream())
         .await?;
 
@@ -1637,12 +1639,11 @@ async fn exclude_nested_statistics_writes_only_legacy() -> VortexResult<()> {
 }
 
 #[tokio::test]
-async fn exclude_nested_and_legacy_statistics_omits_statistics() -> VortexResult<()> {
+async fn exclude_legacy_statistics_without_nested_omits_statistics() -> VortexResult<()> {
     let array = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
     let mut buf = ByteBufferMut::empty();
     let summary = SESSION
         .write_options()
-        .exclude_nested_statistics()
         .exclude_legacy_statistics()
         .write(&mut buf, array.to_array_stream())
         .await?;
@@ -2365,6 +2366,7 @@ async fn file_data_source_returns_mergeable_partials() -> VortexResult<()> {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
+        .include_nested_statistics()
         .disable_editions()
         .with_file_statistics(vec![sum.clone()])
         .write(&mut buf, array.to_array_stream())
@@ -2482,6 +2484,7 @@ async fn default_string_stats_are_inexact_bounds_after_reopening() -> VortexResu
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
+        .include_nested_statistics()
         .write(&mut buf, array.to_array_stream())
         .await?;
     let file = SESSION.open_options().open_buffer(ByteBuffer::from(buf))?;
@@ -3258,6 +3261,7 @@ async fn test_can_prune_nested_struct_field() -> VortexResult<()> {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
+        .include_nested_statistics()
         .write(&mut buf, st.into_array().to_array_stream())
         .await?;
     let file = SESSION.open_options().open_buffer(buf)?;
@@ -3291,6 +3295,7 @@ async fn test_can_prune_three_level_nested_struct_field() -> VortexResult<()> {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
+        .include_nested_statistics()
         .write(&mut buf, struct_x.into_array().to_array_stream())
         .await?;
     let file = SESSION.open_options().open_buffer(buf)?;
