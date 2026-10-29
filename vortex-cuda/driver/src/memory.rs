@@ -633,14 +633,8 @@ impl<'a, T> CudaViewMut<'a, T> {
     ///
     /// Panics if `bounds` is out of range.
     pub fn slice_mut(&mut self, bounds: impl RangeBounds<usize>) -> CudaViewMut<'_, T> {
-        let (start, end) = range(&bounds, self.len).expect("CUDA view range out of bounds");
-        CudaViewMut {
-            pointer: self.pointer + (start * size_of::<T>()) as u64,
-            len: end - start,
-            access: self.access,
-            stream: self.stream,
-            marker: PhantomData,
-        }
+        // A copy of this view, borrowed mutably for as long as the result.
+        CudaViewMut { ..*self }.into_slice_mut(bounds)
     }
 
     fn into_slice_mut(self, bounds: impl RangeBounds<usize>) -> CudaViewMut<'a, T> {
