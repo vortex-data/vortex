@@ -34,3 +34,28 @@ mod deps {
 pub mod footer {
     include!("flatbuffers/generated/footer.rs");
 }
+
+/// Key metadata written by [`crate::encryption::envelope`].
+///
+/// `key_material.fbs`:
+/// ```flatbuffers
+#[doc = include_str!("../flatbuffers/vortex-file/key_material.fbs")]
+/// ```
+#[allow(clippy::all)]
+#[allow(clippy::absolute_paths)]
+#[allow(clippy::borrow_as_ptr)]
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[allow(clippy::many_single_char_names)]
+#[allow(clippy::unwrap_used)]
+#[allow(dead_code)]
+#[allow(mismatched_lifetime_syntaxes)]
+#[allow(missing_docs)]
+#[allow(non_camel_case_types)]
+#[allow(non_snake_case)]
+#[allow(unsafe_op_in_unsafe_fn)]
+#[allow(unused_imports)]
+#[allow(unused_lifetimes)]
+#[allow(unused_qualifications)]
+pub mod key_material {
+    include!("flatbuffers/generated/key_material.rs");
+}
