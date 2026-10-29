@@ -332,6 +332,9 @@ impl<V: VTable> DynLayout for Layout<V> {
 
     fn dyn_is_indivisible(&self) -> bool {
         self.vtable().is_indivisible()
+            || self.vtable().split_child().is_some_and(|idx| {
+                idx < self.nchildren() && self.children().child_is_indivisible(idx)
+            })
     }
 }
 

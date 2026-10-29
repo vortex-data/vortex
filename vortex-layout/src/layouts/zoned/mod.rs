@@ -171,6 +171,11 @@ impl VTable for Zoned {
     ) -> VortexResult<LayoutReaderRef> {
         layout.zoned_reader(name, segment_source, session, ctx)
     }
+
+    fn split_child(&self) -> Option<usize> {
+        // Zoned readers register the splits of their data child.
+        Some(0)
+    }
 }
 
 impl VTable for LegacyStats {
@@ -238,6 +243,11 @@ impl VTable for LegacyStats {
         ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
         layout.zoned_reader(name, segment_source, session, ctx)
+    }
+
+    fn split_child(&self) -> Option<usize> {
+        // Zoned readers register the splits of their data child.
+        Some(0)
     }
 }
 

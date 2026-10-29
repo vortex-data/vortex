@@ -163,12 +163,7 @@ impl ViewedLayoutChildren {
         // materializing the child.
         let indivisible = fb_children
             .iter()
-            .map(|child| {
-                layout_read_ctx
-                    .resolve(child.encoding())
-                    .and_then(|encoding_id| layouts.get(&encoding_id))
-                    .is_some_and(|encoding| encoding.is_indivisible())
-            })
+            .map(|child| fb_is_indivisible(child, &layout_read_ctx, &layouts))
             .collect::<Arc<[bool]>>();
         Self {
             flatbuffer,
@@ -225,6 +220,32 @@ impl ViewedLayoutChildren {
             children,
         ))
     }
+}
+
+/// Whether a serialized layout is indivisible, from its encoding tags alone.
+///
+/// A layout is indivisible when its encoding is, or when the child it takes its splits from is.
+/// Unknown encodings are conservatively not indivisible.
+fn fb_is_indivisible(
+    layout: fbl::Layout<'_>,
+    layout_read_ctx: &ReadContext,
+    layouts: &LayoutRegistry,
+) -> bool {
+    let Some(encoding) = layout_read_ctx
+        .resolve(layout.encoding())
+        .and_then(|encoding_id| layouts.get(&encoding_id))
+    else {
+        return false;
+    };
+    encoding.is_indivisible()
+        || encoding.split_child().is_some_and(|idx| {
+            layout
+                .children()
+                .filter(|children| idx < children.len())
+                .is_some_and(|children| {
+                    fb_is_indivisible(children.get(idx), layout_read_ctx, layouts)
+                })
+        })
 }
 
 impl LayoutChildren for ViewedLayoutChildren {

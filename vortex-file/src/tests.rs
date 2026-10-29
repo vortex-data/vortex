@@ -214,6 +214,31 @@ async fn test_stock_ticker_file_size(
     Ok(())
 }
 
+/// A zone map over a single flat block registers no interior splits, so readers can skip it.
+#[rstest]
+#[case::flat_data(3, true)]
+#[case::chunked_data(1 << 20, false)]
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_zoned_field_indivisible(
+    #[case] len: u32,
+    #[case] indivisible: bool,
+) -> VortexResult<()> {
+    let st = StructArray::from_fields(&[("a", PrimitiveArray::from_iter(0..len).into_array())])?;
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, st.into_array().to_array_stream())
+        .await?;
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+    let field = file.footer().layout().children()?.remove(0);
+    // The data child and its zone map.
+    assert_eq!(field.nchildren(), 2);
+    assert_eq!(field.dyn_is_indivisible(), indivisible);
+    Ok(())
+}
+
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn test_read_simple() {
