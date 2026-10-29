@@ -24,6 +24,7 @@ use vortex_array::aggregate_fn::fns::max::Max;
 use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::fns::null_count::NullCount;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
@@ -50,7 +51,7 @@ use crate::sequence::SequentialStreamExt;
 /// Accumulates file statistics over `stream` as it passes through.
 ///
 /// `stats` are the aggregates to record for every field, or `None` for each field's default (see
-/// `default_pruning_aggregate_fns`). Only aggregates `ctx` allows are recorded in the nested
+/// `default_aggregate_fns`). Only aggregates `ctx` allows are recorded in the nested
 /// statistics: an explicitly requested aggregate it forbids fails, like it does for zone maps,
 /// while forbidden defaults are left out.
 ///
@@ -260,7 +261,7 @@ impl StatsAccumulator {
         let stats = match stats {
             Some(stats) => stats,
             None => {
-                default_stats = default_pruning_aggregate_fns(dtype);
+                default_stats = default_aggregate_fns(dtype);
                 default_stats.as_slice()
             }
         };
@@ -328,11 +329,11 @@ fn is_varlen_dtype(dtype: &DType) -> bool {
     matches!(dtype, DType::Utf8(_) | DType::Binary(_))
 }
 
-/// Default file-level pruning aggregates for `dtype`, chosen the way `default_zoned_aggregate_fns`
-/// picks zoned aggregates: a byte-bounded min/max (capped at [`default_bounded_stat_max_bytes`])
-/// for variable-length columns, and exact min/max otherwise. Callers wanting a different bound pass
-/// their own `BoundedMax`/`BoundedMin` instead.
-fn default_pruning_aggregate_fns(dtype: &DType) -> Vec<AggregateFnRef> {
+/// Default file-level aggregates for `dtype`. The pruning aggregates are chosen the way
+/// `default_zoned_aggregate_fns` picks zoned aggregates: a byte-bounded min/max (capped at
+/// [`default_bounded_stat_max_bytes`]) for variable-length columns, and exact min/max otherwise.
+/// Callers wanting a different bound pass their own `BoundedMax`/`BoundedMin` instead.
+fn default_aggregate_fns(dtype: &DType) -> Vec<AggregateFnRef> {
     let (max, min) = if is_varlen_dtype(dtype) {
         // These read back as inexact even when nothing was truncated, until a V2 of the bounded
         // aggregates records that in its partial state.
@@ -354,6 +355,7 @@ fn default_pruning_aggregate_fns(dtype: &DType) -> Vec<AggregateFnRef> {
         min,
         NullCount.bind(EmptyOptions),
         NanCount.bind(EmptyOptions),
+        UncompressedSizeInBytes.bind(EmptyOptions),
     ]
 }
 
@@ -833,9 +835,9 @@ mod tests {
     }
 
     #[test]
-    fn default_pruning_aggregate_fns_uses_bounded_min_max_for_varlen() {
+    fn default_aggregate_fns_uses_bounded_min_max_for_varlen() {
         let dtype = DType::Utf8(Nullability::NonNullable);
-        let fns = default_pruning_aggregate_fns(&dtype);
+        let fns = default_aggregate_fns(&dtype);
         assert!(fns.iter().any(|f| f.is::<BoundedMax>()));
         assert!(fns.iter().any(|f| f.is::<BoundedMin>()));
         assert!(!fns.iter().any(|f| f.is::<Max>()));
@@ -843,8 +845,8 @@ mod tests {
     }
 
     #[test]
-    fn default_pruning_aggregate_fns_uses_plain_min_max_for_fixed_width() {
-        let fns = default_pruning_aggregate_fns(&i32_dtype());
+    fn default_aggregate_fns_uses_plain_min_max_for_fixed_width() {
+        let fns = default_aggregate_fns(&i32_dtype());
         assert!(fns.iter().any(|f| f.is::<Max>()));
         assert!(fns.iter().any(|f| f.is::<Min>()));
         assert!(!fns.iter().any(|f| f.is::<BoundedMax>()));
@@ -1380,6 +1382,50 @@ mod tests {
             Precision::exact(Scalar::null(DType::Utf8(Nullability::Nullable))),
         )]);
         assert!(null.get(&requested).is_absent());
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::allowed(true)]
+    #[case::forbidden(false)]
+    fn default_uncompressed_size_follows_ctx(#[case] allowed: bool) -> VortexResult<()> {
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        let dtype = DType::struct_([("a", i32_dtype())], Nullability::NonNullable);
+        let mut aggregates = HashSet::from_iter([Min.id(), Max.id(), NullCount.id()]);
+        if allowed {
+            aggregates.insert(UncompressedSizeInBytes.id());
+        }
+        let ctx =
+            LayoutWriterContext::new(ArrayContext::empty()).with_allowed_aggregates(aggregates);
+        let acc = FileStatsAccumulator::try_new(&dtype, None, true, true, &ctx)?;
+        for values in [buffer![1i32, 2, 3], buffer![4i32, 5]] {
+            let len = values.len();
+            let chunk = StructArray::new(
+                FieldNames::from(["a"]),
+                [values.into_array()],
+                len,
+                Validity::NonNullable,
+            )
+            .into_array();
+            push(&acc, &chunk, &mut exec_ctx)?;
+        }
+
+        // Five i32 values. The nested statistics record them only if the editions allow it; the
+        // legacy statistics, like every legacy stat, record them regardless.
+        let size = agg(Stat::UncompressedSizeInBytes);
+        let five_i32 = Precision::exact(ScalarValue::from(20u64));
+        assert_eq!(
+            acc.legacy_aggregate_stats()?[0]
+                .get(&size)
+                .and_then(Scalar::into_value),
+            five_i32
+        );
+        assert_eq!(
+            acc.aggregate_stats()?[0]
+                .get(&size)
+                .and_then(Scalar::into_value),
+            if allowed { five_i32 } else { Precision::Absent }
+        );
         Ok(())
     }
 
