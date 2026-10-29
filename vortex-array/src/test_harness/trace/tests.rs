@@ -498,7 +498,6 @@ fn trace_execute_filter_with_scattered_mask() -> VortexResult<()> {
       iter 0 current=vortex.filter(i32, len=2) builder_active=false
         Done array=vortex.primitive(i32, len=2)
       iter 1 current=vortex.primitive(i32, len=2) builder_active=false
-    optimize_recursive root=vortex.primitive(i32, len=2)
       return output=vortex.primitive(i32, len=2)
     ");
 
@@ -556,7 +555,6 @@ fn trace_execution_stack_parent_kernel_attempts(
         optimize input=vortex.primitive(i32, len=3) output=vortex.primitive(i32, len=3) changed=false
       iter 2 current=vortex.primitive(i32, len=3) builder_active=false
         done_check target=true canonical=true
-    optimize_recursive root=vortex.primitive(i32, len=3)
       return output=vortex.primitive(i32, len=3)
     ");
 
@@ -601,7 +599,6 @@ fn trace_execution_chunked_append_child_flow() -> VortexResult<()> {
         Done array=vortex.primitive(i32, len=0)
         builder finish output=vortex.primitive(i32, len=5)
       iter 4 current=vortex.primitive(i32, len=5) builder_active=false
-    optimize_recursive root=vortex.primitive(i32, len=5)
       return output=vortex.primitive(i32, len=5)
     ");
 
@@ -661,7 +658,6 @@ fn trace_take_on_chunked() -> VortexResult<()> {
       iter 1 current=vortex.dict(i32, len=4) builder_active=false
         child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(i32, len=4) child=vortex.primitive(i32, len=4) -> vortex.primitive(i32, len=4)
       iter 2 current=vortex.primitive(i32, len=4) builder_active=false
-    optimize_recursive root=vortex.primitive(i32, len=4)
       return output=vortex.primitive(i32, len=4)
     ");
 
@@ -768,7 +764,6 @@ fn trace_compare_on_dict() -> VortexResult<()> {
       iter 3 current=vortex.dict(bool, len=5) builder_active=false
         child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(bool, len=5) child=vortex.bool(bool, len=3) -> vortex.bool(bool, len=5)
       iter 4 current=vortex.bool(bool, len=5) builder_active=false
-    optimize_recursive root=vortex.bool(bool, len=5)
       return output=vortex.bool(bool, len=5)
     ");
 
@@ -820,7 +815,6 @@ fn trace_like_on_dict() -> VortexResult<()> {
       iter 3 current=vortex.dict(bool, len=6) builder_active=false
         child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(bool, len=6) child=vortex.bool(bool, len=3) -> vortex.bool(bool, len=6)
       iter 4 current=vortex.bool(bool, len=6) builder_active=false
-    optimize_recursive root=vortex.bool(bool, len=6)
       return output=vortex.bool(bool, len=6)
     ");
 

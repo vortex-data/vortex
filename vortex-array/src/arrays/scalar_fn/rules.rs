@@ -17,7 +17,6 @@ use crate::arrays::ScalarFnArray;
 use crate::arrays::Slice;
 use crate::arrays::StructArray;
 use crate::arrays::filter::prepare_mask_for_reuse;
-use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -33,8 +32,8 @@ pub(super) const RULES: ReduceRuleSet<ScalarFn> =
 /// Registers the parent-reduce rules for [`ScalarFn`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Filter.id(), AnyScalarFn.id(), ScalarFilterPushdownRule);
-    kernels.register_reduce_parent_rule(Slice.id(), AnyScalarFn.id(), ScalarFnSliceReduceRule);
+    kernels.register_scalar_fn_reduce_parent_rule(Filter.id(), ScalarFilterPushdownRule);
+    kernels.register_scalar_fn_reduce_parent_rule(Slice.id(), ScalarFnSliceReduceRule);
 }
 
 /// Converts a ScalarFnArray with Pack into a StructArray directly.

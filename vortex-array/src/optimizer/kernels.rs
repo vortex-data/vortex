@@ -24,6 +24,7 @@
 //! as the built-in encodings.
 
 use std::any::Any;
+use std::any::TypeId;
 use std::borrow::Borrow;
 use std::fmt::Debug;
 use std::hash::BuildHasher;
@@ -45,6 +46,8 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::array::VTable;
+use crate::arrays::ScalarFn;
+use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::reduce_parent_with_kernels;
@@ -54,7 +57,7 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 static FN_HASHER: LazyLock<DefaultHashBuilder> = LazyLock::new(DefaultHashBuilder::default);
 
 /// Type-erased parent-reduce kernel stored in the session registry.
-pub trait DynReduceParentKernel: Debug + Send + Sync + 'static {
+pub(crate) trait DynReduceParentKernel: Debug + Send + Sync + 'static {
     /// Attempt to rewrite `parent` given its child at `child_idx`.
     fn reduce_parent(
         &self,
@@ -261,15 +264,42 @@ impl ArrayKernels {
         }
     }
 
-    /// Register an [`ArrayParentReduceRule`] for `(parent, child)`.
+    /// Register an [`ArrayParentReduceRule`] for a `child` encoding under `parent`.
     ///
     /// The optimizer tries the rules registered for a pair in registration order when it sees a
-    /// parent with encoding id `parent` holding a child with encoding id `child`. Ids are encoding
-    /// ids, except that a `ScalarFnArray` is identified by its scalar function id, for example
-    /// `Cast.id()`, or by [`AnyScalarFn::id`](crate::arrays::scalar_fn::AnyScalarFn::id) for a rule
-    /// that applies to any scalar function array. Rules for the exact ids are tried before those
-    /// registered under [`AnyScalarFn::id`](crate::arrays::scalar_fn::AnyScalarFn::id).
-    pub fn register_reduce_parent_rule<V, R>(&self, parent: Id, child: Id, rule: R)
+    /// parent with encoding id `parent` holding a child of the `child` encoding. The child id comes
+    /// from the vtable that the rule applies to, so it always matches the rule. The parent id is
+    /// an encoding id, except that a `ScalarFnArray` is identified by its scalar function id, for
+    /// example `Cast.id()`, or by [`AnyScalarFn::id`] for a rule that applies to any scalar
+    /// function array. Rules for the exact ids are tried before those registered under
+    /// [`AnyScalarFn::id`].
+    ///
+    /// Use [`Self::register_scalar_fn_reduce_parent_rule`] for a rule on a scalar function child.
+    pub fn register_reduce_parent_rule<V, R>(&self, parent: Id, child: V, rule: R)
+    where
+        V: VTable,
+        R: ArrayParentReduceRule<V>,
+    {
+        debug_assert!(
+            TypeId::of::<V>() != TypeId::of::<ScalarFn>(),
+            "register scalar function children with register_scalar_fn_reduce_parent_rule"
+        );
+        self.push_reduce_parent_rule::<V, R>(parent, child.id(), rule);
+    }
+
+    /// Register an [`ArrayParentReduceRule`] for a scalar function child, of any function, under
+    /// `parent`.
+    ///
+    /// The rule is keyed by [`AnyScalarFn::id`] on the child side. See
+    /// [`Self::register_reduce_parent_rule`] for how `parent` is identified.
+    pub fn register_scalar_fn_reduce_parent_rule<R>(&self, parent: Id, rule: R)
+    where
+        R: ArrayParentReduceRule<ScalarFn>,
+    {
+        self.push_reduce_parent_rule::<ScalarFn, R>(parent, AnyScalarFn.id(), rule);
+    }
+
+    fn push_reduce_parent_rule<V, R>(&self, parent: Id, child: Id, rule: R)
     where
         V: VTable,
         R: ArrayParentReduceRule<V>,
@@ -295,11 +325,6 @@ impl ArrayKernels {
             return;
         }
         self.reduce_parent_children.extend(parent, &[child]);
-    }
-
-    /// Returns true when one or more parent-reduce kernels are registered for `(parent, child)`.
-    pub fn has_reduce_parent(&self, parent: Id, child: Id) -> bool {
-        self.reduce_parent.get(&hash_fn_id(parent, child)).is_some()
     }
 
     /// Try the parent-reduce kernels registered for `parent` and `child` once, without

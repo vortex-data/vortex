@@ -34,11 +34,11 @@ use crate::validity::Validity;
 /// Registers the parent-reduce rules for [`Struct`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Cast.id(), Struct.id(), StructCastRule);
-    kernels.register_reduce_parent_rule(GetItem.id(), Struct.id(), StructGetItemRule);
-    kernels.register_reduce_parent_rule(MaskFn.id(), Struct.id(), MaskReduceAdaptor(Struct));
-    kernels.register_reduce_parent_rule(Slice.id(), Struct.id(), SliceReduceAdaptor(Struct));
-    kernels.register_reduce_parent_rule(Dict.id(), Struct.id(), TakeReduceAdaptor(Struct));
+    kernels.register_reduce_parent_rule(Cast.id(), Struct, StructCastRule);
+    kernels.register_reduce_parent_rule(GetItem.id(), Struct, StructGetItemRule);
+    kernels.register_reduce_parent_rule(MaskFn.id(), Struct, MaskReduceAdaptor(Struct));
+    kernels.register_reduce_parent_rule(Slice.id(), Struct, SliceReduceAdaptor(Struct));
+    kernels.register_reduce_parent_rule(Dict.id(), Struct, TakeReduceAdaptor(Struct));
 }
 
 /// Casts a struct by casting its fields, when the cast only changes what the validity can hold.

@@ -27,11 +27,11 @@ use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 /// Registers the parent-reduce rules for [`Bool`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Masked.id(), Bool.id(), BoolMaskedValidityRule);
-    kernels.register_reduce_parent_rule(Cast.id(), Bool.id(), CastReduceAdaptor(Bool));
-    kernels.register_reduce_parent_rule(MaskFn.id(), Bool.id(), MaskReduceAdaptor(Bool));
-    kernels.register_reduce_parent_rule(Slice.id(), Bool.id(), SliceReduceAdaptor(Bool));
-    kernels.register_reduce_parent_rule(Filter.id(), Bool.id(), FilterReduceAdaptor(Bool));
+    kernels.register_reduce_parent_rule(Masked.id(), Bool, BoolMaskedValidityRule);
+    kernels.register_reduce_parent_rule(Cast.id(), Bool, CastReduceAdaptor(Bool));
+    kernels.register_reduce_parent_rule(MaskFn.id(), Bool, MaskReduceAdaptor(Bool));
+    kernels.register_reduce_parent_rule(Slice.id(), Bool, SliceReduceAdaptor(Bool));
+    kernels.register_reduce_parent_rule(Filter.id(), Bool, FilterReduceAdaptor(Bool));
 }
 
 /// Rule to push down validity masking from MaskedArray parent into BoolArray child.

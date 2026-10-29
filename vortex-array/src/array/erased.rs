@@ -103,30 +103,9 @@ impl ArrayRef {
         Some(inner)
     }
 
-    /// Returns the record of how far the optimizer has already taken this array.
+    /// Returns whether the optimizer has already taken this array to its fixpoint.
     pub(crate) fn optimized_state(&self) -> &OptimizedState {
         &self.0.optimized
-    }
-
-    /// Returns whether this array node is known to be at the optimizer's fixpoint.
-    ///
-    /// Newly constructed arrays are not optimized. [`ArrayOptimizer::optimize`] marks the node it
-    /// returns, and calling it again on a marked node returns the node without trying any rule.
-    ///
-    /// [`ArrayOptimizer::optimize`]: crate::optimizer::ArrayOptimizer::optimize
-    pub fn is_optimized(&self) -> bool {
-        self.0.optimized.is_root_optimized()
-    }
-
-    /// Returns whether this array and all of its descendants are known to be at the optimizer's
-    /// fixpoint.
-    ///
-    /// [`ArrayOptimizer::optimize_recursive`] marks the tree it returns once a pass over it finds
-    /// nothing to rewrite, and skips subtrees that are already marked.
-    ///
-    /// [`ArrayOptimizer::optimize_recursive`]: crate::optimizer::ArrayOptimizer::optimize_recursive
-    pub fn is_recursively_optimized(&self) -> bool {
-        self.0.optimized.is_tree_optimized()
     }
 
     /// Returns the Arc::as_ptr().addr() of the underlying array.
@@ -263,20 +242,19 @@ impl ArrayRef {
 
         let sliced = SliceArray::try_new(self.clone(), range)?.into_array();
 
-        // Propagate some stats from the original array to the sliced array.
-        if !sliced.is::<Constant>() {
-            self.statistics().with_iter(|iter| {
-                sliced.statistics().inherit(iter.filter(|(stat, value)| {
-                    matches!(
-                        stat,
-                        Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
-                    ) && value
-                        .as_ref()
-                        .as_exact()
-                        .is_some_and(|v| matches!(v, ScalarValue::Bool(true)))
-                }));
-            });
-        }
+        // Propagate some stats from the original array to the sliced array. Optimizing the slice
+        // carries them over to the array it reduces to.
+        self.statistics().with_iter(|iter| {
+            sliced.statistics().inherit(iter.filter(|(stat, value)| {
+                matches!(
+                    stat,
+                    Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
+                ) && value
+                    .as_ref()
+                    .as_exact()
+                    .is_some_and(|v| matches!(v, ScalarValue::Bool(true)))
+            }));
+        });
 
         Ok(sliced)
     }

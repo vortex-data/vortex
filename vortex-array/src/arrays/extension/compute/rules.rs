@@ -55,16 +55,16 @@ impl ArrayReduceRule<Extension> for ExtensionConstantRule {
 /// Registers the parent-reduce rules for [`Extension`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Filter.id(), Extension.id(), ExtensionFilterPushDownRule);
-    kernels.register_reduce_parent_rule(Cast.id(), Extension.id(), CastReduceAdaptor(Extension));
+    kernels.register_reduce_parent_rule(Filter.id(), Extension, ExtensionFilterPushDownRule);
+    kernels.register_reduce_parent_rule(Cast.id(), Extension, CastReduceAdaptor(Extension));
     kernels.register_reduce_parent_rule(
         Filter.id(),
-        Extension.id(),
+        Extension,
         FilterReduceAdaptor(Extension),
     );
-    kernels.register_reduce_parent_rule(MaskFn.id(), Extension.id(), MaskReduceAdaptor(Extension));
-    kernels.register_reduce_parent_rule(Slice.id(), Extension.id(), SliceReduceAdaptor(Extension));
-    kernels.register_reduce_parent_rule(Dict.id(), Extension.id(), TakeReduceAdaptor(Extension));
+    kernels.register_reduce_parent_rule(MaskFn.id(), Extension, MaskReduceAdaptor(Extension));
+    kernels.register_reduce_parent_rule(Slice.id(), Extension, SliceReduceAdaptor(Extension));
+    kernels.register_reduce_parent_rule(Dict.id(), Extension, TakeReduceAdaptor(Extension));
 }
 
 /// Push filter operations into the storage array of an extension array.

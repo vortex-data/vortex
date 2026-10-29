@@ -48,7 +48,6 @@ use crate::optimizer::kernels::ParentExecutionKernels;
 use crate::optimizer::kernels::ParentReduceKernels;
 use crate::optimizer::kernels::execute_parent_key;
 use crate::optimizer::kernels::execute_parent_marker_key;
-use crate::optimizer::optimize_result_with_kernels;
 use crate::optimizer::optimize_with_kernels;
 use crate::stats::ArrayStats;
 use crate::trace_op;
@@ -195,9 +194,9 @@ impl ArrayRef {
 
         trace_op!(record_execute_until_start::<M>(&current_array));
 
-        for iteration in 0..max_iterations {
+        for _iteration in 0..max_iterations {
             trace_op!(record_execute_until_iteration(
-                iteration,
+                _iteration,
                 &current_array,
                 stack
                     .last()
@@ -222,11 +221,9 @@ impl ArrayRef {
                             "root activation should not retain a builder"
                         );
                         // Kernels build their results with lazy constructors too, such as a
-                        // filtered validity, so optimize whatever execution produced.
-                        if iteration > 0 {
-                            current_array =
-                                optimize_result_with_kernels(current_array, reduce_kernels)?;
-                        }
+                        // filtered validity, so optimize whatever execution produced. This is
+                        // free when the array is already marked as optimized.
+                        current_array = optimize_with_kernels(current_array, reduce_kernels)?;
                         trace_op!(record_execute_until_return(&current_array));
                         return Ok(current_array);
                     }

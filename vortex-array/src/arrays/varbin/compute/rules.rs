@@ -17,7 +17,7 @@ use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 /// Registers the parent-reduce rules for [`VarBin`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Cast.id(), VarBin.id(), CastReduceAdaptor(VarBin));
-    kernels.register_reduce_parent_rule(MaskFn.id(), VarBin.id(), MaskReduceAdaptor(VarBin));
-    kernels.register_reduce_parent_rule(Slice.id(), VarBin.id(), SliceReduceAdaptor(VarBin));
+    kernels.register_reduce_parent_rule(Cast.id(), VarBin, CastReduceAdaptor(VarBin));
+    kernels.register_reduce_parent_rule(MaskFn.id(), VarBin, MaskReduceAdaptor(VarBin));
+    kernels.register_reduce_parent_rule(Slice.id(), VarBin, SliceReduceAdaptor(VarBin));
 }

@@ -24,10 +24,10 @@ use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 /// Registers the parent-reduce rules for [`Primitive`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Masked.id(), Primitive.id(), PrimitiveMaskedValidityRule);
-    kernels.register_reduce_parent_rule(Cast.id(), Primitive.id(), CastReduceAdaptor(Primitive));
-    kernels.register_reduce_parent_rule(MaskFn.id(), Primitive.id(), MaskReduceAdaptor(Primitive));
-    kernels.register_reduce_parent_rule(Slice.id(), Primitive.id(), SliceReduceAdaptor(Primitive));
+    kernels.register_reduce_parent_rule(Masked.id(), Primitive, PrimitiveMaskedValidityRule);
+    kernels.register_reduce_parent_rule(Cast.id(), Primitive, CastReduceAdaptor(Primitive));
+    kernels.register_reduce_parent_rule(MaskFn.id(), Primitive, MaskReduceAdaptor(Primitive));
+    kernels.register_reduce_parent_rule(Slice.id(), Primitive, SliceReduceAdaptor(Primitive));
 }
 
 /// Rule to push down validity masking from MaskedArray parent into PrimitiveArray child.

@@ -21,8 +21,8 @@ use crate::scalar_fn::fns::get_item::GetItem;
 /// Registers the parent-reduce rules for [`Slice`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Slice.id(), Slice.id(), SliceReduceAdaptor(Slice));
-    kernels.register_reduce_parent_rule(GetItem.id(), Slice.id(), SliceGetItemRule);
+    kernels.register_reduce_parent_rule(Slice.id(), Slice, SliceReduceAdaptor(Slice));
+    kernels.register_reduce_parent_rule(GetItem.id(), Slice, SliceGetItemRule);
 }
 
 #[derive(Debug)]

@@ -404,20 +404,6 @@ pub(crate) fn record_optimize_done(output: &ArrayRef, changed: bool) {
     });
 }
 
-pub(crate) fn record_optimize_recursive_start(root: &ArrayRef) {
-    record(TraceEvent::OptimizeRecursiveStart {
-        root: ArraySummary::new(root),
-    });
-}
-
-pub(crate) fn record_optimize_recursive_slot(slot_idx: usize, input: &ArrayRef, output: &ArrayRef) {
-    record(TraceEvent::OptimizeRecursiveSlot {
-        slot_idx,
-        input: ArraySummary::new(input),
-        output: ArraySummary::new(output),
-    });
-}
-
 pub(crate) fn record_reduce_applied(array: &ArrayRef, rule: &dyn Debug, output: &ArrayRef) {
     record(TraceEvent::ReduceApplied {
         array: ArraySummary::new(array),
@@ -834,14 +820,6 @@ enum TraceEvent {
         output: ArraySummary,
         changed: bool,
     },
-    OptimizeRecursiveStart {
-        root: ArraySummary,
-    },
-    OptimizeRecursiveSlot {
-        slot_idx: usize,
-        input: ArraySummary,
-        output: ArraySummary,
-    },
     ReduceAttempt {
         array: ArraySummary,
         rule: String,
@@ -1012,12 +990,10 @@ impl TraceEvent {
             | TraceEvent::SlotTransition { .. }
             | TraceEvent::BuilderEvent { .. }
             | TraceEvent::ExecuteDone { .. } => 2,
-            TraceEvent::OptimizeRecursiveSlot { .. }
-            | TraceEvent::ExecuteUntilIteration { .. }
+            TraceEvent::ExecuteUntilIteration { .. }
             | TraceEvent::ExecuteUntilReturn { .. }
             | TraceEvent::SingleStepApplied { .. } => 1,
             TraceEvent::OptimizeLoopEnd
-            | TraceEvent::OptimizeRecursiveStart { .. }
             | TraceEvent::ExecuteUntilStart { .. }
             | TraceEvent::SingleStepStart { .. } => 0,
         }
@@ -1036,14 +1012,6 @@ impl TraceEvent {
                 TraceResolution::Attempts => write!(f, "done output={output} changed={changed}"),
                 TraceResolution::ExecutedOnly => write!(f, "done output={output}"),
             },
-            TraceEvent::OptimizeRecursiveStart { root } => {
-                write!(f, "optimize_recursive root={root}")
-            }
-            TraceEvent::OptimizeRecursiveSlot {
-                slot_idx,
-                input,
-                output,
-            } => write!(f, "recursive slot={slot_idx} input={input} output={output}"),
             TraceEvent::ReduceAttempt {
                 array,
                 rule,

@@ -14,7 +14,8 @@
 //!
 //! - [`ArrayOptimizer::optimize`] optimizes the root array node, after the descendants below it
 //!   that were never optimized.
-//! - [`ArrayOptimizer::optimize_recursive`] optimizes the root and every descendant.
+//! - [`ArrayOptimizer::optimize_recursive`] does the same. Optimizing a node first optimizes every
+//!   descendant that was never optimized, so the root's mark covers the whole tree.
 //!
 //! Array constructors such as [`ArrayRef::slice`](crate::ArrayRef::slice) do not optimize: they
 //! return the wrapped array. Optimizing a node therefore first optimizes its children that were
@@ -23,13 +24,15 @@
 //! FSST array under a `LIKE`. Children already optimized are left without visiting their subtrees.
 //! Whenever a rule rewrites a node, the nodes the rule built are optimized the same way.
 //!
-//! Each array records how far the optimizer has taken it in its optimized state. A new array
-//! starts unoptimized, and the optimizer marks the arrays it returns, so optimizing an array again
-//! returns it without trying any rule. The mark does not record the session: an array optimized
-//! with one session is not optimized again with a session that registers more kernels.
+//! Each array records whether the optimizer has taken it to its fixpoint. A new array starts
+//! unoptimized, and the optimizer marks the arrays it returns, so optimizing an array again returns
+//! it without trying any rule. The optimizer marks a node only after it optimized the children of
+//! the node, so the descendants of a marked node are marked too. The mark does not record the
+//! session: an array optimized with one session is not optimized again with a session that
+//! registers more kernels.
 
 use std::sync::LazyLock;
-use std::sync::atomic::AtomicU8;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use smallvec::SmallVec;
@@ -54,46 +57,36 @@ pub mod rules;
 /// Increasing this value permits longer rewrite chains but delays detection of cyclic rules.
 const MAX_OPTIMIZER_REWRITE_PASS: usize = 100;
 
-/// Records how far the optimizer has already taken an array node.
+/// Records whether the optimizer has already taken an array node to its fixpoint.
 ///
 /// A shared array never changes, so a node that reached the optimizer's fixpoint stays there.
 /// Every new array starts unoptimized, and changing a uniquely owned array in place clears the
 /// state.
 #[derive(Debug, Default)]
-pub(crate) struct OptimizedState(AtomicU8);
+pub(crate) struct OptimizedState(AtomicBool);
 
 impl OptimizedState {
-    /// No rule rewrites the node itself.
-    const ROOT: u8 = 1;
-    /// No rule rewrites the node or any of its descendants.
-    const TREE: u8 = 1 << 1;
-
-    pub(crate) fn is_root_optimized(&self) -> bool {
-        self.0.load(Ordering::Relaxed) & Self::ROOT != 0
+    pub(crate) fn is_optimized(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
     }
 
-    pub(crate) fn is_tree_optimized(&self) -> bool {
-        self.0.load(Ordering::Relaxed) & Self::TREE != 0
-    }
-
-    fn mark_root_optimized(&self) {
-        self.0.fetch_or(Self::ROOT, Ordering::Relaxed);
-    }
-
-    fn mark_tree_optimized(&self) {
-        self.0.fetch_or(Self::ROOT | Self::TREE, Ordering::Relaxed);
+    fn mark_optimized(&self) {
+        self.0.store(true, Ordering::Relaxed);
     }
 
     pub(crate) fn clear(&mut self) {
-        *self.0.get_mut() = 0;
+        *self.0.get_mut() = false;
     }
 }
 
-/// Marks an array decoded from its serialized form, and the tree below it, as optimized.
+/// Marks the root of an array decoded from its serialized form as optimized.
 ///
-/// The writer stored the array after optimizing it, so no rule rewrites it again.
+/// The executor does not try reduce or parent-reduce rules on the decoded root itself. The
+/// children of the root stay unmarked, so a rule that exposes one of them, such as a slice pushed
+/// into a dictionary, still optimizes it. Arrays are usually written as the compressor built them,
+/// so this skips rules on the root without the guarantee that none applies.
 pub(crate) fn mark_decoded_optimized(array: &ArrayRef) {
-    array.optimized_state().mark_tree_optimized();
+    array.optimized_state().mark_optimized();
 }
 
 /// The parent-reduce kernels [`ArrayOptimizer`] optimizes with, from [`AsOptimizerKernels`].
@@ -154,8 +147,8 @@ pub trait ArrayOptimizer {
 
     /// Optimize the entire array tree recursively (root and all descendants).
     ///
-    /// This uses the same session-aware rule ordering as [`Self::optimize`] for every node in
-    /// the tree.
+    /// This is the same as [`Self::optimize`]: optimizing a node first optimizes every descendant
+    /// that was never optimized.
     fn optimize_recursive(
         &self,
         kernels: &(impl AsOptimizerKernels + ?Sized),
@@ -164,7 +157,7 @@ pub trait ArrayOptimizer {
 
 impl ArrayOptimizer for ArrayRef {
     fn optimize(&self, kernels: &(impl AsOptimizerKernels + ?Sized)) -> VortexResult<ArrayRef> {
-        if self.optimized_state().is_root_optimized() {
+        if self.optimized_state().is_optimized() {
             return Ok(self.clone());
         }
         kernels
@@ -176,14 +169,7 @@ impl ArrayOptimizer for ArrayRef {
         &self,
         kernels: &(impl AsOptimizerKernels + ?Sized),
     ) -> VortexResult<ArrayRef> {
-        if self.optimized_state().is_tree_optimized() {
-            return Ok(self.clone());
-        }
-        kernels
-            .optimizer_kernels()
-            .with_reduce_parent_kernels(|kernels| {
-                optimize_recursive_with_kernels(self.clone(), kernels)
-            })
+        self.optimize(kernels)
     }
 }
 
@@ -193,50 +179,13 @@ pub(crate) fn optimize_with_kernels(
     array: ArrayRef,
     kernels: &ParentReduceKernels,
 ) -> VortexResult<ArrayRef> {
-    Ok(optimize_owned(array, kernels)?.0)
-}
-
-/// [`ArrayOptimizer::optimize_recursive`] against a snapshot of the session's parent-reduce
-/// kernels.
-pub(crate) fn optimize_recursive_with_kernels(
-    array: ArrayRef,
-    kernels: &ParentReduceKernels,
-) -> VortexResult<ArrayRef> {
-    Ok(try_optimize_recursive(array, kernels, Descend::Always)?.0)
-}
-
-/// Optimizes the nodes of an execution result that were never optimized.
-///
-/// Kernels build their results with lazy constructors, such as a filtered validity, so the
-/// executor optimizes what it returns. A child that is already optimized as a root, such as an
-/// array a builder optimized as it was appended, is left with its subtree as it is, which keeps the
-/// pass from walking every chunk of a large result.
-pub(crate) fn optimize_result_with_kernels(
-    array: ArrayRef,
-    kernels: &ParentReduceKernels,
-) -> VortexResult<ArrayRef> {
-    Ok(try_optimize_recursive(array, kernels, Descend::UnlessOptimized)?.0)
-}
-
-/// Which children [`try_optimize_recursive`] descends into.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Descend {
-    Always,
-    UnlessOptimized,
-}
-
-fn optimize_owned(
-    mut current_array: ArrayRef,
-    kernels: &ParentReduceKernels,
-) -> VortexResult<(ArrayRef, bool)> {
-    if current_array.optimized_state().is_root_optimized() {
-        return Ok((current_array, false));
+    if array.optimized_state().is_optimized() {
+        return Ok(array);
     }
 
     // Parent rules match on their children's encodings, so optimize the children first.
-    let with_optimized_children = optimize_new_nodes(current_array.clone(), kernels)?;
-    let mut any_optimizations = !ArrayRef::ptr_eq(&with_optimized_children, &current_array);
-    current_array = with_optimized_children;
+    let mut current_array = optimize_new_nodes(array.clone(), kernels)?;
+    let mut any_optimizations = !ArrayRef::ptr_eq(&current_array, &array);
 
     trace_op!(record_optimize_start(&current_array));
 
@@ -283,8 +232,16 @@ fn optimize_owned(
 
         trace_op!(record_optimize_done(&current_array, any_optimizations));
 
-        current_array.optimized_state().mark_root_optimized();
-        return Ok((current_array, any_optimizations));
+        // A rewrite keeps the logical values, so every statistic of the input stays valid. Lazy
+        // constructors such as `slice` put the statistics they carry over on the lazy node.
+        if any_optimizations {
+            current_array
+                .statistics()
+                .inherit_from(array.statistics());
+        }
+
+        current_array.optimized_state().mark_optimized();
+        return Ok(current_array);
     }
 
     vortex_bail!("Exceeded maximum optimization iterations (possible infinite loop)");
@@ -304,8 +261,8 @@ fn optimize_new_nodes(array: ArrayRef, kernels: &ParentReduceKernels) -> VortexR
     let mut new_slots: Option<SmallVec<_>> = None;
     for (slot_idx, slot) in array.slots().iter().enumerate() {
         let optimized = match slot {
-            Some(child) if !child.optimized_state().is_root_optimized() => {
-                let (optimized, _) = optimize_owned(child.clone(), kernels)?;
+            Some(child) if !child.optimized_state().is_optimized() => {
+                let optimized = optimize_with_kernels(child.clone(), kernels)?;
                 (!ArrayRef::ptr_eq(&optimized, child)).then_some(optimized)
             }
             _ => None,
@@ -458,67 +415,6 @@ fn try_parent_reduce_kernels(
     Ok(None)
 }
 
-fn try_optimize_recursive(
-    current_array: ArrayRef,
-    kernels: &ParentReduceKernels,
-    descend: Descend,
-) -> VortexResult<(ArrayRef, bool)> {
-    if current_array.optimized_state().is_tree_optimized() {
-        return Ok((current_array, false));
-    }
-
-    trace_op!(record_optimize_recursive_start(&current_array));
-
-    let (mut current_array, mut any_optimizations) = optimize_owned(current_array, kernels)?;
-
-    // The new slots are only collected once a child changes, so a parent whose children are all
-    // optimized already, such as a chunked array of many chunks, copies none of them.
-    let mut new_slots: Option<SmallVec<_>> = None;
-    let mut skipped_child = false;
-    for (slot_idx, slot) in current_array.slots().iter().enumerate() {
-        let Some(child) = slot else {
-            if let Some(new_slots) = &mut new_slots {
-                new_slots.push(None);
-            }
-            continue;
-        };
-        if descend == Descend::UnlessOptimized && child.optimized_state().is_root_optimized() {
-            skipped_child |= !child.optimized_state().is_tree_optimized();
-            if let Some(new_slots) = &mut new_slots {
-                new_slots.push(Some(child.clone()));
-            }
-            continue;
-        }
-        let (new_child, new_slot_optimized) =
-            try_optimize_recursive(child.clone(), kernels, descend)?;
-        if new_slot_optimized {
-            trace_op!(record_optimize_recursive_slot(slot_idx, child, &new_child));
-            new_slots
-                .get_or_insert_with(|| {
-                    let mut slots = SmallVec::with_capacity(current_array.slots().len());
-                    slots.extend(current_array.slots()[..slot_idx].iter().cloned());
-                    slots
-                })
-                .push(Some(new_child));
-        } else if let Some(new_slots) = &mut new_slots {
-            new_slots.push(Some(new_child));
-        }
-    }
-
-    // New children may let a rule rewrite the parent, so only an unchanged tree is marked; the
-    // next pass tries a rebuilt parent again.
-    if let Some(new_slots) = new_slots {
-        // SAFETY: optimizer rules only replace child slots with logically equivalent arrays, so
-        // parent logical values and statistics remain valid.
-        current_array = unsafe { current_array.with_slots(new_slots) }?;
-        any_optimizations = true;
-    } else if !skipped_child {
-        current_array.optimized_state().mark_tree_optimized();
-    }
-
-    Ok((current_array, any_optimizations))
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
@@ -531,53 +427,62 @@ mod tests {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::arrays::Primitive;
+    use crate::expr::stats::Precision;
+    use crate::expr::stats::Stat;
+    use crate::expr::stats::StatsProviderExt;
     use crate::optimizer::ArrayOptimizer;
-    use crate::optimizer::MAX_OPTIMIZER_REWRITE_PASS;
+    use crate::scalar::ScalarValue;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[test]
     fn optimize_marks_result_and_skips_it_after() -> VortexResult<()> {
         let sliced = buffer![1i32, 2, 3, 4].into_array().slice(1..3)?;
-        assert!(!sliced.is_optimized());
+        assert!(!sliced.optimized_state().is_optimized());
 
         let optimized = sliced.optimize(&SESSION)?;
         assert!(optimized.is::<Primitive>());
-        assert!(optimized.is_optimized());
+        assert!(optimized.optimized_state().is_optimized());
         assert!(ArrayRef::ptr_eq(&optimized.optimize(&SESSION)?, &optimized));
 
         // A new array built over an optimized one starts unoptimized.
-        assert!(!optimized.slice(0..1)?.is_optimized());
+        assert!(!optimized.slice(0..1)?.optimized_state().is_optimized());
         Ok(())
     }
 
     #[test]
-    fn optimize_recursive_marks_tree_once_nothing_changes() -> VortexResult<()> {
+    fn optimize_marks_every_descendant() -> VortexResult<()> {
         let array = buffer![1i32, 2, 3, 4].into_array();
         let filtered = array
             .slice(1..4)?
             .filter(Mask::from_iter([true, false, true]))?;
-        assert!(!filtered.is_recursively_optimized());
 
-        // A pass that rewrites a child leaves the parent for the next pass to check.
-        let mut optimized = filtered.optimize_recursive(&SESSION)?;
-        for _ in 0..MAX_OPTIMIZER_REWRITE_PASS {
-            if optimized.is_recursively_optimized() {
-                break;
-            }
-            optimized = optimized.optimize_recursive(&SESSION)?;
-        }
-        assert!(optimized.is_recursively_optimized());
-        assert!(optimized.is_optimized());
+        let optimized = filtered.optimize(&SESSION)?;
         assert!(
             optimized
                 .depth_first_traversal()
-                .all(|node| node.is_recursively_optimized())
+                .all(|node| node.optimized_state().is_optimized())
         );
         assert!(ArrayRef::ptr_eq(
             &optimized.optimize_recursive(&SESSION)?,
             &optimized
         ));
+        Ok(())
+    }
+
+    #[test]
+    fn optimize_keeps_stats_of_rewritten_array() -> VortexResult<()> {
+        let array = buffer![1i32, 2, 3, 4].into_array();
+        array
+            .statistics()
+            .set(Stat::IsSorted, Precision::exact(ScalarValue::Bool(true)));
+
+        let optimized = array.slice(1..3)?.optimize(&SESSION)?;
+        assert!(optimized.is::<Primitive>());
+        assert_eq!(
+            optimized.statistics().get_as::<bool>(Stat::IsSorted),
+            Precision::exact(true)
+        );
         Ok(())
     }
 }

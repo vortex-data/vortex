@@ -23,27 +23,27 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
     kernels.register_reduce_parent_rule(
         Cast.id(),
-        DecimalByteParts.id(),
+        DecimalByteParts,
         CastReduceAdaptor(DecimalByteParts),
     );
     kernels.register_reduce_parent_rule(
         Filter.id(),
-        DecimalByteParts.id(),
+        DecimalByteParts,
         FilterReduceAdaptor(DecimalByteParts),
     );
     kernels.register_reduce_parent_rule(
         MaskFn.id(),
-        DecimalByteParts.id(),
+        DecimalByteParts,
         MaskReduceAdaptor(DecimalByteParts),
     );
     kernels.register_reduce_parent_rule(
         Slice.id(),
-        DecimalByteParts.id(),
+        DecimalByteParts,
         SliceReduceAdaptor(DecimalByteParts),
     );
     kernels.register_reduce_parent_rule(
         Dict.id(),
-        DecimalByteParts.id(),
+        DecimalByteParts,
         TakeReduceAdaptor(DecimalByteParts),
     );
 }

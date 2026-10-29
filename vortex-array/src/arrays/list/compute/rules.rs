@@ -17,7 +17,7 @@ use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 /// Registers the parent-reduce rules for [`List`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Cast.id(), List.id(), CastReduceAdaptor(List));
-    kernels.register_reduce_parent_rule(MaskFn.id(), List.id(), MaskReduceAdaptor(List));
-    kernels.register_reduce_parent_rule(Slice.id(), List.id(), SliceReduceAdaptor(List));
+    kernels.register_reduce_parent_rule(Cast.id(), List, CastReduceAdaptor(List));
+    kernels.register_reduce_parent_rule(MaskFn.id(), List, MaskReduceAdaptor(List));
+    kernels.register_reduce_parent_rule(Slice.id(), List, SliceReduceAdaptor(List));
 }

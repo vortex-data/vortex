@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::ArrayVTable;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::fns::cast::Cast;
@@ -15,6 +14,6 @@ use crate::alp_rd::ALPRD;
 /// Registers the parent-reduce rules for [`ALPRD`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Cast.id(), ALPRD.id(), CastReduceAdaptor(ALPRD));
-    kernels.register_reduce_parent_rule(MaskFn.id(), ALPRD.id(), MaskReduceAdaptor(ALPRD));
+    kernels.register_reduce_parent_rule(Cast.id(), ALPRD, CastReduceAdaptor(ALPRD));
+    kernels.register_reduce_parent_rule(MaskFn.id(), ALPRD, MaskReduceAdaptor(ALPRD));
 }

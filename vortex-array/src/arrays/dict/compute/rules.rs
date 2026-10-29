@@ -40,21 +40,21 @@ use crate::validity::Validity;
 /// Registers the parent-reduce rules for [`Dict`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Filter.id(), Dict.id(), FilterReduceAdaptor(Dict));
-    kernels.register_reduce_parent_rule(Cast.id(), Dict.id(), CastReduceAdaptor(Dict));
-    kernels.register_reduce_parent_rule(MaskFn.id(), Dict.id(), MaskReduceAdaptor(Dict));
-    kernels.register_reduce_parent_rule(Like.id(), Dict.id(), LikeReduceAdaptor(Dict));
+    kernels.register_reduce_parent_rule(Filter.id(), Dict, FilterReduceAdaptor(Dict));
+    kernels.register_reduce_parent_rule(Cast.id(), Dict, CastReduceAdaptor(Dict));
+    kernels.register_reduce_parent_rule(MaskFn.id(), Dict, MaskReduceAdaptor(Dict));
+    kernels.register_reduce_parent_rule(Like.id(), Dict, LikeReduceAdaptor(Dict));
     kernels.register_reduce_parent_rule(
         AnyScalarFn.id(),
-        Dict.id(),
+        Dict,
         DictionaryScalarFnValuesPushDownRule,
     );
     kernels.register_reduce_parent_rule(
         AnyScalarFn.id(),
-        Dict.id(),
+        Dict,
         DictionaryScalarFnCodesPullUpRule,
     );
-    kernels.register_reduce_parent_rule(Slice.id(), Dict.id(), SliceReduceAdaptor(Dict));
+    kernels.register_reduce_parent_rule(Slice.id(), Dict, SliceReduceAdaptor(Dict));
 }
 
 /// Push down a scalar function to run only over the values of a dictionary array.

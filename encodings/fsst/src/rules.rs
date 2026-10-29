@@ -15,6 +15,6 @@ use crate::FSST;
 /// Registers the parent-reduce rules for [`FSST`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Slice.id(), FSST.id(), SliceReduceAdaptor(FSST));
-    kernels.register_reduce_parent_rule(Cast.id(), FSST.id(), CastReduceAdaptor(FSST));
+    kernels.register_reduce_parent_rule(Slice.id(), FSST, SliceReduceAdaptor(FSST));
+    kernels.register_reduce_parent_rule(Cast.id(), FSST, CastReduceAdaptor(FSST));
 }

@@ -17,7 +17,7 @@ use crate::ByteBool;
 /// Registers the parent-reduce rules for [`ByteBool`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Cast.id(), ByteBool.id(), CastReduceAdaptor(ByteBool));
-    kernels.register_reduce_parent_rule(MaskFn.id(), ByteBool.id(), MaskReduceAdaptor(ByteBool));
-    kernels.register_reduce_parent_rule(Slice.id(), ByteBool.id(), SliceReduceAdaptor(ByteBool));
+    kernels.register_reduce_parent_rule(Cast.id(), ByteBool, CastReduceAdaptor(ByteBool));
+    kernels.register_reduce_parent_rule(MaskFn.id(), ByteBool, MaskReduceAdaptor(ByteBool));
+    kernels.register_reduce_parent_rule(Slice.id(), ByteBool, SliceReduceAdaptor(ByteBool));
 }

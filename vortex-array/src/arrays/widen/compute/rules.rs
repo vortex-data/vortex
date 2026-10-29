@@ -23,10 +23,10 @@ use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 /// Registers the parent-reduce rules for [`Widen`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Between.id(), Widen.id(), BetweenReduceAdaptor(Widen));
-    kernels.register_reduce_parent_rule(Cast.id(), Widen.id(), CastReduceAdaptor(Widen));
-    kernels.register_reduce_parent_rule(FillNull.id(), Widen.id(), FillNullReduceAdaptor(Widen));
-    kernels.register_reduce_parent_rule(Filter.id(), Widen.id(), FilterReduceAdaptor(Widen));
-    kernels.register_reduce_parent_rule(MaskFn.id(), Widen.id(), MaskReduceAdaptor(Widen));
-    kernels.register_reduce_parent_rule(Slice.id(), Widen.id(), SliceReduceAdaptor(Widen));
+    kernels.register_reduce_parent_rule(Between.id(), Widen, BetweenReduceAdaptor(Widen));
+    kernels.register_reduce_parent_rule(Cast.id(), Widen, CastReduceAdaptor(Widen));
+    kernels.register_reduce_parent_rule(FillNull.id(), Widen, FillNullReduceAdaptor(Widen));
+    kernels.register_reduce_parent_rule(Filter.id(), Widen, FilterReduceAdaptor(Widen));
+    kernels.register_reduce_parent_rule(MaskFn.id(), Widen, MaskReduceAdaptor(Widen));
+    kernels.register_reduce_parent_rule(Slice.id(), Widen, SliceReduceAdaptor(Widen));
 }

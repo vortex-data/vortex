@@ -19,17 +19,17 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
     kernels.register_reduce_parent_rule(
         Cast.id(),
-        FixedSizeList.id(),
+        FixedSizeList,
         CastReduceAdaptor(FixedSizeList),
     );
     kernels.register_reduce_parent_rule(
         MaskFn.id(),
-        FixedSizeList.id(),
+        FixedSizeList,
         MaskReduceAdaptor(FixedSizeList),
     );
     kernels.register_reduce_parent_rule(
         Slice.id(),
-        FixedSizeList.id(),
+        FixedSizeList,
         SliceReduceAdaptor(FixedSizeList),
     );
 }

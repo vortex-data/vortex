@@ -21,9 +21,9 @@ use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 /// Registers the parent-reduce rules for [`Map`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Filter.id(), Map.id(), FilterReduceAdaptor(Map));
-    kernels.register_reduce_parent_rule(Cast.id(), Map.id(), CastReduceAdaptor(Map));
-    kernels.register_reduce_parent_rule(MaskFn.id(), Map.id(), MaskReduceAdaptor(Map));
-    kernels.register_reduce_parent_rule(Slice.id(), Map.id(), SliceReduceAdaptor(Map));
-    kernels.register_reduce_parent_rule(Dict.id(), Map.id(), TakeReduceAdaptor(Map));
+    kernels.register_reduce_parent_rule(Filter.id(), Map, FilterReduceAdaptor(Map));
+    kernels.register_reduce_parent_rule(Cast.id(), Map, CastReduceAdaptor(Map));
+    kernels.register_reduce_parent_rule(MaskFn.id(), Map, MaskReduceAdaptor(Map));
+    kernels.register_reduce_parent_rule(Slice.id(), Map, SliceReduceAdaptor(Map));
+    kernels.register_reduce_parent_rule(Dict.id(), Map, TakeReduceAdaptor(Map));
 }

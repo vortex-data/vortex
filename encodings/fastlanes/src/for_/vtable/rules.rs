@@ -26,10 +26,10 @@ use crate::for_::array::FoRArraySlotsExt;
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
     // TODO: add BetweenReduceAdaptor(FoR)
-    kernels.register_reduce_parent_rule(Filter.id(), FoR.id(), FoRFilterPushDownRule);
-    kernels.register_reduce_parent_rule(Filter.id(), FoR.id(), FilterReduceAdaptor(FoR));
-    kernels.register_reduce_parent_rule(Slice.id(), FoR.id(), SliceReduceAdaptor(FoR));
-    kernels.register_reduce_parent_rule(Cast.id(), FoR.id(), CastReduceAdaptor(FoR));
+    kernels.register_reduce_parent_rule(Filter.id(), FoR, FoRFilterPushDownRule);
+    kernels.register_reduce_parent_rule(Filter.id(), FoR, FilterReduceAdaptor(FoR));
+    kernels.register_reduce_parent_rule(Slice.id(), FoR, SliceReduceAdaptor(FoR));
+    kernels.register_reduce_parent_rule(Cast.id(), FoR, CastReduceAdaptor(FoR));
 }
 
 #[derive(Debug)]

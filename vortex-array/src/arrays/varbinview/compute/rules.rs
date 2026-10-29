@@ -16,15 +16,15 @@ use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 /// Registers the parent-reduce rules for [`VarBinView`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Cast.id(), VarBinView.id(), CastReduceAdaptor(VarBinView));
+    kernels.register_reduce_parent_rule(Cast.id(), VarBinView, CastReduceAdaptor(VarBinView));
     kernels.register_reduce_parent_rule(
         MaskFn.id(),
-        VarBinView.id(),
+        VarBinView,
         MaskReduceAdaptor(VarBinView),
     );
     kernels.register_reduce_parent_rule(
         Slice.id(),
-        VarBinView.id(),
+        VarBinView,
         SliceReduceAdaptor(VarBinView),
     );
 }

@@ -15,6 +15,6 @@ use crate::Zstd;
 /// Registers the parent-reduce rules for [`Zstd`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Slice.id(), Zstd.id(), SliceReduceAdaptor(Zstd));
-    kernels.register_reduce_parent_rule(Cast.id(), Zstd.id(), CastReduceAdaptor(Zstd));
+    kernels.register_reduce_parent_rule(Slice.id(), Zstd, SliceReduceAdaptor(Zstd));
+    kernels.register_reduce_parent_rule(Cast.id(), Zstd, CastReduceAdaptor(Zstd));
 }

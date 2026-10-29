@@ -15,6 +15,6 @@ use crate::Pco;
 /// Registers the parent-reduce rules for [`Pco`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Slice.id(), Pco.id(), SliceReduceAdaptor(Pco));
-    kernels.register_reduce_parent_rule(Cast.id(), Pco.id(), CastReduceAdaptor(Pco));
+    kernels.register_reduce_parent_rule(Slice.id(), Pco, SliceReduceAdaptor(Pco));
+    kernels.register_reduce_parent_rule(Cast.id(), Pco, CastReduceAdaptor(Pco));
 }

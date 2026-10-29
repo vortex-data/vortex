@@ -5,7 +5,6 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::ArrayVTable;
 use crate::ArrayView;
 use crate::IntoArray;
 use crate::arrays::Constant;
@@ -32,9 +31,9 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
     // CastReduceAdaptor must come before RunEndScalarFnRule so that cast operations are executed
     // eagerly (surfacing out-of-range errors immediately) rather than being pushed lazily into
     // the values array by the generic scalar function push-down rule.
-    kernels.register_reduce_parent_rule(Cast.id(), RunEnd.id(), CastReduceAdaptor(RunEnd));
-    kernels.register_reduce_parent_rule(AnyScalarFn.id(), RunEnd.id(), RunEndScalarFnRule);
-    kernels.register_reduce_parent_rule(FillNull.id(), RunEnd.id(), FillNullReduceAdaptor(RunEnd));
+    kernels.register_reduce_parent_rule(Cast.id(), RunEnd, CastReduceAdaptor(RunEnd));
+    kernels.register_reduce_parent_rule(AnyScalarFn.id(), RunEnd, RunEndScalarFnRule);
+    kernels.register_reduce_parent_rule(FillNull.id(), RunEnd, FillNullReduceAdaptor(RunEnd));
 }
 
 /// A rule to push down scalar functions through run-end encoding into the values array.

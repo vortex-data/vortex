@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::ArrayVTable;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
@@ -22,8 +21,8 @@ use crate::SparseExt as _;
 /// Registers the parent-reduce rules for [`Sparse`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Cast.id(), Sparse.id(), CastReduceAdaptor(Sparse));
-    kernels.register_reduce_parent_rule(Not.id(), Sparse.id(), NotReduceAdaptor(Sparse));
+    kernels.register_reduce_parent_rule(Cast.id(), Sparse, CastReduceAdaptor(Sparse));
+    kernels.register_reduce_parent_rule(Not.id(), Sparse, NotReduceAdaptor(Sparse));
 }
 
 impl NotReduce for Sparse {

@@ -34,9 +34,9 @@ use crate::scalar_fn::fns::get_item::GetItem;
 /// Registers the parent-reduce rules for [`Filter`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Filter.id(), Filter.id(), FilterReduceAdaptor(Filter));
-    kernels.register_reduce_parent_rule(GetItem.id(), Filter.id(), FilterGetItemRule);
-    kernels.register_reduce_parent_rule(Slice.id(), Filter.id(), SliceReduceAdaptor(Filter));
+    kernels.register_reduce_parent_rule(Filter.id(), Filter, FilterReduceAdaptor(Filter));
+    kernels.register_reduce_parent_rule(GetItem.id(), Filter, FilterGetItemRule);
+    kernels.register_reduce_parent_rule(Slice.id(), Filter, SliceReduceAdaptor(Filter));
 }
 
 pub(super) const RULES: ReduceRuleSet<Filter> =

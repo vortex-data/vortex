@@ -17,11 +17,11 @@ use crate::Sequence;
 /// Registers the parent-reduce rules for [`Sequence`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Cast.id(), Sequence.id(), CastReduceAdaptor(Sequence));
+    kernels.register_reduce_parent_rule(Cast.id(), Sequence, CastReduceAdaptor(Sequence));
     kernels.register_reduce_parent_rule(
         ListContains.id(),
-        Sequence.id(),
+        Sequence,
         ListContainsElementReduceAdaptor(Sequence),
     );
-    kernels.register_reduce_parent_rule(Slice.id(), Sequence.id(), SliceReduceAdaptor(Sequence));
+    kernels.register_reduce_parent_rule(Slice.id(), Sequence, SliceReduceAdaptor(Sequence));
 }

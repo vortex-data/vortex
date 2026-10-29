@@ -17,7 +17,7 @@ use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 /// Registers the parent-reduce rules for [`Union`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(MaskFn.id(), Union.id(), MaskReduceAdaptor(Union));
-    kernels.register_reduce_parent_rule(Slice.id(), Union.id(), SliceReduceAdaptor(Union));
-    kernels.register_reduce_parent_rule(Dict.id(), Union.id(), TakeReduceAdaptor(Union));
+    kernels.register_reduce_parent_rule(MaskFn.id(), Union, MaskReduceAdaptor(Union));
+    kernels.register_reduce_parent_rule(Slice.id(), Union, SliceReduceAdaptor(Union));
+    kernels.register_reduce_parent_rule(Dict.id(), Union, TakeReduceAdaptor(Union));
 }

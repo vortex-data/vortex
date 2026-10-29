@@ -6,7 +6,6 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::ArrayVTable;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Chunked;
@@ -88,25 +87,25 @@ impl ArrayReduceRule<Chunked> for ChunkedDictValuesPullUpRule {
 /// Registers the parent-reduce rules for [`Chunked`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Cast.id(), Chunked.id(), CastReduceAdaptor(Chunked));
+    kernels.register_reduce_parent_rule(Cast.id(), Chunked, CastReduceAdaptor(Chunked));
     kernels.register_reduce_parent_rule(
         AnyScalarFn.id(),
-        Chunked.id(),
+        Chunked,
         ChunkedUnaryScalarFnPushDownRule,
     );
     kernels.register_reduce_parent_rule(
         ListContains.id(),
-        Chunked.id(),
+        Chunked,
         ListContainsElementReduceAdaptor(Chunked),
     );
     kernels.register_reduce_parent_rule(
         AnyScalarFn.id(),
-        Chunked.id(),
+        Chunked,
         ChunkedConstantScalarFnPushDownRule,
     );
     kernels.register_reduce_parent_rule(
         FillNull.id(),
-        Chunked.id(),
+        Chunked,
         FillNullReduceAdaptor(Chunked),
     );
 }

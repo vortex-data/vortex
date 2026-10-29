@@ -27,11 +27,11 @@ use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 /// Registers the parent-reduce rules for [`ListView`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Filter.id(), ListView.id(), ListViewFilterPushDown);
-    kernels.register_reduce_parent_rule(Cast.id(), ListView.id(), CastReduceAdaptor(ListView));
-    kernels.register_reduce_parent_rule(MaskFn.id(), ListView.id(), MaskReduceAdaptor(ListView));
-    kernels.register_reduce_parent_rule(Slice.id(), ListView.id(), SliceReduceAdaptor(ListView));
-    kernels.register_reduce_parent_rule(Dict.id(), ListView.id(), TakeReduceAdaptor(ListView));
+    kernels.register_reduce_parent_rule(Filter.id(), ListView, ListViewFilterPushDown);
+    kernels.register_reduce_parent_rule(Cast.id(), ListView, CastReduceAdaptor(ListView));
+    kernels.register_reduce_parent_rule(MaskFn.id(), ListView, MaskReduceAdaptor(ListView));
+    kernels.register_reduce_parent_rule(Slice.id(), ListView, SliceReduceAdaptor(ListView));
+    kernels.register_reduce_parent_rule(Dict.id(), ListView, TakeReduceAdaptor(ListView));
 }
 
 #[derive(Debug)]

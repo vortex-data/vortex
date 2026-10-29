@@ -36,7 +36,7 @@ pub(super) fn initialize(session: &VortexSession) {
 /// Registers the parent-reduce rules for [`ALP`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Between.id(), ALP.id(), BetweenReduceAdaptor(ALP));
-    kernels.register_reduce_parent_rule(Cast.id(), ALP.id(), CastReduceAdaptor(ALP));
-    kernels.register_reduce_parent_rule(MaskFn.id(), ALP.id(), MaskReduceAdaptor(ALP));
+    kernels.register_reduce_parent_rule(Between.id(), ALP, BetweenReduceAdaptor(ALP));
+    kernels.register_reduce_parent_rule(Cast.id(), ALP, CastReduceAdaptor(ALP));
+    kernels.register_reduce_parent_rule(MaskFn.id(), ALP, MaskReduceAdaptor(ALP));
 }

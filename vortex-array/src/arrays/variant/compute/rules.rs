@@ -16,7 +16,7 @@ use crate::optimizer::kernels::ArrayKernelsExt;
 /// Registers the parent-reduce rules for [`Variant`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(Slice.id(), Variant.id(), SliceReduceAdaptor(Variant));
-    kernels.register_reduce_parent_rule(Filter.id(), Variant.id(), FilterReduceAdaptor(Variant));
-    kernels.register_reduce_parent_rule(Dict.id(), Variant.id(), TakeReduceAdaptor(Variant));
+    kernels.register_reduce_parent_rule(Slice.id(), Variant, SliceReduceAdaptor(Variant));
+    kernels.register_reduce_parent_rule(Filter.id(), Variant, FilterReduceAdaptor(Variant));
+    kernels.register_reduce_parent_rule(Dict.id(), Variant, TakeReduceAdaptor(Variant));
 }

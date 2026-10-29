@@ -33,20 +33,20 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
     kernels.register_reduce_parent_rule(
         Between.id(),
-        Constant.id(),
+        Constant,
         BetweenReduceAdaptor(Constant),
     );
-    kernels.register_reduce_parent_rule(Cast.id(), Constant.id(), CastReduceAdaptor(Constant));
-    kernels.register_reduce_parent_rule(Filter.id(), Constant.id(), ConstantFilterRule);
+    kernels.register_reduce_parent_rule(Cast.id(), Constant, CastReduceAdaptor(Constant));
+    kernels.register_reduce_parent_rule(Filter.id(), Constant, ConstantFilterRule);
     kernels.register_reduce_parent_rule(
         FillNull.id(),
-        Constant.id(),
+        Constant,
         FillNullReduceAdaptor(Constant),
     );
-    kernels.register_reduce_parent_rule(Filter.id(), Constant.id(), FilterReduceAdaptor(Constant));
-    kernels.register_reduce_parent_rule(Not.id(), Constant.id(), NotReduceAdaptor(Constant));
-    kernels.register_reduce_parent_rule(Slice.id(), Constant.id(), SliceReduceAdaptor(Constant));
-    kernels.register_reduce_parent_rule(Dict.id(), Constant.id(), TakeReduceAdaptor(Constant));
+    kernels.register_reduce_parent_rule(Filter.id(), Constant, FilterReduceAdaptor(Constant));
+    kernels.register_reduce_parent_rule(Not.id(), Constant, NotReduceAdaptor(Constant));
+    kernels.register_reduce_parent_rule(Slice.id(), Constant, SliceReduceAdaptor(Constant));
+    kernels.register_reduce_parent_rule(Dict.id(), Constant, TakeReduceAdaptor(Constant));
 }
 
 #[derive(Debug)]
