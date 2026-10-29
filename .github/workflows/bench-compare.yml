@@ -1,0 +1,180 @@
+# Runs a chosen set of divan micro-benchmarks on the dispatched branch and on a base ref, on the
+# same machine, and reports the difference. Start it from the Actions tab ("Run workflow") on
+# your branch, or with:
+#
+#   gh workflow run bench-compare.yml --ref <branch> -f benchmarks="vortex-mask/rank vortex-array/take_primitive"
+#
+# See `scripts/bench-compare.py` for the benchmark spec syntax.
+
+name: Benchmark Compare
+run-name: >-
+  Bench compare ${{ github.ref_name }} vs ${{ inputs.base_ref }}: ${{ inputs.benchmarks }}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+on:
+  workflow_dispatch:
+    inputs:
+      benchmarks:
+        description: >-
+          Benchmarks to run, separated by spaces or commas. Each is `<crate>` (all bench targets),
+          `<crate>/<bench>` or `<crate>/<bench>/<divan filter regex>`,
+          e.g. "vortex-mask/rank vortex-array/take_primitive/u32".
+        required: true
+        type: string
+      base_ref:
+        description: "Branch, tag or commit on origin to compare against"
+        required: false
+        type: string
+        default: "develop"
+      rounds:
+        description: "Alternating base/head rounds per bench target; the median across rounds is reported"
+        required: false
+        type: string
+        default: "3"
+      threshold:
+        description: "Percent change flagged as faster or slower"
+        required: false
+        type: string
+        default: "5"
+      divan_args:
+        description: "Extra divan arguments, e.g. \"--sample-count 200 --min-time 1\""
+        required: false
+        type: string
+        default: ""
+      comment_pr:
+        description: "Post the report on the open PR for this branch, if there is one"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  pull-requests: write  # for commenting on PRs
+
+jobs:
+  build:
+    timeout-minutes: 90
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=bench-dedicated/family=c8gd.8xlarge/image=ubuntu24-full-arm64-pre-v2/tag=build-bench-compare/extras=s3-cache', github.run_id)
+          || 'ubuntu-latest' }}
+    outputs:
+      base_sha: ${{ steps.base.outputs.sha }}
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
+      - name: Check out base
+        id: base
+        shell: bash
+        env:
+          BASE_REF: ${{ inputs.base_ref }}
+        run: |
+          set -Eeu -o pipefail
+          sha=$(git rev-parse --verify --quiet "origin/$BASE_REF^{commit}" || git rev-parse --verify "$BASE_REF^{commit}")
+          git worktree add --detach "$RUNNER_TEMP/base" "$sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Build head benchmarks
+        shell: bash
+        env:
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+          BENCHMARKS: ${{ inputs.benchmarks }}
+        run: python3 scripts/bench-compare.py build --strict --benchmarks "$BENCHMARKS" --out bench-bins/head
+      - name: Build base benchmarks
+        shell: bash
+        working-directory: ${{ runner.temp }}/base
+        env:
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+          # Share the head's target directory so unchanged dependencies are not rebuilt.
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
+          BENCHMARKS: ${{ inputs.benchmarks }}
+        # Benchmarks missing from the base are reported as new rather than failing the run.
+        run: |
+          python3 "$GITHUB_WORKSPACE/scripts/bench-compare.py" build \
+            --benchmarks "$BENCHMARKS" --out "$GITHUB_WORKSPACE/bench-bins/base"
+      - name: Upload benchmark binaries
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: bench-compare-binaries
+          path: bench-bins/
+
+  bench:
+    needs: build
+    timeout-minutes: 180
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=bench-dedicated/family=c8gd.metal-24xl/image=ubuntu24-full-arm64-pre-v2/tag=bench-compare/extras=s3-cache', github.run_id)
+          || 'ubuntu-latest' }}
+    steps:
+      # Wires `download-artifact` up to the RunsOn artifact proxy enabled by `extras=s3-cache`.
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: ./.github/actions/system-info
+      - name: Download benchmark binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: bench-compare-binaries
+          path: bench-bins/
+      - name: Make benchmark binaries executable
+        shell: bash
+        run: find bench-bins -type f ! -name manifest.json -exec chmod +x {} +
+      - name: Setup benchmark environment
+        run: sudo bash scripts/setup-benchmark.sh
+      - name: Run benchmarks
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+          BENCHMARKS: ${{ inputs.benchmarks }}
+          ROUNDS: ${{ inputs.rounds }}
+          THRESHOLD: ${{ inputs.threshold }}
+          DIVAN_ARGS: ${{ inputs.divan_args }}
+          HEAD_LABEL: ${{ github.ref_name }} (${{ github.sha }})
+          BASE_LABEL: ${{ inputs.base_ref }} (${{ needs.build.outputs.base_sha }})
+        run: |
+          python3 scripts/bench-compare.py run --pin \
+            --benchmarks "$BENCHMARKS" \
+            --base bench-bins/base --head bench-bins/head \
+            --rounds "$ROUNDS" --threshold "$THRESHOLD" --divan-args "$DIVAN_ARGS" \
+            --head-label "$HEAD_LABEL" --base-label "$BASE_LABEL" \
+            --json bench-compare.json --report comment.md
+      - name: Write summary
+        if: ${{ !cancelled() && hashFiles('comment.md') != '' }}
+        shell: bash
+        run: cat comment.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload results
+        if: ${{ !cancelled() && hashFiles('comment.md') != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+        with:
+          name: bench-compare-results
+          path: |
+            bench-compare.json
+            comment.md
+      - name: Find PR
+        id: pr
+        if: ${{ !cancelled() && inputs.comment_pr && hashFiles('comment.md') != '' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$GITHUB_REF_NAME" --state open \
+            --json number --jq '.[0].number // empty')
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+      - name: Comment PR
+        if: ${{ !cancelled() && steps.pr.outputs.number != '' }}
+        uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
+        with:
+          file-path: comment.md
+          pr-number: ${{ steps.pr.outputs.number }}
+          comment-tag: bench-compare
