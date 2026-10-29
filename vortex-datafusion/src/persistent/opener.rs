@@ -50,6 +50,7 @@ use tracing::Instrument;
 use vortex::array::VortexSessionExecute;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
+use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
@@ -345,8 +346,17 @@ impl FileOpener for VortexOpener {
                 }
             }
             let residual_filter = conjunction_opt(residual_filters);
+            // Every partition of the file builds its filter and projection anew. Binding them
+            // through the shared scan cache hands each partition the same bound trees, so the
+            // partitions find the plans the cache keys by them.
+            let scan_cache =
+                scan_v2.then(|| shared_scan_cache(&scan_caches, &file.object_meta.location));
+            let bind = |expr: &Expression| match &scan_cache {
+                Some(cache) => cache.bind(expr, vxf.dtype()),
+                None => expr.bind(vxf.dtype())?.optimize_recursive(),
+            };
             let native_filter = and_collect(native_filters)
-                .map(|filter| filter.bind(vxf.dtype())?.optimize_recursive())
+                .map(|filter| bind(&filter))
                 .transpose()
                 .map_err(|e| {
                     exec_datafusion_err!("Couldn't bind Vortex scan filter in {}: {e}", file.path())
@@ -385,12 +395,9 @@ impl FileOpener for VortexOpener {
 
             // The schema of the stream returned from the vortex scan.
             // We use a reference schema for types that don't roundtrip (Dictionary, Utf8, etc.).
-            let scan_projection = scan_projection
-                .bind(vxf.dtype())
-                .and_then(|projection| projection.optimize_recursive())
-                .map_err(|_e| {
-                    exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
-                })?;
+            let scan_projection = bind(&scan_projection).map_err(|_e| {
+                exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
+            })?;
             let scan_dtype = scan_projection.dtype().clone();
 
             let stream_schema =
@@ -440,7 +447,7 @@ impl FileOpener for VortexOpener {
                     &file.object_meta.location,
                     scan_file.segments,
                 );
-                scan_file.cache = Some(shared_scan_cache(&scan_caches, &file.object_meta.location));
+                scan_file.cache = scan_cache;
                 let mut builder = V2ScanBuilder::new(vxf.session().clone(), scan_file)
                     .with_projection(scan_projection)
                     .with_some_filter(native_filter);
@@ -2290,7 +2297,7 @@ mod tests {
             &self,
             _expr: &PhysicalExprRef,
             _schema: &Schema,
-        ) -> DFResult<Option<vortex::expr::Expression>> {
+        ) -> DFResult<Option<Expression>> {
             Ok(None)
         }
     }

@@ -929,7 +929,8 @@ async fn pruned_rows_get_no_chunk(
 
 /// Scans of one file that share a cache share their filter plans, so the pruning plans run once:
 /// the second scan with the same filter re-reads the data it needs but never the zone maps. Each
-/// scan binds its own filter and projection, as each partition of an engine does.
+/// scan builds its own filter and projection, as each partition of an engine does, and binds them
+/// through the cache.
 #[tokio::test]
 async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
     let session = new_session().with_tokio();
@@ -943,8 +944,8 @@ async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
     // Without retained segments, so only the proved zones come from the cache.
     let cache = ScanCache::with_retained_bytes(0);
     file.cache = Some(cache.clone());
-    let filter = || gt(get_item("ints", root()), lit(2_999i32)).bind(layout.dtype());
-    let projection = || get_item("ints", root()).bind(layout.dtype());
+    let filter = || cache.bind(&gt(get_item("ints", root()), lit(2_999i32)), layout.dtype());
+    let projection = || cache.bind(&get_item("ints", root()), layout.dtype());
     assert!(cache.filter_plans(&filter()?).is_none());
 
     let mut reads = Vec::new();
