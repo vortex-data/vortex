@@ -26,6 +26,8 @@
     "enabled": true,
     "vulnerabilityFixStrategy": "lowest"
   },
+  "npmrc": "allow-remote=all",
+  "npmrcMerge": true,
   "packageRules": [
     {
       "description": "Wait 7 days after a release before proposing it, so most malicious publishes are found and removed upstream first. Security updates skip this wait. Lock file maintenance has no package name, so this rule does not reach it; see the lock file maintenance rules below.",
@@ -134,7 +136,7 @@
       ]
     },
     {
-      "description": "Renovate passes the 7-day wait to npm as --before.",
+      "description": "Renovate passes the 7-day wait to npm as --before. The top-level npmrc sets allow-remote=all only for Renovate's npm runs: npm 12 refuses some registry tarballs of packages with bundleDependencies (npm/cli#9800), including one in vortex-web. Remove that npmrc when the bug is fixed.",
       "groupName": "JS lock file maintenance",
       "groupSlug": "js-lock-file-maintenance",
       "matchManagers": [
@@ -144,15 +146,6 @@
         "lockFileMaintenance"
       ],
       "minimumReleaseAge": "7 days"
-    },
-    {
-      "description": "Update npm lock files with npm 11, which CI's Node 24 also ships. npm 12 refuses some registry tarballs of packages with bundleDependencies (npm/cli#9800), including one in vortex-web. Remove this rule when that bug is fixed.",
-      "matchManagers": [
-        "npm"
-      ],
-      "constraints": {
-        "npm": "^11"
-      }
     }
   ],
   "customManagers": [
