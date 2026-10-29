@@ -671,7 +671,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeExpression_literalTimestamp(
         } else {
             Nullability::NonNullable
         };
-        let ext = Timestamp::new_with_tz(unit, tz, nullability);
+        let ext = Timestamp::try_new_with_tz(unit, tz, nullability)?;
         let dtype = DType::Extension(ext.erased());
         if is_null_flag {
             return Ok(into_raw(lit(Scalar::null(dtype))));

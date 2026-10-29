@@ -1059,7 +1059,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "DType utf8 is not a primitive type")]
+    #[should_panic(expected = "Time storage dtype must be primitive, got utf8")]
     fn test_temporal_non_primitive_storage_error() {
         let _scalar = Scalar::extension::<Time>(
             TimeUnit::Nanoseconds,
