@@ -160,6 +160,9 @@ probe table requires exactly matching GET/byte coverage and separates header, fi
 total median/p90. All clients run sequentially on one on-demand c8gd.16xlarge in the bucket's region.
 It then runs all 22 TPC-H and 99 TPC-DS queries through DataFusion, DuckDB and Lance, plus synthetic
 random access and read/decode, against real/model/second-real controls using identical files.
+Each authenticated task receives fresh credentials from the standard pinned AWS workflow action;
+Python inherits them without token retrieval, role assumption or credential files. Task timeouts
+fit within the two-hour credential session, and all tasks remain on the same runner.
 
 Branch pushes exercise **all queries at SF0.01, three iterations**. Manual dispatch defaults to
 **SF10, five iterations**. `comparison.csv` recomputes median/p90 from raw iteration times,

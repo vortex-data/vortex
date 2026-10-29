@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-"""Calibrate on real S3, then exercise native benchmark clients on one CI host."""
+"""Run native S3 benchmark tasks using credentials supplied by the workflow."""
 
 import argparse
 import json
@@ -9,51 +9,245 @@ import os
 import shutil
 import subprocess
 import sys
+from functools import partial
 from pathlib import Path
 
-import aws_credentials
 import learn
 
+# Keep authenticated tasks within the standard two-hour workflow credential session.
+TASK_TIMEOUT_SECONDS = 6900
 
-def execute(cmd: list[str], log: Path, env: dict[str, str] | None = None):
+
+def execute(cmd: list[str], log: Path):
     print(json.dumps({"command": cmd, "log": str(log)}), flush=True)
     with log.open("w") as output:
-        subprocess.run(cmd, env=env, stdout=output, stderr=subprocess.STDOUT, check=True, timeout=21600)
+        subprocess.run(cmd, stdout=output, stderr=subprocess.STDOUT, check=True, timeout=TASK_TIMEOUT_SECONDS)
 
 
-def duckdb_environment(env: dict[str, str]) -> dict[str, str]:
-    """Native httpfs reads static environment credentials; refresh them before each suite."""
-    if "AWS_WEB_IDENTITY_TOKEN_FILE" not in env:
-        return env
-    response = subprocess.run(
+def simulate(args: argparse.Namespace, kind: str, name: str, cmd: list[str], local: Path | None = None) -> list[str]:
+    command = [
+        sys.executable,
+        "benchmarks/s3/run.py",
+        "--server",
+        str(args.binaries / "s3-simulate"),
+        "--profile",
+        str(args.output / "profile.json"),
+        "--kind",
+        kind,
+        "--timeout",
+        str(TASK_TIMEOUT_SECONDS),
+        "--output",
+        str(args.output / f"{name}-manifest.json"),
+    ]
+    if local is not None:
+        command.extend(["--data-root", str(local)])
+    return [*command, "--", *cmd]
+
+
+def calibrate(args: argparse.Namespace):
+    root = args.output
+    root.mkdir(parents=True, exist_ok=False)
+    run_id = os.environ["GITHUB_RUN_ID"]
+    for window in (1, 2):
+        execute(
+            [
+                str(args.binaries / "s3-measure"),
+                "--source",
+                args.remote_root + "/probe/",
+                "--output",
+                str(root / f"training-{window}.jsonl"),
+                "--measurement-id",
+                f"{run_id}-calibration-{window}",
+            ],
+            root / f"training-{window}.log",
+        )
+    model = learn.learn([root / "training-1.jsonl", root / "training-2.jsonl"])
+    profile = root / "profile.json"
+    profile.write_text(json.dumps(model, separators=(",", ":")) + "\n")
+    fixtures = root / "probe-fixtures"
+    fixtures.mkdir()
+    for index in range(1, 5):
+        shutil.copyfile("s3-probe.bin", fixtures / f"probe-{index}.bin")
+    execute(
+        [
+            str(args.binaries / "s3-measure"),
+            "--source",
+            args.remote_root + "/probe/",
+            "--output",
+            str(root / "heldout-real.jsonl"),
+            "--measurement-id",
+            f"{run_id}-heldout-real",
+        ],
+        root / "heldout-real.log",
+    )
+    for label, config in (("simulated", ["--profile", str(profile)]), ("zero", ["--zero-delay"])):
+        execute(
+            [
+                sys.executable,
+                "benchmarks/s3/run.py",
+                "--server",
+                str(args.binaries / "s3-simulate"),
+                *config,
+                "--kind",
+                "probe",
+                "--data-root",
+                str(fixtures),
+                "--output",
+                str(root / f"probe-{label}-manifest.json"),
+                "--",
+                str(args.binaries / "s3-measure"),
+                "--output",
+                str(root / f"probe-{label}.jsonl"),
+                "--measurement-id",
+                f"{run_id}-{label}",
+            ],
+            root / f"probe-{label}.log",
+        )
+
+
+def prepare_sql(args: argparse.Namespace, suite: str):
+    execute(
+        [str(args.binaries / "data-gen"), suite, "--formats", "parquet,vortex", "--opt", f"scale-factor={args.scale}"],
+        args.output / f"prepare-{suite}.log",
+    )
+    if "lance" in args.engines.split(","):
+        # A local first query prepares Lance through its ordinary conversion path.
+        execute(
+            [
+                str(args.binaries / "lance-bench"),
+                suite,
+                "--queries",
+                "1",
+                "--iterations",
+                "1",
+                "--opt",
+                f"scale-factor={args.scale}",
+                "--runner",
+                "ec2_c8gd.16xlarge",
+            ],
+            args.output / f"prepare-{suite}-lance.log",
+        )
+
+
+def upload_sql(args: argparse.Namespace, suite: str):
+    local = Path("vortex-bench/data") / suite / args.scale
+    execute(
+        ["aws", "s3", "cp", "--recursive", str(local), f"{args.remote_root}/{suite}/"],
+        args.output / f"upload-{suite}.log",
+    )
+
+
+def sql(args: argparse.Namespace, suite: str, engine: str, backend: str):
+    name = f"{suite}-{engine}-{backend}"
+    cmd = [
+        str(args.binaries / f"{engine}-bench"),
+        suite,
+        "--iterations",
+        str(args.iterations),
+        "--display-format",
+        "gh-json",
+        "--hide-progress-bar",
+        "--runner",
+        "ec2_c8gd.16xlarge",
+        "--opt",
+        f"scale-factor={args.scale}",
+        "--ingest-jsonl",
+        str(args.output / f"{name}.jsonl"),
+    ]
+    if engine != "lance":
+        cmd.extend(["--formats", "parquet,vortex"])
+    if engine == "duckdb":
+        cmd.append("--delete-duckdb-database")
+    if backend == "simulated":
+        cmd = simulate(args, "sql", name, cmd, Path("vortex-bench/data") / suite / args.scale)
+    else:
+        cmd.extend(["--opt", f"remote-data-dir={args.remote_root}/{suite}/"])
+    execute(cmd, args.output / f"{name}.log")
+
+
+def prepare_random(args: argparse.Namespace):
+    execute(
+        [
+            str(args.binaries / "random-access-bench"),
+            "--prepare-data",
+            "--datasets",
+            "nested-lists",
+            "--formats",
+            "parquet,vortex,lance",
+        ],
+        args.output / "prepare-random.log",
+    )
+
+
+def upload_random(args: argparse.Namespace):
+    execute(
         [
             "aws",
-            "sts",
-            "assume-role-with-web-identity",
-            "--role-arn",
-            env["AWS_ROLE_ARN"],
-            "--role-session-name",
-            "GitHubS3ModelBenchmarks",
-            "--duration-seconds",
-            "7200",
-            "--web-identity-token",
-            "file://" + env["AWS_WEB_IDENTITY_TOKEN_FILE"],
-            "--output",
-            "json",
+            "s3",
+            "cp",
+            "--recursive",
+            "vortex-bench/data/random_access",
+            args.remote_root + "/random/random_access/",
         ],
-        env=env,
-        capture_output=True,
-        check=True,
-        text=True,
-        timeout=60,
+        args.output / "upload-random.log",
     )
-    credentials = json.loads(response.stdout)["Credentials"]
-    return {
-        **env,
-        "AWS_ACCESS_KEY_ID": credentials["AccessKeyId"],
-        "AWS_SECRET_ACCESS_KEY": credentials["SecretAccessKey"],
-        "AWS_SESSION_TOKEN": credentials["SessionToken"],
-    }
+
+
+def random_or_compress(args: argparse.Namespace, kind: str, backend: str):
+    name = f"{kind}-{backend}"
+    cmd = [
+        str(args.binaries / f"{kind}-bench"),
+        "--formats",
+        "parquet,vortex,lance",
+        "--display-format",
+        "gh-json",
+        "--ingest-jsonl",
+        str(args.output / f"{name}.jsonl"),
+    ]
+    if kind == "random-access":
+        cmd.extend(["--datasets", "nested-lists", "--time-limit", "2", "--open-mode", "both"])
+    else:
+        cmd.extend(
+            [
+                "--datasets",
+                "^wide table cols=100 chunks=1 rows=1000$",
+                "--ops",
+                "decompress",
+                "--iterations",
+                str(args.iterations),
+                "--fixture-cache",
+                str(args.output / "decode-fixtures"),
+            ]
+        )
+    if backend == "simulated":
+        local = Path("vortex-bench/data") if kind == "random-access" else None
+        cmd = simulate(args, kind, name, cmd, local)
+    else:
+        suffix = "random/" if kind == "random-access" else f"decode/{backend}/"
+        cmd.extend(["--remote-data-dir", args.remote_root + "/" + suffix])
+    execute(cmd, args.output / f"{name}.log")
+
+
+def tasks(args: argparse.Namespace) -> dict:
+    result = {"calibrate": partial(calibrate, args)}
+    for suite in ("tpch", "tpcds"):
+        result[f"prepare-{suite}"] = partial(prepare_sql, args, suite)
+        result[f"upload-{suite}"] = partial(upload_sql, args, suite)
+        for engine in args.engines.split(","):
+            order = ("real", "simulated", "real-repeat") if suite == "tpch" else ("simulated", "real-repeat", "real")
+            for backend in order:
+                result[f"sql-{suite}-{engine}-{backend}"] = partial(sql, args, suite, engine, backend)
+    result["prepare-random"] = partial(prepare_random, args)
+    result["upload-random"] = partial(upload_random, args)
+    for kind in ("random-access", "compress"):
+        for backend in ("real", "simulated", "real-repeat"):
+            result[f"{kind}-{backend}"] = partial(random_or_compress, args, kind, backend)
+    result["compare"] = partial(
+        execute,
+        [sys.executable, "benchmarks/s3/compare.py", "--directory", str(args.output)],
+        args.output / "compare.log",
+    )
+    return result
 
 
 def main():
@@ -64,223 +258,26 @@ def main():
     parser.add_argument("--binaries", type=Path, default=Path("target/release_debug"))
     parser.add_argument("--output", type=Path, default=Path("s3-benchmarks"))
     parser.add_argument("--engines", default="datafusion,duckdb,lance")
+    parser.add_argument(
+        "--task", help="One task; CI configures standard AWS credentials before each authenticated task"
+    )
     args = parser.parse_args()
     if args.iterations < 3:
-        raise ValueError("Use at least three iterations")
-    root = args.output
-    root.mkdir(parents=True, exist_ok=False)
-    binary = args.binaries.resolve()
-    run_id = os.environ["GITHUB_RUN_ID"]
-    profile = root / "profile.json"
-    with aws_credentials.environment(os.environ.get("S3_MEASUREMENT_ROLE_ARN")) as real_env:
-        for window in (1, 2):
-            execute(
-                [
-                    str(binary / "s3-measure"),
-                    "--source",
-                    args.remote_root + "/probe/",
-                    "--output",
-                    str(root / f"training-{window}.jsonl"),
-                    "--measurement-id",
-                    f"{run_id}-calibration-{window}",
-                ],
-                root / f"training-{window}.log",
-                real_env,
-            )
-        model = learn.learn([root / "training-1.jsonl", root / "training-2.jsonl"])
-        profile.write_text(json.dumps(model, separators=(",", ":")) + "\n")
-        fixtures = root / "probe-fixtures"
-        fixtures.mkdir()
-        for index in range(1, 5):
-            shutil.copyfile("s3-probe.bin", fixtures / f"probe-{index}.bin")
-        execute(
-            [
-                str(binary / "s3-measure"),
-                "--source",
-                args.remote_root + "/probe/",
-                "--output",
-                str(root / "heldout-real.jsonl"),
-                "--measurement-id",
-                f"{run_id}-heldout-real",
-            ],
-            root / "heldout-real.log",
-            real_env,
-        )
-        for label, config in (("simulated", ["--profile", str(profile)]), ("zero", ["--zero-delay"])):
-            execute(
-                [
-                    sys.executable,
-                    "benchmarks/s3/run.py",
-                    "--server",
-                    str(binary / "s3-simulate"),
-                    *config,
-                    "--kind",
-                    "probe",
-                    "--data-root",
-                    str(fixtures),
-                    "--output",
-                    str(root / f"probe-{label}-manifest.json"),
-                    "--",
-                    str(binary / "s3-measure"),
-                    "--output",
-                    str(root / f"probe-{label}.jsonl"),
-                    "--measurement-id",
-                    f"{run_id}-{label}",
-                ],
-                root / f"probe-{label}.log",
-            )
-        for suite in ("tpch", "tpcds"):
-            execute(
-                [str(binary / "data-gen"), suite, "--formats", "parquet,vortex", "--opt", f"scale-factor={args.scale}"],
-                root / f"prepare-{suite}.log",
-            )
-            if "lance" in args.engines.split(","):
-                # A local first query prepares Lance through its ordinary conversion path.
-                execute(
-                    [
-                        str(binary / "lance-bench"),
-                        suite,
-                        "--queries",
-                        "1",
-                        "--iterations",
-                        "1",
-                        "--opt",
-                        f"scale-factor={args.scale}",
-                        "--runner",
-                        "ec2_c8gd.16xlarge",
-                    ],
-                    root / f"prepare-{suite}-lance.log",
-                )
-            local = Path("vortex-bench/data") / suite / args.scale
-            remote = f"{args.remote_root}/{suite}/"
-            execute(["aws", "s3", "cp", "--recursive", str(local), remote], root / f"upload-{suite}.log", real_env)
-            for engine in args.engines.split(","):
-                # Alternate orders across suites, retaining a second real control.
-                order = (
-                    ("real", "simulated", "real-repeat") if suite == "tpch" else ("simulated", "real-repeat", "real")
-                )
-                for backend in order:
-                    name = f"{suite}-{engine}-{backend}"
-                    cmd = [
-                        str(binary / f"{engine}-bench"),
-                        suite,
-                        "--iterations",
-                        str(args.iterations),
-                        "--display-format",
-                        "gh-json",
-                        "--hide-progress-bar",
-                        "--runner",
-                        "ec2_c8gd.16xlarge",
-                        "--opt",
-                        f"scale-factor={args.scale}",
-                        "--ingest-jsonl",
-                        str(root / f"{name}.jsonl"),
-                    ]
-                    if engine != "lance":
-                        cmd.extend(["--formats", "parquet,vortex"])
-                    if engine == "duckdb":
-                        cmd.append("--delete-duckdb-database")
-                    if backend == "simulated":
-                        cmd = [
-                            sys.executable,
-                            "benchmarks/s3/run.py",
-                            "--server",
-                            str(binary / "s3-simulate"),
-                            "--profile",
-                            str(profile),
-                            "--kind",
-                            "sql",
-                            "--data-root",
-                            str(local),
-                            "--timeout",
-                            "21600",
-                            "--output",
-                            str(root / f"{name}-manifest.json"),
-                            "--",
-                            *cmd,
-                        ]
-                        execute(cmd, root / f"{name}.log")
-                    else:
-                        execute(
-                            [*cmd, "--opt", f"remote-data-dir={remote}"],
-                            root / f"{name}.log",
-                            duckdb_environment(real_env) if engine == "duckdb" else real_env,
-                        )
-        # The same range/read clients are used with real and simulated S3. Preparation is untimed.
-        random_local = Path("vortex-bench/data")
-        execute(
-            [
-                str(binary / "random-access-bench"),
-                "--prepare-data",
-                "--datasets",
-                "nested-lists",
-                "--formats",
-                "parquet,vortex,lance",
-            ],
-            root / "prepare-random.log",
-        )
-        execute(
-            [
-                "aws",
-                "s3",
-                "cp",
-                "--recursive",
-                str(random_local / "random_access"),
-                args.remote_root + "/random/random_access/",
-            ],
-            root / "upload-random.log",
-            real_env,
-        )
-        for kind in ("random-access", "compress"):
-            for backend in ("real", "simulated", "real-repeat"):
-                name = f"{kind}-{backend}"
-                cmd = [
-                    str(binary / f"{kind}-bench"),
-                    "--formats",
-                    "parquet,vortex,lance",
-                    "--display-format",
-                    "gh-json",
-                    "--ingest-jsonl",
-                    str(root / f"{name}.jsonl"),
-                ]
-                if kind == "random-access":
-                    cmd.extend(["--datasets", "nested-lists", "--time-limit", "2", "--open-mode", "both"])
-                else:
-                    cmd.extend(
-                        [
-                            "--datasets",
-                            "^wide table cols=100 chunks=1 rows=1000$",
-                            "--ops",
-                            "decompress",
-                            "--iterations",
-                            str(args.iterations),
-                            "--fixture-cache",
-                            str(root / "decode-fixtures"),
-                        ]
-                    )
-                if backend == "simulated":
-                    cmd = [
-                        sys.executable,
-                        "benchmarks/s3/run.py",
-                        "--server",
-                        str(binary / "s3-simulate"),
-                        "--profile",
-                        str(profile),
-                        "--kind",
-                        kind,
-                        "--output",
-                        str(root / f"{name}-manifest.json"),
-                        *(["--data-root", str(random_local)] if kind == "random-access" else []),
-                        "--",
-                        *cmd,
-                    ]
-                    execute(cmd, root / f"{name}.log")
-                else:
-                    suffix = "random/" if kind == "random-access" else f"decode/{backend}/"
-                    execute(
-                        [*cmd, "--remote-data-dir", args.remote_root + "/" + suffix], root / f"{name}.log", real_env
-                    )
-    execute([sys.executable, "benchmarks/s3/compare.py", "--directory", str(root)], root / "compare.log")
+        parser.error("Use at least three iterations")
+    if not args.engines.split(",") or any(
+        engine not in ("datafusion", "duckdb", "lance") for engine in args.engines.split(",")
+    ):
+        parser.error("Unknown SQL engine")
+    args.binaries = args.binaries.resolve()
+    selected = tasks(args)
+    if args.task:
+        if args.task not in selected:
+            parser.error("Unknown benchmark task")
+        selected[args.task]()
+    else:
+        # Standalone callers supply credentials valid for the whole run.
+        for task in selected.values():
+            task()
 
 
 if __name__ == "__main__":

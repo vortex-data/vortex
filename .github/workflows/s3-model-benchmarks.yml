@@ -18,6 +18,7 @@ on:
     branches: ["ji/s3-simulated-benchmarks"]
     paths:
       - .github/workflows/s3-model-benchmarks.yml
+      - .github/actions/s3-benchmark-task/action.yml
       - benchmarks/s3/**
       - benchmarks/*-bench/src/**
       - vortex-bench/src/**
@@ -38,7 +39,6 @@ jobs:
     env:
       AWS_REGION: us-east-1
       REMOTE_ROOT: s3://vortex-ci-benchmark-datasets/s3-model-benchmarks/${{ github.run_id }}-${{ github.run_attempt }}
-      S3_MEASUREMENT_ROLE_ARN: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
       BENCH_SCALE: ${{ inputs.scale || '0.01' }}
       BENCH_ITERATIONS: ${{ inputs.iterations || '3' }}
     steps:
@@ -78,10 +78,166 @@ jobs:
           for object in 1 2 3 4; do
             aws s3 cp s3-probe.bin "$REMOTE_ROOT/probe/probe-$object.bin"
           done
-      - name: Learn request model and compare native workloads on this host
-        run: >-
-          python3 benchmarks/s3/ci.py --remote-root "$REMOTE_ROOT" --scale "$BENCH_SCALE"
-          --iterations "$BENCH_ITERATIONS"
+      - name: calibrate
+        timeout-minutes: 115
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: calibrate
+      - name: prepare-tpch
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: prepare-tpch
+          authenticate: "false"
+      - name: upload-tpch
+        timeout-minutes: 115
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: upload-tpch
+      - name: sql-tpch-datafusion-real
+        timeout-minutes: 115
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: sql-tpch-datafusion-real
+      - name: sql-tpch-datafusion-simulated
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: sql-tpch-datafusion-simulated
+          authenticate: "false"
+      - name: sql-tpch-datafusion-real-repeat
+        timeout-minutes: 115
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: sql-tpch-datafusion-real-repeat
+      - name: sql-tpch-duckdb-real
+        timeout-minutes: 115
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: sql-tpch-duckdb-real
+      - name: sql-tpch-duckdb-simulated
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: sql-tpch-duckdb-simulated
+          authenticate: "false"
+      - name: sql-tpch-duckdb-real-repeat
+        timeout-minutes: 115
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: sql-tpch-duckdb-real-repeat
+      - name: sql-tpch-lance-real
+        timeout-minutes: 115
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: sql-tpch-lance-real
+      - name: sql-tpch-lance-simulated
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: sql-tpch-lance-simulated
+          authenticate: "false"
+      - name: sql-tpch-lance-real-repeat
+        timeout-minutes: 115
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: sql-tpch-lance-real-repeat
+      - name: prepare-tpcds
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: prepare-tpcds
+          authenticate: "false"
+      - name: upload-tpcds
+        timeout-minutes: 115
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: upload-tpcds
+      - name: sql-tpcds-datafusion-simulated
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: sql-tpcds-datafusion-simulated
+          authenticate: "false"
+      - name: sql-tpcds-datafusion-real-repeat
+        timeout-minutes: 115
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: sql-tpcds-datafusion-real-repeat
+      - name: sql-tpcds-datafusion-real
+        timeout-minutes: 115
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: sql-tpcds-datafusion-real
+      - name: sql-tpcds-duckdb-simulated
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: sql-tpcds-duckdb-simulated
+          authenticate: "false"
+      - name: sql-tpcds-duckdb-real-repeat
+        timeout-minutes: 115
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: sql-tpcds-duckdb-real-repeat
+      - name: sql-tpcds-duckdb-real
+        timeout-minutes: 115
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: sql-tpcds-duckdb-real
+      - name: sql-tpcds-lance-simulated
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: sql-tpcds-lance-simulated
+          authenticate: "false"
+      - name: sql-tpcds-lance-real-repeat
+        timeout-minutes: 115
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: sql-tpcds-lance-real-repeat
+      - name: sql-tpcds-lance-real
+        timeout-minutes: 115
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: sql-tpcds-lance-real
+      - name: prepare-random
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: prepare-random
+          authenticate: "false"
+      - name: upload-random
+        timeout-minutes: 115
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: upload-random
+      - name: random-access-real
+        timeout-minutes: 115
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: random-access-real
+      - name: random-access-simulated
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: random-access-simulated
+          authenticate: "false"
+      - name: random-access-real-repeat
+        timeout-minutes: 115
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: random-access-real-repeat
+      - name: compress-real
+        timeout-minutes: 115
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: compress-real
+      - name: compress-simulated
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: compress-simulated
+          authenticate: "false"
+      - name: compress-real-repeat
+        timeout-minutes: 115
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: compress-real-repeat
+      - name: compare
+        uses: ./.github/actions/s3-benchmark-task
+        with:
+          task: compare
+          authenticate: "false"
       - name: Publish comparison when available
         if: always()
         run: |
