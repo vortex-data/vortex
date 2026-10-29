@@ -47,6 +47,7 @@ use vortex_array::display::TreeExtractor;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::i256;
 use vortex_array::extension::datetime::TimeUnit;
 #[cfg(feature = "pco")]
 use vortex_array::session::ArraySessionExt;
@@ -161,6 +162,14 @@ fn corpus() -> VortexResult<Vec<(&'static str, ArrayRef)>> {
         ("string_low_cardinality", string_low_cardinality()),
         ("binary_low_cardinality", binary_low_cardinality()),
         ("decimal_prices", decimal_prices()),
+        (
+            "decimal_wide_dtype_small_values",
+            decimal_wide_dtype_small_values(),
+        ),
+        ("decimal_nullable", decimal_nullable()),
+        ("decimal_negative", decimal_negative()),
+        ("decimal_wide_p40", decimal_wide_p40()),
+        ("decimal_null_slot_values", decimal_null_slot_values()),
         ("temporal_timestamp_micros", temporal_timestamp_micros()),
         ("bool_random", bool_random()),
         ("struct_mixed", struct_mixed()?),
@@ -371,6 +380,82 @@ fn decimal_prices() -> ArrayRef {
     let mut rng = StdRng::seed_from_u64(115);
     let values: Buffer<i64> = (0..N).map(|_| rng.random_range(0..10_000_000i64)).collect();
     DecimalArray::new(values, DecimalDType::new(12, 2), Validity::NonNullable).into_array()
+}
+
+/// [`decimal_prices`] at a precision whose canonical width is `i128`: the values fit `i64`, so the
+/// byte parts need no lower part.
+fn decimal_wide_dtype_small_values() -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(119);
+    let values: Buffer<i128> = (0..N)
+        .map(|_| rng.random_range(0..10_000_000i128))
+        .collect();
+    DecimalArray::new(values, DecimalDType::new(38, 2), Validity::NonNullable).into_array()
+}
+
+/// [`decimal_prices`] with a tenth of the rows null and zeros in the null slots.
+fn decimal_nullable() -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(120);
+    let mut validity: Vec<bool> = Vec::with_capacity(N);
+    let values: Buffer<i64> = (0..N)
+        .map(|_| {
+            let valid = rng.random_range(0..10) != 0;
+            validity.push(valid);
+            if valid {
+                rng.random_range(0..10_000_000i64)
+            } else {
+                0
+            }
+        })
+        .collect();
+    DecimalArray::new(
+        values,
+        DecimalDType::new(12, 2),
+        Validity::Array(BoolArray::from_iter(validity).into_array()),
+    )
+    .into_array()
+}
+
+/// Decimals of mixed sign: the most significant part stays signed.
+fn decimal_negative() -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(121);
+    let values: Buffer<i64> = (0..N)
+        .map(|_| rng.random_range(-100_000..=100_000i64))
+        .collect();
+    DecimalArray::new(values, DecimalDType::new(10, 2), Validity::NonNullable).into_array()
+}
+
+/// Decimals at a precision whose canonical width is `i256`, with values from 2^64 to 2^100: they
+/// need more than 64 bits but fit `i128`.
+fn decimal_wide_p40() -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(122);
+    let values: Buffer<i256> = (0..N)
+        .map(|_| i256::from_i128(rng.random_range(1i128 << 64..1i128 << 100)))
+        .collect();
+    DecimalArray::new(values, DecimalDType::new(40, 2), Validity::NonNullable).into_array()
+}
+
+/// [`decimal_nullable`] with values from 2^40 to 2^48 in the null slots, far outside the range of
+/// the valid values.
+fn decimal_null_slot_values() -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(123);
+    let mut validity: Vec<bool> = Vec::with_capacity(N);
+    let values: Buffer<i64> = (0..N)
+        .map(|_| {
+            let valid = rng.random_range(0..10) != 0;
+            validity.push(valid);
+            if valid {
+                rng.random_range(0..10_000_000i64)
+            } else {
+                rng.random_range(1i64 << 40..1i64 << 48)
+            }
+        })
+        .collect();
+    DecimalArray::new(
+        values,
+        DecimalDType::new(12, 2),
+        Validity::Array(BoolArray::from_iter(validity).into_array()),
+    )
+    .into_array()
 }
 
 /// Near-monotone microsecond timestamps: TemporalScheme (datetime-parts) habitat.
