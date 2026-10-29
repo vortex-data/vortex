@@ -7,6 +7,7 @@ use vortex_array::dtype::DType;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarTruncation;
 use vortex_array::scalar::lower_bound;
@@ -99,6 +100,9 @@ impl LayoutStrategy for FlatLayoutStrategy {
             .into_layout());
         };
         let (sequence_id, chunk) = chunk?;
+        // Constructors build lazy arrays, such as a slice, that have no serialized form until
+        // they are optimized into the encodings they wrap.
+        let chunk = chunk.optimize_recursive(session)?;
 
         let row_count = chunk.len() as u64;
 
