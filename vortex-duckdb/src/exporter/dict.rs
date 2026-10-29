@@ -45,6 +45,15 @@ pub(crate) fn new_exporter_with_flatten(
     let values = array.values();
     let codes = array.codes();
     let codes_len = codes.len();
+    tracing::debug!(
+        cache = ?std::ptr::from_ref(cache),
+        key = values.addr(),
+        rows = codes_len,
+        values = values.len(),
+        encoding = %values.encoding_id(),
+        flatten,
+        "Q28 dictionary input"
+    );
 
     let validity = codes.validity()?;
     if let Some(constant) = values.as_opt::<Constant>() {

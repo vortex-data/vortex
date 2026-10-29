@@ -240,6 +240,13 @@ fn new_array_exporter_with_flatten(
     ctx: &mut ExecutionCtx,
     flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
+    tracing::debug!(
+        encoding = %array.encoding_id(),
+        rows = array.len(),
+        dtype = %array.dtype(),
+        flatten,
+        "Q28 exporter input"
+    );
     let array = match array.try_downcast::<Constant>() {
         Ok(array) => return constant::new_exporter_with_flatten(array, cache, ctx, flatten),
         Err(array) => array,
