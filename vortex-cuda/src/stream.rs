@@ -21,6 +21,8 @@ use vortex_cuda_driver::CudaStream;
 use vortex_cuda_driver::DeviceRepr;
 use vortex_cuda_driver::ValidAsZeroBits;
 use vortex_cuda_driver::result::stream;
+use vortex_cuda_driver::sys::CUresult;
+use vortex_cuda_driver::sys::CUstream;
 
 use crate::CudaDeviceBuffer;
 use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
@@ -201,46 +203,57 @@ pub(crate) fn zero_padding<T: DeviceRepr + ValidAsZeroBits>(
 ///
 /// # Errors
 ///
-/// Returns an error if registering the stream callback fails or if the callback
-/// channel closes unexpectedly.
+/// Returns an error if registering the stream callback fails, if the preceding work failed on
+/// the device, or if the callback channel closes unexpectedly.
 pub(crate) async fn await_stream_callback(stream: &CudaStream) -> VortexResult<()> {
     let rx = register_stream_callback(stream)?;
 
-    rx.recv()
+    let status = rx
+        .recv()
         .await
-        .map_err(|e| vortex_err!("CUDA stream callback channel closed unexpectedly: {}", e))
+        .map_err(|e| vortex_err!("CUDA stream callback channel closed unexpectedly: {}", e))?;
+    status
+        .result()
+        .map_err(|e| vortex_err!("CUDA stream work failed: {}", e))
 }
 
-/// Registers a host function callback on the stream.
+/// Registers a callback on the stream.
+///
+/// The driver runs the callback exactly once, even after a device error, so the receiver always
+/// gets the status of the preceding work and the sender is always freed.
 ///
 /// # Returns
 ///
-/// An async receiver that receives a message when all preceding work on the
-/// stream completes.
+/// An async receiver that receives the status of all preceding work on the stream once it
+/// completes.
 ///
 /// # Errors
 ///
-/// Returns an error if registering the host callback function fails.
-fn register_stream_callback(stream: &CudaStream) -> VortexResult<kanal::AsyncReceiver<()>> {
-    let (tx, rx) = kanal::bounded::<()>(1);
-
-    let tx_ptr = Box::into_raw(Box::new(tx));
-
+/// Returns an error if registering the callback fails.
+fn register_stream_callback(stream: &CudaStream) -> VortexResult<kanal::AsyncReceiver<CUresult>> {
+    // Bind before handing the sender to raw ownership, which a failed bind would leak.
     stream
         .context()
         .bind_to_thread()
         .map_err(|e| vortex_err!("Failed to bind CUDA context: {}", e))?;
 
-    /// Called from CUDA driver thread when all preceding work on the stream completes.
-    unsafe extern "C" fn callback(user_data: *mut std::ffi::c_void) {
+    let (tx, rx) = kanal::bounded::<CUresult>(1);
+    let tx_ptr = Box::into_raw(Box::new(tx));
+
+    /// Called from CUDA driver thread when all preceding work on the stream completes or fails.
+    unsafe extern "C" fn callback(
+        _stream: CUstream,
+        status: CUresult,
+        user_data: *mut std::ffi::c_void,
+    ) {
         // SAFETY: The memory of `tx` is manually managed has not been freed
         // before. We have unique ownership and can therefore free it.
-        let tx = unsafe { Box::from_raw(user_data as *mut Sender<()>) };
+        let tx = unsafe { Box::from_raw(user_data as *mut Sender<CUresult>) };
 
         // Blocking send as we're in a callback invoked by the CUDA driver.
         // NOTE: send can fail if the CudaEvent is dropped by the caller, in which case the receiver
         //  is closed and sends will fail.
-        if let Err(_e) = tx.send(()) {
+        if let Err(_e) = tx.send(status) {
             warn!(error = ?_e, "register_stream_callback send failed due to error");
         }
     }
@@ -250,7 +263,7 @@ fn register_stream_callback(stream: &CudaStream) -> VortexResult<kanal::AsyncRec
     // 2. Valid function pointer with the the correct signature
     // 3. Valid user data pointer which is consumed exactly once
     unsafe {
-        stream::launch_host_function(
+        stream::add_callback(
             stream.cu_stream(),
             callback,
             tx_ptr as *mut std::ffi::c_void,
@@ -270,7 +283,9 @@ fn register_stream_callback(stream: &CudaStream) -> VortexResult<kanal::AsyncRec
 mod tests {
     use std::mem::size_of;
     use std::sync::LazyLock;
+    use std::time::Duration;
 
+    use tokio::time::timeout;
     use vortex::array::Canonical;
     use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
@@ -278,8 +293,13 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity;
     use vortex::error::VortexResult;
+    use vortex::error::vortex_err;
     use vortex::session::VortexSession;
+    use vortex_cuda_driver::CudaContext;
+    use vortex_cuda_driver::LaunchConfig;
+    use vortex_cuda_driver::PushKernelArg;
 
+    use super::await_stream_callback;
     use super::padded_device_allocation_len;
     use crate::CanonicalCudaExt;
     use crate::CudaSession;
@@ -287,6 +307,31 @@ mod tests {
     use crate::device_buffer::cuda_backing_allocation;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    /// Waiting for a stream after a device error fails, rather than waiting forever.
+    #[crate::test]
+    async fn stream_callbacks_report_device_errors() -> VortexResult<()> {
+        // A context of its own keeps the fault, which breaks the context, from other tests.
+        let context = CudaContext::new_non_primary(0, 0).map_err(|e| vortex_err!("{e}"))?;
+        let session = CudaSession::new(context);
+        let stream = session.stream()?;
+        let copy = session.load_function_with_suffixes("mapped_copy", &[])?;
+        let mut target = stream.device_alloc::<u8>(4096)?;
+        // The kernel reads from an unmapped address and faults.
+        let (source, length) = (16u64, 4096u64);
+        let mut launch = stream.launch_builder(&copy);
+        launch.arg(&source).arg(&mut target).arg(&length);
+        let config = LaunchConfig {
+            grid_dim: (1, 1, 1),
+            block_dim: (32, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        // SAFETY: The arguments match the kernel; reading the invalid source only faults.
+        unsafe { launch.launch(config) }.map_err(|e| vortex_err!("{e}"))?;
+        let waited = timeout(Duration::from_secs(60), await_stream_callback(&stream)).await;
+        assert!(matches!(waited, Ok(Err(_))));
+        Ok(())
+    }
 
     #[test]
     fn test_padded_device_allocation_len() -> VortexResult<()> {
