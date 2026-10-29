@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Compute on canonical decimals that can later use a narrower decimal representation.
+//! Compute on decimal `Widen` arrays and canonical arrays with the same values.
 //!
 //! The cases cover precision 18 over precision 9, precision 10 over precision 5, and precision 38
 //! over precision 18, all at scale 2. The precision 5 values fit in `i16`, but require `i32` to
 //! represent their full decimal domain. Each iteration shares value buffers and builds fresh arrays
-//! so cached statistics cannot remove the operation's work.
+//! so cached statistics cannot remove the operation's work. `Widen` buffers are selected once with
+//! [`WidenArray::encode_decimal`], outside the timed region.
 
 use std::fmt;
 use std::sync::LazyLock;
@@ -26,10 +27,15 @@ use vortex_array::aggregate_fn::fns::min_max;
 use vortex_array::aggregate_fn::fns::sum;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Decimal;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::Widen;
+use vortex_array::arrays::WidenArray;
+use vortex_array::arrays::widen::WidenArraySlotsExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::Nullability;
 use vortex_array::memory::MemorySession;
 use vortex_array::optimizer::kernels::KernelSession;
@@ -50,11 +56,14 @@ fn main() {
     LazyLock::force(&SESSION);
 
     // Keep process-wide execution initialization outside the first measured operation.
-    let case = CASES[0];
+    let case = Case {
+        input: Input::Widen,
+        ..CASES[0]
+    };
     case.values()
         .array(case)
         .execute::<Canonical>(&mut SESSION.create_execution_ctx())
-        .vortex_expect("the benchmark input is a canonical decimal array");
+        .vortex_expect("the benchmark input executes to canonical decimals");
 
     divan::main();
 }
@@ -73,29 +82,59 @@ const SCALE: i8 = 2;
 struct Case {
     precision: u8,
     child_precision: u8,
+    input: Input,
 }
 
 const CASES: &[Case] = &[
     Case {
         precision: 18,
         child_precision: 9,
+        input: Input::Canonical,
     },
     Case {
         precision: 10,
         child_precision: 5,
+        input: Input::Canonical,
     },
     Case {
         precision: 38,
         child_precision: 18,
+        input: Input::Canonical,
     },
 ];
+
+#[derive(Clone, Copy, Debug)]
+enum Input {
+    Canonical,
+    Widen,
+}
+
+fn cases() -> Vec<Case> {
+    CASES
+        .iter()
+        .flat_map(|&case| {
+            [
+                case,
+                Case {
+                    input: Input::Widen,
+                    ..case
+                },
+            ]
+        })
+        .collect()
+}
 
 impl fmt::Display for Case {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "p{}_childp{}_canonical",
-            self.precision, self.child_precision,
+            "p{}_childp{}_{}",
+            self.precision,
+            self.child_precision,
+            match self.input {
+                Input::Canonical => "canonical",
+                Input::Widen => "widen",
+            },
         )
     }
 }
@@ -119,10 +158,33 @@ impl Case {
             .into_iter()
             .chain((2..LEN).map(|_| rng.random_range(minimum..=maximum)));
 
-        if self.precision <= 18 {
+        let values = if self.precision <= 18 {
             Values::I64(values.collect())
         } else {
             Values::I128(values.map(i128::from).collect())
+        };
+
+        if matches!(self.input, Input::Canonical) {
+            return values;
+        }
+
+        let encoded = WidenArray::encode_decimal(
+            values.decimal_array(self.decimal_dtype()),
+            &mut SESSION.create_execution_ctx(),
+        )
+        .vortex_expect("the benchmark values fit a narrower decimal precision");
+        let widen = encoded.as_::<Widen>();
+        let child = widen.values().as_::<Decimal>();
+        assert_eq!(child.precision(), self.child_precision);
+        assert_eq!(
+            child.values_type(),
+            child.decimal_dtype().canonical_values_type(),
+        );
+
+        match child.values_type() {
+            DecimalType::I32 => Values::I32(child.buffer::<i32>()),
+            DecimalType::I64 => Values::I64(child.buffer::<i64>()),
+            _ => unreachable!("the benchmark child precisions require i32 or i64"),
         }
     }
 
@@ -131,6 +193,10 @@ impl Case {
         ConstantArray::new(scalar, LEN).into_array()
     }
 
+    /// Returns a constant that splits the values, so `compare_constant` is not uniform.
+    ///
+    /// The precision 5 values lie in `10_000..=32_767`, so 0 would be below all of them. The other
+    /// ranges are symmetric about zero, so 0 splits them.
     fn in_range(self) -> i64 {
         if self.child_precision == 5 { 20_000 } else { 0 }
     }
@@ -149,19 +215,29 @@ impl Case {
 }
 
 enum Values {
+    I32(Buffer<i32>),
     I64(Buffer<i64>),
     I128(Buffer<i128>),
 }
 
 impl Values {
-    fn array(&self, case: Case) -> ArrayRef {
+    fn decimal_array(&self, dtype: DecimalDType) -> DecimalArray {
         match self {
-            Self::I64(values) => {
-                DecimalArray::new(values.clone(), case.decimal_dtype(), Validity::NonNullable)
-                    .into_array()
-            }
-            Self::I128(values) => {
-                DecimalArray::new(values.clone(), case.decimal_dtype(), Validity::NonNullable)
+            Self::I32(values) => DecimalArray::new(values.clone(), dtype, Validity::NonNullable),
+            Self::I64(values) => DecimalArray::new(values.clone(), dtype, Validity::NonNullable),
+            Self::I128(values) => DecimalArray::new(values.clone(), dtype, Validity::NonNullable),
+        }
+    }
+
+    fn array(&self, case: Case) -> ArrayRef {
+        match case.input {
+            Input::Canonical => self.decimal_array(case.decimal_dtype()).into_array(),
+            Input::Widen => {
+                let child_dtype = DecimalDType::new(case.child_precision, SCALE);
+                let child = self.decimal_array(child_dtype).into_array();
+                let dtype = DType::Decimal(case.decimal_dtype(), Nullability::NonNullable);
+                WidenArray::try_new(child, dtype)
+                    .vortex_expect("encode_decimal selected a strictly narrower child dtype")
                     .into_array()
             }
         }
@@ -185,7 +261,7 @@ fn execute_canonical(array: VortexResult<ArrayRef>, ctx: &mut ExecutionCtx) -> C
         .vortex_expect("the operation executes to canonical for the benchmark inputs")
 }
 
-#[divan::bench(args = CASES)]
+#[divan::bench(args = cases())]
 fn compare_constant(bencher: Bencher, case: Case) {
     let values = case.values();
     bench_case(
@@ -195,7 +271,7 @@ fn compare_constant(bencher: Bencher, case: Case) {
     );
 }
 
-#[divan::bench(args = CASES)]
+#[divan::bench(args = cases())]
 fn compare_constant_out_of_range(bencher: Bencher, case: Case) {
     let values = case.values();
     bench_case(
@@ -205,7 +281,7 @@ fn compare_constant_out_of_range(bencher: Bencher, case: Case) {
     );
 }
 
-#[divan::bench(args = CASES)]
+#[divan::bench(args = cases())]
 fn sum(bencher: Bencher, case: Case) {
     let values = case.values();
     bench_case(
@@ -215,7 +291,7 @@ fn sum(bencher: Bencher, case: Case) {
     );
 }
 
-#[divan::bench(args = CASES)]
+#[divan::bench(args = cases())]
 fn min_max(bencher: Bencher, case: Case) {
     let values = case.values();
     bench_case(
@@ -228,7 +304,7 @@ fn min_max(bencher: Bencher, case: Case) {
     );
 }
 
-#[divan::bench(args = CASES)]
+#[divan::bench(args = cases())]
 fn filter(bencher: Bencher, case: Case) {
     let values = case.values();
     let mut rng = StdRng::seed_from_u64(1);
@@ -240,7 +316,7 @@ fn filter(bencher: Bencher, case: Case) {
     );
 }
 
-#[divan::bench(args = CASES)]
+#[divan::bench(args = cases())]
 fn execute(bencher: Bencher, case: Case) {
     let values = case.values();
     bench_case(
@@ -250,7 +326,7 @@ fn execute(bencher: Bencher, case: Case) {
     );
 }
 
-#[divan::bench(args = CASES)]
+#[divan::bench(args = cases())]
 fn cast_widen(bencher: Bencher, case: Case) {
     let values = case.values();
     bench_case(
