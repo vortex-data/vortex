@@ -21,7 +21,6 @@ use futures::stream::iter;
 use futures::stream::once;
 use futures::try_join;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -165,14 +164,13 @@ impl LayoutStrategy for DictStrategy {
         let dtype = stream.dtype().clone();
 
         // 0. decide if chunks are eligible for dict encoding
-        let (stream, sample) = peek_probe_sample(stream, &dtype, options.probe_len).await?;
+        let (stream, sample) = peek_probe_sample(stream, options.probe_len).await?;
         let stream = SequentialStreamAdapter::new(dtype.clone(), stream).sendable();
 
         let should_fallback = match sample {
             None => true, // empty stream
             Some(sample) => {
                 let mut exec_ctx = session.create_execution_ctx();
-                let sample = sample.execute::<Canonical>(&mut exec_ctx)?.into_array();
                 let compressed = self
                     .probe_compressor
                     .compress_chunk(&sample, &mut exec_ctx)?;
@@ -531,7 +529,6 @@ impl Stream for DictionaryTransformer {
 /// front and its first `probe_len` rows, or `None` if the stream is empty.
 async fn peek_probe_sample(
     mut stream: BoxStream<'static, SequencedChunk>,
-    dtype: &DType,
     probe_len: usize,
 ) -> VortexResult<(BoxStream<'static, SequencedChunk>, Option<ArrayRef>)> {
     let mut peeked = Vec::new();
@@ -544,14 +541,17 @@ async fn peek_probe_sample(
         peeked_len += chunk.len();
         peeked.push((sequence_id, chunk));
     }
-    if peeked.is_empty() {
-        return Ok((stream, None));
-    }
-
-    let sample =
-        ChunkedArray::try_new(peeked.iter().map(|(_, chunk)| chunk.clone()), dtype.clone())?
-            .into_array()
-            .slice(0..peeked_len.min(probe_len))?;
+    let sample_len = peeked_len.min(probe_len);
+    let sample = match peeked.as_slice() {
+        [] => return Ok((stream, None)),
+        [(_, chunk)] => chunk.slice(0..sample_len)?,
+        [(_, first), ..] => ChunkedArray::try_new(
+            peeked.iter().map(|(_, chunk)| chunk.clone()),
+            first.dtype().clone(),
+        )?
+        .into_array()
+        .slice(0..sample_len)?,
+    };
     let stream = iter(peeked.into_iter().map(Ok)).chain(stream).boxed();
     Ok((stream, Some(sample)))
 }
@@ -609,6 +609,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
+    use vortex_array::Canonical;
     use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
@@ -820,7 +821,8 @@ mod tests {
             if chunk.len() < PROBE_LEN {
                 return Ok(chunk.clone());
             }
-            Ok(dict_encode(chunk, ctx)?.into_array())
+            let chunk = chunk.clone().execute::<Canonical>(ctx)?.into_array();
+            Ok(dict_encode(&chunk, ctx)?.into_array())
         };
         let strategy = DictStrategy::new(
             ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
