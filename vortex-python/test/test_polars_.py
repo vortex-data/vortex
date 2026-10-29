@@ -612,6 +612,25 @@ def _assert_pushdown(tmp_path, frame: pl.DataFrame, expr: pl.Expr) -> pl.DataFra
     return actual
 
 
+def _assert_fully_pushed_down(monkeypatch, tmp_path, frame: pl.DataFrame, expr: pl.Expr) -> pl.DataFrame:
+    """Like `_assert_pushdown`, and also check that no part of the predicate fell back to Polars.
+
+    This inspects the predicate Polars hands to the scan, after its optimizer has inserted any
+    casts that unify operand types.
+    """
+    residuals: list[pl.Expr | None] = []
+
+    def decompose(predicate: pl.Expr, scope: vx.Array | None = None) -> tuple[ve.Expr | None, pl.Expr | None]:
+        pushed, residual = decompose_predicate(predicate, scope)
+        residuals.append(residual)
+        return pushed, residual
+
+    monkeypatch.setattr("vortex.polars_.decompose_predicate", decompose)
+    actual = _assert_pushdown(tmp_path, frame, expr)
+    assert [residual is None for residual in residuals] == [True]
+    return actual
+
+
 @pytest.mark.parametrize(
     "expr, expected",
     [
@@ -621,16 +640,31 @@ def _assert_pushdown(tmp_path, frame: pl.DataFrame, expr: pl.Expr) -> pl.DataFra
         # True division: integer division would make 3 / 2 == 1 and drop id 2.
         (pl.col("x") / 2 > 1, [2, 3]),
         (pl.col("x32") + 1 > 3, [2, 3]),
-        # Polars' optimizer widens `x32` with a `NonStrict` cast, which is not translated
-        # without the column types, so this conjunct is filtered by Polars instead.
+        # Polars' optimizer unifies these operands with `NonStrict` widening casts.
         ((pl.col("x") + pl.col("x32")) * 2 > 8, [2, 3]),
+        (pl.col("u8") + pl.col("x32") > 5, [2, 3]),
+        (pl.col("x") + 0.5 > 2.5, [2, 3]),
+        (pl.col("f32") + pl.col("x") > 5.0, [2, 3]),
     ],
 )
-def test_polars_arithmetic(tmp_path, expr, expected):
+def test_polars_arithmetic(monkeypatch, tmp_path, expr, expected):
     frame = pl.DataFrame(
-        {"id": [0, 1, 2, 3, 4], "x": [1, 2, 3, 4, None], "x32": pl.Series([1, 2, 3, 4, None], dtype=pl.Int32)}
+        {
+            "id": [0, 1, 2, 3, 4],
+            "x": [1, 2, 3, 4, None],
+            "x32": pl.Series([1, 2, 3, 4, None], dtype=pl.Int32),
+            "u8": pl.Series([1, 2, 3, 4, None], dtype=pl.UInt8),
+            "f32": pl.Series([1.0, 2.0, 3.0, 4.0, None], dtype=pl.Float32),
+        }
     )
-    assert _assert_pushdown(tmp_path, frame, expr)["id"].to_list() == expected
+    assert _assert_fully_pushed_down(monkeypatch, tmp_path, frame, expr)["id"].to_list() == expected
+
+
+def test_polars_int_to_float_cast_rounds_like_polars(monkeypatch, tmp_path):
+    # 2**53 + 3 is not a float64: rounding to nearest gives 2**53 + 4, truncating 2**53 + 2.
+    frame = pl.DataFrame({"id": [0, 1], "x": [2**53 + 3, 0]})
+    expr = pl.col("x") + 0.0 == float(2**53 + 4)
+    assert _assert_fully_pushed_down(monkeypatch, tmp_path, frame, expr)["id"].to_list() == [0]
 
 
 @pytest.mark.parametrize(
@@ -652,11 +686,51 @@ def test_polars_string_matching(tmp_path, expr, expected):
     assert _assert_pushdown(tmp_path, frame, expr)["id"].to_list() == expected
 
 
-def test_polars_is_in_across_integer_widths(tmp_path):
-    # Polars 1 widens the Int32 column to the Int64 members with an `Overflowing` cast, which is
-    # not translated without the column types, so Polars filters this conjunct instead.
+def test_polars_is_in_across_integer_widths(monkeypatch, tmp_path):
+    # Polars 1 widens the Int32 column to the Int64 members with an `Overflowing` cast.
     frame = pl.DataFrame({"id": [0, 1, 2], "x32": pl.Series([1, 2, None], dtype=pl.Int32)})
-    assert _assert_pushdown(tmp_path, frame, pl.col("x32").is_in([2, 4]))["id"].to_list() == [1]
+    expr = pl.col("x32").is_in([2, 4])
+    assert _assert_fully_pushed_down(monkeypatch, tmp_path, frame, expr)["id"].to_list() == [1]
+
+
+_CAST_SCOPE = vx.array(
+    pa.table(
+        {
+            "i32": pa.array([], type=pa.int32()),
+            "i64": pa.array([], type=pa.int64()),
+            "u64": pa.array([], type=pa.uint64()),
+            "f64": pa.array([], type=pa.float64()),
+        }
+    )
+)
+
+
+@pytest.mark.parametrize(
+    "predicate, pushed",
+    [
+        # Widenings that no value can fail are pushed down whatever the cast options.
+        (pl.col("i32").cast(pl.Int64, strict=False) > 1, True),
+        (pl.col("i32").cast(pl.Int64, wrap_numerical=True) > 1, True),
+        (pl.col("i64").cast(pl.Float64, strict=False) > 1.5, True),
+        (pl.col("i32").cast(pl.Float32, strict=False) > pl.lit(1.5, dtype=pl.Float32), True),
+        # A value can fail these, where Polars gives null or wraps but Vortex raises.
+        (pl.col("i64").cast(pl.Int32, strict=False) > 1, False),
+        (pl.col("i64").cast(pl.Int32, wrap_numerical=True) > 1, False),
+        (pl.col("u64").cast(pl.Int64, strict=False) > 1, False),
+        (pl.col("f64").cast(pl.Int64, strict=False) > 1, False),
+        (pl.col("i64").cast(pl.String, strict=False) == "1", False),
+    ],
+)
+def test_decompose_predicate_non_strict_cast(predicate, pushed):
+    vx_predicate, residual = decompose_predicate(predicate, _CAST_SCOPE)
+    assert (vx_predicate is not None, residual is None) == (pushed, pushed)
+
+
+def test_decompose_predicate_non_strict_cast_needs_scope():
+    # Without the column types, a cast that could be lossy cannot be told from one that is not.
+    vx_predicate, residual = decompose_predicate(pl.col("i32").cast(pl.Int64, strict=False) > 1)
+    assert vx_predicate is None
+    assert residual is not None
 
 
 def test_polars_naive_datetime_literal(tmp_path):
@@ -678,6 +752,8 @@ def test_polars_cast(tmp_path):
         pytest.param(pl.col("s").str.contains("goo.*"), id="regex-contains"),
         pytest.param(pl.col("d") > timedelta(days=1), id="duration-literal"),
         pytest.param(pl.col("x").cast(pl.Int8, strict=False) > 1, id="non-strict-cast"),
+        # An untyped inf is serialized as a null float, like a typed one.
+        pytest.param(pl.col("f") < float("inf"), id="untyped-inf"),
     ],
 )
 def test_unsupported_exprs(expr):

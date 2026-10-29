@@ -85,7 +85,7 @@ def _implied_predicate(expr: dict[str, Any], scope: Array | None) -> tuple[bool,
     both sides true, and a true OR has at least one side true.
     """
     try:
-        converted = _polars_to_vortex(expr)
+        converted = _polars_to_vortex(expr, scope)
         if scope is not None:
             dtype = scope.apply(converted).dtype
             if dtype != _dtype.bool_(nullable=dtype.is_nullable()):
@@ -149,6 +149,8 @@ _LITERAL_TYPES: dict[str, Callable[[Any | None], _dtype.DType]] = {
     "UInt16": lambda v: _dtype.uint(16, nullable=v is None),
     "UInt32": lambda v: _dtype.uint(32, nullable=v is None),
     "UInt64": lambda v: _dtype.uint(64, nullable=v is None),
+    # An untyped float, which Polars materializes as Float64.
+    "Float": lambda v: _dtype.float_(64, nullable=v is None),
     "Float32": lambda v: _dtype.float_(32, nullable=v is None),
     "Float64": lambda v: _dtype.float_(64, nullable=v is None),
     "Null": lambda v: _dtype.null(),
@@ -157,12 +159,12 @@ _LITERAL_TYPES: dict[str, Callable[[Any | None], _dtype.DType]] = {
 }
 
 
-def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
+def _polars_to_vortex(expr: dict[str, Any], scope: Array | None = None) -> ve.Expr:
     """Convert a Polars expression to a Vortex expression."""
     if "BinaryExpr" in expr:
         expr = expr["BinaryExpr"]
-        lhs = _polars_to_vortex(expr["left"])
-        rhs = _polars_to_vortex(expr["right"])
+        lhs = _polars_to_vortex(expr["left"], scope)
+        rhs = _polars_to_vortex(expr["right"], scope)
         op = expr["op"]
 
         if op == "TrueDivide":
@@ -174,11 +176,11 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
         return cast(ve.Expr, _OPS[op](lhs, rhs))
 
     if "Cast" in expr:
-        return _cast_to_vortex(expr["Cast"])
+        return _cast_to_vortex(expr["Cast"], scope)
 
     if "Ternary" in expr:
         node = expr["Ternary"]
-        return ve.zip_(*[_polars_to_vortex(node[k]) for k in ("predicate", "truthy", "falsy")])
+        return ve.zip_(*[_polars_to_vortex(node[k], scope) for k in ("predicate", "truthy", "falsy")])
     if "Column" in expr:
         return ve.column(expr["Column"])
 
@@ -233,10 +235,7 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
         else:
             raise ValueError(f"Cannot convert to Vortex: unsupported Polars scalar value type {scalar}")
 
-        if dtype in ("Float32", "Float64") and value is None:
-            # JSON cannot hold inf, -inf or NaN, so Polars writes all three as null, while a null
-            # float is `{"Null": "Float64"}`. Which value it was is lost.
-            raise NotImplementedError("Cannot recover a non-finite Polars float literal from its JSON form")
+        _check_float_literal(dtype, value)
         return ve.literal(_LITERAL_TYPES[dtype](value), value)
 
     if "Literal" in expr:
@@ -245,7 +244,7 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
         literal_type = next(iter(expr.keys()), None)
 
         if literal_type == "Scalar":
-            return _polars_to_vortex(expr)
+            return _polars_to_vortex(expr, scope)
 
         # Special-case Series
         if literal_type == "Series":
@@ -264,6 +263,7 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
         if literal_type not in _LITERAL_TYPES:
             raise NotImplementedError(f"Unsupported Polars literal type: {literal_type}")
         value = expr[literal_type]
+        _check_float_literal(literal_type, value)
         return ve.literal(_LITERAL_TYPES[literal_type](value), value)
 
     if "Function" in expr:
@@ -273,7 +273,7 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
         is_in = expr["function"].get("Boolean", {}) if isinstance(expr["function"], dict) else {}
         if isinstance(is_in, dict) and "IsIn" in is_in:
             needle, members = expr["input"]
-            return _is_in(_polars_to_vortex(needle), members, nulls_equal=is_in["IsIn"]["nulls_equal"])
+            return _is_in(_polars_to_vortex(needle, scope), members, nulls_equal=is_in["IsIn"]["nulls_equal"])
 
         # The string functions take a literal needle that only has meaning in its raw serialized form.
         raw_inputs: list[dict[str, Any]] = expr["input"]
@@ -281,16 +281,16 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:
         if isinstance(fn, dict) and "StringExpr" in fn:
             fn = fn["StringExpr"]
             if fn == "StartsWith":
-                return ve.like(_polars_to_vortex(raw_inputs[0]), _like_needle(raw_inputs[1]) + "%")
+                return ve.like(_polars_to_vortex(raw_inputs[0], scope), _like_needle(raw_inputs[1]) + "%")
             if fn == "EndsWith":
-                return ve.like(_polars_to_vortex(raw_inputs[0]), "%" + _like_needle(raw_inputs[1]))
+                return ve.like(_polars_to_vortex(raw_inputs[0], scope), "%" + _like_needle(raw_inputs[1]))
             if isinstance(fn, dict) and "Contains" in fn:
                 if not fn["Contains"]["literal"]:
                     raise NotImplementedError("Unsupported regex pattern in Polars StringExpr.Contains")
-                return ve.like(_polars_to_vortex(raw_inputs[0]), "%" + _like_needle(raw_inputs[1]) + "%")
+                return ve.like(_polars_to_vortex(raw_inputs[0], scope), "%" + _like_needle(raw_inputs[1]) + "%")
             raise NotImplementedError(f"Unsupported Polars string function: {fn}")
 
-        _inputs = [_polars_to_vortex(e) for e in raw_inputs]
+        _inputs = [_polars_to_vortex(e, scope) for e in raw_inputs]
 
         if expr["function"] == "FillNull":
             if "Literal" in expr["input"][1]:
@@ -380,6 +380,16 @@ def _ipc_values(raw: list[int]) -> pa.Array[pa.Scalar[Any]]:
     return pa.ipc.open_stream(bytes(raw)).read_all().column(0).combine_chunks()
 
 
+def _check_float_literal(dtype: str, value: object) -> None:
+    """Refuse a float literal whose value the JSON form of a Polars expression has lost.
+
+    JSON cannot hold inf, -inf or NaN, so Polars writes all three as null, while a null float is
+    `{"Null": "Float64"}`. A float with a null value is therefore non-finite, but which one is lost.
+    """
+    if dtype in ("Float", "Float32", "Float64") and value is None:
+        raise NotImplementedError("Cannot recover a non-finite Polars float literal from its JSON form")
+
+
 _TIME_UNITS: dict[str, Literal["s", "ms", "us", "ns"]] = {
     "Nanoseconds": "ns",
     "Microseconds": "us",
@@ -417,23 +427,29 @@ _CAST_DTYPES: dict[str, Callable[[], _dtype.DType]] = {
 }
 
 
-def _cast_to_vortex(cast_expr: dict[str, Any]) -> ve.Expr:
-    """Convert a Polars ``Cast`` node. Casts are nullable, since every Polars column is."""
-    if cast_expr["options"] != "Strict":
-        # Non-strict casts produce null where Polars' strict cast, like Vortex's, raises.
-        raise NotImplementedError(f"Unsupported Polars cast options: {cast_expr['options']}")
+def _cast_to_vortex(cast_expr: dict[str, Any], scope: Array | None) -> ve.Expr:
+    """Convert a Polars ``Cast`` node. Casts are nullable, since every Polars column is.
 
+    Where a value does not fit the target type, a ``Strict`` Polars cast raises, as Vortex's
+    cast does, but a ``NonStrict`` one produces null and an ``Overflowing`` one wraps. Polars'
+    optimizer adds such casts to unify operand types, so they are translated when ``scope``
+    shows that no value of the source type can fail to fit, and every mode then agrees.
+    """
+    strict = cast_expr["options"] == "Strict"
     target = cast_expr["dtype"]
     # Post https://github.com/pola-rs/polars/pull/21797 the target is a DataTypeExpr.
     if isinstance(target, dict) and "Literal" in target:
         target = target["Literal"]
+    # Polars 1 can leave the float type it casts to unresolved; it materializes as Float64.
+    if target == {"Unknown": "Float"}:
+        target = "Float64"
 
     if isinstance(target, dict) and "Datetime" in target:
         unit, tz = target["Datetime"]
         # Polars 1 encodes a naive datetime literal as a UTC datetime cast to a naive one. Fold
         # the cast so the timezone relabel happens here rather than as a Vortex timestamp cast.
         scalar = cast_expr["expr"].get("Literal", {}).get("Scalar", {})
-        if "Datetime" in scalar and scalar["Datetime"][1] == unit:
+        if strict and "Datetime" in scalar and scalar["Datetime"][1] == unit:
             return _datetime_literal([scalar["Datetime"][0], unit, tz])
         if unit not in _TIME_UNITS:
             raise NotImplementedError(f"Unsupported Polars date time unit: {unit}")
@@ -447,7 +463,51 @@ def _cast_to_vortex(cast_expr: dict[str, Any]) -> ve.Expr:
         dtype = _CAST_DTYPES[target]()
     else:
         raise NotImplementedError(f"Unsupported Polars cast target: {target}")
-    return ve.cast(_polars_to_vortex(cast_expr["expr"]), dtype)
+
+    child = _polars_to_vortex(cast_expr["expr"], scope)
+    if not strict and (scope is None or not _cast_cannot_fail(scope.apply(child).dtype, dtype)):
+        raise NotImplementedError(f"Unsupported Polars cast options: {cast_expr['options']}")
+    return ve.cast(child, dtype)
+
+
+_PTYPE_KINDS: list[tuple[_dtype.PType, Literal["u", "i", "f"], int]] = [
+    (_dtype.PType.U8, "u", 8),
+    (_dtype.PType.U16, "u", 16),
+    (_dtype.PType.U32, "u", 32),
+    (_dtype.PType.U64, "u", 64),
+    (_dtype.PType.I8, "i", 8),
+    (_dtype.PType.I16, "i", 16),
+    (_dtype.PType.I32, "i", 32),
+    (_dtype.PType.I64, "i", 64),
+    (_dtype.PType.F16, "f", 16),
+    (_dtype.PType.F32, "f", 32),
+    (_dtype.PType.F64, "f", 64),
+]
+
+
+def _numeric_kind(dtype: _dtype.DType) -> tuple[Literal["u", "i", "f"], int] | None:
+    if isinstance(dtype, _dtype.PrimitiveDType):
+        for ptype, kind, bits in _PTYPE_KINDS:
+            if dtype.ptype == ptype:
+                return kind, bits
+    return None
+
+
+def _cast_cannot_fail(source: _dtype.DType, target: _dtype.DType) -> bool:
+    """Whether every value of ``source`` fits ``target``, so a Vortex cast between them never raises.
+
+    This follows the widenings that Vortex's own cast treats as infallible, and adds integers to
+    floats of any width, which Vortex and Polars both round to the nearest float instead.
+    """
+    source_kind, target_kind = _numeric_kind(source), _numeric_kind(target)
+    if source_kind is None or target_kind is None:
+        return False
+    (source_type, source_bits), (target_type, target_bits) = source_kind, target_kind
+    if source_type == target_type:
+        return source_bits <= target_bits
+    if source_type == "u" and target_type == "i":
+        return source_bits < target_bits
+    return target_type == "f"
 
 
 def _like_needle(expr: dict[str, Any]) -> str:
