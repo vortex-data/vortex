@@ -113,17 +113,6 @@ table FileStatistics {
     partials: [ubyte];
 }
 
-/// A field path in the file's sort key.
-table FieldPath {
-    /// Field names that make up the path. An empty path selects a non-struct root.
-    path: [string] (required);
-}
-
-/// Sort key supplied by the caller. Fields are compared in order, ascending with nulls first.
-table SortKeySpec {
-    fields: [FieldPath] (required);
-}
-
 /// The `Registry` object stores dictionary-encoded configuration for segments,
 /// compression schemes, encryption schemes, etc.
 table Footer {
@@ -137,8 +126,6 @@ table Footer {
     compression_specs: [CompressionSpec];
     // Dictionary-encoded encryption specs, up to u16::MAX.
     encryption_specs: [EncryptionSpec];
-    /// Sort keys that each describe an ordering of the rows in this file.
-    sort_key_specs: [SortKeySpec];
 }
 
 /// An `ArraySpec` describes the type of a particular array.
