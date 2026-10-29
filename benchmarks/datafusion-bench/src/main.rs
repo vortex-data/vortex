@@ -16,8 +16,13 @@ use datafusion::datasource::listing::ListingTable;
 use datafusion::datasource::listing::ListingTableConfig;
 use datafusion::datasource::listing::ListingTableUrl;
 use datafusion::prelude::SessionContext;
+use datafusion_bench::cpu_log::CpuLog;
 use datafusion_bench::format_to_df_format;
+use datafusion_bench::get_counter::GetCounter;
+use datafusion_bench::get_counter::GetSegment;
 use datafusion_bench::metrics::MetricsSetExt;
+use datafusion_bench::page_cache::PageCacheEviction;
+use datafusion_bench::run_rests::RunRests;
 use datafusion_bench::tracer::get_labelset_from_global;
 use datafusion_bench::tracer::get_static_tracer;
 use datafusion_bench::tracer::set_labels;
@@ -51,6 +56,7 @@ use vortex_bench::runner::filter_queries;
 use vortex_bench::setup_logging_and_tracing;
 use vortex_bench::v3;
 use vortex_datafusion::metrics::VortexMetricsFinder;
+use vortex_datafusion::reader::VortexReaderFactory;
 use vortex_datafusion::v2::VortexTable;
 
 /// Common arguments shared across benchmarks
@@ -145,6 +151,19 @@ async fn main() -> anyhow::Result<()> {
     setup_logging_and_tracing(args.verbose, args.tracing)?;
 
     let benchmark = create_benchmark(args.benchmark, &opts)?;
+    let gets = opts
+        .get("get-log")
+        .map(|path| Arc::new(GetCounter::logging_to(path)));
+    let cpu = opts
+        .get("cpu-log")
+        .map(|path| Arc::new(CpuLog::logging_to(path)));
+    let eviction = match opts.get("evict-page-cache") {
+        Some("on") => Some(Arc::new(PageCacheEviction::of_local_data(
+            benchmark.data_url(),
+        )?)),
+        _ => None,
+    };
+    let rests = RunRests::from_opts(&opts)?.map(Arc::new);
 
     let filtered_queries = filter_queries(
         benchmark.queries()?,
@@ -193,28 +212,54 @@ async fn main() -> anyhow::Result<()> {
             mode,
             |format| {
                 let benchmark = &*benchmark;
+                let opts = &opts;
+                let gets = gets.as_ref();
                 async move {
                     let session = datafusion_bench::get_session_context();
                     for sql in benchmark.engine_init_sql(Engine::DataFusion) {
                         session.sql(&sql).await?.collect().await?;
                     }
-                    datafusion_bench::make_object_store(&session, benchmark.data_url())?;
-                    register_benchmark_tables(&session, benchmark, format, scan_v2).await?;
+                    let store =
+                        datafusion_bench::make_object_store(&session, benchmark.data_url(), gets)?;
+                    let reader_factory =
+                        datafusion_bench::t4_in_front(&session, opts, benchmark.data_url(), store)?;
+                    register_benchmark_tables(&session, benchmark, format, scan_v2, reader_factory)
+                        .await?;
                     Ok((session, format))
                 }
             },
             |query_idx, (session, format), query| {
                 let plans = Arc::clone(&collected_plans);
+                let eviction = eviction.clone();
+                let rests = rests.clone();
+                let gets = gets.clone();
+                let cpu = cpu.clone();
 
                 let labelset = set_labels(benchmark_name.clone(), query_idx, *format);
 
                 Box::pin(
                     async move {
+                        if let Some(eviction) = eviction {
+                            eviction.evict()?;
+                        }
+                        if let Some(rests) = &rests {
+                            rests.before_run(query_idx, *format).await;
+                        }
+                        if let Some(gets) = &gets {
+                            gets.log(GetSegment::BetweenRuns)?;
+                        }
+                        let cpu_start = cpu.as_ref().map(|cpu| cpu.sample()).transpose()?;
                         let timer = Instant::now();
                         let (batches, plan) = execute_query(session, query)
                             .with_labelset(get_labelset_from_global())
                             .await?;
                         let time = timer.elapsed();
+                        if let (Some(cpu), Some(cpu_start)) = (&cpu, &cpu_start) {
+                            cpu.log_run(cpu_start)?;
+                        }
+                        if let Some(gets) = &gets {
+                            gets.log(GetSegment::Run)?;
+                        }
 
                         // Store plan for metrics (only store once per query/format combination)
                         if show_metrics {
@@ -252,6 +297,10 @@ async fn main() -> anyhow::Result<()> {
         runner.export_to(&args.display_format, writer)?;
     }
 
+    if let Some(gets) = &gets {
+        gets.log(GetSegment::BetweenRuns)?;
+    }
+
     Ok(())
 }
 
@@ -264,13 +313,18 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     benchmark: &B,
     format: Format,
     scan_v2: bool,
+    reader_factory: Option<Arc<dyn VortexReaderFactory>>,
 ) -> anyhow::Result<()> {
     if !scan_v2 && use_scan_api() && matches!(format, Format::OnDiskVortex | Format::VortexCompact)
     {
+        anyhow::ensure!(
+            reader_factory.is_none(),
+            "t4 isn't wired into the scan API's tables yet"
+        );
         register_v2_tables(session, benchmark, format).await
     } else {
         let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
-        let file_format = format_to_df_format(format, scan_v2)?;
+        let file_format = format_to_df_format(format, scan_v2, reader_factory)?;
 
         for table in benchmark.table_specs().iter() {
             let pattern = benchmark.pattern(table.name, format);

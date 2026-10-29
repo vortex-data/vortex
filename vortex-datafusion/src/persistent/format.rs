@@ -24,6 +24,7 @@ use datafusion_common::not_impl_err;
 use datafusion_common::parsers::CompressionTypeVariant;
 use datafusion_common::stats::Precision as DFPrecision;
 use datafusion_common_runtime::SpawnedTask;
+use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file::FileSource;
 use datafusion_datasource::file_compression_type::FileCompressionType;
@@ -48,7 +49,6 @@ use vortex::VortexSessionDefault;
 use vortex::aggregate_fn::AggregateFnVTableExt;
 use vortex::aggregate_fn::EmptyOptions;
 use vortex::aggregate_fn::fns::is_constant::IsConstant;
-use vortex::array::memory::MemorySessionExt;
 use vortex::dtype::DType;
 use vortex::dtype::FieldPath;
 use vortex::dtype::PType;
@@ -61,14 +61,14 @@ use vortex::file::EOF_SIZE;
 use vortex::file::MAX_POSTSCRIPT_SIZE;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VORTEX_FILE_EXTENSION;
-use vortex::io::object_store::ObjectStoreReadAt;
-use vortex::io::session::RuntimeSessionExt;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue as VortexScalarValue;
 use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 
 use super::cache::CachedVortexMetadata;
+use super::reader::DefaultVortexReaderFactory;
+use super::reader::VortexReaderFactory;
 use super::sink::VortexSink;
 use super::source::VortexSource;
 use crate::PrecisionExt as _;
@@ -130,6 +130,7 @@ pub struct VortexFormat {
     session: VortexSession,
     opts: VortexTableOptions,
     expression_converter: Option<Arc<dyn ExpressionConverter>>,
+    vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
 }
 
 impl Debug for VortexFormat {
@@ -139,6 +140,10 @@ impl Debug for VortexFormat {
             .field(
                 "has_expression_converter",
                 &self.expression_converter.is_some(),
+            )
+            .field(
+                "has_vortex_reader_factory",
+                &self.vortex_reader_factory.is_some(),
             )
             .finish()
     }
@@ -462,6 +467,7 @@ impl VortexFormat {
             session,
             opts,
             expression_converter: None,
+            vortex_reader_factory: None,
         }
     }
 
@@ -478,6 +484,24 @@ impl VortexFormat {
     ) -> Self {
         self.expression_converter = Some(expression_converter);
         self
+    }
+
+    /// Sets the [`VortexReaderFactory`] that creates the reader of every file this format opens:
+    /// to infer schemas and statistics, and in every [`VortexSource`] it creates. Unless set,
+    /// files are read through the session's object store.
+    pub fn with_vortex_reader_factory(
+        mut self,
+        vortex_reader_factory: Arc<dyn VortexReaderFactory>,
+    ) -> Self {
+        self.vortex_reader_factory = Some(vortex_reader_factory);
+        self
+    }
+
+    /// The factory that creates this format's readers: the one set, or one over `store`.
+    fn reader_factory(&self, store: &Arc<dyn ObjectStore>) -> Arc<dyn VortexReaderFactory> {
+        self.vortex_reader_factory
+            .clone()
+            .unwrap_or_else(|| Arc::new(DefaultVortexReaderFactory::new(Arc::clone(store))) as _)
     }
 }
 
@@ -510,10 +534,11 @@ impl FileFormat for VortexFormat {
         objects: &[ObjectMeta],
     ) -> DFResult<SchemaRef> {
         let file_metadata_cache = state.runtime_env().cache_manager.get_file_metadata_cache();
+        let reader_factory = self.reader_factory(store);
 
         let mut file_schemas = stream::iter(objects.iter().cloned())
             .map(|object| {
-                let store = Arc::clone(store);
+                let reader_factory = Arc::clone(&reader_factory);
                 let session = self.session.clone();
                 let opts = self.opts.clone();
                 let cache = Arc::clone(&file_metadata_cache);
@@ -534,12 +559,9 @@ impl FileFormat for VortexFormat {
                     }
 
                     // Not entry or invalid - open the file
-                    let reader = Arc::new(ObjectStoreReadAt::new_with_allocator(
-                        store,
-                        object.location.clone(),
-                        session.handle(),
-                        session.allocator(),
-                    ));
+                    let reader = reader_factory
+                        .create_reader(&PartitionedFile::from(object.clone()), &session)
+                        .map_err(|e| vortex_err!("Failed to create a reader: {e}"))?;
 
                     let vxf = session
                         .open_options()
@@ -585,7 +607,7 @@ impl FileFormat for VortexFormat {
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
         let object = object.clone();
-        let store = Arc::clone(store);
+        let reader_factory = self.reader_factory(store);
         let session = self.session.clone();
         let opts = self.opts.clone();
         let file_metadata_cache = state.runtime_env().cache_manager.get_file_metadata_cache();
@@ -613,12 +635,8 @@ impl FileFormat for VortexFormat {
                 Some(metadata) => metadata,
                 None => {
                     // Not entry - open the file
-                    let reader = Arc::new(ObjectStoreReadAt::new_with_allocator(
-                        store,
-                        object.location.clone(),
-                        session.handle(),
-                        session.allocator(),
-                    ));
+                    let reader = reader_factory
+                        .create_reader(&PartitionedFile::from(object.clone()), &session)?;
 
                     let vxf = session
                         .open_options()
@@ -779,6 +797,9 @@ impl FileFormat for VortexFormat {
         if let Some(expression_converter) = &self.expression_converter {
             source = source.with_expression_converter(Arc::clone(expression_converter));
         }
+        if let Some(vortex_reader_factory) = &self.vortex_reader_factory {
+            source = source.with_vortex_reader_factory(Arc::clone(vortex_reader_factory));
+        }
         Arc::new(source) as _
     }
 }
@@ -807,13 +828,17 @@ fn scalar_stat_to_df(
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
     use arrow_array::Int32Array;
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::TimeUnit;
+    use datafusion::datasource::listing::ListingOptions;
     use datafusion::datasource::listing::ListingTable;
+    use datafusion::datasource::listing::ListingTableConfig;
+    use datafusion::datasource::listing::ListingTableUrl;
     use datafusion_common::ScalarValue;
     use datafusion_common::config::ConfigOptions;
     use datafusion_expr::Operator;
@@ -827,6 +852,7 @@ mod tests {
     use vortex::expr::Expression;
     use vortex::extension::datetime::TimeUnit as VortexTimeUnit;
     use vortex::extension::datetime::Timestamp;
+    use vortex::io::VortexReadAt;
 
     use super::*;
     use crate::common_tests::TestSessionContext;
@@ -1223,6 +1249,77 @@ mod tests {
             values.extend(array.values().iter().copied());
         }
         assert_eq!(values, vec![2, 3]);
+        Ok(())
+    }
+
+    /// A reader factory that counts the readers it creates, each over the session's store.
+    #[derive(Debug)]
+    struct CountingReaderFactory {
+        readers: DefaultVortexReaderFactory,
+        created: AtomicUsize,
+    }
+
+    impl VortexReaderFactory for CountingReaderFactory {
+        fn create_reader(
+            &self,
+            file: &PartitionedFile,
+            session: &VortexSession,
+        ) -> DFResult<Arc<dyn VortexReadAt>> {
+            self.created.fetch_add(1, Ordering::Relaxed);
+            self.readers.create_reader(file, session)
+        }
+    }
+
+    #[tokio::test]
+    async fn format_reads_files_through_its_reader_factory() -> anyhow::Result<()> {
+        let ctx = TestSessionContext::default();
+        ctx.session
+            .sql(
+                "CREATE EXTERNAL TABLE numbers (a INT NOT NULL) \
+                 STORED AS vortex LOCATION '/reader-factory/'",
+            )
+            .await?;
+        ctx.session
+            .sql("INSERT INTO numbers VALUES (1), (2), (3)")
+            .await?
+            .collect()
+            .await?;
+
+        let readers = Arc::new(CountingReaderFactory {
+            readers: DefaultVortexReaderFactory::new(Arc::clone(&ctx.store)),
+            created: AtomicUsize::new(0),
+        });
+        let format = VortexFormat::new(VortexSession::default())
+            .with_vortex_reader_factory(Arc::clone(&readers) as _);
+        let config = ListingTableConfig::new(ListingTableUrl::parse("/reader-factory/")?)
+            .with_listing_options(ListingOptions::new(Arc::new(format)))
+            .infer_schema(&ctx.session.state())
+            .await?;
+        let inferred = readers.created.load(Ordering::Relaxed);
+        assert!(inferred > 0, "the schema is inferred through the factory");
+
+        ctx.session
+            .register_table("counted", Arc::new(ListingTable::try_new(config)?))?;
+        let batches = ctx
+            .session
+            .sql("SELECT a FROM counted ORDER BY a")
+            .await?
+            .collect()
+            .await?;
+        assert!(
+            readers.created.load(Ordering::Relaxed) > inferred,
+            "the scan reads through the factory too"
+        );
+        let mut values = Vec::new();
+        for batch in batches {
+            let array = batch
+                .column(0)
+                .as_any()
+                .downcast_ref::<Int32Array>()
+                .ok_or_else(|| anyhow::anyhow!("expected Int32 result column"))?;
+            values.extend(array.values().iter().copied());
+        }
+        assert_eq!(values, vec![1, 2, 3]);
         Ok(())
     }
 }

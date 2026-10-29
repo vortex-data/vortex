@@ -271,6 +271,9 @@ tar = "0.4"
 target-lexicon = "0.13"
 temp-env = "0.3"
 tempfile = "3"
+# t4, a cache of object stores in memory and on local drives (vortex-io's `t4`
+# feature). By git, pinned, while it is unpublished.
+t4 = { git = "https://github.com/XiangpengHao/t4", rev = "0cb2fbfd863a180ad6aa6e52eb8c11aea6a56a5c" }
 termtree = { version = "1.0" }
 test-with = "=0.16.3"
 thiserror = "2.0.3"

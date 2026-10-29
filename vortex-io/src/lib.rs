@@ -28,6 +28,8 @@ pub mod runtime;
 pub mod session;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod std_file;
+#[cfg(all(feature = "t4", unix))]
+pub mod t4;
 #[cfg(feature = "tokio")]
 mod tokio;
 mod write;

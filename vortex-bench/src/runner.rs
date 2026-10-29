@@ -409,9 +409,13 @@ impl SqlBenchmarkRunner {
                             let elapsed = timing.unwrap_or_else(|| start.elapsed());
                             runs.push(elapsed);
 
-                            if row_count.is_none() {
-                                row_count = Some(result.row_count());
-                            }
+                            // Every run, not the first alone: a cache serves the later ones.
+                            let rows = result.row_count();
+                            let first = *row_count.get_or_insert(rows);
+                            assert_eq!(
+                                rows, first,
+                                "query {query_idx}: a later run returned {rows} rows, the first {first}"
+                            );
                         }
 
                         let row_count = row_count.expect("iterations must be > 0");
