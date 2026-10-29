@@ -21,17 +21,26 @@ use futures::stream::iter;
 use futures::stream::once;
 use futures::try_join;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::Chunked;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Dict;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::chunked::ChunkedArrayExt;
+use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::DictEncoder;
 use vortex_array::builders::dict::dict_encoder_in;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::scalar::Scalar;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -169,6 +178,9 @@ impl LayoutStrategy for DictStrategy {
 
         let should_fallback = match sample {
             None => true, // empty stream
+            // Chunks that arrive dictionary-encoded are written as a dictionary layout without
+            // being decoded.
+            Some(sample) if is_dict_encoded(&sample) => false,
             Some(sample) => {
                 let mut exec_ctx = session.create_execution_ctx();
                 let compressed = self
@@ -332,6 +344,9 @@ impl DictStreamState {
         chunk: ArrayRef,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Vec<DictionaryChunk>> {
+        if chunk.is::<Dict>() {
+            return self.encode_dict(labeler, chunk, exec_ctx);
+        }
         let mut res = Vec::new();
         let mut to_be_encoded = Some(chunk);
         while let Some(remaining) = to_be_encoded.take() {
@@ -367,6 +382,76 @@ impl DictStreamState {
                 }
             }
         }
+        Ok(res)
+    }
+
+    /// Encodes a chunk that is already a dictionary by adding its values to the running dictionary
+    /// and remapping its codes, so only the values are hashed, never the rows.
+    ///
+    /// When the running dictionary fills up, it is closed and the chunk starts a new one. A chunk
+    /// whose values alone exceed the constraints is decoded and encoded row by row.
+    fn encode_dict(
+        &mut self,
+        labeler: &mut DictChunkLabeler,
+        chunk: ArrayRef,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Vec<DictionaryChunk>> {
+        let dict = chunk.as_::<Dict>();
+        let codes = dict.codes().clone().execute::<PrimitiveArray>(exec_ctx)?;
+        let mask = codes.validity()?.execute_mask(codes.len(), exec_ctx)?;
+        // Null rows point at an extra null value, since the encoder gives nulls a code of their own.
+        let mut values = dict.values().cast(chunk.dtype().clone())?;
+        let null_value = if mask.all_true() {
+            None
+        } else {
+            let null = ConstantArray::new(Scalar::null(chunk.dtype().clone()), 1).into_array();
+            let value = u32::try_from(values.len())?;
+            values = ChunkedArray::try_new(vec![values, null], chunk.dtype().clone())?.into_array();
+            Some(value)
+        };
+        let values = values.execute::<Canonical>(exec_ctx)?.into_array();
+
+        let mut res = Vec::new();
+        let fresh = self.encoder.is_none();
+        let mut encoder = match self.encoder.take() {
+            Some(encoder) => encoder,
+            None => dict_encoder_in(&values, &self.constraints, exec_ctx.allocator().clone()),
+        };
+        let value_codes = encoder.encode(&values, exec_ctx)?;
+        if value_codes.len() < values.len() {
+            if fresh {
+                // The chunk's values alone do not fit, so the values the encoder took are dropped
+                // with it and the rows are encoded one by one.
+                let canonical = chunk.execute::<Canonical>(exec_ctx)?.into_array();
+                return self.encode(labeler, canonical, exec_ctx);
+            }
+            // Close the running dictionary; values it took from this chunk stay unreferenced.
+            res.push(labeler.values(encoder.reset()));
+            res.extend(self.encode_dict(labeler, chunk, exec_ctx)?);
+            return Ok(res);
+        }
+
+        let row_codes = codes
+            .into_array()
+            .cast(DType::Primitive(PType::U32, Nullability::Nullable))?
+            .execute::<PrimitiveArray>(exec_ctx)?;
+        let indices: BufferMut<u32> = row_codes
+            .as_slice::<u32>()
+            .iter()
+            .enumerate()
+            .map(|(row, &code)| match null_value {
+                Some(null_value) if !mask.value(row) => null_value,
+                _ => code,
+            })
+            .collect();
+        let ptype = encoder.codes_ptype();
+        let encoded = value_codes
+            .into_array()
+            .take(indices.freeze().into_array())?
+            .execute::<PrimitiveArray>(exec_ctx)?
+            .into_array();
+        res.push(labeler.codes(encoded, ptype));
+        self.encoder = Some(encoder);
         Ok(res)
     }
 
@@ -527,6 +612,14 @@ impl Stream for DictionaryTransformer {
 
 /// Peeks chunks until they hold `probe_len` rows, returning the stream with those chunks back in
 /// front and its first `probe_len` rows, or `None` if the stream is empty.
+/// Whether `sample` is a dictionary, or a chunked array of dictionaries.
+fn is_dict_encoded(sample: &ArrayRef) -> bool {
+    sample.is::<Dict>()
+        || sample
+            .as_opt::<Chunked>()
+            .is_some_and(|chunked| chunked.iter_chunks().all(|chunk| chunk.is::<Dict>()))
+}
+
 async fn peek_probe_sample(
     mut stream: BoxStream<'static, SequencedChunk>,
     probe_len: usize,
@@ -614,8 +707,11 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::DictArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinArray;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::dict::DictConstraints;
     use vortex_array::builders::dict::dict_encode;
@@ -745,6 +841,65 @@ mod tests {
                 DictionaryChunk::Values(_) => 0,
             })
             .sum()
+    }
+
+    /// Rebuilds the rows that dictionary chunks encode: each run of codes refers to the values
+    /// that follow it.
+    fn decode_runs(chunks: Vec<DictionaryChunk>) -> VortexResult<Vec<ArrayRef>> {
+        let mut decoded = Vec::new();
+        let mut pending = Vec::new();
+        for chunk in chunks {
+            match chunk {
+                DictionaryChunk::Codes { codes, .. } => pending.push(codes),
+                DictionaryChunk::Values((_, values)) => {
+                    for codes in pending.drain(..) {
+                        decoded.push(DictArray::try_new(codes, values.clone())?.into_array());
+                    }
+                }
+            }
+        }
+        assert!(pending.is_empty(), "codes without values");
+        Ok(decoded)
+    }
+
+    /// Dictionary chunks, including null codes, are encoded from their values without decoding
+    /// their rows, and a full dictionary starts a new run.
+    #[rstest]
+    #[case::one_run(100)]
+    #[case::split_runs(4)]
+    fn encode_dictionary_chunks(#[case] max_len: usize) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dict = |codes: Vec<Option<u32>>, values: &[&str]| -> VortexResult<ArrayRef> {
+            Ok(DictArray::try_new(
+                PrimitiveArray::from_option_iter(codes).into_array(),
+                VarBinViewArray::from_iter_nullable_str(values.iter().map(Some)).into_array(),
+            )?
+            .into_array())
+        };
+        let chunks = vec![
+            dict(vec![Some(0), None, Some(1), Some(0)], &["a", "b", "unused"])?,
+            dict(vec![Some(2), Some(0), None], &["b", "c", "d"])?,
+        ];
+        let mut state = DictStreamState {
+            encoder: None,
+            constraints: DictConstraints {
+                max_bytes: 1 << 20,
+                max_len,
+            },
+        };
+
+        let mut labeler = DictChunkLabeler::new(SequenceId::root().advance());
+        let mut encoded = Vec::new();
+        for chunk in &chunks {
+            encoded.extend(state.encode(&mut labeler, chunk.clone(), &mut ctx)?);
+        }
+        encoded.extend(state.drain_values(&mut labeler));
+
+        let dtype = chunks[0].dtype().clone();
+        let actual = ChunkedArray::try_new(decode_runs(encoded)?, dtype.clone())?;
+        let expected = ChunkedArray::try_new(chunks, dtype)?;
+        assert_arrays_eq!(&actual, &expected, &mut ctx);
+        Ok(())
     }
 
     /// A 49-byte value plus its 16-byte `BinaryView` exceeds the 64-byte budget of an empty
