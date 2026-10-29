@@ -134,6 +134,68 @@ class MeasurementTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "already contains evidence"):
                 measure.run(args, {})
 
+    def test_ci_resumes_fixed_windows_with_credentials_supplied_by_each_action(self):
+        now, starts, inherited = [1000.0], [], []
+
+        def sleep(seconds: float):
+            now[0] += seconds
+
+        def run(command: list[str], **kwargs: object):
+            starts.append(now[0])
+            inherited.append(kwargs["env"])
+            path = Path(command[command.index("--output") + 1])
+            self.write(path, self.records(command[command.index("--measurement-id") + 1]))
+            now[0] += 120
+
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(measure.time, "time", lambda: now[0]),
+            patch.object(measure.time, "sleep", sleep),
+            patch.object(measure.subprocess, "run", run),
+            patch("builtins.print"),
+        ):
+            root = Path(directory)
+            binary = root / "binary"
+            binary.write_bytes(b"frozen collector")
+            args = argparse.Namespace(
+                output=root / "results",
+                binary=binary,
+                source="s3://test/prefix/",
+                count=4,
+                interval_seconds=10800,
+                window_timeout_seconds=1800,
+                seed=42,
+                allow_local=False,
+                probe_args=[],
+            )
+            measure.initialize(args)
+            credentials = []
+            for index in range(1, 5):
+                plan = measure.load_plan(args)
+                measure.wait_until(plan["windows"][index - 1]["planned_unix"])
+                now[0] += 1  # The workflow action runs after the wait, before collection.
+                env = {"AWS_ACCESS_KEY_ID": f"action-placeholder-{index}", "GITHUB_RUN_ID": "123"}
+                credentials.append(env)
+                measure.collect(args, env, measure.load_plan(args), index)
+            self.assertEqual(starts, [1001, 11801, 22601, 33401])
+            self.assertEqual(inherited, credentials)
+            plan = measure.load_plan(args)
+            measure.summarize(args, plan)
+            self.assertTrue(all(w["status"] == "success" for w in plan["windows"]))
+            with self.assertRaisesRegex(ValueError, "already attempted"):
+                measure.collect(args, {}, plan, 1)
+            args.seed += 1
+            with self.assertRaisesRegex(ValueError, "configuration changed"):
+                measure.load_plan(args)
+            args.seed -= 1
+            binary.write_bytes(b"changed collector")
+            with self.assertRaisesRegex(ValueError, "binary changed"):
+                measure.load_plan(args)
+            binary.write_bytes(b"frozen collector")
+            (args.output / "window-01.jsonl").write_text("changed trace")
+            with self.assertRaisesRegex(ValueError, "trace changed"):
+                measure.summarize(args, measure.load_plan(args))
+
 
 if __name__ == "__main__":
     unittest.main()

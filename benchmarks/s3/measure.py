@@ -16,8 +16,6 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 
-import aws_credentials
-
 
 def quantile(values: list[float], probability: float) -> float:
     ordered = sorted(values)
@@ -111,7 +109,22 @@ def read_window(path: Path) -> tuple[dict, list[dict]]:
     return environment, rows
 
 
-def run(args: argparse.Namespace, env: dict[str, str]):
+def configuration(args: argparse.Namespace) -> dict:
+    return {
+        key: getattr(args, key)
+        for key in (
+            "source",
+            "count",
+            "interval_seconds",
+            "window_timeout_seconds",
+            "seed",
+            "allow_local",
+            "probe_args",
+        )
+    }
+
+
+def initialize(args: argparse.Namespace) -> dict:
     if args.output.exists() and any(args.output.iterdir()):
         raise ValueError("Output directory already contains evidence; choose a new directory")
     args.output.mkdir(parents=True, exist_ok=True)
@@ -123,77 +136,120 @@ def run(args: argparse.Namespace, env: dict[str, str]):
         "binary_sha256": binary_hash,
         "interval_seconds": args.interval_seconds,
         "source": args.source,
+        "configuration": configuration(args),
         "windows": [
             {"index": i + 1, "planned_unix": anchor + i * args.interval_seconds, "status": "pending"}
             for i in range(args.count)
         ],
     }
     save(args.output / "schedule.json", plan)
-    all_rows, baseline = [], None
+    return plan
+
+
+def load_plan(args: argparse.Namespace) -> dict:
+    plan = json.loads((args.output / "schedule.json").read_text())
+    if plan["configuration"] != configuration(args):
+        raise ValueError("Probe configuration changed between measurement windows")
+    with args.binary.open("rb") as binary:
+        if hashlib.file_digest(binary, "sha256").hexdigest() != plan["binary_sha256"]:
+            raise ValueError("Collector binary changed between measurement windows")
+    return plan
+
+
+def identity(environment: dict) -> dict:
+    return {
+        key: environment.get(key)
+        for key in (
+            "ci_run_id",
+            "sha",
+            "source",
+            "region",
+            "instance_id",
+            "instance_type",
+            "cpus",
+            "total_memory",
+            "objects",
+            "sizes",
+            "concurrency",
+            "requests_per_cell",
+            "rounds",
+            "seed",
+            "warmup_seconds",
+            "endpoint_override",
+        )
+    }
+
+
+def collect(args: argparse.Namespace, env: dict[str, str], plan: dict, index: int):
+    window = plan["windows"][index - 1]
+    if window["status"] != "pending":
+        raise ValueError("Measurement window already attempted; evidence will not be overwritten")
+    window.update(started_unix=time.time(), status="running")
+    save(args.output / "schedule.json", plan)
+    trace = args.output / f"window-{index:02}.jsonl"
+    try:
+        if window["started_unix"] - window["planned_unix"] > 300:
+            raise ValueError("Window missed its planned start by over five minutes")
+        if window["started_unix"] < window["planned_unix"]:
+            raise ValueError("Wait for the planned measurement start before collecting")
+        command = [
+            str(args.binary.resolve()),
+            "--source",
+            args.source,
+            "--output",
+            str(trace),
+            "--measurement-id",
+            f"{env.get('GITHUB_RUN_ID', 'local')}-{env.get('GITHUB_RUN_ATTEMPT', '1')}-{index}",
+            "--seed",
+            str(args.seed),
+        ]
+        if args.allow_local:
+            command += ["--allow-local"]
+        command += args.probe_args
+        subprocess.run(command, env=env, check=True, timeout=args.window_timeout_seconds)
+        environment, _ = read_window(trace)
+        for previous in plan["windows"]:
+            if previous["status"] == "success":
+                reference, _ = read_window(args.output / f"window-{previous['index']:02}.jsonl")
+                if identity(reference) != identity(environment):
+                    raise ValueError("Host, objects or probe configuration changed between windows")
+        window.update(status="success", sha256=hashlib.sha256(trace.read_bytes()).hexdigest())
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        window.update(status="failed", error=str(error))
+    window["finished_unix"] = time.time()
+    save(args.output / "schedule.json", plan)
+    summarize(args, plan, require_complete=False)
+    if window["status"] != "success":
+        raise ValueError("Measurement window failed; partial evidence was preserved")
+
+
+def summarize(args: argparse.Namespace, plan: dict, *, require_complete: bool = True):
+    rows = []
+    for window in plan["windows"]:
+        if window["status"] == "success":
+            trace = args.output / f"window-{window['index']:02}.jsonl"
+            if hashlib.sha256(trace.read_bytes()).hexdigest() != window["sha256"]:
+                raise ValueError("Measurement trace changed after collection")
+            rows.extend(read_window(trace)[1])
+    if rows:
+        with (args.output / "measurements.csv").open("w") as stream:
+            writer = csv.DictWriter(stream, list(rows[0]), lineterminator="\n")
+            writer.writeheader()
+            writer.writerows(rows)
+    if require_complete and any(w["status"] != "success" for w in plan["windows"]):
+        raise ValueError("Some measurement windows failed; partial evidence was preserved")
+
+
+def run(args: argparse.Namespace, env: dict[str, str]):
+    plan = initialize(args)
     for window in plan["windows"]:
         wait_until(window["planned_unix"])
-        window.update(started_unix=time.time(), status="running")
-        save(args.output / "schedule.json", plan)
-        trace = args.output / f"window-{window['index']:02}.jsonl"
         try:
-            if window["started_unix"] - window["planned_unix"] > 300:
-                raise ValueError("Window missed its planned start by over five minutes")
-            with args.binary.open("rb") as binary:
-                if hashlib.file_digest(binary, "sha256").hexdigest() != binary_hash:
-                    raise ValueError("Collector binary changed between measurement windows")
-            command = [
-                str(args.binary.resolve()),
-                "--source",
-                args.source,
-                "--output",
-                str(trace),
-                "--measurement-id",
-                f"{env.get('GITHUB_RUN_ID', 'local')}-{env.get('GITHUB_RUN_ATTEMPT', '1')}-{window['index']}",
-                "--seed",
-                str(args.seed),
-            ]
-            if args.allow_local:
-                command += ["--allow-local"]
-            command += args.probe_args
-            subprocess.run(command, env=env, check=True, timeout=args.window_timeout_seconds)
-            environment, rows = read_window(trace)
-            identity = {
-                key: environment.get(key)
-                for key in (
-                    "ci_run_id",
-                    "sha",
-                    "source",
-                    "region",
-                    "instance_id",
-                    "instance_type",
-                    "cpus",
-                    "total_memory",
-                    "objects",
-                    "sizes",
-                    "concurrency",
-                    "requests_per_cell",
-                    "rounds",
-                    "seed",
-                    "warmup_seconds",
-                    "endpoint_override",
-                )
-            }
-            if baseline is not None and baseline != identity:
-                raise ValueError("Host, objects or probe configuration changed between windows")
-            baseline = identity
-            all_rows.extend(rows)
-            window.update(status="success", sha256=hashlib.sha256(trace.read_bytes()).hexdigest())
-        except (OSError, ValueError, subprocess.SubprocessError) as error:
-            window.update(status="failed", error=str(error))
-        window["finished_unix"] = time.time()
-        save(args.output / "schedule.json", plan)
-        if all_rows:
-            with (args.output / "measurements.csv").open("w") as stream:
-                writer = csv.DictWriter(stream, list(all_rows[0]), lineterminator="\n")
-                writer.writeheader()
-                writer.writerows(all_rows)
-    if any(w["status"] != "success" for w in plan["windows"]):
-        raise ValueError("Some measurement windows failed; partial evidence was preserved")
+            collect(args, env, load_plan(args), window["index"])
+        except ValueError:
+            # Keep the remaining fixed starts even when an earlier collection failed.
+            continue
+    summarize(args, load_plan(args))
 
 
 def main():
@@ -207,6 +263,11 @@ def main():
     parser.add_argument("--seed", type=int, default=20261028)
     parser.add_argument("--allow-local", action="store_true")
     parser.add_argument("probe_args", nargs=argparse.REMAINDER)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--initialize", action="store_true", help="Save the fixed schedule without collecting")
+    mode.add_argument("--wait-window", type=int, choices=range(1, 5), help="Wait before the CI credential action")
+    mode.add_argument("--run-window", type=int, choices=range(1, 5), help="Collect with current ambient credentials")
+    mode.add_argument("--summarize", action="store_true", help="Validate all windows and write the combined table")
     args = parser.parse_args()
     if not math.isfinite(args.interval_seconds) or args.interval_seconds < 0:
         parser.error("Interval must be finite and nonnegative")
@@ -214,8 +275,21 @@ def main():
         parser.error("Window timeout must be finite and positive")
     if args.probe_args[:1] == ["--"]:
         args.probe_args = args.probe_args[1:]
-    with aws_credentials.environment(os.environ.get("S3_MEASUREMENT_ROLE_ARN")) as env:
-        run(args, env)
+    if args.initialize:
+        initialize(args)
+    elif args.wait_window or args.run_window or args.summarize:
+        plan = load_plan(args)
+        index = args.wait_window or args.run_window
+        if index is not None and index > len(plan["windows"]):
+            parser.error("Window is outside the initialized schedule")
+        if args.wait_window:
+            wait_until(plan["windows"][index - 1]["planned_unix"])
+        elif args.run_window:
+            collect(args, os.environ.copy(), plan, index)
+        else:
+            summarize(args, plan)
+    else:
+        run(args, os.environ.copy())
 
 
 if __name__ == "__main__":

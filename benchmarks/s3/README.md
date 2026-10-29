@@ -22,7 +22,11 @@ budget. Starts over five minutes late are failures, without silently shifting th
 The manual `S3 Measurements` workflow keeps one on-demand `c8gd.16xlarge` in `us-east-1` for the
 whole study. It creates four seeded 16 MiB fixtures in a unique prefix, verifies bucket/runner
 region, collects one to four windows, uploads evidence and removes only its fixtures. Branch pushes
-run one window to exercise the collector. OIDC refresh supports studies longer than an STS session.
+run one window to exercise the collector. Authentication uses the same pinned
+`aws-actions/configure-aws-credentials` action as the S3 benchmarks. CI waits for each fixed start,
+then obtains fresh credentials before collecting that window. Python inherits the configured
+credentials; it does not fetch tokens, assume roles or write credential files. Standalone multi-window
+runs use the caller's standard AWS credential provider, which must remain valid for the study.
 
 Each JSONL starts with a **schema version 1 environment**: actual CI run/attempt and commit,
 measurement window ID, source, hardware/region/availability zone, CPU/memory, seed, probe configuration,

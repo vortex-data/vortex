@@ -33,7 +33,6 @@ jobs:
     env:
       AWS_REGION: us-east-1
       REMOTE_ROOT: s3://vortex-ci-benchmark-datasets/s3-measurements/${{ github.run_id }}-${{ github.run_attempt }}
-      S3_MEASUREMENT_ROLE_ARN: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
       MEASUREMENT_WINDOWS: ${{ inputs.windows || '1' }}
     steps:
       - uses: runs-on/action@v2
@@ -68,10 +67,75 @@ jobs:
           for object in 1 2 3 4; do
             aws s3 cp s3-probe.bin "$REMOTE_ROOT/probe-$object.bin"
           done
-      - name: Collect fixed-time S3 windows
-        run: |
-          python3 benchmarks/s3/measure.py --source "$REMOTE_ROOT/" \
-            --output s3-measurements --count "$MEASUREMENT_WINDOWS" --interval-seconds 10800
+      - name: Initialize the fixed measurement schedule
+        id: schedule
+        run: >-
+          python3 benchmarks/s3/measure.py --source "$REMOTE_ROOT/"
+          --count "$MEASUREMENT_WINDOWS" --initialize
+      - name: Collect window 1
+        continue-on-error: true
+        run: >-
+          python3 benchmarks/s3/measure.py --source "$REMOTE_ROOT/"
+          --count "$MEASUREMENT_WINDOWS" --run-window 1
+      - name: Wait for window 2
+        if: ${{ !cancelled() && steps.schedule.outcome == 'success' && fromJSON(env.MEASUREMENT_WINDOWS) >= 2 }}
+        run: >-
+          python3 benchmarks/s3/measure.py --source "$REMOTE_ROOT/"
+          --count "$MEASUREMENT_WINDOWS" --wait-window 2
+      - name: Configure credentials for window 2
+        if: ${{ !cancelled() && steps.schedule.outcome == 'success' && fromJSON(env.MEASUREMENT_WINDOWS) >= 2 }}
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+          role-duration-seconds: 7200
+      - name: Collect window 2
+        if: ${{ !cancelled() && steps.schedule.outcome == 'success' && fromJSON(env.MEASUREMENT_WINDOWS) >= 2 }}
+        continue-on-error: true
+        run: >-
+          python3 benchmarks/s3/measure.py --source "$REMOTE_ROOT/"
+          --count "$MEASUREMENT_WINDOWS" --run-window 2
+      - name: Wait for window 3
+        if: ${{ !cancelled() && steps.schedule.outcome == 'success' && fromJSON(env.MEASUREMENT_WINDOWS) >= 3 }}
+        run: >-
+          python3 benchmarks/s3/measure.py --source "$REMOTE_ROOT/"
+          --count "$MEASUREMENT_WINDOWS" --wait-window 3
+      - name: Configure credentials for window 3
+        if: ${{ !cancelled() && steps.schedule.outcome == 'success' && fromJSON(env.MEASUREMENT_WINDOWS) >= 3 }}
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+          role-duration-seconds: 7200
+      - name: Collect window 3
+        if: ${{ !cancelled() && steps.schedule.outcome == 'success' && fromJSON(env.MEASUREMENT_WINDOWS) >= 3 }}
+        continue-on-error: true
+        run: >-
+          python3 benchmarks/s3/measure.py --source "$REMOTE_ROOT/"
+          --count "$MEASUREMENT_WINDOWS" --run-window 3
+      - name: Wait for window 4
+        if: ${{ !cancelled() && steps.schedule.outcome == 'success' && fromJSON(env.MEASUREMENT_WINDOWS) >= 4 }}
+        run: >-
+          python3 benchmarks/s3/measure.py --source "$REMOTE_ROOT/"
+          --count "$MEASUREMENT_WINDOWS" --wait-window 4
+      - name: Configure credentials for window 4
+        if: ${{ !cancelled() && steps.schedule.outcome == 'success' && fromJSON(env.MEASUREMENT_WINDOWS) >= 4 }}
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
+        with:
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
+          aws-region: us-east-1
+          role-duration-seconds: 7200
+      - name: Collect window 4
+        if: ${{ !cancelled() && steps.schedule.outcome == 'success' && fromJSON(env.MEASUREMENT_WINDOWS) >= 4 }}
+        continue-on-error: true
+        run: >-
+          python3 benchmarks/s3/measure.py --source "$REMOTE_ROOT/"
+          --count "$MEASUREMENT_WINDOWS" --run-window 4
+      - name: Require all requested windows and summarize
+        if: ${{ always() && steps.schedule.outcome == 'success' }}
+        run: >-
+          python3 benchmarks/s3/measure.py --source "$REMOTE_ROOT/"
+          --count "$MEASUREMENT_WINDOWS" --summarize
       - name: Preserve raw requests, manifests, schedule and median/p90 tables
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
