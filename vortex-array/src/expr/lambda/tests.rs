@@ -169,18 +169,56 @@ fn new_keeps_params_and_body() -> VortexResult<()> {
 }
 
 #[rstest]
+#[case::column(checked_add(var("x"), col("a")), "(x, a) -> (@x + @a)", vec![col("a")])]
+#[case::field_of_a_column(
+    checked_add(var("x"), get_item("i", col("s"))),
+    "(x, i) -> (@x + @i)",
+    vec![get_item("i", col("s"))]
+)]
+#[case::read_twice(checked_add(col("a"), col("a")), "(x, a) -> (@a + @a)", vec![col("a")])]
+#[case::name_taken(checked_add(var("x"), col("x")), "(x, x_2) -> (@x + @x_2)", vec![col("x")])]
+#[case::root(eq(var("x"), root()), "(x, root) -> (@x = @root)", vec![root()])]
+#[case::other_variable(
+    checked_add(var("x"), get_item("k", var("p"))),
+    "(x, k) -> (@x + @k)",
+    vec![get_item("k", var("p"))]
+)]
+#[case::function_of_the_scan(
+    checked_add(var("x"), RowCount.new_expr(EmptyOptions, [])),
+    "(x, row_count) -> (@x + @row_count)",
+    vec![RowCount.new_expr(EmptyOptions, [])]
+)]
+#[case::field_of_a_parameter(get_item("k", var("x")), "(x) -> @x.k", vec![])]
+fn extract_captures_turns_reads_from_outside_into_parameters(
+    #[case] body: Expression,
+    #[case] lambda: &str,
+    #[case] captures: Vec<Expression>,
+) -> VortexResult<()> {
+    let (extracted, extracted_captures) = Lambda::new(["x"], body)?.extract_captures();
+    assert_eq!(extracted.to_string(), lambda);
+    assert_eq!(extracted_captures, captures);
+    Ok(())
+}
+
+#[rstest]
 #[case::root(checked_add(var("x"), root()), "not $;")]
 #[case::column(checked_add(var("x"), col("a")), "not $;")]
 #[case::other_variable(checked_add(var("x"), var("p")), "not @p;")]
 #[case::field_of_another_variable(get_item("k", var("p")), "not @p;")]
 #[case::function_of_the_scan(RowCount.new_expr(EmptyOptions, []), "not row_count();")]
-fn a_body_reads_only_its_parameters(#[case] body: Expression, #[case] read: &str) {
-    let error = Lambda::new(["x"], body).expect_err("reads from outside");
+fn binding_a_body_that_reads_from_outside_is_an_error(
+    #[case] body: Expression,
+    #[case] read: &str,
+) -> VortexResult<()> {
+    let error = Lambda::new(["x"], body)?
+        .bind(&[i32_()])
+        .expect_err("reads from outside");
     let message = error.to_string();
     assert!(
         message.contains("lambda (x) can only read its parameters") && message.contains(read),
         "{message}"
     );
+    Ok(())
 }
 
 #[test]
@@ -292,6 +330,15 @@ fn binding_types_the_body_by_its_parameters() -> VortexResult<()> {
             "{error}"
         );
     }
+    Ok(())
+}
+
+#[test]
+fn rebinding_is_binding_to_the_new_dtypes() -> VortexResult<()> {
+    let lambda = Lambda::new(["x"], checked_add(var("x"), lit(1_i32)))?;
+    let rebound = lambda.bind(&[i32_()])?.rebind(&[i32_().as_nullable()])?;
+    assert_eq!(rebound, lambda.bind(&[i32_().as_nullable()])?);
+    assert_eq!(rebound.dtype(), &i32_().as_nullable());
     Ok(())
 }
 
