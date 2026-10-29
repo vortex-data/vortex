@@ -25,11 +25,14 @@ use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_fastlanes::bitpack_compress::bitpack_encode_unchecked;
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::match_each_alp_float_ptype;
@@ -136,9 +139,16 @@ where
 /// The decoded values are written over `right_parts`, which shares its layout with the floats they
 /// decode to.
 ///
+/// The caller must check that each code is in `left_parts_dict`.
+///
+/// # Errors
+///
+/// Returns an error if the patches fail to execute.
+///
 /// # Panics
 ///
-/// Panics if `left_parts` and `right_parts` differ in length.
+/// Panics if `left_parts` and `right_parts` differ in length, or if patches are set and a code is
+/// not in `left_parts_dict`.
 pub fn alp_rd_decode<T: ALPRDFloat + NativePType>(
     mut left_parts: BufferMut<u16>,
     left_parts_dict: &[u16],
@@ -152,21 +162,6 @@ where
 {
     if left_parts.len() != right_parts.len() {
         vortex_panic!("alp_rd_decode: left_parts.len != right_parts.len");
-    }
-
-    // Left-parts codes are untrusted: both decode paths below index (or mask into) the
-    // dictionary with each code, so a code outside it must be an error, not a panic or
-    // silently decoded garbage.
-    if let Some(code) = left_parts
-        .as_slice()
-        .iter()
-        .copied()
-        .find(|&code| code as usize >= left_parts_dict.len())
-    {
-        vortex_bail!(
-            "ALP-RD left-parts code {code} is not in the {}-entry dictionary",
-            left_parts_dict.len()
-        );
     }
 
     if let Some(patches) = left_parts_patches {
@@ -204,6 +199,37 @@ where
 
     // SAFETY: all bit patterns of T::UINT are valid T (u32↔f32 or u64↔f64).
     Ok(unsafe { right_parts.transmute::<T>() }.freeze())
+}
+
+/// Checks that each valid code is in the dictionary, and sets the codes in null slots to zero,
+/// because the patched decode path looks up every code.
+fn check_left_parts_codes(codes: &mut [u16], validity: &Mask, dict_len: usize) -> VortexResult<()> {
+    let max_valid_code = match validity.bit_buffer() {
+        AllOr::All => codes.iter().copied().max(),
+        AllOr::None => {
+            codes.fill(0);
+            None
+        }
+        AllOr::Some(valid) => codes
+            .iter_mut()
+            .zip(valid.iter())
+            .map(|(code, is_valid)| {
+                if !is_valid {
+                    *code = 0;
+                }
+                *code
+            })
+            .max(),
+    };
+
+    match max_valid_code {
+        Some(code) if usize::from(code) >= dict_len => Err(code_not_in_dictionary(code, dict_len)),
+        _ => Ok(()),
+    }
+}
+
+fn code_not_in_dictionary(code: u16, dict_len: usize) -> VortexError {
+    vortex_err!("ALP-RD left-parts code {code} is not in the {dict_len}-entry dictionary")
 }
 
 #[cfg(test)]

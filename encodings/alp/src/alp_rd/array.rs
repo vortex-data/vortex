@@ -54,6 +54,7 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::alp_rd::check_left_parts_codes;
 use crate::alp_rd::rules::RULES;
 use crate::alp_rd_decode;
 
@@ -303,10 +304,13 @@ impl VTable for ALPRD {
             .validity()?
             .execute_mask(left_parts.as_ref().len(), ctx)?;
 
+        let mut left_parts = left_parts.into_buffer_mut::<u16>();
+        check_left_parts_codes(left_parts.as_mut_slice(), &validity, left_parts_dict.len())?;
+
         let decoded_array = if ptype == PType::F32 {
             PrimitiveArray::new(
                 alp_rd_decode::<f32>(
-                    left_parts.into_buffer_mut::<u16>(),
+                    left_parts,
                     &left_parts_dict,
                     right_bit_width,
                     right_parts.into_buffer_mut::<u32>(),
@@ -318,7 +322,7 @@ impl VTable for ALPRD {
         } else {
             PrimitiveArray::new(
                 alp_rd_decode::<f64>(
-                    left_parts.into_buffer_mut::<u16>(),
+                    left_parts,
                     &left_parts_dict,
                     right_bit_width,
                     right_parts.into_buffer_mut::<u64>(),
@@ -508,8 +512,8 @@ fn validate_parts(
     vortex_ensure_eq!(left_parts.len(), len);
     vortex_ensure_eq!(right_parts.len(), len);
 
-    if !left_parts.dtype().is_unsigned_int() {
-        vortex_bail!("left_parts dtype must be uint");
+    if !matches!(left_parts.dtype(), DType::Primitive(PType::U16, _)) {
+        vortex_bail!("left_parts dtype must be u16, got {}", left_parts.dtype());
     }
     if dtype.is_nullable() != left_parts.dtype().is_nullable() {
         vortex_bail!(
@@ -547,6 +551,26 @@ fn validate_parts(
         data.right_bit_width(),
         float_bit_width
     );
+
+    // The left part must fit in a u16, and each dictionary entry must fit in the left part.
+    let left_bit_width = float_bit_width - u32::from(data.right_bit_width());
+    vortex_ensure!(
+        left_bit_width <= u16::BITS,
+        "ALP-RD right_bit_width {} leaves more than {} bits for the left part of a {}-bit float",
+        data.right_bit_width(),
+        u16::BITS,
+        float_bit_width
+    );
+    if let Some(entry) = data
+        .left_parts_dictionary()
+        .iter()
+        .copied()
+        .find(|&entry| u32::from(entry) >> left_bit_width != 0)
+    {
+        vortex_bail!(
+            "ALP-RD dictionary entry {entry} does not fit in the {left_bit_width}-bit left part"
+        );
+    }
 
     if let Some(patches) = left_parts_patches {
         vortex_ensure_eq!(patches.array_len(), len);
@@ -748,7 +772,7 @@ mod test {
     fn test_deserialize_rejects_dict_len_past_the_stored_dictionary() {
         let dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
         let metadata = ALPRDMetadata {
-            right_bit_width: 32,
+            right_bit_width: 16,
             dict_len: 8,
             dict: vec![0, 1],
             left_parts_ptype: PType::U16 as i32,
@@ -780,14 +804,16 @@ mod test {
         assert!(error.to_string().contains("MAX_DICT_SIZE"));
     }
 
-    /// The decode shift `left << right_bit_width` overflows the float's bit pattern once
-    /// `right_bit_width` reaches the width of the float, so the boundary value is rejected.
+    /// `right_bit_width` must leave between 1 and 16 bits for the left part.
     #[rstest]
-    #[case::f32(PType::F32, 32)]
-    #[case::f64(PType::F64, 64)]
-    fn test_deserialize_rejects_right_bit_width_at_the_float_width(
+    #[case::f32_at_float_width(PType::F32, 32, "must be below")]
+    #[case::f64_at_float_width(PType::F64, 64, "must be below")]
+    #[case::f32_left_part_too_wide(PType::F32, 15, "leaves more than")]
+    #[case::f64_left_part_too_wide(PType::F64, 47, "leaves more than")]
+    fn test_deserialize_rejects_right_bit_width_out_of_range(
         #[case] float_ptype: PType,
         #[case] right_bit_width: u32,
+        #[case] expected_error: &str,
     ) {
         let dtype = DType::Primitive(float_ptype, Nullability::NonNullable);
         let metadata = ALPRDMetadata {
@@ -804,8 +830,42 @@ mod test {
         let children = vec![buffer![0u16].into_array(), right_parts];
 
         let error = deserialize_alprd(&dtype, 1, &metadata, children)
-            .expect_err("right_bit_width at the float width must be rejected");
-        assert!(error.to_string().contains("right_bit_width"));
+            .expect_err("right_bit_width out of range must be rejected");
+        assert!(error.to_string().contains(expected_error));
+    }
+
+    #[test]
+    fn test_deserialize_rejects_dictionary_entry_wider_than_the_left_part() {
+        let dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
+        let metadata = ALPRDMetadata {
+            right_bit_width: 24,
+            dict_len: 2,
+            dict: vec![0, 256],
+            left_parts_ptype: PType::U16 as i32,
+            patches: None,
+        };
+        let children = vec![buffer![0u16].into_array(), buffer![0u32].into_array()];
+
+        let error = deserialize_alprd(&dtype, 1, &metadata, children)
+            .expect_err("a dictionary entry wider than the left part must be rejected");
+        assert!(error.to_string().contains("dictionary entry 256"));
+    }
+
+    #[test]
+    fn test_deserialize_rejects_left_parts_ptype_other_than_u16() {
+        let dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
+        let metadata = ALPRDMetadata {
+            right_bit_width: 16,
+            dict_len: 2,
+            dict: vec![0, 1],
+            left_parts_ptype: PType::U32 as i32,
+            patches: None,
+        };
+        let children = vec![buffer![0u32].into_array(), buffer![0u32].into_array()];
+
+        let error = deserialize_alprd(&dtype, 1, &metadata, children)
+            .expect_err("left parts that are not u16 must be rejected");
+        assert!(error.to_string().contains("must be u16"));
     }
 
     /// Metadata inside the format's bounds still deserializes and decodes: code 1 maps through
