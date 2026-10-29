@@ -3,6 +3,8 @@
 
 """Render declarative benchmark coverage as GitHub Actions matrices."""
 
+from collections.abc import Collection
+
 from ..config import Format
 from .model import BenchmarkCase, Catalog, Coverage
 from .targets import TargetSet
@@ -57,13 +59,26 @@ def _matrix_entry(benchmark: BenchmarkCase, coverage: Coverage) -> dict[str, obj
     return entry
 
 
-def render_matrix(preset: str, catalog: Catalog) -> list[dict[str, object]]:
-    """Render one named catalog preset as GitHub Actions matrix entries."""
+def render_matrix(preset: str, catalog: Catalog, only: Collection[str] | None = None) -> list[dict[str, object]]:
+    """Render one named catalog preset as GitHub Actions matrix entries.
+
+    When ``only`` is non-empty, keep just the benchmarks with those IDs, at the preset's coverage.
+    """
     if preset not in catalog.presets:
         known = ", ".join(catalog.presets)
         raise ValueError(f"Unknown matrix preset {preset!r}. Available: {known}")
 
     validate_catalog(catalog)
-    return [
+    entries = [
         _matrix_entry(benchmark, benchmark.runs[preset]) for benchmark in catalog.benchmarks if preset in benchmark.runs
     ]
+    if not only:
+        return entries
+
+    available = [str(entry["id"]) for entry in entries]
+    unknown = [benchmark_id for benchmark_id in only if benchmark_id not in available]
+    if unknown:
+        raise ValueError(
+            f"Benchmark IDs not in matrix preset {preset!r}: {', '.join(unknown)}. Available: {', '.join(available)}"
+        )
+    return [entry for entry in entries if entry["id"] in only]

@@ -5,6 +5,7 @@
 
 import json
 import os
+import re
 import subprocess
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -254,6 +255,13 @@ def matrix(
     ] = None,
     list_presets: Annotated[bool, typer.Option("--list", help="List available presets and exit")] = False,
     pretty: Annotated[bool, typer.Option("--pretty", help="Pretty-print the JSON output")] = False,
+    only: Annotated[
+        str | None,
+        typer.Option(
+            "--only",
+            help="Benchmark IDs to keep (comma- or space-separated); empty keeps the whole preset",
+        ),
+    ] = None,
 ) -> None:
     """Emit a GitHub Actions benchmark matrix."""
     if preset is None or list_presets:
@@ -266,7 +274,12 @@ def matrix(
         console.print(f"[red]Unknown matrix preset '{preset}'. Available: {known}[/red]")
         raise typer.Exit(1)
 
-    entries = resolve_matrix(preset)
+    only_ids = [benchmark_id for benchmark_id in re.split(r"[,\s]+", only or "") if benchmark_id]
+    try:
+        entries = resolve_matrix(preset, only_ids)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
     typer.echo(json.dumps(entries, indent=2 if pretty else None))
 
 

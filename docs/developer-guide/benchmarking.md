@@ -359,6 +359,11 @@ Benchmarks run automatically on all commits to `develop` and can be run on-deman
   benchmark, including `vortex-compact` and DuckDB-format targets.
 - **SQL Compact** -- `action/bench-sql-compact` runs the `pr-compact` preset, which benchmarks
   `vortex-compact` plus Parquet control rows used to distinguish code changes from runner drift.
+- **Single SQL benchmark** -- `action/bench-sql/<id>` runs one SQL benchmark at its `pr-all`
+  coverage, for example `action/bench-sql/polarsignals` or `action/bench-sql/tpch-nvme`. `<id>` is
+  any `id` printed by `vx-bench matrix pr-all`. To run several, or another preset, dispatch the
+  `PR SQL Benchmarks` workflow with a comma-separated `benchmarks` input such as
+  `polarsignals,tpch-nvme`.
 - **All CPU benchmarks** -- `action/bench-all` runs random access, compression, string encoding,
   and the `pr-all` SQL preset, the union of the `pr`, `pr-compact`, and `pr-full` coverage, without
   repeating shared jobs. Do not combine it with other benchmark labels;

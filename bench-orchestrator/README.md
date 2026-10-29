@@ -82,12 +82,15 @@ vx-bench matrix develop    # emit compact JSON
 vx-bench matrix pr-all      # emit the union of pr, pr-compact and pr-full
 vx-bench matrix pr-full     # emit full pull-request coverage
 vx-bench matrix nightly --pretty
+vx-bench matrix pr-all --only polarsignals,tpch-nvme  # just these benchmarks
 ```
 
 **Options:**
 
 - `--list`: List available presets and exit
 - `--pretty`: Pretty-print the JSON output
+- `--only`: Keep only these benchmark IDs (comma- or space-separated), at the preset's coverage.
+  An ID the preset does not schedule is an error that lists the IDs it does.
 
 ### `compare` - Compare Results
 
