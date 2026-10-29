@@ -22,8 +22,7 @@ use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::repeated::RepeatedArraySlotsExt;
 use crate::assert_arrays_eq;
-use crate::builders::ArrayBuilder;
-use crate::builders::builder_with_capacity;
+use crate::builders::builder_with_capacity_in;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 
@@ -87,10 +86,7 @@ fn repeats_struct() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let child = StructArray::try_from_iter([
         ("a", buffer![1u8, 2].into_array()),
-        (
-            "b",
-            VarBinViewArray::from_iter_str(["x", "y"]).into_array(),
-        ),
+        ("b", VarBinViewArray::from_iter_str(["x", "y"]).into_array()),
     ])?;
     let expected = StructArray::try_from_iter([
         ("a", buffer![1u8, 2, 1, 2, 1, 2].into_array()),
@@ -139,7 +135,10 @@ fn scalar_at_wraps() -> VortexResult<()> {
     let array = repeated(buffer![10u32, 20, 30], 5)?;
 
     for (index, expected) in [(0, 10u32), (2, 30), (3, 10), (7, 20), (14, 30)] {
-        assert_eq!(array.execute_scalar(index, &mut ctx)?, Scalar::from(expected));
+        assert_eq!(
+            array.execute_scalar(index, &mut ctx)?,
+            Scalar::from(expected)
+        );
     }
     Ok(())
 }
@@ -148,7 +147,7 @@ fn scalar_at_wraps() -> VortexResult<()> {
 fn append_to_builder() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let array = repeated(buffer![1i8, 2], 3)?;
-    let mut builder = builder_with_capacity(array.dtype(), array.len() + 1);
+    let mut builder = builder_with_capacity_in(array.dtype(), array.len() + 1, ctx.allocator());
     builder.append_scalar(&Scalar::from(0i8))?;
     array.append_to_builder(builder.as_mut(), &mut ctx)?;
 

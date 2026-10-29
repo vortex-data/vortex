@@ -32,9 +32,11 @@ impl SliceReduce for Repeated {
         }
 
         // A range of whole copies is a shorter repetition of the child.
-        if range.start % child_len == 0 && range.end % child_len == 0 {
+        if range.start.is_multiple_of(child_len) && range.end.is_multiple_of(child_len) {
             let count = range.len() / child_len;
-            return Ok(Some(RepeatedArray::try_new(child.clone(), count)?.into_array()));
+            return Ok(Some(
+                RepeatedArray::try_new(child.clone(), count)?.into_array(),
+            ));
         }
 
         Ok(None)

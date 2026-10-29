@@ -156,7 +156,9 @@ impl FixedSizeListBuilder {
         }
 
         // Optimizing collapses a constant tile into one constant run.
-        let repeated = RepeatedArray::try_new(array.clone(), n)?.into_array().optimize()?;
+        let repeated = RepeatedArray::try_new(array.clone(), n)?
+            .into_array()
+            .optimize()?;
         self.elements_builder.append_array(&repeated, ctx)?;
         self.nulls.append_n_non_nulls(n);
 

@@ -220,11 +220,11 @@ impl OperationsVTable<Repeated> for Repeated {
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let child = state
+        let child_index = index % state.array().child().len();
+        state
             .slot(RepeatedSlots::CHILD)?
-            .ok_or_else(|| vortex_err!("Repeated child slot is missing"))?;
-        let child_index = index % child.len();
-        child.execute_scalar(child_index, ctx)
+            .ok_or_else(|| vortex_err!("Repeated child slot is missing"))?
+            .execute_scalar(child_index, ctx)
     }
 
     fn scalar_at(
