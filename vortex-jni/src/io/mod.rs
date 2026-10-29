@@ -29,12 +29,17 @@
 mod read_at;
 mod write;
 
+#[cfg(not(windows))]
+use std::cell::RefCell;
+
 use jni::Env;
 use jni::JavaVM;
 pub(crate) use read_at::JavaFileSystem;
 pub(crate) use read_at::java_readable;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
+use vortex::error::vortex_err;
 pub(crate) use write::JavaWrite;
 
 use crate::errors::JNIError;
@@ -49,7 +54,53 @@ pub(crate) fn with_jvm<T>(
     vm: &JavaVM,
     f: impl FnOnce(&mut Env) -> Result<T, JNIError>,
 ) -> VortexResult<T> {
+    #[cfg(not(windows))]
+    attach_as_daemon(vm)?;
     vm.attach_current_thread(f).map_err(VortexError::from)
+}
+
+/// Not on Windows, where detaching from a thread-local destructor can deadlock on the loader lock;
+/// there the jni crate's own attachment, which detaches through fiber-local storage, is kept.
+///
+/// Native worker threads never exit, and the JVM waits for every non-daemon thread before it
+/// exits, so attach them as daemons; `with_jvm` then reuses the attachment.
+#[cfg(not(windows))]
+fn attach_as_daemon(vm: &JavaVM) -> VortexResult<()> {
+    if vm
+        .is_thread_attached()
+        .map_err(|e| vortex_err!("cannot check the JVM attachment: {e}"))?
+    {
+        return Ok(());
+    }
+    let raw = vm.get_raw();
+    let mut env = std::ptr::null_mut();
+    // SAFETY: `raw` is the live JavaVM `vm` wraps, and a null `args` attaches with defaults.
+    let result = unsafe {
+        ((**raw).v1_4.AttachCurrentThreadAsDaemon)(raw, &raw mut env, std::ptr::null_mut())
+    };
+    if result != jni::sys::JNI_OK {
+        vortex_bail!("failed to attach a native thread to the JVM as a daemon: {result}");
+    }
+    DAEMON_ATTACHMENT.with(|attachment| *attachment.borrow_mut() = Some(DaemonAttachment(raw)));
+    Ok(())
+}
+
+/// Detaches the thread when it exits. The jni crate only detaches attachments it made itself, so
+/// without this the JVM would keep a thread registered for every worker that ever ran an upcall.
+#[cfg(not(windows))]
+struct DaemonAttachment(*mut jni::sys::JavaVM);
+
+#[cfg(not(windows))]
+impl Drop for DaemonAttachment {
+    fn drop(&mut self) {
+        // SAFETY: the JavaVM outlives every native thread, and this thread attached itself above.
+        unsafe { ((**self.0).v1_1.DetachCurrentThread)(self.0) };
+    }
+}
+
+#[cfg(not(windows))]
+thread_local! {
+    static DAEMON_ATTACHMENT: RefCell<Option<DaemonAttachment>> = const { RefCell::new(None) };
 }
 
 #[cfg(test)]
