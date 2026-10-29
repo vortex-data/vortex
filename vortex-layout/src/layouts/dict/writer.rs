@@ -630,6 +630,7 @@ mod tests {
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType;
     use vortex_array::expr::root;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::session::ArraySession;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
@@ -848,7 +849,10 @@ mod tests {
         let (mut sequence_id, eof) = SequenceId::root().split();
         let chunks = (0..nchunks)
             .map(|i| {
-                let chunk = values.slice(i * chunk_len..(i + 1) * chunk_len)?;
+                // Writers receive optimized chunks, so slice to the primitive array.
+                let chunk = values
+                    .slice(i * chunk_len..(i + 1) * chunk_len)?
+                    .optimize(&SESSION)?;
                 Ok((sequence_id.advance(), chunk))
             })
             .collect::<Vec<VortexResult<_>>>();
