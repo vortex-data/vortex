@@ -77,6 +77,11 @@ EXCLUDE_ALLOCATIONS_PREFIXES = ("dict_", "chunked_dict_", "patches_", "take_", "
 
 Target = tuple[str, str]  # (package, bench target)
 
+# Benchmark targets that simulation does not measure. Each writes whole files on several worker
+# threads, which simulation runs one instruction at a time under Valgrind, so their results say
+# little about the code they exercise.
+SKIPPED_TARGETS: frozenset[Target] = frozenset({("vortex-file", "encrypted_write")})
+
 # One entry of the GitHub Actions matrix.
 Shard = TypedDict(
     "Shard",
@@ -96,8 +101,8 @@ def excludes_allocations(target: Target) -> bool:
     return package == "vortex-array" and name.startswith(EXCLUDE_ALLOCATIONS_PREFIXES)
 
 
-def discover_targets(root: Path = REPO_ROOT) -> list[Target]:
-    """Return the `[[bench]]` targets of every package in `PACKAGES`."""
+def manifest_targets(root: Path = REPO_ROOT) -> list[Target]:
+    """Return every `[[bench]]` target of the packages in `PACKAGES`, including skipped ones."""
     members = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]["members"]
     targets = []
     for member in members:
@@ -109,10 +114,16 @@ def discover_targets(root: Path = REPO_ROOT) -> list[Target]:
             package = manifest.get("package", {}).get("name")
             if package in PACKAGES:
                 targets.extend((package, bench["name"]) for bench in manifest.get("bench", []))
+    return sorted(targets)
+
+
+def discover_targets(root: Path = REPO_ROOT) -> list[Target]:
+    """Return the `[[bench]]` targets that simulation measures."""
+    targets = [target for target in manifest_targets(root) if target not in SKIPPED_TARGETS]
     missing = set(PACKAGES) - {package for package, _ in targets}
     if missing:
         raise SystemExit(f"no benchmark targets found for {sorted(missing)}")
-    return sorted(targets)
+    return targets
 
 
 def load_counts(path: Path = COUNTS_PATH) -> dict[Target, int]:

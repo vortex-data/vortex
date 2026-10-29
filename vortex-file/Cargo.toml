@@ -15,6 +15,7 @@ version = { workspace = true }
 all-features = true
 
 [dependencies]
+aes-gcm = { workspace = true }
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 async-channel = { workspace = true }
@@ -22,6 +23,7 @@ async-trait = { workspace = true }
 bytes = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["std", "async-await"] }
+getrandom = { workspace = true }
 itertools = { workspace = true }
 moka = { workspace = true, features = ["sync"] }
 object_store = { workspace = true, optional = true }
@@ -59,6 +61,7 @@ vortex-tensor = { workspace = true, optional = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
 allocator-api2 = { workspace = true }
@@ -78,6 +81,10 @@ workspace = true
 
 [[bench]]
 name = "split_collection"
+harness = false
+
+[[bench]]
+name = "encrypted_write"
 harness = false
 
 [features]
