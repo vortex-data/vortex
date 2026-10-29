@@ -38,19 +38,55 @@ flowchart LR
     L2["Low priority: DateTimeParts under the wrapper"]
 ```
 
-Phases 0 and 1 can run in parallel, and so can the Arrow part of phase 7. Phase 2 adds types and
-methods but changes no behavior, so it is small. U9 ends phase 2, because it needs the result
-mappings. Phase 3 is the critical step: it turns on typing and removes the hand-written extension
-paths. Phases 4 and 5 build on it. Phase 6 runs in parallel with phases 2 to 5.
+Phases 0 and 1 can run in parallel, except that phase 1 builds on U4 and U5 (see "Order
+constraints"). The Arrow part of phase 7 can start at any time. Phase 2 adds types and methods that
+nothing reads yet, so it is small. U9 ends phase 2, because it needs the result mappings. It
+changes only the results of the composite aggregates, which only tests use. Phase 3 is the critical
+step: it turns on typing and removes the hand-written extension paths. Phases 4 and 5 build on it.
+Phase 6 runs in parallel with phases 2 to 5.
 
 The default storage paths of phase 3 and the rules of phase 5 build their results with
 `ExtensionArray::new_unchecked`. So phase 1 adds that constructor, and phase 6 only adds the value
 check to `try_new`.
 
+## Order constraints
+
+Most PRs can land in any order that the graph allows. In five places, a change that lands alone
+breaks something that works today. Those parts must land together, or in a fixed order:
+
+1. U2 lands together with the DataFusion literal conversion (EXT-B1), the DataFusion dynamic filter
+   path ([#10865](https://github.com/vortex-data/vortex/pull/10865),
+   [#10869](https://github.com/vortex-data/vortex/pull/10869),
+   [#10895](https://github.com/vortex-data/vortex/pull/10895)), and a check of the DuckDB literal
+   conversion. Otherwise a filter that compares a `Uuid` or `Json` column with a storage literal
+   fails when it is built, instead of being pushed down.
+2. The Arrow export of phase 7 lands before U1, or together with it. U1 makes a storage-like Arrow
+   target type an error, for example `Int64` for a timestamp column in the Python
+   `to_arrow_array(arrow_type=...)`. The export with metadata gives those callers a path that loses
+   nothing.
+3. Phase 1 builds on U4 and U5. U4 changes `ExtDType::try_with_vtable`, where phase 1 adds the check
+   of the claims. U5 changes the `Date`, `Time` and `Timestamp` vtables, which get their claims in
+   phase 1. So phase 1 waits for both to merge, or it is based on them.
+4. The aggregates PR of phase 3 includes two more changes:
+   - The writers' part of phase 4. Once `Min` and `Max` reject types without `Ord`, the storage
+     fallback of `aggregate_state_dtype` would write a storage-typed state for those columns. No
+     version wrote that form before.
+   - DuckDB aggregate pushdown reads the claims. Today it excludes only `Uuid`, so `max` over a
+     `Json` column would fail in DuckDB. Whether DuckDB falls back to its own aggregation when
+     binding fails is not checked.
+5. A change of `PartialOrd` for `Scalar` (XQ8) lands with the aggregates PR of phase 3, or after it.
+   Today `min` and `max` merge partial results with `vortex_expect`, so an earlier change can panic.
+
+Phase 2 and U9 also need coordination with
+[#10769](https://github.com/vortex-data/vortex/pull/10769), which moves the aggregate
+implementations that they change into `vortex-aggregates`.
+
 ## Phase 0: urgent fixes
 
 - Write the path-consistency helper first, because U1 and U2 use it.
 - Land U1 to U8 as separate PRs. U9 needs the declaration types, so it lands in phase 2.
+- Land the Arrow part of phase 7 before U1, and change the DataFusion literal path in the PR of U2
+  ("Order constraints", items 1 and 2).
 - Some existing code depends on a leak, for example a comparison of an extension column with a
   storage literal. The full test suite finds these callers. Fix each one with an explicit
   `ext_storage`.
@@ -137,7 +173,8 @@ check to `try_new`.
   only phase 1, so it can land early.
 - Writers drop the storage fallback of `aggregate_state_dtype`, so types without `Ord` get no min
   and max. Types with `Ord` keep their logical `Min` and `Max`, so the format does not change. This
-  needs phase 3, because `Min` and `Max` reject types without `Ord` only after it.
+  lands in the aggregates PR of phase 3, because `Min` and `Max` reject types without `Ord` only
+  after it ("Order constraints", item 4).
 - Pruning compares logical statistics through the claims, or unwraps them to storage bounds. The
   stats rewrite rules live in `vortex-expr`
   ([#10734](https://github.com/vortex-data/vortex/pull/10734)).
@@ -195,6 +232,41 @@ check to `try_new`.
   over `DateTimeParts` decodes, which is slower but correct. The new form needs an edition.
 - Out of scope: the lossy primitive casts (the known issue in `decisions.md`), and the Rust traits
   of `Scalar` (XQ8).
+
+## Findings by phase
+
+Every finding of [`agents/findings.md`](agents/findings.md) has a fix in this plan:
+
+| Finding | Fixed by |
+| --- | --- |
+| EXT-P1 | U1 and U2. Phase 3 keeps the paths consistent, because its rewrite runs on every path |
+| EXT-C1, EXT-C2, EXT-C3 | U1 |
+| EXT-Q1, EXT-Q3 | U2 |
+| EXT-Q2 | The compare PR of phase 3, with the claims of phase 1 |
+| EXT-A1 | The aggregates PR and the row encoding PR of phase 3 |
+| EXT-A2 | Phase 4 |
+| EXT-A3 | U9, at the end of phase 2 |
+| EXT-V1 | U3 for the panics, and phase 6 for the value check of `try_new` |
+| EXT-V2, EXT-V7 | U6 |
+| EXT-V3 | U7 |
+| EXT-V4, EXT-V5, EXT-V8 | U5 |
+| EXT-V6 | Phase 6. The trait allows a type without a value check, so a type adds one only where its values have constraints |
+| EXT-N1 | U4. NU2 in phase 6 is the long-term form |
+| EXT-S1 | The low-priority lift rule. Code handles both shapes today, so no result is wrong |
+| EXT-S2 | The low-priority move of `DateTimeParts` under the wrapper. U2 fixes its compare kernel |
+| EXT-B1 | U2 for literals, and phase 7 for schema and scalar conversion |
+| EXT-B2 | U1 for the storage leak, and phase 7 for the export with metadata |
+| EXT-B3 | U1 for `vx.scalar`, and phase 7 for `as_py` |
+| EXT-B4 | The aggregates PR of phase 3 for pushdown, and phase 7 for the converter hook |
+| EXT-B5 | Phase 7 |
+| EXT-B6 | U1 removes the casts out of extension types that this lead is about. Check it again after U1 |
+| EXT-R1 | U8 |
+| EXT-R2 | Any time, as its own small PR |
+| EXT-R3 | Phase 1 gives `ForeignExtDType` no claims, and phase 3 rejects semantic operations on it |
+| EXT-R4 | Phase 1 for the contract on `ExtVTable`, and phase 7 for the developer guide |
+
+The lossy primitive casts in `decisions.md` are not an extension finding, and they stay out of
+scope.
 
 ## Test strategy
 
