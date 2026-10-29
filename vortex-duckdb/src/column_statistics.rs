@@ -90,10 +90,12 @@ impl ColumnStatisticsAggregate {
         let min = exact(Min.bind(NumericalAggregateOpts::skip_nans()));
         let max = exact(Max.bind(NumericalAggregateOpts::skip_nans()));
 
-        // DuckDB's string length is u32
-        #[allow(clippy::cast_possible_truncation)]
-        let max_string_length = exact(UncompressedSizeInBytes.bind(EmptyOptions))
-            .map(|value| value.as_primitive().as_u64().vortex_expect("not a u64") as u32);
+        // The column's total size bounds its longest string. DuckDB's string length is a u32, so a
+        // larger size gives no bound rather than a truncated one that is too small.
+        let max_string_length =
+            exact(UncompressedSizeInBytes.bind(EmptyOptions)).and_then(|value| {
+                u32::try_from(value.as_primitive().as_u64().vortex_expect("not a u64")).ok()
+            });
 
         let has_null = exact(NullCount.bind(EmptyOptions))
             .is_none_or(|count| count.as_primitive().as_u64().vortex_expect("not a u64") > 0);
@@ -108,5 +110,27 @@ impl ColumnStatisticsAggregate {
             has_null,
             nan_count,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex::layout::layouts::file_stats::AggregateStat;
+
+    use super::*;
+
+    #[rstest]
+    #[case::fits(100, Some(100))]
+    #[case::too_large(u64::from(u32::MAX) + 10, None)]
+    fn max_string_length_is_never_truncated(#[case] size: u64, #[case] expected: Option<u32>) {
+        let aggregates = AggregateStats::new(vec![AggregateStat::from_value(
+            UncompressedSizeInBytes.bind(EmptyOptions),
+            Precision::exact(Scalar::from(size)),
+        )]);
+        assert_eq!(
+            ColumnStatisticsAggregate::new(&aggregates).max_string_length,
+            expected
+        );
     }
 }
