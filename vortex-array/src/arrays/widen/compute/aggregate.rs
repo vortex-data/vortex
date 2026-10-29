@@ -160,9 +160,11 @@ fn decimal_sum_partial(
 /// Returns the [`MinMax`] partial of a `Widen` with the logical dtype `logical` from its values.
 ///
 /// [`min_max`] returns the exact cached extrema of the values before it scans them, so a child
-/// that records its extrema needs no scan. A fresh accumulator would always scan. The extrema
-/// widen to the non-nullable `logical` dtype, as the canonical accumulator reports them, and no
-/// valid value gives a null partial.
+/// that records its extrema, such as the child of [`WidenArray::from_stored_decimal`], needs no
+/// scan. A fresh accumulator would always scan. The extrema widen to the non-nullable `logical`
+/// dtype, as the canonical accumulator reports them, and no valid value gives a null partial.
+///
+/// [`WidenArray::from_stored_decimal`]: crate::arrays::WidenArray::from_stored_decimal
 fn min_max_partial(
     values: &ArrayRef,
     options: NumericalAggregateOpts,

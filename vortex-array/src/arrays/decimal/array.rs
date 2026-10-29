@@ -124,10 +124,15 @@ impl Display for DecimalData {
     }
 }
 
+/// The parts of a [`DecimalArray`], as [`DecimalArray::into_data_parts`] returns them.
 pub struct DecimalDataParts {
+    /// The precision and scale of the values.
     pub decimal_dtype: DecimalDType,
+    /// The unscaled values, as `values_type` integers in host or device memory.
     pub values: BufferHandle,
+    /// The stored width of `values`. It can differ from the canonical width of `decimal_dtype`.
     pub values_type: DecimalType,
+    /// The validity of the values, which also gives the nullability of the array.
     pub validity: Validity,
 }
 
@@ -235,7 +240,8 @@ impl DecimalData {
     ///
     /// # Errors
     ///
-    /// See [`DecimalArray::new_unchecked`] for invariants that are checked.
+    /// Returns an error if the buffer length is not a multiple of the width of `values_type`, or
+    /// if the buffer is not aligned to that width.
     pub fn try_new_handle(
         values: BufferHandle,
         values_type: DecimalType,
@@ -243,7 +249,8 @@ impl DecimalData {
     ) -> VortexResult<Self> {
         Self::validate(&values, values_type)?;
 
-        // SAFETY: validate ensures all invariants are met.
+        // SAFETY: `validate` checks the length and the alignment. The precision is not checked, so
+        // a valid value outside it gives an incorrect result.
         Ok(unsafe { Self::new_unchecked_handle(values, values_type, decimal_dtype) })
     }
 
@@ -295,10 +302,13 @@ impl DecimalData {
         }
     }
 
-    /// Validates the components that would be used to create a [`DecimalArray`] from a byte buffer.
+    /// Validates the layout of a decimal values buffer.
     ///
-    /// This function checks all the invariants required by [`DecimalArray::new_unchecked`].
-    fn validate(buffer: &BufferHandle, values_type: DecimalType) -> VortexResult<()> {
+    /// Checks that the buffer length is a multiple of the width of `values_type`, and that the
+    /// buffer is aligned to that width. It does not check that the valid values fit the precision,
+    /// or that a validity has one entry per value. [`DecimalArray::new_unchecked`] also requires
+    /// both, so the caller **must** uphold them.
+    pub(crate) fn validate(buffer: &BufferHandle, values_type: DecimalType) -> VortexResult<()> {
         let byte_width = values_type.byte_width();
         vortex_ensure!(
             buffer.len().is_multiple_of(byte_width),
