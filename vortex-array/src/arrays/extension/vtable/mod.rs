@@ -113,11 +113,10 @@ impl VTable for Extension {
             .as_extension_opt()
             .ok_or_else(|| vortex_err!("not an extension dtype"))?;
 
-        let actual_dtype = DType::Extension(ext_dtype.clone());
         vortex_ensure_eq!(
-            &actual_dtype,
-            dtype,
-            "ExtensionArray dtype does not match outer dtype",
+            storage.dtype(),
+            ext_dtype.storage_dtype(),
+            "ExtensionArray storage dtype does not match extension storage dtype",
         );
 
         Ok(())

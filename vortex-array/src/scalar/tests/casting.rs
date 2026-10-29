@@ -8,6 +8,7 @@ mod tests {
     use std::f32;
     use std::sync::Arc;
 
+    use rstest::rstest;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
@@ -23,7 +24,6 @@ mod tests {
     use crate::dtype::extension::ExtVTable;
     use crate::dtype::half::f16;
     use crate::scalar::PValue;
-    use crate::scalar::PrimitiveScalar;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
 
@@ -150,7 +150,7 @@ mod tests {
     }
 
     #[test]
-    fn test_struct_field_coercion() {
+    fn test_struct_field_values() {
         let f16_value = f16::from_f32(0.42);
         let f32_value = f32::consts::PI;
 
@@ -174,9 +174,7 @@ mod tests {
 
         let field_values = vec![
             Some(ScalarValue::Primitive(PValue::U32(42))),
-            Some(ScalarValue::Primitive(PValue::U64(
-                f16_value.to_bits() as u64
-            ))),
+            Some(ScalarValue::Primitive(PValue::F16(f16_value))),
             Some(ScalarValue::Primitive(PValue::F32(f32_value))),
         ];
 
@@ -190,7 +188,6 @@ mod tests {
         // Check first field (no coercion needed)
         assert_eq!(fields[0].as_primitive().pvalue().unwrap(), PValue::U32(42));
 
-        // Check second field (f16 coerced from u64)
         assert_eq!(
             fields[1].as_primitive().pvalue().unwrap(),
             PValue::F16(f16_value)
@@ -219,7 +216,7 @@ mod tests {
     }
 
     #[test]
-    fn test_list_element_coercion() {
+    fn test_list_element_values() {
         let f16_value1 = f16::from_f32(1.0);
         let f16_value2 = f16::from_f32(2.0);
 
@@ -229,12 +226,8 @@ mod tests {
         );
 
         let elements = vec![
-            Some(ScalarValue::Primitive(PValue::U64(
-                f16_value1.to_bits() as u64
-            ))),
-            Some(ScalarValue::Primitive(PValue::U64(
-                f16_value2.to_bits() as u64
-            ))),
+            Some(ScalarValue::Primitive(PValue::F16(f16_value1))),
+            Some(ScalarValue::Primitive(PValue::F16(f16_value2))),
         ];
 
         let scalar = Scalar::new(list_dtype, Some(ScalarValue::Tuple(elements)));
@@ -250,24 +243,53 @@ mod tests {
         }
     }
 
+    #[rstest]
+    #[case::zero(0x0000)]
+    #[case::negative_zero(0x8000)]
+    #[case::one(0x3c00)]
+    #[case::nan(0x7e00)]
+    fn test_f16_construction_normalizes_legacy_bits(#[case] bits: u16) -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::F16, Nullability::NonNullable);
+        let value = ScalarValue::Primitive(PValue::U64(u64::from(bits)));
+        let expected = Scalar::from(f16::from_bits(bits));
+        let scalar = Scalar::try_new(dtype.clone(), Some(value.clone()))?;
+
+        assert_eq!(scalar.value(), expected.value());
+        assert_eq!(scalar, expected);
+        assert_eq!(expected, scalar);
+        assert!(Scalar::validate(&dtype, Some(&value)).is_err());
+
+        Ok(())
+    }
+
     #[test]
-    fn test_coercion_with_overflow_protection() {
-        // Legacy f16 storage accepts U64 values, but reading the bits must reject overflow.
-        let scalar = Scalar::new(
+    fn test_f16_construction_rejects_bit_overflow() {
+        let error = Scalar::try_new(
             DType::Primitive(PType::F16, Nullability::NonNullable),
             Some(ScalarValue::Primitive(PValue::U64(u64::MAX))),
-        );
+        )
+        .unwrap_err();
 
-        let error = PrimitiveScalar::try_new(scalar.dtype(), scalar.value()).unwrap_err();
         assert!(
             error
                 .to_string()
-                .contains("Cannot coerce U64 value to f16: value out of range")
+                .contains("f16 bit representation must fit in 16 bits")
         );
     }
 
     #[test]
-    fn test_extension_dtype_coercion() {
+    fn test_nested_f16_requires_canonical_values() {
+        let dtype = DType::list(
+            DType::Primitive(PType::F16, Nullability::NonNullable),
+            Nullability::NonNullable,
+        );
+        let value = ScalarValue::Tuple(vec![Some(ScalarValue::Primitive(PValue::U64(0x3c00)))]);
+
+        assert!(Scalar::try_new(dtype, Some(value)).is_err());
+    }
+
+    #[test]
+    fn test_extension_dtype_requires_canonical_storage() {
         // Create an extension type with f16 storage
         #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
         struct F16Ext;
@@ -303,16 +325,20 @@ mod tests {
         let storage_dtype = DType::Primitive(PType::F16, Nullability::NonNullable);
         let ext_dtype = ExtDType::<F16Ext>::try_new(0, storage_dtype).unwrap();
 
-        // Test f16 value stored as u64 gets coerced through extension type
         let f16_value = f16::from_f32(0.42);
-        let u64_bits = f16_value.to_bits() as u64;
-
-        let scalar = Scalar::new(
-            DType::Extension(ext_dtype.erased()),
-            Some(ScalarValue::Primitive(PValue::U64(u64_bits))),
+        let dtype = DType::Extension(ext_dtype.erased());
+        assert!(
+            Scalar::try_new(
+                dtype.clone(),
+                Some(ScalarValue::Primitive(PValue::U64(u64::from(
+                    f16_value.to_bits()
+                )))),
+            )
+            .is_err()
         );
 
-        // Verify the value was coerced to f16
+        let scalar = Scalar::new(dtype, Some(ScalarValue::Primitive(PValue::F16(f16_value))));
+
         assert_eq!(
             scalar
                 .as_extension()
@@ -325,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extension_dtype_nested_struct_coercion() {
+    fn test_extension_dtype_nested_struct_values() {
         // Create an extension type with struct storage that contains f16 field
         #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
         struct StructExt;
@@ -373,13 +399,10 @@ mod tests {
         );
         let ext_dtype = ExtDType::<StructExt>::try_new(0, struct_dtype).unwrap();
 
-        // Create struct value with f16 stored as u64
         let f16_value = f16::from_f32(1.5);
         let field_values = vec![
             Some(ScalarValue::Primitive(PValue::U32(123))),
-            Some(ScalarValue::Primitive(PValue::U64(
-                f16_value.to_bits() as u64
-            ))),
+            Some(ScalarValue::Primitive(PValue::F16(f16_value))),
         ];
 
         let scalar = Scalar::new(
@@ -387,7 +410,6 @@ mod tests {
             Some(ScalarValue::Tuple(field_values)),
         );
 
-        // Verify the struct field was coerced
         let list_elems = scalar
             .as_extension()
             .to_storage_scalar()

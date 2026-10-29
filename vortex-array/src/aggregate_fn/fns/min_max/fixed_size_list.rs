@@ -55,6 +55,5 @@ pub(super) fn accumulate_fixed_size_bytes(
             min: make_scalar(min),
             max: make_scalar(max),
         }),
-    );
-    Ok(())
+    )
 }

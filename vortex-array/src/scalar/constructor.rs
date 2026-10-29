@@ -251,12 +251,22 @@ impl Scalar {
     ///
     /// # Panics
     ///
-    /// Panics if the storage dtype of `ext_dtype` does not match `value`'s dtype.
+    /// Panics if [`Self::try_extension_ref`] rejects the storage scalar.
     pub fn extension_ref(ext_dtype: ExtDTypeRef, storage_scalar: Scalar) -> Self {
-        assert_eq!(ext_dtype.storage_dtype(), storage_scalar.dtype());
+        Self::try_extension_ref(ext_dtype, storage_scalar)
+            .vortex_expect("unable to construct an extension `Scalar`")
+    }
+
+    /// Creates an extension scalar after checking its storage dtype and value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the storage dtype differs from the extension's storage dtype, or if
+    /// the extension rejects the storage value. A null storage scalar requires a nullable dtype.
+    pub fn try_extension_ref(ext_dtype: ExtDTypeRef, storage_scalar: Scalar) -> VortexResult<Self> {
+        vortex_ensure_eq!(ext_dtype.storage_dtype(), storage_scalar.dtype());
 
         Self::try_new(DType::Extension(ext_dtype), storage_scalar.into_value())
-            .vortex_expect("unable to construct an extension `Scalar`")
     }
 
     /// Creates a union scalar from a type ID and child scalar.
