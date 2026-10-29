@@ -239,6 +239,13 @@ extensions_options! {
         /// with `SET vortex.scan_concurrency = <n>`, or per table with
         /// `OPTIONS(scan_concurrency '<n>')`.
         pub scan_concurrency: Option<usize>, default = None
+        /// Initial 8,192-row chunks per worker for V2 scans carrying a dynamic filter.
+        ///
+        /// Pruning, filtering and projection of these chunks run concurrently before bulk
+        /// work, allowing operators such as TopK to update their bounds sooner. The budget is
+        /// shared across a partition's files. Zero disables this startup phase. Scans that
+        /// must preserve input order use the normal scan path. Disabled by default.
+        pub dynamic_filter_initial_chunks: usize, default = 0
     }
 }
 
@@ -1121,6 +1128,7 @@ mod tests {
             projection_pushdown: true,
             predicate_pushdown: false,
             scan_concurrency: Some(3),
+            dynamic_filter_initial_chunks: 4,
             ..Default::default()
         };
         let format = VortexFormat::new_with_options(VortexSession::default(), opts.clone());
@@ -1138,6 +1146,7 @@ mod tests {
         assert_eq!(source.options().predicate_pushdown, opts.predicate_pushdown);
         assert_eq!(source.options().scan_concurrency, opts.scan_concurrency);
         assert_eq!(source.options().scan_v2, opts.scan_v2);
+        assert_eq!(source.options().dynamic_filter_initial_chunks, 4);
         Ok(())
     }
 

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #include "multi_file_reader.hpp"
+#include "table_function.hpp"
 #include "error.hpp"
 #include "table_function.h"
 #include "vortex_duckdb.h"
@@ -89,7 +90,7 @@ VortexMultiFileReader::InitializeReader(MultiFileReaderData &reader_data,
     duckdb_vx_error error = nullptr;
     const void *const ffi_global = global.ffi_global_state->DataPtr();
     void *const ffi_file = reader.ffi_file->DataPtr();
-    const bool skip = duckdb_reader_initialize(ffi_global, ffi_file, &error);
+    const bool skip = duckdb_reader_initialize(ffi_global, ffi_file, reader.file_list_idx.GetIndex(), &error);
     if (error) {
         throw InvalidInputException(IntoErrString(error));
     }
@@ -286,6 +287,7 @@ void VortexReaderInterface::GetVirtualColumns(ClientContext &,
     // "filename", "file_index" and "empty" come from MultiFileReader
     result.insert(
         {MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER, {"file_row_number", LogicalType::UBIGINT}});
+    result.insert({VORTEX_ROW_ID_COLUMN, {"__vortex_row_id", LogicalType::HUGEINT}});
 }
 
 bool VortexReaderInterface::FinalizeScan(ClientContext &,

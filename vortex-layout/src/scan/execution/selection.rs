@@ -37,7 +37,7 @@ pub(super) fn plan_selection(
         selected.mask = mask.slice(first..end);
     }
     let scope = selected.scope.clone();
-    Some((scope, scan.split_planner(selected)))
+    Some((scope, scan.split_planner(selected, kept.is_some())))
 }
 
 fn select_rows(mut scope: WorkScope, selection: &Selection) -> Option<SelectedRows> {

@@ -8,6 +8,7 @@ use std::ffi::c_void;
 use std::sync::LazyLock;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use vortex::VortexSessionDefault;
@@ -31,6 +32,7 @@ mod exporter;
 mod ffi;
 mod file_reader;
 mod projection;
+mod row_id;
 mod scan_v2;
 mod table_function;
 
@@ -77,6 +79,14 @@ pub fn set_scan_v2(enabled: bool) {
 /// Whether scans initialized now use the planner-driven V2 scan executor.
 pub fn scan_v2() -> bool {
     SCAN_V2.load(Ordering::Relaxed)
+}
+
+static DYNAMIC_FILTER_INITIAL_CHUNKS: AtomicUsize = AtomicUsize::new(0);
+
+/// Sets the number of initial 8K-row chunks per worker for V2 scans with a dynamic filter.
+/// Zero (the default) disables the startup path. The budget is shared across all files of a scan.
+pub fn set_dynamic_filter_initial_chunks(chunks: usize) {
+    DYNAMIC_FILTER_INITIAL_CHUNKS.store(chunks, Ordering::Relaxed);
 }
 
 // Duckdb's logger requires a *Context as first argument which

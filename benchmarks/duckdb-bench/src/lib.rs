@@ -243,6 +243,11 @@ impl DuckClient {
         let time_instant = Instant::now();
         let result = self.connection().query(query)?;
         let query_time = time_instant.elapsed();
+        tracing::debug!(
+            elapsed_us = query_time.as_micros(),
+            result_rows = result.row_count(),
+            "benchmark query completed"
+        );
         Ok((Some(query_time), DuckQueryResult(result)))
     }
 }

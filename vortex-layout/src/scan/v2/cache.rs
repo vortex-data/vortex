@@ -8,9 +8,11 @@ use std::hash::Hasher;
 use std::sync::Arc;
 use std::sync::Weak;
 
+use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use vortex_array::expr::BoundExpression;
+use vortex_error::VortexResult;
 
 use super::io::SegmentRanges;
 use super::retain::RetainedSegments;
@@ -40,17 +42,28 @@ pub struct ScanCache(Arc<Inner>);
 
 #[derive(Default)]
 struct Inner {
-    root: Mutex<Option<PlanRef>>,
+    root: OnceCell<PlanRef>,
     /// Optimized plans of non-identity projections. Values are cached by the plan that produced
     /// them, so a projection must reuse its plan for its values to be found again.
-    projections: Mutex<FxHashMap<ExprKey, PlanRef>>,
-    ranges: Mutex<Option<SegmentRanges>>,
+    projections: ExpressionCache<PlanRef>,
+    ranges: OnceCell<SegmentRanges>,
     /// Plans of filters, keyed by the filter expression. A pruning plan remembers the zones it
     /// excluded, so sharing the plans prunes a file's zones once for every scan of that filter.
-    filters: Mutex<FxHashMap<ExprKey, Arc<FilterPlans>>>,
+    filters: ExpressionCache<Arc<FilterPlans>>,
     values: ValueCache,
     /// Recently read segments, shared by the chunks of every scan of the file.
     retained: Arc<RetainedSegments>,
+}
+
+type ExpressionCache<T> = Mutex<FxHashMap<ExprKey, Arc<OnceCell<T>>>>;
+
+fn cached_expression<T: Clone>(
+    cache: &ExpressionCache<T>,
+    expression: &BoundExpression,
+    create: impl FnOnce() -> VortexResult<T>,
+) -> VortexResult<T> {
+    let cell = Arc::clone(cache.lock().entry(ExprKey(expression.clone())).or_default());
+    cell.get_or_try_init(create).cloned()
 }
 
 impl ScanCache {
@@ -63,65 +76,35 @@ impl ScanCache {
         }))
     }
 
-    /// The lowered root plan an earlier scan kept.
-    pub(super) fn root(&self) -> Option<PlanRef> {
-        self.0.root.lock().clone()
-    }
-
-    /// Keeps `root`, returning the plan already kept if another scan got there first.
-    pub(super) fn insert_root(&self, root: PlanRef) -> PlanRef {
-        self.0.root.lock().get_or_insert(root).clone()
-    }
-
-    /// The optimized plan of `projection` an earlier scan kept.
-    pub(super) fn projection(&self, projection: &BoundExpression) -> Option<PlanRef> {
-        self.0
-            .projections
-            .lock()
-            .get(&ExprKey(projection.clone()))
-            .cloned()
-    }
-
-    /// Keeps the optimized plan of `projection`, returning the plan already kept if another scan
-    /// got there first.
-    pub(super) fn insert_projection(&self, projection: BoundExpression, plan: PlanRef) -> PlanRef {
-        self.0
-            .projections
-            .lock()
-            .entry(ExprKey(projection))
-            .or_insert(plan)
-            .clone()
-    }
-
-    /// The segment byte-range index an earlier scan kept.
-    pub(super) fn ranges(&self) -> Option<SegmentRanges> {
-        self.0.ranges.lock().clone()
-    }
-
-    /// Keeps `ranges`, returning the index already kept if another scan got there first.
-    pub(super) fn insert_ranges(&self, ranges: SegmentRanges) -> SegmentRanges {
-        Arc::clone(self.0.ranges.lock().get_or_insert(ranges))
-    }
-
-    /// The plans of `filter` an earlier scan kept.
-    pub(super) fn filter_plans(&self, filter: &BoundExpression) -> Option<Arc<FilterPlans>> {
-        self.0.filters.lock().get(&ExprKey(filter.clone())).cloned()
-    }
-
-    /// Keeps the plans of `filter`, returning the plans already kept if another scan got there
-    /// first.
-    pub(super) fn insert_filter_plans(
+    /// Builds the lowered root once, with concurrent scans waiting for the same plan.
+    pub(super) fn root(
         &self,
-        filter: BoundExpression,
-        plans: Arc<FilterPlans>,
-    ) -> Arc<FilterPlans> {
-        Arc::clone(
-            self.0
-                .filters
-                .lock()
-                .entry(ExprKey(filter))
-                .or_insert(plans),
-        )
+        create: impl FnOnce() -> VortexResult<PlanRef>,
+    ) -> VortexResult<PlanRef> {
+        self.0.root.get_or_try_init(create).cloned()
+    }
+
+    /// Builds each optimized projection once, independently of other projections.
+    pub(super) fn projection(
+        &self,
+        projection: &BoundExpression,
+        create: impl FnOnce() -> VortexResult<PlanRef>,
+    ) -> VortexResult<PlanRef> {
+        cached_expression(&self.0.projections, projection, create)
+    }
+
+    /// Builds the segment byte-range index once.
+    pub(super) fn ranges(&self, create: impl FnOnce() -> SegmentRanges) -> SegmentRanges {
+        Arc::clone(self.0.ranges.get_or_init(create))
+    }
+
+    /// Builds each filter's conjunct and pruning plans once.
+    pub(super) fn filter_plans(
+        &self,
+        filter: &BoundExpression,
+        create: impl FnOnce() -> VortexResult<Arc<FilterPlans>>,
+    ) -> VortexResult<Arc<FilterPlans>> {
+        cached_expression(&self.0.filters, filter, create)
     }
 
     /// Serves `segments` through the segments the file's scans retain.
@@ -199,6 +182,11 @@ impl WeakScanCache {
 #[cfg(test)]
 mod tests {
     use std::hash::BuildHasher;
+    use std::sync::Barrier;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+    use std::thread;
+    use std::time::Duration;
 
     use rstest::rstest;
     use vortex_array::dtype::DType;
@@ -211,8 +199,12 @@ mod tests {
     use vortex_array::expr::lt;
     use vortex_array::expr::root;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
 
     use super::ExprKey;
+    use super::ScanCache;
+    use crate::plan::physical::PlanRef;
+    use crate::plan::physical::RowIdxPlan;
 
     fn ints_gt(value: i32) -> Expression {
         gt(get_item("ints", root()), lit(value))
@@ -223,6 +215,61 @@ mod tests {
             [("ints", DType::Primitive(ints, Nullability::NonNullable))],
             Nullability::NonNullable,
         )
+    }
+
+    #[rstest]
+    #[case::root(false)]
+    #[case::projection(true)]
+    fn concurrent_scans_build_a_plan_once(#[case] projection: bool) -> VortexResult<()> {
+        let cache = ScanCache::default();
+        let calls = AtomicUsize::new(0);
+        let barrier = Barrier::new(8);
+        let expression = root().bind(&DType::Primitive(PType::U64, Nullability::NonNullable))?;
+        let plans = thread::scope(|scope| {
+            let workers = (0..8)
+                .map(|_| {
+                    scope.spawn(|| {
+                        barrier.wait();
+                        let create = || {
+                            calls.fetch_add(1, Ordering::Relaxed);
+                            thread::sleep(Duration::from_millis(2));
+                            Ok(RowIdxPlan::new(10).into_plan())
+                        };
+                        if projection {
+                            cache.projection(&expression, create)
+                        } else {
+                            cache.root(create)
+                        }
+                    })
+                })
+                .collect::<Vec<_>>();
+            workers
+                .into_iter()
+                .map(|worker| {
+                    worker
+                        .join()
+                        .map_err(|_| vortex_err!("cache worker panicked"))?
+                })
+                .collect::<VortexResult<Vec<_>>>()
+        })?;
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+        assert!(plans.iter().all(|plan| PlanRef::ptr_eq(&plans[0], plan)));
+        Ok(())
+    }
+
+    #[test]
+    fn failed_plan_build_can_be_retried() -> VortexResult<()> {
+        let cache = ScanCache::default();
+        let expression = root().bind(&DType::Primitive(PType::U64, Nullability::NonNullable))?;
+        assert!(
+            cache
+                .projection(&expression, || Err(vortex_err!("build failed")))
+                .is_err()
+        );
+        let plan = cache.projection(&expression, || Ok(RowIdxPlan::new(10).into_plan()))?;
+        let cached = cache.projection(&expression, || Err(vortex_err!("already initialized")))?;
+        assert!(PlanRef::ptr_eq(&plan, &cached));
+        Ok(())
     }
 
     #[test]

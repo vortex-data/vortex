@@ -30,6 +30,9 @@ use crate::duckdb::LogicalType;
 use crate::duckdb::TableFilterClass;
 use crate::duckdb::TableFilterRef;
 use crate::duckdb::TableFilterSetRef;
+use crate::row_id::ROW_ID_COLUMN_IDX;
+use crate::row_id::ROW_ID_NAME;
+use crate::row_id::RowIds;
 use crate::table_function::ColumnAggregate;
 
 // See MultiFileReader for constants
@@ -55,6 +58,8 @@ pub struct DuckdbField {
 pub struct Projection {
     pub projection: Expression,
     pub file_row_number_column_pos: Option<usize>,
+    /// Field of the Vortex struct to replace with the packed row key before export.
+    pub row_id_field: Option<usize>,
 }
 
 #[cfg_attr(test, derive(Clone))]
@@ -82,11 +87,18 @@ impl Projection {
 
         let mut exprs = Vec::with_capacity(input.column_ids.len() + 1);
         let mut file_row_number_column_pos = None;
+        let mut row_id_field = None;
         let mut is_star = true;
         let mut real_column_count = 0;
 
         // DuckDB uses u64 as column indices but Rust uses usize
         for (column_pos, &column_id) in input.column_ids.iter().enumerate() {
+            if column_id == ROW_ID_COLUMN_IDX {
+                is_star = false;
+                row_id_field = Some(exprs.len());
+                exprs.push((ROW_ID_NAME, row_idx()));
+                continue;
+            }
             if column_id == FILE_ROW_NUMBER_COLUMN_IDX {
                 is_star = false;
                 if is_projected(column_pos) {
@@ -141,15 +153,18 @@ impl Projection {
             return Projection {
                 projection: root(),
                 file_row_number_column_pos: None,
+                row_id_field: None,
             };
         }
         if file_row_number_column_pos.is_some() {
             // row_idx will be moved to correct position in scan(), prepend here
             exprs.insert(0, ("file_row_number", row_idx()));
+            row_id_field = row_id_field.map(|index| index + 1);
         }
         Self {
             projection: pack(exprs, false.into()),
             file_row_number_column_pos,
+            row_id_field,
         }
     }
 
@@ -185,6 +200,7 @@ impl Projection {
         Projection {
             projection,
             file_row_number_column_pos: None,
+            row_id_field: None,
         }
     }
 }
@@ -194,6 +210,7 @@ pub struct Filter {
     pub row_selection: Selection,
     pub row_range: Option<Range<u64>>,
     pub has_non_optional_filter: bool,
+    pub(crate) row_ids: Option<RowIds>,
 }
 
 fn push_filter_expr(filter_exprs: &mut Vec<Expression>, expr: &Expression) {
@@ -248,11 +265,16 @@ impl Filter {
 
         let mut row_selection = Selection::All;
         let mut row_range = None;
+        let mut row_ids = None;
         if let Some(filter) = table_filter_set {
             for (idx, expression) in filter.into_iter() {
                 let idx: usize = idx.as_();
                 if column_ids[idx] == FILE_ROW_NUMBER_COLUMN_IDX {
                     (row_selection, row_range) = try_from_virtual_column_filter(expression)?;
+                }
+                if column_ids[idx] == ROW_ID_COLUMN_IDX {
+                    row_ids = RowIds::from_filter(expression);
+                    tracing::debug!(selection = ?row_ids, "v2 paired row filter");
                 }
             }
         };
@@ -266,6 +288,7 @@ impl Filter {
             row_selection,
             row_range,
             has_non_optional_filter,
+            row_ids,
         };
         Ok(out)
     }

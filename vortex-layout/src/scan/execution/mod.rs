@@ -131,9 +131,17 @@ impl PreparedScan {
 
     /// The planner of one chunk's selected rows: its conjuncts when the scan has a filter, else
     /// its projection.
-    pub(super) fn split_planner(self: &Arc<Self>, selected: SelectedRows) -> Box<dyn Planner> {
+    pub(super) fn split_planner(
+        self: &Arc<Self>,
+        selected: SelectedRows,
+        already_pruned: bool,
+    ) -> Box<dyn Planner> {
         if self.filter.is_some() {
-            Box::new(FilterPlanner::new(Arc::clone(self), selected))
+            Box::new(FilterPlanner::new(
+                Arc::clone(self),
+                selected,
+                already_pruned,
+            ))
         } else {
             Box::new(ProjectionPlanner::new(Arc::clone(self), selected))
         }
