@@ -147,13 +147,6 @@ struct PreparedVariant {
     is_null_fallback: bool,
 }
 
-pub(crate) fn parquet_variant_for_export(
-    array: ArrayRef,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    Ok(prepare_variant_for_export(array, ctx)?.storage)
-}
-
 fn prepare_variant_for_export(
     array: ArrayRef,
     ctx: &mut ExecutionCtx,
@@ -279,7 +272,7 @@ impl ArrowExportVTable for ParquetVariant {
             return Ok(ArrowExport::Unsupported(array));
         }
 
-        let parquet_array = parquet_variant_for_export(array, ctx)?;
+        let parquet_array = prepare_variant_for_export(array, ctx)?.storage;
         let parquet_array = parquet_array.as_::<ParquetVariant>();
 
         if let DataType::Struct(fields) = target.data_type()
