@@ -167,9 +167,11 @@ fn strictness(strict: bool) -> StrictComparison {
 fn constant_answer(
     lhs: ArrayView<'_, FoR>,
     value: bool,
-    nullability: Nullability,
+    rhs_nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
     let len = lhs.len();
+    let nullability = lhs.dtype().nullability() | rhs_nullability;
+
     Ok(match lhs.validity()?.union_nullability(nullability) {
         Validity::NonNullable | Validity::AllValid => {
             ConstantArray::new(Scalar::bool(value, nullability), len).into_array()
@@ -187,6 +189,7 @@ fn constant_answer(
 mod tests {
     use std::sync::LazyLock;
 
+    use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
@@ -299,6 +302,39 @@ mod tests {
             .dtype(),
             &DType::Bool(Nullability::NonNullable)
         );
+    }
+
+    /// A constant below the reference answers every row, and a nullable array keeps the result
+    /// nullable even when the constant is not.
+    #[rstest]
+    #[case::all_valid(Validity::AllValid, [Some(true); 3])]
+    #[case::all_invalid(Validity::AllInvalid, [None; 3])]
+    #[case::array(Validity::from_iter([true, false, true]), [Some(true), None, Some(true)])]
+    fn compare_below_reference_nullable_array(
+        #[case] validity: Validity,
+        #[case] expected: [Option<bool>; 3],
+    ) -> VortexResult<()> {
+        let lhs = for_arr(
+            PrimitiveArray::new(buffer!(0i32, 20, 2), validity).into_array(),
+            Scalar::from(10),
+        );
+
+        let result = compare_constant(
+            lhs.as_view(),
+            5i32,
+            Nullability::NonNullable,
+            CompareOperator::Gt,
+        )?
+        .vortex_expect("constant below the reference has an answer");
+
+        assert_eq!(result.dtype(), &DType::Bool(Nullability::Nullable));
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter(expected),
+            &mut SESSION.create_execution_ctx()
+        );
+
+        Ok(())
     }
 
     #[test]
