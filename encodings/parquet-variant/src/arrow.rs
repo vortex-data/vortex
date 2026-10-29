@@ -11,6 +11,8 @@ use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Fields;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
+use parquet_variant::Variant as PqVariant;
+use parquet_variant::VariantBuilder;
 use parquet_variant_compute::GetOptions;
 use parquet_variant_compute::VariantArray as ArrowVariantArray;
 use parquet_variant_compute::unshred_variant;
@@ -18,9 +20,14 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::Constant;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Variant;
 use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::scalar::Scalar;
+use vortex_array::validity::Validity;
 use vortex_arrow::ArrowExport;
 use vortex_arrow::ArrowExportOptions;
 use vortex_arrow::ArrowExportVTable;
@@ -131,10 +138,37 @@ pub(crate) fn parquet_variant_for_export(
     let variant = executed
         .as_opt::<Variant>()
         .ok_or_else(|| vortex_err!("cannot export Variant without ParquetVariant storage"))?;
-    let core_storage = variant
-        .core_storage()
-        .clone()
-        .execute_until::<ParquetVariant>(ctx)?;
+    let core = variant.core_storage();
+    if let Some(constant) = core.as_opt::<Constant>() {
+        let scalar = constant.scalar();
+        if scalar.is_null() || scalar.as_variant().is_variant_null() == Some(true) {
+            let mut builder = VariantBuilder::new();
+            builder.append_value(PqVariant::Null);
+            let (metadata, value) = builder.finish();
+            let validity = if scalar.is_null() {
+                Validity::AllInvalid
+            } else if scalar.dtype().is_nullable() {
+                Validity::AllValid
+            } else {
+                Validity::NonNullable
+            };
+            return ParquetVariant::try_new(
+                validity,
+                ConstantArray::new(
+                    Scalar::binary(metadata, Nullability::NonNullable),
+                    core.len(),
+                )
+                .into_array(),
+                Some(
+                    ConstantArray::new(Scalar::binary(value, Nullability::NonNullable), core.len())
+                        .into_array(),
+                ),
+                None,
+            )
+            .map(IntoArray::into_array);
+        }
+    }
+    let core_storage = core.clone().execute_until::<ParquetVariant>(ctx)?;
     let parquet_core = core_storage
         .as_opt::<ParquetVariant>()
         .ok_or_else(|| vortex_err!("cannot export Variant without ParquetVariant core storage"))?;
@@ -302,6 +336,7 @@ mod tests {
     use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
     use parquet_variant::Variant as PqVariant;
     use parquet_variant::VariantBuilder;
+    use parquet_variant_compute::VariantArray as ArrowVariantArray;
     use parquet_variant_compute::VariantArrayBuilder;
     use rstest::fixture;
     use rstest::rstest;
@@ -338,10 +373,40 @@ mod tests {
         let array = ConstantArray::new(Scalar::null(dtype), 1).into_array();
         let field = session.arrow().to_arrow_field("variant", array.dtype())?;
 
-        let result = session.arrow().execute_arrow(array, Some(&field), &mut ctx)?;
+        let result = session
+            .arrow()
+            .execute_arrow(array, Some(&field), &mut ctx)?;
 
         assert_eq!(result.len(), 1);
         assert!(result.is_null(0));
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::outer_null(Scalar::null(DType::Variant(Nullability::Nullable)), true)]
+    #[case::variant_null(Scalar::variant(Scalar::null(DType::Null)), false)]
+    fn test_export_canonical_constant_null_variant(
+        session: VortexSession,
+        #[case] scalar: Scalar,
+        #[case] is_null: bool,
+        #[values(0, 3)] len: usize,
+    ) -> VortexResult<()> {
+        let mut ctx = session.create_execution_ctx();
+        let core = ConstantArray::new(scalar, len).into_array();
+        let array = VariantArray::try_new(core, None)?.into_array();
+        let field = session.arrow().to_arrow_field("variant", array.dtype())?;
+        let result = session
+            .arrow()
+            .execute_arrow(array, Some(&field), &mut ctx)?;
+        let result = ArrowVariantArray::try_new(result.as_ref())?;
+
+        assert_eq!(result.len(), len);
+        for index in 0..len {
+            assert_eq!(result.is_null(index), is_null);
+            if !is_null {
+                assert_eq!(result.value(index), PqVariant::Null);
+            }
+        }
         Ok(())
     }
 
