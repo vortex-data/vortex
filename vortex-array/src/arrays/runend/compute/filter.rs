@@ -141,7 +141,7 @@ where
             return unsafe { run_end_ranks_popcnt(run_ends, offset, length, mask) };
         }
     }
-    run_end_ranks_inline(run_ends, offset, length, mask)
+    run_end_ranks_inline::<R, false>(run_ends, offset, length, mask)
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -155,15 +155,21 @@ unsafe fn run_end_ranks_popcnt<R: NativePType + AsPrimitive<u64>>(
 where
     u64: AsPrimitive<R>,
 {
-    run_end_ranks_inline(run_ends, offset, length, mask)
+    run_end_ranks_inline::<R, true>(run_ends, offset, length, mask)
 }
 
+/// Rank loop shared by the POPCNT and portable paths.
+///
+/// `POPCNT` is unused in the body. It gives each path its own instantiation, and so its own
+/// closure type, so each `BitBuffer::collect_bool` instantiation has one caller and LLVM inlines it.
+/// With a shared closure type LLVM keeps `collect_bool` out of line, where the predicate is
+/// compiled without POPCNT.
 #[expect(
     clippy::inline_always,
     reason = "the loop must inline into the POPCNT-enabled caller to use the instruction"
 )]
 #[inline(always)]
-fn run_end_ranks_inline<R: NativePType + AsPrimitive<u64>>(
+fn run_end_ranks_inline<R: NativePType + AsPrimitive<u64>, const POPCNT: bool>(
     run_ends: &[R],
     offset: u64,
     length: u64,
@@ -174,36 +180,19 @@ where
 {
     let rank = RankDirectory::new(mask);
     let mut ranks = BufferMut::<R>::zeroed(run_ends.len());
-    let mut retained_words = BufferMut::<u64>::zeroed(run_ends.len().div_ceil(64));
     let mut prev_rank = 0u64;
 
-    // Pack the retained bits by hand rather than through `BitBuffer::collect_bool`, whose loop
-    // does not inline into the POPCNT-enabled caller.
-    for ((run_end_chunk, rank_chunk), retained_word) in run_ends
-        .chunks(64)
-        .zip(ranks.chunks_mut(64))
-        .zip(retained_words.iter_mut())
-    {
-        let mut word = 0u64;
-        for (bit, (&run_end, run_rank_out)) in
-            run_end_chunk.iter().zip(rank_chunk.iter_mut()).enumerate()
-        {
-            let run_rank = rank.rank(min(run_end.as_() - offset, length));
-            // The rank is at most `length`, which fits in `R` because the source run ends reach
-            // `offset + length`.
-            *run_rank_out = run_rank.as_();
-            word |= u64::from(run_rank > prev_rank) << bit;
-            prev_rank = run_rank;
-        }
-        *retained_word = word;
-    }
+    let retained_runs = BitBuffer::collect_bool(run_ends.len(), |run_idx| {
+        let run_rank = rank.rank(min(run_ends[run_idx].as_() - offset, length));
+        // The rank is at most `length`, which fits in `R` because the source run ends reach
+        // `offset + length`.
+        ranks[run_idx] = run_rank.as_();
+        let retain_run = run_rank > prev_rank;
+        prev_rank = run_rank;
+        retain_run
+    });
 
-    let mut retained_bytes = retained_words.into_byte_buffer();
-    retained_bytes.truncate(run_ends.len().div_ceil(8));
-    (
-        ranks.freeze(),
-        BitBuffer::new(retained_bytes.freeze(), run_ends.len()),
-    )
+    (ranks.freeze(), retained_runs)
 }
 
 /// Constant-time rank queries over a bitmap.
