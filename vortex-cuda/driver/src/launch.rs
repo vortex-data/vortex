@@ -185,16 +185,21 @@ impl LaunchArgs<'_> {
             )
         }
         .result()?;
-        // The kernel is already queued: a trailing-event failure must not skip access tracking.
+        // The kernel is already queued: no failure may skip tracking any of its accesses.
         let end = self
             .timing
             .map(|flags| self.stream.record_event(Some(flags)))
             .transpose();
+        let mut tracked = Ok(());
         for access in &self.accesses {
-            access
+            let recorded = access
                 .access
-                .after(access.owner, self.stream, access.kind)?;
+                .after_or_wait(access.owner, self.stream, access.kind);
+            if tracked.is_ok() {
+                tracked = recorded;
+            }
         }
+        tracked?;
         Ok(start.zip(end?))
     }
 }

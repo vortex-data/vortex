@@ -51,7 +51,7 @@ impl Eq for CudaStream {}
 impl Drop for CudaStream {
     fn drop(&mut self) {
         if self.owned {
-            self.context.record_err(self.context.bind_to_thread());
+            self.context.record_err(self.context.make_current());
             // SAFETY: Owned streams are destroyed exactly once; queued work still completes.
             self.context
                 .record_err(unsafe { sys::cuStreamDestroy_v2(self.stream) }.result());
@@ -118,9 +118,20 @@ impl CudaStream {
         self.context.bind_to_thread()
     }
 
+    /// Like [`bind`](Self::bind), leaving recorded errors in place.
+    pub(crate) fn make_current(&self) -> Result<(), DriverError> {
+        self.context.make_current()
+    }
+
     /// Blocks until all work queued so far completes.
     pub fn synchronize(&self) -> Result<(), DriverError> {
-        self.bind()?;
+        self.context.check_err()?;
+        self.synchronize_in_place()
+    }
+
+    /// Like [`synchronize`](Self::synchronize), leaving recorded errors in place.
+    pub(crate) fn synchronize_in_place(&self) -> Result<(), DriverError> {
+        self.make_current()?;
         // SAFETY: The stream is valid for this object's lifetime.
         unsafe { sys::cuStreamSynchronize(self.stream) }.result()
     }
@@ -170,8 +181,13 @@ impl CudaStream {
         unsafe { sys::cuEventRecord(event, self.stream) }.result()
     }
 
+    /// Allocates `bytes` on this stream; empty allocations are null pointers on every device.
     pub(crate) fn alloc_raw(&self, bytes: usize) -> Result<sys::CUdeviceptr, DriverError> {
         self.bind()?;
+        // `cuMemAllocAsync` returns null for zero bytes, but `cuMemAlloc` rejects them.
+        if bytes == 0 {
+            return Ok(0);
+        }
         let mut pointer = 0;
         // SAFETY: The context is current; the driver writes the allocation.
         unsafe {
@@ -186,7 +202,11 @@ impl CudaStream {
     }
 
     pub(crate) fn free_raw(&self, pointer: sys::CUdeviceptr) -> Result<(), DriverError> {
-        self.bind()?;
+        // Empty allocations allocated nothing.
+        if pointer == 0 {
+            return Ok(());
+        }
+        self.make_current()?;
         // SAFETY: Callers free an allocation of this context once, after its accesses were
         // ordered before this stream's queued work.
         unsafe {
@@ -232,7 +252,7 @@ impl std::fmt::Debug for CudaEvent {
 
 impl Drop for CudaEvent {
     fn drop(&mut self) {
-        self.context.record_err(self.context.bind_to_thread());
+        self.context.record_err(self.context.make_current());
         // SAFETY: Owned events are destroyed once; pending work completes regardless.
         self.context
             .record_err(unsafe { sys::cuEventDestroy_v2(self.event) }.result());
@@ -271,8 +291,11 @@ impl CudaEvent {
     }
 
     /// Blocks until the recorded work completes.
+    ///
+    /// Unlike most operations, this leaves errors recorded elsewhere in the context in place,
+    /// so that dropping a host buffer can wait for its own transfers despite them.
     pub fn synchronize(&self) -> Result<(), DriverError> {
-        self.context.bind_to_thread()?;
+        self.context.make_current()?;
         // SAFETY: The event is valid for this object's lifetime.
         unsafe { sys::cuEventSynchronize(self.event) }.result()
     }
