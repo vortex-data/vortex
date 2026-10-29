@@ -133,6 +133,7 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
 #[cfg(test)]
 mod tests {
     use std::iter::repeat_n;
+    use std::panic::resume_unwind;
     use std::sync::Barrier;
     use std::thread;
 
@@ -185,7 +186,10 @@ mod tests {
                 .collect::<Vec<_>>();
             workers
                 .into_iter()
-                .map(|worker| worker.join().vortex_expect("dictionary export panicked"))
+                .map(|worker| match worker.join() {
+                    Ok(result) => result,
+                    Err(payload) => resume_unwind(payload),
+                })
                 .collect::<VortexResult<Vec<_>>>()
         })?;
 
