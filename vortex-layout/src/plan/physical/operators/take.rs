@@ -20,8 +20,10 @@ use crate::plan::physical::operator::Source;
 use crate::plan::physical::operator::SourceBlocked;
 use crate::plan::physical::operator::SourceReady;
 use crate::plan::physical::operator::Step;
+use crate::plan::physical::pipeline::AccessMode;
 use crate::plan::physical::pipeline::DEFAULT_CAPACITY;
 use crate::plan::physical::pipeline::ValueCache;
+use crate::plan::physical::pipeline::sparse_selection;
 
 /// Wraps each batch of codes as a dictionary over the values, once the values inlet has ended.
 pub(crate) struct TakeSource {
@@ -30,6 +32,7 @@ pub(crate) struct TakeSource {
     values: Option<ArrayRef>,
     /// Where values joined from the inlet are kept for the split's later scans.
     cache: Option<ValueCache>,
+    access_mode: AccessMode,
 }
 
 const CODES: usize = 0;
@@ -38,11 +41,17 @@ const VALUES: usize = 1;
 impl TakeSource {
     /// A take over `values`, or over what its values inlet produces when `None`, keeping those
     /// in `cache`.
-    pub(crate) fn new(plan: TakePlan, values: Option<ArrayRef>, cache: Option<ValueCache>) -> Self {
+    pub(crate) fn new(
+        plan: TakePlan,
+        values: Option<ArrayRef>,
+        cache: Option<ValueCache>,
+        access_mode: AccessMode,
+    ) -> Self {
         Self {
             plan,
             values,
             cache,
+            access_mode,
         }
     }
 
@@ -87,11 +96,13 @@ impl Operator for TakeSource {
         };
         Ok(match cx.inlet(CODES).take() {
             Some(codes) => {
-                // A sparse string projection can gather encoded values without decoding the
-                // whole dictionary. Keep sharing decoded values for small or dense takes.
-                let values = if (values.dtype().is_utf8() || values.dtype().is_binary())
+                // Sparse lookups keep encoded take kernels visible, including numeric kernels
+                // in random-access mode. Small and dense takes reuse whole-value conversions.
+                let values = if (self.access_mode == AccessMode::RandomAccess
+                    || values.dtype().is_utf8()
+                    || values.dtype().is_binary())
                     && values.len() >= 1024
-                    && codes.len().saturating_mul(16) < values.len()
+                    && sparse_selection(codes.len(), values.len())
                     && let Some(shared) = values.as_opt::<Shared>()
                 {
                     shared.current_array_ref().clone()

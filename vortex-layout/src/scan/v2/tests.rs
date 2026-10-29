@@ -62,6 +62,7 @@ use vortex_scan::planning::planner::WorkScope;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
 
+use super::AccessMode;
 use super::ChunkPlanner;
 use super::PreparedScan;
 use super::PrunePlanner;
@@ -309,6 +310,59 @@ async fn collect(
 /// Prepares and runs a whole scan, returning its rows as one chunked array.
 async fn collect_scan(dtype: DType, builder: ScanBuilder) -> VortexResult<ArrayRef> {
     Ok(ChunkedArray::try_new(run_scan(builder).await?, dtype)?.into_array())
+}
+
+#[rstest]
+#[tokio::test]
+async fn sparse_row_lookup_matches_scan_with_filters_and_nested_values(
+    #[values(None, Some(AccessMode::Scan), Some(AccessMode::RandomAccess))] mode: Option<
+        AccessMode,
+    >,
+    #[values(false, true)] roaring: bool,
+    #[values(false, true)] filtered: bool,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write(&session, table().as_ref()).await?;
+    let indices = vec![0, 100, 999, 1001, 2000, 3999];
+    let selection = if roaring {
+        vortex_scan::selection::Selection::IncludeRoaring(indices.into_iter().collect())
+    } else {
+        vortex_scan::selection::Selection::IncludeByIndex(StrictSortedBuffer::try_new(
+            Buffer::from(indices),
+        )?)
+    };
+    let mut builder = builder(&session, &segments, &layout)?
+        .with_row_range(200..2500)
+        .with_selection(selection);
+    if let Some(mode) = mode {
+        builder = builder.with_access_mode(mode);
+    }
+    if filtered {
+        builder = builder.with_some_filter(Some(
+            gt(get_item("ints", root()), lit(1000i32)).bind(layout.dtype())?,
+        ));
+    }
+    let scan = Arc::new(builder.prepare()?);
+    assert_eq!(scan.access_mode(), mode.unwrap_or(AccessMode::RandomAccess));
+    let actual = ChunkedArray::try_new(run_rows(&scan, 200..2500).await?, layout.dtype().clone())?;
+    let source = ChunkedArray::try_new(
+        (0..CHUNKS)
+            .map(|i| table_chunk(i * CHUNK_ROWS))
+            .collect::<VortexResult<Vec<_>>>()?,
+        layout.dtype().clone(),
+    )?
+    .into_array();
+    let expected = if filtered {
+        vec![1001u64, 2000]
+    } else {
+        vec![999u64, 1001, 2000]
+    };
+    assert_arrays_eq!(
+        actual,
+        source.take(Buffer::from(expected).into_array())?,
+        &mut session.create_execution_ctx()
+    );
+    Ok(())
 }
 
 /// Runs `builder` on both executors and checks the planner-driven one returns the same rows.

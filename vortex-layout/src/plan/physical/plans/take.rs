@@ -152,7 +152,7 @@ impl PlanVTable for Take {
         let cache = compiler.values().clone();
         let values_plan = plan.values()?;
         if let Some(values) = cache.get(&values_plan) {
-            let source = TakeSource::new(plan.clone(), Some(values), None);
+            let source = TakeSource::new(plan.clone(), Some(values), None, compiler.access_mode());
             return Ok(Some(compiler.join(vec![codes], source)));
         }
         let values = values_plan;
@@ -164,7 +164,7 @@ impl PlanVTable for Take {
                 Canonical::empty(values.dtype()).into_array(),
             )),
         };
-        let source = TakeSource::new(plan.clone(), None, Some(cache));
+        let source = TakeSource::new(plan.clone(), None, Some(cache), compiler.access_mode());
         Ok(Some(compiler.join_with(
             vec![codes, values],
             TakeSource::capacity,

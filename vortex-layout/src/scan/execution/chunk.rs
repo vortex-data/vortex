@@ -22,6 +22,8 @@ use vortex_scan::selection::Selection;
 use super::PreparedScan;
 use super::SegmentLocation;
 use super::selection::plan_selection;
+use super::selection::selected_chunks;
+use crate::plan::physical::pipeline::AccessMode;
 
 /// The row grid every chunk boundary lies on.
 pub(crate) const ROW_BLOCK_SIZE: usize = 8192;
@@ -102,7 +104,19 @@ impl ChunkPlanner {
         selection: Selection,
         kept: Option<Mask>,
     ) -> Self {
-        let chunks = scan_chunks(rows.clone(), scan.chunk_rows).into_iter();
+        let chunks = if scan.access_mode() == AccessMode::RandomAccess {
+            selected_chunks(rows.clone(), &selection)
+                .unwrap_or_else(|| scan_chunks(rows.clone(), scan.chunk_rows))
+        } else {
+            scan_chunks(rows.clone(), scan.chunk_rows)
+        };
+        tracing::debug!(
+            access_mode = ?scan.access_mode(),
+            chunks = chunks.len(),
+            covered_rows = chunks.iter().map(|chunk| chunk.end - chunk.start).sum::<u64>(),
+            "v2 selection work planned"
+        );
+        let chunks = chunks.into_iter();
         Self {
             scan,
             rows,

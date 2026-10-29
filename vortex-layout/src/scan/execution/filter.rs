@@ -199,7 +199,8 @@ impl ActiveConjunct {
             }],
         )?
         .with_row_offset(scan.row_offset)
-        .with_value_cache(scan.values.clone());
+        .with_value_cache(scan.values.clone())
+        .with_access_mode(scan.access_mode());
         let cpu_ns = started.map_or(0, |started| started.elapsed().as_nanos());
         Ok(Self {
             index,

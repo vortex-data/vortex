@@ -61,6 +61,21 @@ pub use self::values::ValueCache;
 /// otherwise; see [`Compiler::join_with`].
 pub const DEFAULT_CAPACITY: usize = 8;
 
+/// How a scan accesses rows within encoded segments.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AccessMode {
+    /// Stream slices and filter batches, retaining whole-value conversions for reuse.
+    #[default]
+    Scan,
+    /// Prefer encoded gathers for sparse selections before materializing values.
+    RandomAccess,
+}
+
+/// Leave dense selections to bulk kernels; sparse gathers avoid decoding unused values.
+pub(crate) fn sparse_selection(selected: usize, total: usize) -> bool {
+    selected > 0 && selected.saturating_mul(16) < total
+}
+
 #[cfg(test)]
 mod scheduling_tests;
 #[cfg(test)]

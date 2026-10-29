@@ -17,7 +17,6 @@ mod filter;
 mod projection;
 mod prune;
 mod selection;
-
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -44,7 +43,9 @@ pub use self::filter::FilterPlans;
 use self::projection::ProjectionPlanner;
 pub use self::prune::PruneNext;
 pub use self::prune::PrunePlanner;
+pub(crate) use self::selection::access_mode;
 use crate::plan::physical::PlanRef;
+use crate::plan::physical::pipeline::AccessMode;
 use crate::plan::physical::pipeline::ValueCache;
 use crate::scan::v2::ScanCache;
 use crate::scan::v2::io::SegmentRanges;
@@ -102,6 +103,8 @@ pub struct PreparedScan {
     pub(super) values: ValueCache,
     /// The rows of one chunk, the unit of work a chunk planner emits.
     pub(super) chunk_rows: usize,
+    /// Streaming or sparse row lookup, chosen from the scan's input selection.
+    pub(super) access_mode: AccessMode,
 }
 
 impl PreparedScan {
@@ -113,6 +116,11 @@ impl PreparedScan {
     /// The rows of [`rows`](Self::rows) the scan selects.
     pub fn selection(&self) -> &Selection {
         &self.selection
+    }
+
+    /// The access mode chosen from the input selection, or explicitly set on the builder.
+    pub fn access_mode(&self) -> AccessMode {
+        self.access_mode
     }
 
     /// The filter's plans, when the scan has a filter.
