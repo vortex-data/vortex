@@ -73,6 +73,9 @@ impl SegmentLocation {
     }
 }
 
+/// A selection of at most one row in this many of a scan's rows is sparse.
+const SPARSE_SELECTION: u64 = 1024;
+
 /// A scan's plans over one file, built once from the file's footer and read by every planner of
 /// the scan. Nothing here touches a segment, and no planner plans again.
 pub struct PreparedScan {
@@ -120,12 +123,32 @@ impl PreparedScan {
         self.filter.as_deref()
     }
 
+    /// The most rows of one chunk a [`ChunkPlanner`] cuts the scan's rows into.
+    pub fn chunk_rows(&self) -> usize {
+        self.chunk_rows
+    }
+
+    /// Whether the scan selects at most one row in 1024 of its rows, as an
+    /// engine fetching a few rows by id does.
+    pub fn sparse_selection(&self) -> bool {
+        !matches!(self.selection, Selection::All)
+            && self
+                .selection
+                .row_count_in_range(&self.rows)
+                .saturating_mul(SPARSE_SELECTION)
+                <= self.rows.end - self.rows.start
+    }
+
     /// The service a driver takes IO sessions from: every read a planner of the scan requests is
     /// served from it by segment.
+    ///
+    /// A [sparse selection](Self::sparse_selection) retains its reads for the scan's lifetime,
+    /// as the chunks that select its few rows read the same wide segments one after another.
     pub fn io(&self) -> Arc<dyn IoService> {
         Arc::new(SegmentScanIo::new(
             Arc::clone(&self.segments),
             Arc::clone(&self.ranges),
+            self.sparse_selection(),
         ))
     }
 

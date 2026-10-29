@@ -17,6 +17,12 @@ from ..config import Benchmark, Engine, Format
 
 console = Console()
 
+# The benchmarks each engine runs on the planner-driven V2 Vortex scan.
+SCAN_V2_BENCHMARKS: dict[Engine, frozenset[Benchmark]] = {
+    Engine.DATAFUSION: frozenset({Benchmark.TPCH}),
+    Engine.DUCKDB: frozenset({Benchmark.TPCH, Benchmark.TPCDS, Benchmark.CLICKBENCH}),
+}
+
 
 @final
 class BenchmarkExecutor:
@@ -56,6 +62,8 @@ class BenchmarkExecutor:
             cmd.extend(["--formats", ",".join(fmt.value for fmt in formats)])
         if self.backend == Engine.DUCKDB:
             cmd.append("--delete-duckdb-database")
+        if benchmark in SCAN_V2_BENCHMARKS.get(self.backend, frozenset()):
+            cmd.extend(["--scan-v2", "true"])
 
         if query is not None:
             cmd.extend(["--queries", str(query)])

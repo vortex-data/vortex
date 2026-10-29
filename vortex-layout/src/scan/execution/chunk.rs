@@ -87,6 +87,8 @@ pub struct ChunkPlanner {
     selection: Selection,
     /// The rows zone pruning kept, over `rows`, or `None` when nothing was pruned.
     kept: Option<Mask>,
+    /// Whether the chunks run as children of this planner instead of being spawned.
+    inline: bool,
 }
 
 impl ChunkPlanner {
@@ -98,14 +100,41 @@ impl ChunkPlanner {
         selection: Selection,
         kept: Option<Mask>,
     ) -> Self {
-        let chunks = scan_chunks(rows.clone(), scan.chunk_rows).into_iter();
+        let chunks = scan_chunks(rows.clone(), scan.chunk_rows);
+        Self::with_chunks(scan, rows, chunks, selection, kept)
+    }
+
+    /// The planner of `chunks`, which tile `rows` in row order, for a driver that cuts the rows
+    /// itself, such as on the file's own chunk boundaries.
+    pub fn with_chunks(
+        scan: Arc<PreparedScan>,
+        rows: Range<u64>,
+        chunks: Vec<Range<u64>>,
+        selection: Selection,
+        kept: Option<Mask>,
+    ) -> Self {
+        debug_assert!(
+            chunks.first().is_none_or(|chunk| chunk.start == rows.start)
+                && chunks.last().is_none_or(|chunk| chunk.end == rows.end)
+                && chunks.windows(2).all(|pair| pair[0].end == pair[1].start),
+            "chunks must tile the rows in order"
+        );
         Self {
             scan,
             rows,
-            chunks,
+            chunks: chunks.into_iter(),
             selection,
             kept,
+            inline: false,
         }
+    }
+
+    /// Runs the chunks as children of this planner, on its run and IO session, instead of
+    /// spawning them for the driver to place. Chunks that read the same segment, such as a
+    /// column chunk longer than the scan's chunks, then share the read.
+    pub fn inline(mut self) -> Self {
+        self.inline = true;
+        self
     }
 }
 
@@ -131,7 +160,11 @@ impl Planner for ChunkPlanner {
             };
             if let Some((scope, planner)) = plan_selection(&self.scan, scope, &self.selection, kept)
             {
-                return Ok(PlannerOutput::Spawn(scope, planner));
+                return Ok(if self.inline {
+                    PlannerOutput::Planner(scope, planner)
+                } else {
+                    PlannerOutput::Spawn(scope, planner)
+                });
             }
         }
         Ok(PlannerOutput::Done)

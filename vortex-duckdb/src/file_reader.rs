@@ -12,6 +12,7 @@ use url::Url;
 use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::struct_::StructArrayExt as _;
+use vortex::array::scalar_fn::fns::dynamic::DynamicComparison;
 use vortex::dtype::FieldPath;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -29,6 +30,8 @@ use vortex::io::runtime::BlockingRuntime as _;
 use vortex::io::std_file::StdFileSystem;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::scan::scan_builder::ScanBuilder;
+use vortex::layout::scan::scan_builder::referenced_field_masks;
+use vortex::layout::scan::split_by::SplitBy;
 use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
 use vortex::layout::scan::v2::ScanFile;
 use vortex::mask::Mask;
@@ -221,7 +224,18 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
     // global lock.
     if global.scan_v2 {
         let state = file.scan_state();
-        let scan = FileScan::try_new(v2_builder(state, global))?;
+        let dynamic = global
+            .filter
+            .filter
+            .as_ref()
+            .map(|filter| filter.contains::<DynamicComparison>())
+            .transpose()?
+            .unwrap_or(false);
+        let scan = FileScan::try_new(
+            v2_builder(state, global),
+            &v2_boundaries(state, global)?,
+            dynamic,
+        )?;
         if state.v2.set(scan).is_err() {
             vortex_panic!("file initialized twice");
         }
@@ -260,6 +274,16 @@ fn v2_builder(state: &FileScanState, global: &GlobalState) -> V2ScanBuilder {
         .with_some_filter(filter.filter.clone())
         .with_selection(filter.row_selection.clone())
         .with_row_range(rows)
+}
+
+/// The rows the file's chunks of the columns the scan reads end at, the boundaries V1 splits on.
+fn v2_boundaries(state: &FileScanState, global: &GlobalState) -> VortexResult<Vec<u64>> {
+    let field_mask = referenced_field_masks(&global.projection, global.filter.filter.as_ref())?;
+    SplitBy::default().splits(
+        state.reader.as_ref(),
+        &(0..state.reader.row_count()),
+        &field_mask,
+    )
 }
 
 /// What a thread's split yields next.
@@ -306,13 +330,13 @@ fn next_split_item(local: &mut LocalState) -> VortexResult<SplitItem> {
 /// the global lock. It only moves references between the file and the local
 /// state, and reader_scan drops the retired ones.
 pub fn reader_try_initialize_scan(file: &mut OpenFileReader, local: &mut LocalState) -> bool {
-    // A V2 scan's threads take chunks from the file's scan until it has spawned
-    // them all, so the file has work for another thread until then.
+    // A V2 scan's threads take chunks from the file's queue until it is empty,
+    // so the file has work for one more thread per queued chunk at most.
     let v2 = file
         .scan_state
         .as_ref()
         .and_then(|state| state.v2.get())
-        .map(|scan| (!scan.is_exhausted()).then_some(Split::V2));
+        .map(|scan| scan.claim().then_some(Split::V2));
     let Some(split) = v2.unwrap_or_else(|| file.splits.pop()) else {
         // DuckDB releases the file after this call, under the global lock.
         // Give the reference of the file to this thread so it drops outside.
