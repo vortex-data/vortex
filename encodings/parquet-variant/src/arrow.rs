@@ -29,6 +29,7 @@ use vortex_array::arrays::masked::MaskedArraySlotsExt;
 use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
 use vortex_array::matcher::Matcher;
 use vortex_array::scalar::Scalar;
@@ -43,6 +44,7 @@ use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::to_arrow_null_buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
 
@@ -154,9 +156,12 @@ fn prepare_variant_for_export(
     let Some(shredded) = variant.shredded() else {
         return prepare_variant_core(variant.core_storage().clone(), typed_value, ctx);
     };
+    vortex_ensure!(
+        typed_value.is_none(),
+        "multiple levels of Variant shredding are unsupported during Arrow export"
+    );
     let own_typed_value = parquet_typed_value_from_logical_shredded(shredded.clone(), ctx)?;
-    let storage = prepare_variant_core(variant.core_storage().clone(), Some(own_typed_value), ctx)?;
-    attach_typed_value(storage, typed_value)
+    prepare_variant_core(variant.core_storage().clone(), Some(own_typed_value), ctx)
 }
 
 fn prepare_variant_core(
@@ -193,6 +198,10 @@ fn attach_typed_value(storage: ArrayRef, typed_value: Option<ArrayRef>) -> Vorte
         return Ok(storage);
     };
     let storage = storage.as_::<ParquetVariant>();
+    vortex_ensure!(
+        storage.typed_value().is_none(),
+        "multiple levels of Variant shredding are unsupported during Arrow export"
+    );
     ParquetVariant::try_new(
         ParquetVariantArrayExt::parquet_variant_validity(&storage),
         storage.metadata().clone(),
@@ -207,7 +216,12 @@ fn constant_null_variant_storage(
     len: usize,
     typed_value: Option<ArrayRef>,
 ) -> VortexResult<ArrayRef> {
-    let mut builder = VariantBuilder::new();
+    let mut field_names = Vec::new();
+    if let Some(typed_value) = &typed_value {
+        collect_shredded_field_names(typed_value.dtype(), &mut field_names)?;
+    }
+    let mut builder =
+        VariantBuilder::new().with_field_names(field_names.iter().map(|s| s.as_ref()));
     builder.append_value(PqVariant::Null);
     let (metadata, value) = builder.finish();
     let validity = if scalar.is_null() {
@@ -231,6 +245,38 @@ fn constant_null_variant_storage(
         typed_value,
     )
     .map(IntoArray::into_array)
+}
+
+// Parquet typed objects alternate object schemas and field wrapper schemas. Only object
+// names belong in metadata; residual field bytes require their original metadata dictionary.
+fn collect_shredded_field_names(dtype: &DType, names: &mut Vec<FieldName>) -> VortexResult<()> {
+    match dtype {
+        DType::Struct(fields, _) => {
+            for (name, field) in fields.names().iter().zip(fields.field_dtypes()) {
+                names.push(name.clone());
+                collect_shredded_wrapper_names(field, names)?;
+            }
+        }
+        DType::List(element, _) | DType::FixedSizeList(element, ..) => {
+            collect_shredded_wrapper_names(element, names)?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn collect_shredded_wrapper_names(dtype: &DType, names: &mut Vec<FieldName>) -> VortexResult<()> {
+    let DType::Struct(fields, _) = dtype else {
+        vortex_bail!("expected a Parquet shredded field wrapper");
+    };
+    vortex_ensure!(
+        fields.find("value").is_none(),
+        "nested residual values over a null-constant Variant core are unsupported during Arrow export"
+    );
+    let Some(typed_value) = fields.field("typed_value") else {
+        vortex_bail!("expected typed_value in a Parquet shredded field wrapper");
+    };
+    collect_shredded_field_names(&typed_value, names)
 }
 
 impl ArrowExportVTable for ParquetVariant {
