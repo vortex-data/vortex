@@ -37,8 +37,8 @@ want to test a full setup,
    the release commit hash.
 5. Open a PR in duckdb-vortex, check the tests and merge it.
 6. Ensure the PR has been backported to the current release branch, i.e. for
-   duckdb 1.5.* the release branch is
-   [v1.5-variegata](https://github.com/vortex-data/duckdb-vortex/tree/v1.5-variegata).
+   duckdb 2.0.* the release branch is
+   [v2.0-cyanoptera](https://github.com/vortex-data/duckdb-vortex/tree/v2.0-cyanoptera).
    This should happen automatically.
 7. Notify DuckDB maintainers in the Discord `#spiraldb` channel of the new
    commit and ask to update the extension version. This will likely take some
