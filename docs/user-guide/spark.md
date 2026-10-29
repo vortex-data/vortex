@@ -199,6 +199,7 @@ own storage clients are not used by the Spark connector.
 | `vortex.workerThreads`     | `4`     | Background threads driving Vortex futures. JVM-wide, and set once per JVM by the first read or write. |
 | `vortex.session.provider`  | —       | Fully-qualified name of a `VortexSessionProvider` supplying a custom session on the driver and on every executor. |
 | `vortex.aggregatePushdown` | `true`  | Answer `COUNT(*)` from file footers. |
+| `vortex.splitFiles`        | `true`  | Let Spark split a large file across tasks, as it does Parquet files. |
 | `vortex.mergeSchema`       | `true`  | Merge every file's footer schema, rather than reading one footer. |
 | `vortex.stats.rowCount`    | `true`  | Read footer row counts for Spark statistics. |
 | `vortex.footerParallelism` | `8`     | Maximum concurrent footer reads, for schema merging and statistics. |
@@ -210,6 +211,10 @@ Scan statistics cost one read per file on the driver, before the job starts. `vo
 keeps planning bounded on a large dataset by reporting no row count instead. Raise it when exact
 row counts matter more than planning time, or set `vortex.stats.rowCount` to `false` to stop
 reading footers at all.
+
+Each task of a split file reads the rows at the same fraction of the file as its byte range, cut
+on 8192-row boundaries. A footer is read again on executors that haven't cached it, and a chunk
+that spans a cut is decoded by both tasks next to it.
 
 ## Supported Types
 
