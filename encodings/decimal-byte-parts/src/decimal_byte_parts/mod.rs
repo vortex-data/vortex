@@ -48,6 +48,7 @@ pub use plugin::DecimalBytePartsV2Metadata;
 pub use plugin::decimal_byte_parts_v1_id;
 pub use plugin::decimal_byte_parts_v2_id;
 pub use split::DecimalParts;
+pub use split::lower_part_count;
 pub use split::split_decimal;
 
 #[doc(hidden)]

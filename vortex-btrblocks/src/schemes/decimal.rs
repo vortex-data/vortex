@@ -17,6 +17,7 @@ use vortex_decimal_byte_parts::DecimalByteParts;
 use vortex_decimal_byte_parts::DecimalBytePartsSlots;
 use vortex_decimal_byte_parts::decimal_byte_parts_v1_id;
 use vortex_decimal_byte_parts::decimal_byte_parts_v2_id;
+use vortex_decimal_byte_parts::lower_part_count;
 use vortex_decimal_byte_parts::split_decimal;
 use vortex_error::VortexResult;
 
@@ -137,7 +138,8 @@ impl Scheme for DecimalScheme {
             return Ok(decimal.into_array());
         }
 
-        let parts = split_decimal(&decimal, exec_ctx)?;
+        let lower_part_count = lower_part_count(&decimal, exec_ctx)?;
+        let parts = split_decimal(&decimal, lower_part_count, exec_ctx)?;
         let msp = compressor.compress_child(
             &parts.msp,
             &compress_ctx,
