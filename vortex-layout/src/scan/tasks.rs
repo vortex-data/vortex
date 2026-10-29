@@ -13,9 +13,11 @@ use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
 use vortex_array::expr::BoundExpression;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scan::row_mask::RowMask;
+use vortex_session::VortexSession;
 
 use crate::LayoutReaderRef;
 use crate::scan::filter::FilterExpr;
@@ -50,11 +52,12 @@ pub(crate) fn split_exec(ctx: &TaskContext, read_mask: RowMask) -> VortexResult<
     let projection =
         ctx.reader
             .projection_evaluation(&row_range, &ctx.projection, filter_mask.clone())?;
+    let session = ctx.session.clone();
     Ok(async move {
         if filter_mask.await?.all_false() {
             return Ok(None);
         }
-        projection.await.map(Some)
+        projection.await?.optimize(&session).map(Some)
     }
     .boxed())
 }
@@ -71,7 +74,10 @@ pub(crate) fn split_projection(
     let projection =
         ctx.reader
             .projection_evaluation(row_range, &ctx.projection, MaskFuture::ready(mask))?;
-    Ok(projection.map(|array| array.map(Some)).boxed())
+    let session = ctx.session.clone();
+    Ok(projection
+        .map(move |array| array?.optimize(&session).map(Some))
+        .boxed())
 }
 
 /// Build the filtered mask for a split.
@@ -168,6 +174,10 @@ pub(crate) struct TaskContext {
     pub(crate) reader: LayoutReaderRef,
     /// The projection expression to apply to gather the scanned rows.
     pub(crate) projection: BoundExpression,
+    /// The session the projected arrays are optimized with before the scan returns them. Readers
+    /// apply the projection lazily, so without this a caller would see expression nodes, such as
+    /// a pack, instead of the arrays they reduce to.
+    pub(crate) session: VortexSession,
 }
 
 #[cfg(test)]
