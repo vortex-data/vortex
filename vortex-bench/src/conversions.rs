@@ -378,14 +378,6 @@ fn write_options_for(
     }
 
     let mut builder = WriteStrategyBuilder::from_session(&SESSION);
-    // The list layout writes list elements as columns of their own, so dictionary fields inside
-    // lists reach the dictionary layout too.
-    if dict_fields
-        .iter()
-        .any(|field| field.parts().contains(&Field::ElementType))
-    {
-        builder = builder.with_list_layout(true);
-    }
     for field in dict_fields {
         builder = builder.with_allow_encodings(field, [Dict.id()]);
     }

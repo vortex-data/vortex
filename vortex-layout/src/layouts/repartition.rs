@@ -25,23 +25,28 @@ use vortex_array::arrays::DictArray;
 use vortex_array::arrays::List;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::list::ListArraySlotsExt;
 use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::builders::dict::dict_encode;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::validity::Validity;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::LayoutRef;
@@ -442,11 +447,15 @@ fn concat_validity<A: AsRef<ArrayRef>>(
     Ok(Validity::from_mask(bits.freeze().into(), nullability))
 }
 
-/// Concatenates dictionary chunks into one dictionary over all of their values.
+/// Concatenates dictionary chunks into one compact dictionary.
 ///
-/// Each chunk's codes are rebased onto its values. A constant chunk, as slicing a dictionary with
-/// constant codes produces, contributes a single value. Returns `None` unless every chunk is a
-/// dictionary or a constant and at least one is a dictionary.
+/// Each chunk's codes are rebased onto its values, then the values no code references are dropped
+/// and duplicate values are merged. Only the values are hashed, never the rows, so chunks that
+/// each carry a whole Parquet column chunk dictionary end up sharing one small dictionary.
+///
+/// A constant chunk, as slicing a dictionary with constant codes produces, contributes a single
+/// value. Returns `None` unless every chunk is a dictionary or a constant and at least one is a
+/// dictionary.
 fn concat_dicts(
     chunks: &[ArrayRef],
     dtype: &DType,
@@ -526,13 +535,74 @@ fn concat_dicts(
         .into_array()
         .execute::<Canonical>(ctx)?
         .into_array();
+    let validity = validity.freeze();
+    let (codes, values) = compact_dict_values(codes, &validity, values, ctx)?;
+
     let codes = PrimitiveArray::new(
         codes.freeze(),
-        Validity::from_mask(validity.freeze().into(), codes_nullability),
+        Validity::from_mask(validity.into(), codes_nullability),
     );
-    // SAFETY: every code was rebased onto the values its chunk contributed.
+    // SAFETY: every code was rebased onto the values its chunk contributed, then remapped onto
+    // the compacted values.
     let dict = unsafe { DictArray::new_unchecked(codes.into_array(), values) };
     Ok(Some(dict.into_array()))
+}
+
+/// Drops the values no valid code references and merges duplicate values, remapping the codes.
+///
+/// Values that cannot be hashed are only filtered, and values holding nulls are left as they are.
+fn compact_dict_values(
+    mut codes: BufferMut<u32>,
+    validity: &BitBuffer,
+    values: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(BufferMut<u32>, ArrayRef)> {
+    let mut referenced = vec![false; values.len()];
+    for (code, valid) in codes.iter().zip(validity.iter()) {
+        if valid {
+            referenced[*code as usize] = true;
+        }
+    }
+    // Null codes point at value 0, so it is kept to stay in bounds.
+    if let Some(first) = referenced.first_mut() {
+        *first = true;
+    }
+    if values.all_invalid(ctx)? || !values.all_valid(ctx)? {
+        return Ok((codes, values));
+    }
+
+    let mut remap = vec![0u32; values.len()];
+    let mut kept = 0u32;
+    for (slot, &is_referenced) in remap.iter_mut().zip(&referenced) {
+        if is_referenced {
+            *slot = kept;
+            kept += 1;
+        }
+    }
+    let values = values
+        .filter(Mask::from(BitBuffer::from(referenced.clone())))?
+        .execute::<Canonical>(ctx)?
+        .into_array();
+
+    let values = if values.is::<Primitive>() || values.is::<VarBinView>() {
+        let unique = dict_encode(&values, ctx)?;
+        let unique_codes = unique
+            .codes()
+            .cast(DType::Primitive(PType::U32, Nullability::NonNullable))?
+            .execute::<PrimitiveArray>(ctx)?;
+        let unique_codes = unique_codes.as_slice::<u32>();
+        for slot in &mut remap {
+            *slot = unique_codes[*slot as usize];
+        }
+        unique.values().clone()
+    } else {
+        values
+    };
+
+    for code in codes.iter_mut() {
+        *code = remap[*code as usize];
+    }
+    Ok((codes, values))
 }
 
 /// The bytes a block's rows reference, or the bytes it holds for a dtype that cannot be
@@ -867,7 +937,7 @@ mod tests {
     }
 
     #[test]
-    fn concat_dicts_merges_chunks() -> VortexResult<()> {
+    fn concat_dicts_merges_and_compacts_values() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Utf8(NonNullable);
         let chunks = vec![
@@ -883,7 +953,7 @@ mod tests {
         let dict = block
             .as_opt::<Dict>()
             .vortex_expect("block stays a dictionary");
-        assert_eq!(dict.values().len(), 6);
+        assert_eq!(dict.values().len(), 2);
         assert_arrays_eq!(&block, &expected, &mut ctx);
         Ok(())
     }
