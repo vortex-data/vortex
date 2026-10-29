@@ -47,9 +47,9 @@ use vortex::file::WriteStrategyBuilder;
 use vortex::layout::Layout;
 use vortex::layout::LayoutChildType;
 use vortex::layout::LayoutDeserializeArgs;
-use vortex::layout::LayoutEncodingRef;
 use vortex::layout::LayoutId;
 use vortex::layout::LayoutParts;
+use vortex::layout::LayoutPluginRef;
 use vortex::layout::LayoutReader;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::LayoutRef;
@@ -615,7 +615,7 @@ pub fn register_cuda_layout(session: &VortexSession) {
     session.get::<CudaLayoutRegistration>().0.call_once(|| {
         session
             .layouts()
-            .register(LayoutEncodingRef::new_ref(&CudaFlat));
+            .register(LayoutPluginRef::new_ref(&CudaFlat));
         if session.editions().find(&CUDA_EDITION).is_some() {
             return;
         }

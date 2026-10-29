@@ -429,12 +429,12 @@ impl FileOpener for VortexOpener {
                             .is_none()
                     })
             });
+            let fixed_width_output = stream_schema.fields().iter().all(|field| {
+                field.data_type().is_primitive()
+                    || matches!(field.data_type(), DataType::Boolean | DataType::Null)
+            });
             let consumer_mapping = scan_v2_consumer_mapping
-                && (!scan_v2_consumer_mapping_fixed_width_only
-                    || stream_schema.fields().iter().all(|field| {
-                        field.data_type().is_primitive()
-                            || matches!(field.data_type(), DataType::Boolean | DataType::Null)
-                    }));
+                && (!scan_v2_consumer_mapping_fixed_width_only || fixed_width_output);
             let projector = leftover_projection.make_projector(&stream_schema)?;
 
             let byte_range = file
@@ -540,7 +540,7 @@ impl FileOpener for VortexOpener {
                 };
 
                 let driver = ScanDriver::new(handle, concurrency, has_output_ordering)
-                    .with_consumer_mapping(consumer_mapping);
+                    .with_consumer_mapping(consumer_mapping, !fixed_width_output);
                 let driver = vortex_reader_factory.configure_v2_driver(driver);
                 Ok(driver.run(scan, root, map_batch))
             } else {

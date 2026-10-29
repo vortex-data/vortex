@@ -152,7 +152,7 @@ impl InletSet {
 pub struct Cx<'a> {
     pub(super) arena: &'a mut Arena,
     pub(super) inlets: &'a [PortId],
-    pub(super) bytes: &'a mut VecDeque<(SegmentId, BufferHandle)>,
+    pub(super) bytes: &'a mut VecDeque<(SegmentId, BufferHandle, bool)>,
     pub(super) reads: &'a mut SmallVec<[(SegmentId, Option<PrimitiveRead>); 1]>,
     pub(super) session: &'a VortexSession,
     pub(super) exec: &'a mut ExecutionCtx,
@@ -194,6 +194,14 @@ impl Cx<'_> {
 
     /// Takes an arrived segment's ID and bytes, oldest arrival first.
     pub fn take_segment(&mut self) -> Option<(SegmentId, BufferHandle)> {
+        self.bytes
+            .pop_front()
+            .map(|(segment, bytes, _)| (segment, bytes))
+    }
+
+    pub(crate) fn take_segment_with_completeness(
+        &mut self,
+    ) -> Option<(SegmentId, BufferHandle, bool)> {
         self.bytes.pop_front()
     }
 

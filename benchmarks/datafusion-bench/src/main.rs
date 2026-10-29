@@ -144,7 +144,7 @@ struct Args {
     #[arg(long, value_delimiter = ',', value_parser = value_parser!(Format))]
     formats: Vec<Format>,
 
-    /// Use the planner-driven V2 Vortex scan (defaults to true for TPC-H).
+    /// Use the planner-driven V2 Vortex scan (defaults to true for TPC-H, TPC-DS and ClickBench).
     #[arg(long, action = clap::ArgAction::Set)]
     scan_v2: Option<bool>,
 
@@ -173,10 +173,15 @@ async fn run() -> anyhow::Result<()> {
     let args = Args::parse();
     let opts = Opts::from(args.options);
     let scan_v2 = args.scan_v2.unwrap_or_else(|| {
-        std::env::var("VORTEX_SCAN_V2")
-            .map_or(matches!(args.benchmark, BenchmarkArg::TpcH), |value| {
-                value == "1"
-            })
+        std::env::var("VORTEX_SCAN_V2").map_or_else(
+            |_| {
+                matches!(
+                    args.benchmark,
+                    BenchmarkArg::TpcH | BenchmarkArg::TpcDS | BenchmarkArg::ClickBench
+                )
+            },
+            |value| value == "1",
+        )
     });
 
     set_join_set_tracer(get_static_tracer())?;
@@ -298,6 +303,7 @@ async fn run() -> anyhow::Result<()> {
                             cache,
                             &batches,
                             &plan.schema(),
+                            plan.as_ref(),
                         )?;
 
                         // Store plan for metrics (only store once per query/format combination)

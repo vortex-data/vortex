@@ -7,6 +7,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::vec::IntoIter;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::request::IoConsumer;
 use vortex_io::request::IoRequestId;
@@ -21,13 +22,14 @@ use vortex_scan::selection::Selection;
 use super::PreparedScan;
 use super::SegmentLocation;
 use super::selection::plan_selection;
+use crate::plan::physical::pipeline::SegmentCache;
 
 /// The row grid every chunk boundary lies on.
 pub(crate) const ROW_BLOCK_SIZE: usize = 8192;
 /// The rows of a projection chunk.
 pub(crate) const MAX_ROWS_PER_CHUNK: usize = 8 * ROW_BLOCK_SIZE;
-/// The rows of a filtered chunk: large, so a conjunct's reads coalesce and its mask is cheap.
-pub(crate) const FILTERED_ROWS_PER_CHUNK: usize = 16 * MAX_ROWS_PER_CHUNK;
+/// The rows of a filtered chunk, balancing conjunct setup against parallelism.
+pub(crate) const FILTERED_ROWS_PER_CHUNK: usize = 16 * ROW_BLOCK_SIZE;
 const TARGET_BYTES_PER_CHUNK: u64 = 8 * 1024 * 1024;
 
 /// Limit estimated bytes per chunk without changing the writer-aligned row granularity.
@@ -58,6 +60,24 @@ pub(crate) fn row_chunks(rows: Range<u64>, rows_per_chunk: usize) -> Vec<Range<u
         .collect()
 }
 
+/// The chunks a scan of `rows` plans: [`row_chunks`], with a chunk at either edge of `rows` that
+/// is under half of `rows_per_chunk` joined to its neighbour. An engine cuts a file into
+/// partitions whose edges fall off the chunk grid, and a short edge chunk would cost a whole
+/// chunk's planning and conjunct setup for a few rows.
+pub(crate) fn scan_chunks(rows: Range<u64>, rows_per_chunk: usize) -> Vec<Range<u64>> {
+    let mut chunks = row_chunks(rows, rows_per_chunk);
+    let short = |chunk: &Range<u64>| chunk.end - chunk.start < rows_per_chunk as u64 / 2;
+    if chunks.len() > 1 && chunks.last().is_some_and(short) {
+        let last = chunks.pop().vortex_expect("more than one chunk");
+        chunks.last_mut().vortex_expect("more than one chunk").end = last.end;
+    }
+    if chunks.len() > 1 && short(&chunks[0]) {
+        let first = chunks.remove(0);
+        chunks[0].start = first.start;
+    }
+    chunks
+}
+
 /// Emits one planner per chunk of a scan's rows, in row order, each spawned as independent so
 /// the driver may run it beside the others. A chunk none of whose rows is selected and kept is
 /// never planned.
@@ -68,6 +88,8 @@ pub struct ChunkPlanner {
     selection: Selection,
     /// The rows zone pruning kept, over `rows`, or `None` when nothing was pruned.
     kept: Option<Mask>,
+    segments: SegmentCache,
+    unplanned: Range<u64>,
 }
 
 impl ChunkPlanner {
@@ -79,14 +101,22 @@ impl ChunkPlanner {
         selection: Selection,
         kept: Option<Mask>,
     ) -> Self {
-        let chunks = row_chunks(rows.clone(), scan.chunk_rows).into_iter();
+        let chunks = scan_chunks(rows.clone(), scan.chunk_rows).into_iter();
         Self {
+            segments: SegmentCache::new(rows.clone()),
+            unplanned: rows.clone(),
             scan,
             rows,
             chunks,
             selection,
             kept,
         }
+    }
+}
+
+impl Drop for ChunkPlanner {
+    fn drop(&mut self) {
+        self.segments.complete(self.unplanned.clone());
     }
 }
 
@@ -106,11 +136,14 @@ impl Planner for ChunkPlanner {
     fn compute(&mut self) -> VortexResult<PlannerOutput> {
         let kept = self.kept.as_ref().map(|kept| (kept, self.rows.start));
         for chunk in self.chunks.by_ref() {
+            let lease = self.segments.lease(chunk.clone());
+            self.unplanned.start = chunk.end;
             let scope = WorkScope {
                 file_ordinal: 0,
                 rows: chunk,
             };
-            if let Some((scope, planner)) = plan_selection(&self.scan, scope, &self.selection, kept)
+            if let Some((scope, planner)) =
+                plan_selection(&self.scan, scope, &self.selection, kept, lease)
             {
                 return Ok(PlannerOutput::Spawn(scope, planner));
             }

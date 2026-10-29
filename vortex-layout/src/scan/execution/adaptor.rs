@@ -227,7 +227,7 @@ impl ScanAdaptor {
             vortex_panic!("ScanAdaptor: range answered with a size");
         };
         match delivery {
-            Delivery::Whole(read, segment) => self.deliver(read, segment, bytes),
+            Delivery::Whole(read, segment) => self.deliver(read, segment, bytes, true),
             Delivery::Probe(read, start, ranges) => {
                 let location = self.location(read.segment_id)?;
                 let tail = bytes.try_into_host_sync()?;
@@ -259,6 +259,7 @@ impl ScanAdaptor {
                         read.id,
                         read.segment_id,
                         BufferHandle::new_host(buffer.freeze()),
+                        false,
                     );
                 }
                 self.sparse.insert(
@@ -298,6 +299,7 @@ impl ScanAdaptor {
                         read,
                         pending.segment,
                         BufferHandle::new_host(pending.buffer.freeze()),
+                        false,
                     )?;
                 }
                 Ok(())
@@ -310,11 +312,16 @@ impl ScanAdaptor {
         read: ReadId,
         segment_id: SegmentId,
         bytes: BufferHandle,
+        whole: bool,
     ) -> VortexResult<()> {
         // A source that honours the target's alignment makes this a check, not a copy.
         let alignment = self.location(segment_id)?.alignment;
         let bytes = BufferHandle::new_host(bytes.try_into_host_sync()?.aligned(alignment));
-        self.scan.deliver(read, bytes)?;
+        if whole {
+            self.scan.deliver(read, bytes)?;
+        } else {
+            self.scan.deliver_partial(read, bytes)?;
+        }
         if matches!(self.pending, Some(Turn::Waiting)) {
             self.pending = None;
         }

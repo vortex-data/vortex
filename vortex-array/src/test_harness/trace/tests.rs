@@ -38,14 +38,11 @@ use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::DictArray;
-use crate::arrays::Filter;
 use crate::arrays::FilterArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::Slice;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::slice::SliceArraySlotsExt;
 use crate::assert_arrays_eq;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -407,8 +404,7 @@ fn trace_optimize_contiguous_filter() -> VortexResult<()> {
         || outer.optimize(),
     )?;
 
-    let optimized_slice = traced.output.as_::<Slice>();
-    assert!(optimized_slice.child().is::<Filter>());
+    assert!(traced.output.is::<Primitive>());
     assert_arrays_eq!(
         traced.output,
         PrimitiveArray::from_iter([2i32, 3]),
@@ -416,8 +412,17 @@ fn trace_optimize_contiguous_filter() -> VortexResult<()> {
     );
     insta::assert_snapshot!(traced.trace.to_string(), @r"
     optimize root=vortex.filter(i32, len=2) session=false
-      reduce TrivialFilterRule: vortex.filter(i32, len=2) -> vortex.slice(i32, len=2)
-      done output=vortex.slice(i32, len=2)
+      optimize root=vortex.slice(i32, len=2) session=false
+        optimize root=vortex.slice(i32, len=2) session=false
+          reduce_parent static:SliceReduceAdaptor(Primitive) slot=0 parent=vortex.slice(i32, len=2) child=vortex.primitive(i32, len=6) -> vortex.primitive(i32, len=2)
+          done output=vortex.primitive(i32, len=2)
+        optimize root=vortex.filter(i32, len=2) session=false
+          reduce TrivialFilterRule: vortex.filter(i32, len=2) -> vortex.primitive(i32, len=2)
+          done output=vortex.primitive(i32, len=2)
+        reduce_parent static:SliceReduceAdaptor(Filter) slot=0 parent=vortex.slice(i32, len=2) child=vortex.filter(i32, len=4) -> vortex.primitive(i32, len=2)
+        done output=vortex.primitive(i32, len=2)
+      reduce TrivialFilterRule: vortex.filter(i32, len=2) -> vortex.primitive(i32, len=2)
+      done output=vortex.primitive(i32, len=2)
     ");
 
     let mut ctx = ExecutionCtx::new(VortexSession::empty().with::<ArraySession>());
@@ -441,19 +446,17 @@ fn trace_optimize_contiguous_filter() -> VortexResult<()> {
     insta::assert_snapshot!(traced.trace.to_string(), @"
     execute_until target=AnyCanonical root=vortex.filter(i32, len=2)
       iter 0 current=vortex.filter(i32, len=2) builder_active=false
-        Done array=vortex.slice(i32, len=2)
-      iter 1 current=vortex.slice(i32, len=2) builder_active=false
-        ExecuteSlot slot=0 parent=vortex.slice(i32, len=2) child=vortex.filter(i32, len=4)
-      iter 2 current=vortex.filter(i32, len=4) stack_parent=vortex.slice(i32, len=2) slot=0 builder_active=false
-        Done array=vortex.primitive(i32, len=4)
-      iter 3 current=vortex.primitive(i32, len=4) stack_parent=vortex.slice(i32, len=2) slot=0 builder_active=false
-        pop_frame slot=0 output=vortex.slice(i32, len=2)
-      iter 4 current=vortex.slice(i32, len=2) builder_active=false
     optimize root=vortex.slice(i32, len=2) session=false
-      reduce_parent static:SliceReduceAdaptor(Primitive) slot=0 parent=vortex.slice(i32, len=2) child=vortex.primitive(i32, len=4) -> vortex.primitive(i32, len=2)
+      optimize root=vortex.slice(i32, len=2) session=false
+        reduce_parent static:SliceReduceAdaptor(Primitive) slot=0 parent=vortex.slice(i32, len=2) child=vortex.primitive(i32, len=6) -> vortex.primitive(i32, len=2)
+        done output=vortex.primitive(i32, len=2)
+      optimize root=vortex.filter(i32, len=2) session=false
+        reduce TrivialFilterRule: vortex.filter(i32, len=2) -> vortex.primitive(i32, len=2)
+        done output=vortex.primitive(i32, len=2)
+      reduce_parent static:SliceReduceAdaptor(Filter) slot=0 parent=vortex.slice(i32, len=2) child=vortex.filter(i32, len=4) -> vortex.primitive(i32, len=2)
       done output=vortex.primitive(i32, len=2)
         Done array=vortex.primitive(i32, len=2)
-      iter 5 current=vortex.primitive(i32, len=2) builder_active=false
+      iter 1 current=vortex.primitive(i32, len=2) builder_active=false
       return output=vortex.primitive(i32, len=2)
     ");
 

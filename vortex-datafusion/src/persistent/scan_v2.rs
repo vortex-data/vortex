@@ -22,7 +22,10 @@ use futures::TryStreamExt;
 use futures::channel::mpsc;
 use futures::stream;
 use futures::stream::BoxStream;
+use tokio::sync::Semaphore;
 use vortex::array::ArrayRef;
+use vortex::array::arrays::Chunked;
+use vortex::array::arrays::chunked::ChunkedArrayExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::io::request::IoService;
@@ -36,8 +39,12 @@ use vortex::scan::planning::planner::Planner;
 use vortex::scan::planning::planner::WorkScope;
 use vortex_utils::parallelism::get_available_parallelism;
 
+#[cfg(test)]
+mod tests;
+
 /// Maps a scan's batches to Arrow on the task that produced them.
 type MapBatch = Arc<dyn Fn(ArrayRef) -> VortexResult<ScanBatch> + Send + Sync>;
+type MapArrow = Arc<dyn Fn(ArrayRef) -> VortexResult<RecordBatch> + Send + Sync>;
 
 enum ScanBatch {
     Array(ArrayRef),
@@ -52,6 +59,9 @@ pub struct ScanDriver {
     /// Whether batches are yielded in row order, which holds them until the scan is done.
     ordered: bool,
     consumer_mapping: bool,
+    parallel_mapping: bool,
+    chunk_admission: Option<Arc<Semaphore>>,
+    admit_after_io: bool,
     #[cfg(all(target_os = "linux", feature = "io-uring"))]
     workers: Option<UringWorkerPool>,
 }
@@ -63,21 +73,38 @@ impl ScanDriver {
             concurrency,
             ordered,
             consumer_mapping: false,
+            parallel_mapping: false,
+            chunk_admission: None,
+            admit_after_io: false,
             #[cfg(all(target_os = "linux", feature = "io-uring"))]
             workers: None,
         }
     }
 
     /// Drives a partition's planning run on one persistent worker and its local ring.
-    /// Its child planners stay on that worker so completion scopes never migrate.
+    /// With control admission enabled, spawned chunks can start on other workers. Every
+    /// completion scope is created on its assigned worker and stays there until it retires.
     #[cfg(all(target_os = "linux", feature = "io-uring"))]
     pub fn with_uring_workers(mut self, workers: UringWorkerPool) -> Self {
         self.workers = Some(workers);
         self
     }
 
-    pub(crate) fn with_consumer_mapping(mut self, enabled: bool) -> Self {
+    /// Limits active spawned chunks across drivers sharing this semaphore.
+    ///
+    /// A chunk holds its permit while computing or awaiting reads, and releases it before
+    /// sending a batch to its consumer. Native worker pools provide their own admission and
+    /// cannot be combined with this limit. With `after_io`, admission starts only after a
+    /// chunk first waits for I/O; chunks served immediately from cache remain unrestricted.
+    pub fn with_chunk_admission(mut self, admission: Arc<Semaphore>, after_io: bool) -> Self {
+        self.chunk_admission = Some(admission);
+        self.admit_after_io = after_io;
+        self
+    }
+
+    pub(crate) fn with_consumer_mapping(mut self, enabled: bool, parallel: bool) -> Self {
         self.consumer_mapping = enabled;
+        self.parallel_mapping = enabled && parallel;
         self
     }
 
@@ -89,7 +116,15 @@ impl ScanDriver {
         root: Box<dyn Planner>,
         map: impl Fn(ArrayRef) -> VortexResult<RecordBatch> + Send + Sync + 'static,
     ) -> BoxStream<'static, VortexResult<RecordBatch>> {
+        #[cfg(all(target_os = "linux", feature = "io-uring"))]
+        if self.workers.is_some() && self.chunk_admission.is_some() {
+            return stream::once(future::ready(Err(vortex_err!(
+                "Native scan workers already control chunk admission"
+            ))))
+            .boxed();
+        }
         let output_map = Arc::new(map);
+        let output_handle = self.handle.clone();
         let map: MapBatch = if self.consumer_mapping {
             Arc::new(|array| Ok(ScanBatch::Array(array)))
         } else {
@@ -97,7 +132,8 @@ impl ScanDriver {
             Arc::new(move |array| output_map(array).map(ScanBatch::Arrow))
         };
         let in_flight = self.concurrency * get_available_parallelism().unwrap_or(1);
-        let inline = in_flight <= 1;
+        let inline = in_flight <= 1 && self.chunk_admission.is_none();
+        let chunk_admission = self.chunk_admission;
         let scope = WorkScope {
             file_ordinal: 0,
             rows: scan.rows().clone(),
@@ -106,8 +142,22 @@ impl ScanDriver {
         let (chunk_handle, chunk_io, chunk_map) =
             (self.handle.clone(), Arc::clone(&io), Arc::clone(&map));
         #[cfg(all(target_os = "linux", feature = "io-uring"))]
+        let chunk_workers = self.workers.clone();
+        #[cfg(all(target_os = "linux", feature = "io-uring"))]
         let batches = if let Some(workers) = self.workers {
-            worker_stream(workers, root, scope, Arc::clone(&io), map)
+            // Without a filter, consumer mapping already spreads decoding over the engine's
+            // tasks. Redispatching each chunk adds a worker handoff without moving that work.
+            let dispatch_children = !inline
+                && workers.max_control_jobs() > 0
+                && (!self.consumer_mapping || scan.filter().is_some());
+            worker_stream(
+                workers,
+                root,
+                scope,
+                Arc::clone(&io),
+                map,
+                dispatch_children,
+            )
         } else {
             run_stream(self.handle, root, scope, io, map, inline)
         };
@@ -118,13 +168,27 @@ impl ScanDriver {
                 Yielded::Batch(start, batch) => {
                     stream::once(future::ready(Ok((start, batch)))).boxed()
                 }
-                Yielded::Spawn(scope, chunk) => chunk_stream(
-                    &chunk_handle,
-                    chunk,
-                    scope,
-                    Arc::clone(&chunk_io),
-                    Arc::clone(&chunk_map),
-                ),
+                Yielded::Spawn(scope, chunk) => {
+                    #[cfg(all(target_os = "linux", feature = "io-uring"))]
+                    if let Some(workers) = &chunk_workers {
+                        return worker_chunk_stream(
+                            workers.clone(),
+                            chunk,
+                            scope,
+                            Arc::clone(&chunk_io),
+                            Arc::clone(&chunk_map),
+                        );
+                    }
+                    chunk_stream(
+                        &chunk_handle,
+                        chunk,
+                        scope,
+                        Arc::clone(&chunk_io),
+                        Arc::clone(&chunk_map),
+                        chunk_admission.clone(),
+                        self.admit_after_io,
+                    )
+                }
             })
             .try_flatten_unordered(in_flight);
         // The prepared scan holds the file's shared cache: keep it until the stream ends, so
@@ -144,14 +208,56 @@ impl ScanDriver {
         } else {
             batches.map_ok(|(_, batch)| batch).boxed()
         };
-        batches
-            .and_then(move |batch| {
-                future::ready(match batch {
-                    ScanBatch::Array(array) => output_map(array),
-                    ScanBatch::Arrow(batch) => Ok(batch),
+        if !self.parallel_mapping {
+            return batches
+                .and_then(move |batch| {
+                    future::ready(match batch {
+                        ScanBatch::Array(array) => output_map(array),
+                        ScanBatch::Arrow(batch) => Ok(batch),
+                    })
                 })
+                .boxed();
+        }
+        map_chunks(batches, output_handle, output_map, self.ordered, in_flight)
+    }
+}
+
+fn map_chunks(
+    batches: BoxStream<'static, VortexResult<ScanBatch>>,
+    handle: Handle,
+    map: MapArrow,
+    ordered: bool,
+    in_flight: usize,
+) -> BoxStream<'static, VortexResult<RecordBatch>> {
+    let batches = batches
+        .map_ok(|batch| {
+            // Stored chunks can contain expensive independent decoders. Export them
+            // separately instead of merging their fields and decoding them serially.
+            let chunks = match batch {
+                ScanBatch::Array(array) => match array.as_opt::<Chunked>() {
+                    Some(chunks) => chunks
+                        .iter_chunks()
+                        .cloned()
+                        .map(ScanBatch::Array)
+                        .collect(),
+                    None => vec![ScanBatch::Array(array)],
+                },
+                ScanBatch::Arrow(batch) => vec![ScanBatch::Arrow(batch)],
+            };
+            stream::iter(chunks.into_iter().map(Ok))
+        })
+        .try_flatten()
+        .map_ok(move |batch| {
+            let map = Arc::clone(&map);
+            handle.spawn_cpu(move || match batch {
+                ScanBatch::Array(array) => map(array),
+                ScanBatch::Arrow(batch) => Ok(batch),
             })
-            .boxed()
+        });
+    if ordered {
+        batches.try_buffered(in_flight.max(1)).boxed()
+    } else {
+        batches.try_buffer_unordered(in_flight.max(1)).boxed()
     }
 }
 
@@ -262,17 +368,34 @@ fn chunk_stream(
     scope: WorkScope,
     io: Arc<dyn IoService>,
     map: MapBatch,
+    admission: Option<Arc<Semaphore>>,
+    admit_after_io: bool,
 ) -> BoxStream<'static, VortexResult<(u64, ScanBatch)>> {
     let (mut send, recv) = mpsc::channel(1);
     let task = handle.spawn(async move {
         let mut run = Run::new();
         run.admit(root, scope, io.session());
+        let mut permit = None;
+        let mut needs_admission = !admit_after_io;
         loop {
+            if needs_admission
+                && permit.is_none()
+                && let Some(admission) = &admission
+            {
+                permit = Some(
+                    Arc::clone(admission)
+                        .acquire_owned()
+                        .await
+                        .map_err(|_| vortex_err!("Scan chunk admission closed"))?,
+                );
+            }
             match run.advance()? {
                 Progress::Batch(batch) => {
                     let start = batch.scope.rows.start;
                     let batch = map(batch.array);
                     let failed = batch.is_err();
+                    // A slow consumer must not retain admission needed by another scan.
+                    drop(permit.take());
                     if send.send(batch.map(|batch| (start, batch))).await.is_err() || failed {
                         return Ok(());
                     }
@@ -282,6 +405,7 @@ fn chunk_stream(
                 }
                 Progress::RootDone(_) if run.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => return Ok(()),
+                Progress::Waiting if !needs_admission => needs_admission = true,
                 Progress::Waiting => future::poll_fn(|cx| run.poll_completion(cx)).await?,
             }
         }
@@ -299,9 +423,10 @@ fn worker_stream(
     scope: WorkScope,
     io: Arc<dyn IoService>,
     map: MapBatch,
+    dispatch_children: bool,
 ) -> BoxStream<'static, VortexResult<Yielded>> {
     let (mut send, recv) = mpsc::channel(1);
-    let task = workers.spawn_async(move || async move {
+    let work = move || async move {
         let mut run = Run::new();
         run.admit(root, scope, io.session());
         loop {
@@ -314,6 +439,11 @@ fn worker_stream(
                         return Ok(());
                     }
                 }
+                Progress::Spawn(scope, child) if dispatch_children => {
+                    if send.send(Ok(Yielded::Spawn(scope, child))).await.is_err() {
+                        return Ok(());
+                    }
+                }
                 Progress::Spawn(scope, child) => {
                     run.admit(child, scope, io.session());
                 }
@@ -322,7 +452,12 @@ fn worker_stream(
                 Progress::Waiting => future::poll_fn(|cx| run.poll_completion(cx)).await?,
             }
         }
-    });
+    };
+    let task = if dispatch_children {
+        workers.spawn_control(work)
+    } else {
+        workers.spawn_async(work)
+    };
     let errors = stream::once(task)
         .filter_map(|result: VortexResult<()>| future::ready(result.err().map(Err)));
     // Retain the pool while its task and the task's output stream are alive.
@@ -331,5 +466,25 @@ fn worker_stream(
             let _ = &workers;
             Poll::Ready(None)
         }))
+        .boxed()
+}
+
+#[cfg(all(target_os = "linux", feature = "io-uring"))]
+fn worker_chunk_stream(
+    workers: UringWorkerPool,
+    root: Box<dyn Planner>,
+    scope: WorkScope,
+    io: Arc<dyn IoService>,
+    map: MapBatch,
+) -> BoxStream<'static, VortexResult<(u64, ScanBatch)>> {
+    worker_stream(workers, root, scope, io, map, false)
+        .and_then(|yielded| {
+            future::ready(match yielded {
+                Yielded::Batch(start, batch) => Ok((start, batch)),
+                Yielded::Spawn(..) => Err(vortex_err!(
+                    "A native chunk must admit its child planners inline"
+                )),
+            })
+        })
         .boxed()
 }

@@ -18,7 +18,9 @@ use std::time::UNIX_EPOCH;
 use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::arrow::ipc::writer::FileWriter;
+use datafusion_physical_plan::ExecutionPlan;
 use parking_lot::Mutex;
+use serde_json::Value;
 use serde_json::json;
 use url::Url;
 use vortex::utils::aliases::hash_map::HashMap;
@@ -30,6 +32,7 @@ pub struct Diagnostics {
     files: Vec<PathBuf>,
     cold_delay: Duration,
     iterations: Mutex<HashMap<String, usize>>,
+    partition_metrics: bool,
 }
 
 /// Work performed outside the query timer to establish verified cold file pages.
@@ -74,6 +77,8 @@ impl Diagnostics {
             files,
             cold_delay,
             iterations: Mutex::default(),
+            partition_metrics: std::env::var("VORTEX_BENCH_PARTITION_METRICS")
+                .is_ok_and(|value| value == "1"),
         })
     }
 
@@ -123,6 +128,7 @@ impl Diagnostics {
         cold: Option<ColdPreparation>,
         batches: &[RecordBatch],
         schema: &SchemaRef,
+        plan: &dyn ExecutionPlan,
     ) -> anyhow::Result<()> {
         let key = format!("{}-q{query}", format.name());
         let iteration = {
@@ -139,7 +145,10 @@ impl Diagnostics {
                 "snapshot_before_unix_ns": before.unix_ns,
                 "snapshot_after_unix_ns": after.unix_ns,
                 "process_stats": after.process.zip(before.process).map(|(after, before)| after.delta(before)),
+                "memory_before": before.memory.map(MemoryStats::json),
+                "memory_after": after.memory.map(MemoryStats::json),
                 "rows": batches.iter().map(RecordBatch::num_rows).sum::<usize>(),
+                "partition_metrics": self.partition_metrics.then(|| partition_metrics(plan)),
                 "proc_read_bytes": after.read_bytes.zip(before.read_bytes).map(|(a,b)| a.saturating_sub(b)),
                 "logical_reads": after.logical_reads.saturating_sub(before.logical_reads),
                 "logical_bytes": after.logical_bytes.saturating_sub(before.logical_bytes),
@@ -175,6 +184,56 @@ impl Diagnostics {
     }
 }
 
+// Read existing metrics after the query timer stops. Time values and timestamps are nanoseconds.
+fn partition_metrics(plan: &dyn ExecutionPlan) -> Vec<Value> {
+    fn visit(plan: &dyn ExecutionPlan, output: &mut Vec<Value>) {
+        let metrics: Vec<_> = plan
+            .metrics()
+            .into_iter()
+            .flat_map(|metrics| {
+                metrics
+                    .iter()
+                    .filter(|metric| {
+                        matches!(
+                            metric.value().name(),
+                            "output_rows"
+                                | "output_batches"
+                                | "elapsed_compute"
+                                | "start_timestamp"
+                                | "end_timestamp"
+                                | "time_elapsed_opening"
+                                | "time_elapsed_scanning_until_data"
+                                | "time_elapsed_scanning_total"
+                                | "time_elapsed_processing"
+                                | "files_opened"
+                                | "files_processed"
+                        )
+                    })
+                    .map(|metric| {
+                        json!({
+                            "partition": metric.partition(),
+                            "name": metric.value().name(),
+                            "value": metric.value().as_usize(),
+                            "labels": metric.labels().iter().map(|label| {
+                                json!({"name": label.name(), "value": label.value()})
+                            }).collect::<Vec<_>>(),
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        let index = output.len();
+        output.push(json!({"node": index, "name": plan.name(), "metrics": metrics}));
+        for child in plan.children() {
+            visit(child.as_ref(), output);
+        }
+    }
+
+    let mut output = Vec::new();
+    visit(plan, &mut output);
+    output
+}
+
 fn collect_files(
     directory: &Path,
     extension: &str,
@@ -199,6 +258,7 @@ fn collect_files(
 pub struct Snapshot {
     unix_ns: Option<u64>,
     process: Option<ProcessStats>,
+    memory: Option<MemoryStats>,
     read_bytes: Option<u64>,
     logical_reads: u64,
     logical_bytes: u64,
@@ -206,6 +266,60 @@ pub struct Snapshot {
     physical_bytes: u64,
     resident_reads: u64,
     resident_bytes: u64,
+}
+
+// Boundary snapshots include the output batches and file-backed mappings. VmHWM is the
+// process lifetime peak, and Threads is a boundary count, not a measured peak thread count.
+#[derive(Clone, Copy)]
+struct MemoryStats {
+    resident_kib: u64,
+    anonymous_kib: u64,
+    file_kib: u64,
+    peak_resident_kib: u64,
+    threads: u64,
+}
+
+impl MemoryStats {
+    #[cfg(target_os = "linux")]
+    fn take() -> Option<Self> {
+        static ENABLED: LazyLock<bool> =
+            LazyLock::new(|| std::env::var("VORTEX_BENCH_MEMORY_STATS").as_deref() == Ok("1"));
+        if !*ENABLED {
+            return None;
+        }
+        let status = std::fs::read_to_string("/proc/self/status").ok()?;
+        let field = |name: &str| {
+            status.lines().find_map(|line| {
+                line.strip_prefix(name)?
+                    .split_ascii_whitespace()
+                    .next()?
+                    .parse::<u64>()
+                    .ok()
+            })
+        };
+        Some(Self {
+            resident_kib: field("VmRSS:")?,
+            anonymous_kib: field("RssAnon:")?,
+            file_kib: field("RssFile:")?,
+            peak_resident_kib: field("VmHWM:")?,
+            threads: field("Threads:")?,
+        })
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn take() -> Option<Self> {
+        None
+    }
+
+    fn json(self) -> Value {
+        json!({
+            "resident_kib": self.resident_kib,
+            "anonymous_kib": self.anonymous_kib,
+            "file_kib": self.file_kib,
+            "peak_resident_kib": self.peak_resident_kib,
+            "threads": self.threads,
+        })
+    }
 }
 
 // RUSAGE_SELF sums threads in this process, rather than measuring the whole machine. The two
@@ -256,7 +370,7 @@ impl ProcessStats {
         None
     }
 
-    fn delta(self, before: Self) -> serde_json::Value {
+    fn delta(self, before: Self) -> Value {
         json!({
             "user_us": self.user_us.saturating_sub(before.user_us),
             "system_us": self.system_us.saturating_sub(before.system_us),
@@ -275,6 +389,7 @@ impl Snapshot {
             .ok()
             .and_then(|duration| u64::try_from(duration.as_nanos()).ok());
         let process = ProcessStats::take();
+        let memory = MemoryStats::take();
         let read_bytes = std::fs::read_to_string("/proc/self/io")
             .ok()
             .and_then(|value| {
@@ -288,6 +403,7 @@ impl Snapshot {
             Self {
                 unix_ns,
                 process,
+                memory,
                 read_bytes,
                 logical_reads: stats.logical_reads,
                 logical_bytes: stats.logical_bytes,
@@ -301,6 +417,7 @@ impl Snapshot {
         Self {
             unix_ns,
             process,
+            memory,
             read_bytes,
             ..Self::default()
         }

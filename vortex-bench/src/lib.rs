@@ -12,6 +12,7 @@ use std::sync::LazyLock;
 use anyhow::bail;
 use appian::AppianBenchmark;
 use clap::ValueEnum;
+use clickbench::CLICKBENCH_FILES;
 use clickbench::ClickBenchBenchmark;
 use clickbench::ClickBenchSortedBenchmark;
 use clickbench::Flavor;
@@ -388,8 +389,9 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
         }
         BenchmarkArg::ClickBench => {
             let flavor = opts.get_as::<Flavor>("flavor").unwrap_or_default();
+            let files = opts.get_as::<u32>("files").unwrap_or(CLICKBENCH_FILES);
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
-            let benchmark = ClickBenchBenchmark::new(flavor, None, remote_data_dir)?;
+            let benchmark = ClickBenchBenchmark::new(flavor, files, None, remote_data_dir)?;
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::ClickBenchSorted => {

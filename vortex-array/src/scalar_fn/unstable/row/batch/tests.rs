@@ -1,16 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::mem::MaybeUninit;
+use std::ops::Range;
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
+use futures::future::BoxFuture;
 use rstest::rstest;
+use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferAllocatorRef;
 use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -28,11 +33,13 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::MaskedArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
 use crate::assert_arrays_eq;
 use crate::buffer::BufferHandle;
+use crate::buffer::DeviceBuffer;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
@@ -44,6 +51,8 @@ use crate::scalar::Scalar;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::VecExecutionArgs;
+use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::operators::Operator;
 use crate::scalar_fn::unstable::row::FixedSizeListSink;
 use crate::scalar_fn::unstable::row::InitializedRow;
 use crate::scalar_fn::unstable::row::InputElement;
@@ -60,6 +69,70 @@ use crate::scalar_fn::unstable::row::row_fn_return_dtype;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+#[derive(Clone)]
+struct FilteredBoolean;
+
+impl RowFn for FilteredBoolean {
+    type Options = EmptyOptions;
+
+    const ARG_NAMES: &'static [&'static str] = &["lhs", "rhs"];
+    const INFALLIBLE: bool = true;
+
+    fn id(&self) -> ScalarFnId {
+        static ID: CachedId = CachedId::new("test.filtered_boolean");
+        *ID
+    }
+
+    fn dispatch<V: RowVisitor>(
+        &self,
+        _options: &Self::Options,
+        _args: &[DType],
+        visitor: V,
+    ) -> VortexResult<V::VisitResult> {
+        visitor.visit_bool::<(FilterOnlyI64, i64), false>(|(lhs, rhs)| lhs > rhs)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+struct UnreadableDeviceBuffer {
+    len: usize,
+    alignment: Alignment,
+}
+
+impl DeviceBuffer for UnreadableDeviceBuffer {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn alignment(&self) -> Alignment {
+        self.alignment
+    }
+
+    fn copy_to_host_sync(&self, _alignment: Alignment) -> VortexResult<ByteBuffer> {
+        vortex_bail!("execution must not read the device buffer")
+    }
+
+    fn copy_to_host(
+        &self,
+        _alignment: Alignment,
+    ) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
+        vortex_bail!("execution must not read the device buffer")
+    }
+
+    fn slice(&self, _range: Range<usize>) -> Arc<dyn DeviceBuffer> {
+        panic!("execution must not slice the device buffer")
+    }
+
+    fn aligned(self: Arc<Self>, alignment: Alignment) -> VortexResult<Arc<dyn DeviceBuffer>> {
+        assert_eq!(alignment, self.alignment());
+        Ok(self)
+    }
+}
 
 #[derive(Clone, Default)]
 struct DeferredAdd {
@@ -808,6 +881,64 @@ fn test_bool_output_handles_partial_constants() -> VortexResult<()> {
 }
 
 #[test]
+fn test_bool_output_handles_null_literal_constant() -> VortexResult<()> {
+    let varying = PrimitiveArray::from_iter(0_i64..65).into_array();
+    let null = Scalar::null(DType::Primitive(i64::PTYPE, Nullability::Nullable));
+    let constant = ConstantArray::new(null, 65).into_array();
+    let args = VecExecutionArgs::new(vec![varying, constant], 65);
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let actual = execute_rows(&PackedGreaterThan::<true>, &EmptyOptions, &args, &mut ctx)?;
+    let expected = BoolArray::from_iter(std::iter::repeat_n(None::<bool>, 65)).into_array();
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_bool_output_handles_masked_constant() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let varying = PrimitiveArray::from_iter(0_i64..65).into_array();
+    let valid: Vec<bool> = (0..65).map(|index| index % 3 != 0).collect();
+    let constant = MaskedArray::try_new(
+        ConstantArray::new(32_i64, 65).into_array(),
+        Validity::from_iter(valid.iter().copied()),
+        &mut ctx,
+    )?
+    .into_array();
+    let args = VecExecutionArgs::new(vec![varying, constant], 65);
+
+    let actual = execute_rows(&PackedGreaterThan::<true>, &EmptyOptions, &args, &mut ctx)?;
+    let expected = BoolArray::from_iter(
+        (0_i64..65)
+            .zip(valid)
+            .map(|(value, valid)| valid.then_some(value > 32)),
+    )
+    .into_array();
+
+    assert_arrays_eq!(&actual, &expected, &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_bool_output_rejects_wrong_row_count() {
+    let short = PrimitiveArray::from_iter(0_i64..64).into_array();
+    let long = PrimitiveArray::from_iter(0_i64..65).into_array();
+    let args = VecExecutionArgs::new(vec![long, short], 65);
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let error = execute_rows(&PackedGreaterThan::<true>, &EmptyOptions, &args, &mut ctx)
+        .expect_err("a short input must fail");
+
+    assert!(
+        error
+            .to_string()
+            .contains("the test.packed_greater_than input 1 has the wrong row count"),
+        "{error}",
+    );
+}
+
+#[test]
 fn test_bool_output_handles_all_constant_input() -> VortexResult<()> {
     let input = ConstantArray::new(7_i64, 65).into_array();
     let args = VecExecutionArgs::new(vec![input], 65);
@@ -1535,5 +1666,101 @@ fn constant_output_retains_execution_allocator_payload() -> VortexResult<()> {
     assert_eq!(value.as_str(), "an external UTF-8 payload");
     assert_eq!(output.len(), 3);
     tracker.assert_owns(value.inner().as_slice());
+    Ok(())
+}
+
+#[test]
+fn test_valid_only_bool_skips_invalid_decode_payloads() -> VortexResult<()> {
+    let lhs = PrimitiveArray::new(vec![i64::MIN, 7], Validity::from_iter([false, true]));
+    let rhs = ConstantArray::new(0_i64, 2);
+    let args = VecExecutionArgs::new(vec![lhs.into_array(), rhs.into_array()], 2);
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let actual = execute_rows(&FilteredBoolean, &EmptyOptions, &args, &mut ctx)?;
+    assert_arrays_eq!(actual, BoolArray::from_iter([None, Some(true)]), &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_null_literal_skips_earlier_decode() -> VortexResult<()> {
+    let lhs = PrimitiveArray::from_iter([i64::MIN, 7]);
+    let rhs = ConstantArray::new(
+        Scalar::null(DType::Primitive(i64::PTYPE, Nullability::Nullable)),
+        2,
+    );
+    let args = VecExecutionArgs::new(vec![lhs.into_array(), rhs.into_array()], 2);
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let actual = execute_rows(&FilteredBoolean, &EmptyOptions, &args, &mut ctx)?;
+    assert_arrays_eq!(actual, BoolArray::from_iter([None::<bool>, None]), &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_null_literal_skips_lazy_input_execution() -> VortexResult<()> {
+    let lhs = Binary::try_new(
+        PrimitiveArray::from_iter([1_i64, 2]).into_array(),
+        ConstantArray::new(0_i64, 2).into_array(),
+        Operator::Div,
+    )?
+    .into_array();
+    let rhs = ConstantArray::new(
+        Scalar::null(DType::Primitive(i64::PTYPE, Nullability::Nullable)),
+        2,
+    );
+    let args = VecExecutionArgs::new(vec![lhs, rhs.into_array()], 2);
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let actual = execute_rows(&PackedGreaterThan::<false>, &EmptyOptions, &args, &mut ctx)?;
+    assert_arrays_eq!(actual, BoolArray::from_iter([None::<bool>, None]), &mut ctx);
+    Ok(())
+}
+
+#[test]
+fn test_device_validity_stays_lazy() -> VortexResult<()> {
+    let validity = BoolArray::try_new_from_handle(
+        BufferHandle::new_device(Arc::new(UnreadableDeviceBuffer {
+            len: 1,
+            alignment: Alignment::of::<u8>(),
+        })),
+        0,
+        2,
+        Validity::NonNullable,
+    )?
+    .into_array();
+    let lhs = PrimitiveArray::new(vec![1_i64, 2], Validity::Array(validity.clone()));
+    let rhs = PrimitiveArray::new(vec![3_i64, 4], Validity::Array(validity));
+    let args = VecExecutionArgs::new(vec![lhs.into_array(), rhs.into_array()], 2);
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let actual = execute_rows(&DeferredAdd::default(), &EmptyOptions, &args, &mut ctx)?;
+    assert_eq!(actual.len(), 2);
+    assert_eq!(
+        actual.dtype(),
+        &DType::Primitive(i64::PTYPE, Nullability::Nullable)
+    );
+    assert!(matches!(actual.validity()?, Validity::Array(_)));
+    Ok(())
+}
+
+#[test]
+fn test_null_literal_skips_device_input_transfer() -> VortexResult<()> {
+    let input = PrimitiveArray::from_buffer_handle(
+        BufferHandle::new_device(Arc::new(UnreadableDeviceBuffer {
+            len: 2 * size_of::<i64>(),
+            alignment: Alignment::of::<i64>(),
+        })),
+        i64::PTYPE,
+        Validity::NonNullable,
+    );
+    let null = ConstantArray::new(
+        Scalar::null(DType::Primitive(i64::PTYPE, Nullability::Nullable)),
+        2,
+    );
+    let args = VecExecutionArgs::new(vec![input.into_array(), null.into_array()], 2);
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let actual = execute_rows(&PackedGreaterThan::<false>, &EmptyOptions, &args, &mut ctx)?;
+    assert_arrays_eq!(actual, BoolArray::from_iter([None::<bool>, None]), &mut ctx);
     Ok(())
 }

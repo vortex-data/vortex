@@ -60,6 +60,7 @@ use super::ROW_BLOCK_SIZE;
 use super::ScanBuilder;
 use super::ScanCache;
 use super::ScanFile;
+use super::filtered_rows_per_chunk;
 use super::rows_per_chunk;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -73,6 +74,7 @@ use crate::layouts::zoned::writer::ZonedStrategy;
 use crate::scan::arrow::to_record_batch;
 use crate::scan::execution::SegmentLocation;
 use crate::scan::execution::row_chunks;
+use crate::scan::execution::scan_chunks;
 use crate::scan::scan_builder::ScanBuilder as V1ScanBuilder;
 use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
@@ -195,6 +197,34 @@ fn builder(
         session.clone(),
         scan_file(segments, layout)?,
     ))
+}
+
+#[rstest]
+#[case::count_integer(lit(true), gt(get_item("ints", root()), lit(10)), 1_048_576)]
+#[case::project_integer(
+    get_item("ints", root()),
+    gt(get_item("ints", root()), lit(10)),
+    1_048_576
+)]
+#[case::filter_string(lit(true), eq(get_item("strings", root()), lit("row 10")), 131_072)]
+#[case::project_string(
+    get_item("strings", root()),
+    gt(get_item("ints", root()), lit(10)),
+    131_072
+)]
+#[case::wide_projection(root(), gt(get_item("ints", root()), lit(10)), 131_072)]
+fn filtered_chunk_sizing(
+    #[case] projection: Expression,
+    #[case] filter: Expression,
+    #[case] expected: usize,
+) -> VortexResult<()> {
+    let array = table_chunk(0)?;
+    let dtype = array.dtype();
+    assert_eq!(
+        filtered_rows_per_chunk(dtype, &projection.bind(dtype)?, &filter.bind(dtype)?)?,
+        expected,
+    );
+    Ok(())
 }
 
 /// Composes a scan's planners the way an engine does: the pruning plans first when there is a filter,
@@ -479,6 +509,24 @@ fn fixed_row_chunks(#[case] rows: Range<u64>, #[case] expected: Vec<Range<u64>>)
     assert_eq!(row_chunks(rows, 65_536), expected);
 }
 
+/// A scan joins a chunk at either edge of its rows that is under half a chunk to its neighbour,
+/// so a partition whose edges fall off the chunk grid plans no sliver of a chunk.
+#[rstest]
+#[case::partition_tail(0..90_112, 81_920, vec![0..90_112])]
+#[case::partition_head(90_112..180_224, 81_920, vec![90_112..180_224])]
+#[case::long_head_kept(10..140_000, 65_536, vec![10..65_536, 65_536..140_000])]
+#[case::both_edges(60_000..140_000, 65_536, vec![60_000..140_000])]
+#[case::interior_kept(60_000..270_000, 65_536, vec![60_000..131_072, 131_072..196_608, 196_608..270_000])]
+#[case::single(5..100, 65_536, vec![5..100])]
+#[case::empty(5..5, 65_536, vec![])]
+fn scans_join_short_edge_chunks(
+    #[case] rows: Range<u64>,
+    #[case] rows_per_chunk: usize,
+    #[case] expected: Vec<Range<u64>>,
+) {
+    assert_eq!(scan_chunks(rows, rows_per_chunk), expected);
+}
+
 #[rstest]
 #[case::empty(0, 0, 65_536)]
 #[case::single_chunk(1000, 100_000_000, 65_536)]
@@ -550,7 +598,10 @@ async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
         reads: AtomicUsize::new(0),
     });
     let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
-    let scan = Arc::new(builder(&session, &segments, &layout)?.prepare()?);
+    let mut file = scan_file(&segments, &layout)?;
+    // Without retained segments, so a chunk reads every codes chunk it overlaps.
+    file.cache = Some(ScanCache::with_retained_bytes(0));
+    let scan = Arc::new(ScanBuilder::new(session.clone(), file).prepare()?);
     let chunks = row_chunks(scan.rows().clone(), scan.chunk_rows);
     assert_eq!(
         chunks.len(),
@@ -580,6 +631,45 @@ async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
             &mut session.create_execution_ctx()
         );
     }
+    Ok(())
+}
+
+/// Work chunks that each overlap half of a stored segment read it once while the file's cache
+/// retains segments, and once per chunk when it retains nothing.
+#[rstest]
+#[case::retained(None, 1)]
+#[case::not_retained(Some(0), 2)]
+#[tokio::test]
+async fn chunks_sharing_a_segment_read_it_once(
+    #[case] retained_bytes: Option<u64>,
+    #[case] reads_per_segment: usize,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let (segments, layout) = write(&session, chunked_flat().as_ref()).await?;
+    let counted = Arc::new(CountingSegments {
+        inner: segments,
+        reads: AtomicUsize::new(0),
+    });
+    let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
+    let mut file = scan_file(&segments, &layout)?;
+    file.cache =
+        Some(retained_bytes.map_or_else(ScanCache::default, ScanCache::with_retained_bytes));
+    let projection = get_item("ints", root()).bind(layout.dtype())?;
+    let mut scan = ScanBuilder::new(session, file)
+        .with_projection(projection)
+        .prepare()?;
+    let chunk_rows = CHUNK_ROWS / 2;
+    scan.chunk_rows = chunk_rows;
+    let scan = Arc::new(scan);
+
+    // One chunk at a time, so no read is still in flight when the next chunk starts.
+    for rows in row_chunks(scan.rows().clone(), chunk_rows) {
+        run_rows(&scan, rows).await?;
+    }
+    assert_eq!(
+        counted.reads.load(Ordering::Relaxed),
+        CHUNKS * reads_per_segment
+    );
     Ok(())
 }
 
@@ -704,7 +794,8 @@ async fn scan_cache_reuses_values_between_scans(
     });
     let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
     let mut file = scan_file(&segments, &layout)?;
-    file.cache = cached.then(ScanCache::default);
+    // Without retained segments, so only the values come from the cache.
+    file.cache = cached.then(|| ScanCache::with_retained_bytes(0));
 
     let mut reads = Vec::new();
     for _ in 0..2 {
@@ -762,7 +853,8 @@ async fn repeated_projections_reuse_their_values() -> VortexResult<()> {
     });
     let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
     let mut file = scan_file(&segments, &layout)?;
-    file.cache = Some(ScanCache::default());
+    // Without retained segments, so only the values come from the cache.
+    file.cache = Some(ScanCache::with_retained_bytes(0));
 
     let projection = gt(root(), lit(15i32)).bind(layout.dtype())?;
     let mut reads = Vec::new();
@@ -836,7 +928,8 @@ async fn pruned_rows_get_no_chunk(
 }
 
 /// Scans of one file that share a cache share their filter plans, so the pruning plans run once:
-/// the second scan with the same filter re-reads the data it needs but never the zone maps.
+/// the second scan with the same filter re-reads the data it needs but never the zone maps. Each
+/// scan binds its own filter and projection, as each partition of an engine does.
 #[tokio::test]
 async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
     let session = new_session().with_tokio();
@@ -847,24 +940,26 @@ async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
     });
     let segments = Arc::clone(&counted) as Arc<dyn SegmentSource>;
     let mut file = scan_file(&segments, &layout)?;
-    let cache = ScanCache::default();
+    // Without retained segments, so only the proved zones come from the cache.
+    let cache = ScanCache::with_retained_bytes(0);
     file.cache = Some(cache.clone());
-    let filter = gt(get_item("ints", root()), lit(2_999i32)).bind(layout.dtype())?;
-    let projection = get_item("ints", root()).bind(layout.dtype())?;
-    assert!(cache.filter_plans(&filter).is_none());
+    let filter = || gt(get_item("ints", root()), lit(2_999i32)).bind(layout.dtype());
+    let projection = || get_item("ints", root()).bind(layout.dtype());
+    assert!(cache.filter_plans(&filter()?).is_none());
 
     let mut reads = Vec::new();
     for _ in 0..2 {
         let before = counted.reads.load(Ordering::Relaxed);
+        let projection = projection()?;
         let scan = ScanBuilder::new(session.clone(), file.clone())
             .with_projection(projection.clone())
-            .with_some_filter(Some(filter.clone()));
+            .with_some_filter(Some(filter()?));
         let actual = collect_scan(projection.dtype().clone(), scan).await?;
         assert_eq!(actual.len(), 1_000);
         reads.push(counted.reads.load(Ordering::Relaxed) - before);
     }
     let plans = cache
-        .filter_plans(&filter)
+        .filter_plans(&filter()?)
         .expect("the first scan kept its filter plans");
     assert_eq!(plans.pruning().count(), 1);
     // Each scan reads the one chunk pruning keeps; only the first reads the zone map.

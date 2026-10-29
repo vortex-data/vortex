@@ -46,6 +46,7 @@ vortex-utils = { workspace = true, features = ["dashmap"] }
 anyhow = { workspace = true }
 datafusion = { workspace = true }
 insta = { workspace = true }
+parking_lot = { workspace = true }
 rstest = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "fs"] }

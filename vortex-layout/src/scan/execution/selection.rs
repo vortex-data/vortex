@@ -13,6 +13,7 @@ use vortex_scan::selection::Selection;
 
 use super::PreparedScan;
 use super::SelectedRows;
+use crate::plan::physical::pipeline::SegmentLease;
 
 /// Plans only the selected span of a chunk, with one planner and one mask per chunk.
 ///
@@ -23,6 +24,7 @@ pub(super) fn plan_selection(
     scope: WorkScope,
     selection: &Selection,
     kept: Option<(&Mask, u64)>,
+    lease: Arc<SegmentLease>,
 ) -> Option<(WorkScope, Box<dyn Planner>)> {
     let mut selected = select_rows(scope, selection)?;
     if let Some((kept, first_row)) = kept {
@@ -36,6 +38,7 @@ pub(super) fn plan_selection(
             selected.scope.rows.start + first as u64..selected.scope.rows.start + end as u64;
         selected.mask = mask.slice(first..end);
     }
+    selected.lease = Some(lease);
     let scope = selected.scope.clone();
     Some((scope, scan.split_planner(selected)))
 }
@@ -68,6 +71,7 @@ fn select_rows(mut scope: WorkScope, selection: &Selection) -> Option<SelectedRo
     Some(SelectedRows {
         scope,
         mask: mask.slice(first..end),
+        lease: None,
     })
 }
 

@@ -155,10 +155,10 @@ impl PlanVTable for Take {
             && let Some((selected, expression)) = predicate_over_selected_codes(plan, &values_plan)?
         {
             return Ok(compiler
-                .compile(&selected.into_plan(), rows, mask)?
+                .compile_rows(&selected.into_plan(), rows, mask)?
                 .map(|chain| chain.with(EvalStage::new(expression))));
         }
-        let Some(codes) = compiler.compile(&plan.codes()?, rows, mask)? else {
+        let Some(codes) = compiler.compile_rows(&plan.codes()?, rows, mask)? else {
             return Ok(None);
         };
         if let Some(values) = cached_values {

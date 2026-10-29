@@ -49,7 +49,8 @@ use vortex_session::registry::ReadContext;
 
 use super::*;
 use crate::LayoutBuildContext;
-use crate::LayoutEncoding;
+use crate::LayoutDeserialization;
+use crate::LayoutPlugin;
 use crate::LayoutRef;
 use crate::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
@@ -568,8 +569,9 @@ fn dict_plan_display_names_logical_children() -> VortexResult<()> {
     root: vortex.plan.take(i32, rows=3)
       codes: vortex.plan.filter(u8, rows=3)
         child: vortex.plan.segment_scan(u8, rows=3)
-      values: vortex.plan.filter(i32, rows=2)
-        child: vortex.plan.segment_scan(i32, rows=2)
+      values: vortex.plan.share(i32, rows=2)
+        child: vortex.plan.filter(i32, rows=2)
+          child: vortex.plan.segment_scan(i32, rows=2)
     ");
     Ok(())
 }
@@ -670,8 +672,9 @@ fn expression_partitions_across_row_idx_and_struct() -> VortexResult<()> {
               codes: vortex.plan.filter(u8, rows=3)
                 child: vortex.plan.segment_scan(u8, rows=3)
               values: vortex.plan.eval(bool, rows=2) expr=($ > 5i32)
-                child: vortex.plan.filter(i32, rows=2)
-                  child: vortex.plan.segment_scan(i32, rows=2)
+                child: vortex.plan.share(i32, rows=2)
+                  child: vortex.plan.filter(i32, rows=2)
+                    child: vortex.plan.segment_scan(i32, rows=2)
             b: vortex.plan.eval(bool, rows=3) expr=($ > 7i32)
               child: vortex.plan.filter(i32, rows=3)
                 child: vortex.plan.segment_scan(i32, rows=3)
@@ -763,8 +766,9 @@ fn expression_pushes_through_struct_field_and_dictionary_values() -> VortexResul
         a: vortex.plan.take(i32, rows=3)
           codes: vortex.plan.filter(u8, rows=3)
             child: vortex.plan.segment_scan(u8, rows=3)
-          values: vortex.plan.filter(i32, rows=2)
-            child: vortex.plan.segment_scan(i32, rows=2)
+          values: vortex.plan.share(i32, rows=2)
+            child: vortex.plan.filter(i32, rows=2)
+              child: vortex.plan.segment_scan(i32, rows=2)
         b: vortex.plan.filter(i32, rows=3)
           child: vortex.plan.segment_scan(i32, rows=3)
     ");
@@ -775,8 +779,9 @@ fn expression_pushes_through_struct_field_and_dictionary_values() -> VortexResul
       codes: vortex.plan.filter(u8, rows=3)
         child: vortex.plan.segment_scan(u8, rows=3)
       values: vortex.plan.eval(bool, rows=2) expr=($ > 5i32)
-        child: vortex.plan.filter(i32, rows=2)
-          child: vortex.plan.segment_scan(i32, rows=2)
+        child: vortex.plan.share(i32, rows=2)
+          child: vortex.plan.filter(i32, rows=2)
+            child: vortex.plan.segment_scan(i32, rows=2)
     ");
     Ok(())
 }
@@ -813,8 +818,9 @@ fn expression_pushes_through_struct_field_with_heterogeneous_chunks() -> VortexR
           chunks[0]: vortex.plan.take(i32, rows=3)
             codes: vortex.plan.filter(u8, rows=3)
               child: vortex.plan.segment_scan(u8, rows=3)
-            values: vortex.plan.filter(i32, rows=2)
-              child: vortex.plan.segment_scan(i32, rows=2)
+            values: vortex.plan.share(i32, rows=2)
+              child: vortex.plan.filter(i32, rows=2)
+                child: vortex.plan.segment_scan(i32, rows=2)
           chunks[1]: vortex.plan.filter(i32, rows=2)
             child: vortex.plan.segment_scan(i32, rows=2)
         b: vortex.plan.filter(i32, rows=5)
@@ -828,8 +834,9 @@ fn expression_pushes_through_struct_field_with_heterogeneous_chunks() -> VortexR
         codes: vortex.plan.filter(u8, rows=3)
           child: vortex.plan.segment_scan(u8, rows=3)
         values: vortex.plan.eval(bool, rows=2) expr=($ > 5i32)
-          child: vortex.plan.filter(i32, rows=2)
-            child: vortex.plan.segment_scan(i32, rows=2)
+          child: vortex.plan.share(i32, rows=2)
+            child: vortex.plan.filter(i32, rows=2)
+              child: vortex.plan.segment_scan(i32, rows=2)
       chunks[1]: vortex.plan.eval(bool, rows=2) expr=($ > 5i32)
         child: vortex.plan.filter(i32, rows=2)
           child: vortex.plan.segment_scan(i32, rows=2)
@@ -996,8 +1003,9 @@ fn compound_expression_pushes_through_nested_struct_and_dictionary() -> VortexRe
           codes: vortex.plan.filter(u8, rows=3)
             child: vortex.plan.segment_scan(u8, rows=3)
           values: vortex.plan.eval(bool, rows=2) expr=($ > 5i32)
-            child: vortex.plan.filter(i32, rows=2)
-              child: vortex.plan.segment_scan(i32, rows=2)
+            child: vortex.plan.share(i32, rows=2)
+              child: vortex.plan.filter(i32, rows=2)
+                child: vortex.plan.segment_scan(i32, rows=2)
         c: vortex.plan.eval(bool, rows=3) expr=($ > 7i32)
           child: vortex.plan.filter(i32, rows=3)
             child: vortex.plan.segment_scan(i32, rows=3)
@@ -1087,8 +1095,9 @@ fn multi_field_struct_expression_pushes_into_each_field() -> VortexResult<()> {
         a: vortex.plan.take(i32, rows=3)
           codes: vortex.plan.filter(u8, rows=3)
             child: vortex.plan.segment_scan(u8, rows=3)
-          values: vortex.plan.filter(i32, rows=2)
-            child: vortex.plan.segment_scan(i32, rows=2)
+          values: vortex.plan.share(i32, rows=2)
+            child: vortex.plan.filter(i32, rows=2)
+              child: vortex.plan.segment_scan(i32, rows=2)
         b: vortex.plan.filter(i32, rows=3)
           child: vortex.plan.segment_scan(i32, rows=3)
         c: vortex.plan.filter(i32, rows=3)
@@ -1103,8 +1112,9 @@ fn multi_field_struct_expression_pushes_into_each_field() -> VortexResult<()> {
           codes: vortex.plan.filter(u8, rows=3)
             child: vortex.plan.segment_scan(u8, rows=3)
           values: vortex.plan.eval(bool, rows=2) expr=($ > 5i32)
-            child: vortex.plan.filter(i32, rows=2)
-              child: vortex.plan.segment_scan(i32, rows=2)
+            child: vortex.plan.share(i32, rows=2)
+              child: vortex.plan.filter(i32, rows=2)
+                child: vortex.plan.segment_scan(i32, rows=2)
         b: vortex.plan.eval(bool, rows=3) expr=($ > 7i32)
           child: vortex.plan.filter(i32, rows=3)
             child: vortex.plan.segment_scan(i32, rows=3)
@@ -1178,8 +1188,9 @@ fn multi_field_struct_expression_keeps_cross_field_refinement() -> VortexResult<
         a: vortex.plan.take(i32, rows=3)
           codes: vortex.plan.filter(u8, rows=3)
             child: vortex.plan.segment_scan(u8, rows=3)
-          values: vortex.plan.filter(i32, rows=2)
-            child: vortex.plan.segment_scan(i32, rows=2)
+          values: vortex.plan.share(i32, rows=2)
+            child: vortex.plan.filter(i32, rows=2)
+              child: vortex.plan.segment_scan(i32, rows=2)
         b: vortex.plan.filter(i32, rows=3)
           child: vortex.plan.segment_scan(i32, rows=3)
     ");
@@ -1517,13 +1528,16 @@ fn legacy_layout(
     };
     let mut metadata = zone_len.to_le_bytes().to_vec();
     metadata.extend(as_stat_bitset_bytes(stats));
-    LayoutEncoding::build(
+    LayoutPlugin::deserialize(
         &LegacyStatsLayoutEncoding,
-        dtype,
-        5,
-        &metadata,
-        Vec::new(),
-        children.as_ref(),
+        LayoutDeserialization {
+            serialized_id: LayoutPlugin::id(&LegacyStatsLayoutEncoding),
+            dtype,
+            row_count: 5,
+            metadata: &metadata,
+            segment_ids: Vec::new(),
+            children: children.as_ref(),
+        },
         &build_ctx,
     )
 }

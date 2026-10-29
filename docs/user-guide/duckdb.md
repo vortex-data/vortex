@@ -1,8 +1,7 @@
 # DuckDB
 
 Vortex [extension](https://duckdb.org/docs/stable/core_extensions/vortex) is
-available from DuckDB 1.4.2+ on Linux and macOS (amd64, arm64). Windows support
-[is planned](https://github.com/vortex-data/vortex/issues/9569).
+available on Linux and macOS from DuckDB 1.4.2 and on Windows from DuckDB 2.0.
 
 ## Setup
 

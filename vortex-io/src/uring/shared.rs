@@ -321,6 +321,7 @@ impl VortexReadAt2 for SharedReader {
                 length,
                 alignment,
                 suffix,
+                inflight: None,
             };
             if offset + length as u64 > self.file.size {
                 work.complete(Err(io::Error::new(

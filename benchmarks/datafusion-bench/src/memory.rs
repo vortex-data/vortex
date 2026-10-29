@@ -64,8 +64,8 @@ pub fn prepare(base: &Url, formats: &[Format], cold: bool) -> anyhow::Result<()>
     let mut files = HashMap::default();
     for format in formats {
         anyhow::ensure!(
-            *format == Format::OnDiskVortex,
-            "Memory input requires --formats vortex"
+            matches!(format, Format::OnDiskVortex | Format::VortexCompact),
+            "Memory input requires --formats vortex or vortex-compact"
         );
         preload(&base.join(format.name()), &mut files)?;
     }
@@ -81,7 +81,26 @@ pub fn prepare(base: &Url, formats: &[Format], cold: bool) -> anyhow::Result<()>
         let count = std::env::var("VORTEX_IO_WORKERS")
             .unwrap_or_else(|_| "32".into())
             .parse()?;
-        Some(UringWorkerPool::new(count, UringOptions::default())?)
+        let options = UringOptions {
+            max_control_jobs: std::env::var("VORTEX_IO_CONTROL_JOBS")
+                .ok()
+                .map(|value| value.parse())
+                .transpose()?
+                .unwrap_or(0),
+            control_workers: std::env::var("VORTEX_IO_CONTROL_WORKERS")
+                .ok()
+                .map(|value| value.parse())
+                .transpose()?
+                .unwrap_or(0),
+            ..Default::default()
+        };
+        Some(
+            if std::env::var("VORTEX_IO_PIN_WORKERS").as_deref() == Ok("0") {
+                UringWorkerPool::with_inherited_affinity(count, options)?
+            } else {
+                UringWorkerPool::new(count, options)?
+            },
+        )
     } else {
         None
     };
@@ -160,9 +179,17 @@ impl VortexReaderFactory for MemoryFactory {
         scan: ScanBuilder,
     ) -> DFResult<ScanBuilder> {
         let bytes = self.bytes(file)?;
+        let local_views = std::env::var("VORTEX_MEMORY_LOCAL_VIEWS").as_deref() == Ok("1");
         let factory = Arc::new(move || {
+            // Give each scope its own buffer owner so decoding unrelated segments does not
+            // contend on the whole file's reference count. The byte storage stays shared.
+            let bytes = if local_views {
+                ByteBuffer::from(bytes.clone().into_bytes()).aligned(bytes.alignment())
+            } else {
+                bytes.clone()
+            };
             Ok(Arc::new(MemoryReadAt2 {
-                bytes: bytes.clone(),
+                bytes,
                 state: Mutex::default(),
             }) as _)
         });

@@ -361,7 +361,7 @@ impl VortexWriteOptions {
         // Emit the footer buffers and EOF.
         let (footer_buffers, metadata, approx_byte_size) = footer
             .clone()
-            .into_serializer()
+            .into_serializer(&self.session)
             .with_layout_context(new_layout_context(&self.session, enforce_editions))
             .with_metadata_segments(self.metadata)
             .with_offset(position)

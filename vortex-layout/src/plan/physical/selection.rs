@@ -69,7 +69,7 @@ impl PlanVTable for Selected {
         if mask.all_false() {
             return Ok(None);
         }
-        compiler.compile(&plan.child_required(0)?, rows, &mask)
+        compiler.compile_rows(&plan.child_required(0)?, rows, &mask)
     }
 }
 

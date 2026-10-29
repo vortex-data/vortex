@@ -113,7 +113,11 @@ void duckdb_vx_vector_set_all_valid(duckdb_vector ffi_vector) {
         return FSSTVector::Validity(vector).Reset();
     default:
         D_ASSERT(false);
+#if defined(_MSC_VER) && !defined(__clang__)
+        __assume(false);
+#else
         __builtin_unreachable();
+#endif
     }
 }
 

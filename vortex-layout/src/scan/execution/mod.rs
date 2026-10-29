@@ -38,12 +38,16 @@ pub(crate) use self::chunk::ROW_BLOCK_SIZE;
 #[cfg(test)]
 pub(crate) use self::chunk::row_chunks;
 pub(crate) use self::chunk::rows_per_chunk;
+#[cfg(test)]
+pub(crate) use self::chunk::scan_chunks;
 use self::filter::FilterPlanner;
 pub use self::filter::FilterPlans;
 use self::projection::ProjectionPlanner;
 pub use self::prune::PruneNext;
 pub use self::prune::PrunePlanner;
 use crate::plan::physical::PlanRef;
+use crate::plan::physical::pipeline::SegmentCache;
+use crate::plan::physical::pipeline::SegmentLease;
 use crate::plan::physical::pipeline::ValueCache;
 use crate::scan::v2::ScanCache;
 
@@ -138,4 +142,11 @@ pub(super) struct SelectedRows {
     scope: WorkScope,
     /// Which rows of `scope.rows` are selected.
     mask: Mask,
+    lease: Option<Arc<SegmentLease>>,
+}
+
+impl SelectedRows {
+    fn segment_cache(&self) -> Option<SegmentCache> {
+        self.lease.as_ref().map(|lease| lease.cache.clone())
+    }
 }

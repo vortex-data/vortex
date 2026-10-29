@@ -11,7 +11,6 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
@@ -881,7 +880,7 @@ fn views_into_shared_page(rows: u32) -> ArrayRef {
 fn scheme_must_beat_referenced_bytes_not_held_bytes() -> VortexResult<()> {
     let mut exec_ctx = SESSION.create_execution_ctx();
     let array = views_into_shared_page(2000);
-    let exact = uncompressed_size_in_bytes(&array, UncompressedSizeOpts::exact(), &mut exec_ctx)?;
+    let exact = uncompressed_size_in_bytes(&array, &mut exec_ctx)?;
 
     // Every value is distinct, so a dictionary is larger than the referenced bytes but far
     // smaller than the 2 MiB the array holds. It must lose.

@@ -12,6 +12,9 @@ use vortex::array::arrays::ListViewArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
+use vortex::array::arrays::decimal::check_precision;
+use vortex::array::arrays::decimal::copy_to_canonical_width;
+use vortex::array::buffer::BufferHandle;
 use vortex::array::builders::ArrayBuilder;
 use vortex::array::builders::VarBinViewBuilder;
 use vortex::array::dtype::extension::ExtDType;
@@ -25,6 +28,7 @@ use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
 use vortex::dtype::DecimalType;
 use vortex::dtype::FieldNames;
+use vortex::dtype::NativeDecimalType;
 use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::encodings::uuid::Uuid;
@@ -89,6 +93,24 @@ fn vector_i128_values(vector: &VectorRef, len: usize) -> impl TrustedLen<Item = 
     // In batch copy, columns are 8 byte aligned, so reading vector's values
     // as &[i128] is UB. Read data unaligned specifically
     (0..len).map(move |i| unsafe { base.add(i).read_unaligned() })
+}
+
+/// Copies the values of a DuckDB decimal vector into the canonical width of `decimal_dtype`, and
+/// checks that every valid value is within its precision.
+///
+/// DuckDB stores precision 1 to 4 as `i16`, so precision 1 to 2 narrows into `i8`, and
+/// [`copy_to_canonical_width`] checks that copy. Every other DuckDB width is the canonical width,
+/// where the copy checks nothing, so [`check_precision`] checks the values first.
+fn copy_decimal_values<T: NativeDecimalType>(
+    values: &[T],
+    validity: &Mask,
+    decimal_dtype: DecimalDType,
+) -> VortexResult<BufferHandle> {
+    if T::DECIMAL_TYPE == decimal_dtype.canonical_values_type() {
+        check_precision(values, validity, decimal_dtype)?;
+    }
+
+    copy_to_canonical_width(values, validity, decimal_dtype)
 }
 
 fn vector_mapped<T, P: NativePType, F: Fn(&T) -> P>(
@@ -305,36 +327,46 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             let (precision, scale) = logical_type.as_decimal();
             let decimal_dtype = DecimalDType::try_new(precision, scale.try_into()?)?;
             let mask = vector.validity_ref(len).execute_mask();
-            let validity = Validity::from_mask(mask, Nullability::Nullable);
 
             // https://duckdb.org/docs/stable/sql/data_types/numeric.html#fixed-point-decimals
-            match precision_to_duckdb_storage_size(&decimal_dtype)? {
+            let values = match precision_to_duckdb_storage_size(&decimal_dtype)? {
                 DecimalType::I16 => {
                     let data = vector.as_slice_with_len::<i16>(len);
-                    if DecimalType::smallest_decimal_value_type(&decimal_dtype) == DecimalType::I8 {
-                        // Lossy conversion is defined behavior in Rust so this is fine
-                        let buf =
-                            Buffer::<i8>::from_trusted_len_iter(data.iter().map(|&v| v.as_()));
-                        DecimalArray::try_new(buf, decimal_dtype, validity)
-                    } else {
-                        DecimalArray::try_new(Buffer::copy_from(data), decimal_dtype, validity)
-                    }
+                    copy_decimal_values(data, &mask, decimal_dtype)?
                 }
                 DecimalType::I32 => {
                     let data = vector.as_slice_with_len::<i32>(len);
-                    DecimalArray::try_new(Buffer::copy_from(data), decimal_dtype, validity)
+                    copy_decimal_values(data, &mask, decimal_dtype)?
                 }
                 DecimalType::I64 => {
                     let data = vector.as_slice_with_len::<i64>(len);
-                    DecimalArray::try_new(Buffer::copy_from(data), decimal_dtype, validity)
+                    copy_decimal_values(data, &mask, decimal_dtype)?
                 }
                 DecimalType::I128 => {
+                    // DuckDB columns can be misaligned for `i128`, so `vector_i128_values` reads
+                    // them into a new buffer, which already has the canonical width of precision
+                    // 19 to 38.
                     let data = Buffer::from_iter(vector_i128_values(vector, len));
-                    DecimalArray::try_new(data, decimal_dtype, validity)
+                    check_precision(data.as_slice(), &mask, decimal_dtype)?;
+                    BufferHandle::new_host(data.into_byte_buffer())
                 }
                 _ => vortex_bail!("Unsupported decimal precision: {precision}"),
-            }
-            .map(|a| a.into_array())
+            };
+            let validity = Validity::from_mask(mask, Nullability::Nullable);
+
+            // SAFETY: `copy_decimal_values` and the `I128` arm checked that every valid value is
+            // within the precision of `decimal_dtype`. The values have the canonical width, and
+            // they hold `len` values, as the validity does.
+            let array = unsafe {
+                DecimalArray::new_unchecked_handle(
+                    values,
+                    decimal_dtype.canonical_values_type(),
+                    decimal_dtype,
+                    validity,
+                )
+            };
+
+            Ok(array.into_array())
         }
         DUCKDB_TYPE::DUCKDB_TYPE_UUID => {
             let mut bytes = BufferMut::<u8>::with_capacity(len * 16);
@@ -440,8 +472,10 @@ mod tests {
     use std::sync::LazyLock;
 
     use geo_types::point;
+    use rstest::rstest;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::BoolArray;
+    use vortex::array::arrays::Decimal;
     use vortex::array::arrays::Extension;
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
@@ -449,6 +483,7 @@ mod tests {
     use vortex::array::arrays::listview::ListViewArraySlotsExt;
     use vortex::array::arrays::struct_::StructArrayExt;
     use vortex::array::assert_arrays_eq;
+    use vortex::dtype::BigCast;
     use vortex::error::VortexExpect;
     use vortex::mask::Mask;
     use vortex::session::VortexSession;
@@ -463,6 +498,39 @@ mod tests {
     use crate::duckdb::Vector;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    /// Builds a DuckDB decimal vector of `precision` and scale 0 that holds `slots`, and marks
+    /// `null_rows` as null. Each slot is written at the DuckDB storage width of `precision`.
+    fn decimal_vector(precision: u8, slots: &[i128], null_rows: &[usize]) -> VortexResult<Vector> {
+        let len = slots.len();
+        let logical_type = LogicalType::decimal_type(precision, 0)?;
+        let mut vector = Vector::with_capacity(&logical_type, len);
+
+        match precision_to_duckdb_storage_size(&DecimalDType::try_new(precision, 0)?)? {
+            DecimalType::I16 => write_decimal_slots::<i16>(&mut vector, slots),
+            DecimalType::I32 => write_decimal_slots::<i32>(&mut vector, slots),
+            DecimalType::I64 => write_decimal_slots::<i64>(&mut vector, slots),
+            DecimalType::I128 => write_decimal_slots::<i128>(&mut vector, slots),
+            storage => unreachable!("DuckDB stores decimals in 16 to 128 bits, got {storage}"),
+        }
+
+        // SAFETY: Vector was created with this length.
+        let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
+        for &row in null_rows {
+            validity_slice.set(row, false);
+        }
+
+        Ok(vector)
+    }
+
+    fn write_decimal_slots<T: NativeDecimalType>(vector: &mut Vector, slots: &[i128]) {
+        // SAFETY: Vector was created with a capacity of `slots.len()`.
+        let storage = unsafe { vector.as_slice_mut::<T>(slots.len()) };
+        for (storage, &slot) in storage.iter_mut().zip(slots) {
+            *storage = <T as BigCast>::from(slot)
+                .vortex_expect("test slot must fit the DuckDB storage width");
+        }
+    }
 
     #[test]
     fn test_integer_vector_conversion() {
@@ -1119,6 +1187,77 @@ mod tests {
         ]);
         assert_arrays_eq!(storage, expected, &mut ctx);
 
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::p1(1, DecimalType::I8)]
+    #[case::p2(2, DecimalType::I8)]
+    #[case::p3(3, DecimalType::I16)]
+    #[case::p4(4, DecimalType::I16)]
+    #[case::p9(9, DecimalType::I32)]
+    #[case::p18(18, DecimalType::I64)]
+    #[case::p38(38, DecimalType::I128)]
+    fn test_decimal_vector_conversion(
+        #[case] precision: u8,
+        #[case] values_type: DecimalType,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        // The largest and smallest values of the precision, around a null and a zero.
+        let max = 10i128.pow(precision.into()) - 1;
+        let vector = decimal_vector(precision, &[-max, 0, 0, max], &[1])?;
+
+        let result = flat_vector_to_vortex(&vector, 4)?;
+        assert_eq!(result.as_::<Decimal>().values_type(), values_type);
+
+        let expected = DecimalArray::from_option_iter(
+            [Some(-max), None, Some(0), Some(max)],
+            DecimalDType::new(precision, 0),
+        );
+        assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_decimal_vector_null_slot_garbage() -> VortexResult<()> {
+        // 300 fits neither precision 2 nor `i8`, but the import must not check a null slot.
+        let vector = decimal_vector(2, &[42, 300, -42], &[1])?;
+
+        let result = flat_vector_to_vortex(&vector, 3)?;
+        let decimal = result.as_::<Decimal>();
+        assert_eq!(decimal.values_type(), DecimalType::I8);
+        assert_eq!(decimal.buffer::<i8>().as_slice(), &[42, 0, -42]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_decimal_vector_value_outside_precision() -> VortexResult<()> {
+        // Precision 2 narrows the DuckDB `i16` storage into `i8`.
+        let vector = decimal_vector(2, &[42, 150], &[])?;
+
+        let err = flat_vector_to_vortex(&vector, 2)
+            .expect_err("a valid value outside the precision must fail the import");
+        let message = err.to_string();
+        assert!(message.contains("row 1"), "{message}");
+        Ok(())
+    }
+
+    /// Each precision keeps the DuckDB storage width, and `outside` fits that width but not the
+    /// precision.
+    #[rstest]
+    #[case::p4_i16(4, 10_000)]
+    #[case::p20_i128(20, 10i128.pow(20))]
+    fn test_decimal_vector_equal_width_outside_precision(
+        #[case] precision: u8,
+        #[case] outside: i128,
+    ) -> VortexResult<()> {
+        let vector = decimal_vector(precision, &[42, outside], &[])?;
+
+        let err = flat_vector_to_vortex(&vector, 2)
+            .expect_err("a valid value outside the precision must fail the import");
+        let message = err.to_string();
+        assert!(message.contains("row 1"), "{message}");
         Ok(())
     }
 }

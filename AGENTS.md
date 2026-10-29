@@ -251,8 +251,14 @@ ambiguous, ask the user instead of inventing a prefix.
 
 ## Commits
 
-All commits must be signed off by the committers in this form:
+Use the name and email of the user as the commit author. 
+Get them from the Git configuration (`git config user.name` and `git config user.email`) or
+from the identity that the user gives.
+
+All commits must be signed off by the same user in this form:
 
 ```text
-Signed-off-by: <COMMITTER> <COMMITTER_EMAIL>
+Signed-off-by: <AUTHOR_NAME> <AUTHOR_EMAIL>
 ```
+
+Use `git commit --signoff` to add this line.

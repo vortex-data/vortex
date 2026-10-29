@@ -24,6 +24,7 @@ pub use kernel::FilterReduce;
 pub use kernel::FilterReduceAdaptor;
 
 mod rules;
+mod slice;
 
 mod vtable;
 pub use vtable::Filter;

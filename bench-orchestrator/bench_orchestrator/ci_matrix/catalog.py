@@ -108,6 +108,7 @@ BENCHMARKS = (
         id="clickbench-nvme",
         benchmark=Benchmark.CLICKBENCH,
         name="Clickbench on NVME",
+        dataset_dir="clickbench_partitioned",
         runs={
             "pr": DEFAULT,
             "pr-compact": COMPACT,

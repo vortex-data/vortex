@@ -202,10 +202,11 @@ impl PlanVTable for Concat {
                 continue;
             };
             let chunk = plan.child_required(index)?;
-            if let Some(chain) = compiler.compile(
+            if let Some(chain) = compiler.compile_offset(
                 &chunk,
                 rows.start + span.start as u64 - start..rows.start + span.end as u64 - start,
                 &local_mask,
+                start,
             )? {
                 chains.push(chain);
             }

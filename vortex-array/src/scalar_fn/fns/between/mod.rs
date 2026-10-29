@@ -134,7 +134,7 @@ pub(super) fn short_circuit(
 /// The two compares that `Between` stands for, combined with Kleene `AND`.
 ///
 /// The returned array is lazy, so a reduce rule can call this function.
-fn as_two_compares(
+pub(crate) fn as_two_compares(
     arr: &ArrayRef,
     lower: &ArrayRef,
     upper: &ArrayRef,

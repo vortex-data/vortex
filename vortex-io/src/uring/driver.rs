@@ -31,6 +31,7 @@ pub(super) struct Driver {
     options: UringOptions,
     queued: VecDeque<Work>,
     active: HashMap<u64, Physical>,
+    active_bytes: u64,
     next: u64,
 }
 
@@ -46,6 +47,18 @@ struct Physical {
     in_kernel: bool,
 }
 
+struct QueuedGroup {
+    oldest: usize,
+    end: u64,
+    works: Vec<usize>,
+}
+
+struct PhysicalRange {
+    offset: u64,
+    offset_alignment: usize,
+    length: usize,
+}
+
 enum Destination {
     Read(ByteBufferMut),
     Mapped(Arc<mapped::MappedRegion>),
@@ -57,6 +70,10 @@ impl Driver {
             vortex_bail!("io_uring queue depth must be positive");
         }
         let mut ring = IoUring::new(options.queue_depth)?;
+        if let Some(limit) = options.max_kernel_workers {
+            ring.submitter()
+                .register_iowq_max_workers(&mut [limit.get(); 2])?;
+        }
         if options.eager_kernel_worker {
             Self::start_kernel_worker(&mut ring)?;
         }
@@ -65,6 +82,7 @@ impl Driver {
             options,
             queued: VecDeque::new(),
             active: HashMap::default(),
+            active_bytes: 0,
             next: 0,
         })
     }
@@ -113,6 +131,15 @@ impl Driver {
             work.complete(Ok(bytes));
             return;
         }
+        let work = if self.options.reuse_across_workers && work.mapping.is_some() {
+            let registry = Arc::clone(work.file.inflight.get_or_init(Default::default));
+            let Some(work) = registry.join(work) else {
+                return;
+            };
+            work
+        } else {
+            work
+        };
         if self.options.reuse_inflight {
             for operation in self.active.values_mut() {
                 if !operation.failed
@@ -205,6 +232,48 @@ impl Driver {
     }
 
     fn dispatch(&mut self) -> VortexResult<()> {
+        if self.options.coalesce && self.options.preserve_queue_order {
+            while !self.queued.is_empty() && self.active.len() < self.options.queue_depth as usize {
+                let available = self.options.queue_depth as usize - self.active.len();
+                let queued = self.queued.len();
+                let mut groups = self.take_fifo_coalesced(available).into_iter();
+                if groups.len() == 0 && self.queued.len() == queued {
+                    break;
+                }
+                while let Some(works) = groups.next() {
+                    let start = works[0].offset;
+                    let end = works
+                        .iter()
+                        .map(|work| work.offset + work.length as u64)
+                        .max()
+                        .vortex_expect("Nonempty read group");
+                    // A preceding window may already have dispatched this range. Enqueue-time
+                    // reuse cannot catch requests that were still queued together at that point.
+                    if self.options.coalesce_lookahead.is_some()
+                        && self.options.reuse_inflight
+                        && let Some(operation) = self.active.values_mut().find(|operation| {
+                            !operation.failed
+                                && Arc::ptr_eq(&works[0].file, &operation.works[0].file)
+                                && start >= operation.offset
+                                && end <= operation.offset + operation.required as u64
+                        })
+                    {
+                        operation.works.extend(works);
+                        continue;
+                    }
+                    let alignment = works
+                        .iter()
+                        .map(|work| work.alignment.as_usize().max(work.file.memory_alignment))
+                        .max()
+                        .vortex_expect("Nonempty read group");
+                    if let Err(error) = self.dispatch_group(works, start, end, alignment) {
+                        self.queued.extend(groups.flatten());
+                        return Err(error);
+                    }
+                }
+            }
+            return Ok(());
+        }
         self.queued.retain(Work::live);
         if self.options.coalesce {
             self.queued
@@ -218,18 +287,11 @@ impl Driver {
             let start = first.offset;
             let mut end = start + first.length as u64;
             let mut alignment = first.alignment.as_usize().max(first.file.memory_alignment);
-            // A mapped file's page alignment is required by MADV_POPULATE_READ, not by READ.
-            let offset_alignment = if first.mapping.is_some() && self.options.read_mapped_misses {
-                1
-            } else {
-                first.file.offset_alignment
-            };
-            let block = offset_alignment as u64;
             let mut works = vec![first];
             if self.options.coalesce {
                 while self.queued.front().is_some_and(|next| {
                     Arc::ptr_eq(&next.file, &works[0].file)
-                        && next.offset <= end
+                        && next.offset <= end.saturating_add(self.options.max_coalescing_gap as u64)
                         && ((next.offset + next.length as u64).max(end) - start
                             <= self.options.max_coalesced_bytes as u64
                             || (self.options.reuse_inflight
@@ -242,53 +304,203 @@ impl Driver {
                     }
                 }
             }
-            let offset = start - start % block;
-            let Some(aligned_end) = end.checked_next_multiple_of(block) else {
-                for work in works {
-                    work.complete(Err(vortex_err!("Aligned read overflow")));
-                }
-                continue;
-            };
-            let length = usize::try_from(aligned_end - offset)?;
-            if length > i32::MAX as usize {
-                for work in works {
-                    work.complete(Err(vortex_err!(
-                        "io_uring read exceeds supported operation size"
-                    )));
-                }
-                continue;
+            if !self.dispatch_group(works, start, end, alignment)? {
+                break;
             }
-            let id = self.next;
-            self.next = self
-                .next
-                .checked_add(1)
-                .ok_or_else(|| vortex_err!("Ring identity overflow"))?;
-            let buffer = match &works[0].mapping {
-                Some(mapping) if !self.options.read_mapped_misses => {
-                    Destination::Mapped(Arc::clone(mapping))
-                }
-                _ => Destination::Read(ByteBufferMut::with_capacity_aligned(
-                    length,
-                    Alignment::new(alignment),
-                )),
-            };
-            self.active.insert(
-                id,
-                Physical {
-                    works,
-                    buffer,
-                    offset,
-                    offset_alignment,
-                    length,
-                    initialized: 0,
-                    required: usize::try_from(end - offset)?,
-                    failed: false,
-                    in_kernel: false,
-                },
-            );
-            self.push(id)?;
         }
         Ok(())
+    }
+
+    fn take_fifo_coalesced(&mut self, available: usize) -> Vec<Vec<Work>> {
+        let limit = self
+            .options
+            .coalesce_lookahead
+            .map_or(usize::MAX, |limit| limit.get());
+        let mut pending = Vec::with_capacity(limit.min(self.queued.len()));
+        let mut examined = 0;
+        while examined < limit {
+            let Some(work) = self.queued.pop_front() else {
+                break;
+            };
+            if !work.live() {
+                continue;
+            }
+            examined += 1;
+            if self.options.check_queued_resident_pages
+                && let Some(bytes) = work.resident_buffer()
+            {
+                work.complete(Ok(bytes));
+                continue;
+            }
+            pending.push(Some(work));
+        }
+        // Sort compact keys instead of moving requests, which contain several Arc owners.
+        // Keep the original slots so deferred requests retain arrival order without another sort.
+        let mut order: Vec<_> = pending
+            .iter()
+            .enumerate()
+            .map(|(position, work)| {
+                let work = work.as_ref().vortex_expect("Pending request");
+                (work.file.file.as_raw_fd(), work.offset, position)
+            })
+            .collect();
+        order.sort_unstable();
+        let mut groups: Vec<QueuedGroup> = Vec::new();
+        for (_, _, position) in order {
+            let work = pending[position].as_ref().vortex_expect("Pending request");
+            if let Some(group) = groups.last_mut() {
+                let first = pending[group.works[0]]
+                    .as_ref()
+                    .vortex_expect("Pending request");
+                if Arc::ptr_eq(&work.file, &first.file)
+                    && work.offset
+                        <= group
+                            .end
+                            .saturating_add(self.options.max_coalescing_gap as u64)
+                    && ((work.offset + work.length as u64).max(group.end) - first.offset
+                        <= self.options.max_coalesced_bytes as u64
+                        || (self.options.reuse_inflight
+                            && work.offset + work.length as u64 <= group.end))
+                {
+                    group.oldest = group.oldest.min(position);
+                    group.end = group.end.max(work.offset + work.length as u64);
+                    group.works.push(position);
+                    continue;
+                }
+            }
+            groups.push(QueuedGroup {
+                oldest: position,
+                end: work.offset + work.length as u64,
+                works: vec![position],
+            });
+        }
+        groups.sort_unstable_by_key(|group| group.oldest);
+        let mut active_bytes = self.active_bytes;
+        let mut ready = Vec::with_capacity(available.min(groups.len()));
+        for group in groups.into_iter().take(available) {
+            let first = pending[group.works[0]]
+                .as_ref()
+                .vortex_expect("Pending request");
+            let reuses_active = self.options.max_inflight_bytes.is_some()
+                && self.options.coalesce_lookahead.is_some()
+                && self.options.reuse_inflight
+                && self.active.values().any(|operation| {
+                    !operation.failed
+                        && Arc::ptr_eq(&first.file, &operation.works[0].file)
+                        && first.offset >= operation.offset
+                        && group.end <= operation.offset + operation.required as u64
+                });
+            if self.options.max_inflight_bytes.is_some()
+                && !reuses_active
+                && let Some(range) = self.physical_range(first, first.offset, group.end)
+            {
+                if !self.fits_byte_limit(active_bytes, range.length) {
+                    break;
+                }
+                active_bytes += range.length as u64;
+            }
+            ready.push(
+                group
+                    .works
+                    .into_iter()
+                    .map(|position| pending[position].take().vortex_expect("Pending request"))
+                    .collect(),
+            );
+        }
+        // Retain request arrival order so later cancellation or new reads can change groups
+        // without promoting a younger request over an older one that is still queued.
+        for work in pending.into_iter().rev().flatten() {
+            self.queued.push_front(work);
+        }
+        ready
+    }
+
+    fn fits_byte_limit(&self, active_bytes: u64, length: usize) -> bool {
+        self.options.max_inflight_bytes.is_none_or(|limit| {
+            active_bytes == 0 || length as u64 <= (limit.get() as u64).saturating_sub(active_bytes)
+        })
+    }
+
+    fn physical_range(&self, first: &Work, start: u64, end: u64) -> Option<PhysicalRange> {
+        // A mapped file's page alignment is required by MADV_POPULATE_READ, not by READ.
+        let offset_alignment = if first.mapping.is_some() && self.options.read_mapped_misses {
+            1
+        } else {
+            first.file.offset_alignment
+        };
+        let block = offset_alignment as u64;
+        let offset = start - start % block;
+        let aligned_end = end.checked_next_multiple_of(block)?;
+        Some(PhysicalRange {
+            offset,
+            offset_alignment,
+            length: usize::try_from(aligned_end - offset).ok()?,
+        })
+    }
+
+    fn dispatch_group(
+        &mut self,
+        works: Vec<Work>,
+        start: u64,
+        end: u64,
+        alignment: usize,
+    ) -> VortexResult<bool> {
+        let Some(PhysicalRange {
+            offset,
+            offset_alignment,
+            length,
+        }) = self.physical_range(&works[0], start, end)
+        else {
+            for work in works {
+                work.complete(Err(vortex_err!("Aligned read overflow")));
+            }
+            return Ok(true);
+        };
+        if length > i32::MAX as usize {
+            for work in works {
+                work.complete(Err(vortex_err!(
+                    "io_uring read exceeds supported operation size"
+                )));
+            }
+            return Ok(true);
+        }
+        if !self.fits_byte_limit(self.active_bytes, length) {
+            for work in works.into_iter().rev() {
+                self.queued.push_front(work);
+            }
+            return Ok(false);
+        }
+        let id = self.next;
+        self.next = self
+            .next
+            .checked_add(1)
+            .ok_or_else(|| vortex_err!("Ring identity overflow"))?;
+        let buffer = match &works[0].mapping {
+            Some(mapping) if !self.options.read_mapped_misses => {
+                Destination::Mapped(Arc::clone(mapping))
+            }
+            _ => Destination::Read(ByteBufferMut::with_capacity_aligned(
+                length,
+                Alignment::new(alignment),
+            )),
+        };
+        self.active.insert(
+            id,
+            Physical {
+                works,
+                buffer,
+                offset,
+                offset_alignment,
+                length,
+                initialized: 0,
+                required: usize::try_from(end - offset)?,
+                failed: false,
+                in_kernel: false,
+            },
+        );
+        self.active_bytes += length as u64;
+        self.push(id)?;
+        Ok(true)
     }
 
     fn reap(&mut self) -> VortexResult<bool> {
@@ -302,6 +514,7 @@ impl Driver {
             let Some(mut operation) = self.active.remove(&id) else {
                 vortex_bail!("Unknown ring completion {id}");
             };
+            self.active_bytes -= operation.length as u64;
             operation.in_kernel = false;
             if operation.failed {
                 continue;
@@ -342,6 +555,7 @@ impl Driver {
                         .into()));
                     }
                 } else {
+                    self.active_bytes += operation.length as u64;
                     self.active.insert(id, operation);
                     self.push(id)?;
                 }
@@ -406,12 +620,21 @@ impl Driver {
 
 impl Drop for Driver {
     fn drop(&mut self) {
+        if self.options.reuse_across_workers {
+            self.fail_all("Owning ring stopped before read completion");
+        }
         self.queued.clear();
         // A failed submission may have allocated an operation without publishing an SQE.
         // Those allocations have no kernel owner and will never produce a CQE to wait for.
-        self.active.retain(|_, operation| operation.in_kernel);
+        self.active.retain(|_, operation| {
+            if !operation.in_kernel {
+                self.active_bytes -= operation.length as u64;
+            }
+            operation.in_kernel
+        });
         while !self.active.is_empty() {
             if self.pump(true).is_err() {
+                self.fail_all("Owning ring failed while completing reads");
                 // A fatal ring failure must not free memory the kernel might still access.
                 // Preserve the allocations and file descriptors rather than risk use-after-free.
                 #[allow(

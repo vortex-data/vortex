@@ -10,6 +10,8 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io;
+use std::num::NonZeroU32;
+use std::num::NonZeroUsize;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::sync::Arc;
@@ -45,6 +47,7 @@ use crate::read_at2::ReadTarget;
 use crate::read_at2::VortexReadAt2;
 
 mod driver;
+mod inflight;
 mod live_buffers;
 mod mapped;
 mod pool;
@@ -63,13 +66,32 @@ thread_local! {
 pub struct UringOptions {
     /// Maximum concurrent physical reads on each worker-local or shared ring.
     pub queue_depth: u32,
-    /// Merge overlapping or adjacent pending requests on this ring.
+    /// Maximum total aligned bytes in outstanding physical operations on each ring. An idle
+    /// ring admits one larger operation so oversized reads still make progress. Completed
+    /// buffers held by consumers are excluded. `None` limits only the operation count.
+    pub max_inflight_bytes: Option<NonZeroUsize>,
+    /// Merge nearby pending requests on this ring, within `max_coalescing_gap`.
     pub coalesce: bool,
+    /// Maximum unrequested gap between ranges merged into one read. Gaps count toward
+    /// `max_coalesced_bytes` and `max_inflight_bytes`. Zero merges only overlapping or
+    /// exactly adjacent ranges. Increasing this trades extra bytes for fewer operations.
+    pub max_coalescing_gap: usize,
+    /// Dispatch coalesced groups by their oldest queued request, instead of file offset.
+    /// Requests still merge by file and offset. Unmerged reads already use arrival order.
+    pub preserve_queue_order: bool,
+    /// Maximum oldest live requests examined together by FIFO coalescing. `None` examines
+    /// the entire backlog. A limit reduces queue-processing work but can miss merges across
+    /// window boundaries. Ignored unless coalescing and queue-order preservation are enabled.
+    pub coalesce_lookahead: Option<NonZeroUsize>,
     /// Maximum span of a merged read. Individual larger reads remain valid.
     pub max_coalesced_bytes: usize,
     /// Attach contained requests to a read already in flight. Completed reads are not retained.
     /// Also permits merging duplicate pending ranges larger than `max_coalesced_bytes`.
     pub reuse_inflight: bool,
+    /// Share identical pending mapped reads across rings attached to the same file handle.
+    /// The first ring performs the read and wakes the other scopes. Completed buffers are
+    /// not retained. Buffered and direct files are unaffected. Defaults to disabled.
+    pub reuse_across_workers: bool,
     /// Reuse exact mapped ranges while a consumer still holds the returned buffer.
     /// The registry holds weak references and retains no completed data of its own.
     /// Buffered and direct reads are unaffected. Defaults to disabled.
@@ -79,6 +101,10 @@ pub struct UringOptions {
     /// can still fault after reclamation. Only files owned by the opening user are checked,
     /// because Linux may hide residency for other files. Defaults to disabled.
     pub check_resident_pages: bool,
+    /// Recheck mapped-page residency when FIFO coalescing removes a request from its queue.
+    /// Another read may have populated the range while it waited. This retains no data and
+    /// requires a fresh residency check before completion. Other dispatch policies ignore it.
+    pub check_queued_resident_pages: bool,
     /// Use buffered reads into owned buffers for mapped ranges that miss the resident fast path.
     /// Later resident reads can return mapped buffers without copying. This avoids explicit page
     /// table population on misses, but adds a read-buffer copy and may leave minor faults for later
@@ -91,25 +117,48 @@ pub struct UringOptions {
     /// The initial kernel worker inherits the caller's CPU mask. Additional workers created
     /// later remain subject to the kernel's affinity policy. Defaults to lazy initialization.
     pub eager_kernel_worker: bool,
+    /// Registers this maximum for each of the kernel's bounded and unbounded io-wq worker
+    /// classes. Rings created by the same thread may share a kernel worker pool. This does
+    /// not change queue depth or scan-worker admission. `None` keeps the kernel defaults.
+    pub max_kernel_workers: Option<NonZeroU32>,
     /// Maximum active async scan jobs per worker. One preserves serial execution; larger
     /// values let another job run while one awaits I/O. Admission also follows pool occupancy
     /// so jobs remain available to less occupied workers. Shared reactors ignore this setting.
     pub max_active_jobs: usize,
+    /// Maximum active control futures per worker, admitted independently of scan jobs.
+    /// A planner can await child jobs without occupying their admission slots. Zero disables
+    /// the control queue. Enabling it makes scan jobs cooperative even at `max_active_jobs = 1`.
+    /// Control futures must not recursively await other control futures. Shared reactors ignore
+    /// this setting.
+    pub max_control_jobs: usize,
+    /// Reserves this many native workers exclusively for control futures. Remaining workers
+    /// execute scan jobs. Zero shares both queues across all workers. A positive value requires
+    /// control admission and must leave at least one scan worker. Shared reactors ignore it.
+    pub control_workers: usize,
 }
 
 impl Default for UringOptions {
     fn default() -> Self {
         Self {
             queue_depth: 64,
+            max_inflight_bytes: None,
             coalesce: true,
+            max_coalescing_gap: 0,
+            preserve_queue_order: false,
+            coalesce_lookahead: None,
             max_coalesced_bytes: 1 << 20,
             reuse_inflight: false,
+            reuse_across_workers: false,
             reuse_live_buffers: false,
             check_resident_pages: false,
+            check_queued_resident_pages: false,
             read_mapped_misses: false,
             force_async: false,
             eager_kernel_worker: false,
+            max_kernel_workers: None,
             max_active_jobs: 1,
+            max_control_jobs: 0,
+            control_workers: 0,
         }
     }
 }
@@ -159,6 +208,7 @@ struct FileState {
     mapping: Option<mapped::MappedFile>,
     can_check_residency: bool,
     live_buffers: OnceLock<live_buffers::LiveBuffers>,
+    inflight: OnceLock<Arc<inflight::InflightReads>>,
     counters: Counters,
 }
 
@@ -261,6 +311,7 @@ impl UringFile {
             mapping: mapped.then(|| mapped::MappedFile::new(random_access)),
             can_check_residency,
             live_buffers: OnceLock::new(),
+            inflight: OnceLock::new(),
             counters: Counters::default(),
         })))
     }
@@ -332,11 +383,14 @@ struct Work {
     length: usize,
     alignment: Alignment,
     suffix: bool,
+    inflight: Option<Arc<inflight::PendingRead>>,
 }
 
 impl Work {
     fn live(&self) -> bool {
-        self.state.lock().live.contains(&self.id)
+        // Once published, a shared request can acquire new waiters even after its original
+        // scope cancels. Keep driving it until completion removes the registry entry.
+        self.inflight.is_some() || self.state.lock().live.contains(&self.id)
     }
 
     fn resident_buffer(&self) -> Option<ByteBuffer> {
@@ -365,7 +419,10 @@ impl Work {
         Some(bytes)
     }
 
-    fn complete(self, result: VortexResult<ByteBuffer>) {
+    fn complete(mut self, result: VortexResult<ByteBuffer>) {
+        if let Some(pending) = self.inflight.take() {
+            pending.complete(&result);
+        }
         let result = result.map(|bytes| {
             let bytes = BufferHandle::new_host(bytes);
             if self.suffix {
@@ -497,6 +554,7 @@ impl VortexReadAt2 for Reader {
                     length,
                     alignment,
                     suffix,
+                    inflight: None,
                 };
                 if offset + length as u64 > self.file.size {
                     work.complete(Err(io::Error::new(
@@ -546,6 +604,11 @@ impl VortexReadAt2 for Reader {
         let mut state = self.state.lock();
         state.live.remove(&id);
         state.ready.retain(|completion| completion.id != id);
+        let waker = state.live.is_empty().then(|| state.waker.take()).flatten();
+        drop(state);
+        if let Some(waker) = waker {
+            waker.wake();
+        }
     }
 
     fn wait(&self) -> VortexResult<ReadCompletion> {
@@ -556,7 +619,24 @@ impl VortexReadAt2 for Reader {
             if self.state.lock().live.is_empty() {
                 vortex_bail!("Waiting with no live reads");
             }
-            self.pump(true)?;
+            let local_work =
+                DRIVER.with(|slot| slot.borrow().as_ref().is_some_and(driver::Driver::has_work));
+            if local_work {
+                self.pump(true)?;
+            } else {
+                // A different ring owns the remaining reads. Install the wakeup before
+                // checking again so completion between that check and park is not lost.
+                let mut state = self.state.lock();
+                if state.live.is_empty() {
+                    vortex_bail!("Waiting with no live reads");
+                }
+                state.waker = Some(Waker::from(Arc::new(pool::WorkerWake(thread::current()))));
+                drop(state);
+                if let Some(completion) = self.take() {
+                    return Ok(completion);
+                }
+                thread::park();
+            }
         }
     }
 }

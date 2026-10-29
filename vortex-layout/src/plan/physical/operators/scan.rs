@@ -4,6 +4,7 @@
 //! Reading and decoding one segment.
 
 use std::ops::Range;
+use std::ptr;
 
 use vortex_array::ArrayRef;
 use vortex_array::buffer::BufferHandle;
@@ -22,6 +23,7 @@ use crate::plan::physical::operator::Source;
 use crate::plan::physical::operator::SourceBlocked;
 use crate::plan::physical::operator::SourceReady;
 use crate::plan::physical::operator::Step;
+use crate::plan::physical::pipeline::CachedSegment;
 use crate::plan::physical::pipeline::PrimitiveRead;
 use crate::segments::SegmentId;
 
@@ -66,6 +68,8 @@ pub(crate) struct ScanSource {
     filter: Option<Mask>,
     /// The segment to read, until it has been asked for.
     unread: Option<SegmentId>,
+    cache: Option<CachedSegment>,
+    cached: Option<ArrayRef>,
     /// The segment has been emitted.
     done: bool,
 }
@@ -123,6 +127,52 @@ impl ScanSource {
             slice,
             filter,
             done: false,
+            cache: None,
+            cached: None,
+        }
+    }
+
+    pub(crate) fn with_cache(mut self, cache: Option<CachedSegment>) -> Self {
+        self.cache = cache;
+        self
+    }
+
+    fn load(
+        &self,
+        bytes: BufferHandle,
+        whole: bool,
+        session: &VortexSession,
+    ) -> VortexResult<ArrayRef> {
+        if let Some(array) = self.cache.as_ref().and_then(CachedSegment::get) {
+            return Ok(array);
+        }
+        let load = || {
+            if tracing::enabled!(target: "vortex_layout::segment_decode", tracing::Level::DEBUG) {
+                let start = self.slice.as_ref().map_or(0, |range| range.start as u64);
+                let end = self
+                    .slice
+                    .as_ref()
+                    .map_or_else(|| self.plan.row_count(), |range| range.end as u64);
+                tracing::debug!(
+                    target: "vortex_layout::segment_decode",
+                    plan = ptr::from_ref(self.plan.data()) as usize,
+                    segment = %self.plan.segment_id(),
+                    buffer = bytes.as_host_opt().map_or(0, |buffer| buffer.as_ptr() as usize),
+                    bytes = bytes.len(),
+                    rows = self.plan.row_count(),
+                    start,
+                    end,
+                    selected = self.filter.as_ref().map_or(end - start, |mask| mask.true_count() as u64),
+                    primitive_hint = self.primitive_read().is_some(),
+                    dtype = %self.plan.dtype(),
+                    "Decoding segment"
+                );
+            }
+            decode(&self.plan, bytes, session)
+        };
+        match &self.cache {
+            Some(cache) if whole => cache.get_or_try_init(load),
+            _ => load(),
         }
     }
 }
@@ -130,6 +180,10 @@ impl ScanSource {
 impl Source for ScanSource {
     fn ready(&mut self, cx: &mut Cx<'_>) -> VortexResult<SourceReady> {
         if let Some(segment) = self.unread.take() {
+            self.cached = self.cache.as_ref().and_then(CachedSegment::get);
+            if self.cached.is_some() {
+                return Ok(SourceReady::Ready);
+            }
             if let Some(primitive) = self.primitive_read() {
                 cx.request_primitive(segment, primitive);
             } else {
@@ -150,11 +204,15 @@ impl Operator for ScanSource {
         if self.done {
             return Ok(Step::End);
         }
-        let (_, bytes) = cx
-            .take_segment()
-            .ok_or_else(|| vortex_err!("Segment scan ran without its bytes"))?;
+        let array = if let Some(array) = self.cached.take() {
+            array
+        } else {
+            let (_, bytes, whole) = cx
+                .take_segment_with_completeness()
+                .ok_or_else(|| vortex_err!("Segment scan ran without its bytes"))?;
+            self.load(bytes, whole, cx.session())?
+        };
         self.done = true;
-        let array = decode(&self.plan, bytes, cx.session())?;
         Ok(Step::Final(select(
             array,
             self.slice.as_ref(),

@@ -237,7 +237,7 @@ impl PlanVTable for Pack {
         for child in plan.children().iter_refs() {
             chains.push(
                 compiler
-                    .compile(child?, rows.clone(), mask)?
+                    .compile_rows(child?, rows.clone(), mask)?
                     .ok_or_else(|| vortex_err!("A Pack field produced no rows"))?,
             );
         }

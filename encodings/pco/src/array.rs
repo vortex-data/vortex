@@ -7,6 +7,8 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::sync::Arc;
+use std::sync::OnceLock;
 
 use pco::ChunkConfig;
 use pco::PagingSpec;
@@ -46,6 +48,7 @@ use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexError;
@@ -185,6 +188,7 @@ impl VTable for Pco {
             .iter()
             .map(|buffer| buffer.clone().try_to_host_sync())
             .collect::<VortexResult<Vec<_>>>()?;
+        data.probe_pages = OnceLock::new();
         Ok(ArrayParts::new(
             self.clone(),
             array.dtype().clone(),
@@ -394,6 +398,9 @@ pub struct PcoData {
     pub(crate) chunk_metas: Vec<ByteBuffer>,
     pub(crate) pages: Vec<ByteBuffer>,
     pub(crate) metadata: PcoMetadata,
+    // Only probes populate this cache. Slices made afterward share it, and bulk decoding
+    // reuses touched pages without retaining the rest of the decompressed array.
+    pub(crate) probe_pages: OnceLock<Arc<[OnceLock<ByteBuffer>]>>,
     ptype: PType,
     unsliced_n_rows: usize,
     slice_start: usize,
@@ -493,6 +500,7 @@ impl PcoData {
             chunk_metas,
             pages,
             metadata,
+            probe_pages: OnceLock::new(),
             ptype,
             unsliced_n_rows: len,
             slice_start: 0,
@@ -655,8 +663,12 @@ impl PcoData {
         // may exceed the bounds of the slice, so we need to slice later.
         let (fd, _) =
             FileDecompressor::new(self.metadata.header.as_slice()).map_err(vortex_err_from_pco)?;
-        let mut decompressed_values =
-            BufferMut::<T>::with_capacity(slice_n_values.min(VALUES_PER_CHUNK));
+        let cached = self.probe_pages.get();
+        let mut decompressed_values = BufferMut::<T>::with_capacity(if cached.is_some() {
+            0
+        } else {
+            slice_n_values.min(VALUES_PER_CHUNK)
+        });
         // Validation bounds every page-count prefix and selected-page subtotal by
         // `unsliced_n_rows`, so the arithmetic below cannot overflow.
         let mut page_idx = 0;
@@ -674,6 +686,29 @@ impl PcoData {
                 }
 
                 if page_value_stop > slice_value_start {
+                    let cached_values = cached
+                        .and_then(|pages| pages[page_idx].get())
+                        .map(|values| Buffer::<T>::from_byte_buffer(values.clone()));
+                    if let Some(values) = &cached_values
+                        && page_value_start <= slice_value_start
+                        && page_value_stop >= slice_value_stop
+                    {
+                        return Ok(values
+                            .slice(
+                                slice_value_start - page_value_start
+                                    ..slice_value_stop - page_value_start,
+                            )
+                            .into_byte_buffer());
+                    }
+                    if decompressed_values.is_empty() && cached.is_some() {
+                        decompressed_values.reserve(slice_n_values.min(VALUES_PER_CHUNK));
+                    }
+                    if let Some(values) = cached_values {
+                        decompressed_values.extend_from_slice(&values);
+                        page_value_start = page_value_stop;
+                        page_idx += 1;
+                        continue;
+                    }
                     // we need this page
                     let old_len = decompressed_values.len();
                     let new_len = old_len + page_n_values;
@@ -702,6 +737,15 @@ impl PcoData {
                         .map_err(vortex_err_from_pco)?;
                     pd.read(&mut decompressed_values[old_len..new_len])
                         .map_err(vortex_err_from_pco)?;
+                    tracing::debug!(
+                        target: "vortex_pco::decode",
+                        kind = "bulk",
+                        ptype = %self.ptype,
+                        page = page.as_ptr() as usize,
+                        values = page_n_values,
+                        requested = slice_n_values,
+                        "Decoded PCO page"
+                    );
 
                     chunk_decompressor = Some(cd);
                 } else {

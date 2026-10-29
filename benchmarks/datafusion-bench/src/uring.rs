@@ -13,6 +13,7 @@ use object_store::ObjectStore;
 use object_store::local::LocalFileSystem;
 use object_store::path::Path;
 use parking_lot::Mutex;
+use tokio::sync::Semaphore;
 use vortex::array::memory::MemorySessionExt;
 use vortex::io::VortexReadAt;
 use vortex::io::object_store::ObjectStoreReadAt;
@@ -86,27 +87,75 @@ pub fn factory(scan_v2: bool) -> anyhow::Result<Option<Arc<dyn VortexReaderFacto
         .unwrap_or(64);
     let options = UringOptions {
         queue_depth,
+        max_inflight_bytes: std::env::var("VORTEX_IO_MAX_INFLIGHT_BYTES")
+            .ok()
+            .map(|value| value.parse())
+            .transpose()?,
         coalesce: !backend.ends_with("unmerged"),
+        max_coalescing_gap: std::env::var("VORTEX_IO_COALESCE_GAP")
+            .ok()
+            .map(|value| value.parse())
+            .transpose()?
+            .unwrap_or(0),
+        max_coalesced_bytes: std::env::var("VORTEX_IO_COALESCE_MAX_BYTES")
+            .ok()
+            .map(|value| value.parse())
+            .transpose()?
+            .unwrap_or(1 << 20),
+        preserve_queue_order: std::env::var("VORTEX_IO_COALESCE_FIFO")
+            .is_ok_and(|value| value == "1"),
+        coalesce_lookahead: std::env::var("VORTEX_IO_COALESCE_LOOKAHEAD")
+            .ok()
+            .map(|value| value.parse())
+            .transpose()?,
         reuse_inflight: std::env::var("VORTEX_IO_REUSE_INFLIGHT").map_or_else(
             |_| rings.is_some() && !backend.ends_with("unmerged"),
             |value| value == "1",
         ),
         reuse_live_buffers: std::env::var("VORTEX_IO_REUSE_LIVE_BUFFERS")
             .is_ok_and(|value| value == "1"),
+        reuse_across_workers: std::env::var("VORTEX_IO_REUSE_ACROSS_WORKERS")
+            .is_ok_and(|value| value == "1"),
         check_resident_pages: std::env::var("VORTEX_IO_CHECK_RESIDENT_PAGES")
+            .is_ok_and(|value| value == "1"),
+        check_queued_resident_pages: std::env::var("VORTEX_IO_CHECK_QUEUED_RESIDENT_PAGES")
             .is_ok_and(|value| value == "1"),
         read_mapped_misses: std::env::var("VORTEX_IO_READ_MAPPED_MISSES")
             .is_ok_and(|value| value == "1"),
         force_async: std::env::var("VORTEX_IO_FORCE_ASYNC").is_ok_and(|value| value == "1"),
         eager_kernel_worker: std::env::var("VORTEX_IO_EAGER_WORKER")
             .is_ok_and(|value| value == "1"),
+        max_kernel_workers: std::env::var("VORTEX_IO_MAX_KERNEL_WORKERS")
+            .ok()
+            .map(|value| value.parse())
+            .transpose()?,
         max_active_jobs: std::env::var("VORTEX_IO_ACTIVE_JOBS")
             .ok()
             .map(|value| value.parse())
             .transpose()?
             .unwrap_or(1),
-        ..Default::default()
+        max_control_jobs: std::env::var("VORTEX_IO_CONTROL_JOBS")
+            .ok()
+            .map(|value| value.parse())
+            .transpose()?
+            .unwrap_or(0),
+        control_workers: std::env::var("VORTEX_IO_CONTROL_WORKERS")
+            .ok()
+            .map(|value| value.parse())
+            .transpose()?
+            .unwrap_or(0),
     };
+    let active_chunks = std::env::var("VORTEX_SCAN_V2_MAX_ACTIVE_CHUNKS")
+        .ok()
+        .map(|value| value.parse::<usize>())
+        .transpose()?;
+    if let Some(active_chunks) = active_chunks {
+        anyhow::ensure!(active_chunks > 0, "Active scan chunks must be positive");
+        anyhow::ensure!(
+            rings.is_some(),
+            "Native scan workers control their own admission"
+        );
+    }
     let execution = match rings {
         Some(rings) => Execution::Shared(
             if per_core_reactors && std::env::var("VORTEX_IO_PIN_WORKERS").as_deref() != Ok("0") {
@@ -129,6 +178,9 @@ pub fn factory(scan_v2: bool) -> anyhow::Result<Option<Arc<dyn VortexReaderFacto
         mapped_random_access: std::env::var("VORTEX_IO_MAPPED_RANDOM_ACCESS")
             .is_ok_and(|value| value == "1"),
         execution,
+        chunk_admission: active_chunks.map(|limit| Arc::new(Semaphore::new(limit))),
+        admit_after_io: std::env::var("VORTEX_SCAN_V2_ADMIT_AFTER_IO")
+            .is_ok_and(|value| value == "1"),
         runtime: TokioRuntime::new(tokio::runtime::Handle::current()),
         files: Mutex::default(),
     });
@@ -141,6 +193,8 @@ struct LocalUringFactory {
     mapped: bool,
     mapped_random_access: bool,
     execution: Execution,
+    chunk_admission: Option<Arc<Semaphore>>,
+    admit_after_io: bool,
     runtime: TokioRuntime,
     files: Mutex<HashMap<Path, UringFile>>,
 }
@@ -223,7 +277,12 @@ impl VortexReaderFactory for LocalUringFactory {
     fn configure_v2_driver(&self, driver: ScanDriver) -> ScanDriver {
         match &self.execution {
             Execution::PerCore(workers) => driver.with_uring_workers(workers.clone()),
-            Execution::Shared(_) => driver,
+            Execution::Shared(_) => match &self.chunk_admission {
+                Some(admission) => {
+                    driver.with_chunk_admission(Arc::clone(admission), self.admit_after_io)
+                }
+                None => driver,
+            },
         }
     }
 

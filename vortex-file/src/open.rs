@@ -938,7 +938,7 @@ mod tests {
             .map(|segment| segment.offset + u64::from(segment.length))
             .max()
             .unwrap_or_default();
-        let serialized_footer = footer.into_serializer().serialize()?;
+        let serialized_footer = footer.into_serializer(&session).serialize()?;
         let serialized_footer_size = serialized_footer.iter().map(ByteBuffer::len).sum();
         assert!(last_segment_end > serialized_footer_size as u64);
         let mut footer_bytes = ByteBufferMut::with_capacity(serialized_footer_size);

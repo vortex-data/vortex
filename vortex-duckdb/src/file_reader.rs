@@ -15,6 +15,7 @@ use vortex::array::arrays::struct_::StructArrayExt as _;
 use vortex::dtype::FieldPath;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 use vortex::file::Footer;
 use vortex::file::multi::MultiFileSession;
@@ -85,9 +86,13 @@ fn resolve_filesystem(url: &Url) -> VortexResult<(FileSystemRef, String)> {
     // Compat makes us use tokio which is very bad for local reads on
     // high-core machines because reads go into blocking pool
     if url.scheme() == "file" {
+        let path = url
+            // path() is fine on Linux but produces /C:/ (lead slash) on Windows
+            .to_file_path()
+            .map_err(|()| vortex_err!("invalid file url {url}"))?;
         return Ok((
             Arc::new(StdFileSystem::new(RUNTIME.handle())),
-            url.path().to_string(),
+            path.to_string_lossy().into_owned(),
         ));
     }
 

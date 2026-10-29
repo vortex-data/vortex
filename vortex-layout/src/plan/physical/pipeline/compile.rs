@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Compiling plans into pipelines, and counting the readers of each segment so segments read
-//! more than once are decoded once.
+//! Compiling plans into pipelines while tracking row-preserving segment domains.
 
 use std::ops::Range;
 
@@ -56,7 +55,11 @@ impl Core {
         rows: Range<u64>,
         mask: &Mask,
     ) -> VortexResult<Option<Chain>> {
-        Compiler { core: self }.compile(plan, rows, mask)
+        Compiler {
+            core: self,
+            segment_origin: Some(0),
+        }
+        .compile_rows(plan, rows, mask)
     }
 }
 
@@ -64,12 +67,28 @@ impl Core {
 /// [`PlanVTable::compile`](crate::plan::physical::PlanVTable::compile).
 pub struct Compiler<'a> {
     pub(crate) core: &'a mut Core,
+    /// Root row corresponding to this domain's row zero, when the mapping is known.
+    segment_origin: Option<u64>,
 }
 
 impl Compiler<'_> {
     /// Compiles `plan` over `rows` of its domain, restricted to `mask`, into a chain producing
     /// the rows `mask` selects, in order, or `None` when that is no row.
+    /// This general entry point makes no assumption that child coordinates preserve root rows.
     pub fn compile(
+        &mut self,
+        plan: &PlanRef,
+        rows: Range<u64>,
+        mask: &Mask,
+    ) -> VortexResult<Option<Chain>> {
+        let origin = self.segment_origin.take();
+        let result = self.compile_rows(plan, rows, mask);
+        self.segment_origin = origin;
+        result
+    }
+
+    /// Compiles a child whose coordinates are in the current row domain.
+    pub(crate) fn compile_rows(
         &mut self,
         plan: &PlanRef,
         rows: Range<u64>,
@@ -79,6 +98,21 @@ impl Compiler<'_> {
             return Ok(None);
         }
         plan.compile(rows, mask, self)
+    }
+
+    /// Compiles a concatenated child whose row zero is `offset` in the current domain.
+    pub(crate) fn compile_offset(
+        &mut self,
+        plan: &PlanRef,
+        rows: Range<u64>,
+        mask: &Mask,
+        offset: u64,
+    ) -> VortexResult<Option<Chain>> {
+        let origin = self.segment_origin;
+        self.segment_origin = origin.and_then(|origin| origin.checked_add(offset));
+        let result = self.compile_rows(plan, rows, mask);
+        self.segment_origin = origin;
+        result
     }
 
     /// A chain reading `chains` through `source`: each chain becomes a pipeline writing a new
@@ -131,7 +165,7 @@ impl Compiler<'_> {
     }
 
     /// The rows `rows` of `scan`'s segment, filtered by `filter`, read by the split compiling.
-    /// A segment several readers read is decoded once and shared.
+    /// Whole arrays can be reused when this segment has a known root row domain.
     pub(crate) fn scan(
         &mut self,
         scan: &SegmentScanPlan,
@@ -149,11 +183,14 @@ impl Compiler<'_> {
             Some(usize::try_from(rows.start)?..usize::try_from(rows.end)?)
         };
         self.core.segments.push(scan.segment_id());
-        Ok(Some(Chain::new(ScanSource::new(
-            scan.clone(),
-            slice,
-            filter,
-        ))))
+        let cached = self.core.segment_cache.as_ref().and_then(|cache| {
+            let start = self.segment_origin?;
+            let end = start.checked_add(scan.row_count())?;
+            Some(cache.reader(scan.clone().into_plan(), start..end))
+        });
+        Ok(Some(Chain::new(
+            ScanSource::new(scan.clone(), slice, filter).with_cache(cached),
+        )))
     }
 }
 
