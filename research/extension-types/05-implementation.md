@@ -12,10 +12,11 @@ This plan follows [`../decisions.md`](../decisions.md). IDs such as X4 and XQ1 r
 | Phase | Content | Depends on |
 | --- | --- | --- |
 | 0 | The urgent changes in part 4, and the path-consistency test helper | Nothing |
-| 1 | The `ExtVTable` contract with the default `validate_array`, a conformance harness, and three reference test types | Nothing |
-| 2 | Typing, derives and rewrite rules: `Derives`, the derive rules for compare, min, max and sort, `ext_storage_deep`, and rules that the type owns | 0, 1 |
+| 1 | The `ExtVTable` contract with the default `validate_array`, `ExtensionArray::new_unchecked`, a conformance harness, and three reference test types | Nothing |
+| 2 | Typing, the opt-in of X11 and rewrite rules: the opt-in mechanism (XQ7), the rules for compare, min, max and sort, `ext_storage_deep`, and rules that the type owns | 0, 1, and a design pass that settles XQ2, XQ5 and XQ7 |
 | 3 | Cast rules that the types own, and an audit of engine literals | 2 |
-| 4 | The lift rule for structural arrays, and storage statistics for extension columns | 2 |
+| 4a | The lift rule for structural arrays, as the extension case of [#10748](https://github.com/vortex-data/vortex/issues/10748) | Nothing |
+| 4b | Storage statistics for extension columns, and `DateTimeParts` under the wrapper | 2 |
 | 5 | Value checks in `ExtensionArray::try_new`, and nullability on the extension dtype | 0, 1 |
 | 6 | Authoring helpers, engine export plugins, and documentation | 2, 3 |
 
@@ -23,16 +24,23 @@ This plan follows [`../decisions.md`](../decisions.md). IDs such as X4 and XQ1 r
 flowchart LR
     P0["0. Urgent changes"] --> P2["2. Typing and rules"]
     P1["1. Contract and harness"] --> P2
+    D2(["Design pass: XQ2, XQ5, XQ7"]) --> P2
     P2 --> P3["3. Cast rules"]
-    P2 --> P4["4. Lift rule and statistics"]
+    P2 --> P4b["4b. Statistics and DateTimeParts"]
+    P4a["4a. Lift rule, #10748"]
     P0 --> P5["5. Value checks and nullability"]
     P1 --> P5
     P2 --> P6["6. Authoring and boundaries"]
     P3 --> P6
 ```
 
-Phases 0 and 1 can run in parallel. Phase 5 can run in parallel with phase 2. Phase 2 is the
-critical step, because phases 3, 4 and 6 build on the rules.
+Phases 0, 1 and 4a can run in parallel, and none of them waits for an open question. Phase 5 can
+run in parallel with phase 2. Phase 2 is the critical step, because phases 3, 4b and 6 build on the
+rules. It starts with a design pass, like the design pass of WR3 in the Decimal plan, because it
+depends on three open questions and is too large for one PR.
+
+The rules of phases 2 and 3 build their results with `ExtensionArray::new_unchecked`. So phase 1
+adds that constructor, and phase 5 only adds the value check to `try_new`.
 
 ## Phase 0: urgent changes
 
@@ -48,26 +56,38 @@ critical step, because phases 3, 4 and 6 build on the rules.
   validation, and nullability independence.
 - Add `validate_array` to `ExtVTable`, with a default that checks each value through
   `validate_scalar_value`. Phase 5 builds on it.
+- Add `ExtensionArray::new_unchecked`. Until phase 5, it skips the same checks that
+  `ExtensionArray::new` skips today. A debug build checks the promise with `validate_array`.
 - Add a conformance harness for `ExtVTable` implementations. It checks the metadata round trip,
   that `validate_dtype` ignores nullability, and that a `validate_array` override agrees with the
   default.
 - Add three reference test types:
   - An opaque type that derives nothing. Typing must reject every semantic operation on it.
   - A decimal-like type over `i64` that derives `eq` and `ord` for each dtype. A differential test
-    compares its results with the built-in `Decimal`.
+    compares its results with the built-in `Decimal`. Write that test after CD8a
+    ([#10701](https://github.com/vortex-data/vortex/issues/10701)), because the CD PRs still change
+    the behavior of the built-in `Decimal`.
   - A refinement type that derives everything and adds a value check.
 - The harness and the reference types grow with later phases. Phase 2 adds the derive rules and
   the derives. Phase 3 adds cast round trips.
 
 ## Phase 2: typing, derives and rules
 
-- Add `Derives`, `ExtVTable::derives`, and the erased forwarder on `ExtDTypeRef`.
+- Add the opt-in mechanism that the design pass chooses (XQ7). The sketch in part 3 is `Derives`,
+  `ExtVTable::derives`, and an erased forwarder on `ExtDTypeRef`.
 - Add extension declarations to scalar and aggregate functions. An aggregate also declares whether
   its result is a value of its input, a bound, or neither (XQ5).
 - Extend the typing check in its four places: `BoundExpression::try_new_vec`,
   `ScalarFnArray::try_new_from_slots`, `AggregateDTypes::try_new` and `ScalarFn::validate`. Make
   the variants of `BoundExpression` private. Make `Cast::new` fallible, because typing rejects
   casts that no rule covers.
+- Cover lambda bodies in the typing check. `Expression::Variable` and `Lambda`
+  ([#10502](https://github.com/vortex-data/vortex/pull/10502)) and `list_transform`
+  ([#10503](https://github.com/vortex-data/vortex/pull/10503)) give a function a body that runs on
+  list elements, and an element can be an extension value.
+- `BoundExpression::try_new_vec` and `ScalarFnArray::try_new_from_slots` call `bind_options` before
+  `return_dtype`, but `ScalarFn::validate` calls only `return_dtype`. Check whether typing in
+  `ScalarFn::validate` must see bound options.
 - Add the derive rules for compare, `between`, min, max, `is_sorted` and sort keys. They rewrite
   derived operands to `ext_storage`, or to the new `ext_storage_deep` for nested values. A rule
   that returns a value of the input builds the extension scalar itself. There is no `ext_wrap`
@@ -85,8 +105,10 @@ critical step, because phases 3, 4 and 6 build on the rules.
   `PartialOrd` can make `max` panic on a chunked `Json` column, or in DuckDB aggregate pushdown.
   This risk comes from reading the code.
 - Give each type in the repository its derives (the table in part 3).
-- Move the open PRs onto derives and rules. #10408 becomes a derive check. #10246 and #10566
-  become rules that the types own.
+- Move the other opt-ins onto the new mechanism. If #10408 merges first, its `between` pushdown
+  becomes a derive check. The registrations of `ExtensionStoragePushdown` (X10) become
+  declarations on the types, plain `is_sorted` and `min_max` then serve those types, and the
+  composite IDs go away. #10246 closed without a merge.
 
 ## Phase 3: cast rules
 
@@ -98,11 +120,16 @@ critical step, because phases 3, 4 and 6 build on the rules.
 - Audit the DuckDB and DataFusion converters: every literal for an extension column must be an
   extension scalar.
 
-## Phase 4: lift rule and statistics
+## Phase 4a: lift rule
+
+The lift rule needs no typing and no rules, so it can start at any time. It is the extension case
+of [#10748](https://github.com/vortex-data/vortex/issues/10748), and `Widen` needs the same rule
+(D25). Settle the mechanism question of #10748 before WD5, so that WD5 and this phase use one
+mechanism.
 
 - Add the static rule that pulls structural arrays out from under the extension wrapper (X5). The
   set of arrays is open (XQ1). These notes recommend `Constant`, `Dict`, `RunEnd`, `Sparse`,
-  `Chunked`, `Masked` and `Interleave`.
+  `Chunked`, `Masked` and `Interleave`, which is also the set of D25.
 - Give each structural encoding one method that rebuilds it with its value children passed through
   a function. Use it for the lift rule, for the pushdown of `ext_storage`, and to decode structural
   encodings that hold extension values. `RunEnd` and `Sparse` get extension support this way.
@@ -111,16 +138,20 @@ critical step, because phases 3, 4 and 6 build on the rules.
   accept that recommendation (XQ1).
 - Keep the old wire shape for `RunEnd` and `Sparse` over extension values until an edition allows
   the new one. Readers convert old shapes with the lift rule.
+
+## Phase 4b: statistics and type-specific encodings
+
 - Store storage statistics for extension columns. Readers convert existing extension-typed
-  statistics to storage values.
+  statistics to storage values. The stats rewrite rules now live in `vortex-expr`
+  ([#10734](https://github.com/vortex-data/vortex/pull/10734)).
 - Move `DateTimeParts` under the wrapper as an `i64` encoding. An edition gates the new form, and
   readers keep the old form.
 
 ## Phase 5: value checks and nullability
 
-- Make `ExtensionArray::try_new` check values with `validate_array`, and add
-  `ExtensionArray::new_unchecked`. Move kernels, builders and rules that keep legal values onto
-  `new_unchecked` ([`agents/design-notes.md`](agents/design-notes.md), section 8).
+- Make `ExtensionArray::try_new` check values with `validate_array`. Move kernels, builders and
+  rules that keep legal values onto `new_unchecked`, which phase 1 adds
+  ([`agents/design-notes.md`](agents/design-notes.md), section 8).
 - Imports from Arrow, DuckDB, FFI and Python call `try_new`. File reads follow the answer to XQ3.
 - Add faster overrides of `validate_array` where a type has one, for example `Timestamp`.
 - Building a scalar from an array keeps the check of U3, because file data can hold illegal values
@@ -154,9 +185,9 @@ critical step, because phases 3, 4 and 6 build on the rules.
 
 - Phases 0 to 3 change behavior, not the file format. The release notes must list the behavior
   changes from part 4.
-- Phase 4 changes the `DateTimeParts` format, the statistics dtype of extension columns, and the
-  shape of `RunEnd` and `Sparse` over extension values. All three need editions and read
-  compatibility.
+- Phase 4a changes the shape of `RunEnd` and `Sparse` over extension values. Phase 4b changes the
+  `DateTimeParts` format and the statistics dtype of extension columns. All three need editions and
+  read compatibility.
 - Phase 5 can add a value check when a file is read, depending on XQ3. It does not change the
   format.
 
@@ -167,8 +198,9 @@ points affect the order:
 
 - `Decimal` stays a built-in type (D1). Its fixes do not wait for this plan, but it follows the same
   rules: derives for one dtype and rules that the type owns.
-- `Decimal` and extension types share the lift rule of phase 4. A constant decimal column is
-  already `vortex.constant` with a decimal scalar, so the old decimal wire forms fit it.
+- `Decimal`, `Widen` and extension types share the lift rule of phase 4a through #10748. A
+  constant decimal column is already `vortex.constant` with a decimal scalar, so the old decimal
+  wire forms fit it.
 - Phase 3 and the Decimal work share one integer kernel family, `rescale` and `check_range`.
   `Timestamp` unit casts and decimal rescales both use it.
 

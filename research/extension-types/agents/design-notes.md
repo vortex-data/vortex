@@ -30,7 +30,7 @@ The design holds these invariants. Every change in the plan must keep them.
   operations, statistics and pruning see storage dtypes only, at every depth. Generic structural
   encodings sit above the extension wrapper, and storage encodings sit below it (section 6). A
   type-aware function sees the extension types that it declares. `DateTimeParts` stays an
-  exception until phase 4 (EXT-S2).
+  exception until phase 4b (EXT-S2).
 - **I5.** The only ways to move between an extension dtype and another dtype are `ext_storage`,
   `ext_storage_deep` and the rules that the extension type owns. A rule that produces extension
   values builds the extension array itself (section 5). No `ext_wrap` expression exists (X4).
@@ -102,19 +102,19 @@ pub trait ExtVTable {
 ```
 
 `ExtDTypeRef` gets an erased forwarder: `fn derives(&self) -> Derives`. Typing and the derive rules
-read the flags from the non-nullable form of the dtype. So a type that breaks D4 still gives one
+read the flags from the non-nullable form of the dtype. So a type that breaks DR4 still gives one
 answer.
 
 ### 3.2 Rules
 
-- **D1.** A derive applies only when every operand in a derived position has the same extension
+- **DR1.** A derive applies only when every operand in a derived position has the same extension
   dtype, ignoring nullability. A lone extension operand never gets a derive, so `ts < 5i64` stays
   rejected. Operations across dtypes are rejected (section 3.5).
-- **D2.** `eq` requires canonical storage: each value of the dtype has exactly one storage form.
-- **D3.** `ord` requires `eq`, and storage order must equal value order.
-- **D4.** The flags do not depend on nullability.
+- **DR2.** `eq` requires canonical storage: each value of the dtype has exactly one storage form.
+- **DR3.** `ord` requires `eq`, and storage order must equal value order.
+- **DR4.** The flags do not depend on nullability.
 
-The conformance harness checks D4, and that `ord` implies `eq`. It checks D2 and D3 only when a
+The conformance harness checks DR4, and that `ord` implies `eq`. It checks DR2 and DR3 only when a
 type supplies an optional reference order on native values for tests. `NativeValue` requires only
 `Display` (`vortex-array/src/dtype/extension/vtable.rs:29-32`), so the harness has no other oracle.
 
@@ -199,11 +199,17 @@ Every node of a compute graph meets a typing check when code builds it. Today th
 - `ScalarFn::validate` (`vortex-array/src/arrays/scalar_fn/vtable/mod.rs:79-121`) checks a scalar
   function array that code builds from parts.
 
+Two changes on `develop` since `5fc5cb8` affect these places. Since #10502, the first two call
+`ScalarFnVTable::bind_options` before `return_dtype` (`bound_expression.rs:139` at `1d09649bbd`),
+and `ScalarFn::validate` calls only `return_dtype`. Also, `Expression::Variable` and `Lambda`
+(#10502) and `list_transform` (#10503) give a function a body that runs on list elements. Typing
+must check that body too, because an element can be an extension value.
+
 Typing accepts a call with an extension operand only in these cases, tried in this order:
 
 1. The function declares the call structural for these operands.
 2. The function declares itself type-aware for every extension type in the operands.
-3. The function declares a derive, and the operands meet D1 and section 3.4.
+3. The function declares a derive, and the operands meet DR1 and section 3.4.
 4. A rule of an extension type in the operands covers the call. Typing asks the types in argument
    order.
 
@@ -218,7 +224,7 @@ the same dtype. The second is a rule of the source type, and the third is a rule
 pub enum ExtensionUse {
     /// The function moves or selects values and never reads them.
     Structural,
-    /// The function applies storage equality or order. Typing checks these flags (D1).
+    /// The function applies storage equality or order. Typing checks these flags (DR1).
     Derive(Derives),
     /// The function implements the semantics of the matched extension type itself.
     TypeAware,
@@ -344,7 +350,10 @@ alternative. It has two problems for extension types:
 Rules written over `ReduceNode` serve both arrays and bound expressions, as `reduce_null` already
 does (`vortex-array/src/scalar_fn/fns/is_not_null.rs:50`). Pruning works on bound expressions
 (`vortex-file/src/pruning.rs:35-49`). So a rule that serves only arrays cannot rewrite a predicate
-onto storage statistics.
+onto storage statistics. Since #10790, `ReduceNode::as_constant` returns a borrowed `Scalar`, and a
+rule makes a constant with `ReduceNode::new_constant`. A `ScalarFnArray` cannot wrap a `Literal`
+(`vortex-array/src/arrays/scalar_fn/array.rs:161-167` at `1d09649bbd`), so an array rule that
+returns a literal returns a `ConstantArray` instead.
 
 Open: whether a crate can register a rule for a function and a type that it does not own.
 
@@ -364,7 +373,7 @@ Open: whether a crate can register a rule for a function and a type that it does
 ```text
 Timestamp(ms) a  <  Timestamp(ms) b       =>  ext_storage(a) < ext_storage(b)
 Timestamp(ms) a  <  lit(Timestamp(ms) 5)  =>  ext_storage(a) < lit(5i64)
-Timestamp(ms) a  <  lit(5i64)             =>  rejected by typing (D1)
+Timestamp(ms) a  <  lit(5i64)             =>  rejected by typing (DR1)
 Timestamp(ms) a  <  Timestamp(ns) b       =>  rejected by typing (X3)
 min(Timestamp(ms) a)                      =>  min(ext_storage(a)), and the rule builds a
                                               Timestamp(ms) scalar from the result
@@ -447,7 +456,7 @@ Which arrays the rule pulls out is open (XQ1). These notes recommend three roles
 | Role | Encodings | Place |
 | --- | --- | --- |
 | Structural | `Constant`, `Dict`, `RunEnd`, `Sparse`, `Chunked`, `Masked`, `Interleave` | Above the wrapper |
-| Storage | The canonical storage arrays. The FastLanes encodings (BitPacked, FoR, Delta, RLE), ALP, ALP-RD, ByteBool, ZigZag, Pco, Zstd, FSST, OnPair, Sequence, PiecewiseSequence and Patched. Also DecimalByteParts, and `DateTimeParts` after phase 4 | Below the wrapper |
+| Storage | The canonical storage arrays. The FastLanes encodings (BitPacked, FoR, Delta, RLE), ALP, ALP-RD, ByteBool, ZigZag, Pco, Zstd, FSST, OnPair, Sequence, PiecewiseSequence and Patched. Also DecimalByteParts, and `DateTimeParts` after phase 4b | Below the wrapper |
 | Pending | Slices, filters and scalar functions that wait to run | Below the wrapper, with the storage that they apply to |
 
 A storage encoding computes values from a layout that only built-in dtypes have, so it can never
@@ -664,14 +673,14 @@ pub trait ExtVTable {
 
 ## 9. Nullability
 
-- **N1, short term.** `ExtDType::try_with_vtable` calls `validate_dtype` for both nullabilities of
+- **NU1, short term.** `ExtDType::try_with_vtable` calls `validate_dtype` for both nullabilities of
   the storage dtype, and fails if either call fails. The documentation states that the result of
   `validate_dtype` must not depend on nullability. `with_nullability` then builds the new dtype
   directly and never validates again. Today it calls `try_with_vtable`
   (`vortex-array/src/dtype/extension/typed.rs:91-98`). A type that breaks the rule fails when its
   dtype is built, not later in a kernel. Calling `validate_dtype` only with the non-nullable form
   is the alternative, but it hides such a type.
-- **N2, long term.** `ExtDType` stores a non-nullable storage dtype and a `Nullability`, like every
+- **NU2, long term.** `ExtDType` stores a non-nullable storage dtype and a `Nullability`, like every
   other `DType` variant. The storage child has the dtype `storage_dtype.with_nullability(n)`. The
   wire format does not change, because the serialized storage dtype already carries nullability.
 
@@ -797,10 +806,11 @@ These results come from reading the code, not from a run.
 | 0, U6 | `vortex-array/src/arrays/extension/vtable/mod.rs`, `vortex-array/src/scalar/validate.rs`, `vortex-array/src/scalar/scalar_impl.rs` |
 | 0, U7 | `vortex-array/src/scalar/scalar_impl.rs`, `vortex-array/src/scalar/scalar_value.rs` |
 | 0, U8 | `vortex-array/src/dtype/extension/erased.rs` |
-| 1 | `vortex-array/src/dtype/extension/vtable.rs`, `vortex-array/src/compute/conformance/`, `vortex-array/src/extension/tests/` |
-| 2 | `vortex-array/src/dtype/extension/{vtable,typed,erased}.rs`, `vortex-array/src/scalar_fn/vtable.rs`, `vortex-array/src/aggregate_fn/{vtable,erased}.rs`, `vortex-array/src/expr/bound_expression.rs`, `vortex-array/src/arrays/scalar_fn/array.rs`, `vortex-array/src/optimizer/`, `vortex-array/src/scalar_fn/fns/{binary,between,cast,dynamic.rs,ext_storage.rs}`, `vortex-array/src/scalar_fn/fns/binary/compare/nested.rs`, `vortex-array/src/aggregate_fn/fns/{min,max,min_max,bounded_min,bounded_max,is_sorted}/`, `vortex-array/src/arrays/extension/compute/compare.rs`, `vortex-array/src/scalar/scalar_impl.rs`, `vortex-array/src/scalar/typed_view/extension/mod.rs`, `vortex-layout/src/layouts/zoned/writer.rs`, `vortex-row/src/encoder.rs`, `vortex-duckdb/src/table_function.rs` |
+| 1 | `vortex-array/src/dtype/extension/vtable.rs`, `vortex-array/src/arrays/extension/array.rs` (`new_unchecked`), `vortex-array/src/compute/conformance/`, `vortex-array/src/extension/tests/` |
+| 2 | `vortex-array/src/dtype/extension/{vtable,typed,erased}.rs`, `vortex-array/src/scalar_fn/vtable.rs`, `vortex-array/src/aggregate_fn/{vtable,erased}.rs`, `vortex-array/src/expr/bound_expression.rs`, `vortex-array/src/arrays/scalar_fn/array.rs`, `vortex-array/src/optimizer/`, `vortex-array/src/scalar_fn/fns/{binary,between,cast,dynamic.rs,ext_storage.rs}`, `vortex-array/src/scalar_fn/fns/binary/compare/nested.rs`, `vortex-array/src/aggregate_fn/fns/{min,max,min_max,bounded_min,bounded_max,is_sorted}/`, `vortex-array/src/arrays/extension/compute/compare.rs`, `vortex-array/src/scalar/scalar_impl.rs`, `vortex-array/src/scalar/typed_view/extension/mod.rs`, `vortex-layout/src/layouts/zoned/writer.rs`, `vortex-row/src/encoder.rs`, `vortex-duckdb/src/table_function.rs`, `vortex-array/src/aggregate_fn/{session,storage_pushdown}.rs` and `encodings/uuid/src/lib.rs` (X10) |
 | 3 | `vortex-array/src/scalar_fn/fns/cast/mod.rs`, `vortex-array/src/extension/datetime/`, `vortex-duckdb/src/convert/expr.rs`, `vortex-datafusion/src/convert/exprs/mod.rs` |
-| 4 | `vortex-array/src/arrays/extension/compute/{rules,take}.rs`, `vortex-array/src/arrays/extension/vtable/mod.rs`, `vortex-array/src/arrays/{constant,chunked,dict,masked}/`, `encodings/sparse/`, `encodings/runend/`, `encodings/datetime-parts/`, `vortex-btrblocks/src/schemes/temporal.rs`, `vortex-layout/src/layouts/zoned/`, `vortex-layout/src/layouts/file_stats.rs`, `vortex-file/src/pruning.rs`, `vortex-array/src/stats/rewrite/`, `vortex-edition/` |
+| 4a | `vortex-array/src/arrays/extension/compute/{rules,take}.rs`, `vortex-array/src/arrays/extension/vtable/mod.rs`, `vortex-array/src/arrays/{constant,chunked,dict,masked,interleave}/`, `encodings/sparse/`, `encodings/runend/`, `vortex-edition/`. The shared mechanism of #10748 also touches `vortex-array/src/arrays/widen/` |
+| 4b | `encodings/datetime-parts/`, `vortex-btrblocks/src/schemes/temporal.rs`, `vortex-layout/src/layouts/zoned/`, `vortex-layout/src/layouts/file_stats.rs`, `vortex-file/src/pruning.rs`, `vortex-expr/src/stats/rewrite/` (moved from `vortex-array` by #10734), `vortex-edition/` |
 | 5 | `vortex-array/src/arrays/extension/array.rs`, `vortex-array/src/arrays/extension/vtable/operations.rs`, `vortex-array/src/arrays/extension/compute/`, `vortex-array/src/builders/{extension,fixed_size_list,mod}.rs`, `vortex-array/src/dtype/extension/`, `vortex-array/src/extension/datetime/timestamp.rs`, the Arrow, DuckDB, FFI and Python import paths |
 | 6 | `vortex-arrow/src/session.rs`, `vortex-duckdb/src/convert/`, `vortex-duckdb/src/exporter/`, `vortex-datafusion/src/convert/`, `vortex-python/src/scalar/`, `docs/developer-guide/extending/extension-dtypes.md` |
 
@@ -819,9 +829,9 @@ These results come from reading the code, not from a run.
   - `Refined` over `i64` (for example, positive values only), with every derive and a
     `validate_array` override.
 - **Conformance harness for `ExtVTable`.** It checks the metadata round trip, that
-  `validate_dtype` ignores nullability, rules D1 to D4, cast round trips, and path consistency. D2
-  and D3 need the optional reference order. The harness also compares a `validate_array` override
-  with the default.
+  `validate_dtype` ignores nullability, rules DR1 to DR4, cast round trips, and path consistency.
+  DR2 and DR3 need the optional reference order. The harness also compares a `validate_array`
+  override with the default.
 - **Scalar contract.** For generated scalars, `a == b` holds exactly when `partial_cmp(a, b)`
   returns `Some(Equal)`, and equal scalars have equal hashes.
 - **Engines.** DuckDB and DataFusion pushdown tests with extension literals for `Timestamp`, `Date`,

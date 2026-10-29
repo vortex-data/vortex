@@ -1378,7 +1378,7 @@ needs an **optional** node.
 | N1 | Extension opacity fixes | impl, urgent | The urgent changes U1 to U8 of the extension notes. They cover storage casts, lone-side storage compares, errors from reads, nullability, temporal validation, storage checks, zero values and debug output |
 | N2 | Rewrite rules that the type owns | research, then impl | X4: a type implements its behavior as rewrite rules on arrays, registered with the type. There is no `ext_wrap`. X5 and X6 add the placement rule and the removal of nested extension layers. Recommendation (XQ2): the rules live on `ExtVTable`, written over `ReduceNode` |
 | N3 | Derives for one dtype | impl | X2: `eq` and `ord` are properties of one dtype and never apply across dtypes. Operations across dtypes need a rule of the type (N2) or a cast by the engine (X3) |
-| N4 | Cast rules (#8570) | impl | C1: a cast exists only if a rule for the pair exists. Extension types get `cast_to` and `cast_from` hooks. CQ1, the default for inexact values, is open |
+| N4 | Cast rules (#8570) | impl | C1: a cast exists only if a rule for the pair exists. Extension types own cast rules (X4), in place of the `cast_to` and `cast_from` closures of #8570. CQ1, the default for inexact values, is open |
 | N5 | Value checks in `try_new` | impl | X7: a checked `try_new` and a `new_unchecked` for kernels. `ExtensionArray::try_new` checks every non-null value. Checks: UTF-8 and FixedSizeBinary length. The decimal precision check moves into N11 (D14) |
 | N6 | Nullability restructure | research, optional | Remove nullability duplication between wrapper and storage dtypes |
 | N7 | Fixed-width structural layer | impl | Extend `FixedWidthArray` (PR #8864) to run-end, sparse, dict, constant, and builders, keyed by record width |
@@ -1450,6 +1450,7 @@ flowchart TD
     N1 --> N21
     N1 -.-> N18
     N2 --> N3
+    N2 --> N4
     N2 -.-> N13
     N3 --> N15
     N3 -.-> N21
@@ -1502,8 +1503,9 @@ soft: the target works without the source, but it is cheaper, safer, or faster w
 3. N1 to N18 (soft): after N1, a UUID column no longer compares with a storage literal. The
    engine literal paths then change once, before the storage changes. PR #9886 shows the
    current workaround.
-4. N2 to N3: a derive is one kind of rule that the type owns. It runs the storage operation for
-   operands of one dtype.
+4. N2 to N3: the opt-in of N3 needs the typing check, which lands with N2 in phase 2 of the
+   extension notes. The opt-in itself need not be a rule that the type owns: the design notes
+   sketch derives as rules of the core functions. The mechanism is open (X11, XQ7).
 5. N2 to N13 (soft): the decimal rules can reuse the rule mechanism of extension types. With
    recommendation XQ2, rules over `ReduceNode` also rewrite bound expressions for pruning. The
    built-in type can own its rules without N2.
@@ -1565,6 +1567,8 @@ soft: the target works without the source, but it is cheaper, safer, or faster w
 35. N6 to N15 (soft): a wrapper repeats its nullability in the storage dtype, so every
     nullability change rebuilds the extension dtype
     (`vortex-array/src/dtype/extension/typed.rs:91-99`).
+36. N2 to N4: cast rules are rules that the type owns (X4, C1), so they need the rule mechanism.
+    Phase 3 of the extension notes lands after phase 2 for the same reason.
 
 ### 7.4 Critical path and parallel work
 
@@ -1577,7 +1581,7 @@ soft: the target works without the source, but it is cheaper, safer, or faster w
 - **Critical path for delegated decimal kernels (future work, D20):** N9, N12, N13. N8 must land
   before N13. N7 is soft, but it shrinks N9, so do it first. N12 for precision 1 to 18 can land at
   any point.
-- **The optional move (N15):** after N13, with N1, N2 then N3, N4, and N16 joining at N15.
+- **The optional move (N15):** after N13, with N1, N2 then N3 and N4, and N16 joining at N15.
 - **Parallel tracks:**
   - Extension correctness: N1, N2, N3, N4, N5.
   - Decimal: N28, N11, N12, N7, N8, N9, N13, N14.
@@ -1590,8 +1594,8 @@ soft: the target works without the source, but it is cheaper, safer, or faster w
 ### 7.5 Mapping to the extension-type research
 
 The extension-type notes in `../../extension-types/` use their own ids for urgent changes (U1 to
-U8) and phases (0 to 6). The decisions file adds ids X1 to X9 and XQ1 to XQ6. This table maps them
-onto the graph.
+U8) and phases (0 to 6, with phase 4 split into 4a and 4b). The decisions file adds ids X1 to X11
+and XQ1 to XQ7. This table maps them onto the graph.
 
 | Extension research item | Node here |
 | --- | --- |
@@ -1600,7 +1604,8 @@ onto the graph.
 | Phase 1, contract and conformance harness | Not a separate node. Its decimal-like reference type over `i64` is an early acceptance test for N3 and N13 |
 | Phase 2, typing, derives and rewrite rules (X2, X4) | N2 and N3. Part 5 of the extension notes lands them after phases 0 and 1, which the graph does not show |
 | Phase 3, cast rules that the types own (C1) | N4 |
-| Phase 4, the lift rule for structural arrays, and storage statistics (X5, XQ1) | The placement rule of section 3.3. DateTimeParts below the structural encodings is the temporal twin of DBP |
+| Phase 4a, the lift rule for structural arrays (X5, XQ1, #10748) | The placement rule of section 3.3, shared with `Widen` (D25) |
+| Phase 4b, storage statistics and `DateTimeParts` under the wrapper | DateTimeParts below the structural encodings is the temporal twin of DBP |
 | Phase 5, value checks in `ExtensionArray::try_new`, and nullability (X7) | N5 and N6 |
 | Phase 6, authoring and boundaries | N23 |
 

@@ -78,7 +78,9 @@ compression keep working, because the rewritten operations are ordinary storage 
 ### Derives for one dtype
 
 A derive says that a semantic operation on values of one extension dtype is the same operation on
-their storage values. It is a property of one dtype (X2):
+their storage values. It is a property of one dtype (X2). The goal is that an author can opt in to
+common behavior, such as equality and order, with little code. The mechanism in this section is a
+sketch of that goal, not a decision (X11, XQ7):
 
 ```rust
 /// Storage behavior that values of `dtype` inherit, like `#[derive]` on a newtype.
@@ -111,6 +113,33 @@ So `ts < 5i64` stays rejected, because only one side is an extension.
 | `Vector`, `FixedShapeTensor` | `eq` |
 | `Json`, WKB, native geometry | None |
 | Unknown type | None |
+
+### A temporary opt-in for aggregates
+
+`develop` already has a narrower opt-in for aggregates, from
+[#10566](https://github.com/vortex-data/vortex/pull/10566) and
+[#10616](https://github.com/vortex-data/vortex/pull/10616). `ExtensionStoragePushdown<A, E>` runs
+aggregate `A` on the storage of extension type `E`, and `register_storage_ordered` registers it for
+`is_sorted` and `min_max`. The default session registers it for `Date`, `Time` and `Timestamp`, and
+`vortex_uuid::initialize` registers it for `Uuid`. It is a temporary bridge until phase 2 (X10),
+and it differs from this design in three ways:
+
+- The opt-in lives in the aggregate session, under a separate aggregate ID such as
+  `vortex.min_max[vortex.timestamp]`. Plain `min_max` and `is_sorted` do not consult it, so plain
+  `min_max` still uses storage order for every extension type, and plain `is_sorted` still rejects
+  every extension type. A consumer gets the opt-in only if it asks for the composite ID, and today
+  only tests do. In this design, the type declares its behavior once, and every consumer reads
+  that declaration through the typing check and the rules.
+- Its results are storage values. The min of a `Timestamp(ms)` column is a raw `i64`, without its
+  time unit or time zone. In this design, a result that is a value of the input gets the extension
+  dtype back (XQ5). Storage results are correct only for statistics, which store storage values
+  (section "Statistics").
+- Any crate can register any pair of an aggregate and a type, and nothing checks the pair. The docs
+  of the pushdown say that an invalid registration "can silently return incorrect results". In this
+  design, only the type declares what it inherits.
+
+Phase 2 replaces each registration with a declaration on the type, and the composite IDs then go
+away.
 
 ### Operations across dtypes
 
@@ -188,6 +217,12 @@ Each structural encoding gets one method that rebuilds it with its value childre
 function. That method moves the wrapper, pushes `ext_storage` down, and decodes a structural
 encoding that holds extension values. `RunEnd` and `Sparse`, which fail on extension values today,
 get support from the same method.
+
+The lift rule is the extension case of issue
+[#10748](https://github.com/vortex-data/vortex/issues/10748), which keeps generic structural
+encodings above every other encoding. `Widen` needs the same rule (D25), and WD5 plans it for
+`Widen` only. If the method above serves every wrapping encoding, `Widen`, `Extension` and later
+wrappers share one mechanism, and no wrapper needs its own copy of the seven rules.
 
 Type-specific encodings are a separate question. `DateTimeParts` moves under the wrapper as an
 `i64` encoding, so its compare kernel works on storage. The compressor chooses it from the

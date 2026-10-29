@@ -87,6 +87,7 @@ flowchart TD
     N21["N21 Duration and Interval"]
 
     N2 --> N3
+    N2 --> N4
     N1 --> N21
     N4 --> N21
     N28 --> N11
@@ -228,7 +229,7 @@ the bar of no compute regression applies to the final state (decided, D19).
 | --- | --- |
 | 0, independent | Strict enum decoding, the DecimalByteParts nullability fix, N1, the integer `Widen` in memory followed by the `encode_values` PR, and the decimal benchmarks and fixtures |
 | 1, one canonical form | N11 as two changes (D11). The in-memory change holds the width owner, N28 for decimals, DecimalByteParts decoding, the read plugin, the DecimalByteParts scheme on the canonical array and the strict `try_new`, each as its own PR. The wire change holds the `vortex.widen` wire format, the preview edition with DecimalByteParts lower parts, and the decimal `Narrow` scheme |
-| 2, foundations | N7 fixed-width kernels. N8 scaled-integer kernels, used first by `Timestamp` unit casts. N4 cast rules, then N21 `Duration` and `Interval`. N2 and then N3, with the decimal rules as acceptance tests. N23 engine plugins |
+| 2, foundations | N7 fixed-width kernels. N8 scaled-integer kernels, used first by `Timestamp` unit casts. N2, then N3 and N4, with the decimal rules as acceptance tests. N21 `Duration` and `Interval` after N1 and N4. N23 engine plugins |
 | 3, new types | N9 wide integers, user-visible only behind an edition (recommendation DQ5). N10 edition gates and the protobuf `oneof`. N17 FixedSizeBinary, after DQ7. N5 array validation |
 | 4, decimal kernels | N12 for precision 19 to 76. N13 rules over the view, which delete most decimal kernels. N14, which is optional. N18 and N27 |
 | 5, optional | N16, then N15 if the built-in type and an extension type become identical. N19 and N20 after N22 |

@@ -6,8 +6,9 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 # Decisions
 
 This file records the decisions that the maintainer made while reviewing these notes on
-2026-10-19, 2026-10-22, 2026-10-23 and 2026-10-26. It also lists the questions that stay open. The
-other documents follow this file. If a document disagrees with it, this file wins.
+2026-10-19, 2026-10-22, 2026-10-23, 2026-10-26, 2026-10-28 and 2026-10-29. It also lists the
+questions that stay open. The other documents follow this file. If a document disagrees with it,
+this file wins.
 
 "Settled" marks a choice of the maintainer. "Recommendation" marks a proposal of these notes that
 the maintainer has not confirmed yet.
@@ -27,6 +28,10 @@ the maintainer has not confirmed yet.
 | X7 | `ExtensionArray::try_new` checks every non-null value. A new `ExtensionArray::new_unchecked` skips the check for kernels that keep legal values | Today arrays are never checked (EXT-V1). This is a bug |
 | X8 | API changes are acceptable where correctness needs them, for example fallible constructors and private enum variants | Correctness and clear abstractions matter more than the current API |
 | X9 | Whether a validity query raises the errors of values that it skips is out of scope here | Issue [#10313](https://github.com/vortex-data/vortex/issues/10313) owns this question, and it is not specific to extension types |
+| X10 | `ExtensionStoragePushdown` ([#10566](https://github.com/vortex-data/vortex/pull/10566)) and `register_storage_ordered` ([#10616](https://github.com/vortex-data/vortex/pull/10616)) are a temporary bridge. They give `is_sorted` and `min_max` the storage order of `Date`, `Time`, `Timestamp` and `Uuid` until the declarations and rules of phase 2 exist, and phase 2 replaces them | The pushdown was needed before the design existed. It differs from the design in where the opt-in lives, in the dtype of its results, and in who can register it ([part 3](extension-types/03-design.md#a-temporary-opt-in-for-aggregates)) |
+| X11 | An extension type author can opt in to common behavior, such as equality and order, with little code. This is the goal of derives. The `Derives` flags and the derive rules in the design notes are one sketch of a mechanism, not a decision | The mechanism is not designed yet. X2 still holds: an opt-in covers values of one dtype |
+
+X1 to X9 date from 2026-10-19, and X10 and X11 from 2026-10-29.
 
 ### Open
 
@@ -37,7 +42,8 @@ the maintainer has not confirmed yet.
 | XQ3 | Do file reads check extension values, or trust the file? | Check only what memory safety needs, trust semantic constraints, and never panic on an illegal value. Offer a strict read mode that checks values |
 | XQ4 | Which values can sit in null slots? | Any value. Accessors that take a child out of its parent mask it with the validity of the parent. This also allows a storage encoding to store nulls as a reserved value |
 | XQ5 | How does an aggregate declare its result? | As a value of its input, as a bound on its input, or as neither. Only a value gets wrapped again |
-| XQ6 | Does `Uuid` order by its bytes? | No recommendation yet |
+| XQ6 | Does `Uuid` order by its bytes? | No recommendation yet. `register_storage_ordered(Uuid)` (#10616) already orders it by bytes in `is_sorted` and `min_max`, as a temporary bridge (X10) |
+| XQ7 | Which mechanism gives authors the opt-in of X11? | Start from the sketch in the design notes: flags on the dtype, which the typing check and the rules of the core functions read. Decide it together with XQ2, because both questions decide where the behavior of a type is declared |
 
 ## Decimal and new physical types
 
