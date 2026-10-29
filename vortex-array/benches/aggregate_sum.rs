@@ -302,7 +302,10 @@ fn sum_i64_nulls_scattered(bencher: Bencher) {
 fn sum_f64_nulls_scattered(bencher: Bencher) {
     let mut rng = StdRng::seed_from_u64(10);
     let data: Vec<Option<f64>> = (0..N)
-        .map(|_| rng.random_bool(0.5).then(|| rng.random_range(-1000.0..1000.0)))
+        .map(|_| {
+            rng.random_bool(0.5)
+                .then(|| rng.random_range(-1000.0..1000.0))
+        })
         .collect();
     bencher
         .with_inputs(|| {

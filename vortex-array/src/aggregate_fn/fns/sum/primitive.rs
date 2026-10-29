@@ -94,7 +94,12 @@ pub(crate) fn sum_float_all<T: NativePType>(acc: &mut f64, slice: &[T], skip_nan
 /// Only a NaN sum, which a NaN or infinities of both signs make, is summed again reading NaNs as
 /// zero. A select per lane to skip NaNs on top of the select for null lanes leaves the masked
 /// fold scalar on NEON.
-fn sum_float<T: NativePType>(acc: &mut f64, values: &[T], valid: Option<&BitBuffer>, skip_nans: bool) {
+fn sum_float<T: NativePType>(
+    acc: &mut f64,
+    values: &[T],
+    valid: Option<&BitBuffer>,
+    skip_nans: bool,
+) {
     let sum = fold_float(values, valid, |v| v);
     *acc += if skip_nans && sum.is_nan() {
         fold_float(values, valid, non_nan)
@@ -737,7 +742,10 @@ mod tests {
             PrimitiveArray::new(buffer![i64::MIN, 0, -1], Validity::NonNullable).into_array();
 
         let ctx = &mut SESSION.create_execution_ctx();
-        assert_eq!(sum(&fits, ctx)?.as_primitive().typed_value::<i64>(), Some(4));
+        assert_eq!(
+            sum(&fits, ctx)?.as_primitive().typed_value::<i64>(),
+            Some(4)
+        );
         assert!(sum(&overflows, ctx)?.is_null());
         assert!(sum(&underflows, ctx)?.is_null());
         Ok(())

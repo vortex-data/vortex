@@ -893,8 +893,8 @@ mod tests {
     ) -> VortexResult<()> {
         let array = PrimitiveArray::from_iter(values.iter().copied()).into_array();
         let mut ctx = SESSION.create_execution_ctx();
-        let result = min_max(&array, &mut ctx, NumericalAggregateOpts::default())?
-            .vortex_expect("valid");
+        let result =
+            min_max(&array, &mut ctx, NumericalAggregateOpts::default())?.vortex_expect("valid");
         assert_eq!(f32::try_from(&result.min)?.to_bits(), min.to_bits());
         assert_eq!(f32::try_from(&result.max)?.to_bits(), max.to_bits());
         Ok(())
@@ -930,8 +930,8 @@ mod tests {
 
         let late_nan = PrimitiveArray::new(late_nan, validity()).into_array();
         assert_poisoned(min_max(&late_nan, &mut ctx, KEEP_NANS)?)?;
-        let skipped = min_max(&late_nan, &mut ctx, NumericalAggregateOpts::default())?
-            .vortex_expect("valid");
+        let skipped =
+            min_max(&late_nan, &mut ctx, NumericalAggregateOpts::default())?.vortex_expect("valid");
         assert_eq!(f64::try_from(&skipped.max)?, 68.0);
 
         let only_nans = PrimitiveArray::new(only_nans, validity()).into_array();

@@ -137,6 +137,10 @@ where
     }
 
     if !skip_nans {
+        #[expect(
+            clippy::eq_op,
+            reason = "v - v is NaN only for a NaN or infinite value"
+        )]
         let non_finite = fold_floats(values, valid, seed, T::zero(), |e, v| e + (v - v), add);
         if Float::is_nan(non_finite)
             && let Some(nan) = find_nan(values, valid)
@@ -180,7 +184,9 @@ where
         ($lanes:literal) => {
             match valid {
                 None => values.fold_lanes::<$lanes, _, _, _>(init, f, merge),
-                Some(valid) => values.fold_lanes_masked::<$lanes, _, _, _>(valid, null, init, f, merge),
+                Some(valid) => {
+                    values.fold_lanes_masked::<$lanes, _, _, _>(valid, null, init, f, merge)
+                }
             }
         };
     }

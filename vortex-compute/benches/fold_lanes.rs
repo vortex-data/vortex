@@ -40,7 +40,9 @@ fn floats() -> Vec<f64> {
 
 fn ints() -> Vec<i64> {
     let mut rng = StdRng::seed_from_u64(1);
-    (0..N).map(|_| rng.random_range(-1_000_000..1_000_000)).collect()
+    (0..N)
+        .map(|_| rng.random_range(-1_000_000..1_000_000))
+        .collect()
 }
 
 fn valid(density: f64) -> BitBuffer {
@@ -209,11 +211,13 @@ fn checked_sum_i64_lanes(bencher: Bencher) {
 fn checked_sum_i64_masked_runs(bencher: Bencher, density: f64) {
     let (values, runs) = (ints(), runs(&valid(density)));
     bencher.bench(|| {
-        divan::black_box(&runs).iter().try_fold(0i64, |acc, &(start, end)| {
-            values[start..end]
-                .iter()
-                .try_fold(acc, |a, &v| a.checked_add(v))
-        })
+        divan::black_box(&runs)
+            .iter()
+            .try_fold(0i64, |acc, &(start, end)| {
+                values[start..end]
+                    .iter()
+                    .try_fold(acc, |a, &v| a.checked_add(v))
+            })
     });
 }
 
