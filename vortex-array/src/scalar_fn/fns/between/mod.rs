@@ -322,13 +322,12 @@ impl ScalarFnVTable for Between {
         let lower = args.get(1)?;
         let upper = args.get(2)?;
 
-        // canonicalize the arr and we might be able to run a between kernels over that.
+        // Execute the array a single step and re-wrap it, so the executor can try between kernels
+        // on the intermediate encoding before falling back to canonical.
         if !arr.is_canonical() {
-            return arr.execute::<Canonical>(ctx)?.into_array().between(
-                lower,
-                upper,
-                options.clone(),
-            );
+            return arr
+                .execute::<ArrayRef>(ctx)?
+                .between(lower, upper, options.clone());
         }
 
         between_canonical(&arr, &lower, &upper, options, ctx)
@@ -355,6 +354,7 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::DecimalArray;
+    use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
@@ -444,6 +444,36 @@ mod tests {
             declared
         );
 
+        Ok(())
+    }
+
+    /// Non-constant bounds keep the dictionary from pushing between into its values, so execution
+    /// reaches the non-canonical branch of [`Between::execute`].
+    #[test]
+    fn non_canonical_array() -> VortexResult<()> {
+        let ctx = &mut SESSION.create_execution_ctx();
+
+        let codes = PrimitiveArray::from_option_iter([Some(0u8), Some(1), None, Some(2), Some(1)]);
+        let values = buffer![1i32, 5, 9].into_array();
+        let array = DictArray::try_new(codes.into_array(), values)?.into_array();
+        assert!(!array.is_canonical());
+
+        let result = Between::try_new(
+            array,
+            buffer![2i32, 2, 2, 2, 6].into_array(),
+            buffer![9i32, 9, 9, 9, 9].into_array(),
+            BetweenOptions {
+                lower_strict: StrictComparison::NonStrict,
+                upper_strict: StrictComparison::Strict,
+            },
+        )?
+        .into_array();
+
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([Some(false), Some(true), None, Some(false), Some(false)]),
+            ctx
+        );
         Ok(())
     }
 
