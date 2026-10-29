@@ -37,10 +37,11 @@ Each helper has one owner. Later PRs use it and do not add their own.
 | Helper | Owner | Users | Contract |
 | --- | --- | --- | --- |
 | `DecimalDType::canonical_values_type()` | CD3 | Every later PR | The canonical width of the precision (D12) |
-| `copy_to_canonical_width` | CD3 | CD3 imports, CD4 execution, CD5 decoding, CD6 old nodes | Public in `vortex_array::arrays::decimal`. A narrowing copy writes zeros in null slots and fails on a valid value outside the target precision (D13, D21). A widening copy checks nothing |
+| `copy_to_canonical_width` | CD3 | CD3 imports, CD4 execution and `WidenArray::from_stored_decimal` | Public in `vortex_array::arrays::decimal`. A narrowing copy writes zeros in null slots and fails on a valid value outside the target precision (D13, D21). A widening copy checks nothing. CD3c makes the widening loop fast |
 | `check_precision` | CD3 | The zero-copy imports of CD3, `try_new` in CD8b | Public. Fails on a valid value outside the precision. It takes a `Mask`, so it needs no `ExecutionCtx` |
-| The best child dtype for a range | CD4 | `WidenArray::encode_decimal`, CD6, the `Narrow` scheme of WR3 | Public. From the min and max of the valid values, or no range, and a parent `DecimalDType`, it returns the dtype with the same scale and the smallest precision that holds the range and the scale (D10) |
-| `WidenArray::encode_decimal` | CD4 | WR3 | A `Widen` over the child at the best precision, or the input when that precision has the canonical width of the input |
+| `smallest_decimal_dtype` | CD4 | `WidenArray::encode_decimal` and `WidenArray::from_stored_decimal` | Crate-private (D40). From the min and max of the valid values, or no range, and a parent `DecimalDType`, it returns the dtype with the same scale and the smallest precision that holds the range and the scale (D10). Code outside `vortex-array` calls one of the two functions that use it |
+| `WidenArray::encode_decimal` | CD4 | WR3 | A `Widen` over the child at the best precision, or the input when that precision has the canonical width of the input. It always scans the valid values. It shares its core with `from_stored_decimal`, so the child reuses the input buffer when the stored width is the child width, and the child records the exact extrema of the scan |
+| `WidenArray::from_stored_decimal` | CD4 | CD5 decoding, CD6 old nodes | The single owner of the choice between the canonical array and a `Widen` for stored values (D40). It takes `DecimalDataParts` at any stored width and `known_range: Precision<RangeInclusive<i256>>`. It checks the buffer length, the alignment and the validity length first. At the canonical width it returns the canonical array with no copy and no scan, also for a device buffer. Otherwise it copies to the host. `Absent` scans, `Exact` is the exact extrema, and `Inexact` is a bound. The child records the range as `Stat::Min` and `Stat::Max`, exact only for a scan or an `Exact` range |
 | `WidenArray::encode_values` | WD1 | CD7 (the DecimalByteParts MSP), WD6 | Deprecated (D28). The narrowed child with the same signedness, without a `Widen` |
 
 No decimal twin of `encode_values` exists. A caller that needs the child calls `encode_decimal` and
@@ -682,17 +683,18 @@ their values in CD3 (D30).
 - Goal: The `Widen` encoding accepts decimal children under D10, and its kernels and the decimal
   cast follow D15. Compare, min and max run on the narrower child, with the result of the parent.
   A sum runs on the child only with the optional decimal branch for `Sum` with `skip_nans`.
-- Depends on: WD1, WD3, WD4, CD3, CD1. Soft: WD2 (bench file layout), WD5 (its structural rules
-  also hold for decimals). Blocks: CD6, CD8a, WR1, WR3.
+- Depends on: WD1, WD3, WD4, CD3, CD3b, CD4p, CD1. Soft: WD2 (bench file layout), WD5 (its
+  structural rules also hold for decimals). Merges after CD3c, which it does not need (D41).
+  Blocks: CD4b, CD5, CD6, CD8a, WR1, WR3.
 - Decisions: D10, D15, D4, D8 (one encoding for integers and decimals, in memory only), D19, D25,
-  D26, D36.
-- Branch: `ct/decimal-narrow`, based on `develop` after WD1, WD3, WD4, CD1 and CD3 merge.
+  D26, D36, D40.
+- Branch: `ct/decimal-widen` (#10946), off `develop`.
 - Scope: Open `validate_dtypes` for decimals, and add decimal execution and a decimal encoder. Add
-  decimal branches to the compare, cast and fill-null kernels, and optionally a decimal branch to
-  the sum kernel. Change the decimal cast kernel for D15. Decide D26: a widening decimal cast now
-  returns a `Widen`, so IPC and writers without a compressor can meet one. Choose between a
-  lowering specific to `Widen`, a generic lowering for arrays that cannot be written, and no
-  lowering, and put that choice to the maintainer before writing it. Add tests and benchmarks.
+  decimal branches to the compare, cast and fill-null kernels, and a decimal branch to the sum
+  kernel. Change the decimal cast kernel for D15. Add `WidenArray::from_stored_decimal` (D40) and
+  the serializer lowering of D26, because a widening decimal cast now returns a `Widen`. Add tests
+  and benchmarks. "Added commits" below lists the work that the plan of 2026-10-29 added, and it
+  wins where it differs from the notes above it.
 - Out of scope: The `vortex.widen` wire form (WR1). The compressor scheme (WR3). The read plugin
   (CD6). A strict `try_new` (CD8a). Arithmetic, zip and merges on decimal `Widen`, which decline
   and fall back. A cast rule that wraps a DBP or other encoded decimal in a `Widen` without
@@ -734,7 +736,7 @@ Files. The `widen` module comes from WD1 to WD4, so its lines are not on `b70206
 | `vortex-array/src/arrays/widen/encode.rs` | `WidenArray::encode_decimal` and the precision helper |
 | `vortex-array/src/arrays/widen/compare.rs` | Decimal branches |
 | `vortex-array/src/arrays/widen/rules.rs` | Decimal `CastReduce` and `FillNullReduce` |
-| `vortex-array/src/arrays/widen/aggregates.rs` | The extrema, `IsConstant` and `IsSorted` kernels need no change (D36). Optional: a decimal branch in `WidenSumKernel`, for `Sum` with `skip_nans` only |
+| `vortex-array/src/arrays/widen/aggregates.rs` | The extrema, `IsConstant` and `IsSorted` kernels serve decimals (D36). `MinMax` calls `min_max` on the child. A decimal branch serves `Sum` with `skip_nans` only |
 | `vortex-array/src/arrays/decimal/compute/cast.rs` | The D15 rule in `CastReduce` (`:45-82`) and `CastKernel` (`:84-170`) |
 | `vortex-array/src/arrays/widen/tests/decimal.rs` | New tests, registered in `narrow/tests/mod.rs` |
 | The `Widen` bench file of WD2, or `vortex-array/benches/` | Decimal `Widen` benches |
@@ -774,14 +776,17 @@ Design notes:
   }
   ```
 
-  - It takes the min and max of the valid values with `min_max`.
-  - A public function returns the best child dtype (see Shared helpers): the smallest precision
-    `p`, at least 1 and at least a positive scale, with `MIN_BY_PRECISION[p] <= min` and
-    `max <= MAX_BY_PRECISION[p]`. An empty or all-null array gets that lower bound.
-  - When the child width is narrower than the parent width, it copies with
-    `copy_to_canonical_width` and wraps the child in a `Widen`.
-  - This is the producer rule of D10. CD6 and WR3 reuse the function, so that one function owns
-    the child label. A false label gives wrong answers in the compare shortcut and in casts.
+  - It takes the min and max of the valid values with `valid_range` (CD3b).
+  - The crate-private `smallest_decimal_dtype` returns the best child dtype (see Shared helpers):
+    the smallest precision `p`, at least 1 and at least a positive scale, with
+    `MIN_BY_PRECISION[p] <= min` and `max <= MAX_BY_PRECISION[p]`. An empty or all-null array gets
+    that lower bound.
+  - When the child width is narrower than the parent width, it reuses the buffer if the stored
+    width is the child width, and otherwise copies with `copy_to_canonical_width`. It wraps the
+    child in a `Widen`.
+  - This is the producer rule of D10. `WidenArray::from_stored_decimal` (D40) shares the same core,
+    and CD5, CD6 and WR3 call one of the two, so that one function owns the child label. A false
+    label gives wrong answers in the compare shortcut and in casts.
 - Compare with a constant (the constant has the parent dtype, `af4b663059:.../compare.rs:48-50`):
   - If the constant casts to the child dtype, compare the child with it. The decimal scalar cast
     checks the precision (`vortex-array/src/scalar/typed_view/decimal/dvalue.rs:158-182`,
@@ -802,12 +807,12 @@ Design notes:
   - The WD3 sum kernel declines decimal children. A decimal `Sum` or `SumV2` takes the default
     path, which executes the `Widen` to the parent decimal and sums in
     `sum_decimal_dtype(parent)`. That is exact, so CD4 needs only tests for it.
-  - CD4 can add a decimal branch to `WidenSumKernel`, for `Sum` with `skip_nans` only. That is the
-    one configuration whose parent path also sums each batch from zero, through the stats bridge.
-    The branch calls `accumulate_decimal` on the child with the sum dtype of the parent
-    (`vortex-array/src/aggregate_fn/fns/sum/decimal.rs:27-61`), which reads any input width into
-    the width of that dtype. It needs no length bound, because it checks the adds per value, and it
-    never widens the child buffer. Test it with the WD3 oracle, including a running overflow.
+  - CD4 adds a decimal branch to the `Widen` aggregate kernel, for `Sum` with `skip_nans` only.
+    That is the one configuration whose parent path also sums each batch from zero, through the
+    stats bridge. The branch runs `Sum.accumulate` with the `AggregateArgs` of the parent on the
+    columnar child, which reads any input width into the width of the parent sum dtype, and keeps
+    a `Constant` child unexpanded. It needs no length bound, because it checks the adds per value,
+    and it never widens the child buffer. Test it with the WD3 oracle, including a running overflow.
   - The accumulator rejects a batch whose dtype differs from its input dtype
     (`vortex-array/src/aggregate_fn/accumulator.rs:237`). So no path feeds the child to an
     accumulator of the parent dtype.
@@ -842,8 +847,8 @@ Steps:
 1. Open `validate_dtypes` for decimals and update the docs.
 2. Add decimal execution and `encode_decimal`.
 3. Add the decimal compare branches.
-4. Confirm with tests that decimal sums use the parent result dtype (D36). If CD4 adds the decimal
-   branch to `WidenSumKernel`, it covers `Sum` with `skip_nans` only.
+4. Confirm with tests that decimal sums use the parent result dtype (D36). The decimal branch of
+   the sum kernel covers `Sum` with `skip_nans` only.
 5. Add the D15 cast rules on `Widen` and on the decimal leaf, and the fill-null branch.
 6. Add the conformance and fallback tests.
 7. Add the benchmarks.
@@ -896,7 +901,7 @@ Tests, in `vortex-array/src/arrays/widen/tests/decimal.rs`, as functions that re
 - `test_decimal_structural_pull_up`: the WD5 rules move `Dict`, `Constant` and `Chunked` above a
   decimal `Widen`, with equal values.
 - `test_decimal_widen_serializes_as_canonical`: a decimal `Widen` serializes as a canonical
-  `vortex.decimal` node at the parent width, if CD4 adds a lowering (D26).
+  `vortex.decimal` node at the parent width (D26). "Added commits" lists the tests that landed.
 - Conformance: run `test_array_consistency`, `test_cast_conformance`, `test_filter_conformance`,
   `test_take_conformance` and `test_mask_conformance` (`vortex-array/src/compute/conformance/`) on
   nullable and non-nullable decimal `Widen` arrays.
@@ -920,8 +925,8 @@ Operations:
 - `cast_widen`, to `Decimal(38, 2)` or to `Decimal(76, 2)` for the `p38` case, then execute.
 
 Expected in CodSpeed: `compare_constant`, `min_max` and `filter` are equal to or faster than the
-baseline, because the child is narrower. `sum` is equal or faster only with the optional decimal
-branch of the sum kernel. Without it, `sum` on the `Widen` pays one decode before the sum.
+baseline, because the child is narrower. `sum` is equal or faster, through the decimal branch of
+the sum kernel.
 `compare_constant_out_of_range` is much faster, because it reads no values. `execute` costs one
 widening copy. Compare it with the DBP `decode` of CD1 when the D19 cost comes up. The CD1 case
 `widen_*` in `cast_decimal.rs` stays similar or gets faster.
@@ -948,231 +953,253 @@ the same name.
 Size: large. One encoding opens for a second type, with four kernels, the cast kernel and broad
 tests.
 
+Added commits. The plan of 2026-10-29 kept the first seven commits of #10946 and added these:
+
+1. "Execute decimal Widen values through the scheduler". Decimal execution asks for a `Decimal`
+   child with `require_child!(.., WidenSlots::VALUES => Decimal)`, as DecimalByteParts does, in
+   place of a recursive `execute`. The copy into the parent canonical width stays.
+2. "Read stored decimal values into a canonical array or a Widen". `WidenArray::from_stored_decimal`
+   in `widen/encode.rs` (D40, see Shared helpers). `encode_decimal` shares its private core, still
+   always scans, and now reuses the buffer when the stored width is the child width.
+   `smallest_decimal_dtype` becomes crate-private. The fields of `DecimalDataParts` get docs.
+3. "Read Widen extrema from the statistics of the values". The `MinMax` branch of the aggregate
+   kernel calls `min_max` on the child, which returns exact cached extrema before it scans. `Min`
+   and `Max` already read statistics through the `Stat` bridge.
+4. "Sum decimal Widen values with the sum dtype of the logical dtype". The decimal `Sum` branch
+   above (D36). It serves a batch only when `Stat::from_aggregate_fn` is `Some(Stat::Sum)`. Its doc
+   gives the exactness argument and the `Decimal(13, 0)` counterexample that keeps `SumV2` and
+   sums without `skip_nans` on the default path. It never reads or caches `Stat::Sum` on the child.
+5. "Write Widen arrays as their canonical arrays". The D26 lowering in
+   `ArraySerializationTree::try_new` (`vortex-array/src/serde.rs`). A `Widen` executes to
+   `RecursiveCanonical` with `session.create_execution_ctx()`, inherits the `Widen` statistics, and
+   recurses. It carries a `TODO(connor)[Widen]`: when `vortex.widen` gets a wire form, it stays only
+   for contexts that do not permit that ID.
+6. "Document the decimal Widen contracts". The decimal child-label rule in `widen/mod.rs` and
+   `widen/array.rs`, the D15 arguments in the decimal cast and fill-null branches, and the note that
+   a decimal precision range is symmetric about zero in the compare shortcut. It renames
+   `widens_canonical_decimal_values` to `grows_canonical_width`, and a widening cast that wraps a
+   decimal array in a `Widen` keeps its statistics on the child.
+
+Tests of the added commits:
+
+- `widen/tests/decimal_stored.rs`: `test_from_stored_decimal` (`rstest`) covers canonical reuse, a
+  child stored at its own width, narrowing and widening copies, no narrower child, the scale bound,
+  a negative boundary, `i128` and `i256` stored widths, all null and empty. Other tests cover
+  trusting the canonical width, a value outside the precision, null slots, a known range, the
+  recorded extrema, a malformed buffer, and `encode_decimal` against `from_stored_decimal`.
+- Sum: `test_decimal_sum_uses_logical_precision` changes, and `test_decimal_sum_running_overflow`,
+  `test_decimal_sum_at_precision_bound` and `test_decimal_sum_ignores_values_statistics` are new.
+- Lowering: in `serde.rs`, integer and decimal `Widen`, a `Widen` nested in a struct and a chunked
+  array, kept statistics, a restricted context, and the lowering before the plugin lookup. Also
+  `array_ipc_writes_widen_as_canonical` in `vortex-ipc/src/messages/decoder.rs` and
+  `flat_writes_widen_as_canonical` in `vortex-layout/src/layouts/flat/writer.rs`.
+- Empty and all-null inputs in `test_precision_growth_is_lazy`, and compares under a
+  `Decimal(76, s)` parent.
+
+The acceptance checks also run `cargo nextest run -p vortex-ipc -p vortex-layout -p vortex-file`.
+
 Open questions: None. Whether a cast of a DBP array, or of another encoded decimal, to a wider
 canonical width wraps it in a `Widen` without decoding is left to the design pass of WR3.
 
-### CD5: DecimalByteParts decodes to the canonical width
+### CD5: DecimalByteParts decodes to the canonical array or a decimal `Widen`
 
-- Goal: Decoding DecimalByteParts produces the canonical decimal array of its dtype, and every lower
-  part has the dtype `u64`. Today decoding reuses the MSP buffer at the MSP width, a form that D3
+This brief replaces the first design of #10905, which widened every narrow MSP with a copy. That
+design regressed CodSpeed by up to 11x on decode, and by 1.3x to 2.6x on min and max, sum and
+filter. Every default-written decimal column whose values are small for its precision has a narrow
+MSP, so this is the common read path. The plan of 2026-10-29 made CD5 depend on CD4 and folded
+LT2 into it (D16).
+
+- Goal: Decoding DecimalByteParts returns the canonical decimal array of its dtype, or a decimal
+  `Widen` over a narrower child, through `WidenArray::from_stored_decimal` (D40). Every lower part
+  has the dtype `u64`. Today decoding reuses the MSP buffer at the MSP width, a form that D3
   removes.
-- Depends on: CD1, CD3, and the published CD2 fixtures (D31). Blocks: CD8a.
-- Shares files with CD7 (see the CD7 brief). Do not run CD5 and CD7 at the same time.
-- Decisions: D16, D21, D29, D3, D12, D14.
-- Branch: `ct/dbp-canonical-decode`, based on `develop` after CD3 merges, or stacked on CD3.
+- Depends on: CD1, CD3, CD4, and the CD2 fixtures in 0.91.0 (D31). Blocks: CD7, CD8a.
+- Decisions: D16, D21, D29, D3, D12, D14, D40, D42.
+- Branch: `ct/dbp-canonical-decode` (#10905), stacked on CD4 (`ct/decimal-widen`).
 - Scope:
-  - Decoding to the canonical width in `assemble_decimal` and in the CUDA decoder.
   - The `u64` rule for lower parts, and the bound on the lower-part count (D29), in the
     constructor, the v2 reader and the assembler.
-  - The module and type docs, and the tests and the bench that build narrow lower parts.
+  - `assemble_decimal` returns the canonical array or a decimal `Widen` (design notes).
+  - The benchmarks that decode stop at a `Widen` (D42).
+  - The CUDA decoder returns the canonical width.
+  - The crate, module and type docs, and the tests and the bench that build narrow lower parts.
 - Out of scope:
-  - The max pass that returns a `Widen` (LT2). This PR adds only its `TODO(connor)`.
   - Sum, min and max pushdown into the MSP (LT3).
   - The compressor scheme (CD7).
   - The cast rule in `compute/cast.rs`. It pushes the cast into the MSP, a form that #10798
     documents as valid, so it stays as it is.
+  - A `Widen` kernel on the GPU.
   - Strict `DecimalArray` construction (CD8a).
 
-Files (checked at `b70206818f`):
+Files:
 
 | Path | Change |
 | --- | --- |
-| `encodings/decimal-byte-parts/src/decimal_byte_parts/mod.rs:16` | The doc line that allows narrower parts changes. The MSP is a signed integer of at most 64 bits, and every lower part is `u64` |
-| `encodings/decimal-byte-parts/src/decimal_byte_parts/mod.rs:62-63` | `LOWER_PART_DTYPE` doc: the dtype of every lower part, not "before any narrowing" |
-| `encodings/decimal-byte-parts/src/decimal_byte_parts/array.rs:57-58` | Type doc: only the MSP can use a narrower dtype |
-| `encodings/decimal-byte-parts/src/decimal_byte_parts/array.rs:105-118` | `DecimalBytePartsData::validate` requires `part.dtype() == &LOWER_PART_DTYPE`, and a lower-part count whose assembled width is at most the canonical width (D29) |
-| `encodings/decimal-byte-parts/src/decimal_byte_parts/array.rs:139-149`, `:167-173` | Constructor docs and the `new_unchecked` safety text name `u64` |
-| `encodings/decimal-byte-parts/src/decimal_byte_parts/array.rs:372` | Comment on "narrowed lower value" goes |
-| `encodings/decimal-byte-parts/src/decimal_byte_parts/assemble.rs:32-160` | Canonical-width assembly (design notes), the same `u64` check as the constructor, the `TODO(connor)`, and removal of the lower-part cast and its `TODO(mk)` at `:107-116` |
-| `encodings/decimal-byte-parts/src/decimal_byte_parts/plugin/v2.rs:92-104` | The v2 reader requires `PType::U64` for every lower part |
-| `encodings/decimal-byte-parts/src/lib.rs:7-14` | Crate doc: narrowing applies to the MSP only |
-| `encodings/decimal-byte-parts/src/decimal_byte_parts/array.rs`, `assemble.rs`, `plugin/tests.rs` | Tests (see Tests) |
-| `encodings/decimal-byte-parts/benches/dbp_assemble.rs:158-179` | `dbp_assemble_narrowed` uses `u64` lower parts |
-| `vortex-cuda/src/kernel/encodings/decimal_byte_parts.rs:43-118` | Canonical width on the GPU, and tests |
-| `vortex-cuda/src/arrow/canonical.rs:507` | Move `decimal_cast` to a crate-private module that the export and the DecimalByteParts decoder share |
-| `vortex-cuda/kernels/src/decimal_cast.cu:46-102` | Add an `int16_t` output and the `decimal_cast_<input>_i16` kernels |
+| `encodings/decimal-byte-parts/src/decimal_byte_parts/array.rs` | `DecimalBytePartsData::validate` requires `u64` lower parts and the D29 bound. Type, constructor and safety docs name `u64`. Tests |
+| `encodings/decimal-byte-parts/src/decimal_byte_parts/mod.rs` | Module doc and the `LOWER_PART_DTYPE` doc |
+| `encodings/decimal-byte-parts/src/decimal_byte_parts/assemble.rs` | `assemble_decimal`, the private `msp_range` and `assemble_natural_width`, and tests |
+| `encodings/decimal-byte-parts/src/decimal_byte_parts/split.rs` | `DecimalByteParts::encode` uses the checked constructor |
+| `encodings/decimal-byte-parts/src/decimal_byte_parts/plugin/v2.rs` | The v2 reader requires `PType::U64` for every lower part |
+| `encodings/decimal-byte-parts/src/decimal_byte_parts/plugin/tests.rs` | Round-trip and rejection cases |
+| `encodings/decimal-byte-parts/src/lib.rs` | The crate doc moves from `///` to `//!` and describes the new decode |
+| `encodings/decimal-byte-parts/benches/dbp_compute.rs` | `decode` and `filter` stop at a `Widen`. New `canonicalize` bench |
+| `encodings/decimal-byte-parts/benches/dbp_assemble.rs` | `dbp_assemble_narrowed` uses `u64` lower parts |
+| `vortex/benches/common_encoding_tree_throughput.rs` | `decompress` stops at a `Widen` |
+| `vortex-cuda/src/kernel/encodings/decimal_byte_parts.rs` | Canonical width on the GPU, and tests |
+| `vortex-cuda/src/kernel/decimal_cast.rs` (new), `vortex-cuda/src/arrow/canonical.rs` | `decimal_cast` moves to a crate-private module that the export and the decoder share |
+| `vortex-cuda/kernels/src/decimal_cast.cu` | An `int16_t` output and the `decimal_cast_<input>_i16` kernels |
 
 Design notes:
 
-`assemble_decimal(msp, lower_parts, decimal_dtype, ctx)` keeps its signature. It returns a decimal
-array whose width is `T = decimal_dtype.canonical_values_type()`. The assembled width `A` is the MSP
-width with no lower parts, `i128` with one lower part, and `i256` with two or three.
+`assemble_decimal(msp, lower_parts, decimal_dtype, ctx)` keeps its signature. The parts first
+assemble at their natural width `A`: the MSP width with no lower parts, `i128` with one lower
+part, and `i256` with two or three. D29 bounds the lower parts, so only a lone MSP can be wider
+than the canonical width `T`. Then `from_stored_decimal` picks the result.
 
-| Lower parts | Case | Result |
-| --- | --- | --- |
-| 0 | `A == T` | Reuse the MSP buffer. No copy and no scan |
-| 0 | `A < T` | Widening copy into `T`. This branch holds the `TODO(connor)` |
-| 0 | `A > T` | `copy_to_canonical_width` into `T` (only for precision 1 to 9, because the MSP is at most `i64`) |
-| 1 | `T == i128` | Assemble into `i128`, as today |
-| 1 | `T == i256` | Assemble straight into `i256` with `assemble_wide_decimal::<i256, Msp, 1>`, which sign-extends the MSP |
-| 2 or 3 | `T == i256` | Assemble into `i256`, as today |
+| Lower parts | Case | Range passed to the helper | Result |
+| --- | --- | --- | --- |
+| 0 | `A == T` | `Precision::Absent`, which is never read | The canonical array reuses the MSP buffer. No copy and no scan |
+| 0 | `A != T` | `Precision::Exact` from `msp_range` | A `Widen` over the child at the smallest precision, which reuses the MSP buffer when `A` is the child width. Otherwise the canonical array, copied |
+| 1 | `T == i128` | Not read | The canonical array reuses the assembled `i128` buffer |
+| 1 | `T == i256` | `Precision::Absent`, so the helper scans | A `Widen` or the canonical array |
+| 2 or 3 | `T == i256` | Not read | The canonical array reuses the assembled `i256` buffer |
 
-- The constructor rejects a lower-part count whose assembled width is wider than the canonical
-  width (D29). So precision up to 18 allows no lower parts, precision 19 to 38 allows at most one,
-  and precision 39 to 76 allows any count. Assembly with lower parts then never needs a narrowing
-  copy. No file breaks, because no edition permits v2.
+- `msp_range` calls `min_max` on the MSP. It returns exact cached `Stat::Min` and `Stat::Max`
+  when the MSP has them, and otherwise it makes one vectorized integer pass and caches the result
+  on the MSP. The child then records the range as exact extrema, so a later `min_max` on the
+  result reads them without a scan. `valid_range` is not used here, because it is not vectorized.
+- Statistics survive `require_child!` stepping in the executor, so file reads of BitPacked or
+  uncompressed MSPs skip the pass. A FoR MSP and the benchmarks make it.
 - A path without a copy trusts the precision (D14). A narrowing copy checks it (D21). A widening
-  copy from a narrower width cannot leave the precision.
-- Build every result with `DecimalArray::new_unchecked`. The SAFETY comment says that the width is
-  the canonical width and that reads trust the precision. So CD8b adds no scan to decoding.
-- The `TODO(connor)` at the widening branch reads:
-
-  ```rust
-  // TODO(connor): Find the max of a narrow MSP and return a `Widen` over a child that reuses
-  // its buffer, once benchmarks show that this widening copy costs too much.
-  ```
-
+  copy from a narrower width cannot leave it. A lone MSP wider than the canonical width can become
+  a `Widen` too, with a narrowing copy into the child.
 - The `u64` rule: the constructor, `assemble_decimal` and the v2 reader reject `u8`, `u16` and `u32`
   lower parts. The error text names `u64`. No file breaks: no edition permits v2, and the v2 compat
-  fixture is disabled
-  (`vortex-test/compat-gen/src/fixtures/arrays/synthetic/encodings/mod.rs:46-47`).
-- `scalar_at` (`array.rs:360-401`) keeps returning `DecimalValue::I64` with no lower parts. A scalar
-  accepts any width that fits its precision (`vortex-array/src/scalar/validate.rs:58-60`).
-- CUDA: `decimal_byte_parts.rs:49-65` reuses the MSP buffer at the MSP width today. Keep the error
-  for lower parts at `:45-47`. With `A == T`, reuse the buffer. With `A < T`, widen on the device
-  with `decimal_cast::<S, T>`. Its kernel has outputs `i32`, `i64`, `i128` and `i256`
-  (`decimal_cast.cu:80-102`), so precision 3 to 4 with an `i8` MSP needs the new `i16` output. With
-  `A > T`, return an error, as for lower parts. A device narrowing copy needs an overflow flag that
-  synchronizes with the host (`vortex-cuda/src/arrow/canonical.rs:433-437`).
-- Keep the CUDA change minimal and in its own commit, and ask for a review from someone who
-  knows the CUDA code. If it grows beyond the device widening and the new `i16` output, move it
-  to its own PR.
+  fixture is disabled.
+- `scalar_at` keeps returning `DecimalValue::I64` with no lower parts. A scalar accepts any width
+  that fits its precision.
+- CUDA: the GPU still decodes to the canonical width, because CUDA has no `Widen` kernel. Keep the
+  error for lower parts. With `A == T`, reuse the buffer. With `A < T`, widen on the device with
+  the shared `decimal_cast`, which gains an `i16` output for an `i8` MSP at precision 3 to 4. With
+  `A > T`, return an error. Narrowing must check the precision, and that check on the device needs
+  an overflow flag that synchronizes with the host. The CUDA Arrow export already rejects storage
+  wider than the Arrow width. Keep this change in its own commit, and ask for a review from someone
+  who knows the CUDA code.
 
 Steps:
 
-1. Require `u64` lower parts in the constructor, the assembler and the v2 reader. Fix the docs.
-   Remove the lower-part cast. Update the tests and the bench that build narrow lower parts.
-2. Make `assemble_decimal` return the canonical width, as the table shows, with the `TODO(connor)`.
-   Add the CPU tests.
-3. In a separate commit, make the CUDA decoder return the canonical width. Add the `i16` kernel
-   output and the GPU tests.
+1. "Require u64 lower parts in DecimalByteParts": the constructor, the assembler and the v2
+   reader. Fix the docs. Remove the lower-part cast. Update the tests and the bench that build
+   narrow lower parts.
+2. "Stop the DecimalByteParts benchmarks at a Widen" (D42): `decode` and `filter` in
+   `dbp_compute.rs` and `decompress` in `common_encoding_tree_throughput.rs` use
+   `execute_until::<Widen>`. A new `canonicalize` bench keeps `execute::<DecimalArray>`.
+3. "Decode DecimalByteParts into the canonical array or a decimal Widen": the design notes above.
+   Remove the path that assembled one lower part straight into `i256`.
+4. "Decode DecimalByteParts on the GPU at the canonical width", in its own commit.
 
 Tests:
 
-- New in `assemble.rs`:
-  - `test_assemble_returns_canonical_width` (`rstest`): MSP ptype and precision `(I8, 2)` reuse,
-    `(I8, 4)`, `(I32, 18)`, `(I64, 38)`, `(I16, 76)` widen, and `(I64, 9)`, `(I32, 2)` narrow, each
-    with and without nulls. It asserts `values_type()` against
-    `decimal_dtype.canonical_values_type()` and the values.
-  - `test_assemble_reuses_msp_buffer`: pointer equality when the MSP width is the canonical width.
-  - `test_assemble_narrowing_copy_zeroes_null_slots`: an `i64` MSP at `Decimal(2, 0)` with 1000 in a
-    null slot gives 0 in that slot.
-  - `test_assemble_narrowing_copy_rejects_value_outside_precision`: an `i64` MSP at `Decimal(2, 0)`
-    with the valid value 100 fails. 100 fits `i8` but not precision 2.
-  - `test_assemble_widening_sign_extends`: an `i8` MSP with -1 at precision 40 gives `i256` -1.
-  - `test_assemble_lower_parts_canonical_width` (`rstest`) with these cases:
-    - One lower part at precision 40 gives `i256`.
-    - One lower part at precision 38 gives `i128`.
-    - Three lower parts at precision 76 give `i256`.
-- New in `array.rs`: cases `u8_lower_part`, `u16_lower_part` and `u32_lower_part` in
-  `test_rejects_invalid_parts` (`:661-679`). Also `one_lower_part_at_p18` and
-  `three_lower_parts_at_p38`, which break the bound of D29.
-- New in `plugin/tests.rs`: case `v2_narrow_lower_part` with `PType::U32` in
-  `decoder_rejects_malformed_payloads` (`:151-207`).
-- Changed:
-  - `array.rs:579-651` `test_independently_narrowed_parts` becomes
-    `test_narrow_msp_with_u64_lower_parts`. It keeps every MSP ptype and lower-part count, with the
-    high bit set in each word, and drops the narrow lower ptypes.
-  - `plugin/tests.rs:66-85` cases `narrowed_lower_parts` and `nullable_mixed_lower_parts` keep their
-    narrow MSPs and use `u64` lower parts.
-  - `plugin/tests.rs:46-60`: case `wider_i64_storage` builds an `i64` MSP with no lower parts at
-    `Decimal(2, 0)`, so it covers the narrowing decode without a non-canonical `DecimalArray`. Cases
-    `wider_i128_storage` and `wider_i256_storage` become rejection cases, because one or three
-    lower parts at precision 2 break the bound of D29.
-  - `plugin/tests.rs:61-65` builds three lower parts at precision 38. It moves to precision 76.
-  - `plugin/tests.rs:182-187` case `v2_signed_lower_part` expects the new message.
-  - `assemble.rs:369-386` `test_split_narrow_decimal_reuses_values` uses `i32` at `Decimal(9, 0)`
-    and asserts reuse on split and on decode.
-  - `assemble.rs:388-409` `test_assemble_rejects_invalid_lower_dtype` gets a `u32` case.
-  - CUDA `decimal_byte_parts.rs:90-118` asserts the canonical width. New cases: `i8` at precision 3
-    (the new `i16` kernel), `i64` at precision 40, `i32` at precision 9 (reuse), and `i64` at
-    precision 4 (error).
-- No existing test asserts a narrow decoded width. The `values_type()` asserts at `array.rs:703`,
-  `:707`, `:716`, `:729`, `assemble.rs:266` and `prop_tests.rs:144` expect canonical widths. Outside
-  the crate, a search for `values_type()` asserts found no decoded DecimalByteParts width. Not
-  verified for tests that read buffers with `buffer::<T>()` after a decode.
-- `prop_tests.rs` needs no change, because `draw_encoded` draws `u64` lower parts (`:113-119`).
+- `test_assemble_result_form` (`rstest`): canonical reuse, a trusted precision, narrow reuse, a gap
+  child, the gap fallback to canonical, a high scale, a negative minimum, wider to canonical, wider
+  to `Widen`, an `i8` MSP at precision 76, all null and empty.
+- `test_assemble_lower_parts_result_form`, `test_assemble_prefers_cached_msp_range`,
+  `test_assemble_ignores_inexact_stats` and `test_assemble_records_exact_child_extrema`.
+- `test_execute_keeps_stats_of_encoded_msp` in `array.rs`: the exact statistics of an encoded MSP
+  reach the child label, for `execute_until::<Widen>` and for single-step execution.
+- `test_execute_until_widen_matches_bench_cases` pins the form of each bench case.
+- The narrowing copy zeroes null slots and rejects a value outside the precision. A widening copy
+  sign-extends. `test_assemble_reuses_msp_buffer` checks pointer equality.
+- The `u64` rule: cases `u8_lower_part`, `u16_lower_part` and `u32_lower_part`, and the D29 bound
+  cases, in `test_rejects_invalid_parts`. `v2_narrow_lower_part` in the plugin tests.
+  `encode_rejects_lower_parts_past_canonical_width` replaces the `wider_i128_storage` and
+  `wider_i256_storage` round trips.
+- CUDA: the canonical width, an `i8` MSP at precision 3 (the new `i16` kernel), an `i64` MSP at
+  precision 40, an `i32` MSP at precision 9 (reuse), and an `i64` MSP at precision 4 (error).
 
-Benchmarks: CD1's DecimalByteParts decoding with a narrow MSP gets slower, because a widening copy
-replaces the reuse. Compute on decoded DecimalByteParts runs at the canonical width, so it gets
-slower for columns with a narrow MSP. D19 accepts both until the compressor narrows the decimal type
-first (WR3). An Arrow export of such a column copies twice: once to decode and once to widen for
-Arrow. An MSP at the canonical width and arrays with lower parts show no change. The
-`dbp_assemble_kernel*` benches call slice kernels and do not change. `dbp_assemble_narrowed` is not
-in CodSpeed (`dbp_assemble.rs:105`).
+Expected CodSpeed results against CD4:
+
+- `decode`: about the same as `develop`, plus one vectorized pass when the MSP has no exact
+  statistics.
+- `min_max`: about the same as `develop` or faster, because the child statistics avoid the decimal
+  scan.
+- `sum`: about the same as `develop` plus one vectorized pass, through the decimal sum kernel of
+  CD4.
+- `filter` and `decompress[dbp_bp_i32]`: small changes.
+- Gap columns: one widening copy into the child (D19).
+- `canonicalize`: the cost of the widening copy that CD3c makes fast.
 
 Acceptance checks:
 
-- `cargo clippy -p vortex-decimal-byte-parts --all-targets --all-features -- -D warnings`
-- `cargo nextest run -p vortex-decimal-byte-parts` and
+- `cargo nextest run -p vortex-decimal-byte-parts -p vortex-btrblocks -p vortex-file`, and
   `cargo test --doc -p vortex-decimal-byte-parts`
-- `cargo +nightly-2026-09-10 fmt -p vortex-decimal-byte-parts -p vortex-cuda`
-- `cargo nextest run -p vortex-btrblocks --all-features` and `cargo nextest run -p vortex-file`,
-  whose round trips decode DecimalByteParts.
+- `cargo clippy -p vortex-decimal-byte-parts -p vortex --all-targets --all-features -- -D warnings`
+- `cargo +nightly-2026-09-10 fmt -p vortex-decimal-byte-parts -p vortex -p vortex-cuda`
 - On a CUDA host: `cargo clippy -p vortex-cuda --all-targets --all-features -- -D warnings`,
   `cargo nextest run -p vortex-cuda`, and
   `clang-format --style=file -i vortex-cuda/kernels/src/decimal_cast.cu`.
-- `cargo run -p vortex-compat --release -- check --dir <CD2 fixtures> --mode exact`, where
-  `<CD2 fixtures>` holds the files that the release with CD2 published, or files generated at a
-  commit before CD5. Files generated with the CD5 code only test the new code against itself.
-- Decoding gives `values_type() == decimal_dtype.canonical_values_type()` for every MSP width and
-  part count.
-- The reuse path copies nothing. A narrowing copy writes zeros in null slots and fails on a valid
-  value outside the precision. The constructor and the v2 reader reject a lower part that is not
-  `u64`.
+- After 0.91.0: `uv run vortex-test/compat-gen/scripts/compat.py check --mode last`.
+- A lone MSP at the canonical width copies nothing and makes no pass. A narrowing copy writes zeros
+  in null slots and fails on a valid value outside the precision. The constructor and the v2 reader
+  reject a lower part that is not `u64`.
 
 Review focus:
 
+- The child label: the MSP range must be exact, and inexact statistics are not used.
+- No range pass on the canonical path. A pass that came back there shows as a large regression on
+  `decode/msp_i64_p18_canonical`.
 - Sign extension from an `i8` MSP into `i256`, and one lower part at precision 39 or more.
-- Null slots in the narrowing copy, and no scan on the reuse path.
-- The place of the `TODO(connor)`, and the CUDA kernel names (`decimal_cast_i8_i16`).
+- The CUDA kernel names (`decimal_cast_i8_i16`), and the error for an MSP wider than canonical.
 
-Size: medium. One crate changes, plus a small CUDA change, with many test updates.
+Size: medium. One crate changes, plus two benches and a small CUDA change, with many test updates.
 
 Open questions: None. The constructor bounds the lower-part count (D29). On the GPU, an MSP wider
-than the canonical width returns an error, because the btrblocks scheme never writes one.
+than the canonical width returns an error, as the CUDA Arrow export already does.
 
 ### CD6: The `vortex.decimal` read plugin converts old nodes
 
 - Goal: An old `vortex.decimal` node has a stored width that differs from the canonical width of its
-  dtype. The reader converts it into the canonical array or a decimal `Widen`. After this PR no
-  read produces a decimal leaf with a non-canonical width.
-- Depends on: FX1, CD3, CD3b (`valid_range`, #10939), CD4, and the published CD2 fixtures (D31).
+  dtype. The reader converts it into the canonical array or a decimal `Widen`, through
+  `WidenArray::from_stored_decimal` (D40). After this PR no read produces a decimal leaf with a
+  non-canonical width.
+- Depends on: FX1, CD3, CD3b (`valid_range`, #10939), CD4, and the CD2 fixtures in 0.91.0 (D31).
   Soft: CD5. Blocks: CD8a.
-- Decisions: D7, D9, D21, D14, D10, D24, D26, D31, D37.
-- Branch: `ct/decimal-read-plugin`, based on `develop` after FX1, CD3 and CD4 merge, or stacked on
-  CD4.
+- Decisions: D7, D9, D21, D14, D10, D24, D31, D37, D40.
+- Branch: `ct/decimal-read-plugin`, stacked on CD4 (`ct/decimal-widen`), in parallel with CD5.
 - Scope:
-  - A new `DecimalPlugin` for `vortex.decimal` with the canonical, wider-node and narrower-node
-    paths.
+  - A module-private `StoredDecimal` that checks a stored node before any value is read.
+  - A new `DecimalPlugin` for `vortex.decimal`, with the canonical path and one path for every
+    other stored width.
   - Its `is_supported_encoding` override and its registration.
   - A `Decimal` VTable `deserialize` that rejects a non-canonical width.
+  - A crate-private `ArrayRef::try_into_host_sync`, so that a device validity can be read on the
+    host.
   - Unit tests with hand-built old nodes.
-  - The choice of D26. CD4 (#10946) added no serialization lowering, because the default writer
-    executes a `Widen` through its pipeline. After this PR, reads of old files return a `Widen`, so
-    IPC and writers without a compressor can meet one. Choose between a lowering specific to
-    `Widen`, a generic lowering for arrays that cannot be written, and no lowering, and put that
-    choice to the maintainer before writing it.
 - Out of scope:
   - Stored statistics in plugins (rejected, D9).
   - DecimalByteParts (CD5) and strict construction (CD8a).
   - The `vortex.widen` wire format and a serializer for `Widen` (WR1).
+  - The serializer lowering of D26. CD4 adds it, so a `Widen` that a read returns is written as
+    its canonical array.
+  - The Python decimal subclass mapping (`vortex-python/src/arrays/native.rs`), which does not
+    cover `Widen`. A follow-up issue covers it.
 
-Files (checked at `b70206818f`):
+Files:
 
 | Path | Change |
 | --- | --- |
-| `vortex-array/src/arrays/decimal/vtable/mod.rs:151-186` | Move the body of `deserialize` into a module-private function that returns the stored width, the buffer and the validity. `Decimal::deserialize` accepts only the canonical width, and otherwise fails with an error that names `DecimalPlugin` |
+| `vortex-array/src/arrays/decimal/vtable/mod.rs` | `StoredDecimal` checks the metadata, the buffer count, the dtype, the alignment, the validity and `values.len() == len * width`. `Decimal::deserialize` uses it, accepts only the canonical width, and otherwise fails with an error that names `DecimalPlugin` |
 | `vortex-array/src/arrays/decimal/vtable/plugin/mod.rs` (new) | `DecimalPlugin` |
 | `vortex-array/src/arrays/decimal/vtable/plugin/tests.rs` (new) | Tests |
-| `vortex-array/src/arrays/decimal/vtable/mod.rs:31-33` | `mod plugin` and `pub use plugin::DecimalPlugin` |
-| `vortex-array/src/arrays/decimal/mod.rs:13-16` | `pub use vtable::DecimalPlugin` |
-| `vortex-array/src/session/mod.rs:24`, `:92` | Register `DecimalPlugin` in place of `Decimal` |
+| `vortex-array/src/arrays/decimal/mod.rs` | `pub use` of `DecimalPlugin` |
+| `vortex-array/src/array/erased.rs` | The crate-private `ArrayRef::try_into_host_sync` |
+| `vortex-array/src/session/mod.rs` | Register `DecimalPlugin` in place of `Decimal` |
+| `vortex-test/compat-gen/src/fixtures/arrays/synthetic/mod.rs` | The legacy fixture test asserts the read form |
 
 Design notes:
 
 ```rust
-/// Reads every `vortex.decimal` wire form into a canonical decimal array or a decimal `Widen`.
+/// Reads every `vortex.decimal` node into the canonical decimal array or a decimal `Widen`.
 pub struct DecimalPlugin
 
 impl ArrayPlugin for DecimalPlugin {
@@ -1185,43 +1212,24 @@ impl ArrayPlugin for DecimalPlugin {
 }
 ```
 
-The ALP plugin is the model (`encodings/alp/src/alp/plugin.rs:33-94`). The deserializer asserts
-`is_supported_encoding` (`vortex-array/src/serde.rs:412-417`), and so does the Python CUDA path
-(`vortex-python-cuda/src/lib.rs:328-333`). Statistics attach after the plugin returns
-(`serde.rs:419-424`), so the plugin scans the buffer (D9).
+The ALP plugin is the model (`encodings/alp/src/alp/plugin.rs`). The deserializer asserts
+`is_supported_encoding`, and so does the Python CUDA path. Statistics attach after the plugin
+returns, so the plugin scans the values (D9).
 
 `deserialize` with the stored width `W_s` and the canonical width
 `W_c = decimal_dtype.canonical_values_type()`:
 
-1. Decode the metadata with FX1. Check that the buffer has `len * W_s.byte_width()` bytes and the
-   alignment of `W_s`. A malformed node returns an error and never panics (D14).
-2. If `W_s == W_c`, return today's leaf. No copy and no scan.
-3. Otherwise, copy a device buffer to the host with `BufferHandle::try_to_host_sync`
-   (`vortex-array/src/buffer.rs:295-312`). CUDA reads decode device segments through plugins
-   (`vortex-cuda/src/layout.rs:241-247`). Then execute the validity mask once with
-   `session.create_execution_ctx()`, as the ALP plugin does (`plugin.rs:84`).
-4. If `W_s > W_c` (a wider node), `copy_to_canonical_width` into `W_c` and return the canonical
-   array. This path needs no max scan.
-5. If `W_s < W_c` (a narrower node):
-   1. Make one pass over the valid values for their min and max. Use a fold for an all-true mask and
-      `for_each_set_index` otherwise (`STYLE.md:108-133`). Do not use the `min_max` aggregate: it
-      builds decimal scalars and panics on a value outside the precision (see CD7).
-   2. Pass the range, or no range when no value is valid, to the best-child-dtype function of CD4
-      (see Shared helpers). It returns `Decimal(p*, s)`, with the smallest precision that holds the
-      range and the scale.
-   3. `p*` never exceeds `p`, because the largest magnitude of a width below `W_c` is below
-      `10^p - 1`.
-   4. Let `W* = canonical_values_type(p*)`. If `W* == W_c`, return the canonical array, a widening
-      copy from `W_s`.
-   5. Otherwise build the child `Decimal(p*, s)` at `W*`. Reuse the buffer if `W* == W_s`, make a
-      widening copy if `W* > W_s`, and `copy_to_canonical_width` if `W* < W_s`. Return
-      `WidenArray::try_new(child, parent_dtype)`.
-6. Build every decimal array with the unchecked constructors. Reuse trusts the precision (D14). A
-   narrowing copy checks it, and a widening copy from a narrower width cannot leave it.
-
-The brief picks the best precision exactly, not a larger one. D9 allows a larger one. But D21 makes
-a narrowing copy when the best precision has a smaller width than the stored width. A tight child
-label also serves the compare shortcut of CD4.
+1. `StoredDecimal` decodes the metadata with FX1 and checks the node. A malformed node returns an
+   error and never panics (D14).
+2. If `W_s == W_c`, return the `Decimal` leaf. No copy and no scan, and a device buffer stays on
+   the device.
+3. Otherwise, copy the validity to the host with `ArrayRef::try_into_host_sync`, because the helper
+   executes the validity on the host and a host read of a device buffer panics. Then call
+   `WidenArray::from_stored_decimal` with `Precision::Absent`. The helper copies the values to the
+   host, scans the valid values with `valid_range`, and picks the smallest precision that holds
+   them and the scale. One rule covers nodes narrower and wider than `W_c` (D9), so a wider node
+   can also become a `Widen`. The result is the canonical array or a `Widen`, with a buffer reuse,
+   a widening copy or a narrowing copy (D21).
 
 | Case | Result |
 | --- | --- |
@@ -1235,67 +1243,67 @@ label also serves the compare shortcut of CD4.
 | `Decimal(18, 2)` at `i32` with values up to 99 | `p* = 2`, child `Decimal(2, 2)` at `i8`, narrowing copy |
 | `Decimal(18, 2)` at `i16` with 32,767 | `p* = 5`, child `Decimal(5, 2)` at `i32`, widening copy |
 | `Decimal(40, 2)` at `i128` (old v1 compressor output) | A child at `i128` with reuse, or the canonical `i256` array when the values need 39 digits |
-| `Decimal(4, 2)` at `i32` with the valid value 20,000 | A wider node. The narrowing copy fails |
+| `Decimal(18, 2)` at `i128` (Arrow-style wide) with values up to 99 | A wider node. `p* = 2`, child `Decimal(2, 2)` at `i8`, narrowing copy |
+| `Decimal(5, 2)` at `i128` with values up to 99,999 | A wider node. `p* = 5`, `W* = i32 = W_c`, so the canonical array, a narrowing copy |
+| `Decimal(4, 2)` at `i32` with the valid value 20,000 | A wider node. The value is outside the precision, so the read fails |
 | Nonzero values in null slots | The scan ignores them. Reuse and widening keep them, and a narrowing copy writes zeros |
 | Unknown stored width | An error (FX1) |
 
 Steps:
 
-1. Add `DecimalPlugin` with the canonical path, the `is_supported_encoding` override and the
-   registration. Make `Decimal::deserialize` reject a non-canonical width.
-2. Add the wider-node path.
-3. Add the narrower-node path.
-4. Add the tests.
+1. "Check stored decimal buffers before reading them": `StoredDecimal`, used by
+   `Decimal::deserialize`.
+2. "Read old vortex.decimal nodes into the canonical array or a Widen": `DecimalPlugin`, its
+   registration, `ArrayRef::try_into_host_sync`, and the tests.
+3. "Read legacy decimal fixtures as canonical arrays or Widens": the compat fixture test.
 
 Tests:
 
-- Change `legacy_decimal_fixtures_keep_stored_widths` in
-  `vortex-test/compat-gen/src/fixtures/arrays/synthetic/mod.rs`, which CD2 (#10753) adds. Its
-  file round-trip check asserts that a read keeps the stored width of each old column. After CD6
-  the read converts old nodes, so the check must assert the read results of the CD2 tables
-  instead. Keep its in-memory width check.
+- `legacy_decimal_fixtures_keep_stored_widths` in
+  `vortex-test/compat-gen/src/fixtures/arrays/synthetic/mod.rs` becomes
+  `legacy_decimal_fixtures_read_canonical_or_widen`. It asserts the read form of each column, with
+  a slow reference function for the precision, and compares the values with `assert_arrays_eq!`.
 - New in `vtable/plugin/tests.rs`. They build nodes with `ArrayDeserialization::new` and
-  hand-written `DecimalMetadata`, as
-  `encodings/decimal-byte-parts/src/decimal_byte_parts/plugin/tests.rs:317-328` does. They build no
-  non-canonical `DecimalArray`, so they survive CD8a.
-  - `reads_old_node` (`rstest`) with every row of the table above. It asserts the encoding
-    (`Decimal` or `Widen`), the child dtype and width, buffer reuse by pointer, and the values.
-  - `wider_node_rejects_value_outside_precision`, `narrower_node_ignores_null_slots`,
-    `unknown_values_type_fails` and `short_buffer_fails`.
-  - `decode_through_serialized_array`: serialize a canonical `Decimal(2, 0)` array and decode it as
-    `Decimal(10, 0)`, which is an old narrow node. Serialize a canonical `Decimal(38, 0)` array and
-    decode it as `Decimal(5, 0)`, which is a wider node. This covers the assert at
-    `serde.rs:412-417` without a non-canonical array.
-- Unchanged: `vtable/mod.rs:241-273` `test_array_serde` builds `i128` at `Decimal(10, 2)`. It now
-  reads through the narrowing copy and passes. CD8a rewrites it.
-- The compat check reads CD2's fixtures through this plugin.
+  hand-written `DecimalMetadata`, so they build no non-canonical `DecimalArray` and survive CD8a:
+  - `reads_old_node` (`rstest`) covers every legacy fixture form: narrow, gap, high scale,
+    Arrow-style wide, null slots, precision 40 at `i128`, all null and empty. It asserts the
+    encoding, the child dtype and width, buffer reuse by pointer, and the values.
+  - `canonical_node_trusts_precision`, `wider_node_rejects_value_outside_precision`,
+    `narrower_node_ignores_null_slots` and `narrowing_copy_zeroes_null_slots`.
+  - Errors: an unknown width, a short buffer, an overflowing length, a misaligned buffer, a dtype
+    that is not decimal, an extra validity child, a validity child on a non-nullable node, and the
+    `Decimal` VTable on an old node.
+  - `decode_through_serialized_array` covers the deserializer assert without a non-canonical array.
+  - Device buffers: `device_buffers_read_on_host`, `nested_device_validity_reads_on_host` and
+    `failed_host_copy_fails`.
+- `vtable/mod.rs` `test_array_serde` uses a canonical input: `i64` at `Decimal(10, 2)`.
+- The compat check reads the CD2 fixtures through this plugin.
 
-Benchmarks: None. Old narrow nodes are rare, and the speed of this path matters little (D9).
+Benchmarks: None. Old nodes are rare, and the speed of this path matters little (D9).
 
 Acceptance checks:
 
+- `cargo nextest run -p vortex-array -p vortex-compat -p vortex-file -p vortex-ipc` and
+  `cargo test --doc -p vortex-array`
 - `cargo clippy -p vortex-array --all-targets --all-features -- -D warnings`
-- `cargo nextest run -p vortex-array` and `cargo test --doc -p vortex-array`
 - `cargo +nightly-2026-09-10 fmt -p vortex-array`
-- `cargo nextest run -p vortex-file`
-- `cargo run -p vortex-compat --release -- check --dir <CD2 fixtures> --mode exact`
+- After 0.91.0: `uv run vortex-test/compat-gen/scripts/compat.py check --mode last`.
 - A node at the canonical width reads with no copy and no scan. Every old node reads into the
   canonical array or a `Widen` with a true child label. A malformed node returns an error.
 
 Review focus:
 
-- The child label, where both the min and the max count, and the scale bound.
-- The choice between reuse and copy.
+- The plugin and CD5 call `from_stored_decimal` in the same way, so both get the same child label.
 - The `is_supported_encoding` override, no panic on malformed input, and the host copy of device
-  buffers.
-- The CUDA read of an old narrow node (decided, D37). The host converts old narrow nodes, also on
-  CUDA read paths. A GPU scan of such a node copies the buffer to the host and gets a host-side
-  `Widen`. State this in the PR, and ask a CUDA reviewer to confirm that such a scan still works.
+  buffers and device validity.
+- The CUDA read of an old node (decided, D37). The host converts old nodes, also on CUDA read
+  paths. A GPU scan of such a node copies the buffer and the validity to the host and gets a
+  host-side `Widen` or canonical array. State this in the PR, and ask a CUDA reviewer to confirm
+  that such a scan still works.
 
-Size: medium. One new module and one registration change.
+Size: medium. One new module, a crate-private helper and one registration change.
 
-Open questions: D26, which this PR decides (see Scope). Until WR1, a writer handles a `Widen` as
-this PR decides.
+Open questions: None. D26 is settled in CD4.
 
 ### CD7: One DecimalByteParts scheme on the canonical array
 
@@ -1303,13 +1311,14 @@ this PR decides.
   from the values. It narrows the MSP as the compressor narrows other internal children.
   `narrowed_decimal` goes. File contents stay the same, except for precision 39 to 76 with values
   that need more than 64 bits in v1 mode.
-- Depends on: WD1 (`encode_values`), CD1 (benchmarks first, D19). Soft: CD3, CD5. Blocks: CD8a,
-  WR3.
-- Shares files with CD5: the crate doc in `encodings/decimal-byte-parts/src/lib.rs`, the tests in
-  `assemble.rs` and `benches/dbp_assemble.rs`. CD7 also changes the signature of `split_decimal`,
-  which CD5's tests call. Do not run CD5 and CD7 at the same time.
-- Decisions: D17, D23, D22, D19, D11, D28.
-- Branch: `ct/dbp-scheme-canonical`, based on `develop` after WD1 and CD1 merge.
+- Depends on: WD1 (`encode_values`), CD1 (benchmarks first, D19), CD3b (`valid_range`), CD5.
+  Blocks: CD8a, WR3.
+- Stacked on CD5, and merges right after it (D31, D41). The two share the crate doc in
+  `encodings/decimal-byte-parts/src/lib.rs`, the tests in `assemble.rs` and
+  `benches/dbp_assemble.rs`, and CD7 changes the signature of `split_decimal`, which the tests of
+  CD5 call. The stack orders them.
+- Decisions: D17, D23, D22, D19, D11, D28, D31, D41.
+- Branch: `ct/dbp-scheme-canonical`, stacked on CD5 (`ct/dbp-canonical-decode`).
 - Scope: `lower_part_count`, `split_decimal` with an explicit count, `DecimalByteParts::encode`,
   `DecimalScheme::compress`, the removal of `narrowed_decimal`, docs, golden corpus entries and
   tests.
@@ -1351,15 +1360,20 @@ pub fn split_decimal(
 ```
 
 - `lower_part_count` returns 0 without a scan for a width up to `i64`. For `i128` and `i256` it
-  executes the mask once and scans the valid values. It must not use the `min_max` aggregate: that
+  executes the mask once and takes `valid_range` (CD3b) of the valid values, with fit checks for
+  `i64` and `i128`. The count depends only on the stored values, not on the precision. It must not
+  use the `min_max` aggregate: that
   aggregate builds decimal scalars with `Scalar::decimal`
   (`vortex-array/src/aggregate_fn/fns/min_max/decimal.rs:61-80`), which panics on a value outside
   the precision (`vortex-array/src/scalar/constructor.rs:68-78`). Decoded data trusts the precision,
   and `prop_tests.rs:104-132` draws such values.
 - `split_decimal` accepts these shapes:
   - A width up to `i64` with count 0. The MSP reuses the buffer, as today (`split.rs:108-111`).
-  - `i128` with count 0, a copy into `i64` with zeros in null slots, or count 1 with `split_wide`.
-  - `i256` with count 0, count 1 with a new `i256_to_i128_parts`, or count 3, as today.
+  - `i128` or `i256` with count 0: `converted_buffer::<i64>` copies into an `i64` MSP, with zeros in
+    null slots.
+  - `i128` with count 1 with `split_wide`, and `i256` with count 3, as today.
+  - `i256` with count 1: `converted_buffer::<i128>` copies into `i128`, which then splits as `i128`
+    values.
   - A count below the need of a valid value returns an error, because the copy reads every value.
     Other counts return an error.
   - No valid row gives constant parts with the requested count, as today (`split.rs:123-142`).
@@ -1372,7 +1386,9 @@ pub fn split_decimal(
      holds the canonical leaf.
   4. Call `split_decimal` with the count.
   5. With count 0, narrow the MSP with `WidenArray::encode_values`. The call carries
-     `#[expect(deprecated)]` with the `TODO(connor)` reason of WD6 (D28).
+     `#[expect(deprecated)]` with the `TODO(connor)` reason of WD6 (D28). The MSP narrows only with
+     zero lower parts. An MSP next to lower parts stays `i64`, because narrowing it changes the v2
+     output, and `wide_decimal_parts_roundtrip` depends on that. The lower parts stay `u64`.
   6. Compress the children and build the array, as today (`decimal.rs:140-164`).
 - The MSP narrowing uses `WidenArray::encode_values` of WD1, not `PrimitiveArrayExt::narrow`.
   `widen` picks an unsigned type for non-negative values
@@ -1406,7 +1422,7 @@ Steps:
 2. Add `lower_part_count` and the explicit count of `split_decimal`. Update `encode`, the test
    helpers, the benches and the compat fixture.
 3. Rewrite `DecimalScheme::compress`. Delete `narrowed_decimal`. Fix the docs.
-4. Accept the snapshot change of the precision-40 entry only.
+4. Accept the snapshot changes of the precision-40 entry and the null-slot entry only.
 
 Tests:
 
@@ -1415,9 +1431,14 @@ Tests:
   - `decimal_nullable`: `Decimal(12, 2)` with a tenth of the rows null and zeros in null slots.
   - `decimal_negative`: `Decimal(10, 2)` with values from -100,000 to 100,000.
   - `decimal_wide_p40`: `Decimal(40, 2)` with values from 2^64 to 2^100.
-- After step 3, only `regular__decimal_wide_p40` and `compact__decimal_wide_p40` change, from an
-  `i128` leaf to an `i256` leaf. `regular__decimal_prices` and `compact__decimal_prices` do not
-  change.
+  - `decimal_null_slot_values`: `decimal_nullable` with values from 2^40 to 2^48 in the null
+    slots. The plan named only the four entries above. The branch adds this one to pin the
+    accepted null-slot change of D17.
+- After step 3, of the existing snapshots and the four planned entries, only
+  `regular__decimal_wide_p40` and `compact__decimal_wide_p40` change, from an `i128` leaf to an
+  `i256` leaf. `regular__decimal_prices` and `compact__decimal_prices` do not change. The two
+  `decimal_null_slot_values` snapshots also change: the MSP narrows from `i64` to `i32`, because
+  `encode_values` ignores the null slots.
 - New in `vortex-btrblocks/tests/decimal_config.rs`:
   - `decimal_scheme_part_shapes` (`rstest`) for v1 and v2. It asserts the encoding, the lower-part
     count and the MSP ptype, and it round-trips through serialization. Its cases:
@@ -1428,11 +1449,15 @@ Tests:
     - A nullable case.
   - `msp_keeps_signedness`: values from 0 to 200 at `Decimal(10, 0)` give an `I16` MSP.
 - New in `split.rs`:
-  - `lower_part_count` cases for each width, a null slot that holds `1 << 100`, all nulls, and an
-    empty array.
-  - `lower_part_count` on values outside the precision does not panic.
-  - `split_decimal` with a count that is too small fails.
+  - `test_lower_part_count`: cases for each width, a null slot that holds `1 << 100`, all nulls,
+    and an empty array.
+  - `test_lower_part_count_ignores_precision`: values outside the precision do not panic.
+  - `test_split_decimal_rejects_too_small_count` and `test_split_decimal_rejects_invalid_count`.
   - `i256` values that fit `i128` split into one lower part and round-trip.
+- In `plugin/tests.rs`, the `wider_i128_storage` and `wider_i256_storage` round trips come back,
+  with an all-null `i256` case, because `DecimalByteParts::encode` now picks the count from the
+  values. CD5 had turned them into rejection cases. The rejection cases now hold a valid value
+  outside the precision, which needs lower parts that the dtype does not allow.
 - Unchanged: `decimal_scheme_follows_allowed_ids` and `wide_decimal_parts_roundtrip` in
   `decimal_config.rs`, `refine_picks_v2_when_v2_id_is_allowed` in `decimal.rs`,
   `decimal_writer_uses_default_or_session_restrictions` in `vortex-file/src/tests.rs`, and both
@@ -1455,7 +1480,8 @@ Acceptance checks:
 - `cargo +nightly-2026-09-10 fmt -p vortex-btrblocks -p vortex-decimal-byte-parts`, and the same for
   `-p vortex-array` and `-p vortex-compat`
 - `cargo clippy -p vortex-compat --all-targets -- -D warnings` (the v2 fixture compiles)
-- The snapshot diff of step 3 touches only the two `decimal_wide_p40` snapshots.
+- The snapshot diff of step 3 touches only the two `decimal_wide_p40` snapshots and the two
+  `decimal_null_slot_values` snapshots.
 
 Review focus:
 
@@ -1883,14 +1909,16 @@ tracked elsewhere.
    (`vortex-array/src/arrays/constant/vtable/canonical.rs:113-121`), and `upcast_decimal_values`
    (`vortex-array/src/arrays/decimal/compute/cast.rs:439-489`) builds arrays wider than canonical.
    CD8a fixes both. Scalars still keep any width that fits their precision.
-10. After CD6, Python sees `Widen` arrays for old narrow nodes. The binding keys its
-    `DecimalArray` subclass on the encoding ID (`vortex-python/src/arrays/native.rs:174-175`), so
-    such arrays get no decimal subclass until the binding maps `Widen`.
+10. After CD5 and CD6, Python sees `Widen` arrays for narrow DecimalByteParts columns and old
+    nodes. The binding keys its `DecimalArray` subclass on the encoding ID
+    (`vortex-python/src/arrays/native.rs:174-175`), so such arrays get no decimal subclass until
+    the binding maps `Widen`. A follow-up issue covers it.
 11. `docs/specs/versioning/design.md:264-267` says that the decimal scheme writes only single-child
     arrays, but the scheme has a v2 mode. A follow-up issue tracks the stale versioning docs.
-12. CD6 copies device buffers to the host with `BufferHandle::try_to_host_sync`, because CUDA reads
-    hand device segments to plugins (`vortex-cuda/src/layout.rs:241-247`). Whether this works for
-    every device buffer that reaches the plugin is Not verified.
+12. CUDA reads hand device segments to plugins (`vortex-cuda/src/layout.rs:241-247`). For an old
+    node, `from_stored_decimal` copies the values to the host, and CD6 copies the validity with the
+    crate-private `ArrayRef::try_into_host_sync`. The CD6 tests cover device values, a nested
+    device validity and a failed copy. A GPU scan of an old node is Not verified on a CUDA host.
 13. Research line references that moved on `develop`: `decimal_narrow_storage` is at
     `vortex-array/src/arrays/decimal/compute/mod.rs:83-87`, and the `DecimalBuffer` enum is at
     `vortex-array/src/builders/decimal.rs:48-55`.

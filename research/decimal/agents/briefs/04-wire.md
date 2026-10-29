@@ -25,7 +25,7 @@ The section [Lockstep](#lockstep) gives the reasons.
   (D32): the child `PType` for an integer parent, or the child precision for a decimal parent. The
   reader builds and checks the child dtype before it decodes the child, so invalid metadata is an
   error and never a panic. When the selected editions do not permit `vortex.widen`, the writer
-  handles a `Widen` as CD6 decides for D26.
+  lowers a `Widen` to its canonical array with the lowering that CD4 adds (D26).
 - Depends on: WD1 (encoding, `validate_dtypes`), CD3
   (`DecimalDType::canonical_values_type()`), CD4 (decimal rules in `validate_dtypes`, decimal
   `Widen`). Soft: FX1, WD3, WD4, WD5, CD6. Blocks: WR2, WR3.
@@ -104,10 +104,10 @@ pub(super) fn child_dtype(parent: &DType, metadata: &[u8]) -> VortexResult<DType
   `Widen` always serializes.
 - The lowering of D26 also covers a context that does not permit `vortex.widen`. Today the tree
   builder has no context, and `try_write_node` rejects a non-permitted ID with "not permitted by
-  ctx" (`vortex-array/src/serde.rs:251-256`). So the tree builder gets the permitted IDs. CD6
-  decides whether a lowering exists (D26). If it does, WR1 limits it to a context that does not
-  permit `vortex.widen`. If it does not, WR1 adds the lowering for that context. The doc keeps the
-  workaround note and its end at LT1.
+  ctx" (`vortex-array/src/serde.rs`). CD4 lowers every `Widen` in
+  `ArraySerializationTree::try_new`, before the plugin lookup, with a `TODO(connor)[Widen]`. So
+  the tree builder gets the permitted IDs, and WR1 limits the lowering to a context that does not
+  permit `vortex.widen`. The doc keeps the workaround note and its end at LT1.
 
 `deserialize` runs these checks in this order. Every check returns an error:
 
@@ -129,7 +129,7 @@ pub(super) fn child_dtype(parent: &DType, metadata: &[u8]) -> VortexResult<DType
    catch any check that runs too late.
 4. Flatten a `Widen` child into its values, as `WidenArray::try_new` does. A child can be a
    `Widen` without a nested `vortex.widen` node: the CD6 read plugin returns a `Widen` for an old
-   narrow `vortex.decimal` node.
+   `vortex.decimal` node, and CD5 returns one for a narrow DecimalByteParts MSP.
 5. Return `ArrayParts` with the parent dtype. The generic adapter runs `validate` again.
 
 Edge cases: `I8`, `U8` and `Decimal(1..=2, s)` parents have no narrower child, so every metadata
@@ -141,8 +141,8 @@ Steps:
 1. Add `wire.rs` with `WidenMetadata`, `metadata`, `child_dtype` and the module doc of the
    contract. Add unit tests for both functions.
 2. Replace the `deserialize` stub and change `serialize` in `vtable.rs`. Add `tests/wire.rs`.
-3. Pass the permitted IDs to the tree builder, and lower a non-permitted `Widen` in
-   `ArraySerializationTree::try_new`, at the lowering site of CD6 if CD6 adds one (D26).
+3. Pass the permitted IDs to the tree builder, and limit the CD4 lowering in
+   `ArraySerializationTree::try_new` to a non-permitted `Widen` (D26).
 4. Add the `vortex-file` round-trip test.
 
 Tests:
@@ -447,9 +447,9 @@ Hard dependencies on the NR and CD PRs:
 
 | PR | Needs | For |
 | --- | --- | --- |
-| WR1 | WD1 | `Widen` and `validate_dtypes`. WD1 has no D26 lowering and does not register `Widen`, so WR1 adds the registration |
+| WR1 | WD1 | `Widen` and `validate_dtypes`. WD1 does not register `Widen`, so WR1 adds the registration |
 | WR1 | CD3 | `DecimalDType::canonical_values_type()` for the width check |
-| WR1 | CD4 | Decimal rules in `validate_dtypes` and decimal `Widen` arrays |
+| WR1 | CD4 | Decimal rules in `validate_dtypes`, decimal `Widen` arrays, and the D26 lowering that WR1 limits |
 | WR2 | CD5 | The v2 contract with `u64` lower parts and canonical decoding (D16) |
 | WR2 | CD7 | The DBP scheme on the canonical array, which v2 mode runs once the edition permits v2 |
 | WR3 | WD1 | `WidenArray::encode` |
@@ -468,10 +468,8 @@ Hard dependencies on the NR and CD PRs:
   `vortex-duckdb/src/lib.rs:52` and `vortex-jni/src/session.rs:25` pin `CORE_2026_08_3` and need a
   decision. Default writers stop writing plain `i256` for wide values (D17). Decide then whether
   the serialization workaround of D26 stays for writers that select an older `core` edition.
-- LT2, the max pass in DBP decoding (D16): resolve the `TODO(connor)` that CD5 adds in
-  `encodings/decimal-byte-parts/src/decimal_byte_parts/assemble.rs`. Decoding returns a `Widen`
-  that reuses a narrow MSP buffer. No wire change. It waits for the CD1 benchmarks to show a large
-  regression.
+- LT2, the range pass in DBP decoding that returns a `Widen` over a narrow MSP (D16), is now part
+  of CD5. The first version of #10905 regressed CodSpeed by up to 11x without it. No wire change.
 - LT3, sum, min and max pushdown into the MSP (D19): kernels under
   `encodings/decimal-byte-parts/src/decimal_byte_parts/compute/` for gap columns. No wire change.
   It waits for benchmarks.
