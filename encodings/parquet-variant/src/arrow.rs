@@ -307,12 +307,14 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::VariantArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_arrow::ArrowSessionExt;
     use vortex_buffer::buffer;
@@ -327,6 +329,20 @@ mod tests {
         let session = VortexSession::empty();
         crate::initialize(&session);
         session
+    }
+
+    #[rstest]
+    fn test_export_constant_null_variant(session: VortexSession) -> VortexResult<()> {
+        let mut ctx = session.create_execution_ctx();
+        let dtype = DType::Variant(Nullability::Nullable);
+        let array = ConstantArray::new(Scalar::null(dtype), 1).into_array();
+        let field = session.arrow().to_arrow_field("variant", array.dtype())?;
+
+        let result = session.arrow().execute_arrow(array, Some(&field), &mut ctx)?;
+
+        assert_eq!(result.len(), 1);
+        assert!(result.is_null(0));
+        Ok(())
     }
 
     fn arrow_variant_storage() -> StructArray {
