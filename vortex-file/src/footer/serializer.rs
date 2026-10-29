@@ -10,6 +10,7 @@ use vortex_array::flatbuffers::WriteFlatBufferExt;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_layout::LayoutContext;
 use vortex_session::registry::ReadContext;
@@ -20,11 +21,16 @@ use crate::Footer;
 use crate::MAGIC_BYTES;
 use crate::MAX_POSTSCRIPT_SIZE;
 use crate::VERSION;
+use crate::encryption::EncryptionSpec;
+use crate::encryption::FileEncryption;
+use crate::encryption::SegmentCipher;
+use crate::encryption::SegmentRole;
 use crate::footer::SegmentSpec;
 use crate::footer::file_layout::FooterFlatBufferWriter;
 use crate::footer::postscript::Postscript;
 use crate::footer::postscript::PostscriptMetadata;
 use crate::footer::postscript::PostscriptSegment;
+use crate::footer::postscript::postscript_binding;
 
 /// Serializes a [`Footer`] into footer buffers and the trailing postscript/EOF marker.
 pub struct FooterSerializer {
@@ -33,6 +39,7 @@ pub struct FooterSerializer {
     exclude_dtype: bool,
     offset: u64,
     layout_ctx: LayoutContext,
+    cipher: Option<SegmentCipher>,
 }
 
 impl FooterSerializer {
@@ -43,6 +50,7 @@ impl FooterSerializer {
             exclude_dtype: false,
             offset: 0,
             layout_ctx: LayoutContext::default(),
+            cipher: None,
         }
     }
 
@@ -79,6 +87,46 @@ impl FooterSerializer {
         self
     }
 
+    /// Encrypt the dtype, layout, statistics, footer, and metadata segments with the footer key of
+    /// `encryption`.
+    ///
+    /// This is required to serialize the footer of a file with encrypted segments, so that a
+    /// standalone footer does not leak the file's metadata in plaintext.
+    pub fn with_encryption(mut self, encryption: &FileEncryption) -> VortexResult<Self> {
+        // Readers require the footer segments to be protected by the footer's own footer key
+        // spec, so reuse it when the footer describes an encrypted file.
+        let footer_cipher = match self.footer.encryption_specs().get(1) {
+            Some(spec) if spec.key_metadata() == encryption.footer_key().key_metadata() => {
+                encryption.cipher_for_spec(encryption.footer_key(), spec)?
+            }
+            Some(_) => vortex_bail!(
+                "The footer key of the FileEncryption does not match the footer's footer key"
+            ),
+            None => {
+                // Readers reject plaintext metadata segments in an encrypted file.
+                if self.footer.metadata_segments().next().is_some() {
+                    vortex_bail!(
+                        "Cannot encrypt the footer of a file with plaintext metadata segments"
+                    );
+                }
+                let cipher = encryption.file_cipher(encryption.footer_key())?;
+                // Record the footer key, so that readers know that the file is encrypted. The
+                // data segments keep index 0, as they are stored in plaintext.
+                self.footer = self.footer.with_encryption_specs(
+                    vec![EncryptionSpec::plaintext(), cipher.spec().clone()].into(),
+                )?;
+                cipher
+            }
+        };
+        Ok(self.with_cipher(footer_cipher))
+    }
+
+    /// Encrypt the footer and metadata segments with `cipher`.
+    pub(crate) fn with_cipher(mut self, cipher: SegmentCipher) -> Self {
+        self.cipher = Some(cipher);
+        self
+    }
+
     pub(crate) fn with_metadata_segments(mut self, metadata: HashMap<String, ByteBuffer>) -> Self {
         self.metadata = metadata;
         self
@@ -96,31 +144,76 @@ impl FooterSerializer {
     ) -> VortexResult<(Vec<ByteBuffer>, super::MetadataSegments, usize)> {
         let mut buffers = vec![];
 
+        if !self.footer.encryption_specs().is_empty() && self.cipher.is_none() {
+            vortex_bail!(
+                "Footer describes encrypted segments; configure FooterSerializer::with_encryption \
+                 to serialize it"
+            );
+        }
+        let cipher = self.cipher.as_ref();
+        let protect = |role| match cipher {
+            None => Protection::None,
+            Some(cipher) => Protection::Encrypt(cipher, role),
+        };
+        let footer = &self.footer;
+
         let (metadata_segments, metadata_locators) = if self.metadata.is_empty() {
-            let locators = self
-                .footer
+            let locators = footer
                 .metadata_segments()
                 .map(|(key, segment)| (key.to_string(), *segment))
                 .collect::<Vec<_>>();
             let segments = locators
                 .iter()
-                .map(|(key, segment)| PostscriptMetadata {
-                    key: key.clone(),
-                    segment: PostscriptSegment::from(segment),
+                .map(|(key, segment)| {
+                    Ok(PostscriptMetadata {
+                        key: key.clone(),
+                        segment: PostscriptSegment {
+                            offset: segment.offset,
+                            length: segment.length,
+                            alignment: segment.alignment,
+                            encryption: footer.segment_encryption(segment)?,
+                        },
+                    })
                 })
-                .collect();
+                .collect::<VortexResult<_>>()?;
             (segments, locators)
         } else {
-            let mut metadata = self.metadata.into_iter().collect::<Vec<_>>();
+            let encryption = match cipher {
+                None => 0,
+                Some(cipher) => footer
+                    .encryption_specs()
+                    .iter()
+                    .position(|spec| spec == cipher.spec())
+                    .and_then(|index| u16::try_from(index).ok())
+                    .ok_or_else(|| {
+                        vortex_err!("Footer encryption specs do not include the file's spec")
+                    })?,
+            };
+
+            let mut metadata = std::mem::take(&mut self.metadata)
+                .into_iter()
+                .collect::<Vec<_>>();
             // Metadata is stored in a HashMap, so sort keys before assigning segment offsets.
             metadata.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
 
             let mut segments = Vec::with_capacity(metadata.len());
             let mut locators = Vec::with_capacity(metadata.len());
             for (key, metadata) in metadata {
-                let (metadata_buffers, segment) = write_buffer(&mut self.offset, metadata)?;
+                let (metadata_buffers, segment) = write_buffer(
+                    &mut self.offset,
+                    metadata,
+                    cipher.map(|cipher| (cipher, SegmentRole::Metadata(&key))),
+                )?;
                 buffers.extend(metadata_buffers);
-                locators.push((key.clone(), SegmentSpec::from(&segment)));
+                locators.push((
+                    key.clone(),
+                    SegmentSpec {
+                        offset: segment.offset,
+                        length: segment.length,
+                        alignment: segment.alignment,
+                        encryption,
+                    },
+                ));
                 segments.push(PostscriptMetadata { key, segment });
             }
             (segments, locators)
@@ -130,7 +223,11 @@ impl FooterSerializer {
         let dtype_segment = if self.exclude_dtype {
             None
         } else {
-            let (buffer, dtype_segment) = write_flatbuffer(&mut self.offset, self.footer.dtype())?;
+            let (buffer, dtype_segment) = write_flatbuffer(
+                &mut self.offset,
+                footer.dtype(),
+                protect(SegmentRole::DType),
+            )?;
             buffers.push(buffer);
             Some(dtype_segment)
         };
@@ -141,27 +238,39 @@ impl FooterSerializer {
 
         let (buffer, layout_segment) = write_flatbuffer(
             &mut self.offset,
-            &self.footer.layout().flatbuffer_writer(&layout_ctx),
+            &footer.layout().flatbuffer_writer(&layout_ctx),
+            protect(SegmentRole::Layout),
         )?;
         buffers.push(buffer);
 
-        let statistics_segment = match self.footer.statistics() {
+        let statistics_segment = match footer.statistics() {
             None => None,
             Some(stats) if stats.is_empty() => None,
             Some(stats) => {
-                let (buffer, stats_segment) = write_flatbuffer(&mut self.offset, stats)?;
+                let (buffer, stats_segment) =
+                    write_flatbuffer(&mut self.offset, stats, protect(SegmentRole::Statistics))?;
                 buffers.push(buffer);
                 Some(stats_segment)
             }
         };
 
+        // The footer authenticates the postscript entries it cannot otherwise protect.
+        let binding = postscript_binding(
+            dtype_segment.is_some(),
+            statistics_segment.is_some(),
+            metadata_segments
+                .iter()
+                .map(|entry: &PostscriptMetadata| entry.key.as_str()),
+        );
         let (buffer, footer_segment) = write_flatbuffer(
             &mut self.offset,
             &FooterFlatBufferWriter {
-                ctx: self.footer.array_read_ctx.clone(),
+                ctx: footer.array_read_ctx.clone(),
                 layout_ctx: ReadContext::new(layout_ctx.to_ids()),
-                segment_specs: Arc::clone(&self.footer.segments),
+                segment_specs: Arc::clone(&footer.segments),
+                encryption_specs: Arc::clone(footer.encryption_specs()),
             },
+            protect(SegmentRole::Footer(&binding)),
         )?;
         buffers.push(buffer);
 
@@ -199,52 +308,53 @@ impl FooterSerializer {
     }
 }
 
-impl From<&PostscriptSegment> for SegmentSpec {
-    fn from(value: &PostscriptSegment) -> Self {
-        Self {
-            offset: value.offset,
-            length: value.length,
-            alignment: value.alignment,
-        }
-    }
-}
-
-impl From<&SegmentSpec> for PostscriptSegment {
-    fn from(value: &SegmentSpec) -> Self {
-        Self {
-            offset: value.offset,
-            length: value.length,
-            alignment: value.alignment,
-        }
-    }
+/// How a footer segment is protected.
+#[derive(Clone, Copy)]
+enum Protection<'a> {
+    None,
+    Encrypt(&'a SegmentCipher, SegmentRole<'a>),
 }
 
 fn write_flatbuffer<F: FlatBufferRoot + WriteFlatBuffer>(
     offset: &mut u64,
     flatbuffer: &F,
+    protection: Protection<'_>,
 ) -> VortexResult<(ByteBuffer, PostscriptSegment)> {
-    let buffer = flatbuffer.write_flatbuffer_bytes()?;
+    let alignment = FlatBuffer::alignment();
+    let mut buffer = flatbuffer.write_flatbuffer_bytes()?.into_inner();
+    let mut spec = EncryptionSpec::plaintext();
+    if let Protection::Encrypt(cipher, role) = protection {
+        buffer = cipher.encrypt(role, &[buffer], alignment)?;
+        spec = cipher.spec().clone();
+    }
     let length = u32::try_from(buffer.len())
         .map_err(|_| vortex_err!("flatbuffer length exceeds maximum u32"))?;
 
     let segment = PostscriptSegment {
         offset: *offset,
         length,
-        alignment: FlatBuffer::alignment(),
+        alignment,
+        encryption: spec,
     };
 
     *offset += u64::from(length);
 
-    Ok((buffer.into_inner(), segment))
+    Ok((buffer, segment))
 }
 
 fn write_buffer(
     offset: &mut u64,
-    buffer: ByteBuffer,
+    mut buffer: ByteBuffer,
+    encryption: Option<(&SegmentCipher, SegmentRole<'_>)>,
 ) -> VortexResult<(Vec<ByteBuffer>, PostscriptSegment)> {
+    let alignment = buffer.alignment();
+    let mut spec = EncryptionSpec::plaintext();
+    if let Some((cipher, role)) = encryption {
+        buffer = cipher.encrypt(role, &[buffer], alignment)?;
+        spec = cipher.spec().clone();
+    }
     let length = u32::try_from(buffer.len())
         .map_err(|_| vortex_err!("metadata segment length exceeds maximum u32"))?;
-    let alignment = buffer.alignment();
 
     let padding = offset.next_multiple_of(alignment.as_usize() as u64) - *offset;
     let segment_offset = *offset + padding;
@@ -253,6 +363,7 @@ fn write_buffer(
         offset: segment_offset,
         length,
         alignment,
+        encryption: spec,
     };
 
     *offset += padding + u64::from(length);

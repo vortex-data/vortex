@@ -11,7 +11,7 @@
 mod field_sizes;
 mod file_layout;
 mod file_statistics;
-mod postscript;
+pub(crate) mod postscript;
 mod segment;
 
 use std::sync::Arc;
@@ -38,6 +38,7 @@ use vortex_layout::layout_from_flatbuffer_with_options;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
+use crate::encryption::EncryptionSpec;
 use crate::flatbuffers::footer as fb;
 
 /// Maximum number of user-defined metadata segments. Keeps postscript bookkeeping small so the
@@ -70,6 +71,8 @@ pub struct Footer {
     // Writers never overlap segments, so in a valid file this is the last segment's end, but only
     // their order is checked when reading, and this guards against malformed footers.
     segments_end: Option<u64>,
+    // The encryption specs indexed by `SegmentSpec::encryption`. Empty if no segment is encrypted.
+    encryption_specs: Arc<[EncryptionSpec]>,
     // The specific arrays used within the file, in the order they were registered.
     array_read_ctx: ReadContext,
     // The approximate size of the footer in bytes, used for caching and memory management.
@@ -90,9 +93,22 @@ impl Footer {
             segments,
             statistics,
             metadata: Arc::from([]),
+            encryption_specs: Arc::from([]),
             array_read_ctx,
             approx_byte_size: None,
         }
+    }
+
+    /// Set the encryption specs that the segments' [`SegmentSpec::encryption`] indices refer to.
+    ///
+    /// When non-empty, the first spec must describe plaintext segments.
+    pub fn with_encryption_specs(
+        mut self,
+        encryption_specs: Arc<[EncryptionSpec]>,
+    ) -> VortexResult<Self> {
+        validate_encryption_specs(&encryption_specs, &self.segments_with_metadata)?;
+        self.encryption_specs = encryption_specs;
+        Ok(self)
     }
 
     pub(crate) fn with_approx_byte_size(mut self, approx_byte_size: usize) -> Self {
@@ -106,12 +122,12 @@ impl Footer {
         layout_bytes: FlatBuffer,
         dtype: DType,
         statistics: Option<FileStatistics>,
-        metadata: Arc<[(String, SegmentSpec)]>,
+        metadata: Vec<(String, SegmentSpec, EncryptionSpec)>,
         session: &VortexSession,
     ) -> VortexResult<Self> {
         let metadata_bytes: usize = metadata
             .iter()
-            .map(|(key, _segment)| key.len() + size_of::<SegmentSpec>())
+            .map(|(key, ..)| key.len() + size_of::<SegmentSpec>())
             .sum();
         let approx_byte_size = footer_bytes.len() + layout_bytes.len() + metadata_bytes;
         let fb_footer = root::<fb::Footer>(footer_bytes)?;
@@ -157,7 +173,30 @@ impl Footer {
             vortex_bail!("Segment offsets are not ordered");
         }
 
+        let encryption_specs: Vec<EncryptionSpec> = fb_footer
+            .encryption_specs()
+            .iter()
+            .flat_map(|specs| specs.iter())
+            .map(|spec| EncryptionSpec::read_flatbuffer(&spec))
+            .try_collect()?;
+
+        // Metadata segments carry their encryption spec inline in the postscript. Point them at
+        // the matching footer spec, which writers always include.
+        let metadata: Arc<[(String, SegmentSpec)]> = metadata
+            .into_iter()
+            .map(|(key, mut segment, encryption)| {
+                segment.encryption = encryption_index(
+                    &encryption_specs,
+                    &encryption,
+                    &format!("metadata segment {key}"),
+                )?;
+                Ok((key, segment))
+            })
+            .collect::<VortexResult<_>>()?;
+
         let segments_with_metadata = segments_with_metadata(&segments, &metadata);
+        let encryption_specs: Arc<[EncryptionSpec]> = encryption_specs.into();
+        validate_encryption_specs(&encryption_specs, &segments_with_metadata)?;
 
         Ok(Self {
             root_layout,
@@ -166,6 +205,7 @@ impl Footer {
             segments,
             statistics,
             metadata,
+            encryption_specs,
             array_read_ctx,
             approx_byte_size: Some(approx_byte_size),
         })
@@ -184,6 +224,33 @@ impl Footer {
     /// Returns the statistics of the file.
     pub fn statistics(&self) -> Option<&FileStatistics> {
         self.statistics.as_ref()
+    }
+
+    /// Returns the encryption specs indexed by [`SegmentSpec::encryption`].
+    ///
+    /// Empty if the file was written without encryption. Otherwise the first spec is the
+    /// plaintext one and the second the footer key's, even if every data segment is stored in
+    /// plaintext; check the [`segment_encryption`](Self::segment_encryption) of a segment to tell
+    /// how it is stored.
+    pub fn encryption_specs(&self) -> &Arc<[EncryptionSpec]> {
+        &self.encryption_specs
+    }
+
+    /// Returns the encryption spec of `segment`.
+    pub fn segment_encryption(&self, segment: &SegmentSpec) -> VortexResult<EncryptionSpec> {
+        if segment.encryption == 0 && self.encryption_specs.is_empty() {
+            return Ok(EncryptionSpec::plaintext());
+        }
+        self.encryption_specs
+            .get(usize::from(segment.encryption))
+            .cloned()
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Segment encryption index {} out of bounds for {} encryption specs",
+                    segment.encryption,
+                    self.encryption_specs.len()
+                )
+            })
     }
 
     /// Returns the user-defined metadata segment locators stored in the postscript.
@@ -269,6 +336,65 @@ fn segments_with_metadata(
         .collect()
 }
 
+/// The index of a postscript segment's inline `spec` in the footer's `specs`.
+///
+/// The postscript is not authenticated, so an encrypted file's metadata segments must be
+/// encrypted with a spec the footer lists; otherwise an attacker could strip their
+/// encryption, or point them at a key of their choice.
+fn encryption_index(
+    specs: &[EncryptionSpec],
+    spec: &EncryptionSpec,
+    what: &str,
+) -> VortexResult<u16> {
+    if specs.is_empty() {
+        if spec.is_encrypted() {
+            vortex_bail!("The {what} is encrypted, but the footer lists no encryption specs");
+        }
+        return Ok(0);
+    }
+    if !spec.is_encrypted() {
+        vortex_bail!("The {what} of an encrypted file is not encrypted");
+    }
+    let index = specs
+        .iter()
+        .position(|candidate| candidate == spec)
+        .ok_or_else(|| {
+            vortex_err!("The {what} is encrypted with a spec the footer does not list")
+        })?;
+    u16::try_from(index).map_err(|_| vortex_err!("Too many encryption specs for a u16 index"))
+}
+
+/// Validate that index 0 denotes plaintext, and that every segment's encryption index is in bounds.
+fn validate_encryption_specs(
+    encryption_specs: &[EncryptionSpec],
+    segments: &[SegmentSpec],
+) -> VortexResult<()> {
+    if let Some(first) = encryption_specs.first()
+        && first.is_encrypted()
+    {
+        vortex_bail!("The first encryption spec must describe plaintext segments");
+    }
+    if encryption_specs.len() > usize::from(u16::MAX) + 1 {
+        vortex_bail!(
+            "Footer contains {} encryption specs, more than a u16 index can address",
+            encryption_specs.len()
+        );
+    }
+    let num_specs = encryption_specs.len().max(1);
+    if let Some(segment) = segments
+        .iter()
+        .find(|segment| usize::from(segment.encryption) >= num_specs)
+    {
+        vortex_bail!(
+            "Segment at offset {} refers to encryption spec {}, but the footer has only {}",
+            segment.offset,
+            segment.encryption,
+            encryption_specs.len()
+        );
+    }
+    Ok(())
+}
+
 fn segments_end(segments: &[SegmentSpec]) -> Option<u64> {
     segments.iter().try_fold(0u64, |end, segment| {
         Some(end.max(segment.offset.checked_add(u64::from(segment.length))?))
@@ -313,6 +439,7 @@ mod tests {
             offset,
             length,
             alignment: Alignment::none(),
+            encryption: 0,
         }
     }
 

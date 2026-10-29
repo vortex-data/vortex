@@ -49,7 +49,8 @@ table PostscriptSegment {
     length: uint32;
     alignment_exponent: uint8;
     _compression: CompressionSpec;
-    _encryption: EncryptionSpec;
+    /// Encryption of the segment. Absent means the segment is stored in plaintext.
+    encryption: EncryptionSpec;
 }
 // [postscript]
 
@@ -124,7 +125,9 @@ table Footer {
     segment_specs: [SegmentSpec];
     // Dictionary-encoded compress specs, up to u3::MAX (8).
     compression_specs: [CompressionSpec];
-    // Dictionary-encoded encryption specs, up to u16::MAX.
+    // Dictionary-encoded encryption specs, up to u16::MAX, indexed by `SegmentSpec::encryption`.
+    // When present, the first entry must use `EncryptionAlgorithm::None`, so that index 0 always
+    // denotes a plaintext segment. When absent, every segment must use index 0.
     encryption_specs: [EncryptionSpec];
 }
 
@@ -152,11 +155,10 @@ struct SegmentSpec {
     length: uint32;
     /// Base-2 exponent of the alignment of the segment.
     alignment_exponent: uint8;
-    // These two fields are reserved for future use and act as pointers
-    // into `FileLayout::compression_schemes` and `FileLayout::encryption_schemes`
-    // respectively. They are not used in the current version of the file format.
+    /// Reserved for future use as a pointer into `Footer::compression_specs`.
     _compression: uint8;
-    _encryption: uint16;
+    /// Index into `Footer::encryption_specs`. Index 0 always denotes a plaintext segment.
+    encryption: uint16;
 }
 
 enum CompressionScheme: uint8 {
@@ -171,7 +173,30 @@ table CompressionSpec {
     scheme: CompressionScheme;
 }
 
+/// The key length (16, 24, or 32 bytes) selects AES-128, AES-192, or AES-256.
+enum EncryptionAlgorithm: uint8 {
+    None = 0,
+    /// Every segment uses AES in Galois/Counter Mode, stored as
+    /// `ciphertext || nonce (12 bytes) || tag (16 bytes)`, where the ciphertext has the length of
+    /// the plaintext. The additional authenticated data is the length of the AAD prefix as a
+    /// little-endian uint32, the AAD prefix, `aad_file_unique`, and a module identifier that binds
+    /// the ciphertext to its position in the file.
+    AesGcm = 1,
+}
+
+/// Definition of an encryption scheme.
+///
+/// Keys are never stored in the file. Readers resolve the key for a spec from its `key_metadata`.
 table EncryptionSpec {
+    algorithm: EncryptionAlgorithm;
+    /// Opaque bytes that identify the key to the reader's key retriever, e.g. a KMS key id.
+    key_metadata: [ubyte];
+    /// Random per-file bytes included in the additional authenticated data of every segment, so
+    /// that encrypted segments cannot be swapped between files that share a key.
+    aad_file_unique: [ubyte];
+    /// Whether the additional authenticated data starts with an application-defined prefix, e.g.
+    /// the file's path. The prefix is never stored in the file, so readers must supply it.
+    requires_aad_prefix: bool;
 }
 // [footer]
 

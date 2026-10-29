@@ -6,30 +6,63 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
+use futures::channel::oneshot;
 use parking_lot::Mutex;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::segments::SegmentSink;
 use vortex_layout::sequence::SequenceId;
 
+use crate::encryption::SegmentCipher;
+use crate::encryption::SegmentRole;
 use crate::footer::SegmentSpec;
 
+/// A buffer sent from a [`BufferedSegmentSink`] to the file, in file order.
+pub(crate) enum PendingBuffer {
+    Ready(ByteBuffer),
+    /// A segment that is still being encrypted. It is sent in order before the encryption
+    /// starts, so that segments can be encrypted in parallel and still be written in order.
+    Encrypting(oneshot::Receiver<VortexResult<ByteBuffer>>),
+}
+
+impl PendingBuffer {
+    /// Wait for the buffer.
+    pub(crate) async fn resolve(self) -> VortexResult<ByteBuffer> {
+        match self {
+            PendingBuffer::Ready(buffer) => Ok(buffer),
+            PendingBuffer::Encrypting(receiver) => receiver
+                .await
+                .map_err(|_| vortex_err!("Segment encryption was cancelled"))?,
+        }
+    }
+}
+
 pub struct BufferedSegmentSink {
-    buffers: kanal::AsyncSender<ByteBuffer>,
+    buffers: kanal::AsyncSender<PendingBuffer>,
     byte_offset: AtomicU64,
     segment_specs: Mutex<Vec<SegmentSpec>>,
+    /// The cipher that encrypts every segment, and the index of its spec in the footer.
+    cipher: Option<(SegmentCipher, u16)>,
 }
 
 impl BufferedSegmentSink {
-    pub fn new(send: kanal::AsyncSender<ByteBuffer>, byte_offset: u64) -> Self {
+    pub(crate) fn new(send: kanal::AsyncSender<PendingBuffer>, byte_offset: u64) -> Self {
         Self {
             buffers: send,
             byte_offset: AtomicU64::new(byte_offset),
             segment_specs: Default::default(),
+            cipher: None,
         }
+    }
+
+    /// Encrypt every segment with `cipher`, whose spec is at `encryption` in the footer.
+    pub(crate) fn with_cipher(mut self, cipher: SegmentCipher, encryption: u16) -> Self {
+        self.cipher = Some((cipher, encryption));
+        self
     }
 
     /// Close the sink, returning the segment specs and the final byte offset.
@@ -46,6 +79,8 @@ impl SegmentSink for BufferedSegmentSink {
         mut sequence_id: SequenceId,
         buffers: Vec<ByteBuffer>,
     ) -> VortexResult<SegmentId> {
+        let cipher = self.cipher.as_ref();
+
         // We wait for all segment IDs before this one to be dropped. Then while we hold a strong
         // reference to this one, we essentially have an exclusive lock on the segment writer.
         sequence_id.collapse().await;
@@ -65,7 +100,12 @@ impl SegmentSink for BufferedSegmentSink {
                 .first()
                 .map(|buffer| buffer.alignment())
                 .unwrap_or_else(Alignment::none);
-            let length = u32::try_from(buffers.iter().map(|buffer| buffer.len()).sum::<usize>())
+            let plaintext_length = buffers.iter().map(|buffer| buffer.len()).sum::<usize>();
+            let (length, encryption) = match cipher {
+                None => (plaintext_length, 0),
+                Some((cipher, encryption)) => (plaintext_length + cipher.overhead(), *encryption),
+            };
+            let length = u32::try_from(length)
                 .map_err(|_| vortex_err!("segment buffer length exceeds maximum u32"))?;
 
             // Add any padding required to align the segment.
@@ -76,6 +116,7 @@ impl SegmentSink for BufferedSegmentSink {
                 offset,
                 length,
                 alignment,
+                encryption,
             });
 
             self.byte_offset
@@ -89,13 +130,39 @@ impl SegmentSink for BufferedSegmentSink {
             }
         };
 
+        // The sequence id still orders this write after all earlier ones, so sending to the
+        // stream keeps the file order.
         if let Some(padding) = padding_buffer {
-            let _ = self.buffers.send(padding).await;
+            let _ = self.buffers.send(PendingBuffer::Ready(padding)).await;
         }
-        for buffer in buffers {
-            let _ = self.buffers.send(buffer).await;
-        }
+        let Some((cipher, _)) = cipher else {
+            for buffer in buffers {
+                let _ = self.buffers.send(PendingBuffer::Ready(buffer)).await;
+            }
+            return Ok(segment_id);
+        };
 
+        // Reserve the segment's place in the stream, then release the ordering before
+        // encrypting, so that later segments, of this column or others, are not held up by it.
+        let (encrypted_tx, encrypted_rx) = oneshot::channel();
+        let _ = self
+            .buffers
+            .send(PendingBuffer::Encrypting(encrypted_rx))
+            .await;
+        drop(sequence_id);
+
+        let alignment = buffers
+            .first()
+            .map(|buffer| buffer.alignment())
+            .unwrap_or_else(Alignment::none);
+        let encrypted = cipher.encrypt(SegmentRole::Data(*segment_id), &buffers, alignment);
+        let failed = encrypted.is_err();
+        // The file writer reports the error it receives, before it awaits the layout. If it
+        // dropped the receiver, it failed already, and reports why itself.
+        drop(encrypted_tx.send(encrypted));
+        if failed {
+            vortex_bail!("Failed to encrypt segment {}", *segment_id);
+        }
         Ok(segment_id)
     }
 }
