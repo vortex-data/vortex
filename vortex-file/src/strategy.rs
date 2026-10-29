@@ -20,6 +20,8 @@ use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::collect::CollectStrategy;
 use vortex_layout::layouts::compressed::CompressingStrategy;
 use vortex_layout::layouts::compressed::CompressorPlugin;
+use vortex_layout::layouts::dict::writer::DictLayoutConstraints;
+use vortex_layout::layouts::dict::writer::DictLayoutOptions;
 use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::list::List;
@@ -59,6 +61,7 @@ pub struct WriteStrategyBuilder {
     compressor: CompressorConfig,
     row_block_size: usize,
     data_block_target_bytes: Option<u64>,
+    dict_max_bytes: usize,
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
     probe_compressor: Option<Arc<dyn CompressorPlugin>>,
@@ -78,6 +81,7 @@ impl WriteStrategyBuilder {
             )),
             row_block_size: 8192,
             data_block_target_bytes: Some(ONE_MEG),
+            dict_max_bytes: DictLayoutConstraints::default().max_bytes,
             field_writers: HashMap::new(),
             flat_strategy: None,
             probe_compressor: None,
@@ -102,6 +106,17 @@ impl WriteStrategyBuilder {
     /// [`Self::with_row_block_size`].
     pub fn with_data_block_target_bytes(mut self, target_bytes: Option<u64>) -> Self {
         self.data_block_target_bytes = target_bytes;
+        self
+    }
+
+    /// Override the maximum size of a dictionary's values, in bytes before compression.
+    ///
+    /// Once a dictionary reaches it, the remaining rows start a new dictionary. Larger
+    /// dictionaries mean fewer of them, so a column's values and codes are written in longer
+    /// contiguous runs, at the cost of a read of a few rows fetching and decoding a larger
+    /// dictionary.
+    pub fn with_dict_max_bytes(mut self, max_bytes: usize) -> Self {
+        self.dict_max_bytes = max_bytes;
         self
     }
 
@@ -216,7 +231,12 @@ impl WriteStrategyBuilder {
             coalescing.clone(),
             compress_then_flat.clone(),
             coalescing,
-            Default::default(),
+            DictLayoutOptions {
+                constraints: DictLayoutConstraints {
+                    max_bytes: self.dict_max_bytes,
+                    ..Default::default()
+                },
+            },
             probe_compressor,
         );
 
