@@ -3,11 +3,13 @@
 
 //! Decimal compute on DecimalByteParts arrays whose MSP holds the whole value.
 //!
-//! Every case has no lower parts. Most cases store the values in an MSP narrower than the
-//! canonical width of the dtype, and `msp_i64_p18_canonical` is the control whose MSP has the
-//! canonical width. Sum and min-max read the decoded decimal, and the filter filters the MSP and
-//! then decodes the result, so their cost follows the width that decoding produces. Comparisons
-//! against a constant run on the MSP.
+//! Every case has no lower parts. Most cases store the values in an MSP narrower than the canonical
+//! width of the dtype, and `msp_i64_p18_canonical` is the control whose MSP has the canonical
+//! width. `decode` and `filter` stop at the form that decoding produces, which is a [`Widen`] or
+//! the canonical array. `canonicalize` decodes all the way to the canonical array, so it also pays
+//! the widening that an export pays. Sum and min-max read the decoded decimal, and the filter
+//! filters the MSP and then decodes the result, so their cost follows the width that decoding
+//! produces. Comparisons against a constant run on the MSP.
 
 use std::fmt;
 use std::sync::LazyLock;
@@ -20,7 +22,6 @@ use rand::distr::uniform::SampleRange;
 use rand::distr::uniform::SampleUniform;
 use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -31,6 +32,7 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::Widen;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::NativePType;
@@ -249,8 +251,17 @@ fn bench_case<O>(
 fn decode(bencher: Bencher, case: Case) {
     bench_case(bencher, case, |array, ctx| {
         array
-            .execute::<DecimalArray>(ctx)
+            .execute_until::<Widen>(ctx)
             .vortex_expect("decode DecimalByteParts")
+    });
+}
+
+#[divan::bench(args = CASES)]
+fn canonicalize(bencher: Bencher, case: Case) {
+    bench_case(bencher, case, |array, ctx| {
+        array
+            .execute::<DecimalArray>(ctx)
+            .vortex_expect("canonicalize DecimalByteParts")
     });
 }
 
@@ -296,7 +307,7 @@ fn filter(bencher: Bencher, case: Case) {
             array
                 .filter(mask)
                 .vortex_expect("filter DecimalByteParts")
-                .execute::<Canonical>(&mut ctx)
+                .execute_until::<Widen>(&mut ctx)
                 .vortex_expect("execute the filter")
         });
 }
