@@ -19,6 +19,7 @@ use rstest::rstest;
 use tempfile::tempdir;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
@@ -3393,15 +3394,15 @@ async fn repro_8166_binary_gt_all_ff_max() -> VortexResult<()> {
     Ok(())
 }
 
-/// Columns named with `with_dict_field`, including one inside a list's elements, keep the
-/// dictionaries they were written with. The values are all distinct, so the default path would
+/// Columns allowed to keep `Dict` with `with_allow_encodings`, including one inside a list's
+/// elements, keep the dictionaries they were written with. The values are all distinct, so the default path would
 /// not dictionary-encode them.
 #[rstest]
 #[case::default(false)]
 #[case::dict_fields(true)]
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
-async fn dict_fields_keep_their_dictionaries(#[case] dict_fields: bool) -> VortexResult<()> {
+async fn allowed_dicts_keep_their_dictionaries(#[case] dict_fields: bool) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let distinct = |len: u32, prefix: &str| -> VortexResult<ArrayRef> {
         let values: Vec<String> = (0..len).map(|i| format!("{prefix}_{i:08}")).collect();
@@ -3429,11 +3430,14 @@ async fn dict_fields_keep_their_dictionaries(#[case] dict_fields: bool) -> Vorte
 
     let mut strategy = crate::strategy::WriteStrategyBuilder::from_session(&SESSION);
     if dict_fields {
-        strategy = strategy.with_dict_field(field_path!(name)).with_dict_field(
-            FieldPath::from_name("items")
-                .push(Field::ElementType)
-                .push("tag"),
-        );
+        strategy = strategy
+            .with_allow_encodings(field_path!(name), [Dict.id()])
+            .with_allow_encodings(
+                FieldPath::from_name("items")
+                    .push(Field::ElementType)
+                    .push("tag"),
+                [Dict.id()],
+            );
     }
     let mut buf = ByteBufferMut::empty();
     SESSION

@@ -31,8 +31,10 @@ use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
+use vortex::array::VTable;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ChunkedArray;
+use vortex::array::arrays::Dict;
 use vortex::array::arrays::ExtensionArray;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
@@ -377,7 +379,7 @@ fn write_options_for(
 
     let mut builder = WriteStrategyBuilder::from_session(&SESSION);
     for field in dict_fields {
-        builder = builder.with_dict_field(field);
+        builder = builder.with_allow_encodings(field, [Dict.id()]);
     }
     if matches!(compaction, CompactionStrategy::Compact) {
         builder = builder.with_btrblocks_builder(

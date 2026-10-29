@@ -6,6 +6,8 @@
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use vortex_array::ArrayId;
+use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldPath;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
@@ -18,9 +20,9 @@ use vortex_layout::VTable;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::collect::CollectStrategy;
+use vortex_layout::layouts::compressed::AllowedEncodingsCompressor;
 use vortex_layout::layouts::compressed::CompressingStrategy;
 use vortex_layout::layouts::compressed::CompressorPlugin;
-use vortex_layout::layouts::compressed::DictChildrenCompressor;
 use vortex_layout::layouts::dict::writer::DictLayoutOptions;
 use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
@@ -62,7 +64,7 @@ pub struct WriteStrategyBuilder {
     row_block_size: usize,
     data_block_target_bytes: Option<u64>,
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
-    dict_fields: Vec<FieldPath>,
+    allowed_encodings: Vec<(FieldPath, Vec<ArrayId>)>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
     probe_compressor: Option<Arc<dyn CompressorPlugin>>,
     /// Whether to write list fields using [`ListLayoutStrategy`].
@@ -82,7 +84,7 @@ impl WriteStrategyBuilder {
             row_block_size: 8192,
             data_block_target_bytes: Some(ONE_MEG),
             field_writers: HashMap::new(),
-            dict_fields: Vec::new(),
+            allowed_encodings: Vec::new(),
             flat_strategy: None,
             probe_compressor: None,
             use_list_layout: session
@@ -122,14 +124,25 @@ impl WriteStrategyBuilder {
         self
     }
 
-    /// Keep the dictionary encoding of the field at `field`, compressing only its codes and values.
+    /// Allow the field at `field` to keep the given encodings it arrives with, compressing only
+    /// their children.
     ///
-    /// Use this for a column whose chunks arrive dictionary-encoded and whose readers want the
-    /// dictionary back, such as an Arrow dictionary column: the column is written without being
-    /// decoded, and a scan hands back the stored dictionary. Blocks of dictionary chunks are merged
-    /// into one dictionary of the values they reference. The path may step into list elements.
-    pub fn with_dict_field(mut self, field: impl Into<FieldPath>) -> Self {
-        self.dict_fields.push(field.into());
+    /// The field is written without being canonicalized where it holds an allowed encoding: such
+    /// an array keeps its encoding and only its child slots are compressed. Use this for a column
+    /// whose readers want the encoding back, such as an Arrow dictionary column written with
+    /// [`Dict`]: a scan hands back the stored dictionary instead of re-encoding the values. Blocks
+    /// of dictionary chunks are merged into one dictionary of the values they reference. The path
+    /// may step into list elements; without the list layout, the column holding the list keeps the
+    /// encodings inside it.
+    ///
+    /// [`Dict`]: vortex_array::arrays::Dict
+    pub fn with_allow_encodings(
+        mut self,
+        field: impl Into<FieldPath>,
+        encodings: impl IntoIterator<Item = ArrayId>,
+    ) -> Self {
+        self.allowed_encodings
+            .push((field.into(), encodings.into_iter().collect()));
         self
     }
 
@@ -264,16 +277,46 @@ impl WriteStrategyBuilder {
             },
         );
 
-        // Dictionary fields follow the same steps without dictionary encoding, keeping the
-        // dictionaries they arrive with and compressing only their codes and values.
+        // Fields with allowed encodings follow the same steps without dictionary encoding, keeping
+        // the allowed encodings they arrive with and compressing only their children. Without the
+        // list layout, list elements are not written as columns of their own, so a path into a list
+        // is kept by the writer of the list column that holds it.
+        let all_allowed: Vec<ArrayId> = self
+            .allowed_encodings
+            .iter()
+            .flat_map(|(_, ids)| ids.iter().copied())
+            .collect();
         let mut field_writers = self.field_writers;
-        if !self.dict_fields.is_empty() {
-            let dict_compressing = CompressingStrategy::new(
+        let mut allowed_columns: HashMap<FieldPath, Vec<(FieldPath, Vec<ArrayId>)>> =
+            HashMap::new();
+        for (field, ids) in self.allowed_encodings {
+            let split = if self.use_list_layout {
+                field.parts().len()
+            } else {
+                field
+                    .parts()
+                    .iter()
+                    .position(|part| matches!(part, Field::ElementType))
+                    .unwrap_or_else(|| field.parts().len())
+            };
+            let column = FieldPath::from(field.parts()[..split].to_vec());
+            let within = FieldPath::from(field.parts()[split..].to_vec());
+            allowed_columns
+                .entry(column)
+                .or_default()
+                .push((within, ids));
+        }
+        for (column, allowed) in allowed_columns {
+            let column_ids: Vec<ArrayId> = allowed
+                .iter()
+                .flat_map(|(_, ids)| ids.iter().copied())
+                .collect();
+            let allowed_compressing = CompressingStrategy::new(
                 BufferedStrategy::new(ChunkedLayoutStrategy::new(Arc::clone(&flat)), 2 * ONE_MEG),
-                DictChildrenCompressor::new(data_compressor),
+                AllowedEncodingsCompressor::new(Arc::clone(&data_compressor), allowed),
             );
-            let dict_coalescing = RepartitionStrategy::new(
-                dict_compressing,
+            let allowed_coalescing = RepartitionStrategy::new(
+                allowed_compressing,
                 RepartitionWriterOptions {
                     block_size_minimum: self.data_block_target_bytes.unwrap_or(0),
                     block_len_multiple: self.row_block_size,
@@ -281,30 +324,26 @@ impl WriteStrategyBuilder {
                     canonicalize: true,
                 },
             )
-            .with_keep_dicts();
-            let dict_stats = ZonedStrategy::new(
-                dict_coalescing,
+            .with_allowed_encodings(column_ids.iter().copied());
+            let allowed_stats = ZonedStrategy::new(
+                allowed_coalescing,
                 compress_then_flat.clone(),
                 ZonedLayoutOptions {
                     block_size: row_block_size,
                     ..Default::default()
                 },
             );
-            let dict_writer: Arc<dyn LayoutStrategy> = Arc::new(
-                RepartitionStrategy::new(
-                    dict_stats,
-                    RepartitionWriterOptions {
-                        block_size_minimum: 0,
-                        block_len_multiple: self.row_block_size,
-                        block_size_target: None,
-                        canonicalize: false,
-                    },
-                )
-                .with_keep_dicts(),
-            );
-            for field in self.dict_fields {
-                field_writers.insert(field, Arc::clone(&dict_writer));
-            }
+            let allowed_writer = RepartitionStrategy::new(
+                allowed_stats,
+                RepartitionWriterOptions {
+                    block_size_minimum: 0,
+                    block_len_multiple: self.row_block_size,
+                    block_size_target: None,
+                    canonicalize: false,
+                },
+            )
+            .with_allowed_encodings(column_ids);
+            field_writers.insert(column, Arc::new(allowed_writer));
         }
 
         // 0. start with splitting columns
@@ -327,7 +366,7 @@ impl WriteStrategyBuilder {
                             ..Default::default()
                         },
                     );
-                    // Dictionaries nested in the list's elements stay encoded until the elements
+                    // Allowed encodings nested in the list's elements are kept until the elements
                     // reach their own field writers.
                     Arc::new(
                         RepartitionStrategy::new(
@@ -339,7 +378,7 @@ impl WriteStrategyBuilder {
                                 canonicalize: false,
                             },
                         )
-                        .with_keep_dicts(),
+                        .with_allowed_encodings(all_allowed.iter().copied()),
                     )
                 },
             );

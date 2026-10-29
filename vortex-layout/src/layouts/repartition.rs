@@ -8,10 +8,12 @@ use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::StreamExt as _;
 use futures::pin_mut;
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
@@ -109,7 +111,7 @@ impl RepartitionWriterOptions {
 pub struct RepartitionStrategy {
     child: Arc<dyn LayoutStrategy>,
     options: RepartitionWriterOptions,
-    keep_dicts: bool,
+    allowed_encodings: Arc<[ArrayId]>,
 }
 
 impl RepartitionStrategy {
@@ -117,16 +119,18 @@ impl RepartitionStrategy {
         Self {
             child: Arc::new(child),
             options,
-            keep_dicts: false,
+            allowed_encodings: Arc::from([]),
         }
     }
 
-    /// Keeps dictionaries, at any depth of structs and lists, instead of canonicalizing them.
+    /// Keeps arrays of the given encodings, at any depth of structs and lists, instead of
+    /// canonicalizing them.
     ///
-    /// A block made of dictionary chunks becomes a single dictionary holding only the distinct
-    /// values its codes reference. Blocks without dictionaries are canonicalized as usual.
-    pub fn with_keep_dicts(mut self) -> Self {
-        self.keep_dicts = true;
+    /// When [`Dict`] is allowed, a block made of dictionary chunks becomes a single dictionary
+    /// holding only the distinct values its codes reference. A block made of one chunk of an
+    /// allowed encoding is passed on as it is. Other blocks are canonicalized as usual.
+    pub fn with_allowed_encodings(mut self, ids: impl IntoIterator<Item = ArrayId>) -> Self {
+        self.allowed_encodings = ids.into_iter().collect();
         self
     }
 }
@@ -144,14 +148,15 @@ impl LayoutStrategy for RepartitionStrategy {
         // TODO(os): spawn stream below like:
         // canon_stream = stream.map(async {to_canonical}).map(spawn).buffered(parallelism)
         let dtype = stream.dtype().clone();
-        let keep_dicts = self.keep_dicts;
+        let allowed = Arc::clone(&self.allowed_encodings);
         let stream = if self.options.canonicalize {
             let canonicalize_session = session.clone();
+            let allowed = Arc::clone(&allowed);
             SequentialStreamAdapter::new(
                 dtype.clone(),
                 stream.map(move |chunk| {
                     let (sequence_id, chunk) = chunk?;
-                    if keep_dicts && contains_dict(&chunk) {
+                    if contains_allowed(&chunk, &allowed) {
                         return VortexResult::Ok((sequence_id, chunk));
                     }
                     let mut ctx = canonicalize_session.create_execution_ctx();
@@ -194,7 +199,7 @@ impl LayoutStrategy for RepartitionStrategy {
                         let output_chunks = chunks.collect_exact_blocks(&mut ctx)?;
                         assert!(!output_chunks.is_empty());
                         if let Some(block) =
-                            finish_block(output_chunks, &dtype_clone, keep_dicts, &mut ctx)?
+                            finish_block(output_chunks, &dtype_clone, &allowed, &mut ctx)?
                         {
                             yield (sequence_pointer.advance(), block)
                         }
@@ -203,7 +208,7 @@ impl LayoutStrategy for RepartitionStrategy {
                 if canonical_stream.as_mut().peek().await.is_none() {
                     let to_flush = chunks.data.drain(..).map(|(arr, _)| arr).collect();
                     if let Some(block) =
-                        finish_block(to_flush, &dtype_clone, keep_dicts, &mut ctx)?
+                        finish_block(to_flush, &dtype_clone, &allowed, &mut ctx)?
                     {
                         yield (sequence_pointer.advance(), block)
                     }
@@ -305,19 +310,19 @@ impl ChunksBuffer {
 
 /// Assembles the chunks of one block, or returns `None` for an empty block.
 ///
-/// See [`RepartitionStrategy::with_keep_dicts`] for which blocks keep their dictionaries.
+/// See [`RepartitionStrategy::with_allowed_encodings`] for which blocks keep their encodings.
 fn finish_block(
     chunks: Vec<ArrayRef>,
     dtype: &DType,
-    keep_dicts: bool,
+    allowed: &[ArrayId],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     let chunks: Vec<ArrayRef> = chunks.into_iter().filter(|c| !c.is_empty()).collect();
     if chunks.is_empty() {
         return Ok(None);
     }
-    if keep_dicts && chunks.iter().any(contains_dict) {
-        return concat_preserving_dicts(chunks, dtype, ctx).map(Some);
+    if chunks.iter().any(|chunk| contains_allowed(chunk, allowed)) {
+        return concat_allowed(chunks, dtype, allowed, ctx).map(Some);
     }
     let chunked = ChunkedArray::try_new(chunks, dtype.clone())?;
     Ok(Some(
@@ -325,25 +330,35 @@ fn finish_block(
     ))
 }
 
-/// Whether a dictionary appears anywhere in `array`.
-fn contains_dict(array: &ArrayRef) -> bool {
-    array
-        .depth_first_traversal()
-        .any(|child| child.is::<Dict>())
+/// Whether an array of an allowed encoding appears anywhere in `array`.
+fn contains_allowed(array: &ArrayRef, allowed: &[ArrayId]) -> bool {
+    !allowed.is_empty()
+        && array
+            .depth_first_traversal()
+            .any(|child| allowed.contains(&child.encoding_id()))
 }
 
-/// Concatenates chunks, keeping the dictionaries found at any depth of structs and lists.
-fn concat_preserving_dicts(
+/// Concatenates chunks, keeping the arrays of allowed encodings found at any depth of structs and
+/// lists.
+fn concat_allowed(
     chunks: Vec<ArrayRef>,
     dtype: &DType,
+    allowed: &[ArrayId],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let chunks: Vec<ArrayRef> = chunks.into_iter().filter(|c| !c.is_empty()).collect();
     if chunks.is_empty() {
         return Ok(Canonical::empty(dtype).into_array());
     }
-    if let Some(dict) = concat_dicts(&chunks, dtype, ctx)? {
+    if allowed.contains(&Dict.id())
+        && let Some(dict) = concat_dicts(&chunks, dtype, ctx)?
+    {
         return Ok(dict);
+    }
+    if let [chunk] = chunks.as_slice()
+        && allowed.contains(&chunk.encoding_id())
+    {
+        return Ok(chunk.clone());
     }
 
     let len = chunks.iter().map(|c| c.len()).sum();
@@ -362,7 +377,7 @@ fn concat_preserving_dicts(
                         .iter()
                         .map(|chunk| chunk.unmasked_field(idx).clone())
                         .collect();
-                    concat_preserving_dicts(field_chunks, &field_dtype, ctx)
+                    concat_allowed(field_chunks, &field_dtype, allowed, ctx)
                 })
                 .collect::<VortexResult<Vec<_>>>()?;
             Ok(
@@ -400,7 +415,7 @@ fn concat_preserving_dicts(
                         .slice(usize::try_from(first)?..usize::try_from(last)?)?,
                 );
             }
-            let elements = concat_preserving_dicts(elements, element_dtype, ctx)?;
+            let elements = concat_allowed(elements, element_dtype, allowed, ctx)?;
             Ok(
                 ListArray::try_new(elements, offsets.freeze().into_array(), validity, ctx)?
                     .into_array(),
@@ -932,8 +947,8 @@ mod tests {
         ];
         let expected = ChunkedArray::try_new(chunks.clone(), dtype.clone())?;
 
-        let block =
-            finish_block(chunks, &dtype, true, &mut ctx)?.vortex_expect("block is not empty");
+        let block = finish_block(chunks, &dtype, &[Dict.id()], &mut ctx)?
+            .vortex_expect("block is not empty");
 
         let dict = block
             .as_opt::<Dict>()
@@ -964,8 +979,8 @@ mod tests {
         let chunks = vec![first, second];
         let expected = ChunkedArray::try_new(chunks.clone(), dtype.clone())?;
 
-        let block =
-            finish_block(chunks, &dtype, true, &mut ctx)?.vortex_expect("block is not empty");
+        let block = finish_block(chunks, &dtype, &[Dict.id()], &mut ctx)?
+            .vortex_expect("block is not empty");
 
         let elements = block.as_::<List>().elements().clone();
         assert_eq!(elements.len(), 6);
