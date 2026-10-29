@@ -13,8 +13,7 @@ import java.util.Objects;
 
 /**
  * Static utilities for discovering, deleting, and inspecting the metadata and statistics of Vortex files on an object
- * store. The
- * caller supplies a {@link Session}; its runtime handle is forwarded to the underlying object store.
+ * store. The caller supplies a {@link Session}; its runtime handle is forwarded to the underlying object store.
  */
 public final class NativeFiles {
     static {
