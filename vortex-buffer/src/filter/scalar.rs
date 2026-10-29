@@ -24,28 +24,32 @@ pub(super) unsafe fn compact_by_bitmap<T: Copy>(
     let mut write_pos = 0;
 
     // See `byte_compress::compress` for why this closure is always inlined.
-    for_each_mask_word(bits, #[inline(always)] |word, word_start, word_len| {
-        let all_selected = low_bits_mask(word_len);
-        debug_assert_eq!(word & !all_selected, 0);
+    for_each_mask_word(
+        bits,
+        #[inline(always)]
+        |word, word_start, word_len| {
+            let all_selected = low_bits_mask(word_len);
+            debug_assert_eq!(word & !all_selected, 0);
 
-        if word == all_selected {
-            dst[write_pos..][..word_len].write_copy_of_slice(&src[word_start..][..word_len]);
-            write_pos += word_len;
-        } else {
-            let mut selected = word;
-            while selected != 0 {
-                let index = word_start + selected.trailing_zeros() as usize;
-                // SAFETY: set bits index into `src`, and `dst` has room for every selected
-                // element.
-                unsafe {
-                    dst.get_unchecked_mut(write_pos)
-                        .write(*src.get_unchecked(index))
-                };
-                write_pos += 1;
-                selected &= selected - 1;
+            if word == all_selected {
+                dst[write_pos..][..word_len].write_copy_of_slice(&src[word_start..][..word_len]);
+                write_pos += word_len;
+            } else {
+                let mut selected = word;
+                while selected != 0 {
+                    let index = word_start + selected.trailing_zeros() as usize;
+                    // SAFETY: set bits index into `src`, and `dst` has room for every selected
+                    // element.
+                    unsafe {
+                        dst.get_unchecked_mut(write_pos)
+                            .write(*src.get_unchecked(index))
+                    };
+                    write_pos += 1;
+                    selected &= selected - 1;
+                }
             }
-        }
-    });
+        },
+    );
 
     write_pos
 }
