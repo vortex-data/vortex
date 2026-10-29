@@ -6,13 +6,18 @@ use std::ops::Range;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::arrays::Filter;
 use crate::arrays::filter::FilterArraySlotsExt;
-use crate::arrays::slice::SliceReduce;
+use crate::arrays::slice::SliceKernel;
 
-impl SliceReduce for Filter {
-    fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+impl SliceKernel for Filter {
+    fn slice(
+        array: ArrayView<'_, Self>,
+        range: Range<usize>,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let mask = array.filter_mask();
         // The slice addresses surviving rows. Translate its bounds using the already
         // materialized mask so separate slices do not each execute the whole filtered child.
@@ -36,13 +41,30 @@ mod tests {
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
+    use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::Filter;
     use crate::arrays::FilterArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::Slice;
+    use crate::arrays::SliceArray;
     use crate::arrays::filter::FilterArraySlotsExt;
+    use crate::arrays::slice::SliceExecuteAdaptor;
     use crate::assert_arrays_eq;
+    use crate::executor::ExecutionCtx;
+    use crate::kernel::ExecuteParentKernel;
+
+    fn execute_slice(
+        filtered: &ArrayRef,
+        range: Range<usize>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let parent = SliceArray::new(filtered.clone(), range).into_array();
+        Ok(SliceExecuteAdaptor(Filter)
+            .execute_parent(filtered.as_::<Filter>(), parent.as_::<Slice>(), 0, ctx)?
+            .expect("filter child should execute its slice parent"))
+    }
 
     #[rstest]
     #[case(0..2, vec![Some(1), None], 4)]
@@ -62,14 +84,11 @@ mod tests {
             let _ = mask.indices();
         }
         let filtered = FilterArray::try_new(values, mask)?.into_array();
-        let sliced = filtered.slice(range)?;
+        let mut ctx = VortexSession::empty().create_execution_ctx();
+        let sliced = execute_slice(&filtered, range, &mut ctx)?;
 
         assert_eq!(sliced.as_::<Filter>().child().len(), child_len);
-        assert_arrays_eq!(
-            sliced,
-            PrimitiveArray::from_option_iter(expected),
-            &mut VortexSession::empty().create_execution_ctx()
-        );
+        assert_arrays_eq!(sliced, PrimitiveArray::from_option_iter(expected), &mut ctx);
         Ok(())
     }
 
@@ -86,11 +105,10 @@ mod tests {
         let filtered =
             FilterArray::try_new(values, Mask::from_indices(11, vec![1, 4, 7, 9]))?.into_array();
 
-        assert_arrays_eq!(
-            filtered.slice(range)?,
-            PrimitiveArray::from_iter(expected),
-            &mut VortexSession::empty().create_execution_ctx()
-        );
+        let mut ctx = VortexSession::empty().create_execution_ctx();
+        let sliced = execute_slice(&filtered, range, &mut ctx)?;
+
+        assert_arrays_eq!(sliced, PrimitiveArray::from_iter(expected), &mut ctx);
         Ok(())
     }
 }

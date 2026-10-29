@@ -21,7 +21,9 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::Dict;
 use crate::arrays::Filter;
+use crate::arrays::Slice;
 use crate::arrays::dict::TakeExecuteAdaptor;
+use crate::arrays::slice::SliceExecuteAdaptor;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::kernels::ArrayKernelsExt;
@@ -30,6 +32,7 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
     kernels.register_execute_parent_kernel(Dict.id(), Filter, TakeExecuteAdaptor(Filter));
+    kernels.register_execute_parent_kernel(Slice.id(), Filter, SliceExecuteAdaptor(Filter));
 }
 
 pub trait FilterReduce: VTable {

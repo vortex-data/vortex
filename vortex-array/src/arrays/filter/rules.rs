@@ -18,7 +18,6 @@ use crate::arrays::filter::execute::buffer::prepare_mask_for_reuse;
 use crate::arrays::filter::execute::contiguous_filter_range;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
-use crate::arrays::slice::SliceReduceAdaptor;
 use crate::arrays::struct_::StructDataParts;
 use crate::builtins::ArrayBuiltins;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -30,7 +29,6 @@ use crate::scalar_fn::fns::get_item::GetItem;
 pub(super) const PARENT_RULES: ParentRuleSet<Filter> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&FilterReduceAdaptor(Filter)),
     ParentRuleSet::lift(&FilterGetItemRule),
-    ParentRuleSet::lift(&SliceReduceAdaptor(Filter)),
 ]);
 
 pub(super) const RULES: ReduceRuleSet<Filter> =
