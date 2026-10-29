@@ -4,8 +4,8 @@
 //! Drives a V2 scan for DuckDB.
 //!
 //! The driver prepares each file, prunes its rows, and builds a queue of part planners. DuckDB's
-//! workers take one part at a time and drive its entire planner tree to completion. Each part
-//! contains several chunks: while one chunk waits for IO, the run can advance another chunk.
+//! workers take one part at a time and drive its entire planner tree to completion. A part can
+//! contain several chunks: while one chunk waits for IO, the run can advance another chunk.
 //! Planners describe work; the shared queue determines which worker executes it.
 //!
 //! The thread initializing the file performs whole-file pruning before queueing any parts.
@@ -16,8 +16,9 @@
 //! Queued and running parts share the file execution's read coordinator. Each queued planner
 //! owns its row claim so reads remain available until all possible consumers have finished.
 //!
-//! Chunks use the prepared scan's fixed row grid, shared with DataFusion and independent of
-//! stored layout boundaries. The driver groups these chunks into a few parts per available thread.
+//! Parts use a static row grid independent of stored layout boundaries. As with DataFusion's
+//! file partitions, the shared chunk planner clips its chunks to each part. A large filtered
+//! chunk must not limit the number of workers that can scan a file.
 
 use std::collections::VecDeque;
 use std::future;
@@ -51,6 +52,8 @@ use crate::RUNTIME;
 
 /// The parts of a file's rows per thread, so threads that finish early find more work.
 const PARTS_PER_THREAD: usize = 4;
+/// Avoid tiny worker assignments while allowing filtered chunks to use multiple workers.
+const MIN_ROWS_PER_PART: u64 = 65_536;
 
 /// One file's V2 scan, shared by the threads scanning it.
 pub(crate) struct FileScan {
@@ -66,29 +69,33 @@ pub(crate) struct FileScan {
     rows_taken: AtomicU64,
 }
 
-/// One worker assignment, covering a consecutive group of whole chunks.
+/// One worker assignment, covering a consecutive range of rows.
 struct Part {
     scope: WorkScope,
     planner: Box<dyn Planner>,
 }
 
 impl FileScan {
-    /// Prepares `builder`, prunes its rows, and queues planners for groups of fixed-size chunks.
+    /// Prepares `builder`, prunes its rows, and queues planners for static row ranges.
     /// With `dynamic`, each queued part prunes again when a worker takes it.
     pub(crate) fn try_new(builder: ScanBuilder, dynamic: bool) -> VortexResult<Self> {
         let scan = Arc::new(builder.prepare()?);
         let io = Arc::new(FileReads::new(scan.io(), scan.read_lifetimes()));
-        let mut parts = get_available_parallelism().unwrap_or(1) * PARTS_PER_THREAD;
-        let mut chunks = scan.row_chunks();
-        if scan.sparse_selection() {
+        let parts = if scan.sparse_selection() {
             // A sparse selection, such as an engine's fetch of a few rows by id, selects rows in
             // few chunks: each of them is its own part, and the rest are not planned at all, so
             // DuckDB gives the file a thread per chunk that has work, as V1 does with its splits.
             let selection = scan.selection();
+            let mut chunks = scan.row_chunks();
             chunks.retain(|chunk| selection.row_count_in_range(chunk) > 0);
-            parts = chunks.len();
-        }
-        let work = plan_parts(&scan, &io, chunks, parts, dynamic)?;
+            chunks
+        } else {
+            parts(
+                scan.rows().clone(),
+                get_available_parallelism().unwrap_or(1) * PARTS_PER_THREAD,
+            )
+        };
+        let work = plan_parts(&scan, &io, parts, dynamic)?;
         Ok(Self {
             scan,
             io,
@@ -157,11 +164,9 @@ impl FileScan {
 fn plan_parts(
     scan: &Arc<PreparedScan>,
     io: &Arc<FileReads>,
-    chunks: Vec<Range<u64>>,
-    count: usize,
+    parts: Vec<Range<u64>>,
     dynamic: bool,
 ) -> VortexResult<VecDeque<Part>> {
-    let parts = parts(chunks, count);
     let claim = io.claim(scan.rows().clone());
     if scan.filter().is_none() {
         return Ok(part_planners(scan, claim, parts, None, dynamic));
@@ -206,16 +211,12 @@ fn plan_parts(
 fn part_planners(
     scan: &Arc<PreparedScan>,
     mut claim: RowClaim,
-    parts: Vec<Vec<Range<u64>>>,
+    parts: Vec<Range<u64>>,
     kept: Option<Mask>,
     dynamic: bool,
 ) -> VecDeque<Part> {
     let mut work = VecDeque::new();
-    for chunks in parts {
-        let (Some(first), Some(last)) = (chunks.first(), chunks.last()) else {
-            continue;
-        };
-        let rows = first.start..last.end;
+    for rows in parts {
         let mut part_claim = claim.split_to(rows.end);
         part_claim.restrict_to(rows.clone());
         let kept = match &kept {
@@ -244,57 +245,71 @@ fn part_planners(
                     (Some(kept), Some(pruned)) => Some(kept & &pruned),
                     (kept, pruned) => kept.or(pruned),
                 };
-                Some(Box::new(ChunkPlanner::with_chunks(
-                    next_scan, claim, chunks, selection, kept,
+                Some(Box::new(ChunkPlanner::new(
+                    next_scan, claim, selection, kept,
                 )))
             };
             Box::new(PrunePlanner::new(scan, part_claim, Box::new(next)))
         } else {
-            Box::new(ChunkPlanner::with_chunks(
-                scan, part_claim, chunks, selection, kept,
-            ))
+            Box::new(ChunkPlanner::new(scan, part_claim, selection, kept))
         };
         work.push_back(Part { scope, planner });
     }
     work
 }
 
-/// Groups `chunks` into up to `parts` runs of consecutive chunks, of as even a count as they
-/// divide into.
-fn parts(chunks: Vec<Range<u64>>, parts: usize) -> Vec<Vec<Range<u64>>> {
-    if chunks.is_empty() {
+/// Divides rows into at most `count` assignments on a fixed grid, independently of the scan's
+/// chunk size. In particular, a million-row filter chunk must not become one worker assignment.
+fn parts(rows: Range<u64>, count: usize) -> Vec<Range<u64>> {
+    if rows.is_empty() {
         return Vec::new();
     }
-    let per_part = chunks.len().div_ceil(parts.max(1));
-    let mut chunks = chunks.into_iter().peekable();
-    let mut grouped = Vec::new();
-    while chunks.peek().is_some() {
-        grouped.push(chunks.by_ref().take(per_part).collect());
+    let first = rows.start / MIN_ROWS_PER_PART;
+    let blocks = rows.end.div_ceil(MIN_ROWS_PER_PART) - first;
+    let per_part = blocks.div_ceil(count.max(1) as u64);
+    let mut start = first * MIN_ROWS_PER_PART;
+    let mut parts = Vec::new();
+    while start < rows.end {
+        let end = start
+            .saturating_add(per_part.saturating_mul(MIN_ROWS_PER_PART))
+            .min(rows.end);
+        parts.push(start.max(rows.start)..end);
+        start = end;
     }
-    grouped
+    parts
 }
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
+
     use rstest::rstest;
 
     use super::parts;
 
     #[rstest]
-    #[case::even(4, 2, vec![2, 2])]
-    #[case::ragged(5, 2, vec![3, 2])]
-    #[case::more_parts_than_chunks(2, 8, vec![1, 1])]
-    #[case::empty(0, 4, vec![])]
-    fn parts_group_whole_chunks(
-        #[case] chunks: u64,
+    #[case::even(0..262_144, 2, vec![0..131_072, 131_072..262_144])]
+    #[case::ragged(0..270_000, 2, vec![0..196_608, 196_608..270_000])]
+    #[case::clipped(25_000..205_000, 3, vec![25_000..131_072, 131_072..205_000])]
+    #[case::more_parts_than_blocks(0..100_000, 8, vec![0..65_536, 65_536..100_000])]
+    #[case::empty(100..100, 4, vec![])]
+    #[case::zero_count(25_000..205_000, 0, vec![25_000..205_000])]
+    #[case::row_limit(u64::MAX - 1000..u64::MAX, 8, vec![u64::MAX - 1000..u64::MAX])]
+    fn parts_use_a_fixed_row_grid(
+        #[case] rows: Range<u64>,
         #[case] count: usize,
-        #[case] expected: Vec<usize>,
+        #[case] expected: Vec<Range<u64>>,
     ) {
-        let grouped = parts((0..chunks).map(|i| i..i + 1).collect(), count);
-        assert_eq!(grouped.iter().map(Vec::len).collect::<Vec<_>>(), expected);
+        assert_eq!(parts(rows, count), expected);
+    }
+
+    #[test]
+    fn one_filtered_chunk_has_work_for_multiple_threads() {
         assert_eq!(
-            grouped.concat(),
-            (0..chunks).map(|i| i..i + 1).collect::<Vec<_>>()
+            parts(0..1_048_576, 16),
+            (0..16)
+                .map(|i| i * 65_536..(i + 1) * 65_536)
+                .collect::<Vec<_>>()
         );
     }
 }
