@@ -17,10 +17,13 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::aggregate_fn::fns::nan_count::nan_count;
+use vortex_array::aggregate_fn::fns::null_count::null_count;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::optimizer::kernels::KernelSession;
 use vortex_array::validity::Validity;
@@ -157,4 +160,27 @@ fn nan_count_f64_nulls_scattered(bencher: Bencher) {
         || PrimitiveArray::new(values.clone(), validity.clone()).into_array(),
         |array| nan_count(array, &mut SESSION.create_execution_ctx()),
     );
+}
+
+/// Mask a nullable column, as a parent's nulls mask a field, and count its nulls, which reads the
+/// conjunction of the two validities.
+#[divan::bench]
+fn null_count_i32_masked(bencher: Bencher) {
+    let values = i32_values();
+    let validity = scattered_validity();
+    let mut rng = StdRng::seed_from_u64(6);
+    let mask = BoolArray::from_iter((0..N).map(|_| rng.random_bool(0.5))).into_array();
+    bench_with(
+        bencher,
+        || PrimitiveArray::new(values.clone(), validity.clone()).into_array(),
+        |array| {
+            let masked = array.clone().mask(mask.clone())?;
+            null_count(&masked, &mut SESSION.create_execution_ctx())
+        },
+    );
+}
+
+fn i32_values() -> Buffer<i32> {
+    let mut rng = StdRng::seed_from_u64(7);
+    (0..N).map(|_| rng.random_range(-1000..1000)).collect()
 }
