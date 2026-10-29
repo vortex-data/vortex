@@ -50,6 +50,9 @@ typedef struct {
 
     duckdb_vx_table_filter_set filters;
     duckdb_client_context client_context;
+    size_t max_threads;
+    // Known input files, expanded only far enough to fill the worker pool.
+    size_t file_count;
 } duckdb_vx_tfunc_init_input;
 
 // Result data returned from the cardinality callback.

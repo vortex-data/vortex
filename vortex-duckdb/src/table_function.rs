@@ -184,6 +184,8 @@ pub struct GlobalState {
     pub file_row_number_column_pos: Option<usize>,
     /// Whether the scan runs on the planner-driven V2 executor.
     pub scan_v2: bool,
+    pub(crate) scan_threads: usize,
+    pub(crate) scan_files: usize,
 
     // Following fields are used only in aggregate scans.
     pub aggregate_state: Mutex<AggregateState>,
@@ -357,6 +359,8 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<GlobalState> {
         row_count: AtomicU64::new(0),
         file_row_number_column_pos,
         scan_v2: crate::scan_v2(),
+        scan_threads: init_input.input.max_threads,
+        scan_files: init_input.input.file_count,
     })
 }
 

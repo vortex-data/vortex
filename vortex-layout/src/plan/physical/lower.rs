@@ -33,6 +33,7 @@ use crate::plan::physical::PackPlan;
 use crate::plan::physical::PlanChildren;
 use crate::plan::physical::PlanRef;
 use crate::plan::physical::SegmentScanPlan;
+use crate::plan::physical::SharePlan;
 use crate::plan::physical::TakePlan;
 use crate::plan::physical::ZonedPlan;
 
@@ -124,16 +125,24 @@ fn lower_struct(layout: &StructLayout) -> VortexResult<PackPlan> {
 }
 
 fn lower_dict(layout: &DictLayout) -> VortexResult<TakePlan> {
+    let children = lazy_children(layout.to_layout(), vec![1, 0]);
+    let children = PlanChildren::lazy(2, move |index| {
+        let child = children
+            .get(index)?
+            .ok_or_else(|| vortex_err!("Dictionary plan child {index} is absent"))?;
+        // A whole-value share over a struct would prevent pruning unprojected fields.
+        Ok(if index == 1 && !child.dtype().is_struct() {
+            SharePlan::new(child).into_plan()
+        } else {
+            child
+        })
+    });
     // Dict serialization stores values before codes; the plan order is deliberately codes,
     // values because that is the optimizer-facing logical shape.
     // SAFETY: Dict layout construction validates its values and codes slots. The plan reorders
     // those slots to [codes, values] while preserving the derived output dtype and row domain.
     Ok(unsafe {
-        TakePlan::from_children_unchecked(
-            layout.dtype().clone(),
-            layout.row_count(),
-            lazy_children(layout.to_layout(), vec![1, 0]),
-        )
+        TakePlan::from_children_unchecked(layout.dtype().clone(), layout.row_count(), children)
     })
 }
 

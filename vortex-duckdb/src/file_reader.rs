@@ -236,7 +236,12 @@ pub fn reader_initialize(file: &mut OpenFileReader, global: &GlobalState) -> Vor
             .map(|filter| filter.contains::<DynamicComparison>())
             .transpose()?
             .unwrap_or(false);
-        let scan = FileScan::try_new(v2_builder(state, global), dynamic)?;
+        let scan = FileScan::try_new(
+            v2_builder(state, global),
+            dynamic,
+            global.scan_threads,
+            global.scan_files,
+        )?;
         if state.v2.set(scan).is_err() {
             vortex_panic!("file initialized twice");
         }

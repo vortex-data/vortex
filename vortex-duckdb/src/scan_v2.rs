@@ -22,6 +22,7 @@
 
 use std::collections::VecDeque;
 use std::future;
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
@@ -46,7 +47,6 @@ use vortex::scan::planning::driver::RowClaim;
 use vortex::scan::planning::driver::Run;
 use vortex::scan::planning::planner::Planner;
 use vortex::scan::planning::planner::WorkScope;
-use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::RUNTIME;
 
@@ -54,6 +54,18 @@ use crate::RUNTIME;
 const PARTS_PER_THREAD: usize = 4;
 /// Avoid tiny worker assignments while allowing filtered chunks to use multiple workers.
 const MIN_ROWS_PER_PART: u64 = 65_536;
+/// Bound assignments even when the input already has enough files to fill the worker pool.
+const MAX_ROWS_PER_PART: usize = 1_048_576;
+
+fn parts_per_file(threads: usize, files: usize) -> usize {
+    let threads = threads.max(1);
+    let files = files.max(1);
+    if files >= threads {
+        1
+    } else {
+        threads.saturating_mul(PARTS_PER_THREAD).div_ceil(files)
+    }
+}
 
 /// One file's V2 scan, shared by the threads scanning it.
 pub(crate) struct FileScan {
@@ -78,8 +90,20 @@ struct Part {
 impl FileScan {
     /// Prepares `builder`, prunes its rows, and queues planners for static row ranges.
     /// With `dynamic`, each queued part prunes again when a worker takes it.
-    pub(crate) fn try_new(builder: ScanBuilder, dynamic: bool) -> VortexResult<Self> {
-        let scan = Arc::new(builder.prepare()?);
+    pub(crate) fn try_new(
+        builder: ScanBuilder,
+        dynamic: bool,
+        threads: usize,
+        files: usize,
+    ) -> VortexResult<Self> {
+        let parts_per_file = parts_per_file(threads, files);
+        let scan = Arc::new(
+            builder
+                .with_max_output_rows(
+                    NonZeroUsize::new(MAX_ROWS_PER_PART).vortex_expect("part rows are nonzero"),
+                )
+                .prepare()?,
+        );
         let io = Arc::new(FileReads::new(scan.io(), scan.read_lifetimes()));
         let parts = if scan.sparse_selection() {
             // A sparse selection, such as an engine's fetch of a few rows by id, selects rows in
@@ -90,12 +114,15 @@ impl FileScan {
             chunks.retain(|chunk| selection.row_count_in_range(chunk) > 0);
             chunks
         } else {
-            parts(
-                scan.rows().clone(),
-                get_available_parallelism().unwrap_or(1) * PARTS_PER_THREAD,
-            )
+            parts(scan.rows().clone(), parts_per_file)
         };
-        let work = plan_parts(&scan, &io, parts, dynamic)?;
+        let work = plan_parts(
+            &scan,
+            &io,
+            parts,
+            dynamic,
+            threads.max(1).saturating_mul(PARTS_PER_THREAD),
+        )?;
         Ok(Self {
             scan,
             io,
@@ -164,20 +191,33 @@ impl FileScan {
 fn plan_parts(
     scan: &Arc<PreparedScan>,
     io: &Arc<FileReads>,
-    parts: Vec<Range<u64>>,
+    ranges: Vec<Range<u64>>,
     dynamic: bool,
+    pruned_parts: usize,
 ) -> VortexResult<VecDeque<Part>> {
     let claim = io.claim(scan.rows().clone());
     if scan.filter().is_none() {
-        return Ok(part_planners(scan, claim, parts, None, dynamic));
+        return Ok(part_planners(scan, claim, ranges, None, dynamic));
     }
 
     let work = Arc::new(Mutex::new(VecDeque::new()));
     let next = {
         let scan = Arc::clone(scan);
         let work = Arc::clone(&work);
-        move |kept, claim| {
-            *work.lock() = part_planners(&scan, claim, parts, kept, dynamic);
+        move |kept: Option<Mask>, claim| {
+            // Heavy pruning can leave only a few files with work. Wider scans need parallelism
+            // within those files; narrow fixed-width scans keep large chunks to amortize setup.
+            let ranges = if !scan.sparse_selection()
+                && scan.chunk_rows() < MAX_ROWS_PER_PART
+                && kept
+                    .as_ref()
+                    .is_some_and(|kept| kept.true_count() <= kept.len() / 2)
+            {
+                parts(scan.rows().clone(), pruned_parts)
+            } else {
+                ranges
+            };
+            *work.lock() = part_planners(&scan, claim, ranges, kept, dynamic);
             None
         }
     };
@@ -237,7 +277,6 @@ fn part_planners(
             rows,
         };
         let scan = Arc::clone(scan);
-        let selection = scan.selection().clone();
         let planner: Box<dyn Planner> = if dynamic {
             let next_scan = Arc::clone(&scan);
             let next = move |pruned: Option<Mask>, claim: RowClaim| -> Option<Box<dyn Planner>> {
@@ -245,28 +284,41 @@ fn part_planners(
                     (Some(kept), Some(pruned)) => Some(kept & &pruned),
                     (kept, pruned) => kept.or(pruned),
                 };
-                Some(Box::new(ChunkPlanner::new(
-                    next_scan, claim, selection, kept,
-                )))
+                Some(Box::new(part_chunks(next_scan, claim, kept)))
             };
             Box::new(PrunePlanner::new(scan, part_claim, Box::new(next)))
         } else {
-            Box::new(ChunkPlanner::new(scan, part_claim, selection, kept))
+            Box::new(part_chunks(scan, part_claim, kept))
         };
         work.push_back(Part { scope, planner });
     }
     work
 }
 
-/// Divides rows into at most `count` assignments on a fixed grid, independently of the scan's
-/// chunk size. In particular, a million-row filter chunk must not become one worker assignment.
+/// Filtering stays within the driver's bounded assignment. DuckDB can consume the resulting
+/// chunked projection directly, so another cut here would repeat dictionary-expression work.
+fn part_chunks(scan: Arc<PreparedScan>, claim: RowClaim, kept: Option<Mask>) -> ChunkPlanner {
+    let selection = scan.selection().clone();
+    if scan.filter().is_some() {
+        let chunks = vec![claim.rows().clone()];
+        ChunkPlanner::with_chunks(scan, claim, chunks, selection, kept)
+    } else {
+        ChunkPlanner::new(scan, claim, selection, kept)
+    }
+}
+
+/// Divides rows on a fixed grid, aiming for `count` assignments while bounding their size.
+/// A single-file scan gets enough assignments to keep its workers busy, while a many-file scan
+/// avoids having every worker contend for the same reads and evaluate the same dictionaries.
 fn parts(rows: Range<u64>, count: usize) -> Vec<Range<u64>> {
     if rows.is_empty() {
         return Vec::new();
     }
     let first = rows.start / MIN_ROWS_PER_PART;
     let blocks = rows.end.div_ceil(MIN_ROWS_PER_PART) - first;
-    let per_part = blocks.div_ceil(count.max(1) as u64);
+    let per_part = blocks
+        .div_ceil(count.max(1) as u64)
+        .min(MAX_ROWS_PER_PART as u64 / MIN_ROWS_PER_PART);
     let mut start = first * MIN_ROWS_PER_PART;
     let mut parts = Vec::new();
     while start < rows.end {
@@ -286,6 +338,22 @@ mod tests {
     use rstest::rstest;
 
     use super::parts;
+    use super::parts_per_file;
+
+    #[rstest]
+    #[case(8, 1, 32)]
+    #[case(8, 4, 8)]
+    #[case(8, 8, 1)]
+    #[case(8, 100, 1)]
+    #[case(1, 100, 1)]
+    #[case(0, 0, 1)]
+    fn work_accounts_for_threads_and_files(
+        #[case] threads: usize,
+        #[case] files: usize,
+        #[case] expected: usize,
+    ) {
+        assert_eq!(parts_per_file(threads, files), expected);
+    }
 
     #[rstest]
     #[case::even(0..262_144, 2, vec![0..131_072, 131_072..262_144])]
@@ -310,6 +378,14 @@ mod tests {
             (0..16)
                 .map(|i| i * 65_536..(i + 1) * 65_536)
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn large_files_keep_bounded_assignments() {
+        assert_eq!(
+            parts(0..3_000_000, 1),
+            vec![0..1_048_576, 1_048_576..2_097_152, 2_097_152..3_000_000]
         );
     }
 }

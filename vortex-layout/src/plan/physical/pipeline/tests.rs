@@ -742,6 +742,52 @@ fn sparse_string_take_preserves_encoded_values(#[case] dtype: DType) -> VortexRe
 }
 
 #[test]
+fn dictionary_filter_and_projection_reuse_values() -> VortexResult<()> {
+    let mut store = Store::default();
+    let values = VarBinViewArray::from_iter_str(["a", "b", "c"]).into_array();
+    let codes = PrimitiveArray::from_iter((0..ROWS).map(|v| (v % 3) as u8)).into_array();
+    let layout = DictLayout::new(store.flat(&values)?, store.flat(&codes)?).into_layout();
+    let root_plan = lower(&layout)?;
+    let expression = gt(root(), lit("a")).bind(root_plan.dtype())?;
+    let predicate = optimize(
+        EvalPlan::try_new(expression, root_plan.clone())?.into_plan(),
+        &SESSION,
+    )?;
+    let projection = optimize(root_plan, &SESSION)?;
+    let cache = ValueCache::default();
+    let mask = Mask::new_true(10);
+    let filtered = run_with_values(
+        &store,
+        &predicate,
+        0..10,
+        mask.clone(),
+        cache.clone(),
+        delivery(Delivery::Fifo),
+    )?;
+    assert_eq!(reads(&filtered.events), 2);
+    let expected = BoolArray::from_iter((0..ROWS).map(|row| row % 3 != 0)).into_array();
+    assert_view(&expected, &(0..10), &mask, filtered.arrays)?;
+
+    let projected = run_with_values(
+        &store,
+        &projection,
+        10..20,
+        mask.clone(),
+        cache,
+        delivery(Delivery::Fifo),
+    )?;
+    assert_eq!(
+        reads(&projected.events),
+        1,
+        "only codes need reading after filtering"
+    );
+    let expected =
+        VarBinViewArray::from_iter_str((0..ROWS).map(|row| ["a", "b", "c"][(row % 3) as usize]))
+            .into_array();
+    assert_view(&expected, &(10..20), &mask, projected.arrays)
+}
+
+#[test]
 fn eval_applies_expression_to_selected_rows() -> VortexResult<()> {
     let mut store = Store::default();
     let (plan, _) = two_columns(&mut store)?;

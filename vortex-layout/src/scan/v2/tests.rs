@@ -18,6 +18,7 @@ use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -624,6 +625,35 @@ async fn prepared_chunks_use_the_fixed_grid(
 }
 
 #[rstest]
+#[case::default(None, vec![40_535, 65_536, 65_536, 13_392])]
+#[case::larger(Some(262_144), vec![184_999])]
+#[tokio::test]
+async fn filtered_projection_respects_output_limit(
+    #[case] max_rows: Option<usize>,
+    #[case] expected_lengths: Vec<usize>,
+) -> VortexResult<()> {
+    let session = new_session().with_tokio();
+    let segments = Arc::new(TestSegments::default());
+    let layout = sequential_int_chunks(&session, &segments, 70_000, 3).await?;
+    let segments = segments as Arc<dyn SegmentSource>;
+    let mut scan = builder(&session, &segments, &layout)?
+        .with_some_filter(Some(gt(root(), lit(25_000i32)).bind(layout.dtype())?))
+        .with_projection(gt(root(), lit(100_000i32)).bind(layout.dtype())?);
+    if let Some(rows) = max_rows.and_then(NonZeroUsize::new) {
+        scan = scan.with_max_output_rows(rows);
+    }
+    let arrays = run_scan(scan).await?;
+    assert_eq!(
+        arrays.iter().map(|array| array.len()).collect::<Vec<_>>(),
+        expected_lengths
+    );
+    let expected = BoolArray::from_iter((25_001..210_000).map(|row| row > 100_000));
+    let result = ChunkedArray::try_new(arrays, expected.dtype().clone())?;
+    assert_arrays_eq!(result, expected, &mut session.create_execution_ctx());
+    Ok(())
+}
+
+#[rstest]
 #[case::flat(false)]
 #[case::dictionary(true)]
 #[tokio::test]
@@ -944,7 +974,7 @@ async fn repeated_projections_reuse_their_values() -> VortexResult<()> {
         let actual = collect_scan(projection.dtype().clone(), scan).await?;
         assert_arrays_eq!(
             actual,
-            vortex_array::arrays::BoolArray::from_iter([false, true]),
+            BoolArray::from_iter([false, true]),
             &mut session.create_execution_ctx()
         );
         reads.push(counted.reads.load(Ordering::Relaxed) - before);

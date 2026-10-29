@@ -29,8 +29,6 @@ use crate::scan::execution::adaptor::AdaptorStep;
 use crate::scan::execution::adaptor::Piece;
 use crate::scan::execution::adaptor::ScanAdaptor;
 
-const MAX_OUTPUT_ROWS: usize = 65_536;
-
 /// Keeps sparse selections together and subdivides dense selections to avoid large copies when
 /// converting chunked projection results to Arrow.
 pub(super) struct ProjectionPlanner {
@@ -41,13 +39,14 @@ pub(super) struct ProjectionPlanner {
 impl ProjectionPlanner {
     /// Creates a planner for `selected`.
     pub(super) fn new(scan: Arc<PreparedScan>, mut selected: SelectedRows) -> Self {
-        let selected = if selected.mask.true_count() <= MAX_OUTPUT_ROWS {
+        let max_output_rows = scan.max_output_rows;
+        let selected = if selected.mask.true_count() <= max_output_rows {
             vec![selected]
         } else {
             (0..selected.mask.len())
-                .step_by(MAX_OUTPUT_ROWS)
+                .step_by(max_output_rows)
                 .filter_map(|start| {
-                    let end = (start + MAX_OUTPUT_ROWS).min(selected.mask.len());
+                    let end = (start + max_output_rows).min(selected.mask.len());
                     let claim = selected
                         .claim
                         .split_to(selected.scope.rows.start + end as u64);

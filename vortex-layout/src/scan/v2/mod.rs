@@ -28,6 +28,7 @@ mod retain;
 #[cfg(test)]
 mod tests;
 
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -101,6 +102,7 @@ pub struct ScanBuilder {
     row_range: Option<Range<u64>>,
     selection: Selection,
     row_offset: u64,
+    max_output_rows: usize,
 }
 
 impl ScanBuilder {
@@ -114,6 +116,7 @@ impl ScanBuilder {
             row_range: None,
             selection: Selection::default(),
             row_offset: 0,
+            max_output_rows: MAX_ROWS_PER_CHUNK,
         }
     }
 
@@ -159,6 +162,15 @@ impl ScanBuilder {
     /// Sets the root row offset used by row-index expressions.
     pub fn with_row_offset(mut self, row_offset: u64) -> Self {
         self.row_offset = row_offset;
+        self
+    }
+
+    /// Limits the selected rows in each output batch; defaults to 65,536.
+    /// Engines that consume chunked arrays without flattening can raise this to preserve
+    /// dictionary reuse across a larger filtered range. Identity projections retain the
+    /// byte-based chunk bound when a larger limit is requested.
+    pub fn with_max_output_rows(mut self, rows: NonZeroUsize) -> Self {
+        self.max_output_rows = rows.get();
         self
     }
 
@@ -220,6 +232,12 @@ impl ScanBuilder {
             Some(lifetimes) => lifetimes,
             None => cache.insert_read_lifetimes(read_lifetimes(&file.layout, &file.locations)?),
         };
+        let max_output_rows = if identity && self.max_output_rows > MAX_ROWS_PER_CHUNK {
+            self.max_output_rows
+                .min(rows_per_chunk(row_count, &file.locations))
+        } else {
+            self.max_output_rows
+        };
         Ok(PreparedScan {
             session: self.session,
             rows: self.row_range.unwrap_or(0..row_count),
@@ -234,6 +252,7 @@ impl ScanBuilder {
             row_offset: self.row_offset,
             values,
             chunk_rows,
+            max_output_rows,
         })
     }
 }

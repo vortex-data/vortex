@@ -1441,3 +1441,38 @@ fn test_vortex_scan_v2_matches_v1(
     assert_eq!(v2?, v1);
     Ok(())
 }
+
+#[rstest]
+#[case::like("SELECT count(*) FROM ? WHERE s LIKE '%needle%'", 80_000)]
+#[case::empty("SELECT count(*) FROM ? WHERE s = ''", 40_000)]
+#[case::nonempty("SELECT count(*) FROM ? WHERE s <> ''", 120_000)]
+#[case::regexp(
+    "SELECT count(*) FROM ? WHERE regexp_replace(s, 'needle', 'x') LIKE '%/x/%'",
+    40_000
+)]
+fn test_vortex_scan_v2_string_dictionary_matches_v1(
+    #[case] query: &str,
+    #[case] expected: i64,
+) -> Result<()> {
+    let values = [
+        None,
+        Some(""),
+        Some("https://example.com/needle/path"),
+        Some("https://example.net/other/path"),
+        Some("needle"),
+    ];
+    let strings = VarBinViewArray::from_iter(
+        (0..200_000).map(|row| values[row % values.len()]),
+        DType::Utf8(Nullability::Nullable),
+    );
+    let file = RUNTIME.block_on(write_vortex_file([("s", strings.into_array())].into_iter()));
+    let path = file.path().to_string_lossy();
+    crate::set_scan_v2(false);
+    let v1 = query_i64_column(&path, query)?;
+    crate::set_scan_v2(true);
+    let v2 = query_i64_column(&path, query);
+    crate::set_scan_v2(false);
+    assert_eq!(v1, vec![expected]);
+    assert_eq!(v2?, v1);
+    Ok(())
+}
