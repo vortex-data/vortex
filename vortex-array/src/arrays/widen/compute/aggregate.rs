@@ -7,11 +7,14 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::is_constant::IsConstant;
 use crate::aggregate_fn::fns::is_sorted::IsSorted;
 use crate::aggregate_fn::fns::max::Max;
 use crate::aggregate_fn::fns::min::Min;
 use crate::aggregate_fn::fns::min_max::MinMax;
+use crate::aggregate_fn::fns::min_max::MinMaxResult;
+use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::fns::sum::Sum;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::arrays::Widen;
@@ -24,10 +27,11 @@ use crate::scalar::Scalar;
 ///
 /// The values run the same accumulator code as the canonical array, so edge cases such as an empty
 /// batch or a single null match by construction, and the values keep their own cached statistics
-/// and kernels. Decimal widening preserves order, equality and validity, so extrema, constancy and
-/// sortedness have the same partial after widening. Decimal sums must use the logical precision
-/// to select their accumulator, so they fall back to execution. Integer [`Sum`] is served only
-/// when [`is_exact_sum`] holds.
+/// and kernels. [`MinMax`] runs [`min_max`] on the values instead, which reads their exact cached
+/// extrema before it scans them. Decimal widening preserves order, equality and validity, so
+/// extrema, constancy and sortedness have the same partial after widening. Decimal sums must use
+/// the logical precision to select their accumulator, so they fall back to execution. Integer
+/// [`Sum`] is served only when [`is_exact_sum`] holds.
 #[derive(Debug)]
 pub(crate) struct WidenArrayAggregate;
 
@@ -62,15 +66,43 @@ impl DynAggregateKernel for WidenArrayAggregate {
             return Ok(None);
         }
 
-        let mut accumulator = aggregate_fn.accumulator(values.dtype())?;
-        accumulator.accumulate(values, ctx)?;
-
         let partial_dtype = aggregate_fn.state_dtype(batch.dtype()).vortex_expect(
             "the served aggregate accepts the logical dtype when it accepts the narrower values",
         );
 
+        if let Some(options) = aggregate_fn.as_opt::<MinMax>() {
+            let partial = min_max_partial(values, *options, batch.dtype(), partial_dtype, ctx)?;
+            return Ok(Some(partial));
+        }
+
+        let mut accumulator = aggregate_fn.accumulator(values.dtype())?;
+        accumulator.accumulate(values, ctx)?;
+
         Ok(Some(accumulator.flush()?.cast(&partial_dtype)?))
     }
+}
+
+/// Returns the [`MinMax`] partial of a `Widen` with the logical dtype `logical` from its values.
+///
+/// [`min_max`] returns the exact cached extrema of the values before it scans them, so a child
+/// that records its extrema needs no scan. A fresh accumulator would always scan. The extrema
+/// widen to the non-nullable `logical` dtype, as the canonical accumulator reports them, and no
+/// valid value gives a null partial.
+fn min_max_partial(
+    values: &ArrayRef,
+    options: NumericalAggregateOpts,
+    logical: &DType,
+    partial_dtype: DType,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Scalar> {
+    let Some(MinMaxResult { min, max }) = min_max(values, ctx, options)? else {
+        return Ok(Scalar::null(partial_dtype));
+    };
+
+    let element_dtype = logical.as_nonnullable();
+    let extrema = vec![min.cast(&element_dtype)?, max.cast(&element_dtype)?];
+
+    Ok(Scalar::struct_(partial_dtype, extrema))
 }
 
 /// Returns whether the [`Sum`] of the values of `batch` equals the sum of the canonical batch.

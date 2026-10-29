@@ -5,6 +5,7 @@ use std::fmt::Debug;
 use std::num::NonZeroUsize;
 
 use rstest::rstest;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use super::SESSION;
@@ -33,21 +34,27 @@ use crate::aggregate_fn::fns::last::Last;
 use crate::aggregate_fn::fns::max::Max;
 use crate::aggregate_fn::fns::min::Min;
 use crate::aggregate_fn::fns::min_max::MinMax;
+use crate::aggregate_fn::fns::min_max::make_minmax_dtype;
 use crate::aggregate_fn::fns::null_count::NullCount;
 use crate::aggregate_fn::fns::sum::Sum;
 use crate::aggregate_fn::fns::sum_v2::SumV2;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::DecimalArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::Widen;
 use crate::arrays::WidenArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::dtype::DecimalDType;
 use crate::dtype::Nullability;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::Nullability::Nullable;
 use crate::dtype::PType;
+use crate::expr::stats::Precision;
+use crate::expr::stats::Stat;
+use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 
 /// Every aggregate that applies to integers, and whether the `Widen` aggregate kernel serves it.
@@ -314,6 +321,50 @@ fn test_chunked_matches_canonical() -> VortexResult<()> {
 
         assert_eq!(actual.finish()?, expected.finish()?, "{aggregate}");
     }
+
+    Ok(())
+}
+
+/// The `MinMax` kernel takes exact extrema that the values cache, without a scan. The planted
+/// extrema differ from the values, so only a read of the cache returns them.
+#[rstest]
+#[case::integer(
+    PrimitiveArray::from_iter([1i8, 2, 3]).into_array(),
+    DType::Primitive(PType::I64, NonNullable),
+    Scalar::primitive(-100i8, NonNullable),
+    Scalar::primitive(100i8, NonNullable),
+)]
+#[case::decimal(
+    DecimalArray::from_option_iter([Some(1i16), None], DecimalDType::new(4, 2)).into_array(),
+    DType::Decimal(DecimalDType::new(18, 2), Nullable),
+    Scalar::decimal(DecimalValue::I16(-9_999), DecimalDType::new(4, 2), NonNullable),
+    Scalar::decimal(DecimalValue::I16(9_999), DecimalDType::new(4, 2), NonNullable),
+)]
+fn test_min_max_reads_values_extrema(
+    #[case] values: ArrayRef,
+    #[case] logical: DType,
+    #[case] min: Scalar,
+    #[case] max: Scalar,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+
+    for (stat, extremum) in [(Stat::Min, &min), (Stat::Max, &max)] {
+        let value = extremum.value().cloned();
+        let value = value.vortex_expect("the planted extremum is not null");
+        values.statistics().set(stat, Precision::Exact(value));
+    }
+
+    let array = WidenArray::try_new(values, logical.clone())?.into_array();
+    let aggregate = MinMax.bind(NumericalAggregateOpts::default());
+
+    let partial = kernel_partial(&aggregate, &array, &mut ctx)?;
+
+    let element_dtype = logical.as_nonnullable();
+    let expected = Scalar::struct_(
+        make_minmax_dtype(&logical),
+        vec![min.cast(&element_dtype)?, max.cast(&element_dtype)?],
+    );
+    assert_eq!(partial, Some(expected));
 
     Ok(())
 }
