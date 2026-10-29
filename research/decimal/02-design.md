@@ -163,7 +163,7 @@ file hold an invalid child. `vortex.widen` stays in memory only until the mainta
 write it to files (decided, D18).
 
 Until then, a writer that meets a `Widen` writes its executed canonical array (proposed, D26,
-deferred to CD4). This also holds later for writers whose editions do not permit `vortex.widen`.
+deferred to CD6). This also holds later for writers whose editions do not permit `vortex.widen`.
 Decimal `Widen` appears in ordinary pipelines, through widening casts and old files, so IPC or a
 writer without compression would fail without it. A plugin cannot return the wire form of another
 encoding, so the fallback lives in the serializer. The code documents it as a workaround, which
@@ -541,7 +541,7 @@ Writers produce forms that old readers understand. The leaf becomes `vortex.deci
 canonical width. DBP becomes DecimalByteParts v1, which the first core edition already contains,
 or v2 where an edition permits it. `Widen` is written only where an edition permits
 `vortex.widen`, and the compressor produces it only then. Elsewhere the serializer writes the
-canonical array of a `Widen` (proposed, D26, deferred to CD4). `vortex.widen` and DBP v2 enter one
+canonical array of a `Widen` (proposed, D26, deferred to CD6). `vortex.widen` and DBP v2 enter one
 preview edition together, and later `core` together (decided, D18). Constant, dictionary and
 run-end arrays of decimals keep their current wire forms.
 

@@ -1137,8 +1137,9 @@ than the canonical width returns an error, because the btrblocks scheme never wr
 - Goal: An old `vortex.decimal` node has a stored width that differs from the canonical width of its
   dtype. The reader converts it into the canonical array or a decimal `Widen`. After this PR no
   read produces a decimal leaf with a non-canonical width.
-- Depends on: FX1, CD3, CD4, and the published CD2 fixtures (D31). Soft: CD5. Blocks: CD8a.
-- Decisions: D7, D9, D21, D14, D10, D24, D31, D37.
+- Depends on: FX1, CD3, CD3b (`valid_range`, #10939), CD4, and the published CD2 fixtures (D31).
+  Soft: CD5. Blocks: CD8a.
+- Decisions: D7, D9, D21, D14, D10, D24, D26, D31, D37.
 - Branch: `ct/decimal-read-plugin`, based on `develop` after FX1, CD3 and CD4 merge, or stacked on
   CD4.
 - Scope:
@@ -1147,6 +1148,11 @@ than the canonical width returns an error, because the btrblocks scheme never wr
   - Its `is_supported_encoding` override and its registration.
   - A `Decimal` VTable `deserialize` that rejects a non-canonical width.
   - Unit tests with hand-built old nodes.
+  - The choice of D26. CD4 (#10946) added no serialization lowering, because the default writer
+    executes a `Widen` through its pipeline. After this PR, reads of old files return a `Widen`, so
+    IPC and writers without a compressor can meet one. Choose between a lowering specific to
+    `Widen`, a generic lowering for arrays that cannot be written, and no lowering, and put that
+    choice to the maintainer before writing it.
 - Out of scope:
   - Stored statistics in plugins (rejected, D9).
   - DecimalByteParts (CD5) and strict construction (CD8a).
@@ -1288,8 +1294,8 @@ Review focus:
 
 Size: medium. One new module and one registration change.
 
-Open questions: None. A read can now return an in-memory `Widen`. Until WR1, a writer handles it as
-CD4 decided for D26.
+Open questions: D26, which this PR decides (see Scope). Until WR1, a writer handles a `Widen` as
+this PR decides.
 
 ### CD7: One DecimalByteParts scheme on the canonical array
 

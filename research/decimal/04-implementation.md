@@ -66,19 +66,21 @@ planning review on 2026-10-23.
 | FX1 | Strict decoding of stored `DecimalType` and `PType` values, in three commits | None | Medium |
 | FX2 | Dropped. #10798 documents the cast-rule contract instead (see the FX2 brief) | None | None |
 | FX3 | Dictionary `fill_null` no longer truncates the fill code | None | Small |
-| WD1 | In-memory integer `Widen`, with `encode`, the deprecated `encode_values`, the serialization workaround and a flatten rule | None | Large |
+| WD1 | In-memory integer `Widen`, with `encode`, the deprecated `encode_values` and a flatten rule | None | Large |
 | WD2 | Benchmarks for compute on integer `Widen` | WD1 | Medium |
 | WD3 | Aggregates run on the child | WD2 | Medium |
 | WD4 | Arithmetic, `between`, `zip` and casts run on the child | WD3 | Large |
 | WD5 | Structural encodings move above `Widen`, and dictionary codes use the child | WD4, FX3 | Medium |
-| WD6 | The existing narrowing call sites move to `encode_values` | WD1. It merges after WD5 (D35) | Medium |
+| WD6 | The existing narrowing call sites move to `encode_values` | WD1 (D35) | Medium |
 | CD1 | Decimal benchmarks | None | Medium |
 | CD2 | Compat fixtures for old decimal forms | None | Medium |
 | CD3 | One width function, imports that check and copy, and the shared helpers | None | Medium |
-| CD4 | Decimal `Widen` in memory | WD1, WD3, WD4, CD1, CD3 | Large |
+| CD3b | One scan for the range of valid decimal values (`valid_range`), shared by CD4, CD6 and CD7 | CD3 | Small |
+| CD4p | Decimal `Interleave` execution, so that CD4 can test its fallbacks | None | Medium |
+| CD4 | Decimal `Widen` in memory | WD1, WD3, WD4, CD1, CD3, CD3b, CD4p | Large |
 | CD5 | DecimalByteParts decodes to the canonical width | CD1, CD3, released CD2 fixtures | Medium |
-| CD6 | The `vortex.decimal` read plugin converts old nodes | FX1, CD3, CD4, released CD2 fixtures | Medium |
-| CD7 | One DecimalByteParts scheme on the canonical array | WD1, CD1 | Medium |
+| CD6 | The `vortex.decimal` read plugin converts old nodes, and decides D26 | FX1, CD3, CD3b, CD4, released CD2 fixtures | Medium |
+| CD7 | One DecimalByteParts scheme on the canonical array. It merges right after CD5 | WD1, CD1, CD3b | Medium |
 | CD8a | Every decimal array has the canonical width | CD3, CD5, CD6, CD7 | Large |
 | CD8b | `DecimalArray::try_new` checks every valid value, with an `ExecutionCtx` | CD8a | Large |
 | CD8c | Remove the code for mixed decimal widths | CD8a | Medium |
@@ -101,7 +103,8 @@ brief or a decision changes.
 
 Each solid arrow is a hard dependency. Some arrows also follow from other arrows. The graph keeps
 them, so that the direct needs of each PR show. The dashed arrows are order rules, not code
-dependencies: the release gate of the compat fixtures (D31), and WD6 merging after WD5 (D35).
+dependencies: the release gate of the compat fixtures (D31), and CD7 merging right after CD5, so
+that the old scheme does not split decimals from their storage width for long (#10905).
 
 ```mermaid
 flowchart TD
@@ -122,6 +125,8 @@ flowchart TD
         CD2["CD2 Compat fixtures"]
         REL(["Release with CD2"])
         CD3["CD3 Width and imports"]
+        CD3b["CD3b Valid range scan"]
+        CD4p["CD4p Decimal Interleave"]
         CD4["CD4 Decimal Widen"]
         CD5["CD5 DBP decoding"]
         CD6["CD6 Read plugin"]
@@ -139,12 +144,17 @@ flowchart TD
     WD1 --> WD2 --> WD3 --> WD4 --> WD5
     FX3 --> WD5
     WD1 --> WD6
-    WD5 -.-> WD6
     CD2 --> REL
     REL -.-> CD5
     REL -.-> CD6
     CD1 --> CD4
     CD3 --> CD4
+    CD3 --> CD3b
+    CD3b --> CD4
+    CD4p --> CD4
+    CD3b --> CD6
+    CD3b --> CD7
+    CD5 -.-> CD7
     WD1 --> CD4
     WD3 --> CD4
     WD4 --> CD4
@@ -178,10 +188,10 @@ files. The column "Shared files" names the pairs that do not, so run those one a
 
 | Wave | PRs | Note | Shared files |
 | --- | --- | --- | --- |
-| 1 | FX1, FX3, WD1, CD1, CD2, CD3 | No dependencies. The next regular release after CD2 publishes the fixtures | CD2 calls `smallest_decimal_value_type`, which CD3 removes. The second of the two to merge adapts |
-| 2 | WD2, WD6, CD7, CD5 | WD6 merges after WD5 (D35). CD7 waits for CD1. CD5 waits for the release with CD2 | CD5 and CD7: the crate doc in `encodings/decimal-byte-parts/src/lib.rs`, the tests in `assemble.rs`, and `benches/dbp_assemble.rs`. CD7 also changes the signature of `split_decimal`. WD6 and CD7: the golden snapshots of `vortex-btrblocks` |
+| 1 | FX1, FX3, WD1, CD1, CD2, CD3, CD4p | No dependencies. The next regular release after CD2 publishes the fixtures | CD2 calls `smallest_decimal_value_type`, which CD3 removes. The second of the two to merge adapts |
+| 2 | WD2, WD6, CD3b, CD7, CD5 | WD6 needs only WD1 (D35). CD7 waits for CD1 and CD3b, and it merges right after CD5. CD5 waits for the release with CD2 | CD5 and CD7: the crate doc in `encodings/decimal-byte-parts/src/lib.rs`, the tests in `assemble.rs`, and `benches/dbp_assemble.rs`. CD7 also changes the signature of `split_decimal`. WD6 and CD7: the golden snapshots of `vortex-btrblocks` |
 | 3 | WD3, then WD4 | One stack. Read the CodSpeed reports with the rule in the NR brief ("CodSpeed on stacked PRs") | None |
-| 4 | WD5, CD4 | FX3 is merged (`dcb4f50ae2`) | Both edit `vortex-array/src/arrays/widen/rules.rs` |
+| 4 | WD5, CD4 | FX3 is merged (`dcb4f50ae2`). Settle the mechanism question of #10748 before WD5, so that WD5 and phase 4a of the extension notes can share it | Both edit `vortex-array/src/arrays/widen/rules.rs` |
 | 5 | CD6 | Waits for FX1, CD4 and the release with CD2 | None |
 | 6 | CD8a | The last in-memory step that the wire change needs | None |
 | 7 | CD8b, CD8c, WR1 | Each needs only CD8a | CD8b adds a `ctx` parameter to `DecimalArray::new` and `try_new`, which CD8c and WR1 call. CD8b and CD8c both edit `vortex-array/src/builders/decimal.rs` and the same tests. Land CD8b first, or rebase the others on it |
@@ -192,7 +202,7 @@ publishes the CD2 fixtures also gates CD5 and CD6, so CD2 is worth landing in wa
 
 ## Rules for every PR
 
-- No PR adds temporary code (D11). The serialization workaround of D26, if CD4 adds it, is the one
+- No PR adds temporary code (D11). The serialization workaround of D26, if CD6 adds it, is the one
   documented exception. It stays until `vortex.widen` is in `core`.
 - Benchmarks land before the changes that they cover (D19): WD2 before WD3 to WD5, and CD1 before
   CD4, CD5 and CD7. The dependency table lists these as hard dependencies.
@@ -220,11 +230,12 @@ PRs, and each one has its own issue. Two are closed.
 | Issue | Problem |
 | --- | --- |
 | #10748 | Generic structural encodings always sit above other encodings. WD5 does this for `Widen` only |
-| #10749 | Decimal `scalar_at` and `min_max` panic on a stored value outside the precision, which a file read can produce |
+| #10749 | Decimal `scalar_at` and `min_max` panic on a stored value outside the precision, which a file read can produce. #10767 fixes both and is in review |
 | #10750 | Closed as not planned. The push-down cast rules return no wrong result, and #10798 documents them as a valid form |
 | #10751 | Closed by #10757. The FoR scheme now declares and refines its bit-packing child |
 | #10754 | The compat harness: no CI job runs `--mode all`, one failing fixture stops the whole check, and the README describes `--git-ref` wrongly |
 | #10756 | Corrupt ALP-RD, RLE and RunEnd metadata can panic a file read |
+| #10908 | `ZipExecuteAdaptor` dispatches only on the `if_true` branch, so a `Widen` in the `if_false` branch of `zip` does not run on the child. Found in the review of WD4 |
 
 The stale versioning docs needed no issue, because #10747 fixes them.
 

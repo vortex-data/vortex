@@ -25,7 +25,7 @@ The section [Lockstep](#lockstep) gives the reasons.
   (D32): the child `PType` for an integer parent, or the child precision for a decimal parent. The
   reader builds and checks the child dtype before it decodes the child, so invalid metadata is an
   error and never a panic. When the selected editions do not permit `vortex.widen`, the writer
-  still writes the canonical array (D26).
+  handles a `Widen` as CD6 decides for D26.
 - Depends on: WD1 (encoding, `validate_dtypes`), CD3
   (`DecimalDType::canonical_values_type()`), CD4 (decimal rules in `validate_dtypes`, decimal
   `Widen`). Soft: FX1, WD3, WD4, WD5, CD6. Blocks: WR2, WR3.
@@ -104,7 +104,7 @@ pub(super) fn child_dtype(parent: &DType, metadata: &[u8]) -> VortexResult<DType
   `Widen` always serializes.
 - The lowering of D26 also covers a context that does not permit `vortex.widen`. Today the tree
   builder has no context, and `try_write_node` rejects a non-permitted ID with "not permitted by
-  ctx" (`vortex-array/src/serde.rs:251-256`). So the tree builder gets the permitted IDs. CD4
+  ctx" (`vortex-array/src/serde.rs:251-256`). So the tree builder gets the permitted IDs. CD6
   decides whether a lowering exists (D26). If it does, WR1 limits it to a context that does not
   permit `vortex.widen`. If it does not, WR1 adds the lowering for that context. The doc keeps the
   workaround note and its end at LT1.
@@ -142,7 +142,7 @@ Steps:
    contract. Add unit tests for both functions.
 2. Replace the `deserialize` stub and change `serialize` in `vtable.rs`. Add `tests/wire.rs`.
 3. Pass the permitted IDs to the tree builder, and lower a non-permitted `Widen` in
-   `ArraySerializationTree::try_new`, at the lowering site of CD4 if CD4 adds one (D26).
+   `ArraySerializationTree::try_new`, at the lowering site of CD6 if CD6 adds one (D26).
 4. Add the `vortex-file` round-trip test.
 
 Tests:
