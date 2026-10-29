@@ -15,7 +15,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
-use crate::arrays::TiledArray;
+use crate::arrays::RepeatedArray;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::ChildBuilder;
@@ -137,8 +137,8 @@ impl FixedSizeListBuilder {
     /// A fixed-size list array holds its elements back to back, so `n` identical lists are the
     /// array's elements tiled `n` times - there is no layout that lets the rows share one range of
     /// elements the way a list view's can. The tiling costs nothing to build even so: the elements
-    /// go in as a [`TiledArray`] of `array` repeated `n` times, so the tile's values are stored once
-    /// however many rows reference them, and the child holds the whole run as one chunk.
+    /// go in as a [`RepeatedArray`] of `array` repeated `n` times, so the tile's values are stored
+    /// once however many rows reference them, and the child holds the whole run as one chunk.
     ///
     /// A caller with a run of appends to make should hand over the same `array` each time rather
     /// than rebuild it, which is the whole reason this takes an array instead of a scalar.
@@ -156,8 +156,8 @@ impl FixedSizeListBuilder {
         }
 
         // Optimizing collapses a constant tile into one constant run.
-        let tiled = TiledArray::try_new(array.clone(), n)?.into_array().optimize()?;
-        self.elements_builder.append_array(&tiled, ctx)?;
+        let repeated = RepeatedArray::try_new(array.clone(), n)?.into_array().optimize()?;
+        self.elements_builder.append_array(&repeated, ctx)?;
         self.nulls.append_n_non_nulls(n);
 
         Ok(())

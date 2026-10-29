@@ -29,8 +29,8 @@ use crate::arrays::ListViewArray;
 use crate::arrays::MapArray;
 use crate::arrays::NullArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::RepeatedArray;
 use crate::arrays::StructArray;
-use crate::arrays::TiledArray;
 use crate::arrays::UnionArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VariantArray;
@@ -490,8 +490,8 @@ fn tile_fixed_size_list_elements(
                 return tile;
             }
 
-            TiledArray::try_new(tile, len)
-                .vortex_expect("tiled elements length is the run's elements length")
+            RepeatedArray::try_new(tile, len)
+                .vortex_expect("repeated elements length is the run's elements length")
                 .into_array()
         }
     }
@@ -524,16 +524,16 @@ mod tests {
     use crate::arrays::ListViewArray;
     use crate::arrays::NullArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::Repeated;
     use crate::arrays::StructArray;
-    use crate::arrays::Tiled;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
     use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
     use crate::arrays::listview::ListViewArraySlotsExt;
     use crate::arrays::listview::ListViewRebuildMode;
+    use crate::arrays::repeated::RepeatedArraySlotsExt;
     use crate::arrays::struct_::StructArrayExt;
-    use crate::arrays::tiled::TiledArraySlotsExt;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
@@ -1087,13 +1087,13 @@ mod tests {
             .unwrap();
 
         assert_eq!(canonical.elements().len(), 2 * LEN);
-        let tiled = canonical.elements().as_::<Tiled>();
+        let repeated = canonical.elements().as_::<Repeated>();
         assert_eq!(
-            tiled.count(),
+            repeated.count(),
             LEN,
             "every row should reference the same tile rather than hold its own copy",
         );
-        assert_eq!(tiled.child().len(), 2);
+        assert_eq!(repeated.child().len(), 2);
         for index in [0, 1, LEN - 1] {
             assert_arrays_eq!(
                 canonical.fixed_size_list_elements_at(index).unwrap(),
