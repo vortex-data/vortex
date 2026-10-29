@@ -381,8 +381,14 @@ mod tests {
             let values: Vec<i64> = (0..len).map(|v| v * 7 - 300).collect();
             let expected: i64 = values.iter().sum();
 
-            assert_eq!(values[..].fold_lanes::<8, _, _, _>(0, |a, v| a + v, |a, b| a + b), expected);
-            assert_eq!(values[..].fold_lanes::<64, _, _, _>(0, |a, v| a + v, |a, b| a + b), expected);
+            assert_eq!(
+                values[..].fold_lanes::<8, _, _, _>(0, |a, v| a + v, |a, b| a + b),
+                expected
+            );
+            assert_eq!(
+                values[..].fold_lanes::<64, _, _, _>(0, |a, v| a + v, |a, b| a + b),
+                expected
+            );
         }
     }
 
@@ -398,8 +404,13 @@ mod tests {
                 .map(|(_, &v)| i64::from(v))
                 .sum();
 
-            let narrow =
-                values[..].fold_lanes_masked::<16, _, _, _>(&mask, 0, 0, |a, v| a + v, |a, b| a + b);
+            let narrow = values[..].fold_lanes_masked::<16, _, _, _>(
+                &mask,
+                0,
+                0,
+                |a, v| a + v,
+                |a, b| a + b,
+            );
             let wide = values[..].fold_lanes_masked::<64, _, _, _>(
                 &mask,
                 0,
