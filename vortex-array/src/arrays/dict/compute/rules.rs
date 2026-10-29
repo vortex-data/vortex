@@ -10,8 +10,6 @@ use crate::EqMode;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::arrays::Chunked;
-use crate::arrays::ChunkedArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
@@ -20,7 +18,6 @@ use crate::arrays::Filter;
 use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::Slice;
-use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::filter::FilterReduceAdaptor;
@@ -58,52 +55,6 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
         DictionaryScalarFnCodesPullUpRule,
     );
     kernels.register_reduce_parent_rule(Slice.id(), Dict.id(), SliceReduceAdaptor(Dict));
-}
-
-/// Pull a common dictionary values array above chunked dictionary codes.
-///
-/// Rewrites `Chunked<Dict<codes_i, values>>` into `Dict<Chunked<codes_i>, values>` only when
-/// every child dictionary shares the exact same values array allocation. The rewrite depends on
-/// every chunk at once, so the chunked array checks it as one of its own reductions rather than
-/// each chunk checking it as a parent rule.
-pub(crate) fn pull_up_chunked_dict_values(
-    chunked: ArrayView<'_, Chunked>,
-) -> VortexResult<Option<ArrayRef>> {
-    let Some(first) = chunked
-        .iter_chunks()
-        .next()
-        .and_then(|chunk| chunk.as_opt::<Dict>())
-    else {
-        return Ok(None);
-    };
-    let values = first.values();
-    let codes_dtype = first.codes().dtype();
-    let shares_values = chunked.iter_chunks().all(|chunk| {
-        chunk.as_opt::<Dict>().is_some_and(|dict| {
-            dict.codes().dtype() == codes_dtype && ArrayRef::ptr_eq(dict.values(), values)
-        })
-    });
-    if !shares_values {
-        return Ok(None);
-    }
-
-    let mut code_chunks = Vec::with_capacity(chunked.nchunks());
-    let mut all_values_referenced = false;
-    for chunk in chunked.iter_chunks() {
-        let dict = chunk.as_::<Dict>();
-        all_values_referenced |= dict.has_all_values_referenced();
-        code_chunks.push(dict.codes().clone());
-    }
-
-    let codes = ChunkedArray::try_new(code_chunks, codes_dtype.clone())?.into_array();
-    let dict = DictArray::try_new(codes, values.clone())?;
-    let dict = if all_values_referenced {
-        unsafe { dict.set_all_values_referenced(true) }
-    } else {
-        dict
-    };
-
-    Ok(Some(dict.into_array()))
 }
 
 /// Push down a scalar function to run only over the values of a dictionary array.

@@ -34,8 +34,8 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::chunked::ChunkedData;
 use crate::arrays::chunked::array::ChunkedSlots;
+use crate::arrays::chunked::compute::rules::RULES;
 use crate::arrays::chunked::vtable::canonical::_canonicalize;
-use crate::arrays::dict::compute::rules::pull_up_chunked_dict_values;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -283,7 +283,7 @@ impl VTable for Chunked {
             0 if matches!(array.dtype(), DType::Variant(_)) => None,
             0 => Some(Canonical::empty(array.dtype()).into_array()),
             1 => Some(array.chunk(0).clone()),
-            _ => return pull_up_chunked_dict_values(array),
+            _ => return RULES.evaluate(array),
         })
     }
 }

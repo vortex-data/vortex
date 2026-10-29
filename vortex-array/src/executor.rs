@@ -181,8 +181,8 @@ impl ArrayRef {
         self,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let reduce_parent_kernels = Arc::clone(&ctx.reduce_parent_kernels);
-        let reduce_kernels = reduce_parent_kernels.as_ref();
+        let reduce_parent_kernels = ctx.reduce_parent_kernels.clone();
+        let reduce_kernels = &reduce_parent_kernels;
         // Constructors build lazy arrays, so each node is optimized when execution reaches it: the
         // root here, and a child when execution focuses it. Subtrees that kernels consume without
         // executing them are never walked.
@@ -386,7 +386,7 @@ pub struct ExecutionCtx {
     // OnceLock avoids cloning the session allocator when a context does not allocate.
     allocator: OnceLock<BufferAllocatorRef>,
     execute_parent_kernels: Arc<ParentExecutionKernels>,
-    reduce_parent_kernels: Arc<ParentReduceKernels>,
+    reduce_parent_kernels: ParentReduceKernels,
     // OnceLock avoids snapshotting the aggregate kernels when a context does not aggregate.
     aggregate_kernels: OnceLock<AggregateKernels>,
     #[cfg(debug_assertions)]
@@ -425,11 +425,6 @@ impl ExecutionCtx {
     /// Get the session associated with this execution context.
     pub fn session(&self) -> &VortexSession {
         &self.session
-    }
-
-    /// Get the snapshot of the session's parent-reduce kernels taken when this context was made.
-    pub(crate) fn reduce_parent_kernels(&self) -> &ParentReduceKernels {
-        &self.reduce_parent_kernels
     }
 
     /// Get the allocator for this execution context.

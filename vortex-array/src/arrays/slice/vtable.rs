@@ -38,7 +38,7 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
-use crate::optimizer::OptimizeInCtx;
+use crate::optimizer::ArrayOptimizer;
 use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
@@ -158,7 +158,7 @@ impl VTable for Slice {
         array
             .child()
             .slice(array.range.clone())?
-            .optimize_in(ctx)
+            .optimize(ctx.session())
             .map(ExecutionResult::done)
     }
 }

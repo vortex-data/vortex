@@ -37,7 +37,7 @@ use crate::dtype::PType;
 use crate::expr::stats::Stat;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
-use crate::optimizer::OptimizeInCtx;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 
@@ -412,7 +412,7 @@ pub trait ListViewArrayExt: ListViewArraySlotsExt {
         let size = self.size_at(index, ctx);
         self.elements()
             .slice(offset..offset + size)?
-            .optimize_in(ctx)
+            .optimize(ctx.session())
     }
 
     /// Returns a [`Mask`] of length `elements.len()` where each bit is set iff that

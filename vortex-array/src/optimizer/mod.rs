@@ -34,7 +34,6 @@ use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::ExecutionCtx;
 use crate::array::ArrayId;
 use crate::arrays::ScalarFn;
 use crate::arrays::scalar_fn::AnyScalarFn;
@@ -114,20 +113,6 @@ impl ArrayOptimizer for ArrayRef {
         }
         let kernels = session.kernels().reduce_parent_snapshot();
         optimize_recursive_with_kernels(self.clone(), &kernels)
-    }
-}
-
-/// Optimizes arrays with the parent-reduce kernels an [`ExecutionCtx`] captured from its session,
-/// which saves taking a fresh snapshot of the session's registry for every array, as
-/// [`ArrayOptimizer::optimize`] does.
-pub(crate) trait OptimizeInCtx {
-    /// [`ArrayOptimizer::optimize`] with the kernels `ctx` captured.
-    fn optimize_in(&self, ctx: &ExecutionCtx) -> VortexResult<ArrayRef>;
-}
-
-impl OptimizeInCtx for ArrayRef {
-    fn optimize_in(&self, ctx: &ExecutionCtx) -> VortexResult<ArrayRef> {
-        optimize_with_kernels(self.clone(), ctx.reduce_parent_kernels())
     }
 }
 

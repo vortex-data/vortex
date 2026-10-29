@@ -21,7 +21,6 @@ use crate::arrays::slice::SliceReduceAdaptor;
 use crate::arrays::struct_::StructArrayExt;
 use crate::arrays::struct_::compute::cast::struct_cast_fields;
 use crate::builtins::ArrayBuiltins;
-use crate::matcher::Matcher;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar::Scalar;
@@ -35,29 +34,32 @@ use crate::validity::Validity;
 /// Registers the parent-reduce rules for [`Struct`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
+    kernels.register_reduce_parent_rule(Cast.id(), Struct.id(), StructCastRule);
     kernels.register_reduce_parent_rule(GetItem.id(), Struct.id(), StructGetItemRule);
     kernels.register_reduce_parent_rule(MaskFn.id(), Struct.id(), MaskReduceAdaptor(Struct));
     kernels.register_reduce_parent_rule(Slice.id(), Struct.id(), SliceReduceAdaptor(Struct));
     kernels.register_reduce_parent_rule(Dict.id(), Struct.id(), TakeReduceAdaptor(Struct));
 }
 
-pub(crate) fn struct_cast_reduce_parent(
-    child: &ArrayRef,
-    parent: &ArrayRef,
-    _child_idx: usize,
-) -> VortexResult<Option<ArrayRef>> {
-    let Some(array) = child.as_opt::<Struct>() else {
-        return Ok(None);
-    };
-    let Some(parent) = ExactScalarFn::<Cast>::try_match(parent) else {
-        return Ok(None);
-    };
+/// Casts a struct by casting its fields, when the cast only changes what the validity can hold.
+#[derive(Debug)]
+struct StructCastRule;
 
-    if array.dtype() == parent.options {
-        return Ok(Some(array.array().clone()));
+impl ArrayParentReduceRule<Struct> for StructCastRule {
+    type Parent = ExactScalarFn<Cast>;
+
+    fn reduce_parent(
+        &self,
+        array: ArrayView<'_, Struct>,
+        parent: ScalarFnArrayView<'_, Cast>,
+        _child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if array.dtype() == parent.options {
+            return Ok(Some(array.array().clone()));
+        }
+
+        reduce_struct_cast(array, parent)
     }
-
-    reduce_struct_cast(array, parent)
 }
 
 fn reduce_struct_cast(

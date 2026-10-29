@@ -34,7 +34,7 @@ use crate::dtype::IntegerPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
-use crate::optimizer::OptimizeInCtx;
+use crate::optimizer::ArrayOptimizer;
 use crate::validity::Validity;
 
 /// Take implementation for [`FixedSizeListArray`].
@@ -91,7 +91,7 @@ fn take_empty_fsl(
         FixedSizeListArray::new_unchecked(new_elements, array.list_size(), new_validity, new_len)
     }
     .into_array()
-    .optimize_in(ctx)
+    .optimize(ctx.session())
 }
 
 fn take_non_empty_fsl(
@@ -225,7 +225,7 @@ fn take_piecewise_fsl(
         FixedSizeListArray::new_unchecked(new_elements, array.list_size(), new_validity, new_len)
     }
     .into_array()
-    .optimize_in(ctx)
+    .optimize(ctx.session())
     .map(Some)
 }
 
@@ -259,7 +259,7 @@ fn take_non_empty_degenerate_fsl(
         )
     }
     .into_array()
-    .optimize_in(ctx)
+    .optimize(ctx.session())
 }
 
 fn take_non_empty_non_degenerate_fsl<I: IntegerPType>(
@@ -281,7 +281,7 @@ fn take_non_empty_non_degenerate_fsl<I: IntegerPType>(
         FixedSizeListArray::new_unchecked(new_elements, array.list_size(), new_validity, new_len)
     }
     .into_array()
-    .optimize_in(ctx)
+    .optimize(ctx.session())
 }
 
 fn take_non_empty_non_degenerate_elements<I: IntegerPType>(
