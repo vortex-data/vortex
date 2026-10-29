@@ -19,6 +19,11 @@
 //! them. Full-file projections use smaller 8,192-row multiples when serialized bytes per row
 //! are high.
 //!
+//! Sparse positive input selections use [`AccessMode::RandomAccess`]: only selected 65,536-row
+//! regions are scheduled, and segment leaves gather encoded values before materialization.
+//! Dense inputs retain [`AccessMode::Scan`]. [`ScanBuilder::with_access_mode`] overrides the
+//! automatic choice. The access mode does not change the rows selected or their order.
+//!
 //! A [`ScanFile`] carrying a [`ScanCache`] shares its lowered plan, filter plans and pruned
 //! zones, segment index, dictionary values, and recently read segments with every other scan of
 //! that file, like a cached layout reader does for V1 scans.
@@ -46,6 +51,7 @@ pub use self::cache::WeakScanCache;
 use crate::LayoutRef;
 use crate::plan::physical::lower;
 use crate::plan::physical::optimize;
+pub use crate::plan::physical::pipeline::AccessMode;
 use crate::plan::physical::plan_row_idx_expression;
 pub use crate::scan::execution::ChunkPlanner;
 use crate::scan::execution::FILTERED_ROWS_PER_CHUNK;
@@ -56,6 +62,7 @@ pub use crate::scan::execution::PruneNext;
 pub use crate::scan::execution::PrunePlanner;
 use crate::scan::execution::ROW_BLOCK_SIZE;
 pub use crate::scan::execution::SegmentLocation;
+use crate::scan::execution::access_mode;
 use crate::scan::execution::rows_per_chunk;
 use crate::scan::v2::io::segment_ranges;
 use crate::segments::SegmentSource;
@@ -101,6 +108,7 @@ pub struct ScanBuilder {
     row_range: Option<Range<u64>>,
     selection: Selection,
     row_offset: u64,
+    access_mode: Option<AccessMode>,
 }
 
 impl ScanBuilder {
@@ -114,6 +122,7 @@ impl ScanBuilder {
             row_range: None,
             selection: Selection::default(),
             row_offset: 0,
+            access_mode: None,
         }
     }
 
@@ -148,6 +157,13 @@ impl ScanBuilder {
     /// Applies a row selection within the scan's row range.
     pub fn with_selection(mut self, selection: Selection) -> Self {
         self.selection = selection;
+        self
+    }
+
+    /// Overrides automatic access selection. By default, sparse positive row selections use
+    /// random access; other inputs stream and filter batches. Both modes keep row order.
+    pub fn with_access_mode(mut self, access_mode: AccessMode) -> Self {
+        self.access_mode = Some(access_mode);
         self
     }
 
@@ -205,9 +221,19 @@ impl ScanBuilder {
         };
         let ranges = cache.ranges(|| segment_ranges(&file.locations));
         let values = cache.values();
+        let rows = self.row_range.unwrap_or(0..row_count);
+        let access_mode = self
+            .access_mode
+            .unwrap_or_else(|| access_mode(&self.selection, &rows));
+        tracing::debug!(
+            ?access_mode,
+            selected_rows = self.selection.row_count_in_range(&rows),
+            input_rows = rows.end.saturating_sub(rows.start),
+            "v2 scan access mode"
+        );
         Ok(PreparedScan {
             session: self.session,
-            rows: self.row_range.unwrap_or(0..row_count),
+            rows,
             selection: self.selection,
             segments: cache.retaining(file.segments),
             ranges,
@@ -218,6 +244,7 @@ impl ScanBuilder {
             row_offset: self.row_offset,
             values,
             chunk_rows,
+            access_mode,
         })
     }
 }
