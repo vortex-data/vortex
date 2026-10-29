@@ -27,11 +27,16 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::Dict;
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::Filter;
+use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 pub(crate) use whole::*;
 
+use crate::arrays::shared::Shared;
 use crate::plan::physical::operator::Cx;
 use crate::plan::physical::pipeline::Inlet;
 
@@ -51,6 +56,23 @@ fn take_rows(inlet: &mut Inlet<'_>, len: usize) -> VortexResult<ArrayRef> {
             left -= front.len();
             pieces.extend(inlet.take());
         } else {
+            // Misaligned fields can split one lazy filter across several output batches.
+            // Materialize selected values once when a consumer first needs either slice.
+            // Extension encodings can push filtering into their component arrays.
+            let filters_components = front.dtype().is_extension()
+                && !front.is::<Shared>()
+                && front.children_iter().any(|child| child.is::<Filter>());
+            if front.is::<Filter>() || filters_components {
+                *front = Shared::new(front.clone()).into_array();
+            } else if let Some(dict) = front.as_opt::<Dict>()
+                && dict.codes().is::<Filter>()
+            {
+                *front = DictArray::try_new(
+                    Shared::new(dict.codes().clone()).into_array(),
+                    dict.values().clone(),
+                )?
+                .into_array();
+            }
             let rest = front.slice(left..front.len())?;
             pieces.push(std::mem::replace(front, rest).slice(0..left)?);
             left = 0;
