@@ -48,9 +48,9 @@ get_dir = { workspace = true }
 glob = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
+humansize = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
-humansize = { workspace = true }
 indicatif = { workspace = true, features = ["futures"] }
 itertools = { workspace = true }
 libmimalloc-sys = { workspace = true }
