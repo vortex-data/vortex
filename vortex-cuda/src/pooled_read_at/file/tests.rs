@@ -3,6 +3,7 @@
 
 use std::future::Future;
 use std::io;
+use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -18,8 +19,10 @@ use tokio::time::timeout;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::session::RuntimeSessionExt;
+use vortex_cuda_driver::result::stream::launch_host_function;
 
 use super::*;
+use crate::CudaBufferExt;
 use crate::CudaSessionExt;
 
 const WAIT: Duration = Duration::from_secs(30);
@@ -336,7 +339,7 @@ fn mapped_reader() -> VortexResult<(
         Arc::clone(cuda.pinned_buffer_pool()),
         cuda.stream()?,
     )?
-    .with_mapped_copy(file.path(), &cuda)?;
+    .with_mapped_copy(file.as_file(), &cuda)?;
     Ok((runtime, reader, file))
 }
 
@@ -457,11 +460,11 @@ async fn reopened_files_share_mappings_until_modified() -> VortexResult<()> {
             .as_ref()
             .vortex_expect("open file has a mapping"),
     );
-    let again = FileMapping::open(file.path())?;
+    let again = FileMapping::open(file.as_file())?.vortex_expect("file is mappable");
     assert!(Arc::ptr_eq(&first, &again));
 
     io::Write::write_all(&mut file, &[7; 4096])?;
-    let modified = FileMapping::open(file.path())?;
+    let modified = FileMapping::open(file.as_file())?.vortex_expect("file is mappable");
     assert!(!Arc::ptr_eq(&first, &modified));
     assert_eq!(modified.mapping().len(), MAPPED_FILE_BYTES + 4096);
     assert_eq!(modified.mapping()[MAPPED_FILE_BYTES], 7);
@@ -486,7 +489,7 @@ async fn released_mappings_are_remapped() -> VortexResult<()> {
     release_file_mappings();
     // The open reader keeps its mapping.
     assert_eq!(in_use.mapping()[0], file_byte(0));
-    let reopened = FileMapping::open(file.path())?;
+    let reopened = FileMapping::open(file.as_file())?.vortex_expect("file is mappable");
     assert!(!Arc::ptr_eq(&in_use, &reopened));
     Ok(())
 }
@@ -524,6 +527,198 @@ async fn closed_reader_mappings_are_released_before_return() -> VortexResult<()>
     drop(cache);
     assert!(mapping.upgrade().is_none());
     assert_bytes(buffer, 0, MAPPED_FILE_BYTES).await?;
+    Ok(())
+}
+
+/// A mapping evicted from the cache while a reader uses it is unmapped when releasing cached
+/// mappings returns after that reader closed, as cold-cache eviction needs.
+#[crate::test]
+async fn evicted_mappings_are_unmapped_before_release_returns() -> VortexResult<()> {
+    let _cache = MAPPING_CACHE.lock();
+    let (_runtime, reader, file) = mapped_reader()?;
+    if reader.mapped.is_none() {
+        return Ok(());
+    }
+    // Evict the reader's mapping, as opening more files than the cache holds would.
+    FILE_MAPPINGS.lock().clear();
+    drop(reader);
+    release_file_mappings();
+    let maps = std::fs::read_to_string("/proc/self/maps")?;
+    assert!(!maps.contains(&*file.path().to_string_lossy()));
+    Ok(())
+}
+
+/// Whether `path` is mapped into this process.
+fn is_mapped(path: &Path) -> VortexResult<bool> {
+    let maps = std::fs::read_to_string("/proc/self/maps")?;
+    Ok(maps.contains(&*path.to_string_lossy()))
+}
+
+/// Closing the last reader of a deleted file unmaps it, returning its disk space.
+#[crate::test]
+async fn deleted_files_are_unmapped_when_their_readers_close() -> VortexResult<()> {
+    let _cache = MAPPING_CACHE.lock();
+    let (_runtime, reader, file) = mapped_reader()?;
+    if reader.mapped.is_none() {
+        return Ok(());
+    }
+    let path = file.path().to_owned();
+    file.close()?;
+    drop(reader);
+    wait_for_releases();
+    assert!(!is_mapped(&path)?);
+    Ok(())
+}
+
+/// Opening a file unmaps the idle mappings of deleted files, returning their disk space.
+#[crate::test]
+async fn deleted_files_are_unmapped_by_later_opens() -> VortexResult<()> {
+    let _cache = MAPPING_CACHE.lock();
+    let (_runtime, reader, file) = mapped_reader()?;
+    if reader.mapped.is_none() {
+        return Ok(());
+    }
+    drop(reader);
+    wait_for_releases();
+    let path = file.path().to_owned();
+    assert!(is_mapped(&path)?);
+    file.close()?;
+    let _other = mapped_reader()?;
+    wait_for_releases();
+    assert!(!is_mapped(&path)?);
+    Ok(())
+}
+
+/// A closed reader's mapping is released once its own copies complete, without waiting for
+/// later work on the stream it shares with other scans.
+#[crate::test]
+async fn closed_readers_do_not_wait_for_later_stream_work() -> VortexResult<()> {
+    let (_runtime, reader, _file) = mapped_reader()?;
+    if reader.mapped.is_none() {
+        return Ok(());
+    }
+    let stream = reader.stream.clone();
+    // Hold the release thread so the reader's release runs only after the stream is blocked.
+    let (resume, held) = mpsc::channel::<()>();
+    release_in_background(Box::new(move || {
+        let _ = held.recv_timeout(WAIT);
+    }));
+    drop(reader);
+    let (unblock, blocked) = mpsc::channel::<()>();
+    stream
+        .context()
+        .bind_to_thread()
+        .map_err(|e| vortex_err!("{e}"))?;
+    unsafe extern "C" fn wait(data: *mut std::ffi::c_void) {
+        // SAFETY: Registration transfers sole ownership of the boxed receiver here.
+        let blocked = unsafe { Box::from_raw(data.cast::<mpsc::Receiver<()>>()) };
+        let _ = blocked.recv_timeout(WAIT);
+    }
+    let data = Box::into_raw(Box::new(blocked));
+    // SAFETY: The stream is live, and the host function owns `data` once registered.
+    unsafe { launch_host_function(stream.cu_stream(), wait, data.cast()) }
+        .map_err(|e| vortex_err!("{e}"))?;
+    drop(resume);
+    let start = std::time::Instant::now();
+    wait_for_releases();
+    assert!(start.elapsed() < WAIT / 2);
+    drop(unblock);
+    Ok(())
+}
+
+/// Files that cannot be mapped, such as those of procfs, take the staged path instead of failing.
+#[cfg(target_os = "linux")]
+#[test]
+fn unmappable_files_are_not_mapped() -> VortexResult<()> {
+    assert!(FileMapping::open(&File::open("/proc/self/status")?)?.is_none());
+    Ok(())
+}
+
+/// Staged reads honor the requested alignment, even when direct I/O reads padding before them.
+#[crate::test]
+async fn staged_reads_honor_requested_alignment() -> VortexResult<()> {
+    let backend = Arc::new(FakeFileReadBackend {
+        padded: true,
+        ..Default::default()
+    });
+    let (_runtime, reader) = reader(backend)?;
+    let buffer = reader.read_at(1, 8, Alignment::of::<u64>()).await?;
+    assert!(buffer.cuda_device_ptr()?.is_multiple_of(8));
+    assert_bytes(buffer, 1, 8).await
+}
+
+/// Mapped reads honor the requested alignment, even at offsets the mapped copy keeps.
+#[crate::test]
+async fn mapped_reads_honor_requested_alignment() -> VortexResult<()> {
+    let (_runtime, reader, _file) = mapped_reader()?;
+    for (offset, alignment) in [(5, 8), (8, 8), (4099, 1)] {
+        let buffer = reader
+            .read_at(offset, 64, Alignment::new(alignment))
+            .await?;
+        assert!(buffer.cuda_device_ptr()?.is_multiple_of(alignment as u64));
+        assert_bytes(buffer, offset, 64).await?;
+    }
+    Ok(())
+}
+
+/// Opens a file of `file_byte` content, then replaces it at its path with zeroes.
+fn replaced_file() -> VortexResult<(tempfile::TempDir, PathBuf, File)> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("replaced");
+    let bytes: Vec<u8> = (0..MAPPED_FILE_BYTES as u64).map(file_byte).collect();
+    std::fs::write(&path, bytes)?;
+    let opened = File::open(&path)?;
+    let replacement = directory.path().join("replacement");
+    std::fs::write(&replacement, vec![0u8; MAPPED_FILE_BYTES])?;
+    std::fs::rename(&replacement, &path)?;
+    Ok((directory, path, opened))
+}
+
+/// A reader reads the file it was opened with, staged or mapped, even after its path was
+/// replaced, as the footer read from that file locates the segments.
+#[crate::test]
+async fn readers_read_the_opened_file_after_replacement() -> VortexResult<()> {
+    let (_directory, path, opened) = replaced_file()?;
+    let runtime = CurrentThreadRuntime::new();
+    let session = crate::cuda_session().with_handle(runtime.handle());
+    let cuda = session.cuda_session();
+    let reader = PooledFileReadAt::from_file(
+        &path,
+        &opened,
+        session.handle(),
+        Arc::clone(cuda.pinned_buffer_pool()),
+        cuda.stream()?,
+        PooledFileReadAtOptions::default(),
+    )?
+    .with_mapped_copy(&opened, &cuda)?;
+    let (offset, length) = (4091, MAPPED_FILE_BYTES - 4091);
+    let buffer = reader
+        .read_at(offset, length, Alignment::of::<u8>())
+        .await?;
+    assert_bytes(buffer, offset, length).await
+}
+
+/// Direct I/O opens the path again, which must still reach the file opened before.
+#[cfg(target_os = "linux")]
+#[crate::test]
+async fn direct_reads_reject_replaced_files() -> VortexResult<()> {
+    let (_directory, path, opened) = replaced_file()?;
+    if DirectFileReadBackend::open(&path).is_err() {
+        // The filesystem does not support direct I/O.
+        return Ok(());
+    }
+    let runtime = CurrentThreadRuntime::new();
+    let session = crate::cuda_session().with_handle(runtime.handle());
+    let cuda = session.cuda_session();
+    let reader = PooledFileReadAt::from_file(
+        &path,
+        &opened,
+        session.handle(),
+        Arc::clone(cuda.pinned_buffer_pool()),
+        cuda.stream()?,
+        PooledFileReadAtOptions::default().with_direct_io(),
+    );
+    assert!(matches!(reader, Err(error) if error.to_string().contains("was replaced")));
     Ok(())
 }
 
