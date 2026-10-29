@@ -28,6 +28,7 @@
 #include "duckdb/logging/logger.hpp"
 #include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/main/connection.hpp"
+#include "duckdb/optimizer/column_lifetime_analyzer.hpp"
 #include "duckdb/parser/keyword_helper.hpp"
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
@@ -326,7 +327,20 @@ duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter
     fn.pushdown_expression = [](auto &, const auto &, Expression &expression) {
         return duckdb_table_function_pushdown_expression(reinterpret_cast<duckdb_vx_expr>(&expression));
     };
-    fn.pushdown_complex_filter = [](auto &, auto &, FunctionData *bind_data, FilterVec &filters) {
+    fn.pushdown_complex_filter = [](auto &, LogicalGet &get, FunctionData *bind_data, FilterVec &filters) {
+        for (const auto &filter : filters) {
+            vector<ColumnBinding> bindings;
+            ColumnLifetimeAnalyzer::ExtractColumnBindings(*filter, bindings);
+            for (const auto &binding : bindings) {
+                if (binding.table_index == get.table_index &&
+                    get.GetColumnIndex(binding).GetPrimaryIndex() == VORTEX_ROW_ID_COLUMN) {
+                    // Rust consumes optional join filters on this key. Keep SQL predicates in
+                    // DuckDB so arbitrary HUGEINT expressions still receive exact evaluation.
+                    get.function.filter_pushdown = false;
+                    return;
+                }
+            }
+        }
         pushdown_complex_filter(*bind_data, filters);
     };
     fn.projection_expression_pushdown = projection_expression_pushdown;
@@ -336,6 +350,10 @@ duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter
     // Columns that uniquely identify a row for deferred re-fetch in a multi
     // file scan: (file index, row number in file).
     fn.get_row_id_columns = [](auto &, auto) -> vector<column_t> {
+        if (duckdb_reader_use_paired_row_ids()) {
+            // Keep the file hint for pre-open pruning; the packed key retains row pairing.
+            return {COLUMN_IDENTIFIER_FILE_INDEX, VORTEX_ROW_ID_COLUMN};
+        }
         return {COLUMN_IDENTIFIER_FILE_INDEX, COLUMN_IDENTIFIER_FILE_ROW_NUMBER};
     };
 

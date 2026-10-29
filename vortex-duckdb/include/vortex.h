@@ -96,7 +96,13 @@ bool duckdb_footer_get_statistics(const void *footer,
                                   size_t column_name_len,
                                   duckdb_column_statistics *stats_out);
 
-extern bool duckdb_reader_initialize(const void *global, void *file, duckdb_vx_error *error);
+extern bool duckdb_reader_use_paired_row_ids(void);
+
+extern
+bool duckdb_reader_initialize(const void *global,
+                              void *file,
+                              uint64_t file_index,
+                              duckdb_vx_error *error);
 
 extern duckdb_logical_type duckdb_reader_bind_column_type(const void *bind, size_t index);
 
