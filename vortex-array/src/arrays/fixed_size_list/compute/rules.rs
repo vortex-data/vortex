@@ -17,11 +17,7 @@ use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 /// Registers the parent-reduce rules for [`FixedSizeList`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(
-        Cast.id(),
-        FixedSizeList,
-        CastReduceAdaptor(FixedSizeList),
-    );
+    kernels.register_reduce_parent_rule(Cast.id(), FixedSizeList, CastReduceAdaptor(FixedSizeList));
     kernels.register_reduce_parent_rule(
         MaskFn.id(),
         FixedSizeList,

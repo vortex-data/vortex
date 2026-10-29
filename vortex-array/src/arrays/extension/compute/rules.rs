@@ -57,11 +57,7 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
     kernels.register_reduce_parent_rule(Filter.id(), Extension, ExtensionFilterPushDownRule);
     kernels.register_reduce_parent_rule(Cast.id(), Extension, CastReduceAdaptor(Extension));
-    kernels.register_reduce_parent_rule(
-        Filter.id(),
-        Extension,
-        FilterReduceAdaptor(Extension),
-    );
+    kernels.register_reduce_parent_rule(Filter.id(), Extension, FilterReduceAdaptor(Extension));
     kernels.register_reduce_parent_rule(MaskFn.id(), Extension, MaskReduceAdaptor(Extension));
     kernels.register_reduce_parent_rule(Slice.id(), Extension, SliceReduceAdaptor(Extension));
     kernels.register_reduce_parent_rule(Dict.id(), Extension, TakeReduceAdaptor(Extension));

@@ -31,18 +31,10 @@ use crate::scalar_fn::fns::not::NotReduceAdaptor;
 /// Registers the parent-reduce rules for [`Constant`] children in the session kernels.
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
-    kernels.register_reduce_parent_rule(
-        Between.id(),
-        Constant,
-        BetweenReduceAdaptor(Constant),
-    );
+    kernels.register_reduce_parent_rule(Between.id(), Constant, BetweenReduceAdaptor(Constant));
     kernels.register_reduce_parent_rule(Cast.id(), Constant, CastReduceAdaptor(Constant));
     kernels.register_reduce_parent_rule(Filter.id(), Constant, ConstantFilterRule);
-    kernels.register_reduce_parent_rule(
-        FillNull.id(),
-        Constant,
-        FillNullReduceAdaptor(Constant),
-    );
+    kernels.register_reduce_parent_rule(FillNull.id(), Constant, FillNullReduceAdaptor(Constant));
     kernels.register_reduce_parent_rule(Filter.id(), Constant, FilterReduceAdaptor(Constant));
     kernels.register_reduce_parent_rule(Not.id(), Constant, NotReduceAdaptor(Constant));
     kernels.register_reduce_parent_rule(Slice.id(), Constant, SliceReduceAdaptor(Constant));

@@ -103,11 +103,7 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
         Chunked,
         ChunkedConstantScalarFnPushDownRule,
     );
-    kernels.register_reduce_parent_rule(
-        FillNull.id(),
-        Chunked,
-        FillNullReduceAdaptor(Chunked),
-    );
+    kernels.register_reduce_parent_rule(FillNull.id(), Chunked, FillNullReduceAdaptor(Chunked));
 }
 
 /// Push down any unary scalar function through chunked arrays.

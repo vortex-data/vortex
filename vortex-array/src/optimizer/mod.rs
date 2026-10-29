@@ -235,9 +235,7 @@ pub(crate) fn optimize_with_kernels(
         // A rewrite keeps the logical values, so every statistic of the input stays valid. Lazy
         // constructors such as `slice` put the statistics they carry over on the lazy node.
         if any_optimizations {
-            current_array
-                .statistics()
-                .inherit_from(array.statistics());
+            current_array.statistics().inherit_from(array.statistics());
         }
 
         current_array.optimized_state().mark_optimized();

@@ -38,16 +38,8 @@ use crate::timestamp;
 pub(crate) fn register_parent_rules(session: &VortexSession) {
     let kernels = session.kernels();
     kernels.register_reduce_parent_rule(Filter.id(), DateTimeParts, DTPFilterPushDownRule);
-    kernels.register_reduce_parent_rule(
-        AnyScalarFn.id(),
-        DateTimeParts,
-        DTPComparisonPushDownRule,
-    );
-    kernels.register_reduce_parent_rule(
-        Cast.id(),
-        DateTimeParts,
-        CastReduceAdaptor(DateTimeParts),
-    );
+    kernels.register_reduce_parent_rule(AnyScalarFn.id(), DateTimeParts, DTPComparisonPushDownRule);
+    kernels.register_reduce_parent_rule(Cast.id(), DateTimeParts, CastReduceAdaptor(DateTimeParts));
     kernels.register_reduce_parent_rule(
         Filter.id(),
         DateTimeParts,

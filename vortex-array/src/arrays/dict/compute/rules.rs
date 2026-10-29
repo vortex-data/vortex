@@ -49,11 +49,7 @@ pub(crate) fn register_parent_rules(session: &VortexSession) {
         Dict,
         DictionaryScalarFnValuesPushDownRule,
     );
-    kernels.register_reduce_parent_rule(
-        AnyScalarFn.id(),
-        Dict,
-        DictionaryScalarFnCodesPullUpRule,
-    );
+    kernels.register_reduce_parent_rule(AnyScalarFn.id(), Dict, DictionaryScalarFnCodesPullUpRule);
     kernels.register_reduce_parent_rule(Slice.id(), Dict, SliceReduceAdaptor(Dict));
 }
 
