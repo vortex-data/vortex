@@ -22,9 +22,6 @@ pub(crate) fn stats_set_to_df(
     stats_set: &StatsSet,
     dtype: &DType,
 ) -> VortexResult<ColumnStatistics> {
-    // Update the total size in bytes.
-    let column_size = stats_set.get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into());
-
     let null_count = stats_set
         .get_as::<usize>(Stat::NullCount, &PType::U64.into())
         .to_df();
@@ -39,7 +36,9 @@ pub(crate) fn stats_set_to_df(
         max_value,
         sum_value: scalar_stat_to_df(stats_set, Stat::Sum, dtype).to_df(),
         distinct_count,
-        byte_size: column_size.to_df(),
+        // TODO(joe): report `Stat::UncompressedSizeInBytes` once DataFusion's join selection no
+        // longer regresses TPC-H and TPC-DS when given it.
+        byte_size: Precision::Absent,
     })
 }
 

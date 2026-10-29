@@ -613,12 +613,15 @@ impl StatsNode {
     }
 
     /// Returns this node's stats over its own, undecomposed dtype, as the legacy layout records
-    /// them for a top-level field.
-    fn legacy_aggregate_stats(&self) -> VortexResult<AggregateStats> {
+    /// them for a top-level field, leaving out the aggregates `allowed` rejects.
+    fn legacy_aggregate_stats(
+        &self,
+        allowed: impl Fn(&AggregateFnRef) -> bool,
+    ) -> VortexResult<AggregateStats> {
         match self {
             Self::Skipped | Self::Unrecorded { .. } => Ok(AggregateStats::default()),
-            Self::Leaf(acc) | Self::LegacyOnly(acc) => acc.aggregate_stats(|_| true),
-            Self::Container { own, .. } => own.legacy_aggregate_stats(),
+            Self::Leaf(acc) | Self::LegacyOnly(acc) => acc.aggregate_stats(allowed),
+            Self::Container { own, .. } => own.legacy_aggregate_stats(allowed),
         }
     }
 }
@@ -650,12 +653,9 @@ impl FileStatsAccumulator {
         write_legacy_stats: bool,
         writer_ctx: &LayoutWriterContext,
     ) -> VortexResult<Self> {
-        // The legacy layout has a fixed slot per `Stat`, so only the nested one is restricted.
-        if write_nested_stats {
-            for aggregate_fn in stats.iter().flat_map(|stats| stats.iter()) {
-                if !writer_ctx.allows_aggregate(&aggregate_fn.id()) {
-                    vortex_bail!("Aggregate {} not permitted by ctx", aggregate_fn.id());
-                }
+        for aggregate_fn in stats.iter().flat_map(|stats| stats.iter()) {
+            if !writer_ctx.allows_aggregate(&aggregate_fn.id()) {
+                vortex_bail!("Aggregate {} not permitted by ctx", aggregate_fn.id());
             }
         }
 
@@ -714,12 +714,11 @@ impl FileStatsAccumulator {
     }
 
     /// Returns the legacy top-level-fields-only aggregates (one per top-level struct field, or a
-    /// single entry for a non-struct root dtype). Each entry is empty if `write_legacy_stats` was
-    /// `false`.
-    ///
-    /// The legacy `ArrayStats` format has a fixed slot per [`Stat`] rather than open-ended
-    /// aggregates, so it isn't restricted by the writer context.
+    /// single entry for a non-struct root dtype), leaving out the aggregates the writer context
+    /// forbids. Each entry is empty if `write_legacy_stats` was `false`.
     pub fn legacy_aggregate_stats(&self) -> VortexResult<Vec<AggregateStats>> {
+        let allowed =
+            |aggregate_fn: &AggregateFnRef| self.writer_ctx.allows_aggregate(&aggregate_fn.id());
         let root = self.root.lock();
         // Readers that predate nested stats reject a file whose legacy layout doesn't have one
         // entry per top-level field, so entries that aren't recorded are still written, empty. The
@@ -734,7 +733,7 @@ impl FileStatsAccumulator {
             .into_iter()
             .map(|node| {
                 if self.write_legacy_stats {
-                    node.legacy_aggregate_stats()
+                    node.legacy_aggregate_stats(allowed)
                 } else {
                     Ok(AggregateStats::default())
                 }
@@ -1410,21 +1409,24 @@ mod tests {
             push(&acc, &chunk, &mut exec_ctx)?;
         }
 
-        // Five i32 values. The nested statistics record them only if the editions allow it; the
-        // legacy statistics, like every legacy stat, record them regardless.
+        // Five i32 values, which both layouts record only if the editions allow it.
         let size = agg(Stat::UncompressedSizeInBytes);
-        let five_i32 = Precision::exact(ScalarValue::from(20u64));
+        let expected = if allowed {
+            Precision::exact(ScalarValue::from(20u64))
+        } else {
+            Precision::Absent
+        };
         assert_eq!(
             acc.legacy_aggregate_stats()?[0]
                 .get(&size)
                 .and_then(Scalar::into_value),
-            five_i32
+            expected
         );
         assert_eq!(
             acc.aggregate_stats()?[0]
                 .get(&size)
                 .and_then(Scalar::into_value),
-            if allowed { five_i32 } else { Precision::Absent }
+            expected
         );
         Ok(())
     }
@@ -1448,8 +1450,7 @@ mod tests {
         .vortex_expect("Sum is not permitted");
         assert!(error.to_string().contains("not permitted by ctx"));
 
-        // The defaults leave a forbidden aggregate out of the nested aggregates, but the legacy
-        // stats keep it.
+        // The defaults leave a forbidden aggregate out of both the nested and the legacy stats.
         let acc = FileStatsAccumulator::try_new(&dtype, None, true, true, &ctx)?;
         let chunk = StructArray::new(
             FieldNames::from(["a"]),
@@ -1475,7 +1476,7 @@ mod tests {
             acc.legacy_aggregate_stats()?[0]
                 .get(&agg(Stat::NullCount))
                 .and_then(Scalar::into_value),
-            Precision::exact(ScalarValue::from(0u64))
+            Precision::Absent
         );
         Ok(())
     }

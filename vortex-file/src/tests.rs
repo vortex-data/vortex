@@ -91,6 +91,7 @@ use vortex_edition::EDITION_DECLARATIONS;
 use vortex_edition::EditionSession;
 use vortex_edition::EditionSessionExt;
 use vortex_edition::declarations::core::CORE_2026_08_3;
+use vortex_edition::declarations::preview::PREVIEW_2026_08_0;
 use vortex_edition::declarations::unstable::UNSTABLE;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -172,13 +173,13 @@ async fn test_eof_values() {
 #[rstest]
 #[case::default(
     BtrBlocksCompressorBuilder::from_session(&SESSION),
-    if cfg!(feature = "zstd") { 70_060 } else { 69_996 }
+    if cfg!(feature = "zstd") { 70_052 } else { 69_988 }
 )]
 #[cfg_attr(
     feature = "zstd",
     case::compact(
         BtrBlocksCompressorBuilder::from_session(&SESSION).with_compact(),
-        55_144
+        55_136
     )
 )]
 #[tokio::test]
@@ -1583,6 +1584,64 @@ async fn exclude_legacy_statistics_empties_legacy_but_keeps_nested() -> VortexRe
             .iter()
             .all(|stats| stats.min().is_none() && stats.null_count().is_none())
     );
+
+    Ok(())
+}
+
+/// Both the nested and the legacy file statistics record the uncompressed size only when the
+/// enabled editions include it, or when editions are disabled.
+#[rstest]
+#[case::core(false, false, false)]
+#[case::preview(true, false, true)]
+#[case::editions_disabled(false, true, true)]
+#[tokio::test]
+async fn uncompressed_size_follows_editions(
+    #[case] preview: bool,
+    #[case] disable_editions: bool,
+    #[case] recorded: bool,
+) -> VortexResult<()> {
+    let session = VortexSession::empty()
+        .with::<EditionSession>()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>();
+    crate::register_default_encodings(&session);
+    for declaration in EDITION_DECLARATIONS {
+        session.register_edition(declaration)?;
+    }
+    session.enable_edition(CORE_2026_08_3)?;
+    if preview {
+        session.enable_edition(PREVIEW_2026_08_0)?;
+    }
+
+    let c = PrimitiveArray::from_iter([4i32, 5, 6]).into_array();
+    let array = StructArray::try_new(["c"].into(), vec![c], 3, Validity::NonNullable)?.into_array();
+    let options = session.write_options().include_nested_statistics();
+    let options = if disable_editions {
+        options.disable_editions()
+    } else {
+        options
+    };
+    let mut buf = ByteBufferMut::empty();
+    let summary = options.write(&mut buf, array.to_array_stream()).await?;
+
+    let three_i32 = recorded.then_some(12u64);
+    let stats = summary
+        .footer()
+        .statistics()
+        .expect("file statistics should be present");
+    let (c_stats, _) = stats.get_by_path(&field_path!(c)).expect("c entry");
+    assert_eq!(
+        stat_value(c_stats, Stat::UncompressedSizeInBytes),
+        three_i32.map_or(Precision::Absent, |size| Precision::exact(
+            ScalarValue::from(size)
+        ))
+    );
+
+    let bytes = stats.write_flatbuffer_bytes()?;
+    let fb =
+        flatbuffers::root::<fb::FileStatistics>(bytes.as_ref()).vortex_expect("valid flatbuffer");
+    let field_stats = fb.field_stats().vortex_expect("field_stats is written");
+    assert_eq!(field_stats.get(0).uncompressed_size_in_bytes(), three_i32);
 
     Ok(())
 }
