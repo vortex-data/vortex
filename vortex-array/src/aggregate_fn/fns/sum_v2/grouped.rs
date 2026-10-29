@@ -131,7 +131,7 @@ fn grouped_sum(
 }
 
 /// The grouped [`SumV2`] partials of non-null widened `sums`, one per group.
-fn grouped_partials(
+pub(crate) fn grouped_partials(
     sums: ArrayRef,
     is_overflow: BitBuffer,
     is_empty: BitBuffer,

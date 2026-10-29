@@ -57,6 +57,7 @@ use crate::arrays::dict::compute::min_max::DictMinMaxKernel;
 use crate::arrays::runend::compute::is_constant::RunEndIsConstantKernel;
 use crate::arrays::runend::compute::is_sorted::RunEndIsSortedKernel;
 use crate::arrays::runend::compute::min_max::RunEndMinMaxKernel;
+use crate::arrays::runend::compute::sum::RunEndGroupedSumV2Kernel;
 use crate::arrays::runend::compute::sum::RunEndSumKernel;
 use crate::arrays::widen::compute::aggregate::WidenArrayAggregate;
 use crate::dtype::DType;
@@ -177,6 +178,7 @@ impl Default for AggregateFnSession {
             SumV2.id(),
             &ChunkedGroupedSumV2EncodingKernel,
         );
+        this.register_grouped_encoding_kernel(RunEnd.id(), SumV2.id(), &RunEndGroupedSumV2Kernel);
 
         this
     }
