@@ -106,7 +106,7 @@ statistics, footer, and user metadata segments referenced by the postscript. The
 - Each `SegmentSpec` stores an index into the footer's `encryption_specs`. Index 0 always denotes a plaintext segment,
   so files written before encryption existed remain valid. Index 1 holds the footer key.
 - The postscript itself is not authenticated, so readers configured for decryption reject an encrypted file whose
-  `DType`, layout, statistics, or footer segment is not encrypted with the footer key's spec, and whose
+  `DType`, layout, statistics, or footer segment is not encrypted or signed with the footer key's spec, and whose
   user metadata or encrypted statistics segment uses a spec the footer does not list. Otherwise an attacker could
   strip the protection of these segments and forge their content.
 - Keys are never stored in the file. The opaque `key_metadata` of an `EncryptionSpec` identifies the key to the
@@ -135,22 +135,32 @@ reader knows, so that it cannot be replaced by another file encrypted with the s
 file: the writer sets `requires_aad_prefix`, and readers must supply the prefix to decrypt the file. Without a prefix,
 its length is 0.
 
-The footer is encrypted with the footer key, which hides the schema, layout, and statistics. Readers need the footer
-key to open the file.
+### Footer modes
+
+- An encrypted footer hides the schema, layout, and statistics. Readers need the footer key to open the file.
+- A plaintext footer leaves the `DType`, layout, statistics, and footer segments readable, so that readers without
+  encryption support, or without keys, can open the file and read the fields stored in plaintext. Each of these
+  segments is signed with the footer key: its `PostscriptSegment` carries the footer key's `EncryptionSpec` and a
+  `signature` of `nonce || tag`, computed with AES-GMAC over the segment's additional authenticated data, a `0xFF` byte,
+  and the segment's bytes. Readers with the footer key verify the signatures. User metadata segments remain encrypted.
+  The layout tree reveals the row count, and the number and sizes of the segments, of encrypted fields too, and the
+  footer lists every array encoding used in the file. Readers that skip the verification of the signatures lose the
+  integrity protection of the whole file, since the footer records the encryption of every segment.
 
 ### Field keys
 
 Fields can be encrypted with their own keys, each recorded as a separate `EncryptionSpec`. Every segment of such a
 field, including its zone maps and dictionaries, uses the field's key. A reader without that key can still read every
-other field. Fields without their own key are encrypted with the footer key.
+other field. Fields without their own key are encrypted with the footer key, or stored in plaintext.
 
-File-level statistics are protected like the fields they describe. The `statistics` segment, encrypted with the footer
-key, holds the statistics of the fields whose segments are encrypted with the footer key.
+File-level statistics are protected like the fields they describe. The `statistics` segment, protected by the footer key
+or stored in plaintext like the footer, holds the statistics of the fields whose segments are protected the same way.
 The statistics of every other field are stored in a segment per key, listed in the postscript's `encrypted_statistics`
 and encrypted with that key, and left empty in the `statistics` segment. The additional authenticated data of such a
 segment identifies it by its position in `encrypted_statistics` and by its field indices, as little-endian `uint16` and
 `uint32` values, so that its statistics cannot be attributed to other fields. A reader without a field's key therefore
-sees neither its data nor its statistics.
+sees neither its data nor its statistics, and a reader without any key still sees the statistics of plaintext fields in
+a file with a plaintext footer.
 
 ## Reified File Example
 

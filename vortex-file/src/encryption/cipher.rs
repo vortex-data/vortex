@@ -29,7 +29,8 @@ use super::fill_random;
 pub(crate) const NONCE_LEN: usize = 12;
 const TAG_LEN: usize = 16;
 
-/// Length in bytes of the `nonce || tag` trailer of an encrypted segment.
+/// Length in bytes of `nonce || tag`, the trailer of an encrypted segment and the signature of a
+/// signed one.
 pub(crate) const NONCE_TAG_LEN: usize = NONCE_LEN + TAG_LEN;
 
 type Aes192Gcm = AesGcm<Aes192, U12>;
@@ -84,6 +85,9 @@ impl SegmentRole<'_> {
         }
     }
 }
+
+/// Distinguishes the AAD of a signature from that of an encrypted segment with the same role.
+const SIGNATURE_AAD_MARKER: u8 = 0xFF;
 
 /// AES-GCM with any of the supported key lengths.
 #[derive(Clone)]
@@ -281,6 +285,41 @@ impl SegmentCipher {
             })?;
         Ok(plaintext.freeze())
     }
+
+    fn signature_aad(&self, role: SegmentRole<'_>, plaintext: &[u8]) -> Vec<u8> {
+        let mut aad = self.aad(role);
+        aad.push(SIGNATURE_AAD_MARKER);
+        aad.extend_from_slice(plaintext);
+        aad
+    }
+
+    /// Sign a plaintext segment with AES-GMAC, returning `nonce || tag`.
+    pub(crate) fn sign(
+        &self,
+        role: SegmentRole<'_>,
+        plaintext: &[u8],
+    ) -> VortexResult<[u8; NONCE_TAG_LEN]> {
+        self.aead
+            .seal(&self.signature_aad(role, plaintext), &mut [])
+            .map_err(|e| vortex_err!("Failed to sign {role:?} segment: {e}"))
+    }
+
+    /// Verify the signature of a plaintext segment.
+    pub(crate) fn verify(
+        &self,
+        role: SegmentRole<'_>,
+        plaintext: &[u8],
+        signature: &[u8],
+    ) -> VortexResult<()> {
+        self.aead
+            .open(&self.signature_aad(role, plaintext), &mut [], signature)
+            .map_err(|()| {
+                vortex_err!(
+                    "Failed to verify the signature of the plaintext {role:?} segment: the footer \
+                     key or AAD prefix is wrong, or the segment was modified"
+                )
+            })
+    }
 }
 
 #[cfg(test)]
@@ -381,6 +420,30 @@ mod tests {
             )
             .unwrap_err();
         assert!(err.to_string().contains("shorter"), "{err}");
+        Ok(())
+    }
+
+    #[test]
+    fn signature() -> VortexResult<()> {
+        let signer = cipher(32)?;
+        let signature = signer.sign(SegmentRole::Footer(b""), b"footer")?;
+        signer.verify(SegmentRole::Footer(b""), b"footer", &signature)?;
+
+        assert!(
+            signer
+                .verify(SegmentRole::Footer(b""), b"modified", &signature)
+                .is_err()
+        );
+        assert!(
+            signer
+                .verify(SegmentRole::Layout, b"footer", &signature)
+                .is_err()
+        );
+        assert!(
+            cipher(32)?
+                .verify(SegmentRole::Footer(b""), b"footer", &signature)
+                .is_err()
+        );
         Ok(())
     }
 }

@@ -3225,6 +3225,7 @@ fn with_invalid_metadata_alignment(bytes: &ByteBuffer, exponent: u8) -> ByteBuff
                 alignment_exponent,
                 _compression: None,
                 encryption: None,
+                signature: None,
             },
         )
     }
