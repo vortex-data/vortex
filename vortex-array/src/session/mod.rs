@@ -27,7 +27,6 @@ use crate::array::ArraySerialization;
 use crate::arrays::Bool;
 use crate::arrays::Chunked;
 use crate::arrays::Constant;
-use crate::arrays::Decimal;
 use crate::arrays::Dict;
 use crate::arrays::Extension;
 use crate::arrays::FixedSizeList;
@@ -44,6 +43,7 @@ use crate::arrays::Union;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinView;
 use crate::arrays::Variant;
+use crate::arrays::decimal::DecimalPlugin;
 use crate::arrays::widen::WidenPlugin;
 
 /// Registry of array encodings.
@@ -97,7 +97,7 @@ impl Default for ArraySession {
         this.register(Null);
         this.register(Bool);
         this.register(Primitive);
-        this.register(Decimal);
+        this.register(DecimalPlugin);
         this.register(VarBinView);
         this.register(ListView);
         this.register(Map);

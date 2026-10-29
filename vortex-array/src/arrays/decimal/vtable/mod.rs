@@ -30,6 +30,10 @@ use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 mod kernel;
 mod operations;
+
+mod plugin;
+pub use plugin::DecimalPlugin;
+
 mod validity;
 
 use std::hash::Hash;
@@ -248,7 +252,17 @@ impl VTable for Decimal {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        StoredDecimal::deserialize(dtype, len, metadata, buffers, children)?.into_array_parts()
+        let stored = StoredDecimal::deserialize(dtype, len, metadata, buffers, children)?;
+        let canonical_type = stored.decimal_dtype.canonical_values_type();
+        vortex_ensure!(
+            stored.values_type == canonical_type,
+            "Decimal reads only the canonical width {canonical_type} of {}, and DecimalPlugin \
+             reads every other width, got {}",
+            stored.decimal_dtype,
+            stored.values_type,
+        );
+
+        stored.into_array_parts()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -319,7 +333,7 @@ mod tests {
     #[test]
     fn test_array_serde() {
         let array = DecimalArray::new(
-            buffer![100i128, 200i128, 300i128, 400i128, 500i128],
+            buffer![100i64, 200i64, 300i64, 400i64, 500i64],
             DecimalDType::new(10, 2),
             Validity::NonNullable,
         );
@@ -345,7 +359,7 @@ mod tests {
         assert!(decoded.is::<Decimal>());
         assert_arrays_eq!(
             decoded,
-            DecimalArray::from_iter([100i128, 200, 300, 400, 500], DecimalDType::new(10, 2)),
+            DecimalArray::from_iter([100i64, 200, 300, 400, 500], DecimalDType::new(10, 2)),
             &mut SESSION.create_execution_ctx()
         );
     }

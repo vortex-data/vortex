@@ -14,6 +14,7 @@ pub(crate) mod compute;
 mod vtable;
 pub use compute::rules::DecimalMaskedValidityRule;
 pub use vtable::Decimal;
+pub use vtable::DecimalPlugin;
 
 pub(crate) fn initialize(session: &vortex_session::VortexSession) {
     vtable::initialize(session);
