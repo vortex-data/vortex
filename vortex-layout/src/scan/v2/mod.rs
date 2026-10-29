@@ -13,7 +13,8 @@
 //! Import this module's [`ScanBuilder`] to prepare a V2 scan. It accepts a [`ScanFile`] directly
 //! and supports projection, filters, row ranges, and selections. Unsupported layouts return an
 //! error when the plan is prepared; limits are not part of this builder's API. Work is cut into
-//! chunks of up to 65,536 rows, or 1,048,576 rows for filtered scans, independently of the stored
+//! chunks of up to 65,536 rows, or 131,072 rows for filtered scans. Filtered scans reading only
+//! one primitive or boolean field use 1,048,576 rows to amortize setup, independently of the stored
 //! layout's chunk boundaries. Full-file projections use smaller 8,192-row multiples when
 //! serialized bytes per row are high.
 //!
@@ -34,6 +35,7 @@ use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_expr::analysis::referenced_field_paths;
 use vortex_scan::selection::Selection;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
@@ -170,6 +172,11 @@ impl ScanBuilder {
             None => cache.insert_root(lower(&file.layout)?),
         };
         let row_count = root.row_count();
+        let filtered_chunk_rows = self
+            .filter
+            .as_ref()
+            .map(|filter| filtered_rows_per_chunk(root.dtype(), &self.projection, filter))
+            .transpose()?;
         let filter = self
             .filter
             .map(|filter| -> VortexResult<_> {
@@ -196,8 +203,8 @@ impl ScanBuilder {
                 cache.insert_projection(self.projection, plan)
             }
         };
-        let chunk_rows = if filter.is_some() {
-            FILTERED_ROWS_PER_CHUNK
+        let chunk_rows = if let Some(rows) = filtered_chunk_rows {
+            rows
         } else if identity {
             rows_per_chunk(row_count, &file.locations)
         } else {
@@ -223,4 +230,26 @@ impl ScanBuilder {
             chunk_rows,
         })
     }
+}
+
+fn filtered_rows_per_chunk(
+    dtype: &DType,
+    projection: &BoundExpression,
+    filter: &BoundExpression,
+) -> VortexResult<usize> {
+    let mut fields = referenced_field_paths(projection)?;
+    fields.extend(referenced_field_paths(filter)?);
+    let mut fields = fields.into_iter();
+    let first = fields.next();
+    // A scan of one fixed-width field is cheap enough that smaller chunks mainly add setup.
+    // Wider and variable-width scans need more chunks to avoid long tails on a few workers.
+    let narrow = fields.next().is_none()
+        && first
+            .and_then(|field| field.resolve(dtype.clone()))
+            .is_some_and(|dtype| matches!(dtype, DType::Primitive(..) | DType::Bool(..)));
+    Ok(if narrow {
+        128 * ROW_BLOCK_SIZE
+    } else {
+        FILTERED_ROWS_PER_CHUNK
+    })
 }

@@ -60,6 +60,7 @@ use super::ROW_BLOCK_SIZE;
 use super::ScanBuilder;
 use super::ScanCache;
 use super::ScanFile;
+use super::filtered_rows_per_chunk;
 use super::rows_per_chunk;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -196,6 +197,34 @@ fn builder(
         session.clone(),
         scan_file(segments, layout)?,
     ))
+}
+
+#[rstest]
+#[case::count_integer(lit(true), gt(get_item("ints", root()), lit(10)), 1_048_576)]
+#[case::project_integer(
+    get_item("ints", root()),
+    gt(get_item("ints", root()), lit(10)),
+    1_048_576
+)]
+#[case::filter_string(lit(true), eq(get_item("strings", root()), lit("row 10")), 131_072)]
+#[case::project_string(
+    get_item("strings", root()),
+    gt(get_item("ints", root()), lit(10)),
+    131_072
+)]
+#[case::wide_projection(root(), gt(get_item("ints", root()), lit(10)), 131_072)]
+fn filtered_chunk_sizing(
+    #[case] projection: Expression,
+    #[case] filter: Expression,
+    #[case] expected: usize,
+) -> VortexResult<()> {
+    let array = table_chunk(0)?;
+    let dtype = array.dtype();
+    assert_eq!(
+        filtered_rows_per_chunk(dtype, &projection.bind(dtype)?, &filter.bind(dtype)?)?,
+        expected,
+    );
+    Ok(())
 }
 
 /// Composes a scan's planners the way an engine does: the pruning plans first when there is a filter,
