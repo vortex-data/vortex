@@ -10,7 +10,6 @@ use vortex::aggregate_fn::fns::min::Min;
 use vortex::aggregate_fn::fns::nan_count::NanCount;
 use vortex::aggregate_fn::fns::null_count::NullCount;
 use vortex::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
-use vortex::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
 use vortex::array::match_each_float_ptype;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect as _;
@@ -93,7 +92,7 @@ impl ColumnStatisticsAggregate {
 
         // DuckDB's string length is u32
         #[allow(clippy::cast_possible_truncation)]
-        let max_string_length = exact(UncompressedSizeInBytes.bind(UncompressedSizeOpts::exact()))
+        let max_string_length = exact(UncompressedSizeInBytes.bind(EmptyOptions))
             .map(|value| value.as_primitive().as_u64().vortex_expect("not a u64") as u32);
 
         let has_null = exact(NullCount.bind(EmptyOptions))

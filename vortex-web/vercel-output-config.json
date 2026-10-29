@@ -1,0 +1,42 @@
+{
+  "version": 3,
+  "routes": [
+    {
+      "src": "/assets/(.*)",
+      "headers": {
+        "Cache-Control": "public, max-age=31536000, immutable"
+      },
+      "continue": true
+    },
+    {
+      "src": "^/(.*)$",
+      "headers": {
+        "Content-Security-Policy": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https:; worker-src 'self'; object-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+        "Cross-Origin-Opener-Policy": "same-origin"
+      },
+      "continue": true
+    },
+    {
+      "src": "^/(.*)$",
+      "missing": [
+        {
+          "type": "host",
+          "value": "explore.vortex.dev"
+        }
+      ],
+      "headers": {
+        "Content-Security-Policy": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://vercel.live; style-src 'self' https://fonts.googleapis.com 'unsafe-inline' https://vercel.live; font-src 'self' https://fonts.gstatic.com https://vercel.live https://assets.vercel.com; img-src 'self' data: blob: https://vercel.live https://vercel.com; connect-src 'self' https: https://vercel.live wss://ws-us3.pusher.com; worker-src 'self'; object-src 'none'; frame-src https://vercel.live; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+      },
+      "continue": true
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ]
+}

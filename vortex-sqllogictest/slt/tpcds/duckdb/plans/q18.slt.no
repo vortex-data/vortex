@@ -516,7 +516,7 @@ logical_opt [
                                                                                                 "name": "READ_VORTEX",
                                                                                                 "children": [],
                                                                                                 "extra_info": {
-                                                                                                    "Filters": "vortex.list.contains([\"IN\", \"MS\", \"MS\", \"ND\", \"NM\", \"OK\", \"VA\"], $.ca_state, opts=sql_null_semantics)",
+                                                                                                    "Filters": "vortex.list.contains([\"IN\", \"MS\", \"ND\", \"NM\", \"OK\", \"VA\"], $.ca_state, opts=sql_null_semantics)",
                                                                                                     "Function": "Vortex Scan",
                                                                                                     "Estimated Cardinality": "1000"
                                                                                                 }
@@ -1173,7 +1173,7 @@ physical_plan [
                                                                                         "children": [],
                                                                                         "extra_info": {
                                                                                             "Function": "Vortex Scan",
-                                                                                            "Filters": "vortex.list.contains([\"IN\", \"MS\", \"MS\", \"ND\", \"NM\", \"OK\", \"VA\"], $.ca_state, opts=sql_null_semantics)",
+                                                                                            "Filters": "vortex.list.contains([\"IN\", \"MS\", \"ND\", \"NM\", \"OK\", \"VA\"], $.ca_state, opts=sql_null_semantics)",
                                                                                             "Projections": [
                                                                                                 "ca_address_sk",
                                                                                                 "ca_county",

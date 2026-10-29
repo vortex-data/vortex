@@ -4,6 +4,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result;
+use std::str::FromStr;
 
 use tracing::debug;
 use vortex::aggregate_fn::Accumulator;
@@ -539,6 +540,22 @@ impl Display for PushedAggregate {
             PushedAggregate::First => f.write_str("first"),
             PushedAggregate::Count => f.write_str("count"),
         }
+    }
+}
+
+impl FromStr for PushedAggregate {
+    type Err = VortexError;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        Ok(match s {
+            "min" => PushedAggregate::Min,
+            "max" => PushedAggregate::Max,
+            "sum" => PushedAggregate::Sum,
+            "mean" => PushedAggregate::Mean,
+            "first" => PushedAggregate::First,
+            "count" => PushedAggregate::Count,
+            _ => vortex_bail!("unknown pushed aggregate: {s}"),
+        })
     }
 }
 

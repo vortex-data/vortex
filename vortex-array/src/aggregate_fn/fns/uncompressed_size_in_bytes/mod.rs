@@ -12,9 +12,6 @@ mod struct_;
 mod union;
 mod varbinview;
 
-use std::fmt;
-use std::fmt::Display;
-use std::fmt::Formatter;
 use std::mem::size_of;
 
 use bool::bool_uncompressed_size_in_bytes;
@@ -24,7 +21,6 @@ use fixed_size_list::fixed_size_list_uncompressed_size_in_bytes;
 use list_view::list_view_uncompressed_size_in_bytes;
 use null::null_uncompressed_size_in_bytes;
 use primitive::primitive_uncompressed_size_in_bytes;
-use prost::Message;
 use struct_::struct_uncompressed_size_in_bytes;
 use union::union_uncompressed_size_in_bytes;
 use varbinview::varbinview_uncompressed_size_in_bytes;
@@ -46,6 +42,7 @@ use crate::aggregate_fn::AggregateArgs;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
+use crate::aggregate_fn::EmptyOptions;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
@@ -53,116 +50,33 @@ use crate::arrays::ListView;
 use crate::arrays::map::MapArraySlotsExt;
 use crate::arrays::varbinview::BinaryView;
 use crate::dtype::DType;
-use crate::dtype::DecimalType;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::PType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
-use crate::proto::expr as pb;
 use crate::scalar::Scalar;
-
-/// Whether [`UncompressedSizeInBytes`] approximates the bytes an array uses or counts them.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum UncompressedSizePrecision {
-    /// An approximation: every byte of every buffer the canonical array holds, whether or not a
-    /// row uses it. Cheap, but a view array sharing or sliced from a larger buffer reports the
-    /// whole buffer.
-    #[default]
-    Inexact,
-    /// The actual number of bytes the array's rows use, which costs a pass over view and list
-    /// arrays.
-    Exact,
-}
-
-/// Options for [`UncompressedSizeInBytes`].
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct UncompressedSizeOpts {
-    pub precision: UncompressedSizePrecision,
-}
-
-impl UncompressedSizeOpts {
-    /// Approximate the bytes the array uses by the buffers it holds. This is the default.
-    pub const fn inexact() -> Self {
-        Self {
-            precision: UncompressedSizePrecision::Inexact,
-        }
-    }
-
-    /// Count the actual bytes the array's rows use.
-    pub const fn exact() -> Self {
-        Self {
-            precision: UncompressedSizePrecision::Exact,
-        }
-    }
-
-    pub const fn is_exact(&self) -> bool {
-        matches!(self.precision, UncompressedSizePrecision::Exact)
-    }
-
-    /// Serialize these options to protobuf-encoded metadata bytes.
-    pub fn serialize(&self) -> Vec<u8> {
-        pb::UncompressedSizeInBytesOpts {
-            exact: self.is_exact(),
-        }
-        .encode_to_vec()
-    }
-
-    /// Deserialize these options from protobuf-encoded metadata bytes.
-    pub fn deserialize(metadata: &[u8]) -> VortexResult<Self> {
-        let opts = pb::UncompressedSizeInBytesOpts::decode(metadata)?;
-        Ok(if opts.exact {
-            Self::exact()
-        } else {
-            Self::inexact()
-        })
-    }
-}
-
-impl Display for UncompressedSizeOpts {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        // Only the non-default configuration is displayed, so the default renders as
-        // `vortex.uncompressed_size_in_bytes()`.
-        if self.is_exact() {
-            write!(f, "precision=exact")?;
-        }
-        Ok(())
-    }
-}
 
 /// Return the uncompressed size of an array in bytes.
 ///
-/// See [`UncompressedSizeInBytes`] for details and [`UncompressedSizeOpts`] for the choice of
-/// precision. The result is cached as a statistic on `array` and on any children measured.
-pub fn uncompressed_size_in_bytes(
-    array: &ArrayRef,
-    opts: UncompressedSizeOpts,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<usize> {
-    let size = uncompressed_size_in_bytes_u64(array, opts, ctx)?;
+/// See [`UncompressedSizeInBytes`] for details. The result is cached as a statistic on `array` and
+/// on any children measured.
+pub fn uncompressed_size_in_bytes(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
+    let size = uncompressed_size_in_bytes_u64(array, ctx)?;
 
     usize::try_from(size)
         .map_err(|e| vortex_err!("Failed to convert uncompressed size to usize: {e}"))
 }
 
-fn uncompressed_size_in_bytes_u64(
-    array: &ArrayRef,
-    opts: UncompressedSizeOpts,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<u64> {
-    // The stat slot holds only the exact size. The inexact size is a different measure, which can
-    // be larger or smaller than the exact one, so it neither reads nor writes the slot: reusing an
-    // exact value would make it depend on what was computed before, and caching it would put a
-    // value in the slot that bounds nothing.
-    if opts.is_exact()
-        && let Precision::Exact(size) = array.statistics().get(Stat::UncompressedSizeInBytes)
-    {
+fn uncompressed_size_in_bytes_u64(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<u64> {
+    if let Precision::Exact(size) = array.statistics().get(Stat::UncompressedSizeInBytes) {
         return u64::try_from(&size)
             .map_err(|e| e.with_context("Failed to convert uncompressed size stat to u64"));
     }
 
-    // The accumulator caches an exact size on `array` through the stat slot.
-    let mut acc = Accumulator::try_new(UncompressedSizeInBytes, opts, array.dtype().clone())?;
+    // The accumulator caches the size on `array` through the stat slot.
+    let mut acc =
+        Accumulator::try_new(UncompressedSizeInBytes, EmptyOptions, array.dtype().clone())?;
     acc.accumulate(array, ctx)?;
     let result = acc.finish()?;
 
@@ -172,15 +86,15 @@ fn uncompressed_size_in_bytes_u64(
         .vortex_expect("uncompressed_size_in_bytes result should not be null"))
 }
 
-/// The byte size of all buffers in children in their canonical representation.
+/// The number of bytes the array's rows use in their canonical representation.
 ///
 /// Applies to all types and returns a non-null `u64`. Encoding kernels can return this aggregate
 /// directly from metadata to avoid decoding arrays whose uncompressed size is known.
 ///
-/// By default the size is [inexact](UncompressedSizePrecision::Inexact): an approximation that
-/// counts every buffer the canonical array holds in full. The
-/// [exact](UncompressedSizePrecision::Exact) size is the actual number of bytes the array's rows
-/// use, at the cost of a pass over view and list arrays.
+/// Only the bytes rows reference are counted, as if the array were rebuilt from its rows: a view or
+/// list array sliced from, or sharing, a larger buffer is charged for the part it uses, and values
+/// referenced by several rows are counted once per row. This costs a pass over view and list
+/// arrays.
 ///
 /// This is generally useful for various execution engines to pick better join orderings.
 #[derive(Clone, Debug)]
@@ -194,7 +108,7 @@ impl UncompressedSizeInBytes {
 }
 
 impl AggregateFnVTable for UncompressedSizeInBytes {
-    type Options = UncompressedSizeOpts;
+    type Options = EmptyOptions;
     type Partial = u64;
 
     fn id(&self) -> AggregateFnId {
@@ -202,16 +116,16 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
         *ID
     }
 
-    fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(options.serialize()))
+    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
     }
 
     fn deserialize(
         &self,
-        metadata: &[u8],
+        _metadata: &[u8],
         _session: &VortexSession,
     ) -> VortexResult<Self::Options> {
-        UncompressedSizeOpts::deserialize(metadata)
+        Ok(EmptyOptions)
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
@@ -271,18 +185,15 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
 
     fn accumulate(
         &self,
-        args: AggregateArgs<'_, Self::Options>,
+        _args: AggregateArgs<'_, Self::Options>,
         partial: &mut Self::Partial,
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        let opts = *args.options;
         let size = match batch {
-            Columnar::Canonical(canonical) => {
-                canonical_uncompressed_size_in_bytes(canonical, opts, ctx)?
-            }
+            Columnar::Canonical(canonical) => canonical_uncompressed_size_in_bytes(canonical, ctx)?,
             Columnar::Constant(constant) => {
-                constant_uncompressed_size_in_bytes(constant.as_view(), opts, ctx)?
+                constant_uncompressed_size_in_bytes(constant.as_view(), ctx)?
             }
         };
         *partial = partial
@@ -311,7 +222,6 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
 /// Measure a canonical array.
 pub(crate) fn canonical_uncompressed_size_in_bytes(
     canonical: &Canonical,
-    opts: UncompressedSizeOpts,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<u64> {
     match canonical {
@@ -319,19 +229,16 @@ pub(crate) fn canonical_uncompressed_size_in_bytes(
         Canonical::Bool(array) => bool_uncompressed_size_in_bytes(array, ctx),
         Canonical::Primitive(array) => primitive_uncompressed_size_in_bytes(array, ctx),
         Canonical::Decimal(array) => decimal_uncompressed_size_in_bytes(array, ctx),
-        Canonical::VarBinView(array) => varbinview_uncompressed_size_in_bytes(array, opts, ctx),
-        Canonical::List(array) => list_view_uncompressed_size_in_bytes(array, opts, ctx),
+        Canonical::VarBinView(array) => varbinview_uncompressed_size_in_bytes(array, ctx),
+        Canonical::List(array) => list_view_uncompressed_size_in_bytes(array, ctx),
         Canonical::Map(array) => list_view_uncompressed_size_in_bytes(
             &array.entries().as_::<ListView>().into_owned(),
-            opts,
             ctx,
         ),
-        Canonical::FixedSizeList(array) => {
-            fixed_size_list_uncompressed_size_in_bytes(array, opts, ctx)
-        }
-        Canonical::Struct(array) => struct_uncompressed_size_in_bytes(array, opts, ctx),
-        Canonical::Union(array) => union_uncompressed_size_in_bytes(array, opts, ctx),
-        Canonical::Extension(array) => extension_uncompressed_size_in_bytes(array, opts, ctx),
+        Canonical::FixedSizeList(array) => fixed_size_list_uncompressed_size_in_bytes(array, ctx),
+        Canonical::Struct(array) => struct_uncompressed_size_in_bytes(array, ctx),
+        Canonical::Union(array) => union_uncompressed_size_in_bytes(array, ctx),
+        Canonical::Extension(array) => extension_uncompressed_size_in_bytes(array, ctx),
         Canonical::Variant(_) => {
             vortex_bail!("UncompressedSizeInBytes is not supported for Variant arrays")
         }
@@ -340,7 +247,6 @@ pub(crate) fn canonical_uncompressed_size_in_bytes(
 
 pub(crate) fn constant_uncompressed_size_in_bytes(
     array: ArrayView<'_, Constant>,
-    opts: UncompressedSizeOpts,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<u64> {
     let value_size = match array.dtype() {
@@ -351,18 +257,16 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
         }
         DType::Decimal(decimal_type, _) => checked_len_mul(
             array.len(),
-            DecimalType::smallest_decimal_value_type(decimal_type).byte_width(),
+            decimal_type.canonical_values_type().byte_width(),
             "decimal",
         )?,
         DType::Utf8(_) => constant_varbinview_value_size(
             array.len(),
             array.scalar().as_utf8().value().map(|value| value.len()),
-            opts,
         )?,
         DType::Binary(_) => constant_varbinview_value_size(
             array.len(),
             array.scalar().as_binary().value().map(|value| value.len()),
-            opts,
         )?,
         DType::List(..)
         | DType::Map(..)
@@ -371,7 +275,7 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
         | DType::Union(..)
         | DType::Extension(_) => {
             let canonical = array.array().clone().execute::<Canonical>(ctx)?;
-            return canonical_uncompressed_size_in_bytes(&canonical, opts, ctx);
+            return canonical_uncompressed_size_in_bytes(&canonical, ctx);
         }
         DType::Variant(_) => {
             vortex_bail!("UncompressedSizeInBytes is not supported for Variant arrays")
@@ -383,19 +287,13 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
         .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))
 }
 
-fn constant_varbinview_value_size(
-    len: usize,
-    scalar_len: Option<usize>,
-    opts: UncompressedSizeOpts,
-) -> VortexResult<u64> {
+fn constant_varbinview_value_size(len: usize, scalar_len: Option<usize>) -> VortexResult<u64> {
     let views_size = checked_len_mul(len, size_of::<BinaryView>(), "binary view")?;
     // Only a value too long to inline adds a data buffer, matching `constant_canonicalize`. Every
-    // row references it, so the exact size counts it once per row, like a canonical array's
-    // views, while the buffer canonicalization creates holds it once.
+    // row references it, so it is counted once per row, like a canonical array's views.
     let data_size = match scalar_len {
         Some(scalar_len) if scalar_len > BinaryView::MAX_INLINED_SIZE => {
-            let rows = if opts.is_exact() { len } else { 1 };
-            checked_len_mul(rows, scalar_len, "binary data")?
+            checked_len_mul(len, scalar_len, "binary data")?
         }
         _ => 0,
     };
@@ -486,8 +384,8 @@ mod tests {
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::DynAccumulator;
+    use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
-    use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
     use crate::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
@@ -524,8 +422,8 @@ mod tests {
 
     /// The size the array occupies once rebuilt through the canonical builders, which is the
     /// layout [`UncompressedSizeInBytes`] is defined against: the builders normalize physical
-    /// widths that the input array is free to choose differently, picking the smallest decimal
-    /// value type for a precision and `u64` list-view offsets and sizes.
+    /// widths that the input array is free to choose differently, picking the canonical decimal
+    /// width of a precision and `u64` list-view offsets and sizes.
     ///
     /// Builders no longer canonicalize their children, so the finished array is only canonical at
     /// the top level - recursively canonicalize it before measuring.
@@ -549,12 +447,9 @@ mod tests {
     }
 
     fn aggregate(array: &ArrayRef) -> VortexResult<u64> {
-        aggregate_with(array, UncompressedSizeOpts::default())
-    }
-
-    fn aggregate_with(array: &ArrayRef, opts: UncompressedSizeOpts) -> VortexResult<u64> {
         let mut ctx = SESSION.create_execution_ctx();
-        let mut acc = Accumulator::try_new(UncompressedSizeInBytes, opts, array.dtype().clone())?;
+        let mut acc =
+            Accumulator::try_new(UncompressedSizeInBytes, EmptyOptions, array.dtype().clone())?;
         acc.accumulate(array, &mut ctx)?;
         acc.finish()?
             .as_primitive()
@@ -721,36 +616,23 @@ mod tests {
 
         assert_eq!(materialized_uncompressed_size_in_bytes(&exact), 44);
         assert_eq!(
-            aggregate_with(&array, UncompressedSizeOpts::exact())?,
+            aggregate(&array)?,
             materialized_uncompressed_size_in_bytes(&exact)
         );
-        // The inexact size counts the unreferenced element too.
-        assert_eq!(
-            aggregate_with(&array, UncompressedSizeOpts::inexact())?,
-            materialized_uncompressed_size_in_bytes(&exact) + 4
-        );
         Ok(())
     }
 
     #[test]
-    fn varbinview_exact_counts_referenced_bytes_only() -> VortexResult<()> {
+    fn varbinview_counts_referenced_bytes_only() -> VortexResult<()> {
         let sliced = views_into_shared_page(100..200)?;
 
-        // 100 views of 16 bytes plus 100 values of 27 bytes.
-        assert_eq!(
-            aggregate_with(&sliced, UncompressedSizeOpts::exact())?,
-            100 * (16 + 27)
-        );
-        // The inexact size still charges the whole 27,000-byte page.
-        assert_eq!(
-            aggregate_with(&sliced, UncompressedSizeOpts::inexact())?,
-            100 * 16 + 1000 * 27
-        );
+        // 100 views of 16 bytes plus 100 values of 27 bytes, not the whole 27,000-byte page.
+        assert_eq!(aggregate(&sliced)?, 100 * (16 + 27));
         Ok(())
     }
 
     #[test]
-    fn varbinview_exact_skips_null_rows_and_inlined_views() -> VortexResult<()> {
+    fn varbinview_skips_null_rows_and_inlined_views() -> VortexResult<()> {
         let array = VarBinViewArray::from_iter_nullable_str([
             Some("inlined"),
             None,
@@ -761,46 +643,14 @@ mod tests {
             .into_array();
 
         // Three views, one validity byte, and only the one out-of-line value.
-        assert_eq!(
-            aggregate_with(&array, UncompressedSizeOpts::exact())?,
-            3 * 16 + 1 + 39
-        );
-        // Nulling the long value drops its bytes from the exact size.
-        assert_eq!(
-            aggregate_with(&nulled, UncompressedSizeOpts::exact())?,
-            3 * 16 + 1
-        );
+        assert_eq!(aggregate(&array)?, 3 * 16 + 1 + 39);
+        // Nulling the long value drops its bytes from the size.
+        assert_eq!(aggregate(&nulled)?, 3 * 16 + 1);
         Ok(())
     }
 
     #[test]
-    fn exact_matches_inexact_for_fixed_width_types() -> VortexResult<()> {
-        let arrays = [
-            PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array(),
-            BoolArray::from_iter([Some(true), None, Some(false)]).into_array(),
-            DecimalArray::new(
-                buffer![12345i64, -123i64, 0i64],
-                DecimalDType::new(5, 2),
-                Validity::NonNullable,
-            )
-            .into_array(),
-            NullArray::new(5).into_array(),
-        ];
-        for (array, expected) in arrays.into_iter().zip([13, 2, 12, 0]) {
-            assert_eq!(
-                aggregate_with(&array, UncompressedSizeOpts::exact())?,
-                expected
-            );
-            assert_eq!(
-                aggregate_with(&array, UncompressedSizeOpts::exact())?,
-                aggregate_with(&array, UncompressedSizeOpts::inexact())?
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn nested_exact_measures_children_exactly() -> VortexResult<()> {
+    fn nested_measures_referenced_bytes_of_children() -> VortexResult<()> {
         let strings = views_into_shared_page(0..10)?;
         let array = StructArray::try_new(
             FieldNames::from(["strings"]),
@@ -810,30 +660,18 @@ mod tests {
         )?
         .into_array();
 
-        // Measure inexactly first: an exact result is cached on the shared child, and an inexact
-        // query would then reuse it.
-        let inexact = aggregate_with(&array, UncompressedSizeOpts::inexact())?;
-        assert_eq!(
-            inexact,
-            aggregate_with(&strings, UncompressedSizeOpts::inexact())?
-        );
-        let exact = aggregate_with(&array, UncompressedSizeOpts::exact())?;
-        assert_eq!(
-            exact,
-            aggregate_with(&strings, UncompressedSizeOpts::exact())?
-        );
-        assert!(exact < inexact);
-        assert_eq!(exact, 430);
-        assert_eq!(inexact, 27160);
+        let size = aggregate(&array)?;
+        assert_eq!(size, aggregate(&strings)?);
+        assert_eq!(size, 430);
         Ok(())
     }
 
     #[test]
-    fn exact_result_is_cached_as_exact_stat() -> VortexResult<()> {
+    fn result_is_cached_as_exact_stat() -> VortexResult<()> {
         let sliced = views_into_shared_page(0..10)?;
         let mut ctx = SESSION.create_execution_ctx();
 
-        let size = uncompressed_size_in_bytes(&sliced, UncompressedSizeOpts::exact(), &mut ctx)?;
+        let size = uncompressed_size_in_bytes(&sliced, &mut ctx)?;
 
         assert_eq!(
             sliced.statistics().get(Stat::UncompressedSizeInBytes),
@@ -844,38 +682,7 @@ mod tests {
     }
 
     #[test]
-    fn inexact_result_is_not_cached_and_ignores_exact_stat() -> VortexResult<()> {
-        let sliced = views_into_shared_page(0..10)?;
-        let mut ctx = SESSION.create_execution_ctx();
-
-        let inexact =
-            uncompressed_size_in_bytes(&sliced, UncompressedSizeOpts::inexact(), &mut ctx)?;
-        assert!(
-            sliced
-                .statistics()
-                .get(Stat::UncompressedSizeInBytes)
-                .is_absent()
-        );
-
-        // An exact query computes and caches the exact size.
-        let exact = uncompressed_size_in_bytes(&sliced, UncompressedSizeOpts::exact(), &mut ctx)?;
-        assert_eq!(
-            sliced.statistics().get(Stat::UncompressedSizeInBytes),
-            Precision::exact(u64::try_from(exact)?)
-        );
-
-        // An inexact query still measures the held buffers rather than reusing the exact size.
-        assert_eq!(
-            uncompressed_size_in_bytes(&sliced, UncompressedSizeOpts::inexact(), &mut ctx)?,
-            inexact
-        );
-        assert_eq!(exact, 430);
-        assert_eq!(inexact, 27160);
-        Ok(())
-    }
-
-    #[test]
-    fn inexact_can_be_smaller_than_exact() -> VortexResult<()> {
+    fn repeated_value_is_counted_per_row() -> VortexResult<()> {
         // Every row references the same out-of-line value, which the data buffer holds once.
         const VALUE_LEN: u32 = 20;
         let page = ByteBuffer::from(vec![b'x'; VALUE_LEN as usize]);
@@ -893,36 +700,16 @@ mod tests {
         }
         .into_array();
 
-        let exact = aggregate_with(&one_value, UncompressedSizeOpts::exact())?;
-        let inexact = aggregate_with(&one_value, UncompressedSizeOpts::inexact())?;
-        assert_eq!(exact, 10 * (16 + 20));
-        assert_eq!(inexact, 10 * 16 + 20);
+        assert_eq!(aggregate(&one_value)?, 10 * (16 + 20));
         Ok(())
     }
 
     #[test]
-    fn only_exact_aggregate_has_stat_slot() {
+    fn aggregate_has_stat_slot() {
         assert_eq!(
-            Stat::from_aggregate_fn(&UncompressedSizeInBytes.bind(UncompressedSizeOpts::exact())),
+            Stat::from_aggregate_fn(&UncompressedSizeInBytes.bind(EmptyOptions)),
             Some(Stat::UncompressedSizeInBytes)
         );
-        assert_eq!(
-            Stat::from_aggregate_fn(&UncompressedSizeInBytes.bind(UncompressedSizeOpts::inexact())),
-            None
-        );
-    }
-
-    #[test]
-    fn options_round_trip_and_display() -> VortexResult<()> {
-        for opts in [
-            UncompressedSizeOpts::exact(),
-            UncompressedSizeOpts::inexact(),
-        ] {
-            assert_eq!(UncompressedSizeOpts::deserialize(&opts.serialize())?, opts);
-        }
-        assert_eq!(UncompressedSizeOpts::exact().to_string(), "precision=exact");
-        assert_eq!(UncompressedSizeOpts::inexact().to_string(), "");
-        Ok(())
     }
 
     #[test]
@@ -1047,7 +834,7 @@ mod tests {
             Precision::Exact(ScalarValue::from(40u64)),
         );
 
-        assert_eq!(aggregate_with(&array, UncompressedSizeOpts::exact())?, 40);
+        assert_eq!(aggregate(&array)?, 40);
         Ok(())
     }
 
@@ -1056,7 +843,7 @@ mod tests {
         let array = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable).into_array();
         let mut ctx = SESSION.create_execution_ctx();
 
-        let size = uncompressed_size_in_bytes(&array, UncompressedSizeOpts::exact(), &mut ctx)?;
+        let size = uncompressed_size_in_bytes(&array, &mut ctx)?;
 
         assert_eq!(
             array.statistics().get(Stat::UncompressedSizeInBytes),
@@ -1069,7 +856,7 @@ mod tests {
     #[test]
     fn state_merge() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let opts = UncompressedSizeOpts::default();
+        let opts = EmptyOptions;
         let dtypes = AggregateDTypes::try_new(&UncompressedSizeInBytes, &opts, dtype)?;
 
         let state = UncompressedSizeInBytes.merge_partials(dtypes.args(&opts), 5, 3)?;

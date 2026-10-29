@@ -40,7 +40,6 @@ use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::builders::builder_with_capacity_in;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
-use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativeDecimalType;
 use vortex_array::dtype::NativePType;
@@ -314,8 +313,7 @@ pub(super) fn execute_sparse(parts: SparseParts, ctx: &mut ExecutionCtx) -> Vort
             })
         }
         DType::Decimal(decimal_dtype, nullability) => {
-            let canonical_decimal_value_type =
-                DecimalType::smallest_decimal_value_type(decimal_dtype);
+            let canonical_decimal_value_type = decimal_dtype.canonical_values_type();
             let fill_decimal = fill_value.as_decimal();
             match_each_decimal_value_type!(canonical_decimal_value_type, |D| {
                 execute_sparse_decimal::<D>(

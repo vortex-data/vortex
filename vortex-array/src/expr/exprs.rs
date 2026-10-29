@@ -1264,11 +1264,14 @@ pub fn in_list_of(
     }
 
     // Ordered elements make equal lists from the same set, so that equal filters deduplicate.
+    // An engine can build a list from the keys of a hash join, which repeat, and each repeat makes
+    // the lookup more costly, so equal elements are removed. One null keeps the SQL semantics.
     if elements
         .windows(2)
         .all(|pair| pair[0].partial_cmp(&pair[1]).is_some())
     {
         elements.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        elements.dedup();
     }
     let list = Scalar::list(Arc::new(element_dtype), elements, Nullability::NonNullable);
     Ok(in_list(needle, lit(list)))
@@ -1280,10 +1283,11 @@ fn contiguous_integer_bounds(scalars: &[Scalar]) -> Option<(&Scalar, &Scalar)> {
     let mut values = scalars
         .iter()
         .map(|scalar| {
-            let primitive = scalar.as_primitive_opt()?;
-            if !primitive.ptype().is_int() {
+            // Viewing a scalar of another type as a primitive builds an error, which is costly.
+            if !matches!(scalar.dtype(), DType::Primitive(ptype, _) if ptype.is_int()) {
                 return None;
             }
+            let primitive = scalar.as_primitive_opt()?;
             let value = if primitive.ptype().is_unsigned_int() {
                 primitive.as_opt::<u64>()??.into()
             } else {

@@ -366,6 +366,33 @@ fn test_in_list_converts_to_set_lookup(#[values(false, true)] negated: bool) -> 
 }
 
 #[test]
+fn test_in_list_drops_repeated_elements() -> DFResult<()> {
+    let schema = Schema::new(vec![Field::new("a", DataType::Int32, true)]);
+    let expr = Arc::new(df_expr::InListExpr::try_new(
+        Arc::new(df_expr::Column::new("a", 0)),
+        int_literals([Some(7), None, Some(1), Some(7), None, Some(1)]),
+        false,
+        &schema,
+    )?);
+    let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::Nullable));
+    let list = Scalar::list(
+        element_dtype,
+        vec![
+            Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
+            Scalar::from(Some(1i32)),
+            Scalar::from(Some(7i32)),
+        ],
+        Nullability::NonNullable,
+    );
+
+    assert_eq!(
+        convert(expr, &schema)?,
+        vortex::expr::in_list(get_item("a", root()), lit(list))
+    );
+    Ok(())
+}
+
+#[test]
 fn test_contiguous_in_list_converts_to_between() -> DFResult<()> {
     let schema = Schema::new(vec![Field::new("a", DataType::Int32, true)]);
     let expr = Arc::new(df_expr::InListExpr::try_new(

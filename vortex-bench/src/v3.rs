@@ -9,9 +9,9 @@
 //! plus `git show`, computes the internal `measurement_id`, and upserts them
 //! directly into the database.
 //!
-//! When changing a shape, update `benchmarks-website/CONTRACT.md`,
-//! `benchmarks-website/web/lib/schema-version.ts`, and
-//! `scripts/post-ingest.py` in the same logical change.
+//! When changing a shape, update `bench/CONTRACT.md` and
+//! `bench/web/lib/schema-version.ts` in the vortex-data/vortex.dev repository,
+//! and `scripts/post-ingest.py` here, in the same logical change.
 //!
 //! ## Producer mapping
 //!
@@ -276,7 +276,7 @@ fn canonical_tpc_scale_factor(scale_factor: &str) -> String {
 /// |---|---|---|---|---|
 /// | `TpcH { scale_factor }`     | `tpch`         | `None`              | TPC SF as string (`"1"`, `"10"`, `"100"`, `"1000"`) | Run through `canonical_tpc_scale_factor` so `"1.0"` and `"1"` collapse. |
 /// | `TpcDS { scale_factor }`    | `tpcds`        | `None`              | TPC SF as string                                    | Same canonicalization as TPC-H. |
-/// | `ClickBench { flavor: _ }`  | `clickbench`   | `None`              | `None`                                              | Migrate path drops flavor; live emitter matches so historical and live merge. |
+/// | `ClickBench { files, .. }`  | `clickbench`   | `files=N` or `None` | `None`                                              | Migrate path drops flavor; live emitter matches so historical and live merge. Only subsets set `files`. |
 /// | `ClickBenchSorted`          | `clickbench-sorted` | `None`          | `None`                                              | New live-only suite; keep separate from unsorted ClickBench history. |
 /// | `StatPopGen { n_rows: _ }`  | `statpopgen`   | `None`              | `None`                                              | Migrate path carries no SF for this suite; live drops it for the same reason. |
 /// | `PolarSignals { n_rows: _ }`| `polarsignals` | `None`              | `None`                                              | Same as StatPopGen. |
@@ -303,7 +303,11 @@ pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, 
         // v2 record names did not encode flavor, so the live emitter does the
         // same to keep historical and live records in one `clickbench` group.
         // Flavor is fixed per CI matrix entry and recoverable from there.
-        BenchmarkDataset::ClickBench { .. } => ("clickbench".to_string(), None, None),
+        BenchmarkDataset::ClickBench { files, .. } => (
+            "clickbench".to_string(),
+            files.map(|files| format!("files={files}")),
+            None,
+        ),
         BenchmarkDataset::ClickBenchSorted => ("clickbench-sorted".to_string(), None, None),
         BenchmarkDataset::PublicBi { name } => ("public-bi".to_string(), Some(name.clone()), None),
         // StatPopGen / PolarSignals: the migrate path (v2 → v3 backfill) does
@@ -608,6 +612,7 @@ mod tests {
             target: Target::new(Engine::DuckDB, Format::Parquet),
             benchmark_dataset: BenchmarkDataset::ClickBench {
                 flavor: Flavor::Partitioned,
+                files: None,
             },
             benchmark_runner: "ci-runner".to_string(),
             storage: "s3".to_string(),
@@ -718,12 +723,14 @@ mod tests {
             (
                 BenchmarkDataset::ClickBench {
                     flavor: Flavor::Partitioned,
+                    files: None,
                 },
                 "clickbench",
             ),
             (
                 BenchmarkDataset::ClickBench {
                     flavor: Flavor::Single,
+                    files: None,
                 },
                 "clickbench",
             ),
@@ -745,6 +752,32 @@ mod tests {
             assert_eq!(variant, None, "dataset_variant for {case:?}");
             assert_eq!(sf, None, "scale_factor for {case:?}");
         }
+    }
+
+    #[test]
+    fn clickbench_subsets_are_distinct_from_the_complete_dataset() -> anyhow::Result<()> {
+        let subset = BenchmarkDataset::ClickBench {
+            flavor: Flavor::Partitioned,
+            files: Some(10),
+        };
+        assert_eq!(
+            benchmark_dataset_dims(&subset),
+            ("clickbench".to_string(), Some("files=10".to_string()), None)
+        );
+
+        let full = BenchmarkDataset::ClickBench {
+            flavor: Flavor::Partitioned,
+            files: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&full)?,
+            r#"{"clickbench":{"flavor":"Partitioned"}}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<BenchmarkDataset>(r#"{"clickbench":{"flavor":"Partitioned"}}"#)?,
+            full
+        );
+        Ok(())
     }
 
     #[test]

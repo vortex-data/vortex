@@ -183,9 +183,7 @@ impl DecimalValue {
 
     /// Returns the 0 value given the [`DecimalType`].
     pub fn zero(decimal_type: &DecimalDType) -> Self {
-        let smallest_type = DecimalType::smallest_decimal_value_type(decimal_type);
-
-        match smallest_type {
+        match decimal_type.canonical_values_type() {
             DecimalType::I8 => DecimalValue::I8(0),
             DecimalType::I16 => DecimalValue::I16(0),
             DecimalType::I32 => DecimalValue::I32(0),
@@ -206,7 +204,7 @@ impl DecimalValue {
 
     /// Checks the dtype precision and returns the value in the dtype's native storage width.
     pub(crate) fn normalize(&self, decimal_type: DecimalDType) -> Option<Self> {
-        let value_type = DecimalType::smallest_decimal_value_type(&decimal_type);
+        let value_type = decimal_type.canonical_values_type();
         match_each_decimal_value_type!(value_type, |T| {
             let value = self.cast::<T>()?;
             // `T` is the narrowest type covering `precision`, so both tables index in bounds.

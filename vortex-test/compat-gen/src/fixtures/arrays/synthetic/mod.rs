@@ -28,7 +28,6 @@ mod tests {
     use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::BigCast;
-    use vortex_array::dtype::DecimalType;
     use vortex_array::match_each_decimal_value_type;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
@@ -83,8 +82,7 @@ mod tests {
                 let Some(decimal) = node.as_opt::<Decimal>() else {
                     continue;
                 };
-                let canonical_type =
-                    DecimalType::smallest_decimal_value_type(&decimal.decimal_dtype());
+                let canonical_type = decimal.decimal_dtype().canonical_values_type();
                 assert_eq!(
                     decimal.values_type(),
                     canonical_type,
@@ -120,8 +118,7 @@ mod tests {
                     column.name.contains(&spec_name),
                     "{context}: the name must contain {spec_name}",
                 );
-                let canonical_type =
-                    DecimalType::smallest_decimal_value_type(&column.decimal_dtype);
+                let canonical_type = column.decimal_dtype.canonical_values_type();
                 assert_eq!(
                     column.stored_type == canonical_type,
                     column.name.starts_with("canonical_"),

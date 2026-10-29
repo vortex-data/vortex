@@ -15,7 +15,16 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 BINARY = "target/release_debug/string-bench"
 PARTS_DIR = Path("parts")
 
-COLUMNS = ["URL", "l_comment"]
+# Every string-bench input name (`Input::name` in benchmarks/string-bench/src/main.rs).
+COLUMNS = [
+    "URL",
+    "l_comment",
+    "amazon/book_reviews",
+    "amazon/book_titles",
+    "news/headlines",
+    "twitter/sentiment140",
+    "fineweb/text",
+]
 ENCODERS = ["onpair", "fsst"]
 
 
