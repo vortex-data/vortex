@@ -20,14 +20,8 @@ use futures::executor::block_on;
 use mimalloc::MiMalloc;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
-use vortex::array::aggregate_fn::session::AggregateFnSession;
 use vortex::array::arrays::PrimitiveArray;
-use vortex::array::dtype::session::DTypeSession;
 use vortex::array::match_each_integer_ptype;
-use vortex::array::memory::MemorySession;
-use vortex::array::optimizer::kernels::KernelSession;
-use vortex::array::scalar_fn::session::ScalarFnSession;
-use vortex::array::session::ArraySession;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::encodings::fsst::FSST;
@@ -57,18 +51,11 @@ static GLOBAL: MiMalloc = MiMalloc;
 const BENCH_SIZES: &[(usize, &str)] = &[(10_000_000, "10M")];
 
 fn session_with_varbin_layout(layout: VarBinExportLayout) -> VortexSession {
-    VortexSession::empty()
-        .with::<ArraySession>()
-        .with::<KernelSession>()
-        .with::<DTypeSession>()
-        .with::<ScalarFnSession>()
-        .with::<AggregateFnSession>()
-        .with::<MemorySession>()
-        .with_some(
-            CudaSession::try_default()
-                .vortex_expect("failed to create CUDA session")
-                .with_varbin_export_layout(layout),
-        )
+    VortexSession::empty().with_some(
+        CudaSession::try_default()
+            .vortex_expect("failed to create CUDA session")
+            .with_varbin_export_layout(layout),
+    )
 }
 
 static VARBIN_SESSION: LazyLock<VortexSession> =
