@@ -170,6 +170,17 @@ where
     false
 }
 
+/// Sum the `valid` values of a signed integer slice into `acc`. Returns `true` on overflow.
+pub(super) fn sum_signed_valid<T>(acc: &mut i64, values: &[T], valid: &BitBuffer) -> bool
+where
+    T: NativePType + AsPrimitive<i64>,
+{
+    if T::PTYPE == PType::I64 {
+        return sum_wide(acc, values, Some(valid));
+    }
+    sum_masked(values, valid, |chunk_sum| checked_add_i64(acc, chunk_sum))
+}
+
 /// Sum the valid elements.
 ///
 /// Every kernel reads null lanes as zero, so the sum vectorizes the same way as the all-valid path
@@ -197,13 +208,7 @@ fn accumulate_primitive_valid(
         SumState::Signed(acc) => match_each_native_ptype!(p.ptype(),
             unsigned: |_T| { vortex_panic!("signed sum state with unsigned input") },
             signed: |T| {
-                let values = p.as_slice::<T>();
-                if T::PTYPE == PType::I64 {
-                    return Ok(sum_wide(acc, values, Some(valid.bit_buffer())));
-                }
-                Ok(sum_masked(values, valid.bit_buffer(), |chunk_sum| {
-                    checked_add_i64(acc, chunk_sum)
-                }))
+                Ok(sum_signed_valid(acc, p.as_slice::<T>(), valid.bit_buffer()))
             },
             floating: |_T| { vortex_panic!("signed sum state with float input") }
         ),

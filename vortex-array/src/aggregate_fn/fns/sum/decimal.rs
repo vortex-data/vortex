@@ -13,11 +13,16 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use super::SumState;
+use super::checked_add_sum_states;
+use super::primitive::sum_signed_valid;
+use super::sum_signed_all;
 use crate::ExecutionCtx;
 use crate::arrays::DecimalArray;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
+use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
+use crate::dtype::NativePType;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 
@@ -37,6 +42,10 @@ pub(crate) fn accumulate_decimal(
             return Ok(false);
         }
     };
+
+    if let Some(sum) = sum_narrow_decimal(d, validity) {
+        return checked_add_sum_states(inner, return_dtype, &SumState::Decimal(sum));
+    }
 
     let SumState::Decimal(value) = inner else {
         vortex_panic!("expected decimal sum state for decimal input");
@@ -58,6 +67,33 @@ pub(crate) fn accumulate_decimal(
             Ok(false)
         })
     })
+}
+
+/// Sum values stored in at most 64 bits with the vectorized `i64` integer sums.
+///
+/// Returns `None` for wider values, or if the `i64` sum overflows, which a wider result type can
+/// still hold. The caller then sums the values in the result type.
+fn sum_narrow_decimal(d: &DecimalArray, validity: Option<&BitBuffer>) -> Option<DecimalValue> {
+    match d.values_type() {
+        DecimalType::I8 => sum_narrow(&d.buffer::<i8>(), validity),
+        DecimalType::I16 => sum_narrow(&d.buffer::<i16>(), validity),
+        DecimalType::I32 => sum_narrow(&d.buffer::<i32>(), validity),
+        DecimalType::I64 => sum_narrow(&d.buffer::<i64>(), validity),
+        DecimalType::I128 | DecimalType::I256 => None,
+    }
+}
+
+fn sum_narrow<T>(values: &[T], validity: Option<&BitBuffer>) -> Option<DecimalValue>
+where
+    T: NativePType + AsPrimitive<i64>,
+{
+    let mut sum = 0i64;
+    let overflow = match validity {
+        Some(valid) => sum_signed_valid(&mut sum, values, valid),
+        None => sum_signed_all(&mut sum, values),
+    };
+
+    (!overflow).then(|| DecimalValue::from(sum))
 }
 
 fn sum_decimal_value<T, I>(
@@ -113,6 +149,7 @@ where
 mod tests {
     use std::sync::LazyLock;
 
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
@@ -240,6 +277,51 @@ mod tests {
         let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(29, 0), Nullability::NonNullable),
             Some(ScalarValue::from(DecimalValue::from(expected_sum))),
+        )?;
+
+        assert_eq!(result, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn sum_decimal_ignores_values_under_nulls() -> VortexResult<()> {
+        // 100 rows cover a full 64-row validity word and the partial word after it.
+        let values = (0..100i32).map(|i| if i % 3 == 0 { i32::MAX } else { i });
+        let validity = Validity::from_iter((0..100).map(|i| i % 3 != 0));
+        let expected: i64 = (0..100).filter(|i| i % 3 != 0).sum();
+        let decimal = DecimalArray::new(
+            values.collect::<Buffer<_>>(),
+            DecimalDType::new(9, 0),
+            validity,
+        );
+
+        let result = sum(&decimal.into_array(), &mut SESSION.create_execution_ctx())?;
+
+        let expected = Scalar::try_new(
+            DType::Decimal(DecimalDType::new(19, 0), Nullable),
+            Some(ScalarValue::from(DecimalValue::from(expected))),
+        )?;
+
+        assert_eq!(result, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn sum_decimal_i64_overflow_fits_result() -> VortexResult<()> {
+        // Eleven valid values of 10^18 - 1 overflow i64 but fit the i128 storage of precision 28.
+        let max = 999_999_999_999_999_999i64;
+        let values = (0..12).map(|i| if i == 5 { i64::MIN } else { max });
+        let decimal = DecimalArray::new(
+            values.collect::<Buffer<_>>(),
+            DecimalDType::new(18, 0),
+            Validity::from_iter((0..12).map(|i| i != 5)),
+        );
+
+        let result = sum(&decimal.into_array(), &mut SESSION.create_execution_ctx())?;
+
+        let expected = Scalar::try_new(
+            DType::Decimal(DecimalDType::new(28, 0), Nullable),
+            Some(ScalarValue::from(DecimalValue::from(i128::from(max) * 11))),
         )?;
 
         assert_eq!(result, expected);

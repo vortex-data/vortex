@@ -95,13 +95,16 @@ fn min_max_f64_nulls_scattered(bencher: Bencher) {
     });
 }
 
+fn decimal_i64_values() -> Buffer<i64> {
+    let mut rng = StdRng::seed_from_u64(3);
+    (0..N)
+        .map(|_| rng.random_range(-100_000..100_000))
+        .collect()
+}
+
 #[divan::bench]
 fn min_max_decimal_i64_nulls_scattered(bencher: Bencher) {
-    let mut rng = StdRng::seed_from_u64(3);
-    let values: Buffer<i64> = (0..N)
-        .map(|_| rng.random_range(-100_000..100_000))
-        .collect();
-    let validity = scattered_validity();
+    let (values, validity) = (decimal_i64_values(), scattered_validity());
     bench_min_max(bencher, || {
         DecimalArray::new(values.clone(), DecimalDType::new(18, 2), validity.clone()).into_array()
     });
@@ -122,6 +125,27 @@ fn sum_f64_nulls_scattered(bencher: Bencher) {
     let (values, validity) = (f64_values(), scattered_validity());
     bench_sum(bencher, || {
         PrimitiveArray::new(values.clone(), validity.clone()).into_array()
+    });
+}
+
+#[divan::bench]
+fn sum_decimal_i64_all_valid(bencher: Bencher) {
+    let values = decimal_i64_values();
+    bench_sum(bencher, || {
+        DecimalArray::new(
+            values.clone(),
+            DecimalDType::new(18, 2),
+            Validity::NonNullable,
+        )
+        .into_array()
+    });
+}
+
+#[divan::bench]
+fn sum_decimal_i64_nulls_scattered(bencher: Bencher) {
+    let (values, validity) = (decimal_i64_values(), scattered_validity());
+    bench_sum(bencher, || {
+        DecimalArray::new(values.clone(), DecimalDType::new(18, 2), validity.clone()).into_array()
     });
 }
 
