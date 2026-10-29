@@ -63,19 +63,21 @@ jobs:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
           cargo build --bin ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }}
-      - name: Pre-upload benchmark debuginfo to Polar Signals
-        uses: ./.github/actions/upload-parca-debuginfo
-        continue-on-error: true
-        with:
-          paths: |
-            target/release_debug/${{ matrix.benchmark.id }}
-          polarsignals-cloud-token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
-          project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
-      - name: Upload benchmark binary
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
-        with:
-          name: ${{ matrix.benchmark.id }}-binary
-          path: target/release_debug/${{ matrix.benchmark.id }}
+      - parallel:
+          - name: Pre-upload benchmark debuginfo to Polar Signals
+            uses: ./.github/actions/upload-parca-debuginfo
+            continue-on-error: true
+            with:
+              paths: |
+                target/release_debug/${{ matrix.benchmark.id }}
+              polarsignals-cloud-token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+              project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+          - name: Upload benchmark binary
+            uses: ./.github/actions/bench-binaries
+            with:
+              mode: upload
+              name: ${{ matrix.benchmark.id }}-binary
+              paths: target/release_debug/${{ matrix.benchmark.id }}
 
   bench:
     needs: build
@@ -121,14 +123,10 @@ jobs:
       - uses: ./.github/actions/system-info
 
       - name: Download benchmark binary
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        uses: ./.github/actions/bench-binaries
         with:
+          mode: download
           name: ${{ matrix.benchmark.id }}-binary
-          path: target/release_debug/
-
-      - name: Make benchmark binary executable
-        shell: bash
-        run: chmod +x target/release_debug/${{ matrix.benchmark.id }}
 
       - name: Setup Polar Signals
         uses: polarsignals/gh-actions-ps-profiling@68ae857e375a826606352016e5b90f01a2a7ff7a  # v0.8.1

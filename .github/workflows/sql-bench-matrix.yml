@@ -75,10 +75,11 @@ jobs:
           cargo build "${packages[@]}" --profile release_debug
       - parallel:
           - name: Upload binaries
-            uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+            uses: ./.github/actions/bench-binaries
             with:
+              mode: upload
               name: bench-binaries
-              path: |
+              paths: |
                 target/release_debug/data-gen
                 target/release_debug/datafusion-bench
                 target/release_debug/duckdb-bench
@@ -93,8 +94,8 @@ jobs:
                 target/release_debug/datafusion-bench
                 target/release_debug/duckdb-bench
                 ${{ inputs.mode != 'pr' && 'target/release_debug/lance-bench' || '' }}
-                polarsignals-cloud-token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
-                project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+              polarsignals-cloud-token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+              project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
 
   bench:
     needs: [resolve-matrix, build]
@@ -136,13 +137,10 @@ jobs:
       - uses: ./.github/actions/system-info
 
       - name: Download binaries
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        uses: ./.github/actions/bench-binaries
         with:
+          mode: download
           name: bench-binaries
-          path: target/release_debug/
-      - name: Make binaries executable
-        shell: bash
-        run: chmod +x target/release_debug/*
 
       - name: Generate data
         shell: bash

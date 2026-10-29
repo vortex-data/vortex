@@ -68,20 +68,22 @@ jobs:
         run: |
           cargo build --package ${{ inputs.benchmark_id }} --profile release_debug \
             ${{ inputs.with_lance && '--features lance' || '' }}
-      - name: Pre-upload benchmark debuginfo to Polar Signals
-        if: github.event.pull_request.head.repo.fork == false
-        uses: ./.github/actions/upload-parca-debuginfo
-        continue-on-error: true
-        with:
-          paths: |
-            target/release_debug/${{ inputs.benchmark_id }}
-          polarsignals-cloud-token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
-          project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
-      - name: Upload benchmark binary
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
-        with:
-          name: ${{ inputs.benchmark_id }}-binary
-          path: target/release_debug/${{ inputs.benchmark_id }}
+      - parallel:
+          - name: Pre-upload benchmark debuginfo to Polar Signals
+            if: github.event.pull_request.head.repo.fork == false
+            uses: ./.github/actions/upload-parca-debuginfo
+            continue-on-error: true
+            with:
+              paths: |
+                target/release_debug/${{ inputs.benchmark_id }}
+              polarsignals-cloud-token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+              project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+          - name: Upload benchmark binary
+            uses: ./.github/actions/bench-binaries
+            with:
+              mode: upload
+              name: ${{ inputs.benchmark_id }}-binary
+              paths: target/release_debug/${{ inputs.benchmark_id }}
 
   bench:
     needs: build
@@ -113,14 +115,10 @@ jobs:
       - uses: ./.github/actions/system-info
 
       - name: Download benchmark binary
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        uses: ./.github/actions/bench-binaries
         with:
+          mode: download
           name: ${{ inputs.benchmark_id }}-binary
-          path: target/release_debug/
-
-      - name: Make benchmark binary executable
-        shell: bash
-        run: chmod +x target/release_debug/${{ inputs.benchmark_id }}
 
       - name: Setup Polar Signals
         if: github.event.pull_request.head.repo.fork == false

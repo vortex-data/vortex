@@ -1,0 +1,65 @@
+name: "Upload or download benchmark binaries"
+description: >-
+  Hand benchmark binaries between jobs of one workflow run. In vortex-data/vortex, outside fork
+  PRs, the runners carry `extras=s3-cache` and `scripts/bench-binaries.py` transfers the files
+  through the RunsOn S3 cache bucket in parallel. Elsewhere it falls back to the artifact actions.
+
+inputs:
+  mode:
+    description: "`upload` or `download`"
+    required: true
+  name:
+    description: "Name shared by the upload and the download"
+    required: true
+  paths:
+    description: "Upload only: newline-delimited files or globs under `dir`. Missing files are skipped with a warning."
+    required: false
+    default: ""
+  dir:
+    description: "Directory that uploaded paths are relative to, and that downloads land in"
+    required: false
+    default: "target/release_debug"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Upload benchmark binaries to S3
+      if: inputs.mode == 'upload' && github.repository == 'vortex-data/vortex' && github.event.pull_request.head.repo.fork != true
+      shell: bash
+      env:
+        NAME: ${{ inputs.name }}
+        PATHS: ${{ inputs.paths }}
+        DIR: ${{ inputs.dir }}
+      run: |
+        set -Eeu -o pipefail
+        mapfile -t paths < <(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d' <<< "$PATHS")
+        python3 scripts/bench-binaries.py upload --name "$NAME" --root "$DIR" "${paths[@]}"
+
+    - name: Upload benchmark binaries as an artifact
+      if: inputs.mode == 'upload' && !(github.repository == 'vortex-data/vortex' && github.event.pull_request.head.repo.fork != true)
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
+      with:
+        name: ${{ inputs.name }}
+        path: ${{ inputs.paths }}
+
+    - name: Download benchmark binaries from S3
+      if: inputs.mode == 'download' && github.repository == 'vortex-data/vortex' && github.event.pull_request.head.repo.fork != true
+      shell: bash
+      env:
+        NAME: ${{ inputs.name }}
+        DIR: ${{ inputs.dir }}
+      run: python3 scripts/bench-binaries.py download --name "$NAME" --dest "$DIR"
+
+    - name: Download benchmark binaries artifact
+      if: inputs.mode == 'download' && !(github.repository == 'vortex-data/vortex' && github.event.pull_request.head.repo.fork != true)
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+      with:
+        name: ${{ inputs.name }}
+        path: ${{ inputs.dir }}
+
+    - name: Mark benchmark binaries executable
+      if: inputs.mode == 'download'
+      shell: bash
+      env:
+        DIR: ${{ inputs.dir }}
+      run: find "$DIR" -type f -exec chmod +x {} +
