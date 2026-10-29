@@ -312,15 +312,19 @@ impl Validity {
             | (Validity::AllValid, Validity::AllValid) => Validity::AllValid,
             // Here we actually have to do some work
             (Validity::Array(lhs), Validity::Array(rhs)) => {
-                // Both sides already hold their bits, e.g. a validity masked by a demand: a word-wise
-                // AND costs less than evaluating a lazy conjunction wherever it is read.
-                if let (Some(lhs), Some(rhs)) = (lhs.as_opt::<Bool>(), rhs.as_opt::<Bool>())
-                    && !lhs.dtype().is_nullable()
-                    && !rhs.dtype().is_nullable()
+                // Both sides already hold their bits in host memory, e.g. a validity masked by a
+                // demand: a word-wise AND costs less than evaluating a lazy conjunction wherever it
+                // is read. Bits on a device stay lazy, so they are not copied to the host here.
+                if let (Some(lhs_bits), Some(rhs_bits)) =
+                    (lhs.as_opt::<Bool>(), rhs.as_opt::<Bool>())
+                    && !lhs_bits.dtype().is_nullable()
+                    && !rhs_bits.dtype().is_nullable()
+                    && lhs.is_host()
+                    && rhs.is_host()
                 {
                     return Ok(Validity::Array(
                         BoolArray::new(
-                            &lhs.to_bit_buffer() & &rhs.to_bit_buffer(),
+                            &lhs_bits.to_bit_buffer() & &rhs_bits.to_bit_buffer(),
                             Validity::NonNullable,
                         )
                         .into_array(),
