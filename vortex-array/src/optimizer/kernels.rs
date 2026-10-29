@@ -3,12 +3,12 @@
 
 //! Session-scoped registry for optimizer kernels.
 //!
-//! [`ArrayKernels`] stores function pointers that participate in array optimization and execution
-//! without adding rules or kernels to an encoding vtable. The optimizer consults it for
-//! parent-reduce rewrites before the child encoding's static `PARENT_RULES`, and the executor
-//! consults it for parent execution. A registered function can therefore add support for an
-//! extension encoding or take precedence over a built-in rule. When several functions are
-//! registered for the same key and kind, they are tried in registration order until one applies.
+//! [`ArrayKernels`] stores the parent-reduce rules and parent-execution kernels that participate in
+//! array optimization and execution without adding them to an encoding vtable. The optimizer
+//! consults it for every parent-reduce rewrite, and the executor consults it for parent execution,
+//! so a session can add support for an extension encoding or register a rule ahead of a built-in
+//! one. When several entries are registered for the same key and kind, they are tried in
+//! registration order until one applies.
 //!
 //! Kernel entries are addressed by `(outer_id, child_id)`. For parent-reduce and execute-parent
 //! kernels, `outer_id` is the id returned by the parent array's `encoding_id()` and `child_id` is
