@@ -1,14 +1,44 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import json
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import run
 
 
 class LauncherTests(unittest.TestCase):
+    def test_ingest_keeps_schema_fields_and_separates_simulated_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "results.ingest.jsonl"
+            rows = [
+                {"kind": "query_measurement", "dataset": "tpch", "storage": "s3-simulated", "value_ns": 12},
+                {"kind": "random_access_time", "dataset": "taxi-s3-simulated/correlated", "value_ns": 24},
+            ]
+            path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+            run.label_results([path], "abc")
+            sql, random = [json.loads(line) for line in path.read_text().splitlines()]
+            self.assertEqual(sql["storage"], "s3")
+            self.assertEqual(sql["dataset_variant"], "s3-simulated-abc")
+            self.assertEqual(random["dataset"], "taxi-s3-simulated@s3-simulated-abc/correlated")
+            self.assertNotIn("storage", random)
+
+    def test_profile_identity_prevents_comparison_with_real_s3_or_another_profile(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "results.json"
+            rows = [{"name": "random-access", "value": 12}, {"name": "sql", "storage": "s3-simulated", "value": 24}]
+            path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+            run.label_results([path], "abc")
+            labelled = [json.loads(line) for line in path.read_text().splitlines()]
+            self.assertEqual([row["storage"] for row in labelled], ["s3-simulated-abc"] * 2)
+            self.assertEqual([row["value"] for row in labelled], [12, 24])
+            run.label_results([path], "def")
+            self.assertNotEqual(json.loads(path.read_text().splitlines()[0])["storage"], labelled[0]["storage"])
+
     def test_child_has_dummy_credentials_and_all_clients_share_the_endpoint(self):
         with patch.dict(os.environ, {"AWS_SESSION_TOKEN": "private", "AWS_PROFILE": "private", "NO_PROXY": "internal"}):
             env = run.environment("http://127.0.0.1:1234")

@@ -152,7 +152,36 @@ compressed fixture outside timing, then every timed iteration reads and decodes 
 and Arrow IPC use a full object GET followed by their CPU decoder; these results measure full-file
 read+decode, not selective range-scan performance. Lance uploads its directory and uses its native
 remote scanner. Remote read/decode and random-access results have distinct identities from local
-and real-S3 records. The launcher does not publish benchmark results to the ordinary CI baseline.
+and real-S3 records.
+
+## Default CI model
+
+Ordinary PR and develop S3 variants now use the RAM-backed endpoint. Local NVMe variants keep
+their existing paths. SQL remote matrix entries and the `action/bench-random-access-s3` label
+use `profiles/ci-us-east-1-c8gd16.json` on c8gd.16xlarge runners, matching the profile's training
+hardware. The normal comparison script and PR comment action remain in use. The launcher labels
+result rows with the full profile SHA-256, so real S3 and other model versions cannot become their
+baseline. Postgres ingest retains its S3 protocol enum and stores the model/hash in the SQL
+`dataset_variant` or random-access dataset identity. Until develop records results for that profile, comments show measurements with no
+historical baseline. Artifacts retain the profile, endpoint counters and command manifest.
+
+The initial pinned profile contains 1,215,504 real GET observations from CI runs 40671586884 and
+40591491612 (request sweeps plus earlier SQL request traces), with source hashes and hardware
+recorded in its `training` section. It has seed 20261027, five observed size bands, concurrency
+bands and a 26.513 ms metadata delay. Transfer timing uses joint empirical response phases,
+scaled by bytes; there is no fitted hard concurrency cap or per-query runtime multiplier.
+This is a reproducible CI input; its native workload accuracy remains under assessment.
+
+Promote new compatible measurement windows explicitly, then commit the resulting profile:
+
+```bash
+python3 benchmarks/s3/learn.py s3-measurements/window-*.jsonl --output benchmarks/s3/profiles/ci-us-east-1-c8gd16.json
+```
+
+At least two compatible real measurement windows are required. Learning is independent of the
+ordinary benchmark jobs and never silently changes their model. A new profile starts a new
+comparison history. The server rejects snapshots exceeding its resident-memory allowance rather
+than falling back to local disk; choose a suitable runner/profile for datasets that do not fit.
 
 The `S3 Model Benchmarks` workflow learns on two real request sweeps, freezes the profile, and runs
 an independent held-out real sweep, the learned endpoint and a zero-delay loopback baseline. Its
@@ -170,13 +199,14 @@ reports model/pooled-real and real-repeat/real ratios, Spearman and ±10%/±30% 
 results preserve the ordinary cache sequence; they do not replace the separate controlled cold/warm
 validation study. Endpoint counters cover whole commands, including registration/warmups; real
 per-query request parity is not measured by this native-client smoke workflow. These limitations
-remain explicit in the report, and real S3 stays the default reference.
+remain explicit in the report. Real S3 stays the calibration and validation reference, while
+ordinary S3 CI benchmark variants use the pinned model.
 
 The earlier frozen V4 controlled SF10 study (research branch `ji/ci-s3-over-time`) covered all 121
 queries and matched all 1,368,393 GETs and 380,744,124,525 bytes per backend. It reached Spearman
 0.9947, with 173/242 query/cache medians within ±10%. Its first three-hour window reached 23/36
-within ±10%, with five groups exceeding measured S3 repeatability. That evidence supports an opt-in
-simulator and more calibration; it does not establish the accuracy of this new native HTTP model.
+within ±10%, with five groups exceeding measured S3 repeatability. That evidence supports further
+calibration; it does not establish the accuracy of this new native HTTP model.
 
 For paired remote decoding, pass the same `--fixture-cache /tmp/run-fixtures` to both backend runs.
 Use a fresh directory for each revision/input. The first run atomically saves its encoded file or

@@ -10,7 +10,7 @@ run-name: >-
 on:
   pull_request:
     types: [labeled]
-    branches: ["develop"]
+    # Benchmark labels also work on stacked PRs.
 
 permissions:
   actions: write

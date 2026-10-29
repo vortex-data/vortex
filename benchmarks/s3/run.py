@@ -70,6 +70,26 @@ def stop(process: subprocess.Popen, group: bool = False):
         process.wait(timeout=10)
 
 
+def label_results(paths: list[Path], profile_sha256: str | None):
+    # A profile update starts a new baseline, including for random-access rows without storage metadata.
+    storage = f"s3-simulated-{profile_sha256}" if profile_sha256 else "s3-simulated-zero-delay"
+    for path in paths:
+        rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+        if not rows:
+            raise ValueError(f"No benchmark results in {path}")
+        for row in rows:
+            if row.get("kind") == "query_measurement":
+                # Postgres represents the S3 protocol with an enum; dataset_variant separates the model.
+                row["storage"] = "s3"
+                row["dataset_variant"] = "/".join(filter(None, [row.get("dataset_variant"), storage]))
+            elif row.get("kind"):
+                dataset, separator, pattern = row["dataset"].partition("/")
+                row["dataset"] = f"{dataset}@{storage}{separator}{pattern}"
+            else:
+                row["storage"] = storage
+        path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+
 def run(args: argparse.Namespace) -> int:
     if args.output.exists():
         raise ValueError("Output manifest already exists; choose a fresh path")
@@ -127,6 +147,8 @@ def run(args: argparse.Namespace) -> int:
                 raise ValueError("Profile changed during the benchmark")
             if manifest["metrics"]["get"] == 0:
                 raise ValueError("Benchmark completed without reading from simulated S3")
+            if child.returncode == 0:
+                label_results(args.results, manifest["profile_sha256"])
             manifest["complete"] = child.returncode == 0
             return child.returncode
         except BaseException as error:
@@ -139,6 +161,15 @@ def run(args: argparse.Namespace) -> int:
                 stop(server)
             manifest["finished_unix_ms"] = round(time.time() * 1000)
             args.output.write_text(json.dumps(manifest, indent=2) + "\n")
+            metrics = manifest.get("metrics", {})
+            args.output.with_suffix(".md").write_text(
+                "\nSimulated S3: RAM-backed HTTP endpoint, frozen request-derived profile "
+                f"`{manifest['profile_sha256'] or 'zero-delay'}`. "
+                f"GETs: {metrics.get('get', 'unavailable')}; "
+                f"bytes read: {metrics.get('bytes', 'unavailable')}; "
+                f"peak in-flight: {metrics.get('peak_inflight', 'unavailable')}. "
+                "Counters cover the complete command, including registration and warmups.\n"
+            )
 
 
 def main():
@@ -153,6 +184,13 @@ def main():
     parser.add_argument("--max-resident-bytes", type=int)
     parser.add_argument("--timeout", type=int, default=7200)
     parser.add_argument("--output", type=Path, required=True, help="Separate simulation provenance/metrics manifest")
+    parser.add_argument(
+        "--results",
+        type=Path,
+        action="append",
+        default=[],
+        help="JSONL results to label with the frozen profile identity",
+    )
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.command[:1] == ["--"]:
