@@ -50,14 +50,21 @@ def decompose_predicate(predicate: pl.Expr, scope: Array | None = None) -> tuple
 
     pushed: ve.Expr | None = None
     residual: pl.Expr | None = None
+    unparsable_residual = False
     for conjunct in _conjuncts(data):
         exact, implied = _implied_predicate(conjunct, scope)
         if implied is not None:
             pushed = implied if pushed is None else pushed & implied
-        if not exact:
-            expr = pl.Expr.deserialize(io.BytesIO(json.dumps(conjunct).encode()), format="json")
+        if not exact and not unparsable_residual:
+            try:
+                expr = pl.Expr.deserialize(io.BytesIO(json.dumps(conjunct).encode()), format="json")
+            except pl.exceptions.ComputeError:
+                # The JSON form cannot hold every literal, e.g. it writes inf and NaN as null. The
+                # whole predicate implies the pushed part, so filtering by it is still exact.
+                unparsable_residual = True
+                continue
             residual = expr if residual is None else residual & expr
-    return pushed, residual
+    return pushed, predicate if unparsable_residual else residual
 
 
 def _conjuncts(expr: dict[str, Any]) -> Iterator[dict[str, Any]]:
