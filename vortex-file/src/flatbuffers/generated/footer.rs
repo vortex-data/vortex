@@ -887,6 +887,7 @@ impl<'a> PostscriptSegment<'a> {
   pub const VT_ALIGNMENT_EXPONENT: ::flatbuffers::VOffsetT = 8;
   pub const VT__COMPRESSION: ::flatbuffers::VOffsetT = 10;
   pub const VT_ENCRYPTION: ::flatbuffers::VOffsetT = 12;
+  pub const VT_SIGNATURE: ::flatbuffers::VOffsetT = 14;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -899,6 +900,7 @@ impl<'a> PostscriptSegment<'a> {
   ) -> ::flatbuffers::WIPOffset<PostscriptSegment<'bldr>> {
     let mut builder = PostscriptSegmentBuilder::new(_fbb);
     builder.add_offset(args.offset);
+    if let Some(x) = args.signature { builder.add_signature(x); }
     if let Some(x) = args.encryption { builder.add_encryption(x); }
     if let Some(x) = args._compression { builder.add__compression(x); }
     builder.add_length(args.length);
@@ -943,6 +945,16 @@ impl<'a> PostscriptSegment<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<EncryptionSpec>>(PostscriptSegment::VT_ENCRYPTION, None)}
   }
+  /// With `encryption`, marks a segment stored in plaintext and signed with the encryption key,
+  /// rather than encrypted. The signature is `nonce (12 bytes) || tag (16 bytes)` of AES-GMAC
+  /// over the segment's additional authenticated data, a 0xFF byte, and the segment's bytes.
+  #[inline]
+  pub fn signature(&self) -> Option<::flatbuffers::Vector<'a, u8>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u8>>>(PostscriptSegment::VT_SIGNATURE, None)}
+  }
 }
 
 impl ::flatbuffers::Verifiable for PostscriptSegment<'_> {
@@ -956,6 +968,7 @@ impl ::flatbuffers::Verifiable for PostscriptSegment<'_> {
      .visit_field::<u8>("alignment_exponent", Self::VT_ALIGNMENT_EXPONENT, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<CompressionSpec>>("_compression", Self::VT__COMPRESSION, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<EncryptionSpec>>("encryption", Self::VT_ENCRYPTION, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u8>>>("signature", Self::VT_SIGNATURE, false)?
      .finish();
     Ok(())
   }
@@ -966,6 +979,7 @@ pub struct PostscriptSegmentArgs<'a> {
     pub alignment_exponent: u8,
     pub _compression: Option<::flatbuffers::WIPOffset<CompressionSpec<'a>>>,
     pub encryption: Option<::flatbuffers::WIPOffset<EncryptionSpec<'a>>>,
+    pub signature: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u8>>>,
 }
 impl<'a> Default for PostscriptSegmentArgs<'a> {
   #[inline]
@@ -976,6 +990,7 @@ impl<'a> Default for PostscriptSegmentArgs<'a> {
       alignment_exponent: 0,
       _compression: None,
       encryption: None,
+      signature: None,
     }
   }
 }
@@ -1006,6 +1021,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> PostscriptSegmentBuilder<'a, 
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<EncryptionSpec>>(PostscriptSegment::VT_ENCRYPTION, encryption);
   }
   #[inline]
+  pub fn add_signature(&mut self, signature: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , u8>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PostscriptSegment::VT_SIGNATURE, signature);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> PostscriptSegmentBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     PostscriptSegmentBuilder {
@@ -1028,6 +1047,7 @@ impl ::core::fmt::Debug for PostscriptSegment<'_> {
       ds.field("alignment_exponent", &self.alignment_exponent());
       ds.field("_compression", &self._compression());
       ds.field("encryption", &self.encryption());
+      ds.field("signature", &self.signature());
       ds.finish()
   }
 }

@@ -12,8 +12,10 @@
 //! so that readers configured with a [`FileDecryption`] can resolve the key again through a
 //! [`KeyRetriever`].
 //!
-//! The footer is encrypted with the footer key, which also hides the schema. Fields without their
-//! own key are encrypted with the footer key.
+//! The footer is either encrypted, which also hides the schema, or stored in plaintext and signed
+//! with the footer key, so that readers without encryption support can still read the fields that
+//! are not encrypted. Fields without their own key are encrypted with the footer key, or stored in
+//! plaintext.
 //!
 //! Segments are encrypted with AES-GCM. The additional authenticated data binds every segment to its
 //! file, through random per-file bytes, and to its position in the file, so that segments cannot
@@ -221,18 +223,22 @@ impl KeyConfig {
 pub struct FileEncryption {
     footer_key: KeyConfig,
     algorithm: EncryptionAlgorithm,
+    plaintext_footer: bool,
+    plaintext_fields: bool,
     aad_prefix: Option<Arc<[u8]>>,
     named_keys: BTreeMap<EncryptionKeyName, KeyConfig>,
     field_keys: Vec<(FieldPath, EncryptionKeyName)>,
 }
 
 impl FileEncryption {
-    /// Encrypt the file with `footer_key`, which encrypts the footer and every field that has no
-    /// key of its own.
+    /// Encrypt the file with `footer_key`, which encrypts or signs the footer, and encrypts every
+    /// field that has no key of its own.
     pub fn new(footer_key: KeyConfig) -> Self {
         Self {
             footer_key,
             algorithm: EncryptionAlgorithm::AesGcm,
+            plaintext_footer: false,
+            plaintext_fields: false,
             aad_prefix: None,
             named_keys: BTreeMap::new(),
             field_keys: Vec::new(),
@@ -243,6 +249,30 @@ impl FileEncryption {
     /// [`EncryptionAlgorithm::AesGcm`].
     pub fn with_algorithm(mut self, algorithm: EncryptionAlgorithm) -> Self {
         self.algorithm = algorithm;
+        self
+    }
+
+    /// Store the footer, layout, dtype, and statistics in plaintext, signed with the footer key.
+    ///
+    /// Readers without encryption support, or without the footer key, can then read the fields
+    /// that are stored in plaintext, and readers with the footer key verify the signature. The
+    /// schema and layout tree are visible to anyone, as are the file statistics of plaintext
+    /// fields; those of encrypted fields are encrypted with the field's key. User metadata segments
+    /// stay encrypted.
+    ///
+    /// The layout tree reveals the row count, and the number and sizes of the segments, of every
+    /// field, encrypted ones included, which can hint at their cardinality or compressibility.
+    /// The footer also lists every array encoding used in the file, including those of encrypted
+    /// fields.
+    pub fn with_plaintext_footer(mut self) -> Self {
+        self.plaintext_footer = true;
+        self
+    }
+
+    /// Store fields without a key of their own in plaintext instead of encrypting them with the
+    /// footer key.
+    pub fn with_plaintext_fields(mut self) -> Self {
+        self.plaintext_fields = true;
         self
     }
 
@@ -290,9 +320,10 @@ impl FileEncryption {
         &self.footer_key
     }
 
-    /// The index of the encryption spec whose readers can read the footer: the footer key's.
+    /// The index of the encryption spec whose readers can read the footer: the plaintext spec's
+    /// for a plaintext footer, which anyone can read, and the footer key's otherwise.
     pub(crate) fn footer_spec_index(&self) -> u16 {
-        1
+        if self.plaintext_footer { 0 } else { 1 }
     }
 
     /// Validate the field keys and key metadata before a file is written.
@@ -329,6 +360,16 @@ impl FileEncryption {
             }
         }
         Ok(())
+    }
+
+    /// Whether the footer is stored in plaintext and signed.
+    pub fn is_plaintext_footer(&self) -> bool {
+        self.plaintext_footer
+    }
+
+    /// Whether fields without a key of their own are stored in plaintext.
+    pub fn is_plaintext_fields(&self) -> bool {
+        self.plaintext_fields
     }
 
     pub(crate) fn named_keys(&self) -> &BTreeMap<EncryptionKeyName, KeyConfig> {
@@ -369,6 +410,7 @@ impl FileEncryption {
 pub struct FileDecryption {
     pub(crate) keys: Arc<dyn KeyRetriever>,
     pub(crate) aad_prefix: Option<Arc<[u8]>>,
+    pub(crate) verify_footer: bool,
     pub(crate) allow_plaintext_files: bool,
     pub(crate) cache_plaintext: bool,
     pub(crate) field_key_statistics: bool,
@@ -380,6 +422,7 @@ impl FileDecryption {
         Self {
             keys,
             aad_prefix: None,
+            verify_footer: true,
             allow_plaintext_files: false,
             cache_plaintext: false,
             field_key_statistics: true,
@@ -392,6 +435,20 @@ impl FileDecryption {
     /// reading fails for files without a prefix. A wrong prefix fails decryption.
     pub fn with_aad_prefix(mut self, aad_prefix: impl Into<Arc<[u8]>>) -> Self {
         self.aad_prefix = Some(aad_prefix.into());
+        self
+    }
+
+    /// Do not verify the signature of a plaintext footer.
+    ///
+    /// By default, the footer key of a file written with [`FileEncryption::with_plaintext_footer`]
+    /// is retrieved to verify that the footer was not modified.
+    ///
+    /// This removes the integrity protection of the whole file, not only of its schema and
+    /// statistics: the footer lists every segment and the encryption spec of each, so an
+    /// unverified footer can mark encrypted segments as plaintext, or point them at other keys
+    /// and at data of an attacker's choice. Decryption still keeps encrypted segments secret.
+    pub fn without_footer_verification(mut self) -> Self {
+        self.verify_footer = false;
         self
     }
 
@@ -435,6 +492,7 @@ impl Debug for FileDecryption {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("FileDecryption")
             .field("aad_prefix", &self.aad_prefix)
+            .field("verify_footer", &self.verify_footer)
             .field("allow_plaintext_files", &self.allow_plaintext_files)
             .field("cache_plaintext", &self.cache_plaintext)
             .field("field_key_statistics", &self.field_key_statistics)

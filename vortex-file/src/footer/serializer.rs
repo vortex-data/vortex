@@ -42,6 +42,7 @@ pub struct FooterSerializer {
     offset: u64,
     layout_ctx: LayoutContext,
     cipher: Option<SegmentCipher>,
+    plaintext_footer: bool,
     /// Ciphers for the statistics of fields encrypted with the key at an index of the footer's
     /// encryption specs.
     key_ciphers: HashMap<u16, SegmentCipher>,
@@ -56,6 +57,7 @@ impl FooterSerializer {
             offset: 0,
             layout_ctx: LayoutContext::default(),
             cipher: None,
+            plaintext_footer: false,
             key_ciphers: HashMap::default(),
         }
     }
@@ -94,7 +96,7 @@ impl FooterSerializer {
     }
 
     /// Encrypt the dtype, layout, statistics, footer, and metadata segments with the footer key of
-    /// `encryption`.
+    /// `encryption`, or sign them if it configures a plaintext footer.
     ///
     /// This is required to serialize the footer of a file with encrypted segments, so that a
     /// standalone footer does not leak the file's metadata in plaintext.
@@ -139,7 +141,7 @@ impl FooterSerializer {
             }
         };
         Ok(self
-            .with_cipher(footer_cipher)
+            .with_cipher(footer_cipher, encryption.is_plaintext_footer())
             .with_key_ciphers(key_ciphers))
     }
 
@@ -149,9 +151,11 @@ impl FooterSerializer {
         self
     }
 
-    /// Encrypt the footer and metadata segments with `cipher`.
-    pub(crate) fn with_cipher(mut self, cipher: SegmentCipher) -> Self {
+    /// Protect the footer segments with `cipher`, by signing them if `plaintext_footer`, and by
+    /// encrypting them otherwise. User metadata segments are always encrypted.
+    pub(crate) fn with_cipher(mut self, cipher: SegmentCipher, plaintext_footer: bool) -> Self {
         self.cipher = Some(cipher);
+        self.plaintext_footer = plaintext_footer;
         self
     }
 
@@ -179,8 +183,10 @@ impl FooterSerializer {
             );
         }
         let cipher = self.cipher.as_ref();
+        let plaintext_footer = self.plaintext_footer;
         let protect = |role| match cipher {
             None => Protection::None,
+            Some(cipher) if plaintext_footer => Protection::Sign(cipher, role),
             Some(cipher) => Protection::Encrypt(cipher, role),
         };
         let footer = &self.footer;
@@ -200,6 +206,7 @@ impl FooterSerializer {
                             length: segment.length,
                             alignment: segment.alignment,
                             encryption: footer.segment_encryption(segment)?,
+                            signature: None,
                         },
                     })
                 })
@@ -385,6 +392,7 @@ impl FooterSerializer {
 enum Protection<'a> {
     None,
     Encrypt(&'a SegmentCipher, SegmentRole<'a>),
+    Sign(&'a SegmentCipher, SegmentRole<'a>),
 }
 
 fn write_flatbuffer<F: FlatBufferRoot + WriteFlatBuffer>(
@@ -395,9 +403,17 @@ fn write_flatbuffer<F: FlatBufferRoot + WriteFlatBuffer>(
     let alignment = FlatBuffer::alignment();
     let mut buffer = flatbuffer.write_flatbuffer_bytes()?.into_inner();
     let mut spec = EncryptionSpec::plaintext();
-    if let Protection::Encrypt(cipher, role) = protection {
-        buffer = cipher.encrypt(role, &[buffer], alignment)?;
-        spec = cipher.spec().clone();
+    let mut signature = None;
+    match protection {
+        Protection::None => {}
+        Protection::Encrypt(cipher, role) => {
+            buffer = cipher.encrypt(role, &[buffer], alignment)?;
+            spec = cipher.spec().clone();
+        }
+        Protection::Sign(cipher, role) => {
+            signature = Some(Arc::from(cipher.sign(role, &buffer)?));
+            spec = cipher.spec().clone();
+        }
     }
     let length = u32::try_from(buffer.len())
         .map_err(|_| vortex_err!("flatbuffer length exceeds maximum u32"))?;
@@ -407,6 +423,7 @@ fn write_flatbuffer<F: FlatBufferRoot + WriteFlatBuffer>(
         length,
         alignment,
         encryption: spec,
+        signature,
     };
 
     *offset += u64::from(length);
@@ -436,6 +453,7 @@ fn write_buffer(
         length,
         alignment,
         encryption: spec,
+        signature: None,
     };
 
     *offset += padding + u64::from(length);

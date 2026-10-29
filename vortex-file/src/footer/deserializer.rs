@@ -50,7 +50,7 @@ pub struct FooterDeserializer {
     session: VortexSession,
     // The DType, if provided externally.
     dtype: Option<DType>,
-    // Resolves the ciphers that decrypt encrypted footer segments.
+    // Resolves the ciphers that decrypt encrypted footer segments, and verify signed ones.
     resolver: Arc<CipherResolver>,
 
     // Internal state that we accumulate
@@ -74,7 +74,7 @@ impl FooterDeserializer {
         }
     }
 
-    /// Decrypt the footer of an encrypted file.
+    /// Decrypt the footer of an encrypted file, or verify the signature of a plaintext footer.
     pub fn with_decryption(self, decryption: FileDecryption) -> Self {
         self.with_some_decryption(Some(decryption))
     }
@@ -104,12 +104,20 @@ impl FooterDeserializer {
         }
     }
 
-    /// The encryption specs of the footer segments that must be decrypted, and whether the
-    /// footer can be read without them.
+    /// Whether signed plaintext segments are verified.
+    fn verify(&self) -> bool {
+        self.resolver
+            .decryption()
+            .is_some_and(|decryption| decryption.verify_footer)
+    }
+
+    /// The encryption specs of the footer segments that must be decrypted or verified, and
+    /// whether the footer can be read without them.
     fn footer_specs(&self) -> Vec<(EncryptionSpec, bool)> {
         let Some(postscript) = &self.postscript else {
             return Vec::new();
         };
+        let verify = self.verify();
         let dtype = self
             .dtype
             .is_none()
@@ -119,6 +127,7 @@ impl FooterDeserializer {
         let required = dtype
             .chain(&postscript.statistics)
             .chain([&postscript.layout, &postscript.footer])
+            .filter(|segment| segment.signature.is_none() || verify)
             .map(|segment| (&segment.encryption, false));
         // Statistics encrypted with a field's key are left empty without the key, and readers
         // may choose not to retrieve field keys for them.
@@ -269,6 +278,7 @@ impl FooterDeserializer {
             initial_offset,
             initial_read: &self.buffer,
             resolver: &self.resolver,
+            verify: self.verify(),
         };
         let dtype = dtype_segment
             .map(|segment| {
@@ -369,8 +379,8 @@ impl FooterDeserializer {
     /// an encrypted file.
     ///
     /// The postscript is not authenticated, so without this check, a reader configured for
-    /// decryption would read footer segments that an attacker stripped of their encryption, and
-    /// with them a forged layout, dtype, or statistics.
+    /// decryption would read footer segments that an attacker stripped of their encryption or
+    /// signature, and with them a forged layout, dtype, or statistics.
     fn validate_footer_protection(
         &self,
         postscript: &Postscript,
@@ -551,6 +561,8 @@ struct InitialSegments<'a> {
     initial_offset: u64,
     initial_read: &'a [u8],
     resolver: &'a CipherResolver,
+    /// Whether to verify the signatures of signed plaintext segments.
+    verify: bool,
 }
 
 impl<'a> InitialSegments<'a> {
@@ -575,7 +587,7 @@ impl<'a> InitialSegments<'a> {
         cipher.decrypt(role, ByteBuffer::copy_from(bytes), segment.alignment)
     }
 
-    /// Slice a segment out of the buffer, decrypting it if necessary.
+    /// Slice a segment out of the buffer, decrypting it or verifying its signature as necessary.
     fn read(
         &self,
         segment: &PostscriptSegment,
@@ -585,7 +597,14 @@ impl<'a> InitialSegments<'a> {
         if !segment.encryption.is_encrypted() {
             return Ok(SegmentBytes::Borrowed(bytes));
         }
+        if segment.signature.is_some() && !self.verify {
+            return Ok(SegmentBytes::Borrowed(bytes));
+        }
         let cipher = self.cipher(&segment.encryption)?;
+        if let Some(signature) = &segment.signature {
+            cipher.verify(role, bytes, signature)?;
+            return Ok(SegmentBytes::Borrowed(bytes));
+        }
         let plaintext = cipher.decrypt(role, ByteBuffer::copy_from(bytes), segment.alignment)?;
         Ok(SegmentBytes::Decrypted(plaintext))
     }
@@ -658,6 +677,7 @@ mod tests {
             length,
             alignment: FlatBuffer::alignment(),
             encryption: EncryptionSpec::plaintext(),
+            signature: None,
         }
     }
 

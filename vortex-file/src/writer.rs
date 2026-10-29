@@ -176,9 +176,10 @@ impl VortexWriteOptions {
     /// [`FileDecryption`](crate::encryption::FileDecryption).
     ///
     /// The file-level statistics of a field are protected like its segments: encrypted with the
-    /// field's own key when it has one, and with the footer key otherwise. A reader only sees the
-    /// statistics of the fields it can decrypt. This holds for custom strategies too, since the
-    /// keys are taken from the segments each field wrote.
+    /// field's own key when it has one, with the footer key otherwise, and stored in plaintext for
+    /// a plaintext field of a file with a plaintext footer. A reader only sees the statistics of
+    /// the fields it can decrypt. This holds for custom strategies too, since the keys are taken
+    /// from the segments each field wrote.
     pub fn with_encryption(mut self, encryption: FileEncryption) -> Self {
         self.encryption = Some(encryption);
         self
@@ -432,8 +433,10 @@ impl VortexWriteOptions {
 
         // Emit the footer buffers and EOF.
         let mut serializer = footer.clone().into_serializer();
-        if let Some(cipher) = cipher {
-            serializer = serializer.with_cipher(cipher).with_key_ciphers(key_ciphers);
+        if let (Some(encryption), Some(cipher)) = (&self.encryption, cipher) {
+            serializer = serializer
+                .with_cipher(cipher, encryption.is_plaintext_footer())
+                .with_key_ciphers(key_ciphers);
         }
         let (footer_buffers, metadata, approx_byte_size) = serializer
             .with_layout_context(new_layout_context(&self.session, enforce_editions))
@@ -496,7 +499,7 @@ struct StatisticsEncryption {
 impl StatisticsEncryption {
     /// Attribute every segment of the layout tree to its top-level field, and route each field's
     /// statistics by the keys of its segments: a field encrypted with the key that protects the
-    /// shared statistics segment keeps its statistics there.
+    /// shared statistics segment, or stored in plaintext, keeps its statistics there.
     fn new(
         encryption: Option<&FileEncryption>,
         layout: &LayoutRef,
@@ -611,7 +614,9 @@ fn encrypting_sink(
     // holds the footer key, even if no data segment uses it.
     let mut encryption_specs = vec![EncryptionSpec::plaintext(), cipher.spec().clone()];
     let mut key_ciphers = HashMap::from_iter([(1, cipher.clone())]);
-    segments = segments.with_default_cipher(cipher.clone(), 1);
+    if !encryption.is_plaintext_fields() {
+        segments = segments.with_default_cipher(cipher.clone(), 1);
+    }
     // The named keys are sorted, so that the footer is deterministic.
     for (name, key) in encryption.named_keys() {
         let named = encryption.file_cipher(key)?;
@@ -1029,11 +1034,14 @@ mod tests {
     /// An inline array encoding tree would reveal a field's values to readers of the footer, so
     /// it is rejected for segments protected differently from the footer.
     #[rstest]
-    #[case::plaintext(0, true)]
-    #[case::footer_key(1, true)]
-    #[case::field_key(2, false)]
+    #[case::plaintext(0, 1, true)]
+    #[case::footer_key(1, 1, true)]
+    #[case::field_key(2, 1, false)]
+    #[case::plaintext_footer_with_plaintext_segment(0, 0, true)]
+    #[case::plaintext_footer_with_footer_key(1, 0, false)]
     fn rejects_inlined_arrays_of_field_keys(
         #[case] encryption: u16,
+        #[case] footer_spec_index: u16,
         #[case] accepted: bool,
     ) -> VortexResult<()> {
         let layout = FlatLayout::new_with_metadata(
@@ -1051,7 +1059,7 @@ mod tests {
             encryption,
         }];
         assert_eq!(
-            reject_inlined_arrays(&layout, &segments, 1).is_ok(),
+            reject_inlined_arrays(&layout, &segments, footer_spec_index).is_ok(),
             accepted
         );
         Ok(())
