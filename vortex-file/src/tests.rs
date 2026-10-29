@@ -1584,6 +1584,72 @@ async fn exclude_legacy_statistics_empties_legacy_but_keeps_nested() -> VortexRe
     Ok(())
 }
 
+#[tokio::test]
+async fn exclude_nested_statistics_writes_only_legacy() -> VortexResult<()> {
+    let inner = StructArray::try_new(
+        ["b"].into(),
+        vec![PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array()],
+        3,
+        Validity::NonNullable,
+    )?
+    .into_array();
+    let c = PrimitiveArray::from_iter([4i32, 5, 6]).into_array();
+    let array = StructArray::try_new(["a", "c"].into(), vec![inner, c], 3, Validity::NonNullable)?
+        .into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_file_statistics(pruning_aggregate_fns())
+        .exclude_nested_statistics()
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+
+    let stats = summary
+        .footer()
+        .statistics()
+        .expect("file statistics should be present");
+    let bytes = stats.write_flatbuffer_bytes()?;
+    let fb =
+        flatbuffers::root::<fb::FileStatistics>(bytes.as_ref()).vortex_expect("valid flatbuffer");
+    assert!(fb.entry_sets().is_none());
+    assert!(fb.partials().is_none());
+    assert_eq!(fb.field_stats().vortex_expect("field_stats is written").len(), 2);
+
+    // Readers fall back to the legacy layout: top-level fields only.
+    let file = SESSION.open_options().open_buffer(ByteBuffer::from(buf))?;
+    let stats = file
+        .file_stats()
+        .expect("file statistics should be present");
+    assert!(stats.get_by_path(&field_path!(a.b)).is_none());
+    let (a_stats, _) = stats.get_by_path(&field_path!(a)).expect("a entry");
+    assert_eq!(
+        stat_value(a_stats, Stat::NullCount),
+        Precision::exact(ScalarValue::from(0u64))
+    );
+    let (c_stats, _) = stats.get_by_path(&field_path!(c)).expect("c entry");
+    assert_eq!(
+        stat_value(c_stats, Stat::Min),
+        Precision::exact(ScalarValue::from(4i32))
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn exclude_nested_and_legacy_statistics_omits_statistics() -> VortexResult<()> {
+    let array = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .exclude_nested_statistics()
+        .exclude_legacy_statistics()
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    assert!(summary.footer().statistics().is_none());
+    Ok(())
+}
+
 async fn round_trip(
     array: &ArrayRef,
     f: impl FnOnce(ScanBuilder<ArrayRef>) -> VortexResult<ScanBuilder<ArrayRef>>,

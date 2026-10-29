@@ -86,6 +86,7 @@ pub struct VortexWriteOptions {
     ///
     /// If unset, the writer chooses pruning aggregates from the file dtype.
     file_statistics: Option<Vec<AggregateFnRef>>,
+    write_nested_statistics: bool,
     write_legacy_statistics: bool,
     metadata: HashMap<String, ByteBuffer>,
 }
@@ -109,6 +110,7 @@ impl VortexWriteOptions {
             session,
             exclude_dtype: false,
             file_statistics: None,
+            write_nested_statistics: true,
             write_legacy_statistics: true,
             metadata: HashMap::default(),
         }
@@ -177,6 +179,19 @@ impl VortexWriteOptions {
     /// those readers find no usable statistics but can still read the data.
     pub fn exclude_legacy_statistics(mut self) -> Self {
         self.write_legacy_statistics = false;
+        self
+    }
+
+    /// Exclude the full nested post-order statistics (`entry_sets` and `partials`) from the file,
+    /// computing and writing only the legacy top-level-only statistics (`field_stats`).
+    ///
+    /// Readers then see the file the way they see one written before nested file stats existed:
+    /// with statistics for top-level fields only. Since the legacy format has a fixed slot per
+    /// [`Stat`](vortex_array::expr::stats::Stat), aggregates without one are not recorded.
+    ///
+    /// Combined with [`Self::exclude_legacy_statistics`], no file-level statistics are written.
+    pub fn exclude_nested_statistics(mut self) -> Self {
+        self.write_nested_statistics = false;
         self
     }
 
@@ -291,13 +306,21 @@ impl VortexWriteOptions {
                 .map(move |result| result.map(|chunk| (ptr.advance(), chunk))),
         )
         .sendable();
+        let omit_statistics = matches!(&self.file_statistics, Some(stats) if stats.is_empty())
+            || (!self.write_nested_statistics && !self.write_legacy_statistics);
+        let file_statistics: Option<Arc<[AggregateFnRef]>> = if omit_statistics {
+            Some(Arc::from([]))
+        } else {
+            self.file_statistics.clone().map(Arc::from)
+        };
         // When unset, `accumulate_stats` resolves each leaf's own default from its dtype, the way
         // `default_zoned_aggregate_fns` does for zoned layouts (e.g. bounded min/max for
         // variable-length columns), rather than a single dtype-blind default applied uniformly.
         let (file_stats, stream) = accumulate_stats(
             stream,
-            self.file_statistics.clone().map(Arc::from),
+            file_statistics,
             &self.session,
+            self.write_nested_statistics,
             self.write_legacy_statistics,
             &ctx,
         )?;
@@ -342,11 +365,16 @@ impl VortexWriteOptions {
         let (layout, segment_specs) = layout_fut.await?;
 
         // Assemble the Footer object now that we have all the segments.
-        let statistics = if matches!(&self.file_statistics, Some(stats) if stats.is_empty()) {
+        let statistics = if omit_statistics {
             None
-        } else {
+        } else if self.write_nested_statistics {
             Some(FileStatistics::new_with_dtype(
                 file_stats.aggregate_stats()?.into(),
+                file_stats.legacy_aggregate_stats()?.into(),
+                &dtype,
+            ))
+        } else {
+            Some(FileStatistics::new_legacy_only(
                 file_stats.legacy_aggregate_stats()?.into(),
                 &dtype,
             ))
