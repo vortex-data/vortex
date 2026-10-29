@@ -12,7 +12,7 @@
 //!
 //! Kernel entries are addressed by `(outer_id, child_id)`. For parent-reduce and execute-parent
 //! kernels, `outer_id` is the id returned by the parent array's `encoding_id()` and `child_id` is
-//! the child array's `encoding_id()`. For [`ScalarFn`](crate::arrays::ScalarFn) parents, the
+//! the child array's `encoding_id()`. For [`ScalarFn`] parents, the
 //! parent id is the scalar function id.
 //!
 //! Because registered functions have different signatures for each kernel kind, the registry

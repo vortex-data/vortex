@@ -78,7 +78,6 @@ fn trace_compare_on_runend() -> VortexResult<()> {
       iter 3 current=vortex.runend(bool, len=9) builder_active=false
         Done array=vortex.bool(bool, len=9)
       iter 4 current=vortex.bool(bool, len=9) builder_active=false
-    optimize_recursive root=vortex.bool(bool, len=9)
       return output=vortex.bool(bool, len=9)
     ");
 
@@ -112,7 +111,6 @@ fn trace_filter_on_runend() -> VortexResult<()> {
       iter 1 current=vortex.dict(i32, len=4) builder_active=false
         child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(i32, len=4) child=vortex.primitive(i32, len=3) -> vortex.primitive(i32, len=4)
       iter 2 current=vortex.primitive(i32, len=4) builder_active=false
-    optimize_recursive root=vortex.primitive(i32, len=4)
       return output=vortex.primitive(i32, len=4)
     ");
 
@@ -143,7 +141,6 @@ fn trace_take_on_runend() -> VortexResult<()> {
       iter 1 current=vortex.dict(i32, len=4) builder_active=false
         child_execute_parent session[0]:execute_parent_fn slot=1 parent=vortex.dict(i32, len=4) child=vortex.primitive(i32, len=3) -> vortex.primitive(i32, len=4)
       iter 2 current=vortex.primitive(i32, len=4) builder_active=false
-    optimize_recursive root=vortex.primitive(i32, len=4)
       return output=vortex.primitive(i32, len=4)
     ");
 
