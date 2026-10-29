@@ -100,11 +100,27 @@ pub(super) fn cast_keeping_nullability(array: &ArrayRef, ptype: PType) -> Vortex
     array.cast(DType::Primitive(ptype, array.dtype().nullability()))
 }
 
-/// Returns whether the range of the integer dtype `values` holds `constant`.
+/// Returns whether the dtype range of `values` holds `constant`.
 ///
-/// Returns `None` when `values` is not an integer dtype, when `constant` is null, and when
-/// `constant` is not an integer with the signedness of `values`.
+/// Integers must have the same signedness, and decimals must have the same scale. Returns `None`
+/// for null constants, unsupported dtypes, or incompatible constants.
 pub(super) fn constant_fits_values(constant: &Scalar, values: &DType) -> Option<bool> {
+    if let DType::Decimal(decimal_dtype, _) = values {
+        let DType::Decimal(constant_dtype, _) = constant.dtype() else {
+            return None;
+        };
+        if constant_dtype.scale() != decimal_dtype.scale() {
+            return None;
+        }
+
+        return Some(
+            constant
+                .as_decimal()
+                .decimal_value()?
+                .fits_in_precision(*decimal_dtype),
+        );
+    }
+
     let DType::Primitive(ptype, _) = values else {
         return None;
     };
@@ -126,8 +142,8 @@ pub(super) fn constant_fits_values(constant: &Scalar, values: &DType) -> Option<
 /// Returns the wider of the value types of two [`Widen`] arrays, or `None` when a value type is
 /// not primitive.
 ///
-/// The logical dtypes **must** have the same signedness, which a debug build asserts. The value
-/// types then have that signedness too, so the wider one holds every value of the narrower one.
+/// The logical dtypes **must** have the same signedness. The value types then have that signedness
+/// too, so the wider one holds every value of the narrower one.
 pub(super) fn ptype_holding_both_values(
     lhs: ArrayView<'_, Widen>,
     rhs: ArrayView<'_, Widen>,
@@ -147,7 +163,7 @@ pub(super) fn ptype_holding_both_values(
 
 /// Returns `constant`, which **must** fit the type of `values`, as a constant array of that type
 /// with the nullability of `constant`.
-pub(super) fn constant_in_values_ptype(
+pub(super) fn constant_in_values_dtype(
     constant: &Scalar,
     values: &ArrayRef,
     len: usize,
