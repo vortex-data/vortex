@@ -411,11 +411,6 @@ impl<T> CudaSlice<T> {
         self.as_view().slice(bounds)
     }
 
-    /// A view of the elements in `bounds`, if in range.
-    pub fn try_slice(&self, bounds: impl RangeBounds<usize>) -> Option<CudaView<'_, T>> {
-        self.as_view().try_slice(bounds)
-    }
-
     /// A mutable view of the elements in `bounds`.
     ///
     /// # Panics
@@ -554,12 +549,6 @@ impl<'a, T> CudaView<'a, T> {
             marker: PhantomData,
         })
     }
-
-    /// Like [`DevicePtr::device_ptr`], with the guard living as long as the view.
-    pub fn view_ptr(self, stream: &'a CudaStream) -> (sys::CUdeviceptr, SyncOnDrop<'a>) {
-        let guard = access(self.access, self.stream, stream, AccessKind::Read);
-        (self.pointer, guard)
-    }
 }
 
 /// A mutable view of part of a [`CudaSlice`].
@@ -598,17 +587,6 @@ impl<'a, T> CudaViewMut<'a, T> {
 
     /// The view as a shared view.
     pub fn as_view(&self) -> CudaView<'_, T> {
-        CudaView {
-            pointer: self.pointer,
-            len: self.len,
-            access: self.access,
-            stream: self.stream,
-            marker: PhantomData,
-        }
-    }
-
-    /// Converts into a shared view with the original lifetime.
-    pub fn into_view(self) -> CudaView<'a, T> {
         CudaView {
             pointer: self.pointer,
             len: self.len,
@@ -665,12 +643,6 @@ impl<'a, T> CudaViewMut<'a, T> {
             stream: self.stream,
             marker: PhantomData,
         })
-    }
-
-    /// Like [`DevicePtrMut::device_ptr_mut`], with the guard living as long as the view.
-    pub fn view_ptr_mut(self, stream: &'a CudaStream) -> (sys::CUdeviceptr, SyncOnDrop<'a>) {
-        let guard = access(self.access, self.stream, stream, AccessKind::Write);
-        (self.pointer, guard)
     }
 }
 

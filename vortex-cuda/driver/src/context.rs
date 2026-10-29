@@ -142,11 +142,6 @@ impl CudaContext {
         self.ordinal
     }
 
-    /// The raw device handle.
-    pub fn cu_device(&self) -> sys::CUdevice {
-        self.device
-    }
-
     /// The raw context handle; do not release it.
     pub fn cu_ctx(&self) -> sys::CUcontext {
         self.context
@@ -209,21 +204,7 @@ impl CudaContext {
 
     /// A new non-blocking stream.
     pub fn new_stream(self: &Arc<Self>) -> Result<Arc<CudaStream>, DriverError> {
-        CudaStream::create(self, None)
-    }
-
-    /// A new non-blocking stream with `priority`; lower values are higher priorities.
-    pub fn new_stream_with_priority(
-        self: &Arc<Self>,
-        priority: i32,
-    ) -> Result<Arc<CudaStream>, DriverError> {
-        CudaStream::create(self, Some(priority))
-    }
-
-    /// The legacy default stream.
-    pub fn default_stream(self: &Arc<Self>) -> Arc<CudaStream> {
-        // SAFETY: The null stream is valid for the context's lifetime.
-        unsafe { CudaStream::borrowed(self, std::ptr::null_mut()) }
+        CudaStream::create(self)
     }
 
     /// A new event with `flags`, by default timing-disabled.
