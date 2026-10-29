@@ -18,6 +18,7 @@ use vortex_array::aggregate_fn::AggregateFnId;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldPath;
 use vortex_array::flatbuffers::FlatBufferRoot;
 use vortex_array::flatbuffers::WriteFlatBuffer;
@@ -58,9 +59,8 @@ pub struct FileStatistics {
     /// `paths` linearly.
     path_index: Arc<HashMap<FieldPath, usize>>,
     /// Legacy top-level-fields-only aggregates, one per top-level struct field (or a single entry
-    /// for a non-struct root dtype). Only populated by [`Self::new_with_dtype`], for serialization
-    /// into `field_stats`; empty for instances built from [`Self::from_flatbuffer`], which are
-    /// never re-serialized.
+    /// for a non-struct root dtype), for serialization into `field_stats`. Empty for instances
+    /// built from [`Self::from_flatbuffer`] whose file has no `field_stats`.
     legacy_aggregates: Arc<[AggregateStats]>,
     /// Whether serialization writes the nested layout (`entry_sets` and `partials`) alongside the
     /// legacy `field_stats`.
@@ -244,53 +244,59 @@ impl FileStatistics {
             }
             partials.finish()?;
 
+            // The legacy `field_stats` are kept so that these statistics can be written again,
+            // for example into a standalone footer, for readers that predate nested statistics.
+            let legacy_aggregates = match fb.field_stats() {
+                Some(_) => Self::legacy_aggregates_from_flatbuffer(fb, file_dtype, session)?,
+                None => Arc::new([]),
+            };
+
             return Ok(Self::from_parts(
                 aggregates.into(),
                 dtypes.into(),
                 paths.into(),
-                Arc::new([]),
+                legacy_aggregates,
                 true,
             ));
         }
 
         // Legacy (pre-nested-stats) layout: top-level struct fields only, or a single entry for a
         // non-struct root dtype.
+        let legacy_aggregates = Self::legacy_aggregates_from_flatbuffer(fb, file_dtype, session)?;
+
+        Ok(Self::new_legacy_only(legacy_aggregates, file_dtype))
+    }
+
+    /// Reads the legacy `field_stats`: one entry per top-level struct field, or a single entry
+    /// for a non-struct root dtype.
+    fn legacy_aggregates_from_flatbuffer<'a>(
+        fb: &fb::FileStatistics<'a>,
+        file_dtype: &DType,
+        session: &VortexSession,
+    ) -> VortexResult<Arc<[AggregateStats]>> {
         let field_stats = fb.field_stats().unwrap_or_default();
         let mut array_stats: Vec<ArrayStats> = field_stats.iter().collect();
 
         if let DType::Struct(struct_fields, _) = file_dtype {
             vortex_ensure_eq!(array_stats.len(), struct_fields.nfields());
 
-            let aggregates: Arc<[AggregateStats]> = array_stats
+            return array_stats
                 .into_iter()
                 .zip(struct_fields.fields())
                 .map(|(array_stat, field_dtype)| {
                     aggregates_from_array_stats(&array_stat, &field_dtype, session)
                 })
-                .try_collect()?;
-
-            let dtypes = struct_fields.fields().collect();
-            let paths = struct_fields
-                .names()
-                .iter()
-                .map(|name| FieldPath::from_name(name.clone()))
-                .collect();
-
-            Ok(Self::new(aggregates, dtypes, paths))
-        } else {
-            vortex_ensure_eq!(array_stats.len(), 1);
-
-            let array_stat = array_stats
-                .pop()
-                .vortex_expect("we just checked that there was 1 field");
-            let aggregates = aggregates_from_array_stats(&array_stat, file_dtype, session)?;
-
-            Ok(Self::new(
-                Arc::new([aggregates]),
-                Arc::new([file_dtype.clone()]),
-                Arc::new([FieldPath::root()]),
-            ))
+                .try_collect();
         }
+
+        vortex_ensure_eq!(array_stats.len(), 1);
+
+        let array_stat = array_stats
+            .pop()
+            .vortex_expect("we just checked that there was 1 field");
+        let aggregates = aggregates_from_array_stats(&array_stat, file_dtype, session)?;
+
+        Ok(Arc::new([aggregates]))
     }
 
     /// Returns a reference to the aggregates recorded for each entry.
@@ -333,6 +339,87 @@ impl FileStatistics {
         self.path_index
             .get(path)
             .map(|&idx| (&self.aggregates[idx], &self.dtypes[idx]))
+    }
+
+    /// An empty entry for every field of `file_dtype`, with nested entries if `nested`.
+    fn empty_with_dtype(file_dtype: &DType, nested: bool) -> Self {
+        let legacy = file_dtype
+            .as_struct_fields_opt()
+            .map_or(1, |fields| fields.nfields());
+        let legacy_aggregates: Arc<[AggregateStats]> =
+            vec![AggregateStats::default(); legacy].into();
+        if !nested {
+            return Self::new_legacy_only(legacy_aggregates, file_dtype);
+        }
+        let entries = postorder_stats_layout(file_dtype).len();
+        Self::new_with_dtype(
+            vec![AggregateStats::default(); entries].into(),
+            legacy_aggregates,
+            file_dtype,
+        )
+    }
+
+    /// Empty statistics laid out like these, for the same `file_dtype`.
+    pub(crate) fn empty_like(&self, file_dtype: &DType) -> Self {
+        Self::empty_with_dtype(file_dtype, self.write_nested)
+    }
+
+    /// Whether the `index`th entry belongs to one of the top-level `fields` of `file_dtype`.
+    fn entry_in_fields(&self, index: usize, fields: &[u32], file_dtype: &DType) -> bool {
+        let (Some(struct_fields), Some(Field::Name(name))) = (
+            file_dtype.as_struct_fields_opt(),
+            self.paths[index].parts().first(),
+        ) else {
+            return false;
+        };
+        struct_fields
+            .find(name)
+            .is_some_and(|field| fields.iter().any(|&f| f as usize == field))
+    }
+
+    /// The statistics of the top-level `fields` of `file_dtype`, with every other entry empty.
+    pub(crate) fn retain_fields(&self, fields: &[u32], file_dtype: &DType) -> Self {
+        self.empty_like(file_dtype)
+            .with_field_stats(fields, Some(self), file_dtype)
+    }
+
+    /// Replace the statistics of the top-level `fields` of `file_dtype` with those of `stats`,
+    /// matched by field path, or with empty statistics if `None`.
+    pub(crate) fn with_field_stats(
+        &self,
+        fields: &[u32],
+        stats: Option<&Self>,
+        file_dtype: &DType,
+    ) -> Self {
+        let aggregates = (0..self.aggregates.len())
+            .map(|index| {
+                if !self.entry_in_fields(index, fields, file_dtype) {
+                    return self.aggregates[index].clone();
+                }
+                stats
+                    .and_then(|stats| stats.get_by_path(&self.paths[index]))
+                    .map(|(aggregates, _)| aggregates.clone())
+                    .unwrap_or_default()
+            })
+            .collect();
+        let legacy_aggregates = (0..self.legacy_aggregates.len())
+            .map(|field| {
+                if !fields.iter().any(|&f| f as usize == field) {
+                    return self.legacy_aggregates[field].clone();
+                }
+                stats
+                    .and_then(|stats| stats.legacy_aggregates.get(field))
+                    .cloned()
+                    .unwrap_or_default()
+            })
+            .collect();
+        Self::from_parts(
+            aggregates,
+            Arc::clone(&self.dtypes),
+            Arc::clone(&self.paths),
+            legacy_aggregates,
+            self.write_nested,
+        )
     }
 }
 
@@ -1027,6 +1114,40 @@ mod tests {
         let read_back = FileStatistics::from_flatbuffer(&fb, &file_dtype, &session)?;
         let path = FieldPath::from_name("col");
         let (col, _) = read_back.get_by_path(&path).expect("col aggregates");
+        assert_eq!(
+            value(col, &min_fn()),
+            Precision::exact(ScalarValue::from(7i32))
+        );
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::legacy_only(false)]
+    #[case::nested(true)]
+    fn read_statistics_write_again(#[case] nested: bool) -> VortexResult<()> {
+        // Statistics read from a file are written again into a standalone footer, so both
+        // layouts must survive a read followed by a write.
+        let file_dtype = DType::struct_([("col", i32_dtype())], Nullability::NonNullable);
+        let legacy: Arc<[AggregateStats]> = Arc::from([AggregateStats::new(vec![min(7)])]);
+        let file_stats = if nested {
+            FileStatistics::new_with_dtype(Arc::clone(&legacy), legacy, &file_dtype)
+        } else {
+            FileStatistics::new_legacy_only(legacy, &file_dtype)
+        };
+
+        let read = read_back(&file_stats, &file_dtype)?;
+        let written_again = read_back(&read, &file_dtype)?;
+
+        let bytes = read.write_flatbuffer_bytes()?;
+        let fb = flatbuffers::root::<fb::FileStatistics>(bytes.as_ref())
+            .vortex_expect("valid flatbuffer");
+        assert_eq!(fb.entry_sets().is_some(), nested);
+        assert_eq!(fb.field_stats().map_or(0, |stats| stats.len()), 1);
+
+        let (col, _) = written_again
+            .get_by_path(&FieldPath::from_name("col"))
+            .expect("col aggregates");
         assert_eq!(
             value(col, &min_fn()),
             Precision::exact(ScalarValue::from(7i32))
