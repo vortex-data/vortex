@@ -28,6 +28,11 @@
   },
   "packageRules": [
     {
+      "description": "Wait 7 days after a release before proposing it, so most malicious publishes are found and removed upstream first. Security updates skip this wait. For npm, Renovate also applies it to lock file maintenance through npm's --before.",
+      "matchPackageNames": ["*"],
+      "minimumReleaseAge": "7 days"
+    },
+    {
       "matchPackageNames": [
         "ubuntu",
         "python"
