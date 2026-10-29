@@ -251,8 +251,22 @@ ambiguous, ask the user instead of inventing a prefix.
 
 ## Commits
 
-All commits must be signed off by the committers in this form:
+Vortex uses the [Developer Certificate of Origin (DCO)](CONTRIBUTING.md#developer-certificate-of-origin-dco),
+and the DCO check rejects pull requests with any commit that lacks a valid sign-off. Every commit
+must carry a sign-off line in this form:
 
 ```text
-Signed-off-by: <COMMITTER> <COMMITTER_EMAIL>
+Signed-off-by: <Real Name> <real.email@example.com>
 ```
+
+- The sign-off must name the human who is submitting the change and certifying the DCO: the
+  user you are working for. An agent cannot certify the DCO, so never sign off as Claude, Codex,
+  or any other agent or bot, and never use an agent address such as `noreply@anthropic.com`.
+- Take the name and email from the user's Git configuration (`git config user.name` and
+  `git config user.email`), or from identity the user has provided. Pseudonyms and fake email
+  addresses are not allowed. If no real identity is available, ask the user instead of
+  inventing one.
+- Prefer `git commit -s`, which adds the sign-off from the Git configuration. Check that every
+  commit on the branch is signed off before pushing; `git rebase --signoff <base>` adds missing
+  sign-offs to commits on a branch you created.
+- Agent attribution belongs in a `Co-Authored-By:` trailer, never in `Signed-off-by:`.
