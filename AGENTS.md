@@ -266,6 +266,10 @@ Signed-off-by: <Real Name> <real.email@example.com>
   `git config user.email`), or from identity the user has provided. Pseudonyms and fake email
   addresses are not allowed. If no real identity is available, ask the user instead of
   inventing one.
+- The DCO check also requires the sign-off to match the commit author. If the Git configuration
+  names an agent (as some sandboxes do), set the author to the user, for example with
+  `git commit -s --author="<Real Name> <real.email@example.com>"`, rather than signing off as
+  the agent.
 - Prefer `git commit -s`, which adds the sign-off from the Git configuration. Check that every
   commit on the branch is signed off before pushing; `git rebase --signoff <base>` adds missing
   sign-offs to commits on a branch you created.
