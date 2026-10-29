@@ -35,7 +35,7 @@ use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
-use crate::optimizer::optimize_with_kernels;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 
@@ -322,19 +322,13 @@ pub trait ListArrayExt: ListArraySlotsExt {
     fn list_elements_at(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let start = self.offset_at(index, ctx)?;
         let end = self.offset_at(index + 1, ctx)?;
-        optimize_with_kernels(
-            self.elements().slice(start..end)?,
-            ctx.reduce_parent_kernels(),
-        )
+        self.elements().slice(start..end)?.optimize(ctx)
     }
 
     fn sliced_elements(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let start = self.offset_at(0, ctx)?;
         let end = self.offset_at(self.len(), ctx)?;
-        optimize_with_kernels(
-            self.elements().slice(start..end)?,
-            ctx.reduce_parent_kernels(),
-        )
+        self.elements().slice(start..end)?.optimize(ctx)
     }
 
     fn element_dtype(&self) -> &DType {

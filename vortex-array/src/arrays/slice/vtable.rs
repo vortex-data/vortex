@@ -38,7 +38,7 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
-use crate::optimizer::optimize_with_kernels;
+use crate::optimizer::ArrayOptimizer;
 use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
@@ -155,11 +155,11 @@ impl VTable for Slice {
 
         debug_assert!(array.child().is_canonical());
         // TODO(ngates): we should inline canonical slice logic here.
-        optimize_with_kernels(
-            array.child().slice(array.range.clone())?,
-            ctx.reduce_parent_kernels(),
-        )
-        .map(ExecutionResult::done)
+        array
+            .child()
+            .slice(array.range.clone())?
+            .optimize(ctx)
+            .map(ExecutionResult::done)
     }
 }
 impl OperationsVTable<Slice> for Slice {

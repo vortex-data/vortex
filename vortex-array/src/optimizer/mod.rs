@@ -9,7 +9,8 @@
 //!
 //! Parent-reduce rules live in the session's [`kernels::ArrayKernels`] registry, keyed by the
 //! parent and child encoding ids, as execute-parent kernels are. There are two public entry
-//! points on [`ArrayOptimizer`], and both take that session:
+//! points on [`ArrayOptimizer`], and both take the session, or an [`ExecutionCtx`] created from it,
+//! which reuses the kernels it snapshotted from the session (see [`AsOptimizerKernels`]):
 //!
 //! - [`ArrayOptimizer::optimize`] optimizes the root array node.
 //! - [`ArrayOptimizer::optimize_recursive`] optimizes the root and every descendant.
@@ -24,6 +25,7 @@
 //! returns it without trying any rule. The mark does not record the session: an array optimized
 //! with one session is not optimized again with a session that registers more kernels.
 
+use std::sync::LazyLock;
 use std::sync::atomic::AtomicU8;
 use std::sync::atomic::Ordering;
 
@@ -37,6 +39,7 @@ use crate::ArrayRef;
 use crate::array::ArrayId;
 use crate::arrays::ScalarFn;
 use crate::arrays::scalar_fn::AnyScalarFn;
+use crate::executor::ExecutionCtx;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::kernels::ParentReduceKernels;
 use crate::trace_op;
@@ -83,36 +86,94 @@ impl OptimizedState {
     }
 }
 
+/// The parent-reduce kernels [`ArrayOptimizer`] optimizes with, from [`AsOptimizerKernels`].
+///
+/// A [`VortexSession`] snapshots its registered kernels for each call. An [`ExecutionCtx`] reuses
+/// the snapshot it took from its session when it was created, so a kernel that optimizes what it
+/// builds, possibly once per element, passes its context.
+#[derive(Clone, Copy)]
+pub struct OptimizerKernels<'a>(KernelSource<'a>);
+
+#[derive(Clone, Copy)]
+enum KernelSource<'a> {
+    Session(&'a VortexSession),
+    Snapshot(&'a ParentReduceKernels),
+}
+
+impl OptimizerKernels<'_> {
+    fn with_reduce_parent_kernels<R>(self, f: impl FnOnce(&ParentReduceKernels) -> R) -> R {
+        match self.0 {
+            KernelSource::Session(session) => f(&session.kernels().reduce_parent_snapshot()),
+            KernelSource::Snapshot(kernels) => f(kernels),
+        }
+    }
+}
+
+/// A source of the parent-reduce kernels [`ArrayOptimizer`] optimizes with.
+pub trait AsOptimizerKernels {
+    /// The kernels to optimize with.
+    fn optimizer_kernels(&self) -> OptimizerKernels<'_>;
+}
+
+impl AsOptimizerKernels for VortexSession {
+    fn optimizer_kernels(&self) -> OptimizerKernels<'_> {
+        OptimizerKernels(KernelSource::Session(self))
+    }
+}
+
+impl AsOptimizerKernels for LazyLock<VortexSession> {
+    fn optimizer_kernels(&self) -> OptimizerKernels<'_> {
+        OptimizerKernels(KernelSource::Session(self))
+    }
+}
+
+impl AsOptimizerKernels for ExecutionCtx {
+    fn optimizer_kernels(&self) -> OptimizerKernels<'_> {
+        OptimizerKernels(KernelSource::Snapshot(self.reduce_parent_kernels()))
+    }
+}
+
 /// Extension trait for optimizing array trees using reduce/reduce_parent rules.
 pub trait ArrayOptimizer {
     /// Optimize the root array node by running reduce and reduce_parent rules to fixpoint.
     ///
     /// Parent-reduce kernels are looked up for each `(parent_encoding_id, child_encoding_id)` pair
-    /// in the [`kernels::KernelSession`] on `session`.
-    fn optimize(&self, session: &VortexSession) -> VortexResult<ArrayRef>;
+    /// in the [`kernels::KernelSession`] of the session, or of the session an execution context
+    /// was created from.
+    fn optimize(&self, kernels: &(impl AsOptimizerKernels + ?Sized)) -> VortexResult<ArrayRef>;
 
     /// Optimize the entire array tree recursively (root and all descendants).
     ///
     /// This uses the same session-aware rule ordering as [`Self::optimize`] for every node in
     /// the tree.
-    fn optimize_recursive(&self, session: &VortexSession) -> VortexResult<ArrayRef>;
+    fn optimize_recursive(
+        &self,
+        kernels: &(impl AsOptimizerKernels + ?Sized),
+    ) -> VortexResult<ArrayRef>;
 }
 
 impl ArrayOptimizer for ArrayRef {
-    fn optimize(&self, session: &VortexSession) -> VortexResult<ArrayRef> {
+    fn optimize(&self, kernels: &(impl AsOptimizerKernels + ?Sized)) -> VortexResult<ArrayRef> {
         if self.optimized_state().is_root_optimized() {
             return Ok(self.clone());
         }
-        let kernels = session.kernels().reduce_parent_snapshot();
-        optimize_with_kernels(self.clone(), &kernels)
+        kernels
+            .optimizer_kernels()
+            .with_reduce_parent_kernels(|kernels| optimize_with_kernels(self.clone(), kernels))
     }
 
-    fn optimize_recursive(&self, session: &VortexSession) -> VortexResult<ArrayRef> {
+    fn optimize_recursive(
+        &self,
+        kernels: &(impl AsOptimizerKernels + ?Sized),
+    ) -> VortexResult<ArrayRef> {
         if self.optimized_state().is_tree_optimized() {
             return Ok(self.clone());
         }
-        let kernels = session.kernels().reduce_parent_snapshot();
-        optimize_recursive_with_kernels(self.clone(), &kernels)
+        kernels
+            .optimizer_kernels()
+            .with_reduce_parent_kernels(|kernels| {
+                optimize_recursive_with_kernels(self.clone(), kernels)
+            })
     }
 }
 

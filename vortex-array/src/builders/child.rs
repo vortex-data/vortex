@@ -12,7 +12,7 @@ use crate::arrays::ChunkedArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
-use crate::optimizer::optimize_with_kernels;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 
 /// Accumulates the child of a nested [`ArrayBuilder`] without canonicalizing appended arrays.
@@ -87,7 +87,7 @@ impl ChildBuilder {
         self.flush_pending();
         self.chunks_len += array.len();
 
-        let array = optimize_with_kernels(array.clone(), ctx.reduce_parent_kernels())?;
+        let array = array.optimize(ctx)?;
         self.chunks.push(array);
 
         Ok(())

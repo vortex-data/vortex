@@ -37,7 +37,7 @@ use crate::dtype::PType;
 use crate::expr::stats::Stat;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
-use crate::optimizer::optimize_with_kernels;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 
@@ -410,10 +410,7 @@ pub trait ListViewArrayExt: ListViewArraySlotsExt {
     fn list_elements_at(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let offset = self.offset_at(index, ctx);
         let size = self.size_at(index, ctx);
-        optimize_with_kernels(
-            self.elements().slice(offset..offset + size)?,
-            ctx.reduce_parent_kernels(),
-        )
+        self.elements().slice(offset..offset + size)?.optimize(ctx)
     }
 
     /// Returns a [`Mask`] of length `elements.len()` where each bit is set iff that

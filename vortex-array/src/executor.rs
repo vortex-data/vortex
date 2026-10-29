@@ -427,8 +427,8 @@ impl ExecutionCtx {
         &self.session
     }
 
-    /// The parent-reduce kernels this context snapshotted from its session, for optimizing with
-    /// [`optimize_with_kernels`] without looking up the session's kernels again.
+    /// The parent-reduce kernels this context snapshotted from its session, which optimizing with
+    /// the context uses instead of looking up the session's kernels again.
     pub(crate) fn reduce_parent_kernels(&self) -> &ParentReduceKernels {
         &self.reduce_parent_kernels
     }
