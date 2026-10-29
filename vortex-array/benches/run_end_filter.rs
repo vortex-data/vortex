@@ -42,7 +42,7 @@ fn main() {
         0,
         length as u64,
         &build_mask(length, 0.5),
-        &mut SESSION.create_execution_ctx(),
+        SESSION.create_execution_ctx().allocator(),
     )
     .expect("filter");
 
@@ -155,6 +155,7 @@ fn filter_run_end(bencher: Bencher, args: FilterBenchArgs) {
             )
         })
         .bench_refs(|(run_ends, mask, ctx)| {
-            filter_run_end_primitive::<u32>(run_ends, 0, length, mask, ctx).expect("filter")
+            filter_run_end_primitive::<u32>(run_ends, 0, length, mask, ctx.allocator())
+                .expect("filter")
         });
 }
