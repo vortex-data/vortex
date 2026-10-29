@@ -124,6 +124,10 @@ struct Args {
     #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
     scan_v2: bool,
 
+    /// Override the initial 8K chunks per worker for Vortex scans with dynamic filters.
+    #[arg(long)]
+    dynamic_filter_initial_chunks: Option<usize>,
+
     #[arg(long = "opt", value_delimiter = ',', value_parser = value_parser!(Opt))]
     options: Vec<Opt>,
 }
@@ -136,6 +140,7 @@ async fn main() -> anyhow::Result<()> {
     vortex_bench::configure_allocator();
     let args = Args::parse();
     let opts = Opts::from(args.options);
+    let dynamic_filter_initial_chunks = args.dynamic_filter_initial_chunks;
     let scan_v2 = args.scan_v2;
 
     set_join_set_tracer(get_static_tracer())?;
@@ -196,7 +201,14 @@ async fn main() -> anyhow::Result<()> {
                         session.sql(&sql).await?.collect().await?;
                     }
                     datafusion_bench::make_object_store(&session, benchmark.data_url())?;
-                    register_benchmark_tables(&session, benchmark, format, scan_v2).await?;
+                    register_benchmark_tables(
+                        &session,
+                        benchmark,
+                        format,
+                        scan_v2,
+                        dynamic_filter_initial_chunks,
+                    )
+                    .await?;
                     Ok((session, format))
                 }
             },
@@ -208,6 +220,7 @@ async fn main() -> anyhow::Result<()> {
                 Box::pin(
                     async move {
                         let timer = Instant::now();
+                        tracing::debug!(query_idx, "benchmark query started");
                         let (batches, plan) = execute_query(session, query)
                             .with_labelset(get_labelset_from_global())
                             .await?;
@@ -261,13 +274,14 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     benchmark: &B,
     format: Format,
     scan_v2: bool,
+    dynamic_filter_initial_chunks: Option<usize>,
 ) -> anyhow::Result<()> {
     if !scan_v2 && use_scan_api() && matches!(format, Format::OnDiskVortex | Format::VortexCompact)
     {
         register_v2_tables(session, benchmark, format).await
     } else {
         let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
-        let file_format = format_to_df_format(format, scan_v2)?;
+        let file_format = format_to_df_format(format, scan_v2, dynamic_filter_initial_chunks)?;
 
         for table in benchmark.table_specs().iter() {
             let pattern = benchmark.pattern(table.name, format);

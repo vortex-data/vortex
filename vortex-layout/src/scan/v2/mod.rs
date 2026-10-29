@@ -12,11 +12,12 @@
 //!
 //! Import this module's [`ScanBuilder`] to prepare a V2 scan. It accepts a [`ScanFile`] directly
 //! and supports projection, filters, row ranges, and selections. Unsupported layouts return an
-//! error when the plan is prepared; limits are not part of this builder's API. Work is cut into
-//! chunks of up to 65,536 rows, or 131,072 rows for filtered scans. Filtered scans reading only
-//! one primitive or boolean field use 1,048,576 rows to amortize setup, independently of the stored
-//! layout's chunk boundaries. Full-file projections use smaller 8,192-row multiples when
-//! serialized bytes per row are high.
+//! error when the plan is prepared; limits are not part of this builder's API. Work uses chunks of
+//! up to 1,048,576 rows, or 131,072 rows for filtered scans. Filtered scans reading only one
+//! primitive or boolean field use 1,048,576 rows to amortize setup. Chunks are independent of
+//! stored layout boundaries. Unfiltered projections stream stored batches without concatenating
+//! them. Full-file projections use smaller 8,192-row multiples when serialized bytes per row
+//! are high.
 //!
 //! A [`ScanFile`] carrying a [`ScanCache`] shares its lowered plan, filter plans and pruned
 //! zones, segment index, dictionary values, and recently read segments with every other scan of
@@ -167,10 +168,7 @@ impl ScanBuilder {
     pub fn prepare(self) -> VortexResult<PreparedScan> {
         let file = self.file;
         let cache = file.cache.unwrap_or_default();
-        let root = match cache.root() {
-            Some(root) => root,
-            None => cache.insert_root(lower(&file.layout)?),
-        };
+        let root = cache.root(|| lower(&file.layout))?;
         let row_count = root.row_count();
         let filtered_chunk_rows = self
             .filter
@@ -179,30 +177,25 @@ impl ScanBuilder {
             .transpose()?;
         let filter = self
             .filter
-            .map(|filter| -> VortexResult<_> {
-                match cache.filter_plans(&filter) {
-                    Some(plans) => Ok(plans),
-                    None => {
-                        let plans =
-                            Arc::new(FilterPlans::new(filter.clone(), &root, &self.session)?);
-                        Ok(cache.insert_filter_plans(filter, plans))
-                    }
-                }
+            .map(|filter| {
+                cache.filter_plans(&filter, || {
+                    Ok(Arc::new(FilterPlans::new(
+                        filter.clone(),
+                        &root,
+                        &self.session,
+                    )?))
+                })
             })
             .transpose()?;
         // Optimizing drops the zone tables a projection never reads and keeps the chunks of a
         // chunked column lazy, so an identity projection is optimized like any other.
         let identity = self.projection.is_root() && self.projection.dtype() == root.dtype();
-        let projection = match cache.projection(&self.projection) {
-            Some(plan) => plan,
-            None => {
-                let plan = optimize(
-                    plan_row_idx_expression(self.projection.clone(), root)?,
-                    &self.session,
-                )?;
-                cache.insert_projection(self.projection, plan)
-            }
-        };
+        let projection = cache.projection(&self.projection, || {
+            optimize(
+                plan_row_idx_expression(self.projection.clone(), root)?,
+                &self.session,
+            )
+        })?;
         let chunk_rows = if let Some(rows) = filtered_chunk_rows {
             rows
         } else if identity {
@@ -210,10 +203,7 @@ impl ScanBuilder {
         } else {
             MAX_ROWS_PER_CHUNK
         };
-        let ranges = match cache.ranges() {
-            Some(ranges) => ranges,
-            None => cache.insert_ranges(segment_ranges(&file.locations)),
-        };
+        let ranges = cache.ranges(|| segment_ranges(&file.locations));
         let values = cache.values();
         Ok(PreparedScan {
             session: self.session,

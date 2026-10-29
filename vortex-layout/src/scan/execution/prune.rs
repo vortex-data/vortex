@@ -5,6 +5,7 @@
 
 use std::ops::Range;
 use std::sync::Arc;
+use std::time::Instant;
 use std::vec::IntoIter;
 
 use rustc_hash::FxHashSet;
@@ -51,6 +52,8 @@ pub struct PrunePlanner {
     pruning: IntoIter<PlanRef>,
     active: Option<ScanAdaptor>,
     pieces: Vec<Mask>,
+    active_started: Option<Instant>,
+    active_cpu_ns: u128,
     announced: bool,
     /// Ids for hints, counting down from `u32::MAX` so they never meet an adaptor's fetch ids.
     next_hint: u32,
@@ -75,6 +78,8 @@ impl PrunePlanner {
             pruning: pruning.into_iter(),
             active: None,
             pieces: Vec::new(),
+            active_started: None,
+            active_cpu_ns: 0,
             announced: false,
             next_hint: u32::MAX,
             done: false,
@@ -131,20 +136,34 @@ impl Planner for PrunePlanner {
         }
         if let Some(adaptor) = &mut self.active {
             if adaptor.state() != State::Done {
-                return Ok(match adaptor.compute()? {
+                let started = self.active_started.map(|_| Instant::now());
+                let output = match adaptor.compute()? {
                     AdaptorStep::Yield => PlannerOutput::Continue,
                     AdaptorStep::NeedsIO(batch) => PlannerOutput::NeedsIO(batch),
                     AdaptorStep::Piece(piece) => {
                         self.pieces.push(piece_mask(&self.scan.session, piece)?);
                         PlannerOutput::Continue
                     }
-                });
+                };
+                if let Some(started) = started {
+                    self.active_cpu_ns += started.elapsed().as_nanos();
+                }
+                return Ok(output);
             }
+            let finished = self.active_started.map(|_| Instant::now());
             let input = self.mask.true_count();
             let excluded = Mask::concat(self.pieces.iter())?;
             vortex_ensure_eq!(excluded.len(), input);
             self.mask = self.mask.intersect_by_rank(&!excluded);
+            if let Some(finished) = finished {
+                self.active_cpu_ns += finished.elapsed().as_nanos();
+            }
             tracing::debug!(
+                cpu_ns = self.active_cpu_ns,
+                elapsed_ns = self
+                    .active_started
+                    .map(|started| started.elapsed().as_nanos())
+                    .unwrap_or(0),
                 row_start = self.rows.start,
                 row_end = self.rows.end,
                 input_rows = input,
@@ -160,6 +179,8 @@ impl Planner for PrunePlanner {
             return Ok(PlannerOutput::Done);
         }
         if let Some(plan) = self.pruning.next() {
+            self.active_started = tracing::enabled!(tracing::Level::DEBUG).then(Instant::now);
+            self.active_cpu_ns = 0;
             let scan = Scan::try_new(
                 self.scan.session.clone(),
                 plan,
@@ -170,6 +191,9 @@ impl Planner for PrunePlanner {
             )?
             .with_row_offset(self.scan.row_offset)
             .with_value_cache(self.scan.values.clone());
+            if let Some(started) = self.active_started {
+                self.active_cpu_ns += started.elapsed().as_nanos();
+            }
             self.active = Some(ScanAdaptor::new(scan, Arc::clone(&self.scan.locations)));
             return Ok(PlannerOutput::Continue);
         }
