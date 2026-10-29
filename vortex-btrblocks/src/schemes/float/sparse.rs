@@ -10,7 +10,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::arrays::WidenArray;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DescendantExclusion;
@@ -97,8 +97,12 @@ impl Scheme for NullDominatedSparseScheme {
                 .patches()
                 .indices()
                 .clone()
-                .execute::<PrimitiveArray>(exec_ctx)?
-                .narrow(exec_ctx)?;
+                .execute::<PrimitiveArray>(exec_ctx)?;
+            #[expect(
+                deprecated,
+                reason = "TODO(connor): decide whether this child narrows its dtype or becomes a Widen"
+            )]
+            let indices = WidenArray::encode_values(indices, exec_ctx)?;
             let compressed_indices = compressor.compress_child(
                 &indices.into_array(),
                 &compress_ctx,

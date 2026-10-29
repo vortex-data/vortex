@@ -4,6 +4,7 @@
 use std::ops::RangeInclusive;
 
 use rstest::rstest;
+use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
@@ -78,6 +79,25 @@ fn test_encode_rejects_float() {
 }
 
 #[rstest]
+#[case::non_negative_i8(PrimitiveArray::from_iter([0i64, 127]), PType::I8)]
+#[case::i8_bounds(PrimitiveArray::from_iter([-128i64, 127]), PType::I8)]
+#[case::i16_lower(PrimitiveArray::from_iter([-129i64, 127]), PType::I16)]
+#[case::i16_upper(PrimitiveArray::from_iter([-128i64, 128]), PType::I16)]
+#[case::i16_bounds(PrimitiveArray::from_iter([-32768i64, 32767]), PType::I16)]
+#[case::i32_lower(PrimitiveArray::from_iter([-32769i64, 32767]), PType::I32)]
+#[case::i32_upper(PrimitiveArray::from_iter([-32768i64, 32768]), PType::I32)]
+#[case::i32_bounds(PrimitiveArray::from_iter([i64::from(i32::MIN), i64::from(i32::MAX)]), PType::I32)]
+#[case::u8_bounds(PrimitiveArray::from_iter([0u64, 255]), PType::U8)]
+#[case::u16_lower(PrimitiveArray::from_iter([0u64, 256]), PType::U16)]
+#[case::u16_upper(PrimitiveArray::from_iter([0u64, 65535]), PType::U16)]
+#[case::u32_lower(PrimitiveArray::from_iter([0u64, 65536]), PType::U32)]
+#[case::u32_upper(PrimitiveArray::from_iter([0u64, u64::from(u32::MAX)]), PType::U32)]
+#[case::nullable_i32(PrimitiveArray::from_option_iter([Some(0i32), None, Some(127)]), PType::I8)]
+#[case::signed_i16(PrimitiveArray::from_iter([-100i16, 0, 100]), PType::I8)]
+#[case::mixed_signs(PrimitiveArray::from_iter([-1i32, 200]), PType::I16)]
+#[case::all_invalid(PrimitiveArray::new(Buffer::<u32>::zeroed(10), Validity::AllInvalid), PType::U8)]
+#[case::empty_nullable(PrimitiveArray::new(Buffer::<i32>::empty(), Validity::AllInvalid), PType::I8)]
+#[case::empty(PrimitiveArray::empty::<i64>(Nullability::NonNullable), PType::I8)]
 #[case::non_negative( PrimitiveArray::from_iter([0i64, 200]),                 PType::I16)]
 #[case::partially_valid(
     PrimitiveArray::from_option_iter([Some(0i64), None, Some(127)]),
@@ -96,6 +116,11 @@ fn test_encode_values_keeps_signedness(
         values.dtype(),
         &DType::Primitive(stored, input.dtype().nullability())
     );
+    match input.validity()? {
+        Validity::AllInvalid => assert!(matches!(values.validity()?, Validity::AllInvalid)),
+        Validity::NonNullable => assert!(matches!(values.validity()?, Validity::NonNullable)),
+        _ => {}
+    }
     let widened = values.into_array().cast(input.dtype().clone())?;
     assert_arrays_eq!(widened, input, &mut ctx);
 

@@ -13,10 +13,10 @@ use vortex_array::arrays::ListView;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::MapArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::WidenArray;
 use vortex_array::arrays::list::ListArrayExt;
 use vortex_array::arrays::list::ListArraySlotsExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -50,8 +50,12 @@ impl CascadingCompressor {
         let list_offsets_primitive = list_array
             .offsets()
             .clone()
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow(exec_ctx)?;
+            .execute::<PrimitiveArray>(exec_ctx)?;
+        #[expect(
+            deprecated,
+            reason = "TODO(connor): decide whether this child narrows its dtype or becomes a Widen"
+        )]
+        let list_offsets_primitive = WidenArray::encode_values(list_offsets_primitive, exec_ctx)?;
         let compressed_offsets = self.compress_canonical(
             Canonical::Primitive(list_offsets_primitive),
             offset_ctx,
@@ -83,8 +87,13 @@ impl CascadingCompressor {
         let list_view_offsets_primitive = list_view
             .offsets()
             .clone()
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow(exec_ctx)?;
+            .execute::<PrimitiveArray>(exec_ctx)?;
+        #[expect(
+            deprecated,
+            reason = "TODO(connor): decide whether this child narrows its dtype or becomes a Widen"
+        )]
+        let list_view_offsets_primitive =
+            WidenArray::encode_values(list_view_offsets_primitive, exec_ctx)?;
         let compressed_offsets = self.compress_canonical(
             Canonical::Primitive(list_view_offsets_primitive),
             offset_ctx,
@@ -95,8 +104,13 @@ impl CascadingCompressor {
         let list_view_sizes_primitive = list_view
             .sizes()
             .clone()
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow(exec_ctx)?;
+            .execute::<PrimitiveArray>(exec_ctx)?;
+        #[expect(
+            deprecated,
+            reason = "TODO(connor): decide whether this child narrows its dtype or becomes a Widen"
+        )]
+        let list_view_sizes_primitive =
+            WidenArray::encode_values(list_view_sizes_primitive, exec_ctx)?;
         let compressed_sizes = self.compress_canonical(
             Canonical::Primitive(list_view_sizes_primitive),
             sizes_ctx,

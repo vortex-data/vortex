@@ -16,7 +16,7 @@ use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinView;
-use crate::arrays::primitive::PrimitiveArrayExt;
+use crate::arrays::WidenArray;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 
@@ -84,7 +84,12 @@ pub fn dict_encode_with_constraints(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<DictArray> {
     let mut encoder = dict_encoder_in(array, constraints, ctx.allocator().clone());
-    let codes = encoder.encode(array, ctx)?.narrow(ctx)?;
+    let codes = encoder.encode(array, ctx)?;
+    #[expect(
+        deprecated,
+        reason = "TODO(connor): decide whether this child narrows its dtype or becomes a Widen"
+    )]
+    let codes = WidenArray::encode_values(codes, ctx)?;
     // SAFETY: The encoding process will produce a value set of codes and values
     // All values in the dictionary are guaranteed to be referenced by at least one code
     // since we build the dictionary from the codes we observe during encoding

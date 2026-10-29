@@ -18,7 +18,7 @@ use vortex_array::VTable;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinArray;
-use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::arrays::WidenArray;
 use vortex_array::arrays::varbin::VarBinArraySlotsExt;
 use vortex_array::builders::VarBinBuilder;
 use vortex_compressor::scheme::CompressionEstimate;
@@ -83,9 +83,12 @@ impl Scheme for VarBinScheme {
         let offsets = varbin
             .offsets()
             .clone()
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow(exec_ctx)?
-            .into_array();
+            .execute::<PrimitiveArray>(exec_ctx)?;
+        #[expect(
+            deprecated,
+            reason = "TODO(connor): decide whether this child narrows its dtype or becomes a Widen"
+        )]
+        let offsets = WidenArray::encode_values(offsets, exec_ctx)?.into_array();
         let compressed_offsets =
             compressor.compress_child(&offsets, &compress_ctx, self.id(), 0, exec_ctx)?;
 
