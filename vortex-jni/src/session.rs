@@ -5,6 +5,7 @@
 
 use jni::EnvUnowned;
 use jni::objects::JClass;
+use jni::objects::JString;
 use jni::sys::jlong;
 use vortex::VortexSessionDefault;
 use vortex::editions::CORE_2026_08_3;
@@ -15,6 +16,7 @@ use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 
 use crate::RUNTIME;
+use crate::errors::try_or_throw;
 
 /// Constructs a fresh [`VortexSession`] bound to the JNI-shared tokio runtime and returns
 /// an opaque pointer that Java must pass to [`Java_dev_vortex_jni_NativeSession_free`].
@@ -50,4 +52,35 @@ pub extern "system" fn Java_dev_vortex_jni_NativeSession_free(
 ) {
     // SAFETY: pointer must have been created by `newSession` and not yet freed.
     drop(unsafe { Box::from_raw(pointer as *mut VortexSession) });
+}
+
+/// Enables the edition that has the name `edition` (for example `core2025.10.0`) for writes.
+///
+/// The edition replaces the enabled edition of the same family. Writers that start after this
+/// call use the new selection. Throws a `RuntimeException` if the session has no edition with
+/// this name.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeSession_enableEdition(
+    mut env: EnvUnowned,
+    _class: JClass,
+    pointer: jlong,
+    edition: JString,
+) {
+    try_or_throw(&mut env, |env| {
+        let name: String = edition.try_to_string(env)?;
+
+        // SAFETY: pointer must have been created by `newSession` and not yet freed.
+        let session = unsafe { session_ref(pointer) };
+
+        let edition = session
+            .editions()
+            .find_by_name(&name)
+            .ok_or_else(|| vortex_err!("Unknown Vortex edition: {name}"))?;
+
+        session
+            .enable_edition(edition.id)
+            .map_err(|error| vortex_err!("{error}"))?;
+
+        Ok(())
+    })
 }

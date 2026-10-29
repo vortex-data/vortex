@@ -16,4 +16,10 @@ public final class NativeSession {
 
     /** Free a session previously returned by {@link #newSession()}. */
     public static native void free(long pointer);
+
+    /**
+     * Enable the edition with the name {@code edition}, for example {@code core2025.10.0}, for writes that start after
+     * this call. Throws a {@link RuntimeException} if the edition is not known.
+     */
+    public static native void enableEdition(long pointer, String edition);
 }

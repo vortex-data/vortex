@@ -62,6 +62,8 @@ pub struct FileStatistics {
     /// into `field_stats`; empty for instances built from [`Self::from_flatbuffer`], which are
     /// never re-serialized.
     legacy_aggregates: Arc<[AggregateStats]>,
+    /// Whether only the legacy `field_stats` are serialized. Set by [`Self::legacy_only`].
+    legacy_only: bool,
 }
 
 impl FileStatistics {
@@ -85,6 +87,7 @@ impl FileStatistics {
             paths,
             path_index: Arc::new(path_index),
             legacy_aggregates,
+            legacy_only: false,
         }
     }
 
@@ -136,6 +139,48 @@ impl FileStatistics {
 
         let (paths, dtypes): (Vec<FieldPath>, Vec<DType>) = layout.into_iter().unzip();
         Self::from_parts(aggregates, dtypes.into(), paths.into(), legacy_aggregates)
+    }
+
+    /// Creates [`FileStatistics`] that hold only the legacy top-level-fields-only aggregates.
+    ///
+    /// Use this when the enabled editions permit no aggregates, so the nested statistics would be
+    /// empty. The footer then holds only `field_stats`, as files did before nested field
+    /// statistics. All readers then read these statistics, and the entries are available by the
+    /// paths of the top-level fields.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `legacy_aggregates` does not have one entry per top-level struct field (or a
+    /// single entry for a non-struct root dtype).
+    pub fn legacy_only(legacy_aggregates: Arc<[AggregateStats]>, file_dtype: &DType) -> Self {
+        let (dtypes, paths): (Arc<[DType]>, Arc<[FieldPath]>) = match file_dtype {
+            DType::Struct(struct_fields, _) => (
+                struct_fields.fields().collect(),
+                struct_fields
+                    .names()
+                    .iter()
+                    .map(|name| FieldPath::from_name(name.clone()))
+                    .collect(),
+            ),
+            _ => (
+                Arc::new([file_dtype.clone()]),
+                Arc::new([FieldPath::root()]),
+            ),
+        };
+        assert_eq!(
+            legacy_aggregates.len(),
+            dtypes.len(),
+            "legacy aggregates must have one entry per top-level field"
+        );
+
+        let mut statistics = Self::from_parts(
+            Arc::clone(&legacy_aggregates),
+            dtypes,
+            paths,
+            legacy_aggregates,
+        );
+        statistics.legacy_only = true;
+        statistics
     }
 
     /// Creates [`FileStatistics`] from a flatbuffers [`fb::FileStatistics<'a>`].
@@ -467,6 +512,20 @@ impl WriteFlatBuffer for FileStatistics {
             .map(|aggregates| aggregates.to_stats_set().write_flatbuffer(fbb))
             .collect::<VortexResult<Vec<_>>>()?;
         let field_stats = fbb.create_vector(field_stats.as_slice());
+
+        // Without nested statistics, readers fall back to `field_stats`.
+        if self.legacy_only {
+            return Ok(fb::FileStatistics::create(
+                fbb,
+                &fb::FileStatisticsArgs {
+                    field_stats: Some(field_stats),
+                    aggregate_specs: None,
+                    aggregate_sets: None,
+                    entry_sets: None,
+                    partials: None,
+                },
+            ));
+        }
 
         // Aggregate functions and the lists of them recorded per entry are dictionary-encoded, so
         // each distinct function and list is written once however many entries use it.
