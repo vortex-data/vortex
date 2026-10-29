@@ -4,6 +4,7 @@
 //! Driver calls returning [`Result`]s, for callers that need the raw handles.
 
 use std::ffi::CStr;
+use std::ffi::c_char;
 use std::ffi::c_uint;
 use std::ffi::c_void;
 use std::fmt;
@@ -19,20 +20,28 @@ pub struct DriverError(pub CUresult);
 impl DriverError {
     /// The driver's name for the error, such as `CUDA_ERROR_INVALID_VALUE`.
     pub fn error_name(&self) -> Result<&'static CStr, DriverError> {
-        let mut name = std::ptr::null();
-        // SAFETY: The driver writes a pointer to a static string.
-        unsafe { sys::cuGetErrorName(self.0, &raw mut name) }.result()?;
-        // SAFETY: Successful calls return a NUL-terminated static string.
-        Ok(unsafe { CStr::from_ptr(name) })
+        self.describe(sys::cuGetErrorName)
     }
 
     /// The driver's description of the error.
     pub fn error_string(&self) -> Result<&'static CStr, DriverError> {
-        let mut description = std::ptr::null();
+        self.describe(sys::cuGetErrorString)
+    }
+
+    /// The static string that `describe`, either `cuGetErrorName` or `cuGetErrorString`, writes.
+    fn describe(
+        &self,
+        describe: unsafe fn(CUresult, *mut *const c_char) -> CUresult,
+    ) -> Result<&'static CStr, DriverError> {
+        // Errors are formatted even when the driver library is missing.
+        if !driver_present() {
+            return Err(*self);
+        }
+        let mut text = std::ptr::null();
         // SAFETY: The driver writes a pointer to a static string.
-        unsafe { sys::cuGetErrorString(self.0, &raw mut description) }.result()?;
+        unsafe { describe(self.0, &raw mut text) }.result()?;
         // SAFETY: Successful calls return a NUL-terminated static string.
-        Ok(unsafe { CStr::from_ptr(description) })
+        Ok(unsafe { CStr::from_ptr(text) })
     }
 }
 
@@ -74,9 +83,21 @@ impl CUresult {
 }
 
 /// Initializes the driver; repeated calls are cheap.
+///
+/// Fails with `CUDA_ERROR_NOT_INITIALIZED` if the driver library cannot be loaded, where the raw
+/// [`sys`] functions would panic, so that the safe API reports a host without CUDA as an error.
 pub fn init() -> Result<(), DriverError> {
+    if !driver_present() {
+        return Err(DriverError(CUresult::CUDA_ERROR_NOT_INITIALIZED));
+    }
     // SAFETY: cuInit has no preconditions.
     unsafe { sys::cuInit(0) }.result()
+}
+
+/// Whether the driver library is loaded, which the raw [`sys`] functions require.
+fn driver_present() -> bool {
+    // SAFETY: Loads the driver library, which any driver call would load as well.
+    unsafe { sys::is_culib_present() }
 }
 
 /// Allocates `bytes` of page-locked host memory with the given `cuMemHostAlloc` flags.
