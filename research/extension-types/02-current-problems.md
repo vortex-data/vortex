@@ -5,8 +5,9 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 # 2. Current problems on `develop`
 
-All findings are for `develop` at `5fc5cb8`. A check on 2026-10-29 found every finding still on
-`develop` at `1d09649bbd`. Only EXT-A1 changed, as described below. Each ID refers to an entry in
+All findings are for `develop` at `5fc5cb8`, except EXT-A3, which is for `develop` at
+`1d09649bbd`. A check on 2026-10-29 found every other finding still on `develop` at `1d09649bbd`.
+Only EXT-A1 changed, as described below. Each ID refers to an entry in
 [`agents/findings.md`](agents/findings.md), which has file and line references, reproductions and
 fix sketches. "Confirmed" means that a throwaway test ([`agents/probe.rs`](agents/probe.rs) or
 [`agents/probe_followup.rs`](agents/probe_followup.rs)) reproduced the behavior.
@@ -82,9 +83,12 @@ implementation.
   [#10566](https://github.com/vortex-data/vortex/pull/10566) and
   [#10616](https://github.com/vortex-data/vortex/pull/10616) add separate aggregates, such as
   `vortex.is_sorted[vortex.timestamp]`, that run on storage for `Date`, `Time`, `Timestamp` and
-  `Uuid`. Plain `is_sorted` and `min_max` do not use them. This is a temporary bridge (X10). The
-  open draft [#10408](https://github.com/vortex-data/vortex/pull/10408) adds yet another opt-in for
-  `between`.
+  `Uuid`. Plain `is_sorted` and `min_max` do not use them. The separate aggregates stay, and in
+  phase 2 a declaration on the type registers them (X10). The open draft
+  [#10408](https://github.com/vortex-data/vortex/pull/10408) adds yet another opt-in for `between`.
+- **Storage pushdown results (EXT-A3).** The separate aggregates return storage values. The min of a
+  `Timestamp(ms)` column is a raw `i64`, while plain `min_max` returns a `Timestamp`. Nothing wraps
+  the result later (X12, U9).
 - **Zone maps (EXT-A2).** When a statistic rejects an extension dtype, the zone map uses the storage
   dtype. JSON and WKB columns store exact, unbounded bounds, so WKB zone maps hold whole geometry
   blobs.

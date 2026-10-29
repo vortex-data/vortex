@@ -15,7 +15,7 @@ This plan follows [`../decisions.md`](../decisions.md). IDs such as X4 and XQ1 r
 | 1 | The `ExtVTable` contract with the default `validate_array`, `ExtensionArray::new_unchecked`, a conformance harness, and three reference test types | Nothing |
 | 2 | Typing, the opt-in of X11 and rewrite rules: the opt-in mechanism (XQ7), the rules for compare, min, max and sort, `ext_storage_deep`, and rules that the type owns | 0, 1, and a design pass that settles XQ2, XQ5 and XQ7 |
 | 3 | Cast rules that the types own, and an audit of engine literals | 2 |
-| 4a | The lift rule for structural arrays, as the extension case of [#10748](https://github.com/vortex-data/vortex/issues/10748) | Nothing |
+| 4a | The lift rule for structural arrays, as the extension case of [#10748](https://github.com/vortex-data/vortex/issues/10748). Low priority | Nothing |
 | 4b | Storage statistics for extension columns, and `DateTimeParts` under the wrapper | 2 |
 | 5 | Value checks in `ExtensionArray::try_new`, and nullability on the extension dtype | 0, 1 |
 | 6 | Authoring helpers, engine export plugins, and documentation | 2, 3 |
@@ -34,8 +34,9 @@ flowchart LR
     P3 --> P6
 ```
 
-Phases 0, 1 and 4a can run in parallel, and none of them waits for an open question. Phase 5 can
-run in parallel with phase 2. Phase 2 is the critical step, because phases 3, 4b and 6 build on the
+Phases 0 and 1 can run in parallel, and neither waits for an open question. Phase 4a can start at
+any time, but it has low priority, because nothing depends on it for correctness. Phase 5 can run
+in parallel with phase 2. Phase 2 is the critical step, because phases 3, 4b and 6 build on the
 rules. It starts with a design pass, like the design pass of WR3 in the Decimal plan, because it
 depends on three open questions and is too large for one PR.
 
@@ -45,7 +46,7 @@ adds that constructor, and phase 5 only adds the value check to `try_new`.
 ## Phase 0: urgent changes
 
 - Write the path-consistency helper first, because U1 and U2 use it.
-- Land U1 to U8 as separate PRs.
+- Land U1 to U9 as separate PRs.
 - Some existing code depends on a leak, for example a comparison of an extension column with a
   storage literal. The full test suite finds these callers. Fix each one with an explicit
   `ext_storage`.
@@ -106,9 +107,9 @@ adds that constructor, and phase 5 only adds the value check to `try_new`.
   This risk comes from reading the code.
 - Give each type in the repository its derives (the table in part 3).
 - Move the other opt-ins onto the new mechanism. If #10408 merges first, its `between` pushdown
-  becomes a derive check. The registrations of `ExtensionStoragePushdown` (X10) become
-  declarations on the types, plain `is_sorted` and `min_max` then serve those types, and the
-  composite IDs go away. #10246 closed without a merge.
+  becomes a derive check. `ExtensionStoragePushdown` stays, but a declaration on the type registers
+  it in place of the calls to `register_storage_ordered` (X10). Plain `is_sorted` and `min_max` then
+  route to it for those types (XQ7). #10246 closed without a merge.
 
 ## Phase 3: cast rules
 
@@ -124,8 +125,8 @@ adds that constructor, and phase 5 only adds the value check to `try_new`.
 
 The lift rule needs no typing and no rules, so it can start at any time. It is the extension case
 of [#10748](https://github.com/vortex-data/vortex/issues/10748), and `Widen` needs the same rule
-(D25). Settle the mechanism question of #10748 before WD5, so that WD5 and this phase use one
-mechanism.
+(D25). Nothing depends on it for correctness: without it, fast paths that look only at the root of
+an array fall back to slower paths with the same results. So this phase has low priority.
 
 - Add the static rule that pulls structural arrays out from under the extension wrapper (X5). The
   set of arrays is open (XQ1). These notes recommend `Constant`, `Dict`, `RunEnd`, `Sparse`,
@@ -198,7 +199,7 @@ points affect the order:
 
 - `Decimal` stays a built-in type (D1). Its fixes do not wait for this plan, but it follows the same
   rules: derives for one dtype and rules that the type owns.
-- `Decimal`, `Widen` and extension types share the lift rule of phase 4a through #10748. A
+- `Decimal`, `Widen` and extension types can share the lift rule of phase 4a through #10748. A
   constant decimal column is already `vortex.constant` with a decimal scalar, so the old decimal
   wire forms fit it.
 - Phase 3 and the Decimal work share one integer kernel family, `rescale` and `check_range`.

@@ -47,7 +47,7 @@ That causes wrong results, panics, and code paths that disagree with each other.
 
 The findings come from reading `develop` at `5fc5cb8`, and from two throwaway tests in debug
 builds. A second read on 2026-10-29 checked them against `develop` at `1d09649bbd`. Every urgent
-change (U1 to U8) is still needed there, and the catalog lists what changed. Findings marked "lead"
+change (U1 to U9) is still needed there, and the catalog lists what changed. Findings marked "lead"
 in the agent catalog are not confirmed. No performance claim is measured.
 
 ## Related

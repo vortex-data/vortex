@@ -20,6 +20,7 @@ fits in a small PR with a regression test. Finding IDs refer to
 | U6 | Check the storage dtype of arrays and scalars | EXT-V2, EXT-V7 | An array or a scalar with the wrong storage is rejected |
 | U7 | Stop invalid zero values | EXT-V3 | No invalid scalars |
 | U8 | Fix `Debug for ExtDTypeRef` | EXT-R1 | Correct debug output |
+| U9 | Wrap the results of the storage pushdown | EXT-A3 | `vortex.min_max[vortex.timestamp]` returns timestamps, not `i64` values |
 
 ## Test requirement
 
@@ -128,6 +129,24 @@ when the dtype is built is the better place.
 - Format the metadata through a `Debug` adapter, like the existing `MetadataDisplay`
   (`vortex-array/src/dtype/extension/erased.rs:181-191`).
 
+## U9. Storage pushdown results
+
+- `ExtensionStoragePushdown` gives each result of `A` that is a value of the input the extension
+  dtype `E` back, before it returns the result (X12). This changes `return_dtype`, `finalize` and
+  `finalize_scalar` (`vortex-array/src/aggregate_fn/storage_pushdown.rs:200`, `:299`, `:307`). For
+  `min_max`, the `min` and `max` fields become values of `E`. The `Bool` of `is_sorted` stays as
+  it is.
+- The adapter must know which parts of a result are values of the input. A method on
+  `AggregateFnVTable` can say this, with a default of "none". `MinMax` declares both of its fields.
+  This is a narrow form of XQ5, so the method must leave room for the bound kind.
+- Partial states can stay in storage form. The docs of the adapter allow partials to combine only
+  when the aggregate, the options and the full input dtype match.
+- Remove the docs sentence that results are not converted back to `E` (`storage_pushdown.rs:57-59`).
+
+Visible change: `vortex.min_max[vortex.timestamp]` returns `Timestamp` values, like plain `min_max`.
+Only tests ask for the composite IDs today, so no other caller changes. The regression test compares
+the result of the adapter with the result of plain `min_max`.
+
 ## Coordination with open work
 
 Three PRs added or add mechanisms for extension semantics:
@@ -137,12 +156,13 @@ Three PRs added or add mechanisms for extension semantics:
 - [#10566](https://github.com/vortex-data/vortex/pull/10566) added `ExtensionStoragePushdown`, an
   aggregate adapter with a composite ID, and
   [#10616](https://github.com/vortex-data/vortex/pull/10616) registered it for the temporal types
-  and `Uuid`. Both merged on 2026-10-20. They are a temporary bridge until phase 2 (X10).
+  and `Uuid`. Both merged on 2026-10-20. The adapter stays, and U9 fixes its results. In phase 2, a
+  declaration on the type registers it (X10).
 - [#10408](https://github.com/vortex-data/vortex/pull/10408) adds `between` pushdown for
   `AnyTemporal`. It is an open draft.
 
-Each one is a reasonable local fix, but each one fixes a different mechanism in place. Phase 2
-moves them onto the opt-in mechanism of part 3.
+Phase 2 moves the `between` pushdown onto the opt-in mechanism of part 3, and it replaces the
+hand-written registrations of the adapter with declarations on the types.
 
 The new extension types `Duration` ([#10467](https://github.com/vortex-data/vortex/pull/10467))
 and `Interval` ([#10468](https://github.com/vortex-data/vortex/pull/10468)) are open. Both edit

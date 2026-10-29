@@ -261,6 +261,9 @@ open). These notes recommend three kinds:
   they declare a value.
 - Any other result stays as it is, for example the `Bool` of `is_sorted`.
 
+`ExtensionStoragePushdown` reads the same declaration to wrap its results (X12). U9 adds a narrow
+form of it first, for `min_max`.
+
 A value result can only get its top-level layer back. So if a value result holds extension values
 inside a container, for example `min` over `List<Timestamp(ms)>`, typing rejects the call.
 
@@ -806,6 +809,7 @@ These results come from reading the code, not from a run.
 | 0, U6 | `vortex-array/src/arrays/extension/vtable/mod.rs`, `vortex-array/src/scalar/validate.rs`, `vortex-array/src/scalar/scalar_impl.rs` |
 | 0, U7 | `vortex-array/src/scalar/scalar_impl.rs`, `vortex-array/src/scalar/scalar_value.rs` |
 | 0, U8 | `vortex-array/src/dtype/extension/erased.rs` |
+| 0, U9 | `vortex-array/src/aggregate_fn/{storage_pushdown,vtable}.rs`, `vortex-array/src/aggregate_fn/fns/min_max/mod.rs` |
 | 1 | `vortex-array/src/dtype/extension/vtable.rs`, `vortex-array/src/arrays/extension/array.rs` (`new_unchecked`), `vortex-array/src/compute/conformance/`, `vortex-array/src/extension/tests/` |
 | 2 | `vortex-array/src/dtype/extension/{vtable,typed,erased}.rs`, `vortex-array/src/scalar_fn/vtable.rs`, `vortex-array/src/aggregate_fn/{vtable,erased}.rs`, `vortex-array/src/expr/bound_expression.rs`, `vortex-array/src/arrays/scalar_fn/array.rs`, `vortex-array/src/optimizer/`, `vortex-array/src/scalar_fn/fns/{binary,between,cast,dynamic.rs,ext_storage.rs}`, `vortex-array/src/scalar_fn/fns/binary/compare/nested.rs`, `vortex-array/src/aggregate_fn/fns/{min,max,min_max,bounded_min,bounded_max,is_sorted}/`, `vortex-array/src/arrays/extension/compute/compare.rs`, `vortex-array/src/scalar/scalar_impl.rs`, `vortex-array/src/scalar/typed_view/extension/mod.rs`, `vortex-layout/src/layouts/zoned/writer.rs`, `vortex-row/src/encoder.rs`, `vortex-duckdb/src/table_function.rs`, `vortex-array/src/aggregate_fn/{session,storage_pushdown}.rs` and `encodings/uuid/src/lib.rs` (X10) |
 | 3 | `vortex-array/src/scalar_fn/fns/cast/mod.rs`, `vortex-array/src/extension/datetime/`, `vortex-duckdb/src/convert/expr.rs`, `vortex-datafusion/src/convert/exprs/mod.rs` |

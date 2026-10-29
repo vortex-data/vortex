@@ -10,9 +10,9 @@ the human documents use. All paths are relative to the repository root. All line
 `develop` at commit `5fc5cb8` (2026-10-17), except where an entry names `1d09649bbd`.
 
 A second read on 2026-10-29 checked every finding against `develop` at `1d09649bbd`, 214 commits
-later. No commit fixed a finding. EXT-A1 changed, and the entries for EXT-Q3, EXT-V8, EXT-B4 and
-EXT-R4 gained new facts. `../04-urgent-changes.md` gives the line numbers at `1d09649bbd` for the
-code that U1 to U8 change. Lines in other files can have moved.
+later. No commit fixed a finding. EXT-A1 changed, EXT-A3 is new, and the entries for EXT-Q3,
+EXT-V8, EXT-B4 and EXT-R4 gained new facts. `../04-urgent-changes.md` gives the line numbers at
+`1d09649bbd` for the code that U1 to U9 change. Lines in other files can have moved.
 
 This catalog covers current code only. Problems in the proposed design appear as design rationale
 in `design-notes.md`.
@@ -57,6 +57,7 @@ Terms:
 | EXT-Q3 | `DateTimeParts` compare kernel trusts its operand types | S1 | probe |
 | EXT-A1 | Ordering-based operations disagree about extension types | S3 | probe |
 | EXT-A2 | Zone maps fall back to storage statistics | S3 | code |
+| EXT-A3 | The storage pushdown returns storage values | S1 | code |
 | EXT-V1 | Arrays are never value-checked, and reads panic on bad values | S2 | probe |
 | EXT-V2 | `Extension::validate` never checks the storage dtype | S2 | probe |
 | EXT-V3 | Zero values come from storage and skip extension validation | S2 | probe |
@@ -249,8 +250,8 @@ Terms:
     without a merge on 2026-10-19.
   - PR #10566 merged on 2026-10-20. It adds `ExtensionStoragePushdown<A, E>`
     (`vortex-array/src/aggregate_fn/storage_pushdown.rs` at `1d09649bbd`), an adapter with the
-    composite aggregate ID `<A>[<E>]`. Its results are storage values, and its docs say that the
-    conditions for a correct registration "are not checked".
+    composite aggregate ID `<A>[<E>]`. Its results are storage values (EXT-A3), and its docs say
+    that the conditions for a correct registration "are not checked".
   - PR #10616 merged on 2026-10-20. `register_storage_ordered` registers the adapter for `IsSorted`
     and `MinMax`. The default session calls it for `Date`, `Time` and `Timestamp`
     (`vortex-array/src/aggregate_fn/session.rs:134-136` at `1d09649bbd`), and
@@ -267,7 +268,7 @@ Terms:
   for extension types over float storage (`min_max/mod.rs:169-200`), which applies storage
   semantics in one more place. The `vortex-row` and `sum` rejections are unchanged.
 - **Fix:** Make every ordering-based operation read one declaration (see `design-notes.md`). The
-  composite aggregates are a temporary bridge until then (X10).
+  adapter of #10566 stays, and a declaration on the type registers it (X10).
 
 ### EXT-A2: Zone maps fall back to storage statistics
 
@@ -281,6 +282,22 @@ Terms:
 - **Impact:** WKB zone maps store whole geometry blobs as their min and max, ordered by bytes.
 - **Fix:** Store storage statistics explicitly for every extension column, and have pruning use them
   through `ext_storage` (see `design-notes.md`).
+
+### EXT-A3: The storage pushdown returns storage values
+
+- **Location:** `vortex-array/src/aggregate_fn/storage_pushdown.rs` at `1d09649bbd`. The docs say
+  that results "are not converted back to `E`" (lines 57-59). `return_dtype`, `finalize` and
+  `finalize_scalar` pass the results of `A` over the storage dtype through unchanged (lines 200,
+  299 and 307).
+- **Impact:** `vortex.min_max[vortex.timestamp]` returns raw `i64` values, without the time unit or
+  the time zone. Plain `vortex.min_max` wraps its results in the extension dtype
+  (`vortex-array/src/aggregate_fn/fns/min_max/extension.rs:28-29`), so the two aggregates return
+  different dtypes for the same column. No caller wraps the result later. Outside of
+  `storage_pushdown.rs`, only the registrations (`vortex-array/src/aggregate_fn/session.rs:134-136`
+  and `:192-194`, `encodings/uuid/src/lib.rs:46`) and the `Uuid` tests name the adapter. The test
+  `pushes_down_into_storage` (`storage_pushdown.rs:350`) asserts the storage result.
+- **Fix:** U9. The adapter gives each result that is a value of the input the extension dtype back
+  (X12).
 
 ### EXT-V1: Arrays are never value-checked, and reads panic on bad values
 

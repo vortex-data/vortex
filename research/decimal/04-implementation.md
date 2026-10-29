@@ -191,7 +191,7 @@ files. The column "Shared files" names the pairs that do not, so run those one a
 | 1 | FX1, FX3, WD1, CD1, CD2, CD3, CD4p | No dependencies. The next regular release after CD2 publishes the fixtures | CD2 calls `smallest_decimal_value_type`, which CD3 removes. The second of the two to merge adapts |
 | 2 | WD2, WD6, CD3b, CD7, CD5 | WD6 needs only WD1 (D35). CD7 waits for CD1 and CD3b, and it merges right after CD5. CD5 waits for the release with CD2 | CD5 and CD7: the crate doc in `encodings/decimal-byte-parts/src/lib.rs`, the tests in `assemble.rs`, and `benches/dbp_assemble.rs`. CD7 also changes the signature of `split_decimal`. WD6 and CD7: the golden snapshots of `vortex-btrblocks` |
 | 3 | WD3, then WD4 | One stack. Read the CodSpeed reports with the rule in the NR brief ("CodSpeed on stacked PRs") | None |
-| 4 | WD5, CD4 | FX3 is merged (`dcb4f50ae2`). Settle the mechanism question of #10748 before WD5, so that WD5 and phase 4a of the extension notes can share it | Both edit `vortex-array/src/arrays/widen/rules.rs` |
+| 4 | WD5, CD4 | FX3 is merged (`dcb4f50ae2`) | Both edit `vortex-array/src/arrays/widen/rules.rs` |
 | 5 | CD6 | Waits for FX1, CD4 and the release with CD2 | None |
 | 6 | CD8a | The last in-memory step that the wire change needs | None |
 | 7 | CD8b, CD8c, WR1 | Each needs only CD8a | CD8b adds a `ctx` parameter to `DecimalArray::new` and `try_new`, which CD8c and WR1 call. CD8b and CD8c both edit `vortex-array/src/builders/decimal.rs` and the same tests. Land CD8b first, or rebase the others on it |

@@ -1375,7 +1375,7 @@ needs an **optional** node.
 
 | Id | Node | Kind | Notes |
 | --- | --- | --- | --- |
-| N1 | Extension opacity fixes | impl, urgent | The urgent changes U1 to U8 of the extension notes. They cover storage casts, lone-side storage compares, errors from reads, nullability, temporal validation, storage checks, zero values and debug output |
+| N1 | Extension opacity fixes | impl, urgent | The urgent changes U1 to U9 of the extension notes. They cover storage casts, lone-side storage compares, errors from reads, nullability, temporal validation, storage checks, zero values, debug output and the results of the storage pushdown |
 | N2 | Rewrite rules that the type owns | research, then impl | X4: a type implements its behavior as rewrite rules on arrays, registered with the type. There is no `ext_wrap`. X5 and X6 add the placement rule and the removal of nested extension layers. Recommendation (XQ2): the rules live on `ExtVTable`, written over `ReduceNode` |
 | N3 | Derives for one dtype | impl | X2: `eq` and `ord` are properties of one dtype and never apply across dtypes. Operations across dtypes need a rule of the type (N2) or a cast by the engine (X3) |
 | N4 | Cast rules (#8570) | impl | C1: a cast exists only if a rule for the pair exists. Extension types own cast rules (X4), in place of the `cast_to` and `cast_from` closures of #8570. CQ1, the default for inexact values, is open |
@@ -1594,12 +1594,12 @@ soft: the target works without the source, but it is cheaper, safer, or faster w
 ### 7.5 Mapping to the extension-type research
 
 The extension-type notes in `../../extension-types/` use their own ids for urgent changes (U1 to
-U8) and phases (0 to 6, with phase 4 split into 4a and 4b). The decisions file adds ids X1 to X11
+U9) and phases (0 to 6, with phase 4 split into 4a and 4b). The decisions file adds ids X1 to X12
 and XQ1 to XQ7. This table maps them onto the graph.
 
 | Extension research item | Node here |
 | --- | --- |
-| U1 to U8, the urgent changes | N1, item P3 in section 8.3. U5 and U6 are dtype and storage checks, not the value validation of N5 |
+| U1 to U9, the urgent changes | N1, item P3 in section 8.3. U5 and U6 are dtype and storage checks, not the value validation of N5 |
 | U4 infallible nullability changes | Part of N1. It also removes the panic in the rebuild that edge 35 describes |
 | Phase 1, contract and conformance harness | Not a separate node. Its decimal-like reference type over `i64` is an early acceptance test for N3 and N13 |
 | Phase 2, typing, derives and rewrite rules (X2, X4) | N2 and N3. Part 5 of the extension notes lands them after phases 0 and 1, which the graph does not show |
@@ -1738,7 +1738,7 @@ Independent changes, in any order. The PR lists in #10701 and #10733 track their
   part must land before step 4 of the in-memory change.
 - **P2.** Dropped. The DBP nullability guard (section 3.3) closed without a merge as #10746,
   because #10798 documents the push-down form of the rule as valid.
-- **P3.** N1: the urgent extension changes U1 to U8.
+- **P3.** N1: the urgent extension changes U1 to U9.
 - **P4.** The integer `Widen` in memory. #10223, #10332 and #10333 closed on 2026-10-23. The
   new PRs are written from scratch, with the local rewrite of #10223 and #10332 as a reference
   (D38). WD1 adds `WidenArray::encode_values`, and WD6 moves the call sites to it (D28). The fix

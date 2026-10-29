@@ -114,32 +114,34 @@ So `ts < 5i64` stays rejected, because only one side is an extension.
 | `Json`, WKB, native geometry | None |
 | Unknown type | None |
 
-### A temporary opt-in for aggregates
+### The aggregate opt-in today
 
-`develop` already has a narrower opt-in for aggregates, from
+`develop` already has an opt-in for aggregates, from
 [#10566](https://github.com/vortex-data/vortex/pull/10566) and
 [#10616](https://github.com/vortex-data/vortex/pull/10616). `ExtensionStoragePushdown<A, E>` runs
-aggregate `A` on the storage of extension type `E`, and `register_storage_ordered` registers it for
-`is_sorted` and `min_max`. The default session registers it for `Date`, `Time` and `Timestamp`, and
-`vortex_uuid::initialize` registers it for `Uuid`. It is a temporary bridge until phase 2 (X10),
-and it differs from this design in three ways:
+aggregate `A` on the storage of extension type `E`, under a separate aggregate ID such as
+`vortex.min_max[vortex.timestamp]`. `register_storage_ordered` registers it for `is_sorted` and
+`min_max`. The default session calls it for `Date`, `Time` and `Timestamp`, and
+`vortex_uuid::initialize` calls it for `Uuid`.
 
-- The opt-in lives in the aggregate session, under a separate aggregate ID such as
-  `vortex.min_max[vortex.timestamp]`. Plain `min_max` and `is_sorted` do not consult it, so plain
-  `min_max` still uses storage order for every extension type, and plain `is_sorted` still rejects
-  every extension type. A consumer gets the opt-in only if it asks for the composite ID, and today
-  only tests do. In this design, the type declares its behavior once, and every consumer reads
-  that declaration through the typing check and the rules.
-- Its results are storage values. The min of a `Timestamp(ms)` column is a raw `i64`, without its
-  time unit or time zone. In this design, a result that is a value of the input gets the extension
-  dtype back (XQ5). Storage results are correct only for statistics, which store storage values
-  (section "Statistics").
-- Any crate can register any pair of an aggregate and a type, and nothing checks the pair. The docs
-  of the pushdown say that an invalid registration "can silently return incorrect results". In this
-  design, only the type declares what it inherits.
+The adapter fits this design, and it stays (X10). It is how a type with an order opt-in gets
+`is_sorted` and `min_max` on its storage. Two parts change:
 
-Phase 2 replaces each registration with a declaration on the type, and the composite IDs then go
-away.
+- Registration. Today a crate calls `register_storage_ordered` by hand, and nothing checks the call.
+  The docs of the adapter say that an invalid registration "can silently return incorrect results".
+  In this design, a declaration on the type registers the adapter automatically. The type author
+  then makes the claim once, as for any other opt-in. XQ7 decides which declaration does this.
+- Results. Today the results are storage values. The min of a `Timestamp(ms)` column is a raw
+  `i64`, without its time unit or time zone. Nothing wraps the result later, and plain `min_max`
+  already returns extension values. The adapter must give each result that is a value of the input
+  the extension dtype back, before it returns the result (X12, U9). The `Bool` of `is_sorted` stays
+  as it is.
+
+One question stays open. Plain `min_max` and `is_sorted` do not consult the adapter, so a consumer
+gets the opt-in only if it asks for the composite ID, and today only tests do. Meanwhile plain
+`min_max` uses storage order for every extension type, and plain `is_sorted` rejects every extension
+type. These notes recommend that the plain aggregates route to the registered adapter, so that
+consumers such as zone maps and engine pushdown need no composite IDs (XQ7).
 
 ### Operations across dtypes
 
@@ -220,9 +222,9 @@ get support from the same method.
 
 The lift rule is the extension case of issue
 [#10748](https://github.com/vortex-data/vortex/issues/10748), which keeps generic structural
-encodings above every other encoding. `Widen` needs the same rule (D25), and WD5 plans it for
-`Widen` only. If the method above serves every wrapping encoding, `Widen`, `Extension` and later
-wrappers share one mechanism, and no wrapper needs its own copy of the seven rules.
+encodings above every other encoding. Nothing depends on it for correctness. Without it, fast paths
+that look only at the root of an array, such as dictionary export and `as_constant`, fall back to
+slower paths with the same results. It has low priority.
 
 Type-specific encodings are a separate question. `DateTimeParts` moves under the wrapper as an
 `i64` encoding, so its compare kernel works on storage. The compressor chooses it from the
