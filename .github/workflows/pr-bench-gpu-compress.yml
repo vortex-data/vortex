@@ -20,7 +20,7 @@ jobs:
     name: GPU Compression
     timeout-minutes: 120
     runs-on: >-
-      runs-on=${{ github.run_id }}/family=g5/cpu=8/image=ubuntu24-gpu-x64/extras=s3-cache/tag=gpu-compress-bench
+      runs-on=${{ github.run_id }}/region=us-east-1/family=g5/cpu=8/image=ubuntu24-gpu-x64/extras=s3-cache/tag=gpu-compress-bench
     steps:
       - uses: runs-on/action@v2
         with:

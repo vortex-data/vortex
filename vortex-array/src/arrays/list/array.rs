@@ -280,7 +280,7 @@ impl ListData {
     // TODO(connor)[ListView]: Create 2 functions `reset_offsets` and `recursive_reset_offsets`,
     // where `reset_offsets` is infallible.
     // Also, `reset_offsets` can be made more efficient by replacing `sub_scalar` with a match on
-    // the offset type and manual subtraction and fast path where `offsets[0] == 0`.
+    // the offset type and manual subtraction.
 }
 
 pub trait ListArrayExt: ListArraySlotsExt {
@@ -351,10 +351,14 @@ pub trait ListArrayExt: ListArraySlotsExt {
 
         let offsets = self.offsets();
         let first_offset = offsets.execute_scalar(0, ctx)?;
-        let adjusted_offsets = offsets.clone().binary(
-            ConstantArray::new(first_offset, offsets.len()).into_array(),
-            Operator::Sub,
-        )?;
+        let adjusted_offsets = if first_offset.is_zero() == Some(true) {
+            offsets.clone()
+        } else {
+            offsets.clone().binary(
+                ConstantArray::new(first_offset, offsets.len()).into_array(),
+                Operator::Sub,
+            )?
+        };
 
         // SAFETY: By resetting the offsets we simply "shift" everything left and discard trailing garbage, so all invariants remain the same.
         Ok(unsafe { ListArray::new_unchecked(elements, adjusted_offsets, self.list_validity()) })

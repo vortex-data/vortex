@@ -59,7 +59,7 @@ pub struct ScanDriver {
     /// Whether batches are yielded in row order, which holds them until the scan is done.
     ordered: bool,
     consumer_mapping: bool,
-    parallel_mapping: bool,
+    mapping_concurrency: usize,
     chunk_admission: Option<Arc<Semaphore>>,
     admit_after_io: bool,
     #[cfg(all(target_os = "linux", feature = "io-uring"))]
@@ -73,7 +73,7 @@ impl ScanDriver {
             concurrency,
             ordered,
             consumer_mapping: false,
-            parallel_mapping: false,
+            mapping_concurrency: 1,
             chunk_admission: None,
             admit_after_io: false,
             #[cfg(all(target_os = "linux", feature = "io-uring"))]
@@ -102,9 +102,9 @@ impl ScanDriver {
         self
     }
 
-    pub(crate) fn with_consumer_mapping(mut self, enabled: bool, parallel: bool) -> Self {
+    pub(crate) fn with_consumer_mapping(mut self, enabled: bool, concurrency: usize) -> Self {
         self.consumer_mapping = enabled;
-        self.parallel_mapping = enabled && parallel;
+        self.mapping_concurrency = concurrency.max(1);
         self
     }
 
@@ -208,7 +208,7 @@ impl ScanDriver {
         } else {
             batches.map_ok(|(_, batch)| batch).boxed()
         };
-        if !self.parallel_mapping {
+        if !self.consumer_mapping || self.mapping_concurrency == 1 {
             return batches
                 .and_then(move |batch| {
                     future::ready(match batch {
@@ -218,7 +218,13 @@ impl ScanDriver {
                 })
                 .boxed();
         }
-        map_chunks(batches, output_handle, output_map, self.ordered, in_flight)
+        map_chunks(
+            batches,
+            output_handle,
+            output_map,
+            self.ordered,
+            in_flight.min(self.mapping_concurrency),
+        )
     }
 }
 

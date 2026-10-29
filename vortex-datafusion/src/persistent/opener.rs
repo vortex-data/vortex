@@ -539,8 +539,9 @@ impl FileOpener for VortexOpener {
                     chunks(None)
                 };
 
+                let mapping_concurrency = if fixed_width_output { 4 } else { usize::MAX };
                 let driver = ScanDriver::new(handle, concurrency, has_output_ordering)
-                    .with_consumer_mapping(consumer_mapping, !fixed_width_output);
+                    .with_consumer_mapping(consumer_mapping, mapping_concurrency);
                 let driver = vortex_reader_factory.configure_v2_driver(driver);
                 Ok(driver.run(scan, root, map_batch))
             } else {

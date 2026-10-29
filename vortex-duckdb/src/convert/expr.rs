@@ -81,14 +81,28 @@ use crate::duckdb::ExpressionClass::BoundConjunction;
 use crate::duckdb::ExpressionClass::BoundConstant;
 use crate::duckdb::ExpressionClass::BoundRef;
 use crate::duckdb::ExpressionRef;
+use crate::duckdb::ExtractedValue;
 use crate::projection::DuckdbField;
 
-fn from_bound_str(value: &ExpressionRef) -> VortexResult<String> {
-    match value.as_class().vortex_expect("unknown class") {
-        BoundConstant(constant) => Ok(constant.value.as_string().as_str().to_owned()),
-        _ => {
-            vortex_bail!("Expected string expression, got {:?}", value.as_class_id())
+fn from_bound_str(value: &ExpressionRef) -> Option<String> {
+    let BoundConstant(constant) = value.as_class()? else {
+        return None;
+    };
+    match constant.value.extract() {
+        ExtractedValue::Varchar(string) => Some(string.as_str().to_owned()),
+        _ => None,
+    }
+}
+
+/// The constant pattern of a `contains`/`prefix`/`suffix` call over a string.
+fn string_matcher_pattern(children: &[&ExpressionRef]) -> Option<String> {
+    match children {
+        [value, pattern]
+            if value.return_type().as_type_id() == DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR =>
+        {
+            from_bound_str(pattern)
         }
+        _ => None,
     }
 }
 
@@ -98,6 +112,14 @@ fn returns_a_list(expr: &ExpressionRef) -> bool {
         expr.return_type().as_type_id(),
         DUCKDB_TYPE::DUCKDB_TYPE_LIST | DUCKDB_TYPE::DUCKDB_TYPE_ARRAY
     )
+}
+
+/// Struct field table filters skip `can_push_expression`, so fail rather than drop them.
+fn unsupported_struct_access(ctx: ConvertCtx<'_>, what: &str) -> VortexResult<Option<Expression>> {
+    if ctx.col_sub.is_some() {
+        vortex_bail!("{what} is not supported");
+    }
+    Ok(None)
 }
 
 /// Wrap `expr` in `list_length`. Since vortex `list_length` returns u64 but duckdb equivalents
@@ -281,9 +303,12 @@ fn try_from_bound_function(
             let Some(child) = try_from_expression_inner(children[0], ctx)? else {
                 return Ok(None);
             };
-            let field = from_bound_str(children[1])?;
+            let Some(field) = from_bound_str(children[1]) else {
+                return unsupported_struct_access(ctx, "struct_extract with a non-string key");
+            };
             get_item(field, child)
         }
+        "struct_extract_at" => return unsupported_struct_access(ctx, "struct_extract_at"),
         like @ ("~~" | "!~~") => {
             let children: Vec<_> = func.children().collect();
             vortex_ensure_eq!(children.len(), 2);
@@ -301,11 +326,12 @@ fn try_from_bound_function(
         }
         matchers @ ("contains" | "prefix" | "suffix") => {
             let children: Vec<_> = func.children().collect();
-            vortex_ensure_eq!(children.len(), 2);
+            let Some(pattern) = string_matcher_pattern(&children) else {
+                return Ok(None);
+            };
             let Some(value) = try_from_expression_inner(children[0], ctx)? else {
                 return Ok(None);
             };
-            let pattern = from_bound_str(children[1])?;
             let pattern = match matchers {
                 "contains" => format!("%{pattern}%"),
                 "prefix" => format!("{pattern}%"),
@@ -397,13 +423,15 @@ fn can_push_cast(cast: &duckdb::BoundCast<'_>, target: &duckdb::LogicalTypeRef) 
     !cast.is_try && target.is_primitive_integer() && cast.child.return_type().is_primitive_integer()
 }
 
-// Called before pushdown_complex_filter or a table filter expression call.
+// Called before DuckDB turns a filter that pushdown_complex_filter declined into a
+// table filter. Comparisons of a column or struct field with a constant are pushed
+// without this check.
 // As we support complex filter pushdown, Duckdb pushes expressions to Vortex.
 // However, it doesn't know what type of expressions we can handle. Here we list
-// all expressions that are quaranteed to be converted to Vortex expressions.
+// all expressions that are guaranteed to be converted to Vortex expressions.
 //
-// If we return true here, and expression is in the list for
-// pushdown_complex_filter, we must handle it, or query engine will break.
+// Returning true removes the filter from DuckDB's plan, so try_from_table_filter
+// must convert it.
 //
 // Example: we don't support substr() expression so we tell Duckdb we can't
 // push it.
@@ -429,19 +457,19 @@ pub fn can_push_expression(value: &ExpressionRef) -> bool {
         }
         BoundConjunction(conj) => conj.children().all(can_push_expression),
         ExpressionClass::BoundFunction(func) => {
-            let name = func.scalar_function.name();
-            name == "struct_extract"
-                || name == "contains"
-                || name == "prefix"
-                || name == "suffix"
-                || name == "~~"
-                || name == "!~~"
-                || name == "strlen"
-                || name == "array_length"
-                || (matches!(name, "len" | "length") && is_supported_length_alias(&func))
-            // Spatial functions are absent on purpose: they push only via
-            // `pushdown_complex_filter`, which has the scan's fields to verify the geometry
-            // columns are native.
+            let children: Vec<_> = func.children().collect();
+            let supported = match func.scalar_function.name() {
+                "~~" | "!~~" | "strlen" => true,
+                "struct_extract" => children.len() == 2 && from_bound_str(children[1]).is_some(),
+                "contains" | "prefix" | "suffix" => string_matcher_pattern(&children).is_some(),
+                "array_length" => children.len() == 1,
+                "len" | "length" => is_supported_length_alias(&func),
+                // Spatial functions are absent on purpose: they push only via
+                // `pushdown_complex_filter`, which has the scan's fields to verify the geometry
+                // columns are native.
+                _ => false,
+            };
+            supported && children.into_iter().all(can_push_expression)
         }
         ExpressionClass::BoundOperator(op) => {
             if matches!(
