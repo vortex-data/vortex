@@ -91,6 +91,12 @@ pub trait VortexReadAt2: Send + Sync + 'static {
     /// Registers a batch atomically; a registration error accepts none of it.
     fn submit(&self, requests: &[ReadRequest]) -> VortexResult<()>;
 
+    /// Takes an immediately available result without advancing or submitting queued IO.
+    /// Readers may leave this optimization unsupported and return completions through polling.
+    fn take_ready(&self) -> VortexResult<Option<ReadCompletion>> {
+        Ok(None)
+    }
+
     /// Consumes an available completion without waiting; may advance the implementation's driver.
     fn try_complete(&self) -> VortexResult<Option<ReadCompletion>>;
 

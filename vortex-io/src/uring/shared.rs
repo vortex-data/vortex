@@ -343,7 +343,7 @@ impl VortexReadAt2 for SharedReader {
         Ok(())
     }
 
-    fn try_complete(&self) -> VortexResult<Option<ReadCompletion>> {
+    fn take_ready(&self) -> VortexResult<Option<ReadCompletion>> {
         let mut state = self.state.lock();
         while let Some(completion) = state.ready.pop_front() {
             if state.live.remove(&completion.id) {
@@ -351,6 +351,10 @@ impl VortexReadAt2 for SharedReader {
             }
         }
         Ok(None)
+    }
+
+    fn try_complete(&self) -> VortexResult<Option<ReadCompletion>> {
+        self.take_ready()
     }
 
     fn poll_complete(&self, cx: &mut Context<'_>) -> Poll<VortexResult<ReadCompletion>> {

@@ -121,6 +121,15 @@ impl IoSource for Source {
         Ok(())
     }
 
+    fn take_ready(&self) -> VortexResult<Option<Completion>> {
+        while let Some(completion) = self.reader()?.take_ready()? {
+            if let Some(completion) = self.deliver(completion)? {
+                return Ok(Some(completion));
+            }
+        }
+        Ok(None)
+    }
+
     fn poll(&self) -> VortexResult<Option<Completion>> {
         while let Some(completion) = self.reader()?.try_complete()? {
             if let Some(completion) = self.deliver(completion)? {

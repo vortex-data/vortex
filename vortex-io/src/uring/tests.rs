@@ -59,6 +59,56 @@ fn request(id: u64, offset: u64, length: usize) -> ReadRequest {
     }
 }
 
+#[rstest]
+#[tokio::test]
+async fn ready_completions_preserve_queued_read_batching(
+    #[values(TestMode::Mapped, TestMode::MappedRead)] mode: TestMode,
+) -> VortexResult<()> {
+    let mut temporary = NamedTempFile::new()?;
+    temporary.write_all(&[41; 8192])?;
+    let file = mode.open(temporary.path())?;
+    let pool = UringWorkerPool::with_inherited_affinity(
+        1,
+        UringOptions {
+            check_resident_pages: true,
+            coalesce: true,
+            read_mapped_misses: matches!(mode, TestMode::MappedRead),
+            ..Default::default()
+        },
+    )?;
+    pool.spawn(move || {
+        let reader = file.session()?;
+        reader.submit(&[request(0, 0, 4096)])?;
+        assert!(reader.take_ready()?.is_none());
+        assert_eq!(file.stats().physical_reads, 0);
+        reader.submit(&[request(1, 4096, 4096)])?;
+        assert!(reader.take_ready()?.is_none());
+        assert_eq!(file.stats().physical_reads, 0);
+        for _ in 0..2 {
+            let ReadResult::Bytes(bytes) = reader.wait()?.result? else {
+                panic!("expected bytes");
+            };
+            assert_eq!(bytes.try_into_host_sync()?.as_slice(), &[41; 4096]);
+        }
+        assert_eq!(file.stats().physical_reads, 1);
+
+        reader.submit(&[request(2, 64, 128), request(3, 256, 128)])?;
+        reader.cancel(ReadId(2));
+        let completion = reader
+            .take_ready()?
+            .expect("resident read completes inline");
+        assert_eq!(completion.id, ReadId(3));
+        let ReadResult::Bytes(bytes) = completion.result? else {
+            panic!("expected bytes");
+        };
+        assert_eq!(bytes.try_into_host_sync()?.as_slice(), &[41; 128]);
+        assert!(reader.take_ready()?.is_none());
+        assert_eq!(file.stats().physical_reads, 1);
+        Ok(())
+    })
+    .await
+}
+
 #[tokio::test]
 async fn eager_kernel_worker_inherits_affinity_before_scan_worker_is_pinned() -> VortexResult<()> {
     let allowed = rustix::thread::sched_getaffinity(None).map_err(io::Error::from)?;

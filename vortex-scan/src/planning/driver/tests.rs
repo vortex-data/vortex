@@ -740,6 +740,7 @@ fn runnable_roots_follow_admission_order() -> VortexResult<()> {
 struct PollingSource {
     inner: Arc<RecordingIoSource>,
     outstanding: AtomicUsize,
+    immediate: bool,
 }
 
 impl IoSource for PollingSource {
@@ -752,6 +753,14 @@ impl IoSource for PollingSource {
             Ordering::Relaxed,
         );
         self.inner.submit(owner, batch)
+    }
+
+    fn take_ready(&self) -> VortexResult<Option<Completion>> {
+        if self.immediate {
+            self.poll()
+        } else {
+            Ok(None)
+        }
     }
 
     fn poll(&self) -> VortexResult<Option<Completion>> {
@@ -787,6 +796,7 @@ fn polls_io_while_a_later_branch_keeps_computing() -> VortexResult<()> {
     let io = Arc::new(PollingSource {
         inner: source(),
         outstanding: AtomicUsize::new(0),
+        immediate: false,
     });
     let mut run = Run::new().with_step_limit(1_000);
     run.admit(reading_root("earlier", &log, 0..1), scope(0..1), io);
@@ -810,5 +820,24 @@ fn polls_io_while_a_later_branch_keeps_computing() -> VortexResult<()> {
         .filter(|event| event.as_str() == "compute later")
         .count();
     assert!(later_visits > 0 && later_visits <= IO_POLL_INTERVAL);
+    Ok(())
+}
+
+#[test]
+fn resident_read_resumes_before_running_another_root() -> VortexResult<()> {
+    let log = Log::default();
+    let io = Arc::new(PollingSource {
+        inner: source(),
+        outstanding: AtomicUsize::new(0),
+        immediate: true,
+    });
+    let mut run = Run::new().with_step_limit(1_000);
+    run.admit(reading_root("resident", &log, 0..1), scope(0..1), io);
+    run.admit(reading_root("later", &log, 1..2), scope(1..2), source());
+    let Progress::Batch(batch) = run.advance()? else {
+        panic!("the resident read should produce a batch immediately");
+    };
+    assert_eq!(batch.root, RootId(0));
+    assert!(!log.events().iter().any(|event| event == "compute later"));
     Ok(())
 }

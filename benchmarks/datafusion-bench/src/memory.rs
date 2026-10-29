@@ -259,12 +259,16 @@ impl VortexReadAt2 for MemoryReadAt2 {
         Ok(())
     }
 
-    fn try_complete(&self) -> VortexResult<Option<ReadCompletion>> {
+    fn take_ready(&self) -> VortexResult<Option<ReadCompletion>> {
         let request = self.state.lock().queued.pop_front();
         Ok(request.map(|request| ReadCompletion {
             id: request.id,
             result: self.read(request.target),
         }))
+    }
+
+    fn try_complete(&self) -> VortexResult<Option<ReadCompletion>> {
+        self.take_ready()
     }
 
     fn poll_complete(&self, cx: &mut Context<'_>) -> Poll<VortexResult<ReadCompletion>> {

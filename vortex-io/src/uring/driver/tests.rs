@@ -419,12 +419,13 @@ fn shared_pending_reads_fail_when_the_owning_ring_stops(
 #[rstest]
 fn mapped_misses_use_owned_buffers_then_resident_views(
     #[values(false, true)] read_mapped_misses: bool,
+    #[values(TestMode::Mapped, TestMode::MappedRandom)] mode: TestMode,
 ) -> VortexResult<()> {
     let page = rustix::param::page_size();
     let data: Vec<u8> = (0_u8..251).cycle().take(page * 2 + 3).collect();
     let mut temporary = NamedTempFile::new()?;
     temporary.write_all(&data)?;
-    let file = TestMode::Mapped.open(temporary.path())?;
+    let file = mode.open(temporary.path())?;
     let mapping = file.mapping()?.expect("nonempty mapping");
     let state = Arc::new(Mutex::new(CompletionState::default()));
     state.lock().live.extend([ReadId(0), ReadId(1)]);
@@ -476,12 +477,13 @@ fn mapped_misses_use_owned_buffers_then_resident_views(
 fn resident_page_checks_fall_back_after_eviction(
     #[values(false, true)] check_resident_pages: bool,
     #[values(false, true)] read_mapped_misses: bool,
+    #[values(TestMode::Mapped, TestMode::MappedRandom)] mode: TestMode,
 ) -> VortexResult<()> {
     let mut temporary = NamedTempFile::new()?;
     let size = rustix::param::page_size() * 1030;
     temporary.write_all(&vec![43; size])?;
     temporary.as_file().sync_all()?;
-    let file = TestMode::Mapped.open(temporary.path())?;
+    let file = mode.open(temporary.path())?;
     let mapping = file.mapping()?.expect("nonempty mapping");
     let state = Arc::new(Mutex::new(CompletionState::default()));
     state.lock().live.extend((0..3).map(ReadId));

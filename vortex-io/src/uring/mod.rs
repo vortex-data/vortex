@@ -242,9 +242,10 @@ impl UringFile {
 
     /// Opens an immutable mapped file with random-access advice to limit kernel readahead.
     ///
-    /// Applies `MADV_RANDOM` to each new mapping, including after [`Self::release_mapping`].
-    /// Reads still use the OS page cache and mapped buffers; the advice may reduce sequential
-    /// scan throughput. The existing [`Self::open_mapped`] keeps the default readahead policy.
+    /// Applies `POSIX_FADV_RANDOM` to the file and `MADV_RANDOM` to each new mapping, including
+    /// after [`Self::release_mapping`]. The file advice also covers buffered READ misses.
+    /// Reads still use the OS page cache; the advice may reduce sequential scan throughput.
+    /// The existing [`Self::open_mapped`] keeps the default readahead policy.
     ///
     /// # Safety
     ///
@@ -278,6 +279,10 @@ impl UringFile {
         }
         let file =
             File::from(rustix::fs::open(path, flags, Mode::empty()).map_err(io::Error::from)?);
+        if random_access {
+            rustix::fs::fadvise(&file, 0, None, rustix::fs::Advice::Random)
+                .map_err(io::Error::from)?;
+        }
         let (memory_alignment, offset_alignment) = if mode == FileMode::Direct {
             let stat = rustix::fs::statx(&file, c"", AtFlags::EMPTY_PATH, StatxFlags::DIOALIGN)
                 .map_err(io::Error::from)?;
@@ -570,6 +575,11 @@ impl VortexReadAt2 for Reader {
             }
             Ok(())
         })
+    }
+
+    fn take_ready(&self) -> VortexResult<Option<ReadCompletion>> {
+        self.check_owner()?;
+        Ok(self.take())
     }
 
     fn try_complete(&self) -> VortexResult<Option<ReadCompletion>> {
