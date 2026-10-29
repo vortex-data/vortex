@@ -1,0 +1,2779 @@
+{
+  "cpu": "Intel Xeon 6975P-C",
+  "logical_cpu": 2,
+  "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.1\nLLVM version: 23.1.1",
+  "profile": "release_debug: opt-level=3, codegen-units=1, lto=off, debug=full",
+  "target_cpu": "default x86_64; repository force-frame-pointers config",
+  "runtime": "current-thread; mimalloc with benchmark allocator configuration",
+  "metric": "Vortex end-to-end write: train, encode, integer child compression, layout, in-memory serialization; MB/s of canonical uncompressed bytes",
+  "workloads": [
+    {
+      "column": "amazon/book_reviews",
+      "rows": 200000,
+      "cache": "string-bench/amazon_book_reviews.parquet"
+    },
+    {
+      "column": "amazon/book_titles",
+      "rows": 158864,
+      "cache": "string-bench/amazon_book_titles.parquet"
+    },
+    {
+      "column": "clickbench/URL/shard-0",
+      "rows": 1000000,
+      "cache": "clickbench_partitioned/parquet/hits_0.parquet"
+    },
+    {
+      "column": "fineweb/text",
+      "rows": 10000,
+      "cache": "string-bench/fineweb_text.parquet"
+    },
+    {
+      "column": "news/headlines",
+      "rows": 1226258,
+      "cache": "string-bench/news_headlines.parquet"
+    },
+    {
+      "column": "tpch/l_comment",
+      "rows": 6001215,
+      "cache": "tpch/1.0/parquet/lineitem_0001.parquet"
+    },
+    {
+      "column": "twitter/sentiment140",
+      "rows": 1360000,
+      "cache": "string-bench/twitter_sentiment140.parquet"
+    }
+  ],
+  "date": "2026-10-29",
+  "iterations": 7,
+  "warmup": 3,
+  "baseline_vortex_commit": "de1efa8cf67d4ae5d54358c598debdc2dda4ea3c",
+  "candidate_vortex_commit": "455f7d88ea52a45c5079e070c6ce92dafe5ad780",
+  "baseline_onpair_commit": "9b12a198545a5fd7dff6109e4fc32797d861e94f",
+  "candidate_onpair_commit": "ae79c5593a486f7be99fa3879df52047a0a379e4",
+  "commits": [
+    {
+      "variant": "span",
+      "sha": "a7f67bfec0d5f94ea61ce2094357ea81e7495678",
+      "change": "OR the positive candidate spans minus one before finding the highest set bit, replacing a serial maximum reduction. Its bit width equals bit_width(max(size)-1), so search steps are identical."
+    },
+    {
+      "variant": "buffers",
+      "sha": "95488ef2d0a5a3056bb09f87b26caa2b0617e7f2",
+      "change": "Reuse initialized lane code and row-end entries between batches; all output prefixes are overwritten before copying. Resize initializes only newly grown entries."
+    },
+    {
+      "variant": "candidate",
+      "sha": "ae79c5593a486f7be99fa3879df52047a0a379e4",
+      "change": "Parse up to64 rows with the branch-free loop, retaining its output. Choose a monomorphized loop for the remainder once: >=16 observed codes per row uses conditional row-completion work; otherwise retain the existing loop. Applies to Rows and Arrow. Explicit matcher array-fill loops prevent closure outlining from losing the target-feature caller's hardware POPCNT context."
+    }
+  ],
+  "candidate_isa": "AVX-512F + POPCNT, detected once per parse; six flat-rank lanes. Existing tree and scalar dispatch and inline-assembly comparisons retained. No extra ISA requirement.",
+  "method": "Each column ran in a separate process. Four variants ran serially back-to-back per column with rotated/reversed order, seven timed iterations after three warmups, CPU2. This session ran no builds, tests, or profiles concurrently with accepted timing. Normal round-trip checks remain enabled; data preparation/downloads are outside timing.",
+  "command_per_case": "taskset -c 2 <frozen-string-bench> --columns ^<column>$ --encoders onpair,fsst --iterations 7 --warmup 3 --display-format gh-json --output-path <output>.jsonl",
+  "environment": {
+    "TMPDIR": "workspace results/scratch",
+    "RUST_LOG": "info"
+  },
+  "raw_run_prefix": "parser-final-series",
+  "run_order": [
+    {
+      "column": "URL",
+      "variant": "baseline",
+      "label": "parser-final-series-baseline"
+    },
+    {
+      "column": "URL",
+      "variant": "span",
+      "label": "parser-final-series-span"
+    },
+    {
+      "column": "URL",
+      "variant": "buffers",
+      "label": "parser-final-series-buffers"
+    },
+    {
+      "column": "URL",
+      "variant": "candidate",
+      "label": "parser-final-series-candidate"
+    },
+    {
+      "column": "l_comment",
+      "variant": "baseline",
+      "label": "parser-final-series-baseline"
+    },
+    {
+      "column": "l_comment",
+      "variant": "candidate",
+      "label": "parser-final-series-candidate"
+    },
+    {
+      "column": "l_comment",
+      "variant": "buffers",
+      "label": "parser-final-series-buffers"
+    },
+    {
+      "column": "l_comment",
+      "variant": "span",
+      "label": "parser-final-series-span"
+    },
+    {
+      "column": "amazon/book_reviews",
+      "variant": "buffers",
+      "label": "parser-final-series-buffers"
+    },
+    {
+      "column": "amazon/book_reviews",
+      "variant": "candidate",
+      "label": "parser-final-series-candidate"
+    },
+    {
+      "column": "amazon/book_reviews",
+      "variant": "baseline",
+      "label": "parser-final-series-baseline"
+    },
+    {
+      "column": "amazon/book_reviews",
+      "variant": "span",
+      "label": "parser-final-series-span"
+    },
+    {
+      "column": "amazon/book_titles",
+      "variant": "buffers",
+      "label": "parser-final-series-buffers"
+    },
+    {
+      "column": "amazon/book_titles",
+      "variant": "span",
+      "label": "parser-final-series-span"
+    },
+    {
+      "column": "amazon/book_titles",
+      "variant": "baseline",
+      "label": "parser-final-series-baseline"
+    },
+    {
+      "column": "amazon/book_titles",
+      "variant": "candidate",
+      "label": "parser-final-series-candidate"
+    },
+    {
+      "column": "news/headlines",
+      "variant": "baseline",
+      "label": "parser-final-series-baseline"
+    },
+    {
+      "column": "news/headlines",
+      "variant": "span",
+      "label": "parser-final-series-span"
+    },
+    {
+      "column": "news/headlines",
+      "variant": "buffers",
+      "label": "parser-final-series-buffers"
+    },
+    {
+      "column": "news/headlines",
+      "variant": "candidate",
+      "label": "parser-final-series-candidate"
+    },
+    {
+      "column": "twitter/sentiment140",
+      "variant": "baseline",
+      "label": "parser-final-series-baseline"
+    },
+    {
+      "column": "twitter/sentiment140",
+      "variant": "candidate",
+      "label": "parser-final-series-candidate"
+    },
+    {
+      "column": "twitter/sentiment140",
+      "variant": "buffers",
+      "label": "parser-final-series-buffers"
+    },
+    {
+      "column": "twitter/sentiment140",
+      "variant": "span",
+      "label": "parser-final-series-span"
+    },
+    {
+      "column": "fineweb/text",
+      "variant": "buffers",
+      "label": "parser-final-series-buffers"
+    },
+    {
+      "column": "fineweb/text",
+      "variant": "candidate",
+      "label": "parser-final-series-candidate"
+    },
+    {
+      "column": "fineweb/text",
+      "variant": "baseline",
+      "label": "parser-final-series-baseline"
+    },
+    {
+      "column": "fineweb/text",
+      "variant": "span",
+      "label": "parser-final-series-span"
+    }
+  ],
+  "measurement_exclusions": [
+    {
+      "column": "clickbench/URL/shard-0",
+      "excluded_runs": "parser-final-series-{baseline,span,buffers,candidate}/URL",
+      "reason": "Artifact SHA256 generation overlapped the first baseline. All four URL variants were repeated serially after the full series, and only the replacement measurements are used.",
+      "replacement_run_prefix": "parser-final-confirm-url"
+    }
+  ],
+  "binary_hashes": {
+    "string-bench-fixed-range-final": {
+      "sha256": "677f96f8adc3dba45626f6bd08d8e5fb69a2c971db72c036308ae05ad7874fee",
+      "bytes": 1050931208
+    },
+    "string-bench-parser-span-or": {
+      "sha256": "3258095b9cb4e5c80e6686bb086b3e8ed6e55aafb4ab035a9d88d0dd2ea04170",
+      "bytes": 1050897488
+    },
+    "string-bench-parser-buffer-span": {
+      "sha256": "77c518044c5d04c233527ada33850e6b2ea9623bf9205b44964255b03a5b6d96",
+      "bytes": 1050895584
+    },
+    "string-bench-parser-final": {
+      "sha256": "daff116cb72134038ef3d739a099b955f3bc6c3b24b8a2c871db26b7af60ea45",
+      "bytes": 1050999184
+    },
+    "tpch-parser-baseline": {
+      "sha256": "8a7c8f0a689edb9f353d534032b25cfe24fbc9f2e43e4a6a0afff1d4adf61b10",
+      "bytes": 3394976
+    },
+    "tpch-parser-final": {
+      "sha256": "3aa65647708e6d6790fca5933a4101b5b45119627b59b9c09e37e9339da4ff6d",
+      "bytes": 3409976
+    },
+    "clickbench-parser-baseline": {
+      "sha256": "4ec30dfae5078da1f94b2680122c52231686e361982be821bee583cf8e1e26e7",
+      "bytes": 11186864
+    },
+    "clickbench-parser-final": {
+      "sha256": "11f39072a6fdc76dc759b3d00d4ab55182bdbafc162e0c288f9bd49d7c89b9ab",
+      "bytes": 11203824
+    }
+  },
+  "metadata_note": "Intermediate span/buffer executables were frozen from equivalent local-path source before committing; their raw build commit_id is de1efa8cf6. The candidate uses final Git pin ae79c55 built at Vortex455f7d88ea. Source commits above identify the implementation, independently of benchmark report commits.",
+  "step_comparisons": [
+    {
+      "baseline_variant": "baseline",
+      "candidate_variant": "span",
+      "summary": {
+        "onpair-12": {
+          "geometric_mean_gain_percent": 1.4615121937661346,
+          "minimum_gain_percent": 0.7743134493098935,
+          "maximum_gain_percent": 2.6589005056681936
+        },
+        "onpair-16": {
+          "geometric_mean_gain_percent": 0.8947105718764004,
+          "minimum_gain_percent": -0.41321072232018974,
+          "maximum_gain_percent": 1.8792204201817375
+        },
+        "fsst": {
+          "geometric_mean_gain_percent": -1.5464530637658513,
+          "minimum_gain_percent": -2.125645305283441,
+          "maximum_gain_percent": -1.0210857626217096
+        }
+      },
+      "measurements": [
+        {
+          "column": "amazon/book_reviews",
+          "encoder": "fsst",
+          "baseline_write_ms": 691.092429,
+          "candidate_write_ms": 704.7677610000001,
+          "baseline_write_mbps": 184.02,
+          "candidate_write_mbps": 180.45,
+          "gain_percent": -1.9404026059018364,
+          "size_percent": 52.15388272221946,
+          "baseline_read_ms": 35.191355,
+          "candidate_read_ms": 34.865673
+        },
+        {
+          "column": "amazon/book_reviews",
+          "encoder": "onpair-12",
+          "baseline_write_ms": 905.9517390000001,
+          "candidate_write_ms": 892.617496,
+          "baseline_write_mbps": 140.38,
+          "candidate_write_mbps": 142.48,
+          "gain_percent": 1.493836168319973,
+          "size_percent": 38.21234699605678,
+          "baseline_read_ms": 25.370429,
+          "candidate_read_ms": 26.182218
+        },
+        {
+          "column": "amazon/book_reviews",
+          "encoder": "onpair-16",
+          "baseline_write_ms": 907.4567420000001,
+          "candidate_write_ms": 890.7181840000001,
+          "baseline_write_mbps": 140.15,
+          "candidate_write_mbps": 142.78,
+          "gain_percent": 1.8792204201817375,
+          "size_percent": 37.9170583191284,
+          "baseline_read_ms": 27.539559,
+          "candidate_read_ms": 26.295942999999998
+        },
+        {
+          "column": "amazon/book_titles",
+          "encoder": "fsst",
+          "baseline_write_ms": 72.624325,
+          "candidate_write_ms": 73.88477,
+          "baseline_write_mbps": 147.38,
+          "candidate_write_mbps": 144.87,
+          "gain_percent": -1.7059605112122678,
+          "size_percent": 50.766433883428505,
+          "baseline_read_ms": 3.3977069999999996,
+          "candidate_read_ms": 3.42251
+        },
+        {
+          "column": "amazon/book_titles",
+          "encoder": "onpair-12",
+          "baseline_write_ms": 81.816204,
+          "candidate_write_ms": 80.610084,
+          "baseline_write_mbps": 130.83,
+          "candidate_write_mbps": 132.78,
+          "gain_percent": 1.4962396019832847,
+          "size_percent": 44.44605552323536,
+          "baseline_read_ms": 3.1103289999999997,
+          "candidate_read_ms": 3.1741870000000003
+        },
+        {
+          "column": "amazon/book_titles",
+          "encoder": "onpair-16",
+          "baseline_write_ms": 85.902247,
+          "candidate_write_ms": 85.199429,
+          "baseline_write_mbps": 124.6,
+          "candidate_write_mbps": 125.63,
+          "gain_percent": 0.8249092843098937,
+          "size_percent": 45.63652648630661,
+          "baseline_read_ms": 3.14231,
+          "candidate_read_ms": 3.28824
+        },
+        {
+          "column": "clickbench/URL/shard-0",
+          "encoder": "fsst",
+          "baseline_write_ms": 473.60864000000004,
+          "candidate_write_ms": 478.49447899999996,
+          "baseline_write_mbps": 220.78,
+          "candidate_write_mbps": 218.52,
+          "gain_percent": -1.0210857626217096,
+          "size_percent": 47.30267671830977,
+          "baseline_read_ms": 31.061332,
+          "candidate_read_ms": 31.15255
+        },
+        {
+          "column": "clickbench/URL/shard-0",
+          "encoder": "onpair-12",
+          "baseline_write_ms": 565.648383,
+          "candidate_write_ms": 561.302145,
+          "baseline_write_mbps": 184.85,
+          "candidate_write_mbps": 186.28,
+          "gain_percent": 0.7743134493098935,
+          "size_percent": 28.289171811342577,
+          "baseline_read_ms": 19.841205000000002,
+          "candidate_read_ms": 20.169698
+        },
+        {
+          "column": "clickbench/URL/shard-0",
+          "encoder": "onpair-16",
+          "baseline_write_ms": 575.873368,
+          "candidate_write_ms": 570.2096260000001,
+          "baseline_write_mbps": 181.57,
+          "candidate_write_mbps": 183.37,
+          "gain_percent": 0.9932736561693911,
+          "size_percent": 28.640909058653367,
+          "baseline_read_ms": 19.715228,
+          "candidate_read_ms": 19.862369
+        },
+        {
+          "column": "fineweb/text",
+          "encoder": "fsst",
+          "baseline_write_ms": 278.31606800000003,
+          "candidate_write_ms": 284.360565,
+          "baseline_write_mbps": 109.73,
+          "candidate_write_mbps": 107.4,
+          "gain_percent": -2.125645305283441,
+          "size_percent": 55.90197294358995,
+          "baseline_read_ms": 7.927804999999999,
+          "candidate_read_ms": 7.731164
+        },
+        {
+          "column": "fineweb/text",
+          "encoder": "onpair-12",
+          "baseline_write_ms": 443.785165,
+          "candidate_write_ms": 432.290978,
+          "baseline_write_mbps": 68.82,
+          "candidate_write_mbps": 70.65,
+          "gain_percent": 2.6589005056681936,
+          "size_percent": 44.37700222499731,
+          "baseline_read_ms": 6.65693,
+          "candidate_read_ms": 6.904887
+        },
+        {
+          "column": "fineweb/text",
+          "encoder": "onpair-16",
+          "baseline_write_ms": 476.69262299999997,
+          "candidate_write_ms": 478.670541,
+          "baseline_write_mbps": 64.07,
+          "candidate_write_mbps": 63.8,
+          "gain_percent": -0.41321072232018974,
+          "size_percent": 40.15548950382982,
+          "baseline_read_ms": 5.965026,
+          "candidate_read_ms": 5.984856000000001
+        },
+        {
+          "column": "news/headlines",
+          "encoder": "fsst",
+          "baseline_write_ms": 414.421668,
+          "candidate_write_ms": 419.952064,
+          "baseline_write_mbps": 168.84,
+          "candidate_write_mbps": 166.61,
+          "gain_percent": -1.3169112558522822,
+          "size_percent": 43.83800517124216,
+          "baseline_read_ms": 19.56689,
+          "candidate_read_ms": 19.487902000000002
+        },
+        {
+          "column": "news/headlines",
+          "encoder": "onpair-12",
+          "baseline_write_ms": 443.836101,
+          "candidate_write_ms": 437.93251399999997,
+          "baseline_write_mbps": 157.65,
+          "candidate_write_mbps": 159.77,
+          "gain_percent": 1.3480586189131394,
+          "size_percent": 37.73040791346742,
+          "baseline_read_ms": 19.17176,
+          "candidate_read_ms": 19.56813
+        },
+        {
+          "column": "news/headlines",
+          "encoder": "onpair-16",
+          "baseline_write_ms": 453.240028,
+          "candidate_write_ms": 447.461335,
+          "baseline_write_mbps": 154.38,
+          "candidate_write_mbps": 156.37,
+          "gain_percent": 1.2914396279624762,
+          "size_percent": 38.416461583641315,
+          "baseline_read_ms": 19.541776,
+          "candidate_read_ms": 19.474264
+        },
+        {
+          "column": "tpch/l_comment",
+          "encoder": "fsst",
+          "baseline_write_ms": 1150.8693110000002,
+          "candidate_write_ms": 1165.5241489999999,
+          "baseline_write_mbps": 216.52,
+          "candidate_write_mbps": 213.8,
+          "gain_percent": -1.2573603054534144,
+          "size_percent": 30.07840092706971,
+          "baseline_read_ms": 65.482909,
+          "candidate_read_ms": 65.287841
+        },
+        {
+          "column": "tpch/l_comment",
+          "encoder": "onpair-12",
+          "baseline_write_ms": 1027.194371,
+          "candidate_write_ms": 1014.024942,
+          "baseline_write_mbps": 242.59,
+          "candidate_write_mbps": 245.74,
+          "gain_percent": 1.2987283107677383,
+          "size_percent": 22.996683357813467,
+          "baseline_read_ms": 59.879585999999996,
+          "candidate_read_ms": 60.681726
+        },
+        {
+          "column": "tpch/l_comment",
+          "encoder": "onpair-16",
+          "baseline_write_ms": 1038.660095,
+          "candidate_write_ms": 1030.409068,
+          "baseline_write_mbps": 239.92,
+          "candidate_write_mbps": 241.84,
+          "gain_percent": 0.8007525609236898,
+          "size_percent": 23.01119751482703,
+          "baseline_read_ms": 59.698139,
+          "candidate_read_ms": 60.729111
+        },
+        {
+          "column": "twitter/sentiment140",
+          "encoder": "fsst",
+          "baseline_write_ms": 745.653005,
+          "candidate_write_ms": 756.647424,
+          "baseline_write_mbps": 164.36,
+          "candidate_write_mbps": 161.97,
+          "gain_percent": -1.4530438684213332,
+          "size_percent": 51.76308196157247,
+          "baseline_read_ms": 37.23324,
+          "candidate_read_ms": 37.132788
+        },
+        {
+          "column": "twitter/sentiment140",
+          "encoder": "onpair-12",
+          "baseline_write_ms": 873.768537,
+          "candidate_write_ms": 863.659572,
+          "baseline_write_mbps": 140.26,
+          "candidate_write_mbps": 141.9,
+          "gain_percent": 1.1704802827102734,
+          "size_percent": 44.094038414346976,
+          "baseline_read_ms": 33.226309,
+          "candidate_read_ms": 34.121140000000004
+        },
+        {
+          "column": "twitter/sentiment140",
+          "encoder": "onpair-16",
+          "baseline_write_ms": 973.927188,
+          "candidate_write_ms": 965.232307,
+          "baseline_write_mbps": 125.83,
+          "candidate_write_mbps": 126.97,
+          "gain_percent": 0.9008070841540983,
+          "size_percent": 46.008546208056515,
+          "baseline_read_ms": 35.35845,
+          "candidate_read_ms": 35.757616
+        }
+      ]
+    },
+    {
+      "baseline_variant": "span",
+      "candidate_variant": "buffers",
+      "summary": {
+        "onpair-12": {
+          "geometric_mean_gain_percent": 0.45841166679212453,
+          "minimum_gain_percent": -0.13022938723808997,
+          "maximum_gain_percent": 1.5692790062964201
+        },
+        "onpair-16": {
+          "geometric_mean_gain_percent": 0.7281582269628162,
+          "minimum_gain_percent": -0.15892415223022205,
+          "maximum_gain_percent": 2.224968440076114
+        },
+        "fsst": {
+          "geometric_mean_gain_percent": 1.2457159981481114,
+          "minimum_gain_percent": 0.351480716039565,
+          "maximum_gain_percent": 2.6207873697432493
+        }
+      },
+      "measurements": [
+        {
+          "column": "amazon/book_reviews",
+          "encoder": "fsst",
+          "baseline_write_ms": 704.7677610000001,
+          "candidate_write_ms": 687.040695,
+          "baseline_write_mbps": 180.45,
+          "candidate_write_mbps": 185.11,
+          "gain_percent": 2.580206111371619,
+          "size_percent": 52.15388272221946,
+          "baseline_read_ms": 34.865673,
+          "candidate_read_ms": 34.066358
+        },
+        {
+          "column": "amazon/book_reviews",
+          "encoder": "onpair-12",
+          "baseline_write_ms": 892.617496,
+          "candidate_write_ms": 878.8262599999999,
+          "baseline_write_mbps": 142.48,
+          "candidate_write_mbps": 144.71,
+          "gain_percent": 1.5692790062964201,
+          "size_percent": 38.21234699605678,
+          "baseline_read_ms": 26.182218,
+          "candidate_read_ms": 24.742469999999997
+        },
+        {
+          "column": "amazon/book_reviews",
+          "encoder": "onpair-16",
+          "baseline_write_ms": 890.7181840000001,
+          "candidate_write_ms": 879.1913519999999,
+          "baseline_write_mbps": 142.78,
+          "candidate_write_mbps": 144.65,
+          "gain_percent": 1.3110720406631193,
+          "size_percent": 37.9170583191284,
+          "baseline_read_ms": 26.295942999999998,
+          "candidate_read_ms": 26.312935
+        },
+        {
+          "column": "amazon/book_titles",
+          "encoder": "fsst",
+          "baseline_write_ms": 73.88477,
+          "candidate_write_ms": 72.841139,
+          "baseline_write_mbps": 144.87,
+          "candidate_write_mbps": 146.95,
+          "gain_percent": 1.432749424744717,
+          "size_percent": 50.766433883428505,
+          "baseline_read_ms": 3.42251,
+          "candidate_read_ms": 3.395809
+        },
+        {
+          "column": "amazon/book_titles",
+          "encoder": "onpair-12",
+          "baseline_write_ms": 80.610084,
+          "candidate_write_ms": 80.25228,
+          "baseline_write_mbps": 132.78,
+          "candidate_write_mbps": 133.38,
+          "gain_percent": 0.4458490151307837,
+          "size_percent": 44.44605552323536,
+          "baseline_read_ms": 3.1741870000000003,
+          "candidate_read_ms": 3.055537
+        },
+        {
+          "column": "amazon/book_titles",
+          "encoder": "onpair-16",
+          "baseline_write_ms": 85.199429,
+          "candidate_write_ms": 85.335047,
+          "baseline_write_mbps": 125.63,
+          "candidate_write_mbps": 125.43,
+          "gain_percent": -0.15892415223022205,
+          "size_percent": 45.63652648630661,
+          "baseline_read_ms": 3.28824,
+          "candidate_read_ms": 3.2208200000000002
+        },
+        {
+          "column": "clickbench/URL/shard-0",
+          "encoder": "fsst",
+          "baseline_write_ms": 478.49447899999996,
+          "candidate_write_ms": 475.433694,
+          "baseline_write_mbps": 218.52,
+          "candidate_write_mbps": 219.93,
+          "gain_percent": 0.6437879852915884,
+          "size_percent": 47.30267671830977,
+          "baseline_read_ms": 31.15255,
+          "candidate_read_ms": 31.124617999999998
+        },
+        {
+          "column": "clickbench/URL/shard-0",
+          "encoder": "onpair-12",
+          "baseline_write_ms": 561.302145,
+          "candidate_write_ms": 557.558005,
+          "baseline_write_mbps": 186.28,
+          "candidate_write_mbps": 187.54,
+          "gain_percent": 0.6715247501468458,
+          "size_percent": 28.289171811342577,
+          "baseline_read_ms": 20.169698,
+          "candidate_read_ms": 19.830861000000002
+        },
+        {
+          "column": "clickbench/URL/shard-0",
+          "encoder": "onpair-16",
+          "baseline_write_ms": 570.2096260000001,
+          "candidate_write_ms": 565.563089,
+          "baseline_write_mbps": 183.37,
+          "candidate_write_mbps": 184.88,
+          "gain_percent": 0.8215771308937247,
+          "size_percent": 28.640909058653367,
+          "baseline_read_ms": 19.862369,
+          "candidate_read_ms": 19.718277999999998
+        },
+        {
+          "column": "fineweb/text",
+          "encoder": "fsst",
+          "baseline_write_ms": 284.360565,
+          "candidate_write_ms": 277.098405,
+          "baseline_write_mbps": 107.4,
+          "candidate_write_mbps": 110.22,
+          "gain_percent": 2.6207873697432493,
+          "size_percent": 55.90197294358995,
+          "baseline_read_ms": 7.731164,
+          "candidate_read_ms": 7.793721
+        },
+        {
+          "column": "fineweb/text",
+          "encoder": "onpair-12",
+          "baseline_write_ms": 432.290978,
+          "candidate_write_ms": 432.85468199999997,
+          "baseline_write_mbps": 70.65,
+          "candidate_write_mbps": 70.56,
+          "gain_percent": -0.13022938723808997,
+          "size_percent": 44.37700222499731,
+          "baseline_read_ms": 6.904887,
+          "candidate_read_ms": 6.9247689999999995
+        },
+        {
+          "column": "fineweb/text",
+          "encoder": "onpair-16",
+          "baseline_write_ms": 478.670541,
+          "candidate_write_ms": 468.25208000000003,
+          "baseline_write_mbps": 63.8,
+          "candidate_write_mbps": 65.22,
+          "gain_percent": 2.224968440076114,
+          "size_percent": 40.15548950382982,
+          "baseline_read_ms": 5.984856000000001,
+          "candidate_read_ms": 5.911944
+        },
+        {
+          "column": "news/headlines",
+          "encoder": "fsst",
+          "baseline_write_ms": 419.952064,
+          "candidate_write_ms": 416.872167,
+          "baseline_write_mbps": 166.61,
+          "candidate_write_mbps": 167.85,
+          "gain_percent": 0.7388108978741315,
+          "size_percent": 43.83800517124216,
+          "baseline_read_ms": 19.487902000000002,
+          "candidate_read_ms": 19.431290999999998
+        },
+        {
+          "column": "news/headlines",
+          "encoder": "onpair-12",
+          "baseline_write_ms": 437.93251399999997,
+          "candidate_write_ms": 435.554778,
+          "baseline_write_mbps": 159.77,
+          "candidate_write_mbps": 160.65,
+          "gain_percent": 0.5459097500705168,
+          "size_percent": 37.73040791346742,
+          "baseline_read_ms": 19.56813,
+          "candidate_read_ms": 19.027407
+        },
+        {
+          "column": "news/headlines",
+          "encoder": "onpair-16",
+          "baseline_write_ms": 447.461335,
+          "candidate_write_ms": 447.455894,
+          "baseline_write_mbps": 156.37,
+          "candidate_write_mbps": 156.37,
+          "gain_percent": 0.0012159857704308052,
+          "size_percent": 38.416461583641315,
+          "baseline_read_ms": 19.474264,
+          "candidate_read_ms": 19.278602
+        },
+        {
+          "column": "tpch/l_comment",
+          "encoder": "fsst",
+          "baseline_write_ms": 1165.5241489999999,
+          "candidate_write_ms": 1161.099321,
+          "baseline_write_mbps": 213.8,
+          "candidate_write_mbps": 214.62,
+          "gain_percent": 0.3810895347168941,
+          "size_percent": 30.07840092706971,
+          "baseline_read_ms": 65.287841,
+          "candidate_read_ms": 65.36733699999999
+        },
+        {
+          "column": "tpch/l_comment",
+          "encoder": "onpair-12",
+          "baseline_write_ms": 1014.024942,
+          "candidate_write_ms": 1011.760054,
+          "baseline_write_mbps": 245.74,
+          "candidate_write_mbps": 246.29,
+          "gain_percent": 0.22385623854646042,
+          "size_percent": 22.996683357813467,
+          "baseline_read_ms": 60.681726,
+          "candidate_read_ms": 59.986275
+        },
+        {
+          "column": "tpch/l_comment",
+          "encoder": "onpair-16",
+          "baseline_write_ms": 1030.409068,
+          "candidate_write_ms": 1030.131198,
+          "baseline_write_mbps": 241.84,
+          "candidate_write_mbps": 241.9,
+          "gain_percent": 0.02697423401401,
+          "size_percent": 23.01119751482703,
+          "baseline_read_ms": 60.729111,
+          "candidate_read_ms": 60.618004000000006
+        },
+        {
+          "column": "twitter/sentiment140",
+          "encoder": "fsst",
+          "baseline_write_ms": 756.647424,
+          "candidate_write_ms": 753.997269,
+          "baseline_write_mbps": 161.97,
+          "candidate_write_mbps": 162.54,
+          "gain_percent": 0.351480716039565,
+          "size_percent": 51.76308196157247,
+          "baseline_read_ms": 37.132788,
+          "candidate_read_ms": 37.079521
+        },
+        {
+          "column": "twitter/sentiment140",
+          "encoder": "onpair-12",
+          "baseline_write_ms": 863.659572,
+          "candidate_write_ms": 864.587632,
+          "baseline_write_mbps": 141.9,
+          "candidate_write_mbps": 141.75,
+          "gain_percent": -0.10734134582206512,
+          "size_percent": 44.094038414346976,
+          "baseline_read_ms": 34.121140000000004,
+          "candidate_read_ms": 33.133444
+        },
+        {
+          "column": "twitter/sentiment140",
+          "encoder": "onpair-16",
+          "baseline_write_ms": 965.232307,
+          "candidate_write_ms": 956.6975140000001,
+          "baseline_write_mbps": 126.97,
+          "candidate_write_mbps": 128.1,
+          "gain_percent": 0.8921098753895018,
+          "size_percent": 46.008546208056515,
+          "baseline_read_ms": 35.757616,
+          "candidate_read_ms": 35.423235
+        }
+      ]
+    },
+    {
+      "baseline_variant": "buffers",
+      "candidate_variant": "candidate",
+      "summary": {
+        "onpair-12": {
+          "geometric_mean_gain_percent": 2.4298430053614206,
+          "minimum_gain_percent": -0.6171703254603034,
+          "maximum_gain_percent": 8.049390585812466
+        },
+        "onpair-16": {
+          "geometric_mean_gain_percent": 1.9632393989387653,
+          "minimum_gain_percent": 0.4064524259755675,
+          "maximum_gain_percent": 5.105206915532312
+        },
+        "fsst": {
+          "geometric_mean_gain_percent": -1.3979397692918893,
+          "minimum_gain_percent": -3.2219748417457117,
+          "maximum_gain_percent": 0.18793147724434078
+        }
+      },
+      "measurements": [
+        {
+          "column": "amazon/book_reviews",
+          "encoder": "fsst",
+          "baseline_write_ms": 687.040695,
+          "candidate_write_ms": 703.580858,
+          "baseline_write_mbps": 185.11,
+          "candidate_write_mbps": 180.76,
+          "gain_percent": -2.350854604972785,
+          "size_percent": 52.15388272221946,
+          "baseline_read_ms": 34.066358,
+          "candidate_read_ms": 34.400338000000005
+        },
+        {
+          "column": "amazon/book_reviews",
+          "encoder": "onpair-12",
+          "baseline_write_ms": 878.8262599999999,
+          "candidate_write_ms": 838.507044,
+          "baseline_write_mbps": 144.71,
+          "candidate_write_mbps": 151.67,
+          "gain_percent": 4.808452867332136,
+          "size_percent": 38.21234699605678,
+          "baseline_read_ms": 24.742469999999997,
+          "candidate_read_ms": 25.549827
+        },
+        {
+          "column": "amazon/book_reviews",
+          "encoder": "onpair-16",
+          "baseline_write_ms": 879.1913519999999,
+          "candidate_write_ms": 858.908112,
+          "baseline_write_mbps": 144.65,
+          "candidate_write_mbps": 148.07,
+          "gain_percent": 2.3615145458074416,
+          "size_percent": 37.9170583191284,
+          "baseline_read_ms": 26.312935,
+          "candidate_read_ms": 26.617963000000003
+        },
+        {
+          "column": "amazon/book_titles",
+          "encoder": "fsst",
+          "baseline_write_ms": 72.841139,
+          "candidate_write_ms": 74.304826,
+          "baseline_write_mbps": 146.95,
+          "candidate_write_mbps": 144.05,
+          "gain_percent": -1.9698410975351854,
+          "size_percent": 50.766433883428505,
+          "baseline_read_ms": 3.395809,
+          "candidate_read_ms": 3.387658
+        },
+        {
+          "column": "amazon/book_titles",
+          "encoder": "onpair-12",
+          "baseline_write_ms": 80.25228,
+          "candidate_write_ms": 79.826204,
+          "baseline_write_mbps": 133.38,
+          "candidate_write_mbps": 134.09,
+          "gain_percent": 0.5337545550831768,
+          "size_percent": 44.44605552323536,
+          "baseline_read_ms": 3.055537,
+          "candidate_read_ms": 3.150129
+        },
+        {
+          "column": "amazon/book_titles",
+          "encoder": "onpair-16",
+          "baseline_write_ms": 85.335047,
+          "candidate_write_ms": 84.170928,
+          "baseline_write_mbps": 125.43,
+          "candidate_write_mbps": 127.17,
+          "gain_percent": 1.3830416601798623,
+          "size_percent": 45.63652648630661,
+          "baseline_read_ms": 3.2208200000000002,
+          "candidate_read_ms": 3.189426
+        },
+        {
+          "column": "clickbench/URL/shard-0",
+          "encoder": "fsst",
+          "baseline_write_ms": 475.433694,
+          "candidate_write_ms": 477.709269,
+          "baseline_write_mbps": 219.93,
+          "candidate_write_mbps": 218.88,
+          "gain_percent": -0.4763514437899685,
+          "size_percent": 47.30267671830977,
+          "baseline_read_ms": 31.124617999999998,
+          "candidate_read_ms": 31.429902000000002
+        },
+        {
+          "column": "clickbench/URL/shard-0",
+          "encoder": "onpair-12",
+          "baseline_write_ms": 557.558005,
+          "candidate_write_ms": 550.857889,
+          "baseline_write_mbps": 187.54,
+          "candidate_write_mbps": 189.82,
+          "gain_percent": 1.216305717643995,
+          "size_percent": 28.289171811342577,
+          "baseline_read_ms": 19.830861000000002,
+          "candidate_read_ms": 20.144583
+        },
+        {
+          "column": "clickbench/URL/shard-0",
+          "encoder": "onpair-16",
+          "baseline_write_ms": 565.563089,
+          "candidate_write_ms": 558.258657,
+          "baseline_write_mbps": 184.88,
+          "candidate_write_mbps": 187.3,
+          "gain_percent": 1.308431478564609,
+          "size_percent": 28.640909058653367,
+          "baseline_read_ms": 19.718277999999998,
+          "candidate_read_ms": 19.608915
+        },
+        {
+          "column": "fineweb/text",
+          "encoder": "fsst",
+          "baseline_write_ms": 277.098405,
+          "candidate_write_ms": 286.323682,
+          "baseline_write_mbps": 110.22,
+          "candidate_write_mbps": 106.66,
+          "gain_percent": -3.2219748417457117,
+          "size_percent": 55.90197294358995,
+          "baseline_read_ms": 7.793721,
+          "candidate_read_ms": 7.979951000000001
+        },
+        {
+          "column": "fineweb/text",
+          "encoder": "onpair-12",
+          "baseline_write_ms": 432.85468199999997,
+          "candidate_write_ms": 400.608166,
+          "baseline_write_mbps": 70.56,
+          "candidate_write_mbps": 76.24,
+          "gain_percent": 8.049390585812466,
+          "size_percent": 44.37700222499731,
+          "baseline_read_ms": 6.9247689999999995,
+          "candidate_read_ms": 6.819236
+        },
+        {
+          "column": "fineweb/text",
+          "encoder": "onpair-16",
+          "baseline_write_ms": 468.25208000000003,
+          "candidate_write_ms": 445.50797600000004,
+          "baseline_write_mbps": 65.22,
+          "candidate_write_mbps": 68.55,
+          "gain_percent": 5.105206915532312,
+          "size_percent": 40.15548950382982,
+          "baseline_read_ms": 5.911944,
+          "candidate_read_ms": 5.905348
+        },
+        {
+          "column": "news/headlines",
+          "encoder": "fsst",
+          "baseline_write_ms": 416.872167,
+          "candidate_write_ms": 421.472687,
+          "baseline_write_mbps": 167.85,
+          "candidate_write_mbps": 166.01,
+          "gain_percent": -1.0915345506125274,
+          "size_percent": 43.83800517124216,
+          "baseline_read_ms": 19.431290999999998,
+          "candidate_read_ms": 19.513633
+        },
+        {
+          "column": "news/headlines",
+          "encoder": "onpair-12",
+          "baseline_write_ms": 435.554778,
+          "candidate_write_ms": 432.91832200000005,
+          "baseline_write_mbps": 160.65,
+          "candidate_write_mbps": 161.62,
+          "gain_percent": 0.608996169951892,
+          "size_percent": 37.73040791346742,
+          "baseline_read_ms": 19.027407,
+          "candidate_read_ms": 19.545878
+        },
+        {
+          "column": "news/headlines",
+          "encoder": "onpair-16",
+          "baseline_write_ms": 447.455894,
+          "candidate_write_ms": 443.875422,
+          "baseline_write_mbps": 156.37,
+          "candidate_write_mbps": 157.63,
+          "gain_percent": 0.8066389402385132,
+          "size_percent": 38.416461583641315,
+          "baseline_read_ms": 19.278602,
+          "candidate_read_ms": 19.430439
+        },
+        {
+          "column": "tpch/l_comment",
+          "encoder": "fsst",
+          "baseline_write_ms": 1161.099321,
+          "candidate_write_ms": 1158.921343,
+          "baseline_write_mbps": 214.62,
+          "candidate_write_mbps": 215.02,
+          "gain_percent": 0.18793147724434078,
+          "size_percent": 30.07840092706971,
+          "baseline_read_ms": 65.36733699999999,
+          "candidate_read_ms": 65.1356
+        },
+        {
+          "column": "tpch/l_comment",
+          "encoder": "onpair-12",
+          "baseline_write_ms": 1011.760054,
+          "candidate_write_ms": 1018.043114,
+          "baseline_write_mbps": 246.29,
+          "candidate_write_mbps": 244.77,
+          "gain_percent": -0.6171703254603034,
+          "size_percent": 22.996683357813467,
+          "baseline_read_ms": 59.986275,
+          "candidate_read_ms": 61.52832
+        },
+        {
+          "column": "tpch/l_comment",
+          "encoder": "onpair-16",
+          "baseline_write_ms": 1030.131198,
+          "candidate_write_ms": 1025.961154,
+          "baseline_write_mbps": 241.9,
+          "candidate_write_mbps": 242.89,
+          "gain_percent": 0.4064524259755675,
+          "size_percent": 23.01119751482703,
+          "baseline_read_ms": 60.618004000000006,
+          "candidate_read_ms": 60.779069
+        },
+        {
+          "column": "twitter/sentiment140",
+          "encoder": "fsst",
+          "baseline_write_ms": 753.997269,
+          "candidate_write_ms": 760.2351040000001,
+          "baseline_write_mbps": 162.54,
+          "candidate_write_mbps": 161.2,
+          "gain_percent": -0.8205139393300254,
+          "size_percent": 51.76308196157247,
+          "baseline_read_ms": 37.079521,
+          "candidate_read_ms": 36.841947
+        },
+        {
+          "column": "twitter/sentiment140",
+          "encoder": "onpair-12",
+          "baseline_write_ms": 864.587632,
+          "candidate_write_ms": 842.078655,
+          "baseline_write_mbps": 141.75,
+          "candidate_write_mbps": 145.54,
+          "gain_percent": 2.673025478837232,
+          "size_percent": 44.094038414346976,
+          "baseline_read_ms": 33.133444,
+          "candidate_read_ms": 33.970262
+        },
+        {
+          "column": "twitter/sentiment140",
+          "encoder": "onpair-16",
+          "baseline_write_ms": 956.6975140000001,
+          "candidate_write_ms": 933.881717,
+          "baseline_write_mbps": 128.1,
+          "candidate_write_mbps": 131.23,
+          "gain_percent": 2.44311421721517,
+          "size_percent": 46.008546208056515,
+          "baseline_read_ms": 35.423235,
+          "candidate_read_ms": 35.915016
+        }
+      ]
+    }
+  ],
+  "overall": {
+    "baseline_variant": "baseline",
+    "candidate_variant": "candidate",
+    "summary": {
+      "onpair-12": {
+        "geometric_mean_gain_percent": 4.403280537183818,
+        "minimum_gain_percent": 0.8989066252846456,
+        "maximum_gain_percent": 10.77786292554006
+      },
+      "onpair-16": {
+        "geometric_mean_gain_percent": 3.6246118093196555,
+        "minimum_gain_percent": 1.237760411345934,
+        "maximum_gain_percent": 6.999795442495049
+      },
+      "fsst": {
+        "geometric_mean_gain_percent": -1.7134678201938147,
+        "minimum_gain_percent": -2.7966998552358624,
+        "maximum_gain_percent": -0.6947867556875154
+      }
+    },
+    "measurements": [
+      {
+        "column": "amazon/book_reviews",
+        "encoder": "fsst",
+        "baseline_write_ms": 691.092429,
+        "candidate_write_ms": 703.580858,
+        "baseline_write_mbps": 184.02,
+        "candidate_write_mbps": 180.76,
+        "gain_percent": -1.7749813483413424,
+        "size_percent": 52.15388272221946,
+        "baseline_read_ms": 35.191355,
+        "candidate_read_ms": 34.400338000000005
+      },
+      {
+        "column": "amazon/book_reviews",
+        "encoder": "onpair-12",
+        "baseline_write_ms": 905.9517390000001,
+        "candidate_write_ms": 838.507044,
+        "baseline_write_mbps": 140.38,
+        "candidate_write_mbps": 151.67,
+        "gain_percent": 8.04342616828395,
+        "size_percent": 38.21234699605678,
+        "baseline_read_ms": 25.370429,
+        "candidate_read_ms": 25.549827
+      },
+      {
+        "column": "amazon/book_reviews",
+        "encoder": "onpair-16",
+        "baseline_write_ms": 907.4567420000001,
+        "candidate_write_ms": 858.908112,
+        "baseline_write_mbps": 140.15,
+        "candidate_write_mbps": 148.07,
+        "gain_percent": 5.652365989064045,
+        "size_percent": 37.9170583191284,
+        "baseline_read_ms": 27.539559,
+        "candidate_read_ms": 26.617963000000003
+      },
+      {
+        "column": "amazon/book_titles",
+        "encoder": "fsst",
+        "baseline_write_ms": 72.624325,
+        "candidate_write_ms": 74.304826,
+        "baseline_write_mbps": 147.38,
+        "candidate_write_mbps": 144.05,
+        "gain_percent": -2.2616310278419927,
+        "size_percent": 50.766433883428505,
+        "baseline_read_ms": 3.3977069999999996,
+        "candidate_read_ms": 3.387658
+      },
+      {
+        "column": "amazon/book_titles",
+        "encoder": "onpair-12",
+        "baseline_write_ms": 81.816204,
+        "candidate_write_ms": 79.826204,
+        "baseline_write_mbps": 130.83,
+        "candidate_write_mbps": 134.09,
+        "gain_percent": 2.492915734788026,
+        "size_percent": 44.44605552323536,
+        "baseline_read_ms": 3.1103289999999997,
+        "candidate_read_ms": 3.150129
+      },
+      {
+        "column": "amazon/book_titles",
+        "encoder": "onpair-16",
+        "baseline_write_ms": 85.902247,
+        "candidate_write_ms": 84.170928,
+        "baseline_write_mbps": 124.6,
+        "candidate_write_mbps": 127.17,
+        "gain_percent": 2.0569085325992775,
+        "size_percent": 45.63652648630661,
+        "baseline_read_ms": 3.14231,
+        "candidate_read_ms": 3.189426
+      },
+      {
+        "column": "clickbench/URL/shard-0",
+        "encoder": "fsst",
+        "baseline_write_ms": 473.60864000000004,
+        "candidate_write_ms": 477.709269,
+        "baseline_write_mbps": 220.78,
+        "candidate_write_mbps": 218.88,
+        "gain_percent": -0.8583942716003601,
+        "size_percent": 47.30267671830977,
+        "baseline_read_ms": 31.061332,
+        "candidate_read_ms": 31.429902000000002
+      },
+      {
+        "column": "clickbench/URL/shard-0",
+        "encoder": "onpair-12",
+        "baseline_write_ms": 565.648383,
+        "candidate_write_ms": 550.857889,
+        "baseline_write_mbps": 184.85,
+        "candidate_write_mbps": 189.82,
+        "gain_percent": 2.684992680571363,
+        "size_percent": 28.289171811342577,
+        "baseline_read_ms": 19.841205000000002,
+        "candidate_read_ms": 20.144583
+      },
+      {
+        "column": "clickbench/URL/shard-0",
+        "encoder": "onpair-16",
+        "baseline_write_ms": 575.873368,
+        "candidate_write_ms": 558.258657,
+        "baseline_write_mbps": 181.57,
+        "candidate_write_mbps": 187.3,
+        "gain_percent": 3.155295628492172,
+        "size_percent": 28.640909058653367,
+        "baseline_read_ms": 19.715228,
+        "candidate_read_ms": 19.608915
+      },
+      {
+        "column": "fineweb/text",
+        "encoder": "fsst",
+        "baseline_write_ms": 278.31606800000003,
+        "candidate_write_ms": 286.323682,
+        "baseline_write_mbps": 109.73,
+        "candidate_write_mbps": 106.66,
+        "gain_percent": -2.7966998552358624,
+        "size_percent": 55.90197294358995,
+        "baseline_read_ms": 7.927804999999999,
+        "candidate_read_ms": 7.979951000000001
+      },
+      {
+        "column": "fineweb/text",
+        "encoder": "onpair-12",
+        "baseline_write_ms": 443.785165,
+        "candidate_write_ms": 400.608166,
+        "baseline_write_mbps": 68.82,
+        "candidate_write_mbps": 76.24,
+        "gain_percent": 10.77786292554006,
+        "size_percent": 44.37700222499731,
+        "baseline_read_ms": 6.65693,
+        "candidate_read_ms": 6.819236
+      },
+      {
+        "column": "fineweb/text",
+        "encoder": "onpair-16",
+        "baseline_write_ms": 476.69262299999997,
+        "candidate_write_ms": 445.50797600000004,
+        "baseline_write_mbps": 64.07,
+        "candidate_write_mbps": 68.55,
+        "gain_percent": 6.999795442495049,
+        "size_percent": 40.15548950382982,
+        "baseline_read_ms": 5.965026,
+        "candidate_read_ms": 5.905348
+      },
+      {
+        "column": "news/headlines",
+        "encoder": "fsst",
+        "baseline_write_ms": 414.421668,
+        "candidate_write_ms": 421.472687,
+        "baseline_write_mbps": 168.84,
+        "candidate_write_mbps": 166.01,
+        "gain_percent": -1.6729480266416408,
+        "size_percent": 43.83800517124216,
+        "baseline_read_ms": 19.56689,
+        "candidate_read_ms": 19.513633
+      },
+      {
+        "column": "news/headlines",
+        "encoder": "onpair-12",
+        "baseline_write_ms": 443.836101,
+        "candidate_write_ms": 432.91832200000005,
+        "baseline_write_mbps": 157.65,
+        "candidate_write_mbps": 161.62,
+        "gain_percent": 2.521902734345338,
+        "size_percent": 37.73040791346742,
+        "baseline_read_ms": 19.17176,
+        "candidate_read_ms": 19.545878
+      },
+      {
+        "column": "news/headlines",
+        "encoder": "onpair-16",
+        "baseline_write_ms": 453.240028,
+        "candidate_write_ms": 443.875422,
+        "baseline_write_mbps": 154.38,
+        "candidate_write_mbps": 157.63,
+        "gain_percent": 2.109737447909432,
+        "size_percent": 38.416461583641315,
+        "baseline_read_ms": 19.541776,
+        "candidate_read_ms": 19.430439
+      },
+      {
+        "column": "tpch/l_comment",
+        "encoder": "fsst",
+        "baseline_write_ms": 1150.8693110000002,
+        "candidate_write_ms": 1158.921343,
+        "baseline_write_mbps": 216.52,
+        "candidate_write_mbps": 215.02,
+        "gain_percent": -0.6947867556875154,
+        "size_percent": 30.07840092706971,
+        "baseline_read_ms": 65.482909,
+        "candidate_read_ms": 65.1356
+      },
+      {
+        "column": "tpch/l_comment",
+        "encoder": "onpair-12",
+        "baseline_write_ms": 1027.194371,
+        "candidate_write_ms": 1018.043114,
+        "baseline_write_mbps": 242.59,
+        "candidate_write_mbps": 244.77,
+        "gain_percent": 0.8989066252846456,
+        "size_percent": 22.996683357813467,
+        "baseline_read_ms": 59.879585999999996,
+        "candidate_read_ms": 61.52832
+      },
+      {
+        "column": "tpch/l_comment",
+        "encoder": "onpair-16",
+        "baseline_write_ms": 1038.660095,
+        "candidate_write_ms": 1025.961154,
+        "baseline_write_mbps": 239.92,
+        "candidate_write_mbps": 242.89,
+        "gain_percent": 1.237760411345934,
+        "size_percent": 23.01119751482703,
+        "baseline_read_ms": 59.698139,
+        "candidate_read_ms": 60.779069
+      },
+      {
+        "column": "twitter/sentiment140",
+        "encoder": "fsst",
+        "baseline_write_ms": 745.653005,
+        "candidate_write_ms": 760.2351040000001,
+        "baseline_write_mbps": 164.36,
+        "candidate_write_mbps": 161.2,
+        "gain_percent": -1.9181038764555791,
+        "size_percent": 51.76308196157247,
+        "baseline_read_ms": 37.23324,
+        "candidate_read_ms": 36.841947
+      },
+      {
+        "column": "twitter/sentiment140",
+        "encoder": "onpair-12",
+        "baseline_write_ms": 873.768537,
+        "candidate_write_ms": 842.078655,
+        "baseline_write_mbps": 140.26,
+        "candidate_write_mbps": 145.54,
+        "gain_percent": 3.7632923969554755,
+        "size_percent": 44.094038414346976,
+        "baseline_read_ms": 33.226309,
+        "candidate_read_ms": 33.970262
+      },
+      {
+        "column": "twitter/sentiment140",
+        "encoder": "onpair-16",
+        "baseline_write_ms": 973.927188,
+        "candidate_write_ms": 933.881717,
+        "baseline_write_mbps": 125.83,
+        "candidate_write_mbps": 131.23,
+        "gain_percent": 4.288066708131089,
+        "size_percent": 46.008546208056515,
+        "baseline_read_ms": 35.35845,
+        "candidate_read_ms": 35.915016
+      }
+    ]
+  },
+  "native_benchmarks": {
+    "method": "Existing upstream tpch/clickbench benchmarks, native bench profile, Rust1.99.1 default x86-64 target and force-frame-pointers=yes, pinnedCPU2. Invoked frozen executables with --bench --timer os --bytes-format decimal --sample-count20 --sample-size1 --min-time0.1. The minimum time increases sample counts for fast cases; counts are recorded per case. Baseline/final ran serially per dataset with reversed order for URLs. Native upstream benchmarks use the default allocator; primary Vortex measurements use its existing mimalloc setup.",
+    "baseline_onpair": "9b12a198545a5fd7dff6109e4fc32797d861e94f",
+    "candidate_onpair": "ae79c5593a486f7be99fa3879df52047a0a379e4",
+    "inputs": {
+      "tpch": {
+        "generator": "tpchgen,scale1.0",
+        "max_bytes": 8388608,
+        "columns": [
+          "l_comment",
+          "o_comment",
+          "p_name"
+        ],
+        "threshold": 0.2
+      },
+      "clickbench_URL": {
+        "source": "clickbench_partitioned/parquet/hits_0.parquet",
+        "column": "URL",
+        "rows": 1000000,
+        "threshold": 0.5,
+        "seed": 42
+      },
+      "amazon_reviews": {
+        "source": "string-bench/amazon_book_reviews.parquet",
+        "column": "text",
+        "rows": 200000,
+        "threshold": 0.5,
+        "seed": 42
+      }
+    },
+    "summary_geometric_mean_gain_percent": {
+      "parse": {
+        "12": 4.894578807048533,
+        "16": 7.34405390917221
+      },
+      "train_and_compress": {
+        "12": 2.938941790125793,
+        "16": 2.6209104766145908
+      },
+      "decompress_all": {
+        "12": 0.21127721740226146,
+        "16": -2.006689078309931
+      }
+    },
+    "measurements": [
+      {
+        "dataset": "tpch",
+        "column": "tpch/l_comment",
+        "operation": "decompress_all",
+        "bits": 12,
+        "baseline": {
+          "column": "tpch/l_comment",
+          "operation": "decompress_all",
+          "bits": 12,
+          "fastest_ns": 583900.0,
+          "slowest_ns": 891800.0,
+          "median_ns": 586200.0,
+          "mean_ns": 608500.0,
+          "samples": 154,
+          "iterations": 154,
+          "raw_log": "native-parser/tpch-baseline.log",
+          "median_mbps": 14300.0
+        },
+        "candidate": {
+          "column": "tpch/l_comment",
+          "operation": "decompress_all",
+          "bits": 12,
+          "fastest_ns": 584000.0,
+          "slowest_ns": 899900.0,
+          "median_ns": 586800.0,
+          "mean_ns": 612700.0,
+          "samples": 154,
+          "iterations": 154,
+          "raw_log": "native-parser/tpch-final.log",
+          "median_mbps": 14290.0
+        },
+        "gain_percent": -0.10224948875255935
+      },
+      {
+        "dataset": "tpch",
+        "column": "tpch/l_comment",
+        "operation": "decompress_all",
+        "bits": 16,
+        "baseline": {
+          "column": "tpch/l_comment",
+          "operation": "decompress_all",
+          "bits": 16,
+          "fastest_ns": 671200.0,
+          "slowest_ns": 708000.0,
+          "median_ns": 674600.0,
+          "mean_ns": 677800.0,
+          "samples": 148,
+          "iterations": 148,
+          "raw_log": "native-parser/tpch-baseline.log",
+          "median_mbps": 12430.0
+        },
+        "candidate": {
+          "column": "tpch/l_comment",
+          "operation": "decompress_all",
+          "bits": 16,
+          "fastest_ns": 670900.0,
+          "slowest_ns": 712800.0,
+          "median_ns": 683100.0,
+          "mean_ns": 682700.0,
+          "samples": 147,
+          "iterations": 147,
+          "raw_log": "native-parser/tpch-final.log",
+          "median_mbps": 12270.0
+        },
+        "gain_percent": -1.2443273312838565
+      },
+      {
+        "dataset": "tpch",
+        "column": "tpch/l_comment",
+        "operation": "parse",
+        "bits": 12,
+        "baseline": {
+          "column": "tpch/l_comment",
+          "operation": "parse",
+          "bits": 12,
+          "fastest_ns": 12520000.0,
+          "slowest_ns": 12640000.0,
+          "median_ns": 12570000.0,
+          "mean_ns": 12570000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-baseline.log",
+          "median_mbps": 667.1
+        },
+        "candidate": {
+          "column": "tpch/l_comment",
+          "operation": "parse",
+          "bits": 12,
+          "fastest_ns": 12100000.0,
+          "slowest_ns": 12320000.0,
+          "median_ns": 12160000.0,
+          "mean_ns": 12170000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-final.log",
+          "median_mbps": 689.6
+        },
+        "gain_percent": 3.3717105263157965
+      },
+      {
+        "dataset": "tpch",
+        "column": "tpch/l_comment",
+        "operation": "parse",
+        "bits": 16,
+        "baseline": {
+          "column": "tpch/l_comment",
+          "operation": "parse",
+          "bits": 16,
+          "fastest_ns": 13160000.0,
+          "slowest_ns": 13350000.0,
+          "median_ns": 13200000.0,
+          "mean_ns": 13210000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-baseline.log",
+          "median_mbps": 635.4
+        },
+        "candidate": {
+          "column": "tpch/l_comment",
+          "operation": "parse",
+          "bits": 16,
+          "fastest_ns": 12740000.0,
+          "slowest_ns": 13020000.0,
+          "median_ns": 12850000.0,
+          "mean_ns": 12850000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-final.log",
+          "median_mbps": 652.8
+        },
+        "gain_percent": 2.7237354085603016
+      },
+      {
+        "dataset": "tpch",
+        "column": "tpch/l_comment",
+        "operation": "train_and_compress",
+        "bits": 12,
+        "baseline": {
+          "column": "tpch/l_comment",
+          "operation": "train_and_compress",
+          "bits": 12,
+          "fastest_ns": 24050000.0,
+          "slowest_ns": 25720000.0,
+          "median_ns": 24240000.0,
+          "mean_ns": 24320000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-baseline.log",
+          "median_mbps": 345.9
+        },
+        "candidate": {
+          "column": "tpch/l_comment",
+          "operation": "train_and_compress",
+          "bits": 12,
+          "fastest_ns": 23450000.0,
+          "slowest_ns": 24650000.0,
+          "median_ns": 23630000.0,
+          "mean_ns": 23650000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-final.log",
+          "median_mbps": 354.9
+        },
+        "gain_percent": 2.5814642403723997
+      },
+      {
+        "dataset": "tpch",
+        "column": "tpch/l_comment",
+        "operation": "train_and_compress",
+        "bits": 16,
+        "baseline": {
+          "column": "tpch/l_comment",
+          "operation": "train_and_compress",
+          "bits": 16,
+          "fastest_ns": 27100000.0,
+          "slowest_ns": 27820000.0,
+          "median_ns": 27370000.0,
+          "mean_ns": 27390000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-baseline.log",
+          "median_mbps": 306.4
+        },
+        "candidate": {
+          "column": "tpch/l_comment",
+          "operation": "train_and_compress",
+          "bits": 16,
+          "fastest_ns": 26620000.0,
+          "slowest_ns": 27200000.0,
+          "median_ns": 26820000.0,
+          "mean_ns": 26840000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-final.log",
+          "median_mbps": 312.7
+        },
+        "gain_percent": 2.050708426547354
+      },
+      {
+        "dataset": "tpch",
+        "column": "tpch/o_comment",
+        "operation": "decompress_all",
+        "bits": 12,
+        "baseline": {
+          "column": "tpch/o_comment",
+          "operation": "decompress_all",
+          "bits": 12,
+          "fastest_ns": 521299.99999999994,
+          "slowest_ns": 550000.0,
+          "median_ns": 523200.00000000006,
+          "mean_ns": 525900.0,
+          "samples": 190,
+          "iterations": 190,
+          "raw_log": "native-parser/tpch-baseline.log",
+          "median_mbps": 16030.000000000002
+        },
+        "candidate": {
+          "column": "tpch/o_comment",
+          "operation": "decompress_all",
+          "bits": 12,
+          "fastest_ns": 522600.0,
+          "slowest_ns": 561800.0,
+          "median_ns": 525300.0,
+          "mean_ns": 531100.0,
+          "samples": 188,
+          "iterations": 188,
+          "raw_log": "native-parser/tpch-final.log",
+          "median_mbps": 15960.0
+        },
+        "gain_percent": -0.39977155910907447
+      },
+      {
+        "dataset": "tpch",
+        "column": "tpch/o_comment",
+        "operation": "decompress_all",
+        "bits": 16,
+        "baseline": {
+          "column": "tpch/o_comment",
+          "operation": "decompress_all",
+          "bits": 16,
+          "fastest_ns": 596100.0,
+          "slowest_ns": 627000.0,
+          "median_ns": 601800.0,
+          "mean_ns": 603300.0,
+          "samples": 166,
+          "iterations": 166,
+          "raw_log": "native-parser/tpch-baseline.log",
+          "median_mbps": 13930.0
+        },
+        "candidate": {
+          "column": "tpch/o_comment",
+          "operation": "decompress_all",
+          "bits": 16,
+          "fastest_ns": 597200.0,
+          "slowest_ns": 649500.0,
+          "median_ns": 608300.0,
+          "mean_ns": 610600.0,
+          "samples": 164,
+          "iterations": 164,
+          "raw_log": "native-parser/tpch-final.log",
+          "median_mbps": 13780.0
+        },
+        "gain_percent": -1.068551701463094
+      },
+      {
+        "dataset": "tpch",
+        "column": "tpch/o_comment",
+        "operation": "parse",
+        "bits": 12,
+        "baseline": {
+          "column": "tpch/o_comment",
+          "operation": "parse",
+          "bits": 12,
+          "fastest_ns": 10770000.0,
+          "slowest_ns": 10910000.0,
+          "median_ns": 10830000.0,
+          "mean_ns": 10840000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-baseline.log",
+          "median_mbps": 774.1
+        },
+        "candidate": {
+          "column": "tpch/o_comment",
+          "operation": "parse",
+          "bits": 12,
+          "fastest_ns": 10470000.0,
+          "slowest_ns": 10600000.0,
+          "median_ns": 10530000.0,
+          "mean_ns": 10530000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-final.log",
+          "median_mbps": 796.2
+        },
+        "gain_percent": 2.8490028490028463
+      },
+      {
+        "dataset": "tpch",
+        "column": "tpch/o_comment",
+        "operation": "parse",
+        "bits": 16,
+        "baseline": {
+          "column": "tpch/o_comment",
+          "operation": "parse",
+          "bits": 16,
+          "fastest_ns": 11260000.0,
+          "slowest_ns": 11460000.0,
+          "median_ns": 11290000.0,
+          "mean_ns": 11300000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-baseline.log",
+          "median_mbps": 742.4
+        },
+        "candidate": {
+          "column": "tpch/o_comment",
+          "operation": "parse",
+          "bits": 16,
+          "fastest_ns": 10950000.0,
+          "slowest_ns": 11190000.0,
+          "median_ns": 11020000.0,
+          "mean_ns": 11030000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-final.log",
+          "median_mbps": 760.7
+        },
+        "gain_percent": 2.4500907441016295
+      },
+      {
+        "dataset": "tpch",
+        "column": "tpch/o_comment",
+        "operation": "train_and_compress",
+        "bits": 12,
+        "baseline": {
+          "column": "tpch/o_comment",
+          "operation": "train_and_compress",
+          "bits": 12,
+          "fastest_ns": 20190000.0,
+          "slowest_ns": 21320000.0,
+          "median_ns": 20410000.0,
+          "mean_ns": 20460000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-baseline.log",
+          "median_mbps": 410.9
+        },
+        "candidate": {
+          "column": "tpch/o_comment",
+          "operation": "train_and_compress",
+          "bits": 12,
+          "fastest_ns": 19800000.0,
+          "slowest_ns": 20850000.0,
+          "median_ns": 19980000.0,
+          "mean_ns": 20020000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-final.log",
+          "median_mbps": 419.6
+        },
+        "gain_percent": 2.1521521521521425
+      },
+      {
+        "dataset": "tpch",
+        "column": "tpch/o_comment",
+        "operation": "train_and_compress",
+        "bits": 16,
+        "baseline": {
+          "column": "tpch/o_comment",
+          "operation": "train_and_compress",
+          "bits": 16,
+          "fastest_ns": 23100000.0,
+          "slowest_ns": 23610000.0,
+          "median_ns": 23280000.0,
+          "mean_ns": 23300000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-baseline.log",
+          "median_mbps": 360.3
+        },
+        "candidate": {
+          "column": "tpch/o_comment",
+          "operation": "train_and_compress",
+          "bits": 16,
+          "fastest_ns": 22630000.0,
+          "slowest_ns": 23140000.0,
+          "median_ns": 22820000.0,
+          "mean_ns": 22830000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-final.log",
+          "median_mbps": 367.5
+        },
+        "gain_percent": 2.015775635407535
+      },
+      {
+        "dataset": "tpch",
+        "column": "tpch/p_name",
+        "operation": "decompress_all",
+        "bits": 12,
+        "baseline": {
+          "column": "tpch/p_name",
+          "operation": "decompress_all",
+          "bits": 12,
+          "fastest_ns": 415800.0,
+          "slowest_ns": 441800.0,
+          "median_ns": 417600.0,
+          "mean_ns": 420000.0,
+          "samples": 238,
+          "iterations": 238,
+          "raw_log": "native-parser/tpch-baseline.log",
+          "median_mbps": 15680.0
+        },
+        "candidate": {
+          "column": "tpch/p_name",
+          "operation": "decompress_all",
+          "bits": 12,
+          "fastest_ns": 421000.0,
+          "slowest_ns": 591300.0,
+          "median_ns": 427200.0,
+          "mean_ns": 430400.0,
+          "samples": 232,
+          "iterations": 232,
+          "raw_log": "native-parser/tpch-final.log",
+          "median_mbps": 15330.0
+        },
+        "gain_percent": -2.2471910112359605
+      },
+      {
+        "dataset": "tpch",
+        "column": "tpch/p_name",
+        "operation": "decompress_all",
+        "bits": 16,
+        "baseline": {
+          "column": "tpch/p_name",
+          "operation": "decompress_all",
+          "bits": 16,
+          "fastest_ns": 449200.0,
+          "slowest_ns": 476500.0,
+          "median_ns": 452000.0,
+          "mean_ns": 454200.0,
+          "samples": 220,
+          "iterations": 220,
+          "raw_log": "native-parser/tpch-baseline.log",
+          "median_mbps": 14480.0
+        },
+        "candidate": {
+          "column": "tpch/p_name",
+          "operation": "decompress_all",
+          "bits": 16,
+          "fastest_ns": 450000.0,
+          "slowest_ns": 490700.0,
+          "median_ns": 456000.0,
+          "mean_ns": 459400.0,
+          "samples": 218,
+          "iterations": 218,
+          "raw_log": "native-parser/tpch-final.log",
+          "median_mbps": 14360.0
+        },
+        "gain_percent": -0.8771929824561431
+      },
+      {
+        "dataset": "tpch",
+        "column": "tpch/p_name",
+        "operation": "parse",
+        "bits": 12,
+        "baseline": {
+          "column": "tpch/p_name",
+          "operation": "parse",
+          "bits": 12,
+          "fastest_ns": 9444000.0,
+          "slowest_ns": 9633000.0,
+          "median_ns": 9487000.0,
+          "mean_ns": 9511000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-baseline.log",
+          "median_mbps": 690.4
+        },
+        "candidate": {
+          "column": "tpch/p_name",
+          "operation": "parse",
+          "bits": 12,
+          "fastest_ns": 9195000.0,
+          "slowest_ns": 9353000.0,
+          "median_ns": 9298000.0,
+          "mean_ns": 9282000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-final.log",
+          "median_mbps": 704.4
+        },
+        "gain_percent": 2.032695203269519
+      },
+      {
+        "dataset": "tpch",
+        "column": "tpch/p_name",
+        "operation": "parse",
+        "bits": 16,
+        "baseline": {
+          "column": "tpch/p_name",
+          "operation": "parse",
+          "bits": 16,
+          "fastest_ns": 8523000.0,
+          "slowest_ns": 8793000.0,
+          "median_ns": 8655000.0,
+          "mean_ns": 8647000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-baseline.log",
+          "median_mbps": 756.8
+        },
+        "candidate": {
+          "column": "tpch/p_name",
+          "operation": "parse",
+          "bits": 16,
+          "fastest_ns": 8282999.999999999,
+          "slowest_ns": 8438000.0,
+          "median_ns": 8356999.999999999,
+          "mean_ns": 8358000.000000001,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-final.log",
+          "median_mbps": 783.7
+        },
+        "gain_percent": 3.5658729209046447
+      },
+      {
+        "dataset": "tpch",
+        "column": "tpch/p_name",
+        "operation": "train_and_compress",
+        "bits": 12,
+        "baseline": {
+          "column": "tpch/p_name",
+          "operation": "train_and_compress",
+          "bits": 12,
+          "fastest_ns": 17370000.0,
+          "slowest_ns": 18330000.0,
+          "median_ns": 17450000.0,
+          "mean_ns": 17510000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-baseline.log",
+          "median_mbps": 375.2
+        },
+        "candidate": {
+          "column": "tpch/p_name",
+          "operation": "train_and_compress",
+          "bits": 12,
+          "fastest_ns": 17050000.0,
+          "slowest_ns": 17950000.0,
+          "median_ns": 17150000.0,
+          "mean_ns": 17200000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-final.log",
+          "median_mbps": 381.7
+        },
+        "gain_percent": 1.7492711370262315
+      },
+      {
+        "dataset": "tpch",
+        "column": "tpch/p_name",
+        "operation": "train_and_compress",
+        "bits": 16,
+        "baseline": {
+          "column": "tpch/p_name",
+          "operation": "train_and_compress",
+          "bits": 16,
+          "fastest_ns": 18240000.0,
+          "slowest_ns": 18610000.0,
+          "median_ns": 18340000.0,
+          "mean_ns": 18370000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-baseline.log",
+          "median_mbps": 357.0
+        },
+        "candidate": {
+          "column": "tpch/p_name",
+          "operation": "train_and_compress",
+          "bits": 16,
+          "fastest_ns": 17970000.0,
+          "slowest_ns": 18290000.0,
+          "median_ns": 18150000.0,
+          "mean_ns": 18140000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/tpch-final.log",
+          "median_mbps": 360.8
+        },
+        "gain_percent": 1.0468319559228556
+      },
+      {
+        "dataset": "clickbench_URL",
+        "column": "clickbench/URL",
+        "operation": "decompress_all",
+        "bits": 12,
+        "baseline": {
+          "column": "clickbench/URL",
+          "operation": "decompress_all",
+          "bits": 12,
+          "fastest_ns": 30340000.0,
+          "slowest_ns": 39330000.0,
+          "median_ns": 31520000.0,
+          "mean_ns": 32000000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/clickbench_URL-baseline.log",
+          "median_mbps": 2809.0
+        },
+        "candidate": {
+          "column": "clickbench/URL",
+          "operation": "decompress_all",
+          "bits": 12,
+          "fastest_ns": 29200000.0,
+          "slowest_ns": 39500000.0,
+          "median_ns": 30090000.0,
+          "mean_ns": 30660000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/clickbench_URL-final.log",
+          "median_mbps": 2943.0
+        },
+        "gain_percent": 4.752409438351601
+      },
+      {
+        "dataset": "clickbench_URL",
+        "column": "clickbench/URL",
+        "operation": "decompress_all",
+        "bits": 16,
+        "baseline": {
+          "column": "clickbench/URL",
+          "operation": "decompress_all",
+          "bits": 16,
+          "fastest_ns": 28470000.0,
+          "slowest_ns": 35580000.0,
+          "median_ns": 28900000.0,
+          "mean_ns": 29650000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/clickbench_URL-baseline.log",
+          "median_mbps": 3064.0
+        },
+        "candidate": {
+          "column": "clickbench/URL",
+          "operation": "decompress_all",
+          "bits": 16,
+          "fastest_ns": 30300000.0,
+          "slowest_ns": 37390000.0,
+          "median_ns": 31050000.0,
+          "mean_ns": 31720000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/clickbench_URL-final.log",
+          "median_mbps": 2851.0
+        },
+        "gain_percent": -6.924315619967791
+      },
+      {
+        "dataset": "clickbench_URL",
+        "column": "clickbench/URL",
+        "operation": "parse",
+        "bits": 12,
+        "baseline": {
+          "column": "clickbench/URL",
+          "operation": "parse",
+          "bits": 12,
+          "fastest_ns": 178600000.0,
+          "slowest_ns": 184200000.0,
+          "median_ns": 179500000.0,
+          "mean_ns": 179900000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/clickbench_URL-baseline.log",
+          "median_mbps": 493.1
+        },
+        "candidate": {
+          "column": "clickbench/URL",
+          "operation": "parse",
+          "bits": 12,
+          "fastest_ns": 172900000.0,
+          "slowest_ns": 174400000.0,
+          "median_ns": 173900000.0,
+          "mean_ns": 173800000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/clickbench_URL-final.log",
+          "median_mbps": 509.1
+        },
+        "gain_percent": 3.2202415181138644
+      },
+      {
+        "dataset": "clickbench_URL",
+        "column": "clickbench/URL",
+        "operation": "parse",
+        "bits": 16,
+        "baseline": {
+          "column": "clickbench/URL",
+          "operation": "parse",
+          "bits": 16,
+          "fastest_ns": 210200000.0,
+          "slowest_ns": 217800000.0,
+          "median_ns": 215200000.0,
+          "mean_ns": 214600000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/clickbench_URL-baseline.log",
+          "median_mbps": 411.4
+        },
+        "candidate": {
+          "column": "clickbench/URL",
+          "operation": "parse",
+          "bits": 16,
+          "fastest_ns": 193300000.0,
+          "slowest_ns": 200300000.0,
+          "median_ns": 194100000.0,
+          "mean_ns": 194400000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/clickbench_URL-final.log",
+          "median_mbps": 456.2
+        },
+        "gain_percent": 10.870685213807318
+      },
+      {
+        "dataset": "clickbench_URL",
+        "column": "clickbench/URL",
+        "operation": "train_and_compress",
+        "bits": 12,
+        "baseline": {
+          "column": "clickbench/URL",
+          "operation": "train_and_compress",
+          "bits": 12,
+          "fastest_ns": 244000000.0,
+          "slowest_ns": 254400000.0,
+          "median_ns": 245700000.0,
+          "mean_ns": 246400000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/clickbench_URL-baseline.log",
+          "median_mbps": 360.3
+        },
+        "candidate": {
+          "column": "clickbench/URL",
+          "operation": "train_and_compress",
+          "bits": 12,
+          "fastest_ns": 248500000.0,
+          "slowest_ns": 257300000.0,
+          "median_ns": 251600000.0,
+          "mean_ns": 252300000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/clickbench_URL-final.log",
+          "median_mbps": 351.8
+        },
+        "gain_percent": -2.344992050874406
+      },
+      {
+        "dataset": "clickbench_URL",
+        "column": "clickbench/URL",
+        "operation": "train_and_compress",
+        "bits": 16,
+        "baseline": {
+          "column": "clickbench/URL",
+          "operation": "train_and_compress",
+          "bits": 16,
+          "fastest_ns": 580600000.0,
+          "slowest_ns": 592800000.0,
+          "median_ns": 585700000.0,
+          "mean_ns": 586100000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/clickbench_URL-baseline.log",
+          "median_mbps": 151.1
+        },
+        "candidate": {
+          "column": "clickbench/URL",
+          "operation": "train_and_compress",
+          "bits": 16,
+          "fastest_ns": 559000000.0,
+          "slowest_ns": 573200000.0,
+          "median_ns": 567200000.0,
+          "mean_ns": 566800000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/clickbench_URL-final.log",
+          "median_mbps": 156.1
+        },
+        "gain_percent": 3.261636107193233
+      },
+      {
+        "dataset": "amazon_reviews",
+        "column": "amazon/book_reviews",
+        "operation": "decompress_all",
+        "bits": 12,
+        "baseline": {
+          "column": "amazon/book_reviews",
+          "operation": "decompress_all",
+          "bits": 12,
+          "fastest_ns": 48490000.0,
+          "slowest_ns": 59520000.0,
+          "median_ns": 50290000.0,
+          "mean_ns": 50600000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/amazon_reviews-baseline.log",
+          "median_mbps": 2466.0
+        },
+        "candidate": {
+          "column": "amazon/book_reviews",
+          "operation": "decompress_all",
+          "bits": 12,
+          "fastest_ns": 49480000.0,
+          "slowest_ns": 60030000.0,
+          "median_ns": 50700000.0,
+          "mean_ns": 51240000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/amazon_reviews-final.log",
+          "median_mbps": 2446.0
+        },
+        "gain_percent": -0.808678500986193
+      },
+      {
+        "dataset": "amazon_reviews",
+        "column": "amazon/book_reviews",
+        "operation": "decompress_all",
+        "bits": 16,
+        "baseline": {
+          "column": "amazon/book_reviews",
+          "operation": "decompress_all",
+          "bits": 16,
+          "fastest_ns": 51690000.0,
+          "slowest_ns": 59170000.0,
+          "median_ns": 52540000.0,
+          "mean_ns": 53120000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/amazon_reviews-baseline.log",
+          "median_mbps": 2360.0
+        },
+        "candidate": {
+          "column": "amazon/book_reviews",
+          "operation": "decompress_all",
+          "bits": 16,
+          "fastest_ns": 51940000.0,
+          "slowest_ns": 59020000.0,
+          "median_ns": 52410000.0,
+          "mean_ns": 52880000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/amazon_reviews-final.log",
+          "median_mbps": 2366.0
+        },
+        "gain_percent": 0.24804426636138022
+      },
+      {
+        "dataset": "amazon_reviews",
+        "column": "amazon/book_reviews",
+        "operation": "parse",
+        "bits": 12,
+        "baseline": {
+          "column": "amazon/book_reviews",
+          "operation": "parse",
+          "bits": 12,
+          "fastest_ns": 373000000.0,
+          "slowest_ns": 377400000.0,
+          "median_ns": 374600000.0,
+          "mean_ns": 374800000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/amazon_reviews-baseline.log",
+          "median_mbps": 331.1
+        },
+        "candidate": {
+          "column": "amazon/book_reviews",
+          "operation": "parse",
+          "bits": 12,
+          "fastest_ns": 327600000.0,
+          "slowest_ns": 331700000.0,
+          "median_ns": 330300000.0,
+          "mean_ns": 330100000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/amazon_reviews-final.log",
+          "median_mbps": 375.4
+        },
+        "gain_percent": 13.41204965183167
+      },
+      {
+        "dataset": "amazon_reviews",
+        "column": "amazon/book_reviews",
+        "operation": "parse",
+        "bits": 16,
+        "baseline": {
+          "column": "amazon/book_reviews",
+          "operation": "parse",
+          "bits": 16,
+          "fastest_ns": 442000000.0,
+          "slowest_ns": 457200000.0,
+          "median_ns": 449600000.0,
+          "mean_ns": 449600000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/amazon_reviews-baseline.log",
+          "median_mbps": 275.8
+        },
+        "candidate": {
+          "column": "amazon/book_reviews",
+          "operation": "parse",
+          "bits": 16,
+          "fastest_ns": 378200000.0,
+          "slowest_ns": 385800000.0,
+          "median_ns": 381200000.0,
+          "mean_ns": 381300000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/amazon_reviews-final.log",
+          "median_mbps": 325.3
+        },
+        "gain_percent": 17.94333683105982
+      },
+      {
+        "dataset": "amazon_reviews",
+        "column": "amazon/book_reviews",
+        "operation": "train_and_compress",
+        "bits": 12,
+        "baseline": {
+          "column": "amazon/book_reviews",
+          "operation": "train_and_compress",
+          "bits": 12,
+          "fastest_ns": 453100000.0,
+          "slowest_ns": 460300000.0,
+          "median_ns": 456800000.0,
+          "mean_ns": 457100000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/amazon_reviews-baseline.log",
+          "median_mbps": 271.5
+        },
+        "candidate": {
+          "column": "amazon/book_reviews",
+          "operation": "train_and_compress",
+          "bits": 12,
+          "fastest_ns": 407300000.0,
+          "slowest_ns": 418100000.0,
+          "median_ns": 411500000.0,
+          "mean_ns": 411800000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/amazon_reviews-final.log",
+          "median_mbps": 301.4
+        },
+        "gain_percent": 11.008505467800722
+      },
+      {
+        "dataset": "amazon_reviews",
+        "column": "amazon/book_reviews",
+        "operation": "train_and_compress",
+        "bits": 16,
+        "baseline": {
+          "column": "amazon/book_reviews",
+          "operation": "train_and_compress",
+          "bits": 16,
+          "fastest_ns": 1333000000.0,
+          "slowest_ns": 1381000000.0,
+          "median_ns": 1340000000.0,
+          "mean_ns": 1344000000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/amazon_reviews-baseline.log",
+          "median_mbps": 92.53
+        },
+        "candidate": {
+          "column": "amazon/book_reviews",
+          "operation": "train_and_compress",
+          "bits": 16,
+          "fastest_ns": 1266000000.0,
+          "slowest_ns": 1290000000.0,
+          "median_ns": 1279000000.0,
+          "mean_ns": 1278000000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser/amazon_reviews-final.log",
+          "median_mbps": 96.98
+        },
+        "gain_percent": 4.769351055512128
+      }
+    ],
+    "url_confirmation": {
+      "order": "baseline then final, reversing the initial final then baseline order",
+      "measurements": [
+        {
+          "column": "clickbench/URL",
+          "operation": "decompress_all",
+          "bits": 12,
+          "baseline": {
+            "column": "clickbench/URL",
+            "operation": "decompress_all",
+            "bits": 12,
+            "fastest_ns": 27450000.0,
+            "slowest_ns": 40020000.0,
+            "median_ns": 28930000.0,
+            "mean_ns": 29620000.0,
+            "samples": 20,
+            "iterations": 20,
+            "raw_log": "native-parser-confirm-url/clickbench_URL-baseline.log",
+            "median_mbps": 3061.0
+          },
+          "candidate": {
+            "column": "clickbench/URL",
+            "operation": "decompress_all",
+            "bits": 12,
+            "fastest_ns": 28180000.0,
+            "slowest_ns": 39130000.0,
+            "median_ns": 28930000.0,
+            "mean_ns": 29860000.0,
+            "samples": 20,
+            "iterations": 20,
+            "raw_log": "native-parser-confirm-url/clickbench_URL-final.log",
+            "median_mbps": 3060.0
+          },
+          "gain_percent": 0.0
+        },
+        {
+          "column": "clickbench/URL",
+          "operation": "decompress_all",
+          "bits": 16,
+          "baseline": {
+            "column": "clickbench/URL",
+            "operation": "decompress_all",
+            "bits": 16,
+            "fastest_ns": 28990000.0,
+            "slowest_ns": 36910000.0,
+            "median_ns": 29730000.0,
+            "mean_ns": 30240000.0,
+            "samples": 20,
+            "iterations": 20,
+            "raw_log": "native-parser-confirm-url/clickbench_URL-baseline.log",
+            "median_mbps": 2978.0
+          },
+          "candidate": {
+            "column": "clickbench/URL",
+            "operation": "decompress_all",
+            "bits": 16,
+            "fastest_ns": 28620000.0,
+            "slowest_ns": 36330000.0,
+            "median_ns": 29690000.0,
+            "mean_ns": 30460000.0,
+            "samples": 20,
+            "iterations": 20,
+            "raw_log": "native-parser-confirm-url/clickbench_URL-final.log",
+            "median_mbps": 2982.0
+          },
+          "gain_percent": 0.1347254968002698
+        },
+        {
+          "column": "clickbench/URL",
+          "operation": "parse",
+          "bits": 12,
+          "baseline": {
+            "column": "clickbench/URL",
+            "operation": "parse",
+            "bits": 12,
+            "fastest_ns": 178600000.0,
+            "slowest_ns": 182500000.0,
+            "median_ns": 179100000.0,
+            "mean_ns": 179300000.0,
+            "samples": 20,
+            "iterations": 20,
+            "raw_log": "native-parser-confirm-url/clickbench_URL-baseline.log",
+            "median_mbps": 494.4
+          },
+          "candidate": {
+            "column": "clickbench/URL",
+            "operation": "parse",
+            "bits": 12,
+            "fastest_ns": 173100000.0,
+            "slowest_ns": 175300000.0,
+            "median_ns": 173700000.0,
+            "mean_ns": 173900000.0,
+            "samples": 20,
+            "iterations": 20,
+            "raw_log": "native-parser-confirm-url/clickbench_URL-final.log",
+            "median_mbps": 509.6
+          },
+          "gain_percent": 3.1088082901554515
+        },
+        {
+          "column": "clickbench/URL",
+          "operation": "parse",
+          "bits": 16,
+          "baseline": {
+            "column": "clickbench/URL",
+            "operation": "parse",
+            "bits": 16,
+            "fastest_ns": 208200000.0,
+            "slowest_ns": 218000000.0,
+            "median_ns": 213000000.0,
+            "mean_ns": 212800000.0,
+            "samples": 20,
+            "iterations": 20,
+            "raw_log": "native-parser-confirm-url/clickbench_URL-baseline.log",
+            "median_mbps": 415.7
+          },
+          "candidate": {
+            "column": "clickbench/URL",
+            "operation": "parse",
+            "bits": 16,
+            "fastest_ns": 191500000.0,
+            "slowest_ns": 196900000.0,
+            "median_ns": 192300000.0,
+            "mean_ns": 192600000.0,
+            "samples": 20,
+            "iterations": 20,
+            "raw_log": "native-parser-confirm-url/clickbench_URL-final.log",
+            "median_mbps": 460.3
+          },
+          "gain_percent": 10.764430577223095
+        },
+        {
+          "column": "clickbench/URL",
+          "operation": "train_and_compress",
+          "bits": 12,
+          "baseline": {
+            "column": "clickbench/URL",
+            "operation": "train_and_compress",
+            "bits": 12,
+            "fastest_ns": 241600000.0,
+            "slowest_ns": 257100000.00000003,
+            "median_ns": 244500000.0,
+            "mean_ns": 245400000.0,
+            "samples": 20,
+            "iterations": 20,
+            "raw_log": "native-parser-confirm-url/clickbench_URL-baseline.log",
+            "median_mbps": 362.0
+          },
+          "candidate": {
+            "column": "clickbench/URL",
+            "operation": "train_and_compress",
+            "bits": 12,
+            "fastest_ns": 249200000.0,
+            "slowest_ns": 254900000.0,
+            "median_ns": 251200000.0,
+            "mean_ns": 251300000.0,
+            "samples": 20,
+            "iterations": 20,
+            "raw_log": "native-parser-confirm-url/clickbench_URL-final.log",
+            "median_mbps": 352.4
+          },
+          "gain_percent": -2.6671974522292974
+        },
+        {
+          "column": "clickbench/URL",
+          "operation": "train_and_compress",
+          "bits": 16,
+          "baseline": {
+            "column": "clickbench/URL",
+            "operation": "train_and_compress",
+            "bits": 16,
+            "fastest_ns": 575600000.0,
+            "slowest_ns": 600000000.0,
+            "median_ns": 584800000.0,
+            "mean_ns": 585400000.0,
+            "samples": 20,
+            "iterations": 20,
+            "raw_log": "native-parser-confirm-url/clickbench_URL-baseline.log",
+            "median_mbps": 151.4
+          },
+          "candidate": {
+            "column": "clickbench/URL",
+            "operation": "train_and_compress",
+            "bits": 16,
+            "fastest_ns": 555900000.0,
+            "slowest_ns": 572400000.0,
+            "median_ns": 564200000.0,
+            "mean_ns": 563700000.0,
+            "samples": 20,
+            "iterations": 20,
+            "raw_log": "native-parser-confirm-url/clickbench_URL-final.log",
+            "median_mbps": 156.9
+          },
+          "gain_percent": 3.6511875221552748
+        }
+      ],
+      "note": "Both runs retained. Initial standalone URL12 train+compress measured -2.34%; reverse-order repeat measured about -2.67%, while parse improved about3%/11%. Decoder repeat was effectively flat. The primary Vortex writer gains remain positive on all14cases. No training or decoder source change was made; the cause of this standalone total-compression regression was not isolated."
+    },
+    "command_arguments": [
+      "--bench",
+      "--color",
+      "never",
+      "--timer",
+      "os",
+      "--bytes-format",
+      "decimal",
+      "--sample-count",
+      "20",
+      "--sample-size",
+      "1",
+      "--min-time",
+      "0.1"
+    ]
+  },
+  "final_profile": {
+    "build_id": "b0aaa135864cf8d87e80fdb35d0cf5482aafcb0c",
+    "raw_profile": "reviews-write-parser-final.profile.json.gz",
+    "symbolized_profile": "reviews-write-parser-final-symbolized.profile.json.gz",
+    "command": "TMPDIR=<workspace scratch> RUST_LOG=info samply record --save-only --rate 1000 --output <profile> -- taskset -c 2 <frozen-final-string-bench> --columns ^amazon/book_reviews$ --encoders onpair --iterations 3 --warmup 1 --display-format gh-json --output-path <profile-results.jsonl>",
+    "cpu_ms": 9232.341,
+    "cpu_self_percent": {
+      "parser_rows": 38.22054449678581,
+      "parser_flat": 2.2109560294620834,
+      "training_lookup": 14.291597331597696,
+      "integer_statistics": 5.582462779483556,
+      "width_histogram": 2.549483386716327,
+      "dictionary_constructor": 1.4154698142107187,
+      "inlined_compress_rows": 13.942606755967962,
+      "parser_total": 40.431500526247895
+    },
+    "top_self": [
+      {
+        "function": "onpair::encoding::lanes::parse_batch_rank_rows::<usize, u64>",
+        "cpu_self_percent": 38.22054449678581
+      },
+      {
+        "function": "<onpair::encoding::lpm::LongestPrefixMatcher>::find_longest_match",
+        "cpu_self_percent": 14.291597331597696
+      },
+      {
+        "function": "onpair::compress_rows::<vortex_onpair::compress::ViewRows, u64>",
+        "cpu_self_percent": 13.942606755967962
+      },
+      {
+        "function": "<vortex_compressor::stats::integer::IntegerStats>::generate_opts_fallible",
+        "cpu_self_percent": 5.582462779483556
+      },
+      {
+        "function": "vortex_fastlanes::bitpacking::array::bitpack_compress::global::bit_width_histogram",
+        "cpu_self_percent": 2.549483386716327
+      },
+      {
+        "function": "onpair::encoding::lanes::parse_batch_rank::<usize, u64>",
+        "cpu_self_percent": 2.2109560294620834
+      },
+      {
+        "function": "onpair::decoding::try_decode_into::<onpair::core::dictionary::compact::CompactDictionaryView>",
+        "cpu_self_percent": 2.143042593422405
+      },
+      {
+        "function": "0x192b3f",
+        "cpu_self_percent": 1.9449129966061696
+      },
+      {
+        "function": "core::slice::sort::stable::quicksort::quicksort::<usize, <[usize]>::sort_by<onpair::encoding::trainer::sort_tokens::{closure#1}>::{closure#0}>",
+        "cpu_self_percent": 1.4316412272900232
+      },
+      {
+        "function": "<onpair::encoding::dictionary_matcher::DictionaryMatcher>::from_dictionary",
+        "cpu_self_percent": 1.4154698142107187
+      },
+      {
+        "function": "ZSTD_decompressSequences_bmi2.constprop.0",
+        "cpu_self_percent": 1.0168493559759113
+      },
+      {
+        "function": "vortex_array::aggregate_fn::fns::min_max::primitive::accumulate_primitive",
+        "cpu_self_percent": 0.8393104197516101
+      }
+    ],
+    "scope": "CPU-weighted whole reviews harness, both budgets, including warmup/read/verification. Not an isolated write-stage profile. Symbolication verified against the frozen executable GNU build ID."
+  },
+  "validation": {
+    "onpair": "159 unit/property/brute_force tests and 2 doctests passed; the new100-case Hegel property forces scalar and guarded SIMD loops for both Rows and Arrow and reuses initialized buffers across long, short, empty, zero, FF, and equal-key token cases.",
+    "vortex": "1096 affected library tests passed:1044 FastLanes,40 OnPair,12 string-bench.",
+    "lint_and_format": "OnPair pinnedRust1.91 all-target/all-feature Clippy with warnings denied and formatting passed; affected Vortex all-target/all-feature Clippy, tests and nightly workspace formatting passed.",
+    "encoded_equality": "Final Git ae79 versus9b12: exact dictionary bytes/offsets, codes, and row offsets on all9956337 real benchmark rows in8192-row chunks at both budgets, plus2006 binary/empty/zero/FF/random rows. Also112 train/input/budget combinations, training each of seven first real batches and parsing all seven plus binary; both Rows and Arrow outputs exactly match.",
+    "all_21_size_metrics_equal_at_every_step": true,
+    "public_api_and_format_unchanged": true,
+    "platform_scope": "Performance measured only on this x86-64 host. Scalar execution is tested explicitly; SIMD tests skip cleanly without AVX-512F/POPCNT."
+  },
+  "rejected_trials": [
+    {
+      "label": "parser-row-branch",
+      "description": "Universal row-completion branches:regressed short-rowTPC by3.5%.",
+      "summary": {
+        "onpair-12": {
+          "geomean_pct": 2.232294910392607,
+          "min_pct": -3.4747678449377317,
+          "max_pct": 5.529364937811332
+        },
+        "onpair-16": {
+          "geomean_pct": 1.2600523260105412,
+          "min_pct": -3.460628773596197,
+          "max_pct": 3.711893965254509
+        },
+        "fsst": {
+          "geomean_pct": -0.2964568380911081,
+          "min_pct": -1.4884927234598555,
+          "max_pct": 0.33717866064526536
+        }
+      }
+    },
+    {
+      "label": "parser-adaptive-rows",
+      "description": "First adaptive build:outlined array closures lost POPCNT context; corrected before retaining.",
+      "summary": {
+        "onpair-12": {
+          "geomean_pct": -14.819816326681845,
+          "min_pct": -21.012696852980827,
+          "max_pct": -10.308531546101673
+        },
+        "onpair-16": {
+          "geomean_pct": -12.253311806733402,
+          "min_pct": -14.41448532028734,
+          "max_pct": -9.939585625945902
+        },
+        "fsst": {
+          "geomean_pct": -0.4739899136819492,
+          "min_pct": -1.382028422449244,
+          "max_pct": -0.031865338409065025
+        }
+      }
+    },
+    {
+      "label": "parser-rank-highest-bit",
+      "description": "Replace rank popcount-minus-one with highest set bit:flat12bit/slower16bit; discarded.",
+      "summary": {
+        "onpair-12": {
+          "geomean_pct": 0.06750459596780445,
+          "min_pct": -2.219620679215173,
+          "max_pct": 1.0196294527391458
+        },
+        "onpair-16": {
+          "geomean_pct": -0.7530588762843293,
+          "min_pct": -2.592331615588017,
+          "max_pct": 0.842861507452497
+        },
+        "fsst": {
+          "geomean_pct": -0.8201674519650481,
+          "min_pct": -2.5989744893301303,
+          "max_pct": 0.036553398678162985
+        }
+      }
+    }
+  ],
+  "replacement_run_order": [
+    {
+      "column": "URL",
+      "variant": "baseline",
+      "label": "parser-final-confirm-url-baseline"
+    },
+    {
+      "column": "URL",
+      "variant": "span",
+      "label": "parser-final-confirm-url-span"
+    },
+    {
+      "column": "URL",
+      "variant": "buffers",
+      "label": "parser-final-confirm-url-buffers"
+    },
+    {
+      "column": "URL",
+      "variant": "candidate",
+      "label": "parser-final-confirm-url-candidate"
+    }
+  ]
+}
