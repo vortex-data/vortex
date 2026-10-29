@@ -12,7 +12,6 @@ use vortex_session::VortexSession;
 use crate::EqMode;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::datetime::TemporalData;
 use crate::assert_arrays_eq;
@@ -218,7 +217,7 @@ fn test_validity_preservation(#[case] validity: Validity) {
 }
 
 #[test]
-fn comparison_rejects_mismatched_timestamp_units() -> VortexResult<()> {
+fn test_comparison_rejects_mismatched_timestamp_units_at_binding() -> VortexResult<()> {
     let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
         .into_array();
     let temporal = TemporalData::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
@@ -236,13 +235,12 @@ fn comparison_rejects_mismatched_timestamp_units() -> VortexResult<()> {
 
     let error = temporal
         .into_array()
-        .apply(&filter_expr)?
-        .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
-        .unwrap_err();
+        .apply(&filter_expr)
+        .expect_err("comparisons require matching timestamp units when the expression is bound");
     assert!(
         error
             .to_string()
-            .contains("Cannot compare extension dtypes")
+            .contains("Comparison requires equal dtypes ignoring nullability")
     );
 
     Ok(())

@@ -247,7 +247,7 @@ mod tests {
     }
 
     #[test]
-    fn test_scalar_fn_no_pushdown_different_ext_types() {
+    fn test_comparison_rejects_different_extension_types_at_binding() {
         #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
         struct TestExt2;
         impl ExtVTable for TestExt2 {
@@ -289,21 +289,15 @@ mod tests {
         let storage = buffer![10i64, 20, 30].into_array();
         let ext_array = ExtensionArray::new(ext_dtype1, storage).into_array();
 
-        // Create constant with different extension type
         let const_scalar = Scalar::extension::<TestExt2>(EmptyMetadata, Scalar::from(25i64));
         let const_array = ConstantArray::new(const_scalar, 3).into_array();
 
-        let scalar_fn_array = Binary::try_new(ext_array, const_array, Operator::Lt)
-            .unwrap()
-            .into_array();
-
-        let optimized = scalar_fn_array.optimize().unwrap();
-
-        // The first child should still be an ExtensionArray (no pushdown happened)
-        let scalar_fn = optimized.as_opt::<ScalarFn>().unwrap();
+        let error = Binary::try_new(ext_array, const_array, Operator::Lt)
+            .expect_err("comparisons require matching extension dtypes at binding");
         assert!(
-            scalar_fn.children()[0].as_opt::<Extension>().is_some(),
-            "Expected first child to remain ExtensionArray when ext types differ"
+            error
+                .to_string()
+                .contains("Comparison requires equal dtypes ignoring nullability")
         );
     }
 
@@ -333,25 +327,19 @@ mod tests {
     }
 
     #[test]
-    fn test_scalar_fn_no_pushdown_non_extension_constant() {
+    fn test_comparison_rejects_storage_constant_at_binding() {
         let ext_dtype = test_ext_dtype();
         let storage = buffer![10i64, 20, 30].into_array();
         let ext_array = ExtensionArray::new(ext_dtype, storage).into_array();
 
-        // Create a non-extension constant (plain primitive)
         let const_array = ConstantArray::new(Scalar::from(25i64), 3).into_array();
 
-        let scalar_fn_array = Binary::try_new(ext_array, const_array, Operator::Lt)
-            .unwrap()
-            .into_array();
-
-        let optimized = scalar_fn_array.optimize().unwrap();
-
-        // No pushdown should happen because constant is not an extension scalar
-        let scalar_fn = optimized.as_opt::<ScalarFn>().unwrap();
+        let error = Binary::try_new(ext_array, const_array, Operator::Lt)
+            .expect_err("an extension cannot be compared with its storage dtype at binding");
         assert!(
-            scalar_fn.children()[0].as_opt::<Extension>().is_some(),
-            "Expected first child to remain ExtensionArray when constant is not extension"
+            error
+                .to_string()
+                .contains("Comparison requires equal dtypes ignoring nullability")
         );
     }
 }

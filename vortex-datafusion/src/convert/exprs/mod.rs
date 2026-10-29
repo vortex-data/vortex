@@ -6,6 +6,8 @@ use std::sync::Arc;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Schema;
+use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
+use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
@@ -309,8 +311,26 @@ impl DefaultExpressionConverter {
             } else if !supported_data_types(&left_type) || !supported_data_types(&right_type) {
                 return Err(Unconverted::Unsupported);
             }
-            let left = self.convert_expr(binary_expr.left(), schema, input_dtype)?;
-            let right = self.convert_expr(binary_expr.right(), schema, input_dtype)?;
+            let left = if operator.is_comparison() {
+                self.convert_comparison_operand(
+                    binary_expr.left(),
+                    binary_expr.right(),
+                    schema,
+                    input_dtype,
+                )?
+            } else {
+                self.convert_expr(binary_expr.left(), schema, input_dtype)?
+            };
+            let right = if operator.is_comparison() {
+                self.convert_comparison_operand(
+                    binary_expr.right(),
+                    binary_expr.left(),
+                    schema,
+                    input_dtype,
+                )?
+            } else {
+                self.convert_expr(binary_expr.right(), schema, input_dtype)?
+            };
             // DataFusion may evaluate the RHS only on rows selected by the LHS.
             if boolean_operator && !(is_infallible(&left) && is_infallible(&right)) {
                 return Err(Unconverted::Unsupported);
@@ -329,23 +349,8 @@ impl DefaultExpressionConverter {
 
         if let Some(literal) = expr.downcast_ref::<df_expr::Literal>() {
             let field = literal.return_field(schema)?;
-            let array = literal.value().to_array()?;
-            if array.len() != 1 {
-                return Err(exec_datafusion_err!(
-                    "Literal must contain exactly one value, found {}",
-                    array.len()
-                )
-                .into());
-            }
-            // Literals of unknown Arrow types stay in DataFusion; conversion failures are errors.
-            self.arrow_dtype(&field)?;
-            let scalar = self
-                .session
-                .arrow()
-                .from_arrow_array(array, &field)
-                .and_then(|array| array.execute_scalar(0, &mut self.session.create_execution_ctx()))
-                .map_err(|e| exec_datafusion_err!("Failed to convert literal {expr}: {e}"))?;
-            return Ok(lit(scalar));
+
+            return self.convert_literal(literal, &field);
         }
 
         if let Some(cast_expr) = expr.downcast_ref::<df_expr::CastExpr>() {
@@ -427,6 +432,67 @@ impl DefaultExpressionConverter {
         Err(Unconverted::Unsupported)
     }
 
+    /// Imports a comparison literal with the other operand's extension metadata when the
+    /// DataFusion literal carries only its Arrow storage type.
+    fn convert_comparison_operand(
+        &self,
+        expr: &Arc<dyn PhysicalExpr>,
+        other: &Arc<dyn PhysicalExpr>,
+        schema: &Schema,
+        input_dtype: &DType,
+    ) -> Conversion<Expression> {
+        if let Some(literal) = expr.downcast_ref::<df_expr::Literal>() {
+            let field = other.return_field(schema)?;
+
+            return self.convert_literal_with_field(literal, &field, schema);
+        }
+
+        self.convert_expr(expr, schema, input_dtype)
+    }
+
+    /// Keeps explicit literal metadata and supplies missing extension metadata from `expected`.
+    fn convert_literal_with_field(
+        &self,
+        literal: &df_expr::Literal,
+        expected: &Field,
+        schema: &Schema,
+    ) -> Conversion<Expression> {
+        let field = literal.return_field(schema)?;
+        if field.extension_type_name().is_some() || expected.extension_type_name().is_none() {
+            return self.convert_literal(literal, &field);
+        }
+
+        let mut field = field.as_ref().clone();
+        for key in [EXTENSION_TYPE_NAME_KEY, EXTENSION_TYPE_METADATA_KEY] {
+            if let Some(value) = expected.metadata().get(key) {
+                field.metadata_mut().insert(key.into(), value.clone());
+            }
+        }
+
+        self.convert_literal(literal, &field)
+    }
+
+    fn convert_literal(&self, literal: &df_expr::Literal, field: &Field) -> Conversion<Expression> {
+        let array = literal.value().to_array()?;
+        if array.len() != 1 {
+            return Err(exec_datafusion_err!(
+                "Literal must contain exactly one value, found {}",
+                array.len()
+            )
+            .into());
+        }
+
+        self.arrow_dtype(field)?;
+        let scalar = self
+            .session
+            .arrow()
+            .from_arrow_array(array, field)
+            .and_then(|array| array.execute_scalar(0, &mut self.session.create_execution_ctx()))
+            .map_err(|e| exec_datafusion_err!("Failed to convert literal {literal}: {e}"))?;
+
+        Ok(lit(scalar))
+    }
+
     fn convert_in_list(
         &self,
         in_list: &df_expr::InListExpr,
@@ -448,19 +514,19 @@ impl DefaultExpressionConverter {
             return Err(Unconverted::Unsupported);
         }
         let value_dtype = converted_dtype(&value, input_dtype)?;
+        let value_field = in_list.expr().return_field(schema)?;
 
         // The list of a hash join filter holds every build-side key, which repeat. Each element
-        // converts through Arrow, so equal elements are converted once.
+        // converts through Arrow, so equal values with equal metadata are converted once.
         let elements = in_list
             .list()
             .iter()
-            .unique_by(|element| {
-                element
-                    .downcast_ref::<df_expr::Literal>()
-                    .map(|literal| literal.value().clone())
-            })
+            .unique_by(|element| element.downcast_ref::<df_expr::Literal>().cloned())
             .map(|element| {
-                let element = self.convert_expr(element, schema, input_dtype)?;
+                let literal = element
+                    .downcast_ref::<df_expr::Literal>()
+                    .ok_or(Unconverted::Unsupported)?;
+                let element = self.convert_literal_with_field(literal, &value_field, schema)?;
                 element
                     .as_opt::<Literal>()
                     .cloned()

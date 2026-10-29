@@ -150,12 +150,8 @@ impl ScalarFnVTable for Binary {
             );
         }
 
-        if operator.is_comparison()
-            && !lhs.eq_ignore_nullability(rhs)
-            && !lhs.is_extension()
-            && !rhs.is_extension()
-        {
-            vortex_bail!("Cannot compare different DTypes {} and {}", lhs, rhs);
+        if operator.is_comparison() {
+            validate_comparison_dtypes(lhs, rhs)?;
         }
 
         if matches!(operator, Operator::And | Operator::Or)

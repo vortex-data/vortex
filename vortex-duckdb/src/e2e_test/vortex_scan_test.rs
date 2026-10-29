@@ -4,7 +4,9 @@
 //! This module contains tests for the `vortex_scan` table function.
 
 use std::ffi::CStr;
+use std::ops::Range;
 use std::path::Path;
+use std::ptr::NonNull;
 use std::slice;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -31,11 +33,16 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::arrays::VarBinViewArray;
+use vortex::array::stream::ArrayStreamExt;
 use vortex::array::validity::Validity;
 use vortex::buffer::buffer;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::encodings::fastlanes::RLEData;
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
+use vortex::expr::col;
+use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
@@ -44,6 +51,7 @@ use vortex::scalar::Scalar;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::RunEnd;
 use vortex_array::arrays::varbin::builder::VarBinBuilder;
+use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_sequence::Sequence;
@@ -53,11 +61,16 @@ use wkb::writer::WriteOptions;
 
 use crate::RUNTIME;
 use crate::SESSION;
+use crate::convert::try_from_table_filter;
 use crate::cpp;
 use crate::cpp::duckdb_string_t;
 use crate::cpp::duckdb_timestamp;
 use crate::duckdb::Connection;
 use crate::duckdb::Database;
+use crate::duckdb::TableFilter;
+use crate::duckdb::TableFilterRef;
+use crate::duckdb::Value;
+use crate::duckdb::ValueRef;
 
 fn database_connection() -> Connection {
     let db = Database::open_in_memory().unwrap();
@@ -285,7 +298,9 @@ fn test_vortex_scan_integers_between() {
     assert_eq!(sum, 43);
 }
 
-fn assert_membership_filter_pushed(
+/// Requires the predicate to return the expected count entirely inside the Vortex scan.
+#[track_caller]
+fn assert_filter_pushed(
     conn: &Connection,
     table: &str,
     predicate: &str,
@@ -337,7 +352,147 @@ fn test_membership_filter_pushdown(
     } else {
         file_table.as_str()
     };
-    assert_membership_filter_pushed(&conn, table, predicate, expected)
+    assert_filter_pushed(&conn, table, predicate, expected)
+}
+
+/// Writes nullable UUID and millisecond timestamp columns for extension literal pushdown.
+fn extension_filter_file(conn: &Connection) -> Result<NamedTempFile> {
+    let file = create_temp_file();
+    conn.query(&format!(
+        "COPY (SELECT * FROM (VALUES
+            (UUID '00000000-0000-0000-0000-000000000001', TIMESTAMP_MS '1970-01-01 00:00:01'),
+            (UUID '00000000-0000-0000-0000-000000000002', TIMESTAMP_MS '1970-01-01 00:00:02'),
+            (UUID '00000000-0000-0000-0000-000000000003', TIMESTAMP_MS '1970-01-01 00:00:03'),
+            (NULL, NULL)
+        ) AS input(id, created_at)) TO '{}' (FORMAT VORTEX)",
+        file.path().display(),
+    ))?;
+
+    Ok(file)
+}
+
+/// Reads a typed DuckDB literal through the same ValueRef used by table filters.
+fn duckdb_literal(conn: &Connection, literal: &str) -> Result<Value> {
+    let result = conn.query(&format!("SELECT {literal}"))?;
+    let chunk = result.into_iter().next().expect("SELECT returns one row");
+
+    Ok(chunk
+        .get_vector(0)
+        .get_value(0, chunk.len())
+        .expect("SELECT returns its literal"))
+}
+
+#[rstest]
+#[case::uuid("id = UUID '00000000-0000-0000-0000-000000000002'", 1)]
+#[case::uuid_reversed("UUID '00000000-0000-0000-0000-000000000002' < id", 1)]
+#[case::null_uuid("id IS NULL", 1)]
+#[case::null_timestamp("created_at IS NULL", 1)]
+#[case::timestamp("created_at < TIMESTAMP_MS '1970-01-01 00:00:01.500'", 1)]
+#[case::timestamp_reversed("TIMESTAMP_MS '1970-01-01 00:00:01.500' < created_at", 2)]
+#[case::compound(
+    "id = UUID '00000000-0000-0000-0000-000000000002' OR created_at < TIMESTAMP_MS '1970-01-01 00:00:01.500'",
+    2
+)]
+fn test_extension_literal_filter_pushdown(
+    #[case] predicate: &str,
+    #[case] expected: i64,
+) -> Result<()> {
+    let conn = database_connection();
+    let file = extension_filter_file(&conn)?;
+    let table = format!("'{}'", file.path().display());
+
+    assert_filter_pushed(&conn, &table, predicate, expected)
+}
+
+unsafe extern "C" {
+    fn duckdb_vx_test_constant_filter(value: cpp::duckdb_value) -> cpp::duckdb_vx_table_filter;
+    fn duckdb_vx_test_destroy_constant_filter(filter: cpp::duckdb_vx_table_filter);
+}
+
+/// Owns the native constant-comparison filter used to exercise the static table-filter path.
+struct ConstantComparisonFilter(NonNull<cpp::duckdb_vx_table_filter_>);
+
+impl ConstantComparisonFilter {
+    /// Copies a non-null literal, returning an error when the native constructor rejects it.
+    fn try_new(value: &ValueRef) -> VortexResult<Self> {
+        // SAFETY: The constructor copies this live ValueRef and catches all native exceptions.
+        let filter = unsafe { duckdb_vx_test_constant_filter(value.as_ptr()) };
+
+        NonNull::new(filter)
+            .map(Self)
+            .ok_or_else(|| vortex_err!("DuckDB constant comparison filter construction failed"))
+    }
+
+    fn as_filter(&self) -> &TableFilterRef {
+        // SAFETY: The constructor allocated this filter, and the returned borrow cannot outlive it.
+        unsafe { TableFilter::borrow(self.0.as_ptr()) }
+    }
+}
+
+impl Drop for ConstantComparisonFilter {
+    fn drop(&mut self) {
+        // SAFETY: This guard uniquely owns the filter allocated by the matching constructor.
+        unsafe { duckdb_vx_test_destroy_constant_filter(self.0.as_ptr()) }
+    }
+}
+
+#[rstest]
+#[case::uuid("id", "UUID '00000000-0000-0000-0000-000000000002'", 1..2)]
+#[case::timestamp("created_at", "TIMESTAMP_MS '1970-01-01 00:00:02'", 1..2)]
+fn test_extension_static_table_filter(
+    #[case] column: &str,
+    #[case] literal: &str,
+    #[case] expected_rows: Range<usize>,
+) -> Result<()> {
+    let conn = database_connection();
+    let file = extension_filter_file(&conn)?;
+    let value = duckdb_literal(&conn, literal)?;
+    let filter = ConstantComparisonFilter::try_new(&value)?;
+
+    RUNTIME.block_on(async {
+        let file = SESSION.open_options().open_path(file.path()).await?;
+        let expression = try_from_table_filter(filter.as_filter(), &col(column), file.dtype())?
+            .expect("constant comparisons are supported")
+            .bind(file.dtype())?;
+        let actual = file
+            .scan()?
+            .with_filter(expression)
+            .into_array_stream()?
+            .read_all()
+            .await?;
+        let expected = file
+            .scan()?
+            .into_array_stream()?
+            .read_all()
+            .await?
+            .slice(expected_rows)?;
+
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
+        Ok(())
+    })
+}
+
+#[rstest]
+#[case::uuid("id", "NULL::UUID")]
+#[case::timestamp("created_at", "NULL::TIMESTAMP_MS")]
+fn test_null_extension_literals_reject_constant_filter(
+    #[case] column: &str,
+    #[case] literal: &str,
+) -> Result<()> {
+    let conn = database_connection();
+    let file = extension_filter_file(&conn)?;
+    let value = duckdb_literal(&conn, literal)?;
+    let scalar = Scalar::try_from(&*value)?;
+
+    RUNTIME.block_on(async {
+        let file = SESSION.open_options().open_path(file.path()).await?;
+        assert_eq!(scalar.dtype(), &col(column).return_dtype(file.dtype())?);
+        assert!(scalar.is_null());
+
+        // DuckDB does not allow null constants in comparison filters, so the fixture rejects them.
+        assert!(ConstantComparisonFilter::try_new(&value).is_err());
+        Ok(())
+    })
 }
 
 #[test]
@@ -352,7 +507,7 @@ fn test_large_membership_filter_pushdown() -> Result<()> {
         .map(|value| (value * 2).to_string())
         .collect::<Vec<_>>()
         .join(",");
-    assert_membership_filter_pushed(
+    assert_filter_pushed(
         &conn,
         &format!("'{}'", file.path().to_string_lossy()),
         &format!("number IN ({members})"),

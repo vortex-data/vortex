@@ -582,6 +582,11 @@ fn compile_cpp(duckdb_include_dir: &Path) {
         }
     }
 
+    if env::var_os("CARGO_FEATURE__TEST_HARNESS").is_some() {
+        build.file("cpp/test_support.cpp");
+        println!("cargo:rerun-if-changed=cpp/test_support.cpp");
+    }
+
     build
         .include("include")
         .include("cpp/include")

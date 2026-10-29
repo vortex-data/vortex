@@ -15,6 +15,7 @@ use std::cmp::Ordering;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
@@ -101,6 +102,8 @@ where
             _ => return Ok(None),
         };
 
+        validate_comparison_dtypes(array.dtype(), other.dtype())?;
+
         let len = array.len();
         let nullable = array.dtype().is_nullable() || other.dtype().is_nullable();
 
@@ -133,6 +136,8 @@ pub(crate) fn execute_compare(
     op: CompareOperator,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
+    validate_comparison_dtypes(lhs.dtype(), rhs.dtype())?;
+
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
 
     if lhs.len() != rhs.len() {
@@ -174,32 +179,14 @@ fn compare_arrays(
 ) -> VortexResult<ArrayRef> {
     let nullability = Nullability::from(lhs.dtype().is_nullable() || rhs.dtype().is_nullable());
 
-    // Extension arrays compare through their storage. When both sides are extensions they must
-    // agree on the full extension dtype (a timestamp in milliseconds must not compare its raw
-    // storage against one in seconds); a lone extension side may compare against its raw storage.
-    if lhs.dtype().is_extension() || rhs.dtype().is_extension() {
-        if lhs.dtype().is_extension()
-            && rhs.dtype().is_extension()
-            && !lhs.dtype().eq_ignore_nullability(rhs.dtype())
-        {
-            vortex_bail!(
-                "Cannot compare extension dtypes {} and {}",
-                lhs.dtype(),
-                rhs.dtype()
-            );
-        }
+    if lhs.dtype().is_extension() {
         let lhs = extension_storage(lhs, ctx)?;
         let rhs = extension_storage(rhs, ctx)?;
+
         return compare_arrays(&lhs, &rhs, op, ctx);
     }
 
-    if !lhs.dtype().eq_ignore_nullability(rhs.dtype()) {
-        vortex_bail!(
-            "Cannot compare different DTypes {} and {}",
-            lhs.dtype(),
-            rhs.dtype()
-        );
-    }
+    validate_comparison_dtypes(lhs.dtype(), rhs.dtype())?;
 
     match lhs.dtype() {
         // Every value of the null dtype is null, so every comparison result is null.
@@ -221,12 +208,10 @@ fn compare_arrays(
     }
 }
 
-/// Replace an extension array (or extension constant) with its storage. Non-extension arrays are
-/// returned unchanged.
+/// Returns the storage of an extension array or constant.
+///
+/// The caller must first require matching extension dtypes, ignoring nullability.
 fn extension_storage(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-    if !array.dtype().is_extension() {
-        return Ok(array.clone());
-    }
     if let Some(constant) = array.as_opt::<Constant>() {
         return Ok(ConstantArray::new(
             constant.scalar().as_extension().to_storage_scalar(),
@@ -238,7 +223,12 @@ fn extension_storage(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<A
     Ok(ext.storage_array().clone())
 }
 
+/// Compares scalars with matching dtypes, ignoring nullability.
+///
+/// Returns null if either operand is null, and an error if the operand dtypes differ.
 pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: CompareOperator) -> VortexResult<Scalar> {
+    validate_comparison_dtypes(lhs.dtype(), rhs.dtype())?;
+
     if lhs.is_null() | rhs.is_null() {
         return Ok(Scalar::null(DType::Bool(Nullability::Nullable)));
     }
@@ -264,6 +254,16 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: CompareOperator) -> Vort
     };
 
     Ok(Scalar::bool(b, nullability))
+}
+
+/// Checks the shared dtype requirement before comparison fast paths or encoding kernels run.
+pub(super) fn validate_comparison_dtypes(lhs: &DType, rhs: &DType) -> VortexResult<()> {
+    vortex_ensure!(
+        lhs.eq_ignore_nullability(rhs),
+        "Comparison requires equal dtypes ignoring nullability, got {lhs} and {rhs}"
+    );
+
+    Ok(())
 }
 
 /// Returns the predicate `Ordering -> bool` for a comparison operator.

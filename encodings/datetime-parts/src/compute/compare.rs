@@ -18,6 +18,7 @@ use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_mask::AllOr;
 
 use crate::array::DateTimeParts;
@@ -31,6 +32,13 @@ impl CompareKernel for DateTimeParts {
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        vortex_ensure!(
+            lhs.dtype().eq_ignore_nullability(rhs.dtype()),
+            "Comparison requires equal dtypes ignoring nullability, got {} and {}",
+            lhs.dtype(),
+            rhs.dtype()
+        );
+
         let Some(rhs_const) = rhs.as_constant() else {
             return Ok(None);
         };
@@ -284,7 +292,7 @@ fn compare_dtp(
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
@@ -303,6 +311,8 @@ mod test {
     use vortex_array::extension::datetime::TimestampOptions;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::fns::binary::CompareKernel;
+    use vortex_array::test_harness::ExpectedOutcome;
+    use vortex_array::test_harness::assert_execution_paths;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
@@ -681,6 +691,49 @@ mod test {
                 .map(|(i, value)| (i % 3 != 1).then_some(*value)),
         );
         assert_matches_temporal(nullable, unit, constants)
+    }
+
+    #[rstest]
+    #[case::storage(None)]
+    #[case::different_unit(Some(TimeUnit::Nanoseconds))]
+    fn test_comparison_rejects_mismatched_constant_dtype(
+        #[case] unit: Option<TimeUnit>,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let temporal = TemporalArray::new_timestamp(
+            buffer![1600i64, 1400].into_array(),
+            TimeUnit::Milliseconds,
+            None,
+        );
+        let array = DateTimeParts::try_from_temporal(temporal, &mut ctx)?;
+        let scalar = match unit {
+            Some(unit) => Scalar::extension::<Timestamp>(
+                TimestampOptions { unit, tz: None },
+                Scalar::from(1_500_000_000i64),
+            ),
+            None => Scalar::from(1500i64),
+        };
+        let rhs = ConstantArray::new(scalar, array.len()).into_array();
+
+        for operator in ALL_OPERATORS {
+            assert!(
+                <DateTimeParts as CompareKernel>::compare(
+                    array.as_view(),
+                    &rhs,
+                    operator,
+                    &mut ctx,
+                )
+                .is_err()
+            );
+            assert_execution_paths(
+                &[array.clone().into_array(), rhs.clone()],
+                |inputs| inputs[0].binary(inputs[1].clone(), operator.into()),
+                ExpectedOutcome::Error,
+                &mut ctx,
+            );
+        }
+
+        Ok(())
     }
 
     #[test]
