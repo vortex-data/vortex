@@ -12,6 +12,7 @@ use crate::arrays::Extension;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::binary::CompareKernel;
+use crate::scalar_fn::fns::binary::compare_sorted_constant;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
 
@@ -20,12 +21,18 @@ impl CompareKernel for Extension {
         lhs: ArrayView<'_, Extension>,
         rhs: &ArrayRef,
         operator: CompareOperator,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // Storage values are only comparable when both sides share the same extension dtype
         // (e.g. timestamps in different units must not compare their raw storage).
         if !lhs.dtype().eq_ignore_nullability(rhs.dtype()) {
             return Ok(None);
+        }
+
+        // The sortedness statistics live on the extension array, not its storage, so try the
+        // binary search before delegating to the storage comparison.
+        if let Some(result) = compare_sorted_constant(lhs.array(), rhs, operator, ctx)? {
+            return Ok(Some(result));
         }
 
         // If the RHS is a constant, we can extract the storage scalar.
