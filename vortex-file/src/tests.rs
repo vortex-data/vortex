@@ -1616,7 +1616,12 @@ async fn nested_statistics_are_excluded_by_default() -> VortexResult<()> {
         flatbuffers::root::<fb::FileStatistics>(bytes.as_ref()).vortex_expect("valid flatbuffer");
     assert!(fb.entry_sets().is_none());
     assert!(fb.partials().is_none());
-    assert_eq!(fb.field_stats().vortex_expect("field_stats is written").len(), 2);
+    assert_eq!(
+        fb.field_stats()
+            .vortex_expect("field_stats is written")
+            .len(),
+        2
+    );
 
     // Readers fall back to the legacy layout: top-level fields only.
     let file = SESSION.open_options().open_buffer(ByteBuffer::from(buf))?;

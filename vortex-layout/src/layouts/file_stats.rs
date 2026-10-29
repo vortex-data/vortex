@@ -1391,16 +1391,15 @@ mod tests {
             .with_allowed_aggregates(HashSet::from_iter([Min.id(), Max.id(), NanCount.id()]));
 
         // An explicitly requested aggregate the context forbids fails the write.
-        let error =
-            FileStatsAccumulator::try_new(
-                &dtype,
-                Some(Arc::from([agg(Stat::Sum)])),
-                true,
-                true,
-                &ctx,
-            )
-                .err()
-                .vortex_expect("Sum is not permitted");
+        let error = FileStatsAccumulator::try_new(
+            &dtype,
+            Some(Arc::from([agg(Stat::Sum)])),
+            true,
+            true,
+            &ctx,
+        )
+        .err()
+        .vortex_expect("Sum is not permitted");
         assert!(error.to_string().contains("not permitted by ctx"));
 
         // The defaults leave a forbidden aggregate out of the nested aggregates, but the legacy
