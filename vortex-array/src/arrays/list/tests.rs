@@ -19,6 +19,7 @@ use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::arrays::FilterArray;
 use crate::arrays::List;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
@@ -1033,6 +1034,24 @@ fn test_recursive_compact_list_of_lists() {
     );
     assert_arrays_eq!(non_recursive_array, sliced, &mut ctx);
     assert_arrays_eq!(recursive_array, sliced, &mut ctx);
+}
+
+#[test]
+fn test_reset_offsets_zero_first_offset_keeps_offsets() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let list = ListArray::try_new(
+        buffer![1i32, 2, 3, 4].into_array(),
+        buffer![0u32, 1, 4].into_array(),
+        Validity::NonNullable,
+        &mut ctx,
+    )?;
+
+    let reset = list.reset_offsets(false, &mut ctx)?;
+
+    // The offsets already start at zero, so they are reused instead of wrapped in a subtraction.
+    assert!(reset.offsets().is::<Primitive>());
+    assert_arrays_eq!(reset.into_array(), list.into_array(), &mut ctx);
+    Ok(())
 }
 
 #[test]
