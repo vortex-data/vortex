@@ -60,11 +60,7 @@ const MAX_ROWS_PER_PART: usize = 1_048_576;
 fn parts_per_file(threads: usize, files: usize) -> usize {
     let threads = threads.max(1);
     let files = files.max(1);
-    if files >= threads {
-        1
-    } else {
-        threads.saturating_mul(PARTS_PER_THREAD).div_ceil(files)
-    }
+    threads.saturating_mul(PARTS_PER_THREAD).div_ceil(files)
 }
 
 /// One file's V2 scan, shared by the threads scanning it.
@@ -343,10 +339,12 @@ mod tests {
     #[rstest]
     #[case(8, 1, 32)]
     #[case(8, 4, 8)]
-    #[case(8, 8, 1)]
+    #[case(8, 8, 4)]
+    #[case(8, 32, 1)]
     #[case(8, 100, 1)]
+    #[case(96, 100, 4)]
     #[case(1, 100, 1)]
-    #[case(0, 0, 1)]
+    #[case(0, 0, 4)]
     fn work_accounts_for_threads_and_files(
         #[case] threads: usize,
         #[case] files: usize,

@@ -27,13 +27,13 @@ use crate::plan::physical::operators::WholeSource;
 use crate::plan::physical::pipeline::Chain;
 use crate::plan::physical::pipeline::Compiler;
 
-/// Produces its child's whole value once per split, as a
-/// [`SharedArray`](crate::arrays::shared::SharedArray) that the split's later scans reuse.
+/// Shares its child's whole encoded value between consumers, wrapping each consumer's value in a
+/// [`SharedArray`](crate::arrays::shared::SharedArray).
 ///
 /// Dictionary values sit under a share. An expression the optimizer pushes onto the values stays
-/// above it, so the expression runs over values canonicalized once, and the projection reading the
-/// same dictionary finds them already canonical, rather than each evaluating over the encoded
-/// values.
+/// above it, so it can run over canonical values. The cache retains the encoded input; a predicate
+/// need not keep its much larger decoded input after producing a boolean result. A projecting take
+/// caches its shared value separately, so its later batches can reuse the decoded dictionary.
 #[derive(Clone, Debug)]
 pub struct Share;
 
@@ -99,9 +99,8 @@ impl PlanVTable for Share {
         }
     }
 
-    /// A share whose value an earlier scan of the split produced emits the selected rows of it;
-    /// otherwise it collects its child whole, keeps it for the split, and emits the selected
-    /// rows.
+    /// Reuses a projecting take's shared value when available; otherwise wraps the cached encoded
+    /// input, collecting it whole on the first request.
     fn compile(
         plan: &Plan<Self>,
         rows: Range<u64>,
@@ -119,6 +118,13 @@ impl PlanVTable for Share {
             )?))));
         }
         let child = plan.child_plan()?;
+        if let Some(value) = cache.get(&child) {
+            return Ok(Some(Chain::new(OnceSource::new(selected_rows(
+                &Shared::new(value).into_array(),
+                &rows,
+                mask,
+            )?))));
+        }
         let len = usize::try_from(plan.row_count())?;
         let Some(chain) = compiler.compile(&child, 0..plan.row_count(), &Mask::new_true(len))?
         else {
@@ -126,7 +132,7 @@ impl PlanVTable for Share {
         };
         let mask = mask.clone();
         let source = WholeSource::new(plan.dtype().clone(), move |whole, _cx| {
-            let value = cache.insert(&shared, Shared::new(whole).into_array());
+            let value = Shared::new(cache.insert(&child, whole)).into_array();
             selected_rows(&value, &rows, &mask)
         });
         Ok(Some(compiler.join_with(vec![chain], |_| UNBOUNDED, source)))

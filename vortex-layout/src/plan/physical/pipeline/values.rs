@@ -35,4 +35,9 @@ impl ValueCache {
             .or_insert(values)
             .clone()
     }
+
+    /// Replaces a cached lazy value with its materialized result, releasing its inputs.
+    pub(crate) fn materialized(&self, plan: &PlanRef, values: ArrayRef) {
+        self.0.lock().insert(PlanByPtr(plan.clone()), values);
+    }
 }

@@ -51,7 +51,7 @@ typedef struct {
     duckdb_vx_table_filter_set filters;
     duckdb_client_context client_context;
     size_t max_threads;
-    // Known input files, expanded only far enough to fill the worker pool.
+    // Known input files, expanded far enough for several assignments per worker.
     size_t file_count;
 } duckdb_vx_tfunc_init_input;
 

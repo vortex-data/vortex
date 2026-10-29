@@ -4,7 +4,9 @@
 //! Looking codes up in dictionary values.
 
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
 use vortex_error::VortexResult;
 
@@ -80,6 +82,19 @@ impl Operator for TakeSource {
                 let values = match &self.cache {
                     Some(cache) => cache.insert(&values_plan, values),
                     None => values,
+                };
+                // Share the lazy predicate before executing it so concurrent consumers compute
+                // it once, then keep only the small result instead of its decoded inputs.
+                let values = if values.dtype().is_boolean() {
+                    let values = values
+                        .execute::<Canonical>(&mut cx.session().create_execution_ctx())?
+                        .into_array();
+                    if let Some(cache) = &self.cache {
+                        cache.materialized(&values_plan, values.clone());
+                    }
+                    values
+                } else {
+                    values
                 };
                 self.values = Some(values.clone());
                 values

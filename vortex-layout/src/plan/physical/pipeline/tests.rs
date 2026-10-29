@@ -12,6 +12,7 @@ use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::Bool;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Dict;
@@ -767,6 +768,14 @@ fn dictionary_filter_and_projection_reuse_values() -> VortexResult<()> {
     assert_eq!(reads(&filtered.events), 2);
     let expected = BoolArray::from_iter((0..ROWS).map(|row| row % 3 != 0)).into_array();
     assert_view(&expected, &(0..10), &mask, filtered.arrays)?;
+
+    let cached_predicate = cache
+        .get(&predicate.as_::<Take>().values()?)
+        .vortex_expect("predicate values are cached");
+    assert!(
+        cached_predicate.is::<Bool>(),
+        "the cached predicate must not retain a lazy expression and its decoded input"
+    );
 
     let projected = run_with_values(
         &store,
