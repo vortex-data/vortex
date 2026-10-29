@@ -14,8 +14,9 @@
 //! values cannot check: the child precision **must** hold every valid value. Compare, between and
 //! fill null decide from the child dtype alone, so a false label gives wrong results.
 //! [`WidenArray::encode_decimal`] and [`WidenArray::from_stored_decimal`] pick the smallest
-//! precision that holds the valid values and the scale. Decimal execution copies the child values
-//! into the logical canonical width.
+//! precision that holds the valid values and the scale, and a widening decimal cast labels the
+//! child with its source dtype. Decimal execution copies the child values into the logical
+//! canonical width, without casting, because a widening decimal cast can itself return a `Widen`.
 //!
 //! Narrowing is a physical choice, so it **must not** change a result. Execution casts the values
 //! to the logical dtype for integers, and an operation runs on the values only where it gives the

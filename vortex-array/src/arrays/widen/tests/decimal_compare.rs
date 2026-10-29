@@ -124,8 +124,8 @@ fn test_compare_constant(
     assert_compare_matches_canonical(&array, &constant, operator, &mut ctx)
 }
 
-/// In `different_widths`, the compare casts the `i8` child to the `i32` width of the common
-/// precision.
+/// In `different_widths`, the cast of the `i8` child to the common precision returns a `Widen` of
+/// its own, so the compare runs through the fallback.
 #[rstest]
 #[case::same_width(
     DecimalArray::from_iter([-99_999i32, -1, 0, 99_999], DecimalDType::new(5, 2)),

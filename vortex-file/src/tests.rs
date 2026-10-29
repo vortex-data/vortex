@@ -35,6 +35,8 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::Widen;
+use vortex_array::arrays::WidenArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::assert_arrays_eq;
@@ -257,6 +259,37 @@ async fn test_read_simple() {
 
     let result = ChunkedArray::try_new(chunks, st.dtype().clone()).unwrap();
     assert_arrays_eq!(result, st, &mut SESSION.create_execution_ctx());
+}
+
+#[rstest]
+#[case::non_nullable(Validity::NonNullable)]
+#[case::partially_valid(Validity::from_iter([true, false, true, true, false]))]
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_decimal_widen_default_writer_roundtrip(
+    #[case] validity: Validity,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let decimal_dtype = DecimalDType::new(18, 2);
+    let values = DecimalArray::new(
+        buffer![-125i16, 50, 0, 250, 900],
+        DecimalDType::new(4, 2),
+        validity.clone(),
+    );
+    let dtype = DType::Decimal(decimal_dtype, validity.nullability());
+    let widened = WidenArray::try_new(values.into_array(), dtype)?.into_array();
+    assert!(widened.is::<Widen>());
+    let array = StructArray::from_fields(&[("decimal", widened)])?.into_array();
+    let expected_values =
+        DecimalArray::new(buffer![-125i64, 50, 0, 250, 900], decimal_dtype, validity);
+    let expected = StructArray::from_fields(&[("decimal", expected_values.into_array())])?;
+
+    let actual = write_read_roundtrip(array).await?;
+
+    assert_eq!(actual.dtype(), expected.dtype());
+    assert_arrays_eq!(actual, expected, &mut ctx);
+
+    Ok(())
 }
 
 /// Wide decimals split into multi-part arrays only when the writer allows the v2 format. The

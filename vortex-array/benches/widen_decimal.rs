@@ -205,6 +205,9 @@ impl Case {
         10i64.pow(u32::from(self.child_precision))
     }
 
+    /// Returns a same-scale target with a wider canonical width than the parent, so the cast of a
+    /// `Widen` stays lazy (see `grows_canonical_width`). A target at the same canonical width would
+    /// measure a different cast path.
     fn cast_target(self) -> DType {
         let precision = if self.precision == 38 { 76 } else { 38 };
         DType::Decimal(

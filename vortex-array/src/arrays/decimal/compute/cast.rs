@@ -21,6 +21,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::WidenArray;
 use crate::arrays::decimal::DecimalArrayExt;
 use crate::dtype::BigCast;
 use crate::dtype::DType;
@@ -44,8 +45,6 @@ use crate::validity::Validity;
 
 impl CastReduce for Decimal {
     fn cast(array: ArrayView<'_, Decimal>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // Only nullability changes within the same decimal dtype are reducible without execution.
-        // Precision/scale changes need the kernel.
         let DType::Decimal(to_decimal_dtype, to_nullability) = dtype else {
             return Ok(None);
         };
@@ -56,7 +55,10 @@ impl CastReduce for Decimal {
             );
         };
 
-        if from_decimal_dtype != to_decimal_dtype {
+        // Without execution, only a nullability change and a same-scale cast that grows the
+        // canonical width reduce. Every other change of the decimal dtype needs the kernel.
+        let grows_width = grows_canonical_width(*from_decimal_dtype, *to_decimal_dtype);
+        if from_decimal_dtype != to_decimal_dtype && !grows_width {
             return Ok(None);
         }
 
@@ -66,6 +68,10 @@ impl CastReduce for Decimal {
         else {
             return Ok(None);
         };
+
+        if grows_width {
+            return widen_decimal_values(array, dtype, new_validity).map(Some);
+        }
 
         // SAFETY: validity has the same length, only its nullability tag changes.
         unsafe {
@@ -121,6 +127,10 @@ impl CastKernel for Decimal {
             .clone()
             .cast_nullability(*to_nullability, array.len(), ctx)?;
 
+        if grows_canonical_width(*from_decimal_dtype, *to_decimal_dtype) {
+            return widen_decimal_values(array, dtype, new_validity).map(Some);
+        }
+
         // Reuse the values buffer untouched when no rescale is required, the target precision
         // only widens (so every value still fits), and the current physical type is already wide
         // enough to hold the target precision. This keeps the common precision-widening cast
@@ -167,6 +177,38 @@ impl CastKernel for Decimal {
             })
         })
     }
+}
+
+/// Returns whether a cast keeps the scale and grows the canonical width, which implies a higher
+/// precision.
+fn grows_canonical_width(from: DecimalDType, to: DecimalDType) -> bool {
+    from.scale() == to.scale() && from.canonical_values_type() < to.canonical_values_type()
+}
+
+/// Returns `array` as a decimal `Widen` of `dtype`, over a child with `validity`, which the caller
+/// cast to the nullability of `dtype`.
+///
+/// The child keeps the dtype of `array` as its label, which holds every valid value because reads
+/// trust the precision. It also keeps the statistics of `array`, such as exact extrema, because it
+/// holds the same values. Only the nullability can change, and only when no value is null.
+fn widen_decimal_values(
+    array: ArrayView<'_, Decimal>,
+    dtype: &DType,
+    validity: Validity,
+) -> VortexResult<ArrayRef> {
+    // SAFETY: values and decimal dtype are unchanged, and the caller cast validity without
+    // changing its length.
+    let values = unsafe {
+        DecimalArray::new_unchecked_handle(
+            array.buffer_handle().clone(),
+            array.values_type(),
+            array.decimal_dtype(),
+            validity,
+        )
+    };
+    values.statistics().inherit_from(array.statistics());
+
+    Ok(WidenArray::try_new(values.into_array(), dtype.clone())?.into_array())
 }
 
 fn cast_to_integer<T: IntegerPType + BigCast>(
