@@ -1,0 +1,1650 @@
+{
+  "date": "2026-10-29",
+  "purpose": "Fix the standalone URL-12 total-compression regression from the parser bookkeeping follow-up while preserving the Vortex writer gains.",
+  "source": {
+    "baseline_onpair": "ae79c5593a486f7be99fa3879df52047a0a379e4",
+    "candidate_onpair": "3ba0f3af53763f5f7d9d419217a0dada322c900a",
+    "candidate_vortex_pin_commit": "e18c2050f6b092cb61043f5b57413b3540953cf8",
+    "onpair_pr": "https://github.com/spiraldb/onpair/pull/65",
+    "vortex_pr": "https://github.com/vortex-data/vortex/pull/10931"
+  },
+  "change": "Reserve the exact sum of the produced lane code counts once before appending lane buffers. Each batch can grow the output at most once. No estimated compression ratio, dataset selector, dictionary change, public API change, format change or new unsafe code.",
+  "machine": {
+    "cpu": "Intel Xeon 6975P-C",
+    "logical_cpus": 32,
+    "pinned_logical_cpu": 2,
+    "smt_sibling": 18,
+    "exclusive_host": false,
+    "rust": "1.99.1",
+    "isa": "AVX-512F + POPCNT, selected once per parse; existing SIMD lanes and selector unchanged"
+  },
+  "method": {
+    "primary": "Existing Vortex string-bench full serialized write, same seven prepared real caches and both budgets; existing mimalloc and current-thread runtime. release_debug, opt3, codegen-units1, LTO off, default x86-64 target, frame pointers. Seven timed iterations after three warmups; baseline/candidate order reversed on alternating columns. One process per column. Normal round-trip validation enabled. All accepted timings ran serially, after builds/tests/profile processing/binary hashing had completed.",
+    "primary_command": "taskset -c 2 {frozen_binary} --columns ^{column}$ --encoders onpair,fsst --iterations 7 --warmup 3 --display-format gh-json --output-path {column}.jsonl",
+    "native": "Existing upstream native parse, train_and_compress and decompress_all benches; native bench profile/default allocator. Same real 1m URL /200k review inputs; TPC-H scale1.0 cap8388608 bytes each. Threshold.5 seed42 for URLs/reviews, threshold.2 for TPC-H. All budgets; --bench --timer os --bytes-format decimal --sample-count20 --sample-size1 --min-time0.1. Record actual sample counts. URL order: ae79, fixup, old9b; TPC-H: ae79, fixup; reviews: fixup, ae79. run_native_parser_fixup.py preserves exact commands/env in local artifacts.",
+    "native_command": "taskset -c 2 {frozen_native_binary} --bench --color never --timer os --bytes-format decimal --sample-count 20 --sample-size 1 --min-time 0.1",
+    "data": "Same unchanged benchmark corpus as onpair-parser-2026-10-29.json; no synthetic replacement or retraining/settings changes.",
+    "interpretation": "Throughput gain is old_ms/new_ms-1. FSST is a control, never a correction factor. Small writer shifts comparable with controls should be treated as flat. This host is not exclusive. Decoder source is unchanged. Observed decoder shifts and separate repeat measurements are retained; no decoder optimization is claimed."
+  },
+  "primary": {
+    "baseline_run": "parser-fixup-final-before",
+    "candidate_run": "parser-fixup-final-after",
+    "summary": {
+      "onpair-12": {
+        "geomean_pct": 0.06618748088509374,
+        "min_pct": -1.0586585201859289,
+        "max_pct": 1.2530304312571072
+      },
+      "onpair-16": {
+        "geomean_pct": -0.12186651855139452,
+        "min_pct": -0.5756397367896238,
+        "max_pct": 0.5311760087416628
+      },
+      "fsst": {
+        "geomean_pct": 1.3881618432856735,
+        "min_pct": 0.3166776936910809,
+        "max_pct": 2.6808226584947636
+      }
+    },
+    "measurements": [
+      {
+        "column": "amazon/book_reviews",
+        "encoder": "fsst",
+        "baseline_write_ms": 705.024886,
+        "candidate_write_ms": 686.770935,
+        "baseline_mbps": 180.38,
+        "candidate_mbps": 185.18,
+        "gain_pct": 2.6579387783788544,
+        "size_pct": 52.15388272221946
+      },
+      {
+        "column": "amazon/book_reviews",
+        "encoder": "onpair-12",
+        "baseline_write_ms": 837.501414,
+        "candidate_write_ms": 840.645718,
+        "baseline_mbps": 151.85,
+        "candidate_mbps": 151.28,
+        "gain_pct": -0.3740343800811452,
+        "size_pct": 38.21234699605678
+      },
+      {
+        "column": "amazon/book_reviews",
+        "encoder": "onpair-16",
+        "baseline_write_ms": 843.819461,
+        "candidate_write_ms": 848.589248,
+        "baseline_mbps": 150.71,
+        "candidate_mbps": 149.87,
+        "gain_pct": -0.5620843077191462,
+        "size_pct": 37.9170583191284
+      },
+      {
+        "column": "amazon/book_titles",
+        "encoder": "fsst",
+        "baseline_write_ms": 74.010122,
+        "candidate_write_ms": 73.263624,
+        "baseline_mbps": 144.62,
+        "candidate_mbps": 146.1,
+        "gain_pct": 1.0189203853743445,
+        "size_pct": 50.766433883428505
+      },
+      {
+        "column": "amazon/book_titles",
+        "encoder": "onpair-12",
+        "baseline_write_ms": 79.78183299999999,
+        "candidate_write_ms": 79.669595,
+        "baseline_mbps": 134.16,
+        "candidate_mbps": 134.35,
+        "gain_pct": 0.14087934048112594,
+        "size_pct": 44.44605552323536
+      },
+      {
+        "column": "amazon/book_titles",
+        "encoder": "onpair-16",
+        "baseline_write_ms": 83.424632,
+        "candidate_write_ms": 83.576436,
+        "baseline_mbps": 128.3,
+        "candidate_mbps": 128.07,
+        "gain_pct": -0.18163492877346643,
+        "size_pct": 45.63652648630661
+      },
+      {
+        "column": "clickbench/URL/shard-0",
+        "encoder": "fsst",
+        "baseline_write_ms": 477.072883,
+        "candidate_write_ms": 475.50608300000005,
+        "baseline_mbps": 219.17,
+        "candidate_mbps": 219.9,
+        "gain_pct": 0.3295015681218816,
+        "size_pct": 47.30267671830977
+      },
+      {
+        "column": "clickbench/URL/shard-0",
+        "encoder": "onpair-12",
+        "baseline_write_ms": 552.140662,
+        "candidate_write_ms": 551.975537,
+        "baseline_mbps": 189.38,
+        "candidate_mbps": 189.43,
+        "gain_pct": 0.029915275031466848,
+        "size_pct": 28.289171811342577
+      },
+      {
+        "column": "clickbench/URL/shard-0",
+        "encoder": "onpair-16",
+        "baseline_write_ms": 557.51237,
+        "candidate_write_ms": 559.7825250000001,
+        "baseline_mbps": 187.55,
+        "candidate_mbps": 186.79,
+        "gain_pct": -0.40554231306167976,
+        "size_pct": 28.640909058653367
+      },
+      {
+        "column": "fineweb/text",
+        "encoder": "fsst",
+        "baseline_write_ms": 285.961759,
+        "candidate_write_ms": 278.495781,
+        "baseline_mbps": 106.8,
+        "candidate_mbps": 109.66,
+        "gain_pct": 2.6808226584947636,
+        "size_pct": 55.90197294358995
+      },
+      {
+        "column": "fineweb/text",
+        "encoder": "onpair-12",
+        "baseline_write_ms": 400.93375799999995,
+        "candidate_write_ms": 395.972107,
+        "baseline_mbps": 76.17,
+        "candidate_mbps": 77.13,
+        "gain_pct": 1.2530304312571072,
+        "size_pct": 44.37700222499731
+      },
+      {
+        "column": "fineweb/text",
+        "encoder": "onpair-16",
+        "baseline_write_ms": 444.94282400000003,
+        "candidate_write_ms": 445.44860400000005,
+        "baseline_mbps": 68.64,
+        "candidate_mbps": 68.56,
+        "gain_pct": -0.11354396342434514,
+        "size_pct": 40.15548950382982
+      },
+      {
+        "column": "news/headlines",
+        "encoder": "fsst",
+        "baseline_write_ms": 421.809078,
+        "candidate_write_ms": 417.17094199999997,
+        "baseline_mbps": 165.88,
+        "candidate_mbps": 167.73,
+        "gain_pct": 1.111807063493897,
+        "size_pct": 43.83800517124216
+      },
+      {
+        "column": "news/headlines",
+        "encoder": "onpair-12",
+        "baseline_write_ms": 432.838626,
+        "candidate_write_ms": 433.321723,
+        "baseline_mbps": 161.65,
+        "candidate_mbps": 161.47,
+        "gain_pct": -0.11148691015429035,
+        "size_pct": 37.73040791346742
+      },
+      {
+        "column": "news/headlines",
+        "encoder": "onpair-16",
+        "baseline_write_ms": 444.79080799999997,
+        "candidate_write_ms": 442.75216,
+        "baseline_mbps": 157.31,
+        "candidate_mbps": 158.03,
+        "gain_pct": 0.46044902412221145,
+        "size_pct": 38.416461583641315
+      },
+      {
+        "column": "tpch/l_comment",
+        "encoder": "fsst",
+        "baseline_write_ms": 1162.841206,
+        "candidate_write_ms": 1159.170372,
+        "baseline_mbps": 214.3,
+        "candidate_mbps": 214.97,
+        "gain_pct": 0.3166776936910809,
+        "size_pct": 30.07840092706971
+      },
+      {
+        "column": "tpch/l_comment",
+        "encoder": "onpair-12",
+        "baseline_write_ms": 1013.5713360000001,
+        "candidate_write_ms": 1007.5301800000001,
+        "baseline_mbps": 245.85,
+        "candidate_mbps": 247.33,
+        "gain_pct": 0.599600500304609,
+        "size_pct": 22.996683357813467
+      },
+      {
+        "column": "tpch/l_comment",
+        "encoder": "onpair-16",
+        "baseline_write_ms": 1025.355295,
+        "candidate_write_ms": 1019.9376309999999,
+        "baseline_mbps": 243.03,
+        "candidate_mbps": 244.32,
+        "gain_pct": 0.5311760087416628,
+        "size_pct": 23.01119751482703
+      },
+      {
+        "column": "twitter/sentiment140",
+        "encoder": "fsst",
+        "baseline_write_ms": 763.1063270000001,
+        "candidate_write_ms": 750.8662400000001,
+        "baseline_mbps": 160.6,
+        "candidate_mbps": 163.22,
+        "gain_pct": 1.6301288229445543,
+        "size_pct": 51.76308196157247
+      },
+      {
+        "column": "twitter/sentiment140",
+        "encoder": "onpair-12",
+        "baseline_write_ms": 842.6713850000001,
+        "candidate_write_ms": 851.687851,
+        "baseline_mbps": 145.43,
+        "candidate_mbps": 143.89,
+        "gain_pct": -1.0586585201859289,
+        "size_pct": 44.094038414346976
+      },
+      {
+        "column": "twitter/sentiment140",
+        "encoder": "onpair-16",
+        "baseline_write_ms": 938.103052,
+        "candidate_write_ms": 943.534411,
+        "baseline_mbps": 130.64,
+        "candidate_mbps": 129.89,
+        "gain_pct": -0.5756397367896238,
+        "size_pct": 46.008546208056515
+      }
+    ]
+  },
+  "native": {
+    "summary_geometric_mean_gain_percent": {
+      "parse": {
+        "12": 0.4701825240766233,
+        "16": 2.7213067010487313
+      },
+      "train_and_compress": {
+        "12": 1.2719839804567146,
+        "16": 0.7549396027431543
+      },
+      "decompress_all": {
+        "12": -2.0489982917086924,
+        "16": -2.310855163653913
+      }
+    },
+    "measurements": [
+      {
+        "column": "tpch/l_comment",
+        "operation": "decompress_all",
+        "bits": 12,
+        "baseline": {
+          "column": "tpch/l_comment",
+          "operation": "decompress_all",
+          "bits": 12,
+          "fastest_ns": 585400.0,
+          "slowest_ns": 652400.0,
+          "median_ns": 588200.0,
+          "mean_ns": 592600.0,
+          "samples": 158,
+          "iterations": 158,
+          "raw_log": "native-parser-fixup-final/tpch-final.log",
+          "median_mbps": 14260.0
+        },
+        "candidate": {
+          "column": "tpch/l_comment",
+          "operation": "decompress_all",
+          "bits": 12,
+          "fastest_ns": 584800.0,
+          "slowest_ns": 627400.0,
+          "median_ns": 595600.0,
+          "mean_ns": 596100.0,
+          "samples": 157,
+          "iterations": 157,
+          "raw_log": "native-parser-fixup-final/tpch-fixup.log",
+          "median_mbps": 14080.0
+        },
+        "gain_percent": -1.242444593687042
+      },
+      {
+        "column": "tpch/l_comment",
+        "operation": "decompress_all",
+        "bits": 16,
+        "baseline": {
+          "column": "tpch/l_comment",
+          "operation": "decompress_all",
+          "bits": 16,
+          "fastest_ns": 677400.0,
+          "slowest_ns": 718600.0,
+          "median_ns": 681300.0,
+          "mean_ns": 688000.0,
+          "samples": 146,
+          "iterations": 146,
+          "raw_log": "native-parser-fixup-final/tpch-final.log",
+          "median_mbps": 12310.0
+        },
+        "candidate": {
+          "column": "tpch/l_comment",
+          "operation": "decompress_all",
+          "bits": 16,
+          "fastest_ns": 669700.0,
+          "slowest_ns": 735700.0,
+          "median_ns": 685500.0,
+          "mean_ns": 683800.0,
+          "samples": 146,
+          "iterations": 146,
+          "raw_log": "native-parser-fixup-final/tpch-fixup.log",
+          "median_mbps": 12230.0
+        },
+        "gain_percent": -0.6126914660831484
+      },
+      {
+        "column": "tpch/l_comment",
+        "operation": "parse",
+        "bits": 12,
+        "baseline": {
+          "column": "tpch/l_comment",
+          "operation": "parse",
+          "bits": 12,
+          "fastest_ns": 12170000.0,
+          "slowest_ns": 12360000.0,
+          "median_ns": 12290000.0,
+          "mean_ns": 12280000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-final.log",
+          "median_mbps": 682.5
+        },
+        "candidate": {
+          "column": "tpch/l_comment",
+          "operation": "parse",
+          "bits": 12,
+          "fastest_ns": 11960000.0,
+          "slowest_ns": 12140000.0,
+          "median_ns": 12070000.0,
+          "mean_ns": 12060000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-fixup.log",
+          "median_mbps": 694.6
+        },
+        "gain_percent": 1.822700911350461
+      },
+      {
+        "column": "tpch/l_comment",
+        "operation": "parse",
+        "bits": 16,
+        "baseline": {
+          "column": "tpch/l_comment",
+          "operation": "parse",
+          "bits": 16,
+          "fastest_ns": 12710000.0,
+          "slowest_ns": 13080000.0,
+          "median_ns": 12830000.0,
+          "mean_ns": 12830000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-final.log",
+          "median_mbps": 653.5
+        },
+        "candidate": {
+          "column": "tpch/l_comment",
+          "operation": "parse",
+          "bits": 16,
+          "fastest_ns": 12440000.0,
+          "slowest_ns": 12630000.0,
+          "median_ns": 12530000.0,
+          "mean_ns": 12540000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-fixup.log",
+          "median_mbps": 669.3
+        },
+        "gain_percent": 2.3942537909018347
+      },
+      {
+        "column": "tpch/l_comment",
+        "operation": "train_and_compress",
+        "bits": 12,
+        "baseline": {
+          "column": "tpch/l_comment",
+          "operation": "train_and_compress",
+          "bits": 12,
+          "fastest_ns": 23510000.0,
+          "slowest_ns": 24790000.0,
+          "median_ns": 23680000.0,
+          "mean_ns": 23720000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-final.log",
+          "median_mbps": 354.1
+        },
+        "candidate": {
+          "column": "tpch/l_comment",
+          "operation": "train_and_compress",
+          "bits": 12,
+          "fastest_ns": 23430000.0,
+          "slowest_ns": 24930000.0,
+          "median_ns": 23550000.0,
+          "mean_ns": 23630000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-fixup.log",
+          "median_mbps": 356.2
+        },
+        "gain_percent": 0.5520169851380041
+      },
+      {
+        "column": "tpch/l_comment",
+        "operation": "train_and_compress",
+        "bits": 16,
+        "baseline": {
+          "column": "tpch/l_comment",
+          "operation": "train_and_compress",
+          "bits": 16,
+          "fastest_ns": 26590000.0,
+          "slowest_ns": 27410000.0,
+          "median_ns": 26840000.0,
+          "mean_ns": 26920000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-final.log",
+          "median_mbps": 312.4
+        },
+        "candidate": {
+          "column": "tpch/l_comment",
+          "operation": "train_and_compress",
+          "bits": 16,
+          "fastest_ns": 26420000.0,
+          "slowest_ns": 26950000.0,
+          "median_ns": 26600000.0,
+          "mean_ns": 26620000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-fixup.log",
+          "median_mbps": 315.3
+        },
+        "gain_percent": 0.9022556390977376
+      },
+      {
+        "column": "tpch/o_comment",
+        "operation": "decompress_all",
+        "bits": 12,
+        "baseline": {
+          "column": "tpch/o_comment",
+          "operation": "decompress_all",
+          "bits": 12,
+          "fastest_ns": 528500.0,
+          "slowest_ns": 598900.0,
+          "median_ns": 530500.0,
+          "mean_ns": 533300.0,
+          "samples": 188,
+          "iterations": 188,
+          "raw_log": "native-parser-fixup-final/tpch-final.log",
+          "median_mbps": 15810.0
+        },
+        "candidate": {
+          "column": "tpch/o_comment",
+          "operation": "decompress_all",
+          "bits": 12,
+          "fastest_ns": 520200.00000000006,
+          "slowest_ns": 555500.0,
+          "median_ns": 531000.0,
+          "mean_ns": 529900.0,
+          "samples": 189,
+          "iterations": 189,
+          "raw_log": "native-parser-fixup-final/tpch-fixup.log",
+          "median_mbps": 15790.0
+        },
+        "gain_percent": -0.09416195856873921
+      },
+      {
+        "column": "tpch/o_comment",
+        "operation": "decompress_all",
+        "bits": 16,
+        "baseline": {
+          "column": "tpch/o_comment",
+          "operation": "decompress_all",
+          "bits": 16,
+          "fastest_ns": 594700.0,
+          "slowest_ns": 637700.0,
+          "median_ns": 601800.0,
+          "mean_ns": 605400.0,
+          "samples": 165,
+          "iterations": 165,
+          "raw_log": "native-parser-fixup-final/tpch-final.log",
+          "median_mbps": 13930.0
+        },
+        "candidate": {
+          "column": "tpch/o_comment",
+          "operation": "decompress_all",
+          "bits": 16,
+          "fastest_ns": 594700.0,
+          "slowest_ns": 644600.0,
+          "median_ns": 607900.0,
+          "mean_ns": 608400.0,
+          "samples": 165,
+          "iterations": 165,
+          "raw_log": "native-parser-fixup-final/tpch-fixup.log",
+          "median_mbps": 13790.0
+        },
+        "gain_percent": -1.0034545155453212
+      },
+      {
+        "column": "tpch/o_comment",
+        "operation": "parse",
+        "bits": 12,
+        "baseline": {
+          "column": "tpch/o_comment",
+          "operation": "parse",
+          "bits": 12,
+          "fastest_ns": 10360000.0,
+          "slowest_ns": 10600000.0,
+          "median_ns": 10510000.0,
+          "mean_ns": 10510000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-final.log",
+          "median_mbps": 797.4
+        },
+        "candidate": {
+          "column": "tpch/o_comment",
+          "operation": "parse",
+          "bits": 12,
+          "fastest_ns": 10380000.0,
+          "slowest_ns": 10530000.0,
+          "median_ns": 10470000.0,
+          "mean_ns": 10460000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-fixup.log",
+          "median_mbps": 800.8
+        },
+        "gain_percent": 0.3820439350525229
+      },
+      {
+        "column": "tpch/o_comment",
+        "operation": "parse",
+        "bits": 16,
+        "baseline": {
+          "column": "tpch/o_comment",
+          "operation": "parse",
+          "bits": 16,
+          "fastest_ns": 10840000.0,
+          "slowest_ns": 11040000.0,
+          "median_ns": 10950000.0,
+          "mean_ns": 10950000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-final.log",
+          "median_mbps": 765.5
+        },
+        "candidate": {
+          "column": "tpch/o_comment",
+          "operation": "parse",
+          "bits": 16,
+          "fastest_ns": 10840000.0,
+          "slowest_ns": 10990000.0,
+          "median_ns": 10910000.0,
+          "mean_ns": 10910000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-fixup.log",
+          "median_mbps": 768.6
+        },
+        "gain_percent": 0.36663611365719273
+      },
+      {
+        "column": "tpch/o_comment",
+        "operation": "train_and_compress",
+        "bits": 12,
+        "baseline": {
+          "column": "tpch/o_comment",
+          "operation": "train_and_compress",
+          "bits": 12,
+          "fastest_ns": 19780000.0,
+          "slowest_ns": 20790000.0,
+          "median_ns": 19920000.0,
+          "mean_ns": 19990000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-final.log",
+          "median_mbps": 420.9
+        },
+        "candidate": {
+          "column": "tpch/o_comment",
+          "operation": "train_and_compress",
+          "bits": 12,
+          "fastest_ns": 19700000.0,
+          "slowest_ns": 20830000.0,
+          "median_ns": 19900000.0,
+          "mean_ns": 19940000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-fixup.log",
+          "median_mbps": 421.3
+        },
+        "gain_percent": 0.10050251256281673
+      },
+      {
+        "column": "tpch/o_comment",
+        "operation": "train_and_compress",
+        "bits": 16,
+        "baseline": {
+          "column": "tpch/o_comment",
+          "operation": "train_and_compress",
+          "bits": 16,
+          "fastest_ns": 22740000.0,
+          "slowest_ns": 23340000.0,
+          "median_ns": 22870000.0,
+          "mean_ns": 22880000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-final.log",
+          "median_mbps": 366.6
+        },
+        "candidate": {
+          "column": "tpch/o_comment",
+          "operation": "train_and_compress",
+          "bits": 16,
+          "fastest_ns": 22550000.0,
+          "slowest_ns": 22920000.0,
+          "median_ns": 22790000.0,
+          "mean_ns": 22770000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-fixup.log",
+          "median_mbps": 367.9
+        },
+        "gain_percent": 0.3510311540149136
+      },
+      {
+        "column": "tpch/p_name",
+        "operation": "decompress_all",
+        "bits": 12,
+        "baseline": {
+          "column": "tpch/p_name",
+          "operation": "decompress_all",
+          "bits": 12,
+          "fastest_ns": 424600.0,
+          "slowest_ns": 459500.0,
+          "median_ns": 427700.0,
+          "mean_ns": 430000.0,
+          "samples": 233,
+          "iterations": 233,
+          "raw_log": "native-parser-fixup-final/tpch-final.log",
+          "median_mbps": 15310.0
+        },
+        "candidate": {
+          "column": "tpch/p_name",
+          "operation": "decompress_all",
+          "bits": 12,
+          "fastest_ns": 417300.0,
+          "slowest_ns": 462400.0,
+          "median_ns": 425200.0,
+          "mean_ns": 426500.0,
+          "samples": 234,
+          "iterations": 234,
+          "raw_log": "native-parser-fixup-final/tpch-fixup.log",
+          "median_mbps": 15400.0
+        },
+        "gain_percent": 0.587958607714012
+      },
+      {
+        "column": "tpch/p_name",
+        "operation": "decompress_all",
+        "bits": 16,
+        "baseline": {
+          "column": "tpch/p_name",
+          "operation": "decompress_all",
+          "bits": 16,
+          "fastest_ns": 456000.0,
+          "slowest_ns": 492100.0,
+          "median_ns": 460100.0,
+          "mean_ns": 464900.0,
+          "samples": 215,
+          "iterations": 215,
+          "raw_log": "native-parser-fixup-final/tpch-final.log",
+          "median_mbps": 14230.0
+        },
+        "candidate": {
+          "column": "tpch/p_name",
+          "operation": "decompress_all",
+          "bits": 16,
+          "fastest_ns": 450300.0,
+          "slowest_ns": 485700.0,
+          "median_ns": 457700.0,
+          "mean_ns": 459900.0,
+          "samples": 217,
+          "iterations": 217,
+          "raw_log": "native-parser-fixup-final/tpch-fixup.log",
+          "median_mbps": 14300.0
+        },
+        "gain_percent": 0.524360935110324
+      },
+      {
+        "column": "tpch/p_name",
+        "operation": "parse",
+        "bits": 12,
+        "baseline": {
+          "column": "tpch/p_name",
+          "operation": "parse",
+          "bits": 12,
+          "fastest_ns": 9143000.0,
+          "slowest_ns": 9299000.0,
+          "median_ns": 9218000.0,
+          "mean_ns": 9219000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-final.log",
+          "median_mbps": 710.5
+        },
+        "candidate": {
+          "column": "tpch/p_name",
+          "operation": "parse",
+          "bits": 12,
+          "fastest_ns": 9100000.0,
+          "slowest_ns": 9300000.0,
+          "median_ns": 9180000.0,
+          "mean_ns": 9174000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-fixup.log",
+          "median_mbps": 713.4
+        },
+        "gain_percent": 0.41394335511981684
+      },
+      {
+        "column": "tpch/p_name",
+        "operation": "parse",
+        "bits": 16,
+        "baseline": {
+          "column": "tpch/p_name",
+          "operation": "parse",
+          "bits": 16,
+          "fastest_ns": 8173000.0,
+          "slowest_ns": 8346000.0,
+          "median_ns": 8288000.0,
+          "mean_ns": 8279000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-final.log",
+          "median_mbps": 790.2
+        },
+        "candidate": {
+          "column": "tpch/p_name",
+          "operation": "parse",
+          "bits": 16,
+          "fastest_ns": 8272000.0,
+          "slowest_ns": 8764000.0,
+          "median_ns": 8336000.0,
+          "mean_ns": 8356000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-fixup.log",
+          "median_mbps": 785.6
+        },
+        "gain_percent": -0.5758157389635365
+      },
+      {
+        "column": "tpch/p_name",
+        "operation": "train_and_compress",
+        "bits": 12,
+        "baseline": {
+          "column": "tpch/p_name",
+          "operation": "train_and_compress",
+          "bits": 12,
+          "fastest_ns": 16800000.0,
+          "slowest_ns": 18070000.0,
+          "median_ns": 17060000.0,
+          "mean_ns": 17110000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-final.log",
+          "median_mbps": 383.7
+        },
+        "candidate": {
+          "column": "tpch/p_name",
+          "operation": "train_and_compress",
+          "bits": 12,
+          "fastest_ns": 16960000.0,
+          "slowest_ns": 17910000.0,
+          "median_ns": 17070000.0,
+          "mean_ns": 17110000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-fixup.log",
+          "median_mbps": 383.6
+        },
+        "gain_percent": -0.05858230814294041
+      },
+      {
+        "column": "tpch/p_name",
+        "operation": "train_and_compress",
+        "bits": 16,
+        "baseline": {
+          "column": "tpch/p_name",
+          "operation": "train_and_compress",
+          "bits": 16,
+          "fastest_ns": 18050000.0,
+          "slowest_ns": 18430000.0,
+          "median_ns": 18170000.0,
+          "mean_ns": 18200000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-final.log",
+          "median_mbps": 360.4
+        },
+        "candidate": {
+          "column": "tpch/p_name",
+          "operation": "train_and_compress",
+          "bits": 16,
+          "fastest_ns": 17890000.0,
+          "slowest_ns": 18270000.0,
+          "median_ns": 18040000.0,
+          "mean_ns": 18050000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/tpch-fixup.log",
+          "median_mbps": 363.0
+        },
+        "gain_percent": 0.7206208425720728
+      },
+      {
+        "column": "clickbench/URL",
+        "operation": "decompress_all",
+        "bits": 12,
+        "baseline": {
+          "column": "clickbench/URL",
+          "operation": "decompress_all",
+          "bits": 12,
+          "fastest_ns": 26850000.0,
+          "slowest_ns": 35270000.0,
+          "median_ns": 27260000.0,
+          "mean_ns": 28320000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-final.log",
+          "median_mbps": 3248.0
+        },
+        "candidate": {
+          "column": "clickbench/URL",
+          "operation": "decompress_all",
+          "bits": 12,
+          "fastest_ns": 29160000.0,
+          "slowest_ns": 35580000.0,
+          "median_ns": 30300000.0,
+          "mean_ns": 30770000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-fixup.log",
+          "median_mbps": 2922.0
+        },
+        "gain_percent": -10.033003300330034
+      },
+      {
+        "column": "clickbench/URL",
+        "operation": "decompress_all",
+        "bits": 16,
+        "baseline": {
+          "column": "clickbench/URL",
+          "operation": "decompress_all",
+          "bits": 16,
+          "fastest_ns": 27810000.0,
+          "slowest_ns": 34630000.0,
+          "median_ns": 28360000.0,
+          "mean_ns": 29100000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-final.log",
+          "median_mbps": 3121.0
+        },
+        "candidate": {
+          "column": "clickbench/URL",
+          "operation": "decompress_all",
+          "bits": 16,
+          "fastest_ns": 30090000.0,
+          "slowest_ns": 34940000.0,
+          "median_ns": 31020000.0,
+          "mean_ns": 31230000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-fixup.log",
+          "median_mbps": 2854.0
+        },
+        "gain_percent": -8.575112830431975
+      },
+      {
+        "column": "clickbench/URL",
+        "operation": "parse",
+        "bits": 12,
+        "baseline": {
+          "column": "clickbench/URL",
+          "operation": "parse",
+          "bits": 12,
+          "fastest_ns": 172400000.0,
+          "slowest_ns": 174900000.0,
+          "median_ns": 173100000.0,
+          "mean_ns": 173400000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-final.log",
+          "median_mbps": 511.3
+        },
+        "candidate": {
+          "column": "clickbench/URL",
+          "operation": "parse",
+          "bits": 12,
+          "fastest_ns": 172000000.0,
+          "slowest_ns": 176300000.0,
+          "median_ns": 173700000.0,
+          "mean_ns": 173700000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-fixup.log",
+          "median_mbps": 509.7
+        },
+        "gain_percent": -0.3454231433506094
+      },
+      {
+        "column": "clickbench/URL",
+        "operation": "parse",
+        "bits": 16,
+        "baseline": {
+          "column": "clickbench/URL",
+          "operation": "parse",
+          "bits": 16,
+          "fastest_ns": 190600000.0,
+          "slowest_ns": 194700000.0,
+          "median_ns": 192000000.0,
+          "mean_ns": 192300000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-final.log",
+          "median_mbps": 461.0
+        },
+        "candidate": {
+          "column": "clickbench/URL",
+          "operation": "parse",
+          "bits": 16,
+          "fastest_ns": 181200000.0,
+          "slowest_ns": 194000000.0,
+          "median_ns": 182600000.0,
+          "mean_ns": 183400000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-fixup.log",
+          "median_mbps": 484.8
+        },
+        "gain_percent": 5.147864184008766
+      },
+      {
+        "column": "clickbench/URL",
+        "operation": "train_and_compress",
+        "bits": 12,
+        "baseline": {
+          "column": "clickbench/URL",
+          "operation": "train_and_compress",
+          "bits": 12,
+          "fastest_ns": 253900000.0,
+          "slowest_ns": 258700000.0,
+          "median_ns": 255000000.0,
+          "mean_ns": 255400000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-final.log",
+          "median_mbps": 347.2
+        },
+        "candidate": {
+          "column": "clickbench/URL",
+          "operation": "train_and_compress",
+          "bits": 12,
+          "fastest_ns": 235900000.0,
+          "slowest_ns": 248900000.0,
+          "median_ns": 238300000.0,
+          "mean_ns": 238900000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-fixup.log",
+          "median_mbps": 371.5
+        },
+        "gain_percent": 7.007973143096935
+      },
+      {
+        "column": "clickbench/URL",
+        "operation": "train_and_compress",
+        "bits": 16,
+        "baseline": {
+          "column": "clickbench/URL",
+          "operation": "train_and_compress",
+          "bits": 16,
+          "fastest_ns": 554900000.0,
+          "slowest_ns": 577400000.0,
+          "median_ns": 564400000.0,
+          "mean_ns": 564800000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-final.log",
+          "median_mbps": 156.8
+        },
+        "candidate": {
+          "column": "clickbench/URL",
+          "operation": "train_and_compress",
+          "bits": 16,
+          "fastest_ns": 550800000.0,
+          "slowest_ns": 571500000.0,
+          "median_ns": 564900000.0,
+          "mean_ns": 564500000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-fixup.log",
+          "median_mbps": 156.7
+        },
+        "gain_percent": -0.08851124092760232
+      },
+      {
+        "column": "amazon/book_reviews",
+        "operation": "decompress_all",
+        "bits": 12,
+        "baseline": {
+          "column": "amazon/book_reviews",
+          "operation": "decompress_all",
+          "bits": 12,
+          "fastest_ns": 48950000.0,
+          "slowest_ns": 55390000.0,
+          "median_ns": 50270000.0,
+          "mean_ns": 50600000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/amazon_reviews-final.log",
+          "median_mbps": 2467.0
+        },
+        "candidate": {
+          "column": "amazon/book_reviews",
+          "operation": "decompress_all",
+          "bits": 12,
+          "fastest_ns": 49100000.0,
+          "slowest_ns": 55010000.0,
+          "median_ns": 49780000.0,
+          "mean_ns": 50170000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/amazon_reviews-fixup.log",
+          "median_mbps": 2491.0
+        },
+        "gain_percent": 0.9843310566492569
+      },
+      {
+        "column": "amazon/book_reviews",
+        "operation": "decompress_all",
+        "bits": 16,
+        "baseline": {
+          "column": "amazon/book_reviews",
+          "operation": "decompress_all",
+          "bits": 16,
+          "fastest_ns": 51750000.0,
+          "slowest_ns": 57750000.0,
+          "median_ns": 52510000.0,
+          "mean_ns": 52840000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/amazon_reviews-final.log",
+          "median_mbps": 2362.0
+        },
+        "candidate": {
+          "column": "amazon/book_reviews",
+          "operation": "decompress_all",
+          "bits": 16,
+          "fastest_ns": 52440000.0,
+          "slowest_ns": 57980000.0,
+          "median_ns": 53370000.0,
+          "mean_ns": 53520000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/amazon_reviews-fixup.log",
+          "median_mbps": 2324.0
+        },
+        "gain_percent": -1.6113921678845844
+      },
+      {
+        "column": "amazon/book_reviews",
+        "operation": "parse",
+        "bits": 12,
+        "baseline": {
+          "column": "amazon/book_reviews",
+          "operation": "parse",
+          "bits": 12,
+          "fastest_ns": 328800000.0,
+          "slowest_ns": 332400000.0,
+          "median_ns": 330800000.0,
+          "mean_ns": 330700000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/amazon_reviews-final.log",
+          "median_mbps": 374.9
+        },
+        "candidate": {
+          "column": "amazon/book_reviews",
+          "operation": "parse",
+          "bits": 12,
+          "fastest_ns": 328100000.0,
+          "slowest_ns": 331800000.0,
+          "median_ns": 330500000.0,
+          "mean_ns": 330300000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/amazon_reviews-fixup.log",
+          "median_mbps": 375.2
+        },
+        "gain_percent": 0.0907715582450841
+      },
+      {
+        "column": "amazon/book_reviews",
+        "operation": "parse",
+        "bits": 16,
+        "baseline": {
+          "column": "amazon/book_reviews",
+          "operation": "parse",
+          "bits": 16,
+          "fastest_ns": 396800000.0,
+          "slowest_ns": 404100000.0,
+          "median_ns": 399400000.0,
+          "mean_ns": 399700000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/amazon_reviews-final.log",
+          "median_mbps": 310.5
+        },
+        "candidate": {
+          "column": "amazon/book_reviews",
+          "operation": "parse",
+          "bits": 16,
+          "fastest_ns": 373200000.0,
+          "slowest_ns": 385900000.0,
+          "median_ns": 375200000.0,
+          "mean_ns": 375600000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/amazon_reviews-fixup.log",
+          "median_mbps": 330.6
+        },
+        "gain_percent": 6.4498933901919075
+      },
+      {
+        "column": "amazon/book_reviews",
+        "operation": "train_and_compress",
+        "bits": 12,
+        "baseline": {
+          "column": "amazon/book_reviews",
+          "operation": "train_and_compress",
+          "bits": 12,
+          "fastest_ns": 407300000.0,
+          "slowest_ns": 413700000.0,
+          "median_ns": 409000000.0,
+          "mean_ns": 409600000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/amazon_reviews-final.log",
+          "median_mbps": 303.2
+        },
+        "candidate": {
+          "column": "amazon/book_reviews",
+          "operation": "train_and_compress",
+          "bits": 12,
+          "fastest_ns": 410000000.0,
+          "slowest_ns": 415900000.0,
+          "median_ns": 413300000.0,
+          "mean_ns": 413100000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/amazon_reviews-fixup.log",
+          "median_mbps": 300.0
+        },
+        "gain_percent": -1.0404064843939076
+      },
+      {
+        "column": "amazon/book_reviews",
+        "operation": "train_and_compress",
+        "bits": 16,
+        "baseline": {
+          "column": "amazon/book_reviews",
+          "operation": "train_and_compress",
+          "bits": 16,
+          "fastest_ns": 1270000000.0,
+          "slowest_ns": 1306000000.0,
+          "median_ns": 1287000000.0,
+          "mean_ns": 1286000000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/amazon_reviews-final.log",
+          "median_mbps": 96.35
+        },
+        "candidate": {
+          "column": "amazon/book_reviews",
+          "operation": "train_and_compress",
+          "bits": 16,
+          "fastest_ns": 1253000000.0,
+          "slowest_ns": 1275000000.0,
+          "median_ns": 1263000000.0,
+          "mean_ns": 1264000000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/amazon_reviews-fixup.log",
+          "median_mbps": 98.19
+        },
+        "gain_percent": 1.9002375296912177
+      }
+    ],
+    "url_vs_pre_followup_9b12": [
+      {
+        "column": "clickbench/URL",
+        "operation": "decompress_all",
+        "bits": 12,
+        "baseline": {
+          "column": "clickbench/URL",
+          "operation": "decompress_all",
+          "bits": 12,
+          "fastest_ns": 27500000.0,
+          "slowest_ns": 35540000.0,
+          "median_ns": 28390000.0,
+          "mean_ns": 28910000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-baseline.log",
+          "median_mbps": 3118.0
+        },
+        "candidate": {
+          "column": "clickbench/URL",
+          "operation": "decompress_all",
+          "bits": 12,
+          "fastest_ns": 29160000.0,
+          "slowest_ns": 35580000.0,
+          "median_ns": 30300000.0,
+          "mean_ns": 30770000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-fixup.log",
+          "median_mbps": 2922.0
+        },
+        "gain_percent": -6.303630363036305
+      },
+      {
+        "column": "clickbench/URL",
+        "operation": "decompress_all",
+        "bits": 16,
+        "baseline": {
+          "column": "clickbench/URL",
+          "operation": "decompress_all",
+          "bits": 16,
+          "fastest_ns": 28850000.0,
+          "slowest_ns": 34480000.0,
+          "median_ns": 30320000.0,
+          "mean_ns": 30580000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-baseline.log",
+          "median_mbps": 2920.0
+        },
+        "candidate": {
+          "column": "clickbench/URL",
+          "operation": "decompress_all",
+          "bits": 16,
+          "fastest_ns": 30090000.0,
+          "slowest_ns": 34940000.0,
+          "median_ns": 31020000.0,
+          "mean_ns": 31230000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-fixup.log",
+          "median_mbps": 2854.0
+        },
+        "gain_percent": -2.2566086395873652
+      },
+      {
+        "column": "clickbench/URL",
+        "operation": "parse",
+        "bits": 12,
+        "baseline": {
+          "column": "clickbench/URL",
+          "operation": "parse",
+          "bits": 12,
+          "fastest_ns": 178100000.0,
+          "slowest_ns": 181700000.0,
+          "median_ns": 179200000.0,
+          "mean_ns": 179500000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-baseline.log",
+          "median_mbps": 494.1
+        },
+        "candidate": {
+          "column": "clickbench/URL",
+          "operation": "parse",
+          "bits": 12,
+          "fastest_ns": 172000000.0,
+          "slowest_ns": 176300000.0,
+          "median_ns": 173700000.0,
+          "mean_ns": 173700000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-fixup.log",
+          "median_mbps": 509.7
+        },
+        "gain_percent": 3.1663788140471993
+      },
+      {
+        "column": "clickbench/URL",
+        "operation": "parse",
+        "bits": 16,
+        "baseline": {
+          "column": "clickbench/URL",
+          "operation": "parse",
+          "bits": 16,
+          "fastest_ns": 211600000.0,
+          "slowest_ns": 220700000.0,
+          "median_ns": 216200000.0,
+          "mean_ns": 215800000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-baseline.log",
+          "median_mbps": 409.4
+        },
+        "candidate": {
+          "column": "clickbench/URL",
+          "operation": "parse",
+          "bits": 16,
+          "fastest_ns": 181200000.0,
+          "slowest_ns": 194000000.0,
+          "median_ns": 182600000.0,
+          "mean_ns": 183400000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-fixup.log",
+          "median_mbps": 484.8
+        },
+        "gain_percent": 18.400876232201526
+      },
+      {
+        "column": "clickbench/URL",
+        "operation": "train_and_compress",
+        "bits": 12,
+        "baseline": {
+          "column": "clickbench/URL",
+          "operation": "train_and_compress",
+          "bits": 12,
+          "fastest_ns": 243300000.0,
+          "slowest_ns": 254100000.0,
+          "median_ns": 246800000.0,
+          "mean_ns": 247500000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-baseline.log",
+          "median_mbps": 358.6
+        },
+        "candidate": {
+          "column": "clickbench/URL",
+          "operation": "train_and_compress",
+          "bits": 12,
+          "fastest_ns": 235900000.0,
+          "slowest_ns": 248900000.0,
+          "median_ns": 238300000.0,
+          "mean_ns": 238900000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-fixup.log",
+          "median_mbps": 371.5
+        },
+        "gain_percent": 3.566932438103221
+      },
+      {
+        "column": "clickbench/URL",
+        "operation": "train_and_compress",
+        "bits": 16,
+        "baseline": {
+          "column": "clickbench/URL",
+          "operation": "train_and_compress",
+          "bits": 16,
+          "fastest_ns": 582100000.0,
+          "slowest_ns": 592500000.0,
+          "median_ns": 586300000.0,
+          "mean_ns": 586500000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-baseline.log",
+          "median_mbps": 151.0
+        },
+        "candidate": {
+          "column": "clickbench/URL",
+          "operation": "train_and_compress",
+          "bits": 16,
+          "fastest_ns": 550800000.0,
+          "slowest_ns": 571500000.0,
+          "median_ns": 564900000.0,
+          "mean_ns": 564500000.0,
+          "samples": 20,
+          "iterations": 20,
+          "raw_log": "native-parser-fixup-final/clickbench_URL-fixup.log",
+          "median_mbps": 156.7
+        },
+        "gain_percent": 3.788281111701175
+      }
+    ],
+    "url_decode_confirmation": {
+      "order": [
+        "fixup",
+        "ae79",
+        "ae79",
+        "fixup"
+      ],
+      "samples_per_case": 100,
+      "filter": "decompress_all",
+      "measurements": [
+        {
+          "pair": 1,
+          "bits": 12,
+          "baseline": {
+            "column": "clickbench/URL",
+            "operation": "decompress_all",
+            "bits": 12,
+            "fastest_ns": 28690000.0,
+            "slowest_ns": 36230000.0,
+            "median_ns": 29970000.0,
+            "mean_ns": 30100000.0,
+            "samples": 100,
+            "iterations": 100,
+            "raw_log": "native-parser-fixup-decode-confirm/1-final.log",
+            "median_mbps": 2954.0
+          },
+          "candidate": {
+            "column": "clickbench/URL",
+            "operation": "decompress_all",
+            "bits": 12,
+            "fastest_ns": 27090000.0,
+            "slowest_ns": 36510000.0,
+            "median_ns": 28220000.0,
+            "mean_ns": 28470000.0,
+            "samples": 100,
+            "iterations": 100,
+            "raw_log": "native-parser-fixup-decode-confirm/0-fixup.log",
+            "median_mbps": 3137.0
+          },
+          "gain_percent": 6.201275690999286
+        },
+        {
+          "pair": 1,
+          "bits": 16,
+          "baseline": {
+            "column": "clickbench/URL",
+            "operation": "decompress_all",
+            "bits": 16,
+            "fastest_ns": 28000000.0,
+            "slowest_ns": 36910000.0,
+            "median_ns": 29910000.0,
+            "mean_ns": 30190000.0,
+            "samples": 100,
+            "iterations": 100,
+            "raw_log": "native-parser-fixup-decode-confirm/1-final.log",
+            "median_mbps": 2960.0
+          },
+          "candidate": {
+            "column": "clickbench/URL",
+            "operation": "decompress_all",
+            "bits": 16,
+            "fastest_ns": 28750000.0,
+            "slowest_ns": 34310000.0,
+            "median_ns": 30160000.0,
+            "mean_ns": 30330000.0,
+            "samples": 100,
+            "iterations": 100,
+            "raw_log": "native-parser-fixup-decode-confirm/0-fixup.log",
+            "median_mbps": 2935.0
+          },
+          "gain_percent": -0.8289124668435011
+        },
+        {
+          "pair": 2,
+          "bits": 12,
+          "baseline": {
+            "column": "clickbench/URL",
+            "operation": "decompress_all",
+            "bits": 12,
+            "fastest_ns": 27250000.0,
+            "slowest_ns": 36330000.0,
+            "median_ns": 28270000.0,
+            "mean_ns": 28440000.0,
+            "samples": 100,
+            "iterations": 100,
+            "raw_log": "native-parser-fixup-decode-confirm/2-final.log",
+            "median_mbps": 3131.0
+          },
+          "candidate": {
+            "column": "clickbench/URL",
+            "operation": "decompress_all",
+            "bits": 12,
+            "fastest_ns": 28750000.0,
+            "slowest_ns": 35900000.0,
+            "median_ns": 29930000.0,
+            "mean_ns": 30120000.0,
+            "samples": 100,
+            "iterations": 100,
+            "raw_log": "native-parser-fixup-decode-confirm/3-fixup.log",
+            "median_mbps": 2958.0
+          },
+          "gain_percent": -5.546274640828597
+        },
+        {
+          "pair": 2,
+          "bits": 16,
+          "baseline": {
+            "column": "clickbench/URL",
+            "operation": "decompress_all",
+            "bits": 16,
+            "fastest_ns": 28070000.0,
+            "slowest_ns": 35780000.0,
+            "median_ns": 30220000.0,
+            "mean_ns": 30240000.0,
+            "samples": 100,
+            "iterations": 100,
+            "raw_log": "native-parser-fixup-decode-confirm/2-final.log",
+            "median_mbps": 2929.0
+          },
+          "candidate": {
+            "column": "clickbench/URL",
+            "operation": "decompress_all",
+            "bits": 16,
+            "fastest_ns": 27950000.0,
+            "slowest_ns": 35710000.0,
+            "median_ns": 29080000.0,
+            "mean_ns": 29340000.0,
+            "samples": 100,
+            "iterations": 100,
+            "raw_log": "native-parser-fixup-decode-confirm/3-fixup.log",
+            "median_mbps": 3044.0
+          },
+          "gain_percent": 3.9202200825309452
+        }
+      ],
+      "note": "The full-suite URL decoder results were -10.03% / -8.58%. Isolated 100-sample confirmation reverses the URL12 sign: +6.20% then -5.55%; URL16 was -0.83% then +3.92%. No stable decoder change is established. All full-suite and repeat measurements are preserved."
+    }
+  },
+  "correctness": {
+    "upstream_tests": 159,
+    "upstream_doctests": 2,
+    "vortex_library_tests": 52,
+    "real_rows": 9956337,
+    "binary_edge_rows": 2006,
+    "budgets": [
+      12,
+      16
+    ],
+    "cross_dataset_train_input_budget_combinations": 112,
+    "input_routes": [
+      "Rows",
+      "Arrow"
+    ],
+    "exact_fields": [
+      "dictionary bytes",
+      "dictionary offsets",
+      "codes",
+      "row offsets"
+    ],
+    "exact_comparison_baseline": "9b12a198545a5fd7dff6109e4fc32797d861e94f",
+    "primary_exact_serialized_sizes": 21,
+    "checks": [
+      "OnPair cargo test --release --locked, including Hegel properties and brute-force oracle",
+      "OnPair pinned Rust1.91 all-target/all-feature Clippy -D warnings and rustfmt",
+      "Vortex OnPair and string-bench library tests",
+      "Vortex affected all-target/all-feature Clippy -D warnings",
+      "Vortex nightly workspace formatting check",
+      "Exact real/binary and cross-dataset compatibility against published Git fixup"
+    ]
+  },
+  "diagnostics": {
+    "status": "The original URL12 regression is retained in the preceding report. Focused train-only profiles did not reproduce it; the full benchmark sequence did. Whole-suite profiles locate approximately14ms extra CPU in training and6ms saved in parsing; added training samples are mostly memcpy/munmap. Training source is unchanged. This supports an allocation-history interaction; exact allocator internals were not established. The reservation fixes the observed case in repeated native measurements without relying on the input identity.",
+    "stage_summary": {
+      "native-parser-fixup-profile/suite-baseline-symbolized.profile.json.gz": {
+        "calls": 30,
+        "training_median_cpu_ms": 67.934,
+        "parsing_median_cpu_ms": 184.0105
+      },
+      "native-parser-fixup-profile/suite-final-symbolized.profile.json.gz": {
+        "calls": 30,
+        "training_median_cpu_ms": 81.958,
+        "parsing_median_cpu_ms": 177.7875
+      }
+    },
+    "stage_method": "CPU-weighted 1000Hz Samply samples, verified ELF build IDs. Group samples under measured train_and_compress by contiguous training/parsing phases. First30 calls are12-bit, next30 are16-bit; approximate profiling diagnostics, not the unprofiled throughput table.",
+    "stages_utility": "Alternating old/new training plus parsing in one process produced the same16,355,186 URL12 codes. Old9b output capacity32,358,400 tokens, ae79 capacity17,741,824; the regression was not caused by a larger final output allocation.",
+    "profiles": [
+      "native-parser-fixup-profile/baseline.profile.json.gz",
+      "native-parser-fixup-profile/current.profile.json.gz",
+      "native-parser-fixup-profile/suite-baseline.profile.json.gz",
+      "native-parser-fixup-profile/suite-final.profile.json.gz"
+    ]
+  },
+  "binary_hashes": {
+    "string-bench-parser-fixup": {
+      "sha256": "a6408b969a7ae2e30394504dfe940d2bba22920afe88e3c48062d9ec49c981e3",
+      "bytes": 1051006056,
+      "elf_build_id": "83b23c4548663099ff90c4e9bb07edc820ab3658"
+    },
+    "clickbench-parser-fixup": {
+      "sha256": "8446af05ffb11ef1ef79d72214364ffdaff31759bece0683c633c60658f504ce",
+      "bytes": 11204272,
+      "elf_build_id": "606b9f49c53ed407b4bf6cda741eafc7ee5162ad"
+    },
+    "tpch-parser-fixup": {
+      "sha256": "54496e91ae2b5bd5a0f5647c656a074b1288184981870bad1dd2b24d56e27663",
+      "bytes": 3410392,
+      "elf_build_id": "a581f985752794d5e909e97b6cb3d1037d4d37f5"
+    },
+    "clickbench-parser-reserve": {
+      "sha256": "0f5a1434e101bb4b5664246ee6c98511ae5f8c48ef11edfbb6b9e9966b583ebb",
+      "bytes": 11204272,
+      "elf_build_id": "3d826b0a1dfb15a4cf3698c81a48624d25d5202f"
+    }
+  },
+  "prior_evidence": "onpair-parser-2026-10-29.json keeps the full per-commit parser comparisons, initial standalone regression and reverse-order confirmation; all negative results remain.",
+  "limitations": "One x86-64 host; no ARM/NEON or AVX2 performance claim. No separate new tests were needed for the allocation-only change; existing forced scalar/SIMD/reused-buffer properties and exact compatibility checks exercise it."
+}
