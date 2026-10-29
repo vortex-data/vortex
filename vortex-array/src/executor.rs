@@ -184,8 +184,8 @@ impl ArrayRef {
         let reduce_parent_kernels = ctx.reduce_parent_kernels.clone();
         let reduce_kernels = &reduce_parent_kernels;
         // Constructors build lazy arrays, so each node is optimized when execution reaches it: the
-        // root here, and a child when execution focuses it. Subtrees that kernels consume without
-        // executing them are never walked.
+        // root here, with the nodes below it that were never optimized, and a child when execution
+        // focuses it.
         let mut current_array = optimize_with_kernels(self, reduce_kernels)?;
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
         let mut stack: Vec<StackFrame> = Vec::new();

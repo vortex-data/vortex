@@ -526,6 +526,11 @@ fn trace_execution_stack_parent_kernel_attempts(
         &mut ctx
     );
     insta::assert_snapshot!(traced.trace.to_string(), @"
+    optimize root=vortex.test.stack-child(i32, len=3)
+      loop input=vortex.test.stack-child(i32, len=3)
+        reduce none array=vortex.test.stack-child(i32, len=3)
+        reduce_parent none array=vortex.test.stack-child(i32, len=3)
+      done output=vortex.test.stack-child(i32, len=3) changed=false
     optimize root=vortex.test.stack-parent(i32, len=3)
       loop input=vortex.test.stack-parent(i32, len=3)
         reduce none array=vortex.test.stack-parent(i32, len=3)
@@ -539,11 +544,6 @@ fn trace_execution_stack_parent_kernel_attempts(
         child_execute_parent none current=vortex.test.stack-parent(i32, len=3)
         execute encoding=vortex.test.stack-parent(i32, len=3)
         ExecuteSlot slot=0 parent=vortex.test.stack-parent(i32, len=3) child=vortex.test.stack-child(i32, len=3)
-    optimize root=vortex.test.stack-child(i32, len=3)
-      loop input=vortex.test.stack-child(i32, len=3)
-        reduce none array=vortex.test.stack-child(i32, len=3)
-        reduce_parent none array=vortex.test.stack-child(i32, len=3)
-      done output=vortex.test.stack-child(i32, len=3) changed=false
       iter 1 current=vortex.test.stack-child(i32, len=3) stack_parent=vortex.test.stack-parent(i32, len=3) slot=0 builder_active=false
         done_check target=false canonical=false
         stack_execute_parent attempt slot=0 parent=vortex.test.stack-parent(i32, len=3) child=vortex.test.stack-child(i32, len=3) source=session[0] kernel=execute_parent_fn outcome=declined

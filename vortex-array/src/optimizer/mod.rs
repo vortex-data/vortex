@@ -12,13 +12,16 @@
 //! points on [`ArrayOptimizer`], and both take the session, or an [`ExecutionCtx`] created from it,
 //! which reuses the kernels it snapshotted from the session (see [`AsOptimizerKernels`]):
 //!
-//! - [`ArrayOptimizer::optimize`] optimizes the root array node.
+//! - [`ArrayOptimizer::optimize`] optimizes the root array node, after the descendants below it
+//!   that were never optimized.
 //! - [`ArrayOptimizer::optimize_recursive`] optimizes the root and every descendant.
 //!
 //! Array constructors such as [`ArrayRef::slice`](crate::ArrayRef::slice) do not optimize: they
-//! return the wrapped array. Execution optimizes the whole tree with its session before it starts
-//! and the array it produced when it finishes. Whenever a rule rewrites a node, the nodes the rule
-//! built are optimized too, as constructing them used to do.
+//! return the wrapped array. Optimizing a node therefore first optimizes its children that were
+//! never optimized, bottom up, as constructing them used to: a parent rule or kernel keyed on a
+//! child's encoding sees that encoding rather than a lazy wrapper around it, such as a slice of an
+//! FSST array under a `LIKE`. Children already optimized are left without visiting their subtrees.
+//! Whenever a rule rewrites a node, the nodes the rule built are optimized the same way.
 //!
 //! Each array records how far the optimizer has taken it in its optimized state. A new array
 //! starts unoptimized, and the optimizer marks the arrays it returns, so optimizing an array again
@@ -223,7 +226,10 @@ fn optimize_owned(
         return Ok((current_array, false));
     }
 
-    let mut any_optimizations = false;
+    // Parent rules match on their children's encodings, so optimize the children first.
+    let with_optimized_children = optimize_new_nodes(current_array.clone(), kernels)?;
+    let mut any_optimizations = !ArrayRef::ptr_eq(&with_optimized_children, &current_array);
+    current_array = with_optimized_children;
 
     trace_op!(record_optimize_start(&current_array));
 
@@ -277,12 +283,13 @@ fn optimize_owned(
     vortex_bail!("Exceeded maximum optimization iterations (possible infinite loop)");
 }
 
-/// Optimizes the nodes a rule built below its result `array`.
+/// Optimizes the nodes below `array` that were never optimized, such as those a rule built below
+/// its result.
 ///
-/// Rules construct their result from lazy array constructors, so the nodes they build are not yet
-/// optimized, at any depth. Optimizing them as each rewrite happens keeps the optimizer from
-/// undoing one rule with its inverse: `slice(get_item(s))` and `get_item(slice(s))` rewrite into
-/// each other until the inner `slice(s)` collapses into `s`'s own encoding.
+/// Rules and constructors build lazy arrays, so these nodes are not yet optimized, at any depth.
+/// Optimizing them as each rewrite happens keeps the optimizer from undoing one rule with its
+/// inverse: `slice(get_item(s))` and `get_item(slice(s))` rewrite into each other until the inner
+/// `slice(s)` collapses into `s`'s own encoding.
 ///
 /// A child that is already optimized is left as it is without visiting its subtree, which skips
 /// the subtrees a rule carries over from the array it rewrote.
@@ -292,7 +299,6 @@ fn optimize_new_nodes(array: ArrayRef, kernels: &ParentReduceKernels) -> VortexR
         let optimized = match slot {
             Some(child) if !child.optimized_state().is_root_optimized() => {
                 let (optimized, _) = optimize_owned(child.clone(), kernels)?;
-                let optimized = optimize_new_nodes(optimized, kernels)?;
                 (!ArrayRef::ptr_eq(&optimized, child)).then_some(optimized)
             }
             _ => None,
