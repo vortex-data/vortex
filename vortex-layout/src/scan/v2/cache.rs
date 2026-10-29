@@ -50,8 +50,8 @@ struct Inner {
     /// them, so a projection must reuse its plan for its values to be found again.
     projections: Mutex<FxHashMap<ExactBoundExpr, PlanRef>>,
     ranges: Mutex<Option<SegmentRanges>>,
-    /// Plans of filters, keyed by the exact filter expression. A pruning plan remembers the zones it
-    /// excluded, so sharing the plans prunes a file's zones once for every scan of that filter.
+    /// Plans of filters, keyed by the exact filter expression. A pruning plan remembers the zones
+    /// it excluded, so sharing the plans prunes a file's zones once for every scan of that filter.
     filters: Mutex<FxHashMap<ExactBoundExpr, Arc<FilterPlans>>>,
     values: ValueCache,
     /// Recently read segments, shared by the chunks of every scan of the file.
