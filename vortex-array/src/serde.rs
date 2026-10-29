@@ -38,6 +38,7 @@ use crate::flatbuffers::FlatBuffer;
 use crate::flatbuffers::WriteFlatBuffer;
 use crate::flatbuffers::array as fba;
 use crate::flatbuffers::array::Compression;
+use crate::optimizer::mark_decoded_optimized;
 use crate::session::ArraySessionExt;
 use crate::stats::StatsSet;
 
@@ -430,6 +431,7 @@ impl SerializedArray {
             decoded.statistics().set_all(stats);
         }
 
+        mark_decoded_optimized(&decoded);
         Ok(decoded)
     }
 

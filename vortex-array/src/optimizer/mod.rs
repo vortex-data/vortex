@@ -89,6 +89,13 @@ impl OptimizedState {
     }
 }
 
+/// Marks an array decoded from its serialized form, and the tree below it, as optimized.
+///
+/// The writer stored the array after optimizing it, so no rule rewrites it again.
+pub(crate) fn mark_decoded_optimized(array: &ArrayRef) {
+    array.optimized_state().mark_tree_optimized();
+}
+
 /// The parent-reduce kernels [`ArrayOptimizer`] optimizes with, from [`AsOptimizerKernels`].
 ///
 /// A [`VortexSession`] snapshots its registered kernels for each call. An [`ExecutionCtx`] reuses
