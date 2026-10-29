@@ -26,6 +26,7 @@ use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::WidenArray;
 use vortex_array::builders::VarBinBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
@@ -460,15 +461,20 @@ enum DecimalExportCase {
     MspI32P18Nullable,
     /// Every value fits an `i16` but needs precision 5, above the precision 4 that `i16` holds.
     GapMspI16P10,
+    /// A `Decimal(9, 2)` child with `i32` values under `Decimal(18, 2)`.
+    WidenI32P18,
+    /// A `Decimal(18, 2)` child with `i64` values under `Decimal(38, 2)`.
+    WidenI64P38,
 }
 
 impl DecimalExportCase {
     fn decimal_dtype(self) -> DecimalDType {
         match self {
-            Self::CanonicalI64P18 | Self::MspI32P18 | Self::MspI32P18Nullable => {
-                DecimalDType::new(18, 2)
-            }
-            Self::CanonicalI128P38 => DecimalDType::new(38, 2),
+            Self::CanonicalI64P18
+            | Self::MspI32P18
+            | Self::MspI32P18Nullable
+            | Self::WidenI32P18 => DecimalDType::new(18, 2),
+            Self::CanonicalI128P38 | Self::WidenI64P38 => DecimalDType::new(38, 2),
             Self::GapMspI16P10 => DecimalDType::new(10, 2),
         }
     }
@@ -511,6 +517,22 @@ impl DecimalExportCase {
                 ),
                 decimal_dtype,
             ),
+            Self::WidenI32P18 => widen(
+                DecimalArray::new(
+                    spread_values::<i32>(-999_999_999, 999_999_999),
+                    DecimalDType::new(9, 2),
+                    Validity::NonNullable,
+                ),
+                decimal_dtype,
+            ),
+            Self::WidenI64P38 => widen(
+                DecimalArray::new(
+                    spread_values::<i64>(-MAX_P18, MAX_P18),
+                    DecimalDType::new(18, 2),
+                    Validity::NonNullable,
+                ),
+                decimal_dtype,
+            ),
         }
     }
 }
@@ -523,6 +545,8 @@ impl Display for DecimalExportCase {
             Self::MspI32P18 => "msp_i32_p18",
             Self::MspI32P18Nullable => "msp_i32_p18_nullable",
             Self::GapMspI16P10 => "gap_msp_i16_p10",
+            Self::WidenI32P18 => "widen_i32_p18",
+            Self::WidenI64P38 => "widen_i64_p38",
         })
     }
 }
@@ -533,6 +557,8 @@ const DECIMAL_EXPORT_CASES: &[DecimalExportCase] = &[
     DecimalExportCase::MspI32P18,
     DecimalExportCase::MspI32P18Nullable,
     DecimalExportCase::GapMspI16P10,
+    DecimalExportCase::WidenI32P18,
+    DecimalExportCase::WidenI64P38,
 ];
 
 const DECIMAL_ROWS: usize = 100_000;
@@ -559,6 +585,13 @@ fn spread_values<T: TryFrom<i64>>(min: i64, max: i64) -> Buffer<T> {
 
 fn decimal_byte_parts(msp: PrimitiveArray, decimal_dtype: DecimalDType) -> ArrayRef {
     DecimalByteParts::try_new(msp.into_array(), decimal_dtype)
+        .unwrap()
+        .into_array()
+}
+
+fn widen(values: DecimalArray, decimal_dtype: DecimalDType) -> ArrayRef {
+    let dtype = DType::Decimal(decimal_dtype, values.dtype().nullability());
+    WidenArray::try_new(values.into_array(), dtype)
         .unwrap()
         .into_array()
 }
