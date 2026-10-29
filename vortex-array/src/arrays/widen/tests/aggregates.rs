@@ -36,7 +36,6 @@ use crate::aggregate_fn::fns::null_count::NullCount;
 use crate::aggregate_fn::fns::sum::Sum;
 use crate::aggregate_fn::fns::sum_v2::SumV2;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
-use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeOpts;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
@@ -74,14 +73,7 @@ fn aggregates() -> Vec<(AggregateFnRef, bool)> {
         (AllNonNull.bind(EmptyOptions), false),
         (BoundedMin.bind(BoundedMinOptions { max_bytes }), false),
         (BoundedMax.bind(BoundedMaxOptions { max_bytes }), false),
-        (
-            UncompressedSizeInBytes.bind(UncompressedSizeOpts::inexact()),
-            false,
-        ),
-        (
-            UncompressedSizeInBytes.bind(UncompressedSizeOpts::exact()),
-            false,
-        ),
+        (UncompressedSizeInBytes.bind(EmptyOptions), false),
     ]
 }
 
