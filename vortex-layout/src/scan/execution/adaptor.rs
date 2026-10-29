@@ -3,7 +3,6 @@
 
 //! Adapts pipeline execution to the planner I/O and compute protocol.
 
-use std::ops::Range;
 use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
@@ -25,11 +24,11 @@ use crate::plan::physical::pipeline::Turn;
 use crate::scan::execution::SegmentLocation;
 use crate::segments::SegmentId;
 
-/// Rows a running plan produced, in row order.
+/// Rows a running plan produced, in row order within its split.
 #[derive(Clone)]
 pub(super) struct Piece {
-    /// Orders the piece among the outputs of one scan.
-    pub(super) rows: Range<u64>,
+    /// The index of the split the rows belong to.
+    pub(super) split: usize,
     /// The selected rows the piece holds.
     pub(super) array: ArrayRef,
 }
@@ -54,8 +53,6 @@ pub(super) struct ScanAdaptor {
     /// A turn already taken while batching reads, retained for the next compute.
     pending: Option<Turn>,
     done: bool,
-    /// Orders the pieces handed out.
-    next_piece: u64,
     locations: Arc<[SegmentLocation]>,
     /// Published and undelivered requests, with the scan read and segment each one answers.
     outstanding: FxHashMap<u32, (ReadId, SegmentId)>,
@@ -72,7 +69,6 @@ impl ScanAdaptor {
             scan,
             pending: None,
             done: false,
-            next_piece: 0,
             locations,
             outstanding: FxHashMap::default(),
             failed: None,
@@ -96,7 +92,7 @@ impl ScanAdaptor {
         }
         Ok(match self.step()? {
             Turn::Waiting | Turn::Done => AdaptorStep::Yield,
-            Turn::Output(_, array) => AdaptorStep::Piece(self.piece(array)),
+            Turn::Output(split, array) => AdaptorStep::Piece(Piece { split, array }),
             Turn::Read(read) => {
                 // Publish every read the scan has ready together, so the owner can coalesce them.
                 let mut batch = vec![self.request(read.id, read.segment_id)?];
@@ -128,15 +124,6 @@ impl ScanAdaptor {
             Turn::Read(_) | Turn::Output(..) => {}
         }
         Ok(turn)
-    }
-
-    fn piece(&mut self, array: ArrayRef) -> Piece {
-        let start = self.next_piece;
-        self.next_piece += 1;
-        Piece {
-            rows: start..start + 1,
-            array,
-        }
     }
 
     fn request(&mut self, read: ReadId, segment_id: SegmentId) -> VortexResult<request::IoRequest> {

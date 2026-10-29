@@ -468,6 +468,9 @@ impl PlanParentReduceRule<Zoned> for ExpressionZonedRule {
 /// Whether `eval` is a boolean expression over abstract statistics alone, which a zone table can
 /// prune without reading the data it summarises.
 pub(crate) fn is_zone_pruning(eval: &Plan<Eval>) -> VortexResult<bool> {
+    if !eval.dtype().is_boolean() {
+        return Ok(false);
+    }
     let mut contains_stat = false;
     let mut contains_root = false;
     eval.expression().clone().transform_down(|expression| {
@@ -485,7 +488,7 @@ pub(crate) fn is_zone_pruning(eval: &Plan<Eval>) -> VortexResult<bool> {
         contains_root |= expression.is_root();
         Ok(Transformed::no(expression))
     })?;
-    Ok(eval.dtype().is_boolean() && contains_stat && !contains_root)
+    Ok(contains_stat && !contains_root)
 }
 
 /// Replaces a zoned data plan by its data: a scan reads the data through it and never its zone

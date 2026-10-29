@@ -60,7 +60,7 @@ use super::ROW_BLOCK_SIZE;
 use super::ScanBuilder;
 use super::ScanCache;
 use super::ScanFile;
-use super::filtered_rows_per_chunk;
+use super::max_filtered_rows_per_chunk;
 use super::rows_per_chunk;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -73,6 +73,8 @@ use crate::layouts::zoned::writer::ZonedLayoutOptions;
 use crate::layouts::zoned::writer::ZonedStrategy;
 use crate::scan::arrow::to_record_batch;
 use crate::scan::execution::SegmentLocation;
+use crate::scan::execution::filtered_rows_per_chunk;
+use crate::scan::execution::projected_rows_per_chunk;
 use crate::scan::execution::row_chunks;
 use crate::scan::execution::scan_chunks;
 use crate::scan::scan_builder::ScanBuilder as V1ScanBuilder;
@@ -221,7 +223,7 @@ fn filtered_chunk_sizing(
     let array = table_chunk(0)?;
     let dtype = array.dtype();
     assert_eq!(
-        filtered_rows_per_chunk(dtype, &projection.bind(dtype)?, &filter.bind(dtype)?)?,
+        max_filtered_rows_per_chunk(dtype, &projection.bind(dtype)?, &filter.bind(dtype)?)?,
         expected,
     );
     Ok(())
@@ -543,6 +545,40 @@ fn chunk_byte_budget(#[case] rows: u64, #[case] bytes: u32, #[case] expected: us
     assert_eq!(rows_per_chunk(rows, &locations), expected);
 }
 
+/// A filtered chunk shrinks so every chunk a scan runs at once has rows, within its bounds.
+#[rstest]
+#[case::one_at_a_time(6_000_000, 1, 1_048_576, 1_048_576)]
+#[case::up_to_the_cap(6_000_000, 1, 131_072, 131_072)]
+#[case::split_across_concurrency(262_144, 4, 1_048_576, 65_536)]
+#[case::rounded_to_blocks(300_000, 4, 1_048_576, 81_920)]
+#[case::at_least_a_window(100_000, 96, 1_048_576, 65_536)]
+fn filtered_chunk_rows(
+    #[case] rows: u64,
+    #[case] concurrency: usize,
+    #[case] max_rows: usize,
+    #[case] expected: usize,
+) {
+    assert_eq!(
+        filtered_rows_per_chunk(rows, concurrency, max_rows),
+        expected
+    );
+}
+
+/// A projection chunk shrinks so every chunk a scan runs at once has rows, within its bounds:
+/// the 1.5M rows of TPC-H SF10's `customer` cut into 6 partitions of 16 chunks each must not
+/// run 4 chunks of 64Ki rows each.
+#[rstest]
+#[case::one_at_a_time(6_000_000, 1, 65_536)]
+#[case::split_across_concurrency(250_000, 16, 16_384)]
+#[case::rounded_to_blocks(100_000, 4, 32_768)]
+#[case::at_least_a_block(10_000, 96, 8_192)]
+fn projected_chunk_rows(#[case] rows: u64, #[case] concurrency: usize, #[case] expected: usize) {
+    assert_eq!(
+        projected_rows_per_chunk(rows, concurrency, MAX_ROWS_PER_CHUNK),
+        expected
+    );
+}
+
 #[test]
 fn smaller_chunks_keep_file_alignment() {
     assert_eq!(
@@ -601,7 +637,12 @@ async fn dictionary_values_are_reused_between_splits() -> VortexResult<()> {
     let mut file = scan_file(&segments, &layout)?;
     // Without retained segments, so a chunk reads every codes chunk it overlaps.
     file.cache = Some(ScanCache::with_retained_bytes(0));
-    let scan = Arc::new(ScanBuilder::new(session.clone(), file).prepare()?);
+    // One chunk at a time, so chunks are as large as a projection chunk on any machine.
+    let scan = Arc::new(
+        ScanBuilder::new(session.clone(), file)
+            .with_concurrency(1)
+            .prepare()?,
+    );
     let chunks = row_chunks(scan.rows().clone(), scan.chunk_rows);
     assert_eq!(
         chunks.len(),
@@ -705,6 +746,52 @@ async fn every_row_is_returned() -> VortexResult<()> {
     let chunks = run_scan(builder(&session, &segments, &layout)?).await?;
     let rows: usize = chunks.iter().map(|chunk| chunk.len()).sum();
     assert_eq!(rows, CHUNKS * CHUNK_ROWS);
+    Ok(())
+}
+
+/// A dense chunk over one stored segment is projected by one morsel, a batch per output window.
+#[tokio::test]
+async fn dense_chunk_yields_a_batch_per_window() -> VortexResult<()> {
+    const ROWS: i32 = 150_000;
+    let session = new_session().with_tokio();
+    let segments = Arc::new(TestSegments::default());
+    let (mut sequence, eof) = SequenceId::root().split();
+    let array = PrimitiveArray::from_iter(0..ROWS).into_array();
+    let dtype = array.dtype().clone();
+    let layout = chunked_flat()
+        .write_stream(
+            ArrayContext::empty().into(),
+            Arc::<TestSegments>::clone(&segments),
+            SequentialStreamAdapter::new(dtype, stream::iter([Ok((sequence.advance(), array))]))
+                .sendable(),
+            eof,
+            &session,
+        )
+        .await?;
+    let segments: Arc<dyn SegmentSource> = segments;
+    let mut scan = builder(&session, &segments, &layout)?.prepare()?;
+    scan.chunk_rows = usize::try_from(ROWS)?;
+    let scan = Arc::new(scan);
+    let batches = run_batches(&scan, 0..layout.row_count()).await?;
+    assert_eq!(
+        batches
+            .iter()
+            .map(|batch| batch.array.len())
+            .collect::<Vec<_>>(),
+        [65_536, 65_536, 18_928]
+    );
+    let actual = ChunkedArray::try_new(
+        batches
+            .into_iter()
+            .map(|batch| batch.array)
+            .collect::<Vec<_>>(),
+        layout.dtype().clone(),
+    )?;
+    assert_arrays_eq!(
+        actual,
+        PrimitiveArray::from_iter(0..ROWS),
+        &mut session.create_execution_ctx()
+    );
     Ok(())
 }
 
