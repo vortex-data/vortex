@@ -20,6 +20,9 @@ pub struct SegmentSpec {
     pub length: u32,
     /// The memory alignment requirement of the segment.
     pub alignment: Alignment,
+    /// Index into the footer's [encryption specs](crate::Footer::encryption_specs). Index 0
+    /// always denotes a plaintext segment.
+    pub encryption: u16,
 }
 
 impl SegmentSpec {
@@ -33,7 +36,13 @@ impl SegmentSpec {
 
 impl From<&SegmentSpec> for fb::SegmentSpec {
     fn from(value: &SegmentSpec) -> Self {
-        fb::SegmentSpec::new(value.offset, value.length, value.alignment.exponent(), 0, 0)
+        fb::SegmentSpec::new(
+            value.offset,
+            value.length,
+            value.alignment.exponent(),
+            0,
+            value.encryption,
+        )
     }
 }
 
@@ -47,6 +56,7 @@ impl TryFrom<&fb::SegmentSpec> for SegmentSpec {
             // The alignment exponent comes from the file and may be corrupt, so validate it rather
             // than panicking on a too-large shift (see issue #8819).
             alignment: Alignment::try_from_untrusted_exponent(value.alignment_exponent())?,
+            encryption: value.encryption(),
         })
     }
 }

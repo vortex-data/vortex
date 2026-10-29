@@ -70,6 +70,11 @@ EXCLUDE_ALLOCATIONS_PREFIXES = ("dict_", "chunked_dict_", "patches_", "take_", "
 
 Target = tuple[str, str]  # (package, bench target)
 
+# Benchmark targets that simulation does not measure. Each writes whole files on several worker
+# threads, which simulation runs one instruction at a time under Valgrind, so their results say
+# little about the code they exercise.
+SKIPPED_TARGETS: frozenset[Target] = frozenset({("vortex-file", "encrypted_write")})
+
 # One entry of the GitHub Actions matrix.
 Shard = TypedDict(
     "Shard",
@@ -89,8 +94,8 @@ def excludes_allocations(target: Target) -> bool:
     return package == "vortex-array" and name.startswith(EXCLUDE_ALLOCATIONS_PREFIXES)
 
 
-def discover_targets(root: Path = REPO_ROOT) -> list[Target]:
-    """Return the `[[bench]]` targets of every workspace package not in `EXCLUDED_PACKAGES`."""
+def manifest_targets(root: Path = REPO_ROOT) -> list[Target]:
+    """Return every `[[bench]]` target of workspace packages, including excluded and skipped ones."""
     members = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]["members"]
     targets = []
     for member in members:
@@ -101,6 +106,12 @@ def discover_targets(root: Path = REPO_ROOT) -> list[Target]:
             manifest = tomllib.loads(manifest_path.read_text())
             package = manifest.get("package", {}).get("name")
             targets.extend((package, bench["name"]) for bench in manifest.get("bench", []))
+    return sorted(targets)
+
+
+def discover_targets(root: Path = REPO_ROOT) -> list[Target]:
+    """Return the `[[bench]]` targets that simulation measures."""
+    targets = manifest_targets(root)
 
     benchmarked = {package for package, _ in targets}
     stale = (set(EXCLUDED_PACKAGES) | set(PACKAGE_FEATURES)) - benchmarked
@@ -111,7 +122,7 @@ def discover_targets(root: Path = REPO_ROOT) -> list[Target]:
     if excluded_with_features:
         raise SystemExit(f"excluded packages must not set features: {sorted(excluded_with_features)}")
 
-    simulated = sorted(target for target in targets if target[0] not in EXCLUDED_PACKAGES)
+    simulated = [target for target in targets if target[0] not in EXCLUDED_PACKAGES and target not in SKIPPED_TARGETS]
 
     # A shard selects targets with `--bench <name>`, which Cargo matches in every selected package.
     packages_by_name = collections.defaultdict(list)
