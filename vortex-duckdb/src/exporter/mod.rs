@@ -25,6 +25,9 @@ mod validity;
 mod varbinview;
 mod vector;
 
+use std::sync::Arc;
+use std::sync::OnceLock;
+
 pub use cache::ConversionCache;
 pub use decimal::precision_to_duckdb_storage_size;
 use vortex::array::ArrayRef;
@@ -201,23 +204,33 @@ fn cached_values_dict(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ReusableDict> {
     let key = values.addr();
-    if let Some(entry) = cache.dict_cache.get(&key) {
-        return Ok(entry.value().1.clone());
-    }
-    let mut dict = ReusableDict::new(values.dtype().try_into()?, values.len());
-    // ReusableDict's values must be flattened. When we call
-    // vector.reuse_dictionary() with dict returned from this function, if
-    // data is not flat, duckdb's functions like TupleDataScatter read inner
-    // storage directly as T. If data inside was SEQUENCE or CONSTANT vectors
-    // which don't have a T buffer, we read garbage data.
-    new_array_exporter_with_flatten(values.clone(), cache, ctx, true)?.export(
-        0,
-        values.len(),
-        dict.vector(),
-        ctx,
-    )?;
-    cache.dict_cache.insert(key, (values, dict.clone()));
-    Ok(dict)
+    let cell = if let Some(entry) = cache.dict_cache.get(&key) {
+        Arc::clone(&entry.value().1)
+    } else {
+        let entry = cache
+            .dict_cache
+            .entry(key)
+            .or_insert_with(|| (values.clone(), Arc::new(OnceLock::new())));
+        Arc::clone(&entry.value().1)
+    };
+    // Export can recursively visit dictionaries in nested arrays. Release the map guard before
+    // initializing so those conversions can access the same shard without deadlocking.
+    cell.get_or_init(|| {
+        let mut dict = ReusableDict::new(values.dtype().try_into()?, values.len());
+        // ReusableDict's values must be flattened. When we call
+        // vector.reuse_dictionary() with dict returned from this function, if
+        // data is not flat, duckdb's functions like TupleDataScatter read inner
+        // storage directly as T. If data inside was SEQUENCE or CONSTANT vectors
+        // which don't have a T buffer, we read garbage data.
+        new_array_exporter_with_flatten(values.clone(), cache, ctx, true)?.export(
+            0,
+            values.len(),
+            dict.vector(),
+            ctx,
+        )?;
+        Ok(dict)
+    })
+    .clone()
 }
 
 /// Create a DuckDB exporter for the given Vortex array.
