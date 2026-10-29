@@ -305,6 +305,12 @@ def test_datetime_scalar_rejects_unknown_timezone():
         def utcoffset(self, dt: datetime.datetime | None) -> datetime.timedelta:
             return datetime.timedelta(0)
 
+        def dst(self, dt: datetime.datetime | None) -> datetime.timedelta:
+            return datetime.timedelta(0)
+
+        def tzname(self, dt: datetime.datetime | None) -> str:
+            return self.key
+
     value = datetime.datetime(1970, 1, 1, tzinfo=InvalidTimezone())
     with pytest.raises(RuntimeError, match="Not/A/Timezone"):
         vx.scalar(value)
