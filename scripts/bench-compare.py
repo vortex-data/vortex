@@ -150,7 +150,7 @@ def run_one(exe: Path, filter: str | None, extra: list[str], pin: bool) -> dict[
     if filter:
         cmd.append(filter)
     if pin:
-        cmd = [str(SCRIPT_DIR / "bench-taskset.sh"), *cmd]
+        cmd = ["bash", str(SCRIPT_DIR / "bench-taskset.sh"), *cmd]
     print("+", " ".join(cmd), file=sys.stderr, flush=True)
     proc = subprocess.run(cmd, stdout=subprocess.PIPE, text=True, env={**os.environ, "RUST_BACKTRACE": "1"})
     sys.stderr.write(proc.stdout)

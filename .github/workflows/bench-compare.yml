@@ -8,7 +8,7 @@
 
 name: Benchmark Compare
 run-name: >-
-  Bench compare ${{ inputs.head_ref || github.ref_name }} vs ${{ inputs.base_ref || 'develop' }}:
+  Bench compare ${{ inputs.head_ref || (github.event_name == 'push' && 'ji/duckdb-v2-scan-driver') || github.ref_name }} vs ${{ inputs.base_ref || 'develop' }}:
   ${{ inputs.benchmarks || 'test defaults' }}
 
 concurrency:
