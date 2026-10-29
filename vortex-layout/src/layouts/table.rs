@@ -350,8 +350,8 @@ mod tests {
     use crate::layouts::repartition::RepartitionWriterOptions;
     use crate::layouts::table::TableStrategy;
     use crate::layouts::zoned::Zoned;
-    use crate::layouts::zoned::writer::ZonedLayoutOptions;
-    use crate::layouts::zoned::writer::ZonedStrategy;
+    use crate::layouts::zoned::writer::ZoneOptions;
+    use crate::layouts::zoned::writer::ZonedStrategyBuilder;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
@@ -531,14 +531,9 @@ mod tests {
             Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()));
         let dispatcher = TableStrategy::new(Arc::clone(&flat), chunked).with_list_layout_factory(
             move |list_layout| {
-                let zoned = ZonedStrategy::new(
-                    list_layout,
-                    Arc::clone(&stats),
-                    ZonedLayoutOptions {
-                        block_size: row_block_size,
-                        ..Default::default()
-                    },
-                );
+                let zoned = ZonedStrategyBuilder::new()
+                    .with_zones([ZoneOptions::new(row_block_size)])
+                    .build(list_layout, Arc::clone(&stats));
                 Arc::new(RepartitionStrategy::new(
                     zoned,
                     RepartitionWriterOptions {

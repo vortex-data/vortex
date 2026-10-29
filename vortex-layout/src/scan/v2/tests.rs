@@ -68,8 +68,8 @@ use crate::layouts::dict::DictLayout;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::layouts::row_idx::row_idx;
 use crate::layouts::table::TableStrategy;
-use crate::layouts::zoned::writer::ZonedLayoutOptions;
-use crate::layouts::zoned::writer::ZonedStrategy;
+use crate::layouts::zoned::writer::ZoneOptions;
+use crate::layouts::zoned::writer::ZonedStrategyBuilder;
 use crate::scan::arrow::to_record_batch;
 use crate::scan::execution::SegmentLocation;
 use crate::scan::execution::row_chunks;
@@ -151,14 +151,14 @@ fn table() -> Arc<dyn LayoutStrategy> {
 
 /// Every column is shredded into chunked leaves with zone statistics.
 fn zoned_table() -> Arc<dyn LayoutStrategy> {
-    let zoned = ZonedStrategy::new(
-        ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
-        FlatLayoutStrategy::default(),
-        ZonedLayoutOptions {
-            block_size: NonZeroUsize::new(CHUNK_ROWS).unwrap_or(NonZeroUsize::MIN),
-            ..Default::default()
-        },
-    );
+    let zoned = ZonedStrategyBuilder::new()
+        .with_zones([ZoneOptions::new(
+            NonZeroUsize::new(CHUNK_ROWS).unwrap_or(NonZeroUsize::MIN),
+        )])
+        .build(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            FlatLayoutStrategy::default(),
+        );
     Arc::new(TableStrategy::new(chunked_flat(), Arc::new(zoned)))
 }
 

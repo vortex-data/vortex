@@ -286,8 +286,8 @@ mod test {
     use crate::layouts::zoned::ZoneMapSchema;
     use crate::layouts::zoned::Zoned;
     use crate::layouts::zoned::ZonedLayout;
-    use crate::layouts::zoned::writer::ZonedLayoutOptions;
-    use crate::layouts::zoned::writer::ZonedStrategy;
+    use crate::layouts::zoned::writer::ZoneOptions;
+    use crate::layouts::zoned::writer::ZonedStrategyBuilder;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -309,14 +309,14 @@ mod test {
         let ctx = ArrayContext::empty();
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
-        let strategy = ZonedStrategy::new(
-            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
-            FlatLayoutStrategy::default(),
-            ZonedLayoutOptions {
-                block_size: NonZeroUsize::new(3).vortex_expect("non zero"),
-                ..Default::default()
-            },
-        );
+        let strategy = ZonedStrategyBuilder::new()
+            .with_zones([ZoneOptions::new(
+                NonZeroUsize::new(3).vortex_expect("non zero"),
+            )])
+            .build(
+                ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+                FlatLayoutStrategy::default(),
+            );
         let array_stream = ChunkedArray::from_iter([
             buffer![1, 2, 3].into_array(),
             buffer![4, 5, 6].into_array(),
@@ -398,14 +398,14 @@ mod test {
         let ctx = ArrayContext::empty();
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
-        let strategy = ZonedStrategy::new(
-            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
-            FlatLayoutStrategy::default(),
-            ZonedLayoutOptions {
-                block_size: NonZeroUsize::new(3).vortex_expect("non zero"),
-                ..Default::default()
-            },
-        );
+        let strategy = ZonedStrategyBuilder::new()
+            .with_zones([ZoneOptions::new(
+                NonZeroUsize::new(3).vortex_expect("non zero"),
+            )])
+            .build(
+                ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+                FlatLayoutStrategy::default(),
+            );
         let array_stream = ChunkedArray::from_iter([
             PrimitiveArray::new(
                 buffer![0i32, 0, 0],

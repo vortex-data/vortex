@@ -27,8 +27,8 @@ use vortex_layout::layouts::list::writer::ListLayoutStrategy;
 use vortex_layout::layouts::repartition::RepartitionStrategy;
 use vortex_layout::layouts::repartition::RepartitionWriterOptions;
 use vortex_layout::layouts::table::TableStrategy;
-use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
-use vortex_layout::layouts::zoned::writer::ZonedStrategy;
+use vortex_layout::layouts::zoned::writer::ZoneOptions;
+use vortex_layout::layouts::zoned::writer::ZonedStrategyBuilder;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -66,6 +66,7 @@ pub struct WriteStrategyBuilder {
     ///
     /// [`ListLayoutStrategy`]: vortex_layout::layouts::list::writer::ListLayoutStrategy
     use_list_layout: bool,
+    zoned: Option<ZonedStrategyBuilder>,
 }
 
 impl WriteStrategyBuilder {
@@ -84,15 +85,27 @@ impl WriteStrategyBuilder {
             use_list_layout: session
                 .enabled_component_ids(ComponentKind::Layout)
                 .contains(&List.id()),
+            zoned: None,
         }
     }
 
-    /// Override the row block size used for row repartitioning and zoned statistics.
+    /// Override the row block size used for row repartitioning and, unless [`Self::with_zoned`]
+    /// is set, the zone length of zoned statistics.
     ///
     /// Larger blocks reduce footer/statistics overhead. Smaller blocks can improve pruning and
     /// random-access locality.
     pub fn with_row_block_size(mut self, row_block_size: usize) -> Self {
         self.row_block_size = row_block_size;
+        self
+    }
+
+    /// Override the zone maps written for each column.
+    ///
+    /// By default every column gets one zone map of [`Self::with_row_block_size`] rows holding the
+    /// default pruning aggregates. Field paths are matched after the root struct is split into
+    /// columns, as for [`Self::with_field_writer`].
+    pub fn with_zoned(mut self, zoned: ZonedStrategyBuilder) -> Self {
+        self.zoned = Some(zoned);
         self
     }
 
@@ -221,16 +234,12 @@ impl WriteStrategyBuilder {
         );
 
         let row_block_size = NonZeroUsize::new(self.row_block_size).vortex_expect("must be non 0");
+        let zoned = self.zoned.unwrap_or_else(|| {
+            ZonedStrategyBuilder::new().with_zones([ZoneOptions::new(row_block_size)])
+        });
 
         // 2. calculate stats for each row group
-        let stats = ZonedStrategy::new(
-            dict,
-            compress_then_flat.clone(),
-            ZonedLayoutOptions {
-                block_size: row_block_size,
-                ..Default::default()
-            },
-        );
+        let stats = zoned.clone().build(dict, compress_then_flat.clone());
 
         // 1. repartition each column to fixed row counts
         let repartition = RepartitionStrategy::new(
@@ -257,14 +266,7 @@ impl WriteStrategyBuilder {
             // We need a closure here to enable recursive application of list layout.
             table_strategy = table_strategy.with_list_layout_factory(
                 move |list_layout: ListLayoutStrategy| -> Arc<dyn LayoutStrategy> {
-                    let zoned = ZonedStrategy::new(
-                        list_layout,
-                        compress_then_flat.clone(),
-                        ZonedLayoutOptions {
-                            block_size: row_block_size,
-                            ..Default::default()
-                        },
-                    );
+                    let zoned = zoned.clone().build(list_layout, compress_then_flat.clone());
                     Arc::new(RepartitionStrategy::new(
                         zoned,
                         RepartitionWriterOptions {
