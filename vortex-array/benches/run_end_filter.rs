@@ -14,15 +14,21 @@
 #![expect(clippy::expect_used)]
 
 use std::fmt;
+use std::sync::LazyLock;
 
 use divan::Bencher;
 use mimalloc::MiMalloc;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
+use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::runend::_benchmarking::filter_run_end_primitive;
+use vortex_array::memory::MemorySession;
+use vortex_array::optimizer::kernels::KernelSession;
+use vortex_array::session::ArraySession;
 use vortex_buffer::BitBuffer;
-use vortex_buffer::BufferAllocatorRef;
+use vortex_session::VortexSession;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -37,12 +43,20 @@ fn main() {
         0,
         length as u64,
         &build_mask(length, 0.5),
-        BufferAllocatorRef::static_ref(),
+        SESSION.create_execution_ctx().allocator(),
     )
     .expect("filter");
 
     divan::main();
 }
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<KernelSession>()
+        .with::<AggregateFnSession>()
+        .with::<MemorySession>()
+});
 
 #[derive(Clone, Copy)]
 struct FilterBenchArgs {
@@ -95,6 +109,16 @@ const FILTER_ARGS: &[FilterBenchArgs] = &[
         run_length: 16,
         density: 0.9,
     },
+    FilterBenchArgs {
+        length: 65_536,
+        run_length: 4,
+        density: 0.5,
+    },
+    FilterBenchArgs {
+        length: 65_536,
+        run_length: 256,
+        density: 0.5,
+    },
 ];
 
 /// Build the run-end boundaries (cumulative run lengths) for `length` rows.
@@ -124,15 +148,15 @@ fn filter_run_end(bencher: Bencher, args: FilterBenchArgs) {
     let mask = build_mask(args.length, args.density);
     let length = args.length as u64;
     bencher
-        .with_inputs(|| (run_ends.clone(), mask.clone()))
-        .bench_refs(|(run_ends, mask)| {
-            filter_run_end_primitive::<u32>(
-                run_ends,
-                0,
-                length,
-                mask,
-                BufferAllocatorRef::static_ref(),
+        .with_inputs(|| {
+            (
+                run_ends.clone(),
+                mask.clone(),
+                SESSION.create_execution_ctx(),
             )
-            .expect("filter")
+        })
+        .bench_refs(|(run_ends, mask, ctx)| {
+            filter_run_end_primitive::<u32>(run_ends, 0, length, mask, ctx.allocator())
+                .expect("filter")
         });
 }
