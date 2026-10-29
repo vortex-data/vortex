@@ -13,6 +13,7 @@
 //! [`SumV2`]: vortex_array::aggregate_fn::fns::sum_v2::SumV2
 
 mod kernel;
+pub(crate) use kernel::RunEndGroupedSumV2Kernel;
 pub(crate) use kernel::RunEndSumKernel;
 
 mod runs;

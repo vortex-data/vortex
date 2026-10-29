@@ -12,6 +12,7 @@ pub(crate) use grouped::BoolGroupedSumV2EncodingKernel;
 pub(crate) use grouped::ChunkedGroupedSumV2EncodingKernel;
 pub(crate) use grouped::PrimitiveGroupedSumV2EncodingKernel;
 pub use grouped::SumV2GroupPartials;
+pub(crate) use grouped::grouped_partials;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
