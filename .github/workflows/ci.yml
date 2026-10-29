@@ -48,7 +48,7 @@ jobs:
     name: "Formatting, Python lint and script tests"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-small/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=lightweight-checks', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-small/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=lightweight-checks', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
@@ -121,7 +121,7 @@ jobs:
     name: "Python (test)"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-large/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=python-test', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-large/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=python-test', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     env:
@@ -170,7 +170,7 @@ jobs:
     timeout-minutes: 60
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/pool=windows-x64-pre/extras=s3-cache', github.run_id)
+          && format('runs-on={0}/region=us-east-1/pool=windows-x64-pre/extras=s3-cache', github.run_id)
           || 'windows-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -233,7 +233,7 @@ jobs:
   python-cuda-test:
     name: "Python CUDA (test)"
     if: github.repository == 'vortex-data/vortex'
-    runs-on: runs-on=${{ github.run_id }}/runner=gpu/extras=s3-cache/tag=python-cuda-test
+    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu/extras=s3-cache/tag=python-cuda-test
     timeout-minutes: 30
     env:
       RUST_LOG: "info,maturin=off,uv=debug"
@@ -273,7 +273,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-docs/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-docs', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-docs/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-docs', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -301,7 +301,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner={1}/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag={2}', github.run_id, matrix.config.runner, matrix.config.name)
+          && format('runs-on={0}/region=us-east-1/runner={1}/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag={2}', github.run_id, matrix.config.runner, matrix.config.name)
           || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
@@ -350,7 +350,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-min-deps', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-min-deps', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -369,7 +369,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-msrv', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-msrv', github.run_id)
           || 'ubuntu-latest' }}
     env:
       RUSTFLAGS: "-A warnings"
@@ -393,7 +393,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-large/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-lint', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-large/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-lint', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -460,7 +460,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-lint-no-default', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-lint-no-default', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -488,7 +488,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/pool=windows-x64-pre/extras=s3-cache', github.run_id)
+          && format('runs-on={0}/region=us-east-1/pool=windows-x64-pre/extras=s3-cache', github.run_id)
           || 'windows-latest' }}
     steps:
       - parallel:
@@ -535,7 +535,7 @@ jobs:
       !cancelled() && needs.duckdb-ready.result == 'success' &&
       github.repository == 'vortex-data/vortex'
     timeout-minutes: 30
-    runs-on: runs-on=${{ github.run_id }}/runner=arm64-ci-test/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag=rust-test-linux-arm64
+    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=arm64-ci-test/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag=rust-test-linux-arm64
     steps:
       - parallel:
           - uses: runs-on/action@v2
@@ -592,7 +592,7 @@ jobs:
             image: ubuntu24-full-arm64-pre-v2
             expect: "neon,sve,sve2,sve2-bitperm"
     runs-on: >-
-      runs-on=${{ github.run_id }}/runner=${{ matrix.config.runner }}/family=${{ matrix.config.family }}/spot=price-capacity-optimized/image=${{ matrix.config.image }}/extras=s3-cache/tag=rust-test-cpu-features-${{ matrix.config.name }}
+      runs-on=${{ github.run_id }}/region=us-east-1/runner=${{ matrix.config.runner }}/family=${{ matrix.config.family }}/spot=price-capacity-optimized/image=${{ matrix.config.image }}/extras=s3-cache/tag=rust-test-cpu-features-${{ matrix.config.name }}
     env:
       VORTEX_EXPECT_CPU_FEATURES: ${{ matrix.config.expect }}
     steps:
@@ -619,7 +619,7 @@ jobs:
     timeout-minutes: 10
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=btrblocks-golden', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=btrblocks-golden', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -645,7 +645,7 @@ jobs:
     name: "Java"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=java', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=java', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
@@ -686,7 +686,7 @@ jobs:
     timeout-minutes: 10
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/tag=cmake-integration-test', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/tag=cmake-integration-test', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -712,7 +712,7 @@ jobs:
       RUST_LIB_BACKTRACE: 0
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=cxx-build', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=cxx-build', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -765,7 +765,7 @@ jobs:
     if: ${{ !cancelled() && needs.duckdb-ready.result == 'success' }}
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-sql-logic-test/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=sql-logic-test', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-sql-logic-test/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=sql-logic-test', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
@@ -793,7 +793,7 @@ jobs:
     if: ${{ !cancelled() && needs.duckdb-ready.result == 'success' }}
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=duckdb-s3-test', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=duckdb-s3-test', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
@@ -841,7 +841,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=wasm-integration', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=wasm-integration', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - parallel:
@@ -879,7 +879,7 @@ jobs:
     name: "Generated source files and C API"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=generated-files', github.run_id)
+          && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=generated-files', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
