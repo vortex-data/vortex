@@ -5,9 +5,13 @@ at `5fc5cb8` (2026-10-17). They live on the `ct/ext-types-research` branch and a
 merged.
 
 Reviews on 2026-10-22, 2026-10-23 and 2026-10-26 updated the Decimal notes and
-[`decisions.md`](decisions.md). Part 4 of the Decimal notes holds the implementation plan for
-`Widen` and the canonical decimal fix, and the state of each PR.
-The decimal, DecimalByteParts, serialization and versioning code that the notes cite is the same on
+[`decisions.md`](decisions.md). On 2026-10-29, the extension type notes were checked again against
+`develop` at `1d09649bbd`, and the Decimal plan was updated for the PRs that merged or opened
+since 2026-10-26. Part 4 of the Decimal notes holds the implementation plan for `Widen` and the
+canonical decimal fix. The tracking issues
+[#10701](https://github.com/vortex-data/vortex/issues/10701) and
+[#10733](https://github.com/vortex-data/vortex/issues/10733) hold the state of each PR. The
+decimal, DecimalByteParts, serialization and versioning code that the notes cite is the same on
 `develop` at `dbaf5f8` (2026-10-22).
 
 | Topic | Summary for people | Detail for agents |

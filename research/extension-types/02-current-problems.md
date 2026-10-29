@@ -5,7 +5,8 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 # 2. Current problems on `develop`
 
-All findings are for `develop` at `5fc5cb8`. Each ID refers to an entry in
+All findings are for `develop` at `5fc5cb8`. A check on 2026-10-29 found every finding still on
+`develop` at `1d09649bbd`. Only EXT-A1 changed, as described below. Each ID refers to an entry in
 [`agents/findings.md`](agents/findings.md), which has file and line references, reproductions and
 fix sketches. "Confirmed" means that a throwaway test ([`agents/probe.rs`](agents/probe.rs) or
 [`agents/probe_followup.rs`](agents/probe_followup.rs)) reproduced the behavior.
@@ -34,7 +35,8 @@ implementation.
   extension type returns the storage cast, so `Timestamp(ms)` casts to `i64`, `f64` and `u8`. A
   scalar cast out of an extension type accepts the exact storage dtype as a target. Issue
   [#7504](https://github.com/vortex-data/vortex/issues/7504) decided to remove the array cast out of
-  an extension type, but it is still on `develop`.
+  an extension type, and it closed as a duplicate of the open
+  [#8570](https://github.com/vortex-data/vortex/issues/8570). The cast is still on `develop`.
 - **Comparisons against raw storage (EXT-Q1).** The compare type check is skipped when either side
   is an extension. A lone extension side then compares its storage, so `ts < 1500` compares raw
   `i64` values. `between` checks types strictly, so `ts BETWEEN 0 AND 1500` fails while
@@ -76,10 +78,13 @@ implementation.
 
 - **Ordering (EXT-A1).** `min_max` uses storage order for every extension type. `is_sorted` returns
   `false` for every extension type, so a sorted timestamp column reports "not sorted". `vortex-row`
-  rejects extension types. `sum` rejects them. Three open PRs add three different opt-in mechanisms:
-  [#10246](https://github.com/vortex-data/vortex/pull/10246),
+  rejects extension types. `sum` rejects them. Since 2026-10-20, a fourth answer exists:
   [#10566](https://github.com/vortex-data/vortex/pull/10566) and
-  [#10408](https://github.com/vortex-data/vortex/pull/10408).
+  [#10616](https://github.com/vortex-data/vortex/pull/10616) add separate aggregates, such as
+  `vortex.is_sorted[vortex.timestamp]`, that run on storage for `Date`, `Time`, `Timestamp` and
+  `Uuid`. Plain `is_sorted` and `min_max` do not use them. This is a temporary bridge (X10). The
+  open draft [#10408](https://github.com/vortex-data/vortex/pull/10408) adds yet another opt-in for
+  `between`.
 - **Zone maps (EXT-A2).** When a statistic rejects an extension dtype, the zone map uses the storage
   dtype. JSON and WKB columns store exact, unbounded bounds, so WKB zone maps hold whole geometry
   blobs.

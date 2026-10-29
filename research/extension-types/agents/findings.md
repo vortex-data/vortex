@@ -7,7 +7,12 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 This file is the detailed catalog behind `../02-current-problems.md`. Each finding has an ID that
 the human documents use. All paths are relative to the repository root. All line numbers are for
-`develop` at commit `5fc5cb8` (2026-10-17).
+`develop` at commit `5fc5cb8` (2026-10-17), except where an entry names `1d09649bbd`.
+
+A second read on 2026-10-29 checked every finding against `develop` at `1d09649bbd`, 214 commits
+later. No commit fixed a finding. EXT-A1 changed, and the entries for EXT-Q3, EXT-V8, EXT-B4 and
+EXT-R4 gained new facts. `../04-urgent-changes.md` gives the line numbers at `1d09649bbd` for the
+code that U1 to U8 change. Lines in other files can have moved.
 
 This catalog covers current code only. Problems in the proposed design appear as design rationale
 in `design-notes.md`.
@@ -206,7 +211,9 @@ Terms:
 - **Locations:**
   - `encodings/datetime-parts/src/compute/compare.rs:24-61`: the kernel calls
     `rhs_const.as_extension()` before it checks the dtype. It then splits the constant with the time
-    unit of the constant. It does not compare that unit with the time unit of the column.
+    unit of the constant. It does not compare that unit with the time unit of the column. #10684
+    rewrote the kernel, and the bug remains at `1d09649bbd` (`compare.rs:37-38` calls
+    `as_extension()`, `:46` checks the dtype, and `:52-55` takes the unit from the constant).
   - `vortex-array/src/scalar_fn/fns/binary/compare/mod.rs:73-121`: `CompareExecuteAdaptor` calls
     the kernel of the encoding without checking that the operand dtypes match.
   - `vortex-array/src/scalar/downcast.rs:161-164`: `Scalar::as_extension` panics if the scalar is
@@ -238,10 +245,29 @@ Terms:
 - **Observed:** `min_max` on the `Opaque` test type returns storage min and max [H]. `is_sorted` on
   a sorted `Timestamp` array returns `false` [I].
 - **Open work that touches this.** Each of these PRs adds a different opt-in mechanism:
-  - PR #10246 adds a per-type aggregate kernel registry and `StorageAggregateKernel`.
-  - PR #10566 adds an `ExtensionAggregate<A, E>` adapter with a composite aggregate ID.
-  - PR #10408 adds a `between` pushdown that matches `AnyTemporal` inside the rule.
-- **Fix:** Make every ordering-based operation read one declaration (see `design-notes.md`).
+  - PR #10246 proposed a per-type aggregate kernel registry and `StorageAggregateKernel`. It closed
+    without a merge on 2026-10-19.
+  - PR #10566 merged on 2026-10-20. It adds `ExtensionStoragePushdown<A, E>`
+    (`vortex-array/src/aggregate_fn/storage_pushdown.rs` at `1d09649bbd`), an adapter with the
+    composite aggregate ID `<A>[<E>]`. Its results are storage values, and its docs say that the
+    conditions for a correct registration "are not checked".
+  - PR #10616 merged on 2026-10-20. `register_storage_ordered` registers the adapter for `IsSorted`
+    and `MinMax`. The default session calls it for `Date`, `Time` and `Timestamp`
+    (`vortex-array/src/aggregate_fn/session.rs:134-136` at `1d09649bbd`), and
+    `vortex_uuid::initialize` calls it for `Uuid` (`encodings/uuid/src/lib.rs:46`). It deleted
+    `is_sorted/extension.rs`, and it taught `min_max` and `is_sorted` to order a `FixedSizeList`
+    of non-nullable `u8` by bytes.
+  - PR #10408 adds a `between` pushdown that matches `AnyTemporal` inside the rule. It is an open
+    draft.
+- **State at `1d09649bbd`.** Only the composite aggregates, such as
+  `vortex.is_sorted[vortex.timestamp]`, use the new path, and only tests ask for them. Plain
+  `is_sorted` still rejects every extension dtype (`is_sorted/mod.rs:259-278`) and returns `false`
+  (`:108-114`), so probe [I] still reproduces. Plain `min_max` still accepts every extension dtype
+  (`min_max/mod.rs:306-318`), now also `Uuid` through the byte order. #10851 added NaN handling
+  for extension types over float storage (`min_max/mod.rs:169-200`), which applies storage
+  semantics in one more place. The `vortex-row` and `sum` rejections are unchanged.
+- **Fix:** Make every ordering-based operation read one declaration (see `design-notes.md`). The
+  composite aggregates are a temporary bridge until then (X10).
 
 ### EXT-A2: Zone maps fall back to storage statistics
 
@@ -372,8 +398,12 @@ Terms:
 - **Expected:** An error. `Scalar::try_new` and the value check of an array must not panic on
   illegal data, for example an Arrow `timestamp[s]` column that holds `i64::MAX`.
 - **Status:** code. Nothing ran.
+- **Same bug in `Time`.** `Time::unpack_native` calls `Span::microseconds` and
+  `Span::nanoseconds` (`vortex-array/src/extension/datetime/time.rs:131-138` at `1d09649bbd`),
+  which panic in the same way. The `nanoseconds` setters of `Time` and `Timestamp` panic on
+  `i64::MIN`. Nothing ran.
 - **Fix:** Use `Span::try_seconds` and the other `try_` setters, and return their error. U5
-  covers it.
+  covers both types.
 
 ### EXT-N1: A nullability change can panic
 
@@ -450,7 +480,9 @@ Terms:
 - **Locations:**
   - `vortex-duckdb/src/table_function.rs:532-537`: aggregate pushdown excludes `Uuid` only, because
     its storage is a `FixedSizeList`. Every other extension type gets min and max pushed down in
-    storage order.
+    storage order. At `1d09649bbd` this code is at `table_function.rs:568-573`. Its comment says
+    that aggregations cannot compute over a `FixedSizeList`, which is no longer true for `Uuid`
+    storage since #10616.
   - `vortex-duckdb/src/column_statistics.rs:37`: the NaN check uses `dtype.is_float()`.
   - `vortex-duckdb/src/convert/dtype.rs:260-284` and `vortex-duckdb/src/exporter/extension.rs:36`:
     a hard-coded list of extension types. There is no plugin hook.
@@ -506,6 +538,9 @@ Terms:
 - `docs/developer-guide/internals/vtables.md:84-113` shows the old `ExtDTypeVTable` shape.
 - `vortex-array/src/arrays/extension/vtable/mod.rs:39-74` says that extension arrays delegate most
   operations to storage. That statement conflicts with an opaque design.
+- `vortex-array/src/dtype/extension/vtable.rs:68-72` (at `1d09649bbd`) says that the `Scalar`
+  checks the storage value against the storage dtype when it is built. EXT-V7 shows that it does
+  not. U6 makes the statement true.
 
 ## Appendix A: probe results
 

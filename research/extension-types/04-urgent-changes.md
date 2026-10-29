@@ -7,7 +7,8 @@ SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 These changes fix wrong results and panics. They do not depend on the design in part 3, and each one
 fits in a small PR with a regression test. Finding IDs refer to
-[`agents/findings.md`](agents/findings.md).
+[`agents/findings.md`](agents/findings.md). On 2026-10-29, every change was still needed on
+`develop` at `1d09649bbd`, and the line numbers in this part are for that commit.
 
 | ID | Change | Fixes | Visible effect |
 | --- | --- | --- | --- |
@@ -34,7 +35,7 @@ must be errors. The table in EXT-P1 lists the first cases.
   (`vortex-array/src/arrays/extension/compute/cast.rs:18-22`).
 - Remove the storage target case in `ExtScalar::cast`
   (`vortex-array/src/scalar/typed_view/extension/mod.rs:87-96`). `Scalar::cast` sends extension
-  sources there (`vortex-array/src/scalar/cast.rs:84`). Without this change, constants and the row
+  sources there (`vortex-array/src/scalar/cast.rs:86`). Without this change, constants and the row
   path still cast `Timestamp(ms)` to `i64` after the array path stops.
 - Return the storage error instead of "no `CastKernel`" (EXT-C3).
 - Change the Arrow exporters that call `array.cast(target)` (EXT-B2). An exporter that exports
@@ -46,7 +47,7 @@ Visible changes: `cast(Timestamp, i64)` returns an error, and `ext_storage` repl
 ## U2. One compare type rule
 
 - `Binary::return_dtype` requires equal dtypes (ignoring nullability) for every comparison, with no
-  exception for extension types (`vortex-array/src/scalar_fn/fns/binary/mod.rs:162-168`).
+  exception for extension types (`vortex-array/src/scalar_fn/fns/binary/mod.rs:153-159`).
 - Remove the lone-extension case in `compare_arrays`
   (`vortex-array/src/scalar_fn/fns/binary/compare/mod.rs:177-193`).
 - `CompareExecuteAdaptor` checks that the operand dtypes match before it calls an encoding kernel
@@ -54,11 +55,15 @@ Visible changes: `cast(Timestamp, i64)` returns an error, and `ext_storage` repl
   compare (EXT-Q3).
 - The `DateTimeParts` compare kernel checks that the constant has the dtype of the column,
   including the time unit, before it splits the constant
-  (`encodings/datetime-parts/src/compute/compare.rs:31-52`).
+  (`encodings/datetime-parts/src/compute/compare.rs:34-55`). #10684 rewrote this kernel, but it
+  still calls `as_extension()` before it checks the dtype.
 
 Coupling: an engine converter that sends a storage-typed literal for an extension column must send
 an extension literal. DuckDB and DataFusion already convert temporal literals to extension scalars.
-A test for each engine confirms the other cases.
+DataFusion converts the literals of other extension types to storage scalars (EXT-B1), so fix that
+conversion in the same change. Otherwise a filter on a `Uuid` or `Json` column probably fails when
+it is built, instead of being pushed down. DataFusion dynamic filters (#10865, #10869, #10895) are
+another literal path. A test for each engine and each path confirms the other cases.
 
 ## U3. Errors from reads
 
@@ -76,7 +81,7 @@ A test for each engine confirms the other cases.
 - `ExtDType::try_with_vtable` validates the dtype with both nullabilities. After that,
   `with_nullability` cannot fail and does not validate again.
 - `with_nullability` builds the new dtype directly. Today it calls `try_with_vtable`
-  (`vortex-array/src/dtype/extension/typed.rs:91-98`). With the first change, that call validates
+  (`vortex-array/src/dtype/extension/typed.rs:91-99`). With the first change, that call validates
   both nullabilities on every nullability change.
 - The documentation of `ExtVTable::validate_dtype` states that its result must not depend on
   nullability.
@@ -91,15 +96,20 @@ when the dtype is built is the better place.
 - `Timestamp::validate_dtype` rejects the `Days` unit and unknown time zones
   (`vortex-array/src/extension/datetime/timestamp.rs:198-204`).
 - `Timestamp::unpack_native` uses the `try_` setters of `jiff::Span` and returns their error
-  (`vortex-array/src/extension/datetime/timestamp.rs:214-229`). Today an out-of-range value
+  (`vortex-array/src/extension/datetime/timestamp.rs:214-230`). Today an out-of-range value
   panics (EXT-V8).
+- `Time::unpack_native` gets the same change. Its `microseconds` and `nanoseconds` setters panic in
+  the same way (`vortex-array/src/extension/datetime/time.rs:131-138`).
 
 ## U6. Storage checks for arrays and scalars
 
 - `Extension::validate` compares the dtype of the storage child with `ext_dtype.storage_dtype()`
   (`vortex-array/src/arrays/extension/vtable/mod.rs:96-123`).
 - Scalar validation checks that an extension value matches the storage dtype, before it calls the
-  check of the type (`vortex-array/src/scalar/validate.rs:100`, `:294`). This fixes EXT-V7.
+  check of the type (`vortex-array/src/scalar/validate.rs:100`, `:292`). This fixes EXT-V7.
+- The docs of `ExtVTable::unpack_native` say that the `Scalar` checks the storage value against the
+  storage dtype (`vortex-array/src/dtype/extension/vtable.rs:68-72`). After the change above, that
+  statement is true.
 - `Scalar::try_new` converts the `U64` form of an `F16` value to `F16`
   (`vortex-array/src/scalar/scalar_impl.rs:73`). Validation then rejects the `U64` form. Today the
   fast path accepts it (`vortex-array/src/scalar/validate.rs:46-50`), and so does the detailed
@@ -120,14 +130,21 @@ when the dtype is built is the better place.
 
 ## Coordination with open work
 
-Three open PRs add mechanisms for extension semantics:
+Three PRs added or add mechanisms for extension semantics:
 
-- [#10246](https://github.com/vortex-data/vortex/pull/10246) adds a per-type aggregate kernel
-  registry.
-- [#10566](https://github.com/vortex-data/vortex/pull/10566) adds an aggregate adapter with a
-  composite ID.
+- [#10246](https://github.com/vortex-data/vortex/pull/10246) proposed a per-type aggregate kernel
+  registry. It closed without a merge on 2026-10-19.
+- [#10566](https://github.com/vortex-data/vortex/pull/10566) added `ExtensionStoragePushdown`, an
+  aggregate adapter with a composite ID, and
+  [#10616](https://github.com/vortex-data/vortex/pull/10616) registered it for the temporal types
+  and `Uuid`. Both merged on 2026-10-20. They are a temporary bridge until phase 2 (X10).
 - [#10408](https://github.com/vortex-data/vortex/pull/10408) adds `between` pushdown for
-  `AnyTemporal`.
+  `AnyTemporal`. It is an open draft.
 
-Each one is a reasonable local fix, but each one fixes a different mechanism in place. Settle the
-derive model in part 3 first, or merge each PR with a follow-up that moves it onto derives.
+Each one is a reasonable local fix, but each one fixes a different mechanism in place. Phase 2
+moves them onto the opt-in mechanism of part 3.
+
+The new extension types `Duration` ([#10467](https://github.com/vortex-data/vortex/pull/10467))
+and `Interval` ([#10468](https://github.com/vortex-data/vortex/pull/10468)) are open. Both edit
+the `AnyTemporal` matcher and the Arrow, DataFusion and DuckDB converters. U1, U2 and phase 3
+change the same code, and both types need rows in the table of derives.
