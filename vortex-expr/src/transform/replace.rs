@@ -70,4 +70,19 @@ mod test {
         );
         Ok(())
     }
+
+    #[test]
+    fn test_replace_reaches_what_a_lambda_reads_from_outside() -> VortexResult<()> {
+        // `$.a` is in the call's environment, among its children, so it moves with `$`. The body
+        // stays as written: its `$.a` reads the environment's row.
+        let expr = list_transform(
+            col("l"),
+            Lambda::new(["x"], checked_add(var("x"), col("a")))?,
+        );
+        assert_eq!(
+            replace(expr, &root(), col("s")).to_string(),
+            "vortex.list.transform($.s.l, pack($: pack(a: $.s.a)), (x) -> (@x + $.a))"
+        );
+        Ok(())
+    }
 }

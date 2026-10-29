@@ -87,7 +87,7 @@ impl ScalarFnVTable for Apply {
 
     fn return_dtype(&self, options: &ApplyOptions, args: &[DType]) -> VortexResult<DType> {
         Ok(match options {
-            ApplyOptions::Lambda(lambda) => lambda.return_dtype(args)?,
+            ApplyOptions::Lambda(lambda) => lambda.return_dtype(args, &StructFields::empty())?,
             ApplyOptions::Bound(lambda) => lambda.dtype().clone(),
         })
     }
@@ -98,7 +98,9 @@ impl ScalarFnVTable for Apply {
         args: &[DType],
     ) -> VortexResult<Option<ApplyOptions>> {
         match options {
-            ApplyOptions::Lambda(lambda) => Ok(Some(ApplyOptions::Bound(lambda.bind(args)?))),
+            ApplyOptions::Lambda(lambda) => Ok(Some(ApplyOptions::Bound(
+                lambda.bind(args, &StructFields::empty())?,
+            ))),
             ApplyOptions::Bound(lambda) => {
                 vortex_ensure!(
                     lambda.is_bound_to(args),
@@ -169,18 +171,58 @@ fn new_keeps_params_and_body() -> VortexResult<()> {
 }
 
 #[rstest]
-#[case::root(checked_add(var("x"), root()), "not $;")]
-#[case::column(checked_add(var("x"), col("a")), "not $;")]
-#[case::other_variable(checked_add(var("x"), var("p")), "not @p;")]
-#[case::field_of_another_variable(get_item("k", var("p")), "not @p;")]
-#[case::function_of_the_scan(RowCount.new_expr(EmptyOptions, []), "not row_count();")]
-fn a_body_reads_only_its_parameters(#[case] body: Expression, #[case] read: &str) {
-    let error = Lambda::new(["x"], body).expect_err("reads from outside");
-    let message = error.to_string();
-    assert!(
-        message.contains("lambda (x) can only read its parameters") && message.contains(read),
-        "{message}"
+#[case::only_its_parameter(checked_add(var("x"), lit(1_i32)), None)]
+#[case::field_of_its_parameter(get_item("k", var("x")), None)]
+#[case::column(checked_add(var("x"), col("a")), Some("pack($: pack(a: $.a))"))]
+#[case::read_twice(checked_add(col("a"), col("a")), Some("pack($: pack(a: $.a))"))]
+#[case::nested_field(
+    checked_add(var("x"), get_item("i", col("s"))),
+    Some("pack($: pack(s: pack(i: $.s.i)))")
+)]
+#[case::field_and_its_struct(eq(get_item("i", col("s")), col("s")), Some("pack($: pack(s: $.s))"))]
+#[case::root(eq(var("x"), root()), Some("pack($: $)"))]
+#[case::other_variable(
+    checked_add(var("x"), get_item("k", var("p"))),
+    Some("pack(p: pack(k: @p.k))")
+)]
+#[case::function_of_the_scan(
+    checked_add(var("x"), RowCount.new_expr(EmptyOptions, [])),
+    Some("pack(vortex.row_count: row_count())")
+)]
+fn the_environment_holds_what_the_body_reads_from_outside(
+    #[case] body: Expression,
+    #[case] environment: Option<&str>,
+) -> VortexResult<()> {
+    let lambda = Lambda::new(["x"], body.clone())?;
+    assert_eq!(
+        lambda.environment().map(|e| e.to_string()).as_deref(),
+        environment
     );
+    assert_eq!(lambda.body(), &body);
+    Ok(())
+}
+
+#[rstest]
+#[case::root(checked_add(var("x"), root()), "reads $ from outside")]
+#[case::column(checked_add(var("x"), col("a")), "reads $ from outside")]
+#[case::other_variable(checked_add(var("x"), var("p")), "reads @p from outside")]
+#[case::field_of_another_variable(get_item("k", var("p")), "reads @p from outside")]
+#[case::function_of_the_scan(RowCount.new_expr(EmptyOptions, []), "reads row_count() from outside")]
+fn binding_without_the_environment_is_an_error(
+    #[case] body: Expression,
+    #[case] read: &str,
+) -> VortexResult<()> {
+    let error = Lambda::new(["x"], body)?
+        .bind(&[i32_()], &StructFields::empty())
+        .expect_err("reads from outside");
+    assert!(error.to_string().contains(read), "{error}");
+    Ok(())
+}
+
+#[test]
+fn a_parameter_cannot_be_named_like_the_row() {
+    let error = Lambda::new(["$"], var("$")).expect_err("$ is the row");
+    assert!(error.to_string().contains("can't be named $"), "{error}");
 }
 
 #[test]
@@ -263,8 +305,11 @@ fn a_variable_outside_a_lambda_is_an_error(
 #[test]
 fn binding_types_the_body_by_its_parameters() -> VortexResult<()> {
     let lambda = Lambda::new(["x"], checked_add(var("x"), lit(1_i32)))?;
-    assert_eq!(lambda.return_dtype(&[i32_()])?, i32_());
-    let bound = lambda.bind(&[i32_()])?;
+    assert_eq!(
+        lambda.return_dtype(&[i32_()], &StructFields::empty())?,
+        i32_()
+    );
+    let bound = lambda.bind(&[i32_()], &StructFields::empty())?;
     assert_eq!(bound.dtype(), &i32_());
     assert!(bound.is_bound_to(&[i32_()]));
     // The body reads the struct of the lambda's inputs: `@x` became `$.x`.
@@ -278,12 +323,18 @@ fn binding_types_the_body_by_its_parameters() -> VortexResult<()> {
         &checked_add(col("x"), lit(1_i32)).bind(&inputs)?
     );
     assert_eq!(
-        lambda.bind(&[i32_().as_nullable()])?.dtype(),
+        lambda
+            .bind(&[i32_().as_nullable()], &StructFields::empty())?
+            .dtype(),
         &i32_().as_nullable()
     );
     for error in [
-        lambda.return_dtype(&[]).expect_err("x has no dtype"),
-        lambda.bind(&[]).expect_err("x has no dtype"),
+        lambda
+            .return_dtype(&[], &StructFields::empty())
+            .expect_err("x has no dtype"),
+        lambda
+            .bind(&[], &StructFields::empty())
+            .expect_err("x has no dtype"),
     ] {
         assert!(
             error
@@ -309,8 +360,8 @@ fn binding_an_expression_binds_its_lambdas() -> VortexResult<()> {
 
 #[test]
 fn evaluate_runs_the_bound_body() -> VortexResult<()> {
-    let lambda =
-        Lambda::new(["x"], checked_add(var("x"), lit(1_i32)))?.bind(&[i32_().as_nullable()])?;
+    let lambda = Lambda::new(["x"], checked_add(var("x"), lit(1_i32)))?
+        .bind(&[i32_().as_nullable()], &StructFields::empty())?;
     let x = PrimitiveArray::from_option_iter([Some(1_i32), None]).into_array();
     let mut ctx = SESSION.create_execution_ctx();
     assert_arrays_eq!(
@@ -341,6 +392,11 @@ fn infallibility_comes_from_the_body(
 ) -> VortexResult<()> {
     let lambda = Lambda::new(["x"], body)?;
     assert_eq!(lambda.is_infallible(), infallible);
-    assert_eq!(lambda.bind(&[i32_()])?.is_infallible(), infallible);
+    assert_eq!(
+        lambda
+            .bind(&[i32_()], &StructFields::empty())?
+            .is_infallible(),
+        infallible
+    );
     Ok(())
 }
