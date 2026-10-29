@@ -10,6 +10,7 @@ use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::ExactBoundExpr;
+use vortex_error::VortexResult;
 
 use super::io::SegmentRanges;
 use crate::plan::physical::PlanRef;
@@ -43,6 +44,8 @@ struct Inner {
     /// Plans of filters, keyed by the exact filter expression. A pruning plan remembers the zones it
     /// excluded, so sharing the plans prunes a file's zones once for every scan of that filter.
     filters: Mutex<FxHashMap<ExactBoundExpr, Arc<FilterPlans>>>,
+    /// Serialized bytes the whole-file projection reads, by projection.
+    projection_bytes: Mutex<FxHashMap<ExactBoundExpr, u64>>,
     values: ValueCache,
 }
 
@@ -110,6 +113,22 @@ impl ScanCache {
                 .entry(ExactBoundExpr(filter))
                 .or_insert(plans),
         )
+    }
+
+    /// The serialized bytes a whole-file scan of `projection` reads, computing them with
+    /// `compute` on first use.
+    pub(super) fn projection_bytes(
+        &self,
+        projection: &BoundExpression,
+        compute: impl FnOnce() -> VortexResult<u64>,
+    ) -> VortexResult<u64> {
+        let key = ExactBoundExpr(projection.clone());
+        if let Some(bytes) = self.0.projection_bytes.lock().get(&key) {
+            return Ok(*bytes);
+        }
+        let bytes = compute()?;
+        self.0.projection_bytes.lock().insert(key, bytes);
+        Ok(bytes)
     }
 
     pub(super) fn values(&self) -> ValueCache {

@@ -71,7 +71,9 @@ use crate::layouts::table::TableStrategy;
 use crate::layouts::zoned::writer::ZonedLayoutOptions;
 use crate::layouts::zoned::writer::ZonedStrategy;
 use crate::scan::arrow::to_record_batch;
+use crate::scan::execution::FILTERED_ROWS_PER_CHUNK;
 use crate::scan::execution::SegmentLocation;
+use crate::scan::execution::filtered_rows_per_chunk;
 use crate::scan::execution::row_chunks;
 use crate::scan::scan_builder::ScanBuilder as V1ScanBuilder;
 use crate::segments::SegmentFuture;
@@ -870,4 +872,23 @@ async fn shared_cache_prunes_zones_once() -> VortexResult<()> {
     // Each scan reads the one chunk pruning keeps; only the first reads the zone map.
     assert_eq!(reads, vec![2, 1]);
     Ok(())
+}
+
+#[rstest]
+#[case::cheap_projection_large_range(16 << 20, 16 << 20, 16 << 20, 4, FILTERED_ROWS_PER_CHUNK)]
+#[case::wide_projection(1 << 20, 1 << 20, 100 << 20, 1, 10 * ROW_BLOCK_SIZE)]
+#[case::very_wide_projection(1 << 20, 1 << 20, 10 << 30, 1, ROW_BLOCK_SIZE)]
+#[case::partition_spread_over_threads(1 << 20, 16 << 20, 16 << 20, 16, MAX_ROWS_PER_CHUNK)]
+#[case::partition_split_per_thread(1 << 20, 16 << 20, 16 << 20, 4, 32 * ROW_BLOCK_SIZE)]
+fn filtered_chunks_shrink_for_wide_projections_and_few_rows(
+    #[case] rows: u64,
+    #[case] row_count: u64,
+    #[case] projected_bytes: u64,
+    #[case] parallelism: usize,
+    #[case] expected: usize,
+) {
+    assert_eq!(
+        filtered_rows_per_chunk(rows, row_count, projected_bytes, parallelism),
+        expected
+    );
 }
