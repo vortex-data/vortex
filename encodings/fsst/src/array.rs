@@ -318,7 +318,7 @@ impl VTable for FSST {
         FSSTSlots::NAMES[idx].to_string()
     }
 
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let array = require_child!(
             array,
             array.uncompressed_lengths(),
@@ -330,7 +330,8 @@ impl VTable for FSST {
             FSSTSlots::CODES_OFFSETS => Primitive
         );
         require_validity!(array, FSSTSlots::CODES_VALIDITY);
-        canonicalize_fsst(array.as_view(), ctx).map(ExecutionResult::done)
+
+        canonicalize_fsst(array.as_view()).map(ExecutionResult::done)
     }
 
     fn append_to_builder(
@@ -390,7 +391,7 @@ fn append_to_varbin<O: OffsetBuilderPType>(
 where
     usize: AsPrimitive<O>,
 {
-    let plan = FsstDecodePlan::new(array, ctx)?;
+    let plan = FsstDecodePlan::execute(array, ctx)?;
     let validity = array
         .array()
         .validity()?
