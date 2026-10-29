@@ -8,13 +8,19 @@
 
 name: Benchmark Compare
 run-name: >-
-  Bench compare ${{ github.ref_name }} vs ${{ inputs.base_ref }}: ${{ inputs.benchmarks }}
+  Bench compare ${{ inputs.head_ref || github.ref_name }} vs ${{ inputs.base_ref || 'develop' }}:
+  ${{ inputs.benchmarks || 'test defaults' }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 on:
+  # TEMPORARY: exercises the workflow before it reaches develop, where workflow_dispatch becomes
+  # usable. Remove before merging.
+  push:
+    branches: ["ji/affectionate-meitner-4y7yum"]
+    paths: [".github/workflows/bench-compare.yml", "scripts/bench-compare.py"]
   workflow_dispatch:
     inputs:
       benchmarks:
@@ -24,6 +30,11 @@ on:
           e.g. "vortex-mask/rank vortex-array/take_primitive/u32".
         required: true
         type: string
+      head_ref:
+        description: "Branch, tag or commit on origin to benchmark. Defaults to the branch the workflow runs on"
+        required: false
+        type: string
+        default: ""
       base_ref:
         description: "Branch, tag or commit on origin to compare against"
         required: false
@@ -54,6 +65,16 @@ permissions:
   contents: read
   pull-requests: write  # for commenting on PRs
 
+# Inputs are empty on push; fall back to the dispatch defaults (and the temporary test case).
+env:
+  HEAD_REF: ${{ inputs.head_ref || (github.event_name == 'push' && 'ji/duckdb-v2-scan-driver') || github.ref_name }}
+  BASE_REF: ${{ inputs.base_ref || 'develop' }}
+  BENCHMARKS: ${{ inputs.benchmarks || 'vortex-layout/pipeline_scan vortex-file/split_collection' }}
+  ROUNDS: ${{ inputs.rounds || '3' }}
+  THRESHOLD: ${{ inputs.threshold || '5' }}
+  DIVAN_ARGS: ${{ inputs.divan_args }}
+  COMMENT_PR: ${{ github.event_name == 'workflow_dispatch' && inputs.comment_pr }}
+
 jobs:
   build:
     timeout-minutes: 90
@@ -62,7 +83,8 @@ jobs:
           && format('runs-on={0}/runner=bench-dedicated/family=c8gd.8xlarge/image=ubuntu24-full-arm64-pre-v2/tag=build-bench-compare/extras=s3-cache', github.run_id)
           || 'ubuntu-latest' }}
     outputs:
-      base_sha: ${{ steps.base.outputs.sha }}
+      head_sha: ${{ steps.refs.outputs.head_sha }}
+      base_sha: ${{ steps.refs.outputs.base_sha }}
     steps:
       - uses: runs-on/action@v2
         if: github.repository == 'vortex-data/vortex'
@@ -75,30 +97,36 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
-      - name: Check out base
-        id: base
+      # Head and base are separate worktrees, so the script from this workflow's own checkout
+      # builds both even when neither ref contains it.
+      - name: Check out head and base
+        id: refs
         shell: bash
-        env:
-          BASE_REF: ${{ inputs.base_ref }}
         run: |
           set -Eeu -o pipefail
-          sha=$(git rev-parse --verify --quiet "origin/$BASE_REF^{commit}" || git rev-parse --verify "$BASE_REF^{commit}")
-          git worktree add --detach "$RUNNER_TEMP/base" "$sha"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          resolve() { git rev-parse --verify --quiet "origin/$1^{commit}" || git rev-parse --verify "$1^{commit}"; }
+          head_sha=$(resolve "$HEAD_REF")
+          base_sha=$(resolve "$BASE_REF")
+          git worktree add --detach "$RUNNER_TEMP/head" "$head_sha"
+          git worktree add --detach "$RUNNER_TEMP/base" "$base_sha"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
       - name: Build head benchmarks
         shell: bash
+        working-directory: ${{ runner.temp }}/head
         env:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
-          BENCHMARKS: ${{ inputs.benchmarks }}
-        run: python3 scripts/bench-compare.py build --strict --benchmarks "$BENCHMARKS" --out bench-bins/head
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
+        run: |
+          python3 "$GITHUB_WORKSPACE/scripts/bench-compare.py" build --strict \
+            --benchmarks "$BENCHMARKS" --out "$GITHUB_WORKSPACE/bench-bins/head"
       - name: Build base benchmarks
         shell: bash
         working-directory: ${{ runner.temp }}/base
         env:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
-          # Share the head's target directory so unchanged dependencies are not rebuilt.
+          # Shared with the head build so unchanged dependencies are not rebuilt.
           CARGO_TARGET_DIR: ${{ github.workspace }}/target
-          BENCHMARKS: ${{ inputs.benchmarks }}
         # Benchmarks missing from the base are reported as new rather than failing the run.
         run: |
           python3 "$GITHUB_WORKSPACE/scripts/bench-compare.py" build \
@@ -136,12 +164,8 @@ jobs:
         shell: bash
         env:
           RUST_BACKTRACE: full
-          BENCHMARKS: ${{ inputs.benchmarks }}
-          ROUNDS: ${{ inputs.rounds }}
-          THRESHOLD: ${{ inputs.threshold }}
-          DIVAN_ARGS: ${{ inputs.divan_args }}
-          HEAD_LABEL: ${{ github.ref_name }} (${{ github.sha }})
-          BASE_LABEL: ${{ inputs.base_ref }} (${{ needs.build.outputs.base_sha }})
+          HEAD_LABEL: ${{ env.HEAD_REF }} (${{ needs.build.outputs.head_sha }})
+          BASE_LABEL: ${{ env.BASE_REF }} (${{ needs.build.outputs.base_sha }})
         run: |
           python3 scripts/bench-compare.py run --pin \
             --benchmarks "$BENCHMARKS" \
@@ -163,12 +187,12 @@ jobs:
             comment.md
       - name: Find PR
         id: pr
-        if: ${{ !cancelled() && inputs.comment_pr && hashFiles('comment.md') != '' }}
+        if: ${{ !cancelled() && env.COMMENT_PR == 'true' && hashFiles('comment.md') != '' }}
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$GITHUB_REF_NAME" --state open \
+          number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$HEAD_REF" --state open \
             --json number --jq '.[0].number // empty')
           echo "number=$number" >> "$GITHUB_OUTPUT"
       - name: Comment PR
