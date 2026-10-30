@@ -29,16 +29,30 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 #[rstest]
 #[case(vec![0u64, 40, 0, 70], vec![15u64, 20, 3, 0], vec![1u64, 1, 0, 1])]
 #[case(vec![100u64, 0, 20], vec![20u64, 20, 20], vec![1u64, 1, 2])]
+#[case(vec![0u64, 100], vec![80u64, 80], vec![1u64, 1])]
 #[case(vec![99u64, 0], vec![0u64, 0], vec![u64::MAX, 0])]
 fn piecewise_ranges(
     #[case] starts: Vec<u64>,
     #[case] lengths: Vec<u64>,
     #[case] strides: Vec<u64>,
+    #[values(false, true)] nullable: bool,
+    #[values(false, true)] sliced: bool,
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let input =
-        PrimitiveArray::from_option_iter((0..256i64).map(|i| (i % 5 != 0).then_some(i * i)));
+    let input = PrimitiveArray::new(
+        (0..256i64).map(|row| row * row).collect::<Vec<_>>(),
+        if nullable {
+            Validity::from_iter((0..256).map(|row| row % 5 != 0))
+        } else {
+            Validity::NonNullable
+        },
+    );
     let encoded = Pco::from_primitive(input.as_view(), 3, 7, &mut ctx)?.into_array();
+    let encoded = if sliced {
+        encoded.slice(17..240)?
+    } else {
+        encoded
+    };
     let mut expected_indices = Vec::new();
     for ((&start, &length), &stride) in starts.iter().zip(&lengths).zip(&strides) {
         expected_indices.extend((0..length).map(|i| start + i * stride));
@@ -50,15 +64,19 @@ fn piecewise_ranges(
         expected_indices.len(),
     )?
     .into_array();
-    assert_arrays_eq!(
-        encoded.take(indices)?,
-        PrimitiveArray::from_option_iter(
-            expected_indices
-                .into_iter()
-                .map(|row| { (row % 5 != 0).then_some((row * row) as i64) })
-        ),
-        &mut ctx
+    let rows = expected_indices
+        .into_iter()
+        .map(|row| row + if sliced { 17 } else { 0 })
+        .collect::<Vec<_>>();
+    let expected = PrimitiveArray::new(
+        rows.iter().map(|row| (row * row) as i64).collect::<Vec<_>>(),
+        if nullable {
+            Validity::from_iter(rows.iter().map(|row| row % 5 != 0))
+        } else {
+            Validity::NonNullable
+        },
     );
+    assert_arrays_eq!(encoded.take(indices)?, expected, &mut ctx);
     Ok(())
 }
 
@@ -205,6 +223,7 @@ fn sliced_values_preserve_float_bits_and_validity(
             let row = range.start + offset;
             assert_eq!(mask.value(offset), dense || row % 7 != 0);
             if mask.value(offset) {
+                // Numeric equality would miss signed zero and NaN payload changes.
                 assert_eq!(value.to_bits(), values[row].to_bits());
             }
         }

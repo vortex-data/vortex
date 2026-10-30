@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! PCO with RunEnd validity lives here to reuse vortex-file's encoding dependencies.
+
 //! Public selection oracle for a compressed logical validity child.
 
 #![expect(clippy::tests_outside_test_module)]

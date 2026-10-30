@@ -177,3 +177,52 @@ fn nonnullable_selection_crosses_chunks() -> VortexResult<()> {
     );
     Ok(())
 }
+
+#[test]
+fn nullable_selection_crosses_chunks() -> VortexResult<()> {
+    let session = VortexSession::empty();
+    session.arrays().register(Pco);
+    let mut ctx = session.create_execution_ctx();
+    let input = PrimitiveArray::from_option_iter(
+        (0..400_000i64).map(|row| (row % 3 != 0).then_some(row * 3 + 1)),
+    );
+    let compressed = Pco::from_primitive(input.as_view(), 3, 127, &mut ctx)?.into_array();
+    // The dense-value chunk boundary falls between logical rows 393215 and 393217.
+    let indices =
+        PrimitiveArray::from_iter([393217u64, 393215, 393216, 393214, 393218]).into_array();
+    assert_arrays_eq!(
+        compressed.take(indices)?,
+        PrimitiveArray::from_option_iter([
+            Some(1_179_652i64),
+            Some(1_179_646),
+            None,
+            Some(1_179_643),
+            Some(1_179_655),
+        ]),
+        &mut ctx
+    );
+    let sliced = compressed.slice(393210..393225)?;
+    assert_arrays_eq!(
+        sliced.clone(),
+        PrimitiveArray::from_option_iter(
+            (393210..393225i64).map(|row| (row % 3 != 0).then_some(row * 3 + 1)),
+        ),
+        &mut ctx
+    );
+    let mut probe = sliced.repeated_probe();
+    for (index, expected) in [
+        (7, Some(1_179_652i64)),
+        (5, Some(1_179_646)),
+        (6, None),
+        (4, Some(1_179_643)),
+        (8, Some(1_179_655)),
+        (7, Some(1_179_652)),
+    ] {
+        let expected = PrimitiveArray::from_option_iter([expected]);
+        assert_eq!(
+            probe.execute_scalar(index, &mut ctx)?,
+            expected.execute_scalar(0, &mut ctx)?
+        );
+    }
+    Ok(())
+}
