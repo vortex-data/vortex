@@ -36,7 +36,8 @@ const RANK_STRIDE: usize = 512;
 ///
 /// The mask and rank index use unsliced logical rows; page boundaries use compacted value
 /// positions. Every page decoded so far is retained, so the state grows with the pages touched
-/// and never beyond the decompressed array.
+/// along with the indexed path's prepared validity masks and rank tables. The probe dispatcher
+/// binds this state to one array; callers must not reuse it with another array.
 #[derive(Default)]
 pub struct PcoProbeState {
     indexed: IndexedProbeState,

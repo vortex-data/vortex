@@ -26,8 +26,8 @@ use crate::decoder::DecodedPages;
 use crate::page_index::LogicalPageIndex;
 use crate::page_index::PageIndex;
 
-/// Construction is empty; first use binds an owned immutable page-index variant and
-/// typed decoder. Touched decoded pages can be retained up to the entire source array.
+/// Construction is empty; first use binds this state to one array owner and a typed decoder.
+/// Touched decoded pages, validity masks, and rank tables are retained across probes.
 #[derive(Default)]
 pub(crate) struct IndexedProbeState {
     bound: Option<Box<dyn BoundProbe>>,
