@@ -115,6 +115,16 @@
       "enabled": false
     },
     {
+      "description": "Do not split vortex-web's grouped majors by target major, so they share one PR",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchFileNames": [
+        "vortex-web/package.json"
+      ],
+      "separateMultipleMajor": false
+    },
+    {
       "description": "Propose major updates for the explore app in vortex-web, all in one PR per run. Lock file maintenance already takes compatible releases, but without this a new major (Vite, React, Storybook) never arrives. Not automerged: a person reviews the group.",
       "matchManagers": [
         "npm"
@@ -128,7 +138,8 @@
       "enabled": true,
       "automerge": false,
       "groupName": "vortex-web major updates",
-      "groupSlug": "vortex-web-major"
+      "groupSlug": "vortex-web-major",
+      "groupSingleUpdates": true
     },
     {
       "groupName": "Rust lock file maintenance",
