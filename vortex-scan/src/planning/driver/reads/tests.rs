@@ -447,6 +447,27 @@ fn prefetch_and_fetch_share_one_read(#[values(false, true)] prefetch: bool) -> V
     Ok(())
 }
 
+/// A prefetch is driven by its session's polls until its read finishes, though no fetch takes it
+/// over: a read shared with other sessions must not be left with nobody to poll it.
+#[test]
+fn prefetch_is_driven_until_its_read_finishes() -> VortexResult<()> {
+    let control = Arc::new(Control::default());
+    let file = file(&control);
+    let _work = file.claim(0..20);
+    let session = file.session();
+    session.submit(IoOwnerId(0), vec![request(IoIntent::Prefetch, 0, 0)])?;
+    assert!(session.poll()?.is_none());
+    control.complete();
+    assert!(session.poll()?.is_none(), "a prefetch delivers no completion");
+    let state = file.state.lock();
+    let read = state.entries[&IoTarget::range(0, 4)]
+        .read
+        .as_ref()
+        .ok_or_else(|| vortex_err!("the prefetch started no read"))?;
+    assert!(read.peek().is_some());
+    Ok(())
+}
+
 #[derive(Default)]
 struct WakeCount(AtomicUsize);
 

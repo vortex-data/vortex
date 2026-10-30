@@ -41,6 +41,7 @@ use vortex_io::request::IoResult;
 use vortex_io::request::IoService;
 use vortex_io::request::IoSource;
 use vortex_io::request::IoTarget;
+use vortex_io::shared::PolledShared;
 use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -208,6 +209,9 @@ impl IoService for FileReads {
 #[derive(Default)]
 struct Pending {
     reads: FuturesUnordered<BoxFuture<'static, Option<Completion>>>,
+    /// Prefetched reads no fetch of this session subscribed to, polled until they finish: a read
+    /// is shared by every session of the file, and only woken through whoever polled it.
+    prefetches: FuturesUnordered<BoxFuture<'static, ()>>,
     ready: VecDeque<Completion>,
     subscriptions: HashMap<(IoOwnerId, IoRequestId), AbortHandle>,
 }
@@ -220,6 +224,7 @@ struct ReadSession {
 impl ReadSession {
     fn next(&self, cx: &mut Context<'_>) -> Poll<Option<Completion>> {
         let mut pending = self.pending.lock();
+        while let Poll::Ready(Some(())) = pending.prefetches.poll_next_unpin(cx) {}
         if let Some(completion) = pending.ready.pop_front() {
             return Poll::Ready(Some(completion));
         }
@@ -248,11 +253,15 @@ impl IoSource for ReadSession {
                 reads.push((request, read));
             }
         }
-        for (request, mut read) in reads {
+        for (request, read) in reads {
+            let mut read = PolledShared::new(read);
             let ready = read.poll_unpin(&mut Context::from_waker(Waker::noop()));
             if request.intent == IoIntent::Prefetch {
-                if let Poll::Ready(Err(error)) = ready {
-                    return Err(VortexError::from(error));
+                match ready {
+                    Poll::Ready(Err(error)) => return Err(VortexError::from(error)),
+                    Poll::Ready(Ok(_)) => {}
+                    // Polled once and left, the read could strand other sessions waiting on it.
+                    Poll::Pending => pending.prefetches.push(read.map(drop).boxed()),
                 }
                 continue;
             }
