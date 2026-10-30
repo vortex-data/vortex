@@ -29,10 +29,13 @@ use crate::scan::execution::adaptor::AdaptorStep;
 use crate::scan::execution::adaptor::Piece;
 use crate::scan::execution::adaptor::ScanAdaptor;
 
-const MAX_OUTPUT_ROWS: usize = 65_536;
+/// The default cap on the rows of a projection batch; see
+/// [`ScanBuilder::with_max_batch_rows`](crate::scan::v2::ScanBuilder::with_max_batch_rows).
+pub(crate) const MAX_BATCH_ROWS: usize = 65_536;
 
-/// Keeps sparse selections together and subdivides dense selections to avoid large copies when
-/// converting chunked projection results to Arrow.
+/// Keeps sparse selections together and subdivides dense selections into batches of at most the
+/// scan's `max_batch_rows`, to avoid large copies when converting chunked projection results to
+/// Arrow.
 pub(super) struct ProjectionPlanner {
     scan: Arc<PreparedScan>,
     selected: IntoIter<SelectedRows>,
@@ -41,13 +44,14 @@ pub(super) struct ProjectionPlanner {
 impl ProjectionPlanner {
     /// Creates a planner for `selected`.
     pub(super) fn new(scan: Arc<PreparedScan>, selected: SelectedRows) -> Self {
-        let selected = if selected.mask.true_count() <= MAX_OUTPUT_ROWS {
+        let max_rows = scan.max_batch_rows;
+        let selected = if selected.mask.true_count() <= max_rows {
             vec![selected]
         } else {
             (0..selected.mask.len())
-                .step_by(MAX_OUTPUT_ROWS)
+                .step_by(max_rows)
                 .filter_map(|start| {
-                    let end = (start + MAX_OUTPUT_ROWS).min(selected.mask.len());
+                    let end = (start + max_rows).min(selected.mask.len());
                     let mask = selected.mask.slice(start..end);
                     if mask.all_false() {
                         return None;
