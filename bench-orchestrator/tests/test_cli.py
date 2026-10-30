@@ -153,3 +153,20 @@ def test_run_combines_ingest_output_per_backend(tmp_path, monkeypatch) -> None:
     assert output_path.read_text(encoding="utf-8") == "datafusion-ingest\nduckdb-ingest\n"
     assert len(seen_backend_paths) == 2
     assert seen_backend_paths[0] != seen_backend_paths[1]
+
+
+def test_format_query_reading_summarizes_runtimes() -> None:
+    line = json.dumps(
+        {
+            "name": "tpch_q01/datafusion:parquet",
+            "unit": "ns",
+            "value": 12_000_000,
+            "all_runtimes": [11_500_000, 12_000_000, 14_250_000],
+        }
+    )
+    assert cli_module.format_query_reading(["not json", line]) == "median 12.00 ms (min 11.50, max 14.25, n=3)"
+
+
+def test_format_query_reading_without_timing() -> None:
+    memory = json.dumps({"name": "tpch_q01 memory", "unit": "bytes", "value": 1024})
+    assert cli_module.format_query_reading([memory]) == "no timing reported"
