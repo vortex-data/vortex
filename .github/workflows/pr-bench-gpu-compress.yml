@@ -48,9 +48,12 @@ jobs:
       - name: Install cuDF
         # The GPU Parquet number is a cuDF `read_parquet`. cuDF ships prebuilt manylinux wheels
         # on NVIDIA's index, so it stays a runtime dependency and never enters the Rust build.
+        # `--no-config` skips the root `pyproject.toml`'s `exclude-newer`: NVIDIA's index
+        # publishes no upload dates, so that cutoff filters out every cuDF wheel. This venv is
+        # standalone and never touches `uv.lock`.
         run: |
           uv venv --python 3.12 .venv-cudf
-          uv pip install --python .venv-cudf \
+          uv pip install --no-config --python .venv-cudf \
             --extra-index-url https://pypi.nvidia.com \
             cudf-cu12 pandas pyarrow
           echo "$PWD/.venv-cudf/bin" >> "$GITHUB_PATH"
