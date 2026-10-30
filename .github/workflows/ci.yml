@@ -31,19 +31,6 @@ jobs:
     uses: ./.github/workflows/duckdb-r2.yml
     secrets: inherit
 
-  duckdb-ready:
-    name: "DuckDB libraries available in R2"
-    needs: duckdb-mirror
-    if: "!cancelled()"
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Verify DuckDB mirror
-        if: needs.duckdb-mirror.result == 'failure'
-        run: |
-          echo "DuckDB mirror failed; downstream builds would 404"
-          exit 1
-
   lightweight-checks:
     name: "Formatting, Python lint and script tests"
     runs-on: >-
@@ -267,9 +254,9 @@ jobs:
 
   rust-docs:
     name: "Rust (docs)"
-    needs: duckdb-ready
-    # The PR-only mirror is a skipped ancestor on develop; override implicit success().
-    if: ${{ !cancelled() && needs.duckdb-ready.result == 'success' }}
+    needs: duckdb-mirror
+    # The mirror only runs on PRs; elsewhere it is skipped, so override the implicit success().
+    if: ${{ !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped') }}
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -388,8 +375,8 @@ jobs:
 
   rust-lint:
     name: "Rust (lint)"
-    needs: duckdb-ready
-    if: ${{ !cancelled() && needs.duckdb-ready.result == 'success' }}
+    needs: duckdb-mirror
+    if: ${{ !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped') }}
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -483,8 +470,8 @@ jobs:
       # Stable proc-macro DLL contents let dependent crates reuse sccache entries.
       # duckdb_static.lib is built with /MT and thus requires crt-static
       RUSTFLAGS: "-C link-arg=/Brepro -C target-feature=+crt-static"
-    needs: duckdb-ready
-    if: ${{ !cancelled() && needs.duckdb-ready.result == 'success' }}
+    needs: duckdb-mirror
+    if: ${{ !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped') }}
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -530,9 +517,9 @@ jobs:
 
   rust-test-linux-arm64:
     name: "Rust tests (linux-arm64)"
-    needs: duckdb-ready
+    needs: duckdb-mirror
     if: >-
-      !cancelled() && needs.duckdb-ready.result == 'success' &&
+      !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped') &&
       github.repository == 'vortex-data/vortex'
     timeout-minutes: 30
     runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=arm64-ci-test/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag=rust-test-linux-arm64
@@ -761,8 +748,8 @@ jobs:
 
   sqllogic-test:
     name: "SQL logic tests"
-    needs: duckdb-ready
-    if: ${{ !cancelled() && needs.duckdb-ready.result == 'success' }}
+    needs: duckdb-mirror
+    if: ${{ !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped') }}
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/region=us-east-1/runner=amd64-ci-sql-logic-test/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=sql-logic-test', github.run_id)
@@ -789,8 +776,8 @@ jobs:
 
   duckdb-s3-test:
     name: "DuckDB S3 tests"
-    needs: duckdb-ready
-    if: ${{ !cancelled() && needs.duckdb-ready.result == 'success' }}
+    needs: duckdb-mirror
+    if: ${{ !cancelled() && (needs.duckdb-mirror.result == 'success' || needs.duckdb-mirror.result == 'skipped') }}
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/region=us-east-1/runner=amd64-ci-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=duckdb-s3-test', github.run_id)
