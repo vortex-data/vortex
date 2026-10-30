@@ -75,9 +75,10 @@ const SOURCE_ROWS_PER_CHUNK: u64 = 8 * 1024;
 ///
 /// Large tables are split into files of about [`split::TARGET_FILE_COMPRESSED_BYTES`], named by
 /// [`split::part_file_name`]; every other table is a single `{table}_0001.parquet`. The files hold
-/// the same data and schema as `tpcgen-cli tpcds parquet` of the same `tpcdsgen` version, which
-/// generates the SQL logic test data. Tables are written one at a time, each split into chunks of
-/// source rows that are generated and encoded in parallel. Already generated tables are skipped.
+/// the same data and schema as `tpcgen-cli tpcds parquet` of the same `tpcdsgen` version. The SQL
+/// logic tests generate their fixtures with this function too. Tables are written one at a time,
+/// each split into chunks of source rows that are generated and encoded in parallel. Already
+/// generated tables are skipped.
 pub async fn generate_tpcds(base_dir: PathBuf, scale_factor: String) -> Result<PathBuf> {
     let output_dir = base_dir.join(Format::Parquet.name());
     fs::create_dir_all(&output_dir)?;

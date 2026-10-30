@@ -11,10 +11,13 @@ For last three query sets, tests also verify each query's `EXPLAIN` result.
 # For running our own queries
 cargo test -p vortex-sqllogictest --test sqllogictests
 
-# For running TPC-H, TPC-DS, or ClickBench you need to generate data first
+# For running TPC-H, TPC-DS, or ClickBench you need to generate data first.
+# vortex-bench's data-gen binary generates every dataset, as for the benchmarks.
 ./slt/generate_data.sh
-# You can generate data for a specific dataset
+# You can generate data for a specific dataset...
 ./slt/generate_data.sh tpcds
+# ... or generate all datasets concurrently
+./slt/generate_data.sh --parallel
 # Then you can run the tests
 cargo test -p vortex-sqllogictest --test sqllogictests
 
