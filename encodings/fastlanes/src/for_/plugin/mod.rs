@@ -52,7 +52,11 @@ impl ArrayPlugin for FoRPlugin {
         VTable::id(&FoR)
     }
 
-    fn serialized_ids(&self) -> Vec<ArrayId> {
+    fn read_ids(&self) -> Vec<ArrayId> {
+        vec![for_v1_id(), for_v2_id()]
+    }
+
+    fn write_ids(&self) -> Vec<ArrayId> {
         vec![for_v1_id(), for_v2_id()]
     }
 

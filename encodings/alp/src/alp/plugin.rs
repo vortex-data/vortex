@@ -38,6 +38,14 @@ impl ArrayPlugin for ALPPatchedPlugin {
         ArrayVTable::id(&ALP)
     }
 
+    fn read_ids(&self) -> Vec<ArrayId> {
+        vec![self.id()]
+    }
+
+    fn write_ids(&self) -> Vec<ArrayId> {
+        vec![self.id()]
+    }
+
     fn serialize(
         &self,
         array: &ArrayRef,

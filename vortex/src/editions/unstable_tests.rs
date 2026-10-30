@@ -40,7 +40,11 @@ impl ArrayPlugin for ExternalPlugin {
         ArrayPlugin::id(&Primitive)
     }
 
-    fn serialized_ids(&self) -> Vec<ArrayId> {
+    fn read_ids(&self) -> Vec<ArrayId> {
+        vec![self.0]
+    }
+
+    fn write_ids(&self) -> Vec<ArrayId> {
         vec![self.0]
     }
 
