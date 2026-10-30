@@ -103,7 +103,9 @@ impl ArrayRef {
         Some(inner)
     }
 
-    /// Returns whether the optimizer has already taken this array to its fixpoint.
+    /// Returns the record of whether the optimizer has already taken this array to its fixpoint.
+    ///
+    /// Only the optimizer can read or set the record.
     pub(crate) fn optimized_state(&self) -> &OptimizedState {
         &self.0.optimized
     }

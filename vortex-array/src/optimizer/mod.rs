@@ -66,7 +66,7 @@ const MAX_OPTIMIZER_REWRITE_PASS: usize = 100;
 pub(crate) struct OptimizedState(AtomicBool);
 
 impl OptimizedState {
-    pub(crate) fn is_optimized(&self) -> bool {
+    fn is_optimized(&self) -> bool {
         self.0.load(Ordering::Relaxed)
     }
 
@@ -79,12 +79,15 @@ impl OptimizedState {
     }
 }
 
-/// Marks the root of an array decoded from its serialized form as optimized.
+/// Marks an array decoded from its serialized form as optimized.
 ///
-/// The executor does not try reduce or parent-reduce rules on the decoded root itself. The
-/// children of the root stay unmarked, so a rule that exposes one of them, such as a slice pushed
-/// into a dictionary, still optimizes it. Arrays are usually written as the compressor built them,
-/// so this skips rules on the root without the guarantee that none applies.
+/// Decoding calls this for each node it decodes, and it decodes the children of a node before the
+/// node. Thus every decoded node is marked, and the optimizer does not try reduce or
+/// parent-reduce rules on any of them. Only the nodes that an encoding's deserializer builds itself
+/// around its decoded children stay unmarked. Arrays are usually written as the compressor built
+/// them, so this skips rules on decoded arrays without the guarantee that none applies. A rule
+/// that rewrites a parent of a decoded node, such as a slice pushed into a dictionary, optimizes
+/// the new nodes it builds, but not the decoded nodes that it keeps.
 pub(crate) fn mark_decoded_optimized(array: &ArrayRef) {
     array.optimized_state().mark_optimized();
 }
