@@ -143,7 +143,10 @@ fn main() -> anyhow::Result<()> {
         anyhow::bail!("provide a format with --formats");
     }
 
-    // Generate Vortex files from Parquet for any Vortex formats requested
+    // Data is prepared up front by data-gen, so the steps below only resolve existing files and
+    // fail instead of generating anything that is missing.
+    vortex_bench::forbid_data_generation();
+
     if benchmark.data_url().scheme() == "file" {
         // This is ugly, but otherwise some complicated async interaction might result in a deadlock
         let runtime = Runtime::new()?;

@@ -594,15 +594,6 @@ where
             .map(|p| p.to_string())
             .unwrap_or_else(|| format!("*.{}", extension));
 
-        tracing::debug!(
-            name,
-            base_dir,
-            pattern,
-            format = load_format.name(),
-            "Registering DuckDB {}",
-            object_type.to_lowercase()
-        );
-
         sql_statements.push(format!(
             "CREATE {object_type} IF NOT EXISTS {name} AS SELECT * FROM read_{extension}('{base_dir}/{pattern}');\n",
         ));

@@ -33,7 +33,6 @@ use tpchgen::generators::PartGenerator;
 use tpchgen::generators::PartSuppGenerator;
 use tpchgen::generators::RegionGenerator;
 use tpchgen::generators::SupplierGenerator;
-use tracing::debug;
 use tracing::info;
 use vortex::array::ArrayRef;
 use vortex::array::stream::ArrayStreamAdapter;
@@ -117,15 +116,6 @@ pub async fn generate_tpch_tables(options: TpchGenOptions) -> Result<()> {
     let mut all_futures = Vec::new();
     for generator in TableGenerator::ALL {
         let num_parts = generator.num_parts(scale_factor)?;
-        // Logged even when every file already exists; the per-file log below fires only when a
-        // file is actually generated.
-        debug!(
-            scale_factor = options.scale_factor,
-            format = %options.format,
-            table = generator.name(),
-            num_parts,
-            "Generating TPC-H table",
-        );
         for part in 1..=num_parts {
             all_futures.push(generate_table_file(
                 generator,
