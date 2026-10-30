@@ -16,8 +16,9 @@
 //! Take executes its gather instead of leaving a lazy [`Dict`] under a `Widen`, because code such
 //! as the DuckDB exporter and the dict layout writer looks for a `Dict` at the root of an array.
 //!
-//! `Widen` has no wire form yet, so the default [`ArraySession`] does not register it, and an
-//! array that holds a `Widen` cannot be serialized.
+//! `Widen` has no wire form yet. The default [`ArraySession`] registers [`WidenPlugin`], which
+//! writes each `Widen` as its canonical integer array. Serialization keeps the `Widen` statistics,
+//! and readers never see `vortex.widen`.
 //!
 //! [`ArraySession`]: crate::session::ArraySession
 //! [`Dict`]: crate::arrays::Dict
@@ -35,6 +36,7 @@ mod encode;
 mod vtable;
 use vortex_session::VortexSession;
 pub use vtable::Widen;
+pub use vtable::WidenPlugin;
 
 use crate::array::VTable;
 use crate::arrays::Dict;

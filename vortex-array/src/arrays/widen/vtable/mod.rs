@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod operations;
+
+mod plugin;
+pub use plugin::WidenPlugin;
 mod validity;
 
 use vortex_error::VortexResult;
@@ -91,8 +94,8 @@ impl VTable for Widen {
         _array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        // `ArraySession` does not register `Widen`, so `array_serialize` fails before it calls
-        // this method. Only a session that registers `Widen` itself can reach it.
+        // The default session registers `WidenPlugin`, which writes a storable representation
+        // without calling this method. Direct registration of the vtable has no wire form.
         vortex_panic!("TODO(connor)[Widen]: Widen has no wire form yet (#10733)")
     }
 
