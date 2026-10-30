@@ -11,6 +11,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
+use vortex_io::shared::PolledShared;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 
@@ -20,6 +21,9 @@ use crate::segments::SegmentSource;
 
 /// A [`SegmentSource`] that allows multiple requesters to await the same underlying segment
 /// request.
+///
+/// Each requester holds a [`PolledShared`] clone, so dropping a requester at any point cannot
+/// leave the others waiting on a request nobody polls.
 pub struct SharedSegmentSource<S> {
     inner: S,
     in_flight: DashMap<SegmentId, WeakShared<SharedSegmentFuture>>,
@@ -43,7 +47,9 @@ impl<S: SegmentSource> SegmentSource for SharedSegmentSource<S> {
             match self.in_flight.entry(id) {
                 Entry::Occupied(e) => {
                     if let Some(shared_future) = e.get().upgrade() {
-                        return shared_future.map_err(VortexError::from).boxed();
+                        return PolledShared::new(shared_future)
+                            .map_err(VortexError::from)
+                            .boxed();
                     } else {
                         // The future has been dropped, remove the entry and try again.
                         e.remove();
@@ -56,7 +62,9 @@ impl<S: SegmentSource> SegmentSource for SharedSegmentSource<S> {
                             .downgrade()
                             .vortex_expect("just created, cannot be polled to completion"),
                     );
-                    return future.map_err(VortexError::from).boxed();
+                    return PolledShared::new(future)
+                        .map_err(VortexError::from)
+                        .boxed();
                 }
             }
         }

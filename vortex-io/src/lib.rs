@@ -25,6 +25,7 @@ mod read_at;
 pub mod request;
 pub mod runtime;
 pub mod session;
+pub mod shared;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod std_file;
 #[cfg(feature = "tokio")]
