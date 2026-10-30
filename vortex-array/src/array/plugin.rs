@@ -112,17 +112,18 @@ pub trait ArrayPlugin: 'static + Send + Sync {
     /// Returns the ID of the in-memory encoding that this plugin writes.
     fn id(&self) -> ArrayId;
 
-    /// Returns the wire IDs that `deserialize` accepts, oldest to newest.
+    /// Returns the wire IDs that [`deserialize`](Self::deserialize) accepts, oldest to newest.
     ///
-    /// `ArraySession::register` makes this plugin the reader of each ID. An ID can stay in this
-    /// list after the plugin stops writing it, so that old files stay readable.
+    /// [`ArraySession::register`](crate::session::ArraySession::register) makes this plugin the
+    /// reader of each ID. An ID can stay in this list after the plugin stops writing it, so that
+    /// old files stay readable.
     fn read_ids(&self) -> Vec<ArrayId>;
 
-    /// Returns the wire IDs that `serialize` may return.
+    /// Returns the wire IDs that [`serialize`](Self::serialize) may return.
     ///
-    /// An ID in this list does not have to be in `read_ids`. A plugin can write its arrays in the
-    /// wire form of another encoding, and the plugin that owns that form reads it. The node must
-    /// hold the logical values of the array under the dtype of the array.
+    /// An ID in this list does not have to be in [`read_ids`](Self::read_ids). A plugin can write
+    /// its arrays in the wire form of another encoding. The plugin that owns that form reads it.
+    /// The node must hold the logical values of the array under the dtype of the array.
     fn write_ids(&self) -> Vec<ArrayId>;
 
     /// Serialize `array` to its wire representation.
