@@ -47,6 +47,7 @@ jobs:
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   build:
+    if: github.event.pull_request.number != 10857
     timeout-minutes: 60
     env:
       FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
@@ -120,6 +121,7 @@ jobs:
           path: target/release_debug/datafusion-bench
 
   bench:
+    if: ${{ !cancelled() && needs.resolve-matrix.result == 'success' && (needs.build.result == 'success' || github.event.pull_request.number == 10857) }}
     needs: [resolve-matrix, build]
     timeout-minutes: 120
     env:
@@ -162,6 +164,8 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
           name: bench-binaries
+          run-id: ${{ github.event.pull_request.number == 10857 && 41086114054 || github.run_id }}
+          github-token: ${{ github.token }}
           path: target/release_debug/
       - name: Make binaries executable
         shell: bash
@@ -256,6 +260,8 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
           name: q38-baseline-binary
+          run-id: 41086114054
+          github-token: ${{ github.token }}
           path: target/q38-base/
       - name: Compare and profile DataFusion Q38
         if: github.event.pull_request.number == 10857 && matrix.id == 'clickbench-nvme'
@@ -264,7 +270,9 @@ jobs:
           RUST_LOG: warn
         run: |
           set -Eeuo pipefail
+          set -x
           mkdir -p q38-diagnostics
+          ln -s "$GITHUB_WORKSPACE" "$RUNNER_TEMP/q38-base"
           chmod +x target/q38-base/datafusion-bench
           sha256sum target/q38-base/datafusion-bench target/release_debug/datafusion-bench \
             > q38-diagnostics/binaries.sha256
@@ -285,6 +293,7 @@ jobs:
               bash scripts/bench-taskset.sh "$binary" "${args[@]}" --iterations 30 \
                 -o "q38-diagnostics/$version-$trial.jsonl" \
                 --ingest-jsonl "q38-diagnostics/$version-$trial.ingest.jsonl"
+            cat "q38-diagnostics/$version-$trial.jsonl"
           done
           for version in base head; do
             binary=target/release_debug/datafusion-bench
@@ -302,7 +311,8 @@ jobs:
           for version in base head; do
             binary=target/release_debug/datafusion-bench
             [[ "$version" != base ]] || binary=target/q38-base/datafusion-bench
-            bash scripts/bench-taskset.sh perf record -e cycles:u -F 499 --call-graph fp \
+            sudo env FLAT_LAYOUT_INLINE_ARRAY_NODE=1 RUST_LOG=warn \
+              bash scripts/bench-taskset.sh perf record -e cycles:u -F 499 --call-graph fp \
               -o "q38-diagnostics/$version.perf.data" -- \
               "$binary" "${args[@]}" --iterations 500 \
                 -o "q38-diagnostics/$version-profiled.jsonl"
@@ -312,6 +322,7 @@ jobs:
               --percent-limit 0.5 > "q38-diagnostics/$version-inclusive.txt"
             perf buildid-list -i "q38-diagnostics/$version.perf.data" \
               > "q38-diagnostics/$version-buildids.txt"
+            head -80 "q38-diagnostics/$version-self.txt"
           done
       - name: Upload Q38 diagnostics
         if: always() && github.event.pull_request.number == 10857 && matrix.id == 'clickbench-nvme'
