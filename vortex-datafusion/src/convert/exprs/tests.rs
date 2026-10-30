@@ -115,7 +115,9 @@ fn array_length_expr(args: Vec<Arc<dyn PhysicalExpr>>, schema: &Schema) -> Arc<d
 fn array_sum_expr(list: Arc<dyn PhysicalExpr>, schema: &Schema) -> DFResult<Arc<dyn PhysicalExpr>> {
     let function = ScalarUDF::from(ArraySum::new());
     let list_type = list.data_type(schema)?;
-    let coerced = function.coerce_types(std::slice::from_ref(&list_type))?.remove(0);
+    let coerced = function
+        .coerce_types(std::slice::from_ref(&list_type))?
+        .remove(0);
     let list = if coerced == list_type {
         list
     } else {
@@ -2100,7 +2102,11 @@ fn test_native_array_sum_nan() -> anyhow::Result<()> {
     let values = vec![Some(1.0), Some(f64::NAN)];
     let lists = ListArray::from_iter_primitive::<Float64Type, _, _>([Some(values)]);
     let sum = native_array_sum(Arc::new(lists))?;
-    assert!(sum.as_primitive().typed_value::<f64>().is_some_and(f64::is_nan));
+    assert!(
+        sum.as_primitive()
+            .typed_value::<f64>()
+            .is_some_and(f64::is_nan)
+    );
     Ok(())
 }
 
@@ -2118,7 +2124,11 @@ fn test_native_array_sum_integer_overflow_is_null() -> anyhow::Result<()> {
 #[case::utf8(DataType::Utf8)]
 #[case::nested(DataType::new_list(DataType::Int32, true))]
 fn test_array_sum_falls_back(#[case] element: DataType) -> DFResult<()> {
-    let schema = Schema::new(vec![Field::new("xs", DataType::new_list(element, true), true)]);
+    let schema = Schema::new(vec![Field::new(
+        "xs",
+        DataType::new_list(element, true),
+        true,
+    )]);
     let expr = array_sum_expr(Arc::new(df_expr::Column::new("xs", 0)), &schema)?;
     assert!(!converts(&expr, &schema)?);
     Ok(())

@@ -601,9 +601,10 @@ impl DefaultExpressionConverter {
         let sum = list_sum_opts(list, NumericalAggregateOpts::include_nans());
         match element.as_ref() {
             DType::Primitive(ptype, _) if ptype.is_float() => Ok(sum),
-            DType::Bool(_) | DType::Primitive(..) => {
-                Ok(cast(sum, DType::Primitive(PType::F64, Nullability::Nullable)))
-            }
+            DType::Bool(_) | DType::Primitive(..) => Ok(cast(
+                sum,
+                DType::Primitive(PType::F64, Nullability::Nullable),
+            )),
             _ => Err(Unconverted::Unsupported),
         }
     }
