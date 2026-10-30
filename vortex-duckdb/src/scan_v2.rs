@@ -18,7 +18,9 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 use parking_lot::Mutex;
 use vortex::array::ArrayRef;
@@ -29,20 +31,29 @@ use vortex::io::request::IoRequestId;
 use vortex::io::request::IoResult;
 use vortex::io::request::IoService;
 use vortex::io::runtime::BlockingRuntime as _;
+use vortex::layout::scan::v2::AccessMode;
 use vortex::layout::scan::v2::ChunkPlanner;
 use vortex::layout::scan::v2::PreparedScan;
 use vortex::layout::scan::v2::PrunePlanner;
 use vortex::layout::scan::v2::ScanBuilder;
 use vortex::mask::Mask;
 use vortex::scan::planning::driver::Progress;
+use vortex::scan::planning::driver::RootId;
 use vortex::scan::planning::driver::Run;
 use vortex::scan::planning::planner::Planner;
 use vortex::scan::planning::planner::PlannerOutput;
 use vortex::scan::planning::planner::State;
 use vortex::scan::planning::planner::WorkScope;
-use vortex::scan::selection::Selection;
 
 use crate::RUNTIME;
+
+mod diagnostics;
+mod startup;
+pub(crate) use diagnostics::Diagnostics;
+pub(crate) use diagnostics::FilterObserver;
+use startup::InitialPlanner;
+pub(crate) use startup::initial_budget;
+use startup::initial_ranges;
 
 /// The chunks a thread runs beside each other on its run, so one chunk's reads overlap another's
 /// compute.
@@ -52,6 +63,8 @@ const CHUNKS_PER_THREAD: usize = 1;
 pub(crate) struct FileScan {
     scan: Arc<PreparedScan>,
     io: Arc<dyn IoService>,
+    diagnostics: Option<Arc<Diagnostics>>,
+    span: tracing::Span,
     /// The work the root spawned, in row order, that no thread has taken yet.
     queue: Mutex<VecDeque<Work>>,
     /// Set once a thread has taken the last of `queue`.
@@ -61,9 +74,11 @@ pub(crate) struct FileScan {
 }
 
 /// What a thread takes from the file next.
-enum Work {
+pub(crate) enum Work {
     /// A chunk to run on the thread's run.
     Chunk(WorkScope, Box<dyn Planner>),
+    /// An 8K startup range, kept together until it returns to DuckDB.
+    Initial(WorkScope, Box<dyn Planner>),
     /// A batch the root produced itself.
     Batch(ArrayRef),
 }
@@ -83,43 +98,80 @@ impl FileScan {
         builder: ScanBuilder,
         splits: &[u64],
         dynamic: bool,
+        remaining: &AtomicUsize,
+        diagnostics: Option<Arc<Diagnostics>>,
+        path: &str,
     ) -> VortexResult<Self> {
         let scan = Arc::new(builder.prepare()?);
         let io = scan.io();
         let rows = scan.rows().clone();
+        let initial = if scan.access_mode() == AccessMode::RandomAccess {
+            Vec::new()
+        } else {
+            initial_ranges(rows.clone(), remaining)
+        };
+        let bulk_start = initial.last().map_or(rows.start, |range| range.end);
+        let scan_id = diagnostics.as_ref().map(|diagnostics| diagnostics.id);
+        let span = tracing::debug_span!("v2_scan", path, scan_id);
+        let _entered = span.enter();
+        let mut queue = VecDeque::new();
+        for rows in &initial {
+            let planner = chunks(&scan, rows.clone(), None);
+            let planner = PrunePlanner::new(Arc::clone(&scan), rows.clone(), Box::new(planner));
+            queue.push_back(Work::Initial(
+                WorkScope {
+                    file_ordinal: 0,
+                    rows: rows.clone(),
+                },
+                Box::new(InitialPlanner(Box::new(planner))),
+            ));
+        }
         let mut root = Run::new();
         root.admit(
-            compose(&scan, splits, dynamic),
+            compose(
+                &scan,
+                bulk_start..rows.end,
+                splits,
+                dynamic && initial.is_empty(),
+            ),
             WorkScope {
                 file_ordinal: 0,
                 rows,
             },
             io.session(),
         );
-        let mut queue = VecDeque::new();
         loop {
-            match root.advance()? {
+            let started = diagnostics.as_ref().map(|_| Instant::now());
+            let progress = root.advance()?;
+            if let (Some(started), Some(diagnostics)) = (started, &diagnostics) {
+                diagnostics.compute(started.elapsed().as_nanos());
+            }
+            match progress {
                 Progress::Batch(batch) => queue.push_back(Work::Batch(batch.array)),
                 Progress::Spawn(scope, chunk) => queue.push_back(Work::Chunk(scope, chunk)),
                 Progress::RootDone(_) if root.live_roots() > 0 => {}
                 Progress::RootDone(_) | Progress::Idle => break,
                 Progress::Waiting => {
+                    let started = diagnostics.as_ref().map(|_| Instant::now());
                     RUNTIME.block_on(future::poll_fn(|cx| root.poll_completion(cx)))?;
+                    if let (Some(started), Some(diagnostics)) = (started, &diagnostics) {
+                        diagnostics.io_wait(started.elapsed().as_nanos());
+                    }
                 }
             }
         }
+        tracing::debug!(path, access_mode = ?scan.access_mode(), initial_chunks = initial.len(),
+            worker_slots = queue.len(), bulk_start, "v2 scan startup");
+        drop(_entered);
         Ok(Self {
             scan,
             io,
+            diagnostics,
+            span,
             exhausted: AtomicBool::new(queue.is_empty()),
             queue: Mutex::new(queue),
             rows_taken: AtomicU64::new(0),
         })
-    }
-
-    /// Whether every chunk has been taken, so a thread joining the scan finds no work.
-    pub(crate) fn is_exhausted(&self) -> bool {
-        self.exhausted.load(Ordering::Acquire)
     }
 
     /// The percentage of the scanned rows whose chunks threads have taken.
@@ -135,39 +187,84 @@ impl FileScan {
     /// The next array of this file for the thread whose run is `run`, or `None` once the file has
     /// no more work for the thread. Keeps the thread's run fed with chunks from the file, and
     /// waits for reads on the calling thread.
-    pub(crate) fn next_array(&self, run: &mut Run) -> VortexResult<Option<ArrayRef>> {
+    pub(crate) fn next_array(
+        &self,
+        run: &mut Run,
+        initial_roots: &mut Vec<RootId>,
+        mut reserved: Option<Work>,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let _entered = self.span.enter();
         loop {
-            while run.live_roots() < CHUNKS_PER_THREAD {
-                match self.next_work() {
+            while run.live_roots()
+                < if initial_roots.is_empty() {
+                    CHUNKS_PER_THREAD
+                } else {
+                    2
+                }
+            {
+                match reserved
+                    .take()
+                    .or_else(|| self.take_work(initial_roots.is_empty()))
+                {
+                    Some(Work::Initial(scope, chunk)) => {
+                        tracing::debug!(worker = ?std::thread::current().id(), row_start = scope.rows.start,
+                            row_end = scope.rows.end, "v2 initial chunk admitted");
+                        initial_roots.push(run.admit(chunk, scope, self.io.session()));
+                    }
                     Some(Work::Chunk(scope, chunk)) => {
                         run.admit(chunk, scope, self.io.session());
                     }
-                    Some(Work::Batch(array)) => return Ok(Some(array)),
+                    Some(Work::Batch(array)) => {
+                        if let Some(diagnostics) = &self.diagnostics {
+                            diagnostics.array(array.len());
+                        }
+                        return Ok(Some(array));
+                    }
                     None => break,
                 }
             }
-            match run.advance()? {
-                Progress::Batch(batch) => return Ok(Some(batch.array)),
+            let started = self.diagnostics.as_ref().map(|_| Instant::now());
+            let progress = run.advance()?;
+            if let (Some(started), Some(diagnostics)) = (started, &self.diagnostics) {
+                diagnostics.compute(started.elapsed().as_nanos());
+            }
+            match progress {
+                Progress::Batch(batch) => {
+                    if let Some(diagnostics) = &self.diagnostics {
+                        diagnostics.array(batch.array.len());
+                    }
+                    return Ok(Some(batch.array));
+                }
                 Progress::Spawn(scope, child) => {
                     run.admit(child, scope, self.io.session());
                 }
-                Progress::RootDone(_) => {}
+                Progress::RootDone(root) => {
+                    initial_roots.retain(|id| *id != root);
+                }
                 Progress::Idle => return Ok(None),
                 Progress::Waiting => {
+                    let started = self.diagnostics.as_ref().map(|_| Instant::now());
                     RUNTIME.block_on(future::poll_fn(|cx| run.poll_completion(cx)))?;
+                    if let (Some(started), Some(diagnostics)) = (started, &self.diagnostics) {
+                        diagnostics.io_wait(started.elapsed().as_nanos());
+                    }
                 }
             }
         }
     }
 
-    /// Takes the next chunk or batch of the file, or `None` once every one has been taken.
-    fn next_work(&self) -> Option<Work> {
+    /// Reserves actual queued work under DuckDB's global lock without executing it there.
+    /// When startup work is still running, `allow_bulk` prevents delaying its first output.
+    pub(crate) fn take_work(&self, allow_bulk: bool) -> Option<Work> {
         let mut queue = self.queue.lock();
+        if !allow_bulk && !matches!(queue.front(), Some(Work::Initial(..))) {
+            return None;
+        }
         let work = queue.pop_front()?;
         if queue.is_empty() {
             self.exhausted.store(true, Ordering::Release);
         }
-        if let Work::Chunk(scope, _) = &work {
+        if let Work::Chunk(scope, _) | Work::Initial(scope, _) = &work {
             self.rows_taken
                 .fetch_add(scope.rows.end - scope.rows.start, Ordering::Relaxed);
         }
@@ -177,8 +274,15 @@ impl FileScan {
 
 /// The planners of a scan, composed: with a dynamic filter, its pruning plans first over the scan's
 /// rows, continuing into the parts of the rows they keep; otherwise, the parts directly.
-fn compose(scan: &Arc<PreparedScan>, splits: &[u64], dynamic: bool) -> Box<dyn Planner> {
-    let rows = scan.rows().clone();
+fn compose(
+    scan: &Arc<PreparedScan>,
+    rows: Range<u64>,
+    splits: &[u64],
+    dynamic: bool,
+) -> Box<dyn Planner> {
+    if scan.access_mode() == AccessMode::RandomAccess {
+        return chunks(scan, rows, None)(None);
+    }
     let parts = {
         let scan = Arc::clone(scan);
         let parts = part_ranges(rows.clone(), splits);
@@ -194,6 +298,22 @@ fn compose(scan: &Arc<PreparedScan>, splits: &[u64], dynamic: bool) -> Box<dyn P
     }
 }
 
+fn chunks(
+    scan: &Arc<PreparedScan>,
+    rows: Range<u64>,
+    kept: Option<Mask>,
+) -> impl FnOnce(Option<Mask>) -> Box<dyn Planner> + Send + 'static {
+    let scan = Arc::clone(scan);
+    move |again| {
+        let kept = match (kept, again) {
+            (Some(kept), Some(again)) => Some(kept & &again),
+            (kept, again) => kept.or(again),
+        };
+        let selection = scan.selection().clone();
+        Box::new(ChunkPlanner::new(scan, rows, selection, kept))
+    }
+}
+
 /// Spawns a planner per part of a scan's rows that zone pruning left something of, in row order.
 /// Parts are the file's layout splits, so a layout chunk, and the dictionary it carries, is
 /// exported by one thread, which lets DuckDB evaluate an expression over that dictionary once.
@@ -206,7 +326,6 @@ fn compose(scan: &Arc<PreparedScan>, splits: &[u64], dynamic: bool) -> Box<dyn P
 /// scan-wide pruning read.
 struct PartPlanner {
     scan: Arc<PreparedScan>,
-    selection: Selection,
     parts: std::vec::IntoIter<Range<u64>>,
     /// The first row of `kept`.
     first_row: u64,
@@ -222,7 +341,6 @@ impl PartPlanner {
         kept: Option<Mask>,
     ) -> Self {
         Self {
-            selection: scan.selection().clone(),
             scan,
             parts: parts.into_iter(),
             first_row,
@@ -258,18 +376,7 @@ impl Planner for PartPlanner {
             if kept.as_ref().is_some_and(Mask::all_false) {
                 continue;
             }
-            let chunks = {
-                let scan = Arc::clone(&self.scan);
-                let selection = self.selection.clone();
-                let part = part.clone();
-                move |again: Option<Mask>| -> Box<dyn Planner> {
-                    let kept = match (kept, again) {
-                        (Some(kept), Some(again)) => Some(kept & &again),
-                        (kept, again) => kept.or(again),
-                    };
-                    Box::new(ChunkPlanner::new(scan, part, selection, kept))
-                }
-            };
+            let chunks = chunks(&self.scan, part.clone(), kept);
             let planner: Box<dyn Planner> = if self.scan.filter().is_some() {
                 Box::new(PrunePlanner::new(
                     Arc::clone(&self.scan),
@@ -299,23 +406,4 @@ fn part_ranges(rows: Range<u64>, splits: &[u64]) -> Vec<Range<u64>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::ops::Range;
-
-    use rstest::rstest;
-
-    use super::part_ranges;
-
-    #[rstest]
-    #[case::whole(0..30, &[0, 10, 20, 30], vec![0..10, 10..20, 20..30])]
-    #[case::clipped(5..25, &[0, 10, 20, 30], vec![5..10, 10..20, 20..25])]
-    #[case::inside_one_split(12..18, &[0, 10, 20, 30], vec![12..18])]
-    #[case::empty(5..5, &[0, 10], vec![])]
-    fn parts_follow_splits(
-        #[case] rows: Range<u64>,
-        #[case] splits: &[u64],
-        #[case] expected: Vec<Range<u64>>,
-    ) {
-        assert_eq!(part_ranges(rows, splits), expected);
-    }
-}
+mod tests;

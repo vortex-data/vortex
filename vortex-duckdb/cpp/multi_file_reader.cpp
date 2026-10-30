@@ -177,7 +177,6 @@ VortexReaderInterface::InitializeGlobalState(ClientContext &context,
     const auto threads = TaskScheduler::GetScheduler(context).NumberOfThreads();
     duckdb_vx_tfunc_init_input ffi_input = {
         .bind_data = ffi_bind,
-        .file_count = bind_data.file_list->GetFileCount(threads).count,
         .max_threads = threads,
         .column_ids = column_ids.data(),
         .column_ids_count = column_ids.size(),
