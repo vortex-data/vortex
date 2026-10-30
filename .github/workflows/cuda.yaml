@@ -19,6 +19,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  NIGHTLY_TOOLCHAIN: nightly-2026-09-10
 
 jobs:
   changes:
@@ -49,10 +50,52 @@ jobs:
               - "Cargo.lock"
               - ".github/workflows/**"
 
-  cuda-build-lint:
+  # GPU runners are expensive, so the GPU jobs below only start once these
+  # cheap formatting and lint checks pass on a CPU runner.
+  lint:
     needs: [changes]
     if: >-
-      always() && github.repository == 'vortex-data/vortex' &&
+      github.repository == 'vortex-data/vortex' &&
+      needs.changes.outputs.run-cuda-san == 'true'
+    name: "CUDA formatting & lint"
+    timeout-minutes: 10
+    runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=amd64-ci-small/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=cuda-lint
+    steps:
+      - parallel:
+          - uses: runs-on/action@v2
+          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+        with:
+          sync: false
+      - name: Install missing formatting tools
+        run: |
+          command -v clang-format >/dev/null || {
+            sudo apt-get update
+            sudo apt-get install -y clang-format
+          }
+      - name: Install nightly for fmt
+        run: rustup toolchain install $NIGHTLY_TOOLCHAIN --profile minimal --component rustfmt
+      - name: Rust Lint - Format
+        run: cargo +$NIGHTLY_TOOLCHAIN fmt --all --check
+      - name: C/C++/CUDA Lint - clang-format
+        if: "!cancelled()"
+        run: |
+          git ls-files vortex-cuda \
+            | grep -E '\.(cpp|hpp|cu|cuh|h)$' \
+            | grep -v 'kernels/src/bit_unpack_.*\.cu$' \
+            | grep -v 'kernels/src/bit_unpack_.*_lanes\.cuh$' \
+            | xargs clang-format --dry-run --Werror --style=file
+      - name: Python Lint - Format
+        if: "!cancelled()"
+        run: uvx ruff format --check vortex-python vortex-python-cuda
+      - name: Python Lint - Ruff
+        if: "!cancelled()"
+        run: uvx ruff check vortex-python vortex-python-cuda
+
+  cuda-build-lint:
+    needs: [changes, lint]
+    if: >-
+      !cancelled() && needs.lint.result == 'success' &&
       needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA build & lint"
     timeout-minutes: 30
@@ -88,9 +131,9 @@ jobs:
             -- -D warnings
 
   cuda-test:
-    needs: [changes]
+    needs: [changes, lint]
     if: >-
-      always() && github.repository == 'vortex-data/vortex' &&
+      !cancelled() && needs.lint.result == 'success' &&
       needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA tests"
     timeout-minutes: 30
@@ -147,9 +190,9 @@ jobs:
               uv run --all-packages --extra cuda pytest --benchmark-disable vortex-python/test/test_cuda.py vortex-python-cuda/test
 
   cuda-test-sanitizer:
-    needs: [changes]
+    needs: [changes, lint]
     if: >-
-      always() && github.repository == 'vortex-data/vortex' &&
+      !cancelled() && needs.lint.result == 'success' &&
       needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA tests (${{ matrix.sanitizer }})"
     timeout-minutes: 30
@@ -190,9 +233,9 @@ jobs:
         run: cargo test --profile ci --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
 
   cuda-test-cudf:
-    needs: [changes]
+    needs: [changes, lint]
     if: >-
-      always() && github.repository == 'vortex-data/vortex' &&
+      !cancelled() && needs.lint.result == 'success' &&
       needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA tests (cudf)"
     timeout-minutes: 30

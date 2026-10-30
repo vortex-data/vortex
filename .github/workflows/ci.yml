@@ -219,6 +219,8 @@ jobs:
 
   python-cuda-test:
     name: "Python CUDA (test)"
+    # GPU runners are expensive, so only start once formatting and lints pass.
+    needs: [lightweight-checks, rust-lint]
     if: github.repository == 'vortex-data/vortex'
     runs-on: runs-on=${{ github.run_id }}/region=us-east-1/runner=gpu/extras=s3-cache/tag=python-cuda-test
     timeout-minutes: 30
