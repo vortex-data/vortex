@@ -9,15 +9,14 @@
 //!
 //! Pco supports integer and floating-point primitive dtypes handled by the upstream `pco` crate.
 //! It is normally selected through the BtrBlocks compressor when the `pco` feature is enabled.
-//! To deserialize arrays manually, register the encoding in the array session:
+//! To register the encoding and its selective take kernel in a session:
 //!
 //! ```rust
-//! use vortex_array::session::ArraySessionExt;
+//! use vortex_pco::initialize;
 //! use vortex_session::VortexSession;
-//! use vortex_pco::Pco;
 //!
 //! let session = VortexSession::empty();
-//! session.arrays().register(Pco);
+//! initialize(&session);
 //! ```
 
 use prost::Message;

@@ -118,8 +118,8 @@ where
     usize::try_from(value).map_err(|_| vortex_err!("Pco take index is negative or exceeds usize"))
 }
 
-/// Sort requests once, resolve each repeated logical position once, then invoke the native
-/// primitive gather once per physical page. Only the final scatter visits output positions;
+/// Sort requests once, resolve each repeated logical position once, then decode each touched
+/// page once. Only the final scatter visits output positions;
 /// it does no page-index search, validity rank, decoder lookup, or cache lookup.
 fn gather<T: Number + NativePType, const NULLABLE: bool>(
     array: ArrayView<'_, Pco>,
@@ -152,16 +152,6 @@ fn gather<T: Number + NativePType, const NULLABLE: bool>(
         while cursor < resolved.len() {
             let page = resolved[cursor].0;
             let end = cursor + resolved[cursor..].partition_point(|request| request.0 == page);
-            let compact = PrimitiveArray::from_iter(
-                resolved[cursor..end]
-                    .iter()
-                    .map(|request| {
-                        u64::try_from(request.1)
-                            .map_err(|_| vortex_err!("Pco compact index exceeds u64"))
-                    })
-                    .collect::<VortexResult<Vec<_>>>()?,
-            )
-            .into_array();
             let (chunk_id, n_values) = lookup.resolve(view, array, page)?;
             let buffer = array
                 .pages
@@ -178,11 +168,11 @@ fn gather<T: Number + NativePType, const NULLABLE: bool>(
                 buffer.as_slice(),
                 ctx,
             )?;
-            let selected = decoded
-                .into_array()
-                .take(compact)?
-                .execute::<PrimitiveArray>(ctx)?;
-            for (request, &value) in resolved[cursor..end].iter().zip(selected.as_slice::<T>()) {
+            let decoded = decoded.as_slice::<T>();
+            for request in &resolved[cursor..end] {
+                let value = *decoded
+                    .get(request.1)
+                    .ok_or_else(|| vortex_err!("Pco value index exceeds decoded page"))?;
                 for &(_, output) in &requests[request.2.clone()] {
                     values[output] = value;
                     if NULLABLE {
