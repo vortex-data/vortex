@@ -36,6 +36,7 @@ use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::extension::datetime::Time;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
 use crate::extension::datetime::TimestampOptions;
@@ -46,6 +47,8 @@ use crate::scalar::Scalar;
 use crate::scalar_fn::fns::binary::scalar_cmp;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
+use crate::test_harness::ExpectedOutcome;
+use crate::test_harness::assert_execution_paths;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -641,26 +644,124 @@ fn extension_timestamp_compare() {
     assert_arrays_eq!(result, BoolArray::from_iter([false, true, false]), &mut ctx);
 }
 
-/// Comparing extension arrays with different extension dtypes (e.g. timestamps in different
-/// units) must error rather than silently comparing raw storage values.
-#[test]
-fn extension_mismatched_units_errors() {
+#[rstest]
+#[case::storage(DType::Primitive(PType::I64, Nullability::Nullable))]
+#[case::different_unit(DType::Extension(
+    Timestamp::new(TimeUnit::Nanoseconds, Nullability::Nullable).erased()
+))]
+#[case::different_extension(DType::Extension(
+    Time::new(TimeUnit::Microseconds, Nullability::Nullable).erased()
+))]
+#[case::different_time_zone(DType::Extension(
+    Timestamp::new_with_tz(TimeUnit::Milliseconds, Some("UTC".into()), Nullability::Nullable).erased()
+))]
+fn test_extension_comparison_rejects_mismatched_dtypes_at_binding(
+    #[case] rhs_dtype: DType,
+    #[values(false, true)] swapped: bool,
+) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let ms = ExtensionArray::new(
+    let lhs = ExtensionArray::new(
         Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased(),
-        buffer![1000i64, 2000].into_array(),
+        buffer![1600i64, 1400].into_array(),
     )
     .into_array();
-    let secs = ExtensionArray::new(
-        Timestamp::new(TimeUnit::Seconds, Nullability::NonNullable).erased(),
-        buffer![1i64, 3].into_array(),
+    let scalar = Scalar::try_new(rhs_dtype, Some(1500i64.into()))?;
+    let rhs = ConstantArray::new(scalar, lhs.len()).into_array();
+    let inputs = if swapped { [rhs, lhs] } else { [lhs, rhs] };
+
+    assert_execution_paths(
+        &inputs,
+        |inputs| {
+            let error = inputs[0]
+                .binary(inputs[1].clone(), Operator::Lt)
+                .expect_err("mismatched comparison dtypes must be rejected while binding");
+
+            Err(error)
+        },
+        ExpectedOutcome::Error,
+        &mut ctx,
+    );
+
+    Ok(())
+}
+
+#[rstest]
+#[case::equal(Operator::Eq, [Some(false), Some(true), Some(false), None])]
+#[case::not_equal(Operator::NotEq, [Some(true), Some(false), Some(true), None])]
+#[case::less(Operator::Lt, [Some(false), Some(false), Some(true), None])]
+#[case::less_equal(Operator::Lte, [Some(false), Some(true), Some(true), None])]
+#[case::greater(Operator::Gt, [Some(true), Some(false), Some(false), None])]
+#[case::greater_equal(Operator::Gte, [Some(true), Some(true), Some(false), None])]
+fn test_extension_comparison_preserves_paths_and_nulls(
+    #[case] operator: Operator,
+    #[case] expected: [Option<bool>; 4],
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
+    let lhs = ExtensionArray::new(
+        dtype,
+        PrimitiveArray::from_option_iter([Some(1600i64), Some(1500), Some(1400), None])
+            .into_array(),
+    )
+    .into_array();
+    let rhs = ConstantArray::new(
+        Scalar::extension::<Timestamp>(
+            TimestampOptions {
+                unit: TimeUnit::Milliseconds,
+                tz: None,
+            },
+            Scalar::from(1500i64),
+        ),
+        lhs.len(),
     )
     .into_array();
 
-    let result = ms
-        .binary(secs, Operator::Eq)
-        .and_then(|a| a.execute::<BoolArray>(&mut ctx));
-    assert!(result.is_err());
+    assert_execution_paths(
+        &[lhs, rhs],
+        |inputs| inputs[0].binary(inputs[1].clone(), operator),
+        ExpectedOutcome::Array(BoolArray::from_iter(expected).into_array()),
+        &mut ctx,
+    );
+
+    Ok(())
+}
+
+#[rstest]
+#[case::empty(0)]
+#[case::null(2)]
+fn test_extension_comparison_checks_dtypes_before_fast_paths(
+    #[case] len: usize,
+) -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
+    let lhs = ExtensionArray::new(
+        dtype,
+        ConstantArray::new(Scalar::primitive(1000i64, Nullability::Nullable), len).into_array(),
+    )
+    .into_array();
+    let rhs = ConstantArray::new(
+        Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)),
+        len,
+    )
+    .into_array();
+
+    assert!(super::execute_compare(&lhs, &rhs, CompareOperator::Eq, &mut ctx).is_err());
+
+    Ok(())
+}
+
+#[test]
+fn test_null_scalar_comparison_requires_matching_dtypes() {
+    let dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
+
+    assert!(
+        scalar_cmp(
+            &Scalar::null(DType::Extension(dtype)),
+            &Scalar::from(1000i64),
+            CompareOperator::Eq
+        )
+        .is_err()
+    );
 }
 
 /// Struct fields containing nulls order null-first, matching `Scalar` comparison semantics;

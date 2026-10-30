@@ -2748,10 +2748,8 @@ async fn test_file_metadata_malformed_alignment_returns_error_on_default_open() 
 }
 
 #[tokio::test]
-async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
-    // Write file with MILLISECONDS timestamps
-    let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
-        .into_array();
+async fn test_timestamp_unit_mismatch_fails_binding() -> VortexResult<()> {
+    let ts_array = buffer![1000i64].into_array();
     let temporal = TemporalArray::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
 
     let mut buf = ByteBufferMut::empty();
@@ -2760,7 +2758,6 @@ async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
         .write(&mut buf, temporal.into_array().to_array_stream())
         .await?;
 
-    // Read with SECONDS filter scalar
     let filter_expr = gt(
         root(),
         lit(Scalar::extension::<Timestamp>(
@@ -2768,70 +2765,18 @@ async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
                 unit: TimeUnit::Seconds,
                 tz: None,
             },
-            Scalar::from(1704153600i64),
+            Scalar::from(1i64),
         )),
     );
 
     let file = SESSION.open_options().open_buffer(buf)?;
-    let filter = filter_expr.bind(file.dtype())?.optimize_recursive()?;
-    let mut stream = file.scan()?.with_filter(filter).into_array_stream()?;
-    let result = stream.try_next().await;
-
-    assert!(result.is_err());
-
-    Ok(())
-}
-
-/// Regression test: filtering a milliseconds timestamp column with a seconds scalar should
-/// always error, regardless of how the internal children of `DateTimePartsArray` are encoded.
-///
-/// The compressor's built-in constant detection encodes the seconds/subseconds children
-/// (`[0, 0, 0]`) as `ConstantArray`s. The scanner should still detect the time unit
-/// mismatch and error, not silently return wrong results.
-#[tokio::test]
-async fn timestamp_unit_mismatch_errors_with_constant_children()
--> Result<(), Box<dyn std::error::Error>> {
-    let compressor = vortex_btrblocks::BtrBlocksCompressor::from_session(&SESSION);
-
-    // Write file with MILLISECONDS timestamps using this compressor.
-    let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
-        .into_array();
-    let temporal = TemporalArray::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
-
-    let strategy = crate::strategy::WriteStrategyBuilder::from_session(&SESSION)
-        .with_compressor(compressor)
-        .build();
-
-    let mut buf = ByteBufferMut::empty();
-    SESSION
-        .write_options()
-        .with_strategy(strategy)
-        .write(&mut buf, temporal.into_array().to_array_stream())
-        .await?;
-
-    // Read with SECONDS filter scalar — should error due to time unit mismatch.
-    let filter_expr = gt(
-        root(),
-        lit(Scalar::extension::<Timestamp>(
-            TimestampOptions {
-                unit: TimeUnit::Seconds,
-                tz: None,
-            },
-            Scalar::from(1704153600i64),
-        )),
-    );
-
-    let file = SESSION.open_options().open_buffer(buf)?;
-    let filter = filter_expr.bind(file.dtype())?.optimize_recursive()?;
-    let stream = file.scan()?.with_filter(filter).into_array_stream()?;
-    let results = stream.try_collect::<Vec<_>>().await;
-
+    let error = filter_expr
+        .bind(file.dtype())
+        .expect_err("timestamp filter units must match the file dtype when binding");
     assert!(
-        results.is_err(),
-        "Expected error from timestamp unit mismatch (ms vs s), but got {} results. \
-         This indicates the scanner silently applied the filter incorrectly when \
-         DateTimePartsArray children use ConstantArray encoding.",
-        results?.len()
+        error
+            .to_string()
+            .contains("Comparison requires equal dtypes ignoring nullability")
     );
 
     Ok(())

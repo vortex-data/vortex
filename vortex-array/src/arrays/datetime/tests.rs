@@ -6,25 +6,17 @@ use std::sync::LazyLock;
 use rstest::rstest;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::EqMode;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::datetime::TemporalData;
 use crate::assert_arrays_eq;
-use crate::expr::gt;
-use crate::expr::lit;
-use crate::expr::root;
 use crate::extension::datetime::TemporalMetadata;
 use crate::extension::datetime::TimeUnit;
-use crate::extension::datetime::Timestamp;
-use crate::extension::datetime::TimestampOptions;
 use crate::hash::ArrayEq;
-use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
@@ -215,35 +207,4 @@ fn test_validity_preservation(#[case] validity: Validity) {
             .vortex_expect("temporal validity should be derivable")
             .array_eq(&validity, EqMode::Ptr)
     );
-}
-
-#[test]
-fn comparison_rejects_mismatched_timestamp_units() -> VortexResult<()> {
-    let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
-        .into_array();
-    let temporal = TemporalData::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
-
-    let filter_expr = gt(
-        root(),
-        lit(Scalar::extension::<Timestamp>(
-            TimestampOptions {
-                unit: TimeUnit::Seconds,
-                tz: None,
-            },
-            Scalar::from(1704153600i64),
-        )),
-    );
-
-    let error = temporal
-        .into_array()
-        .apply(&filter_expr)?
-        .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
-        .unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("Cannot compare extension dtypes")
-    );
-
-    Ok(())
 }
