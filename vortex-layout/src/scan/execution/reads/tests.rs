@@ -11,6 +11,7 @@ use crate::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::dict::DictLayout;
 use crate::layouts::flat::FlatLayout;
+use crate::layouts::struct_::StructLayout;
 
 fn flat(id: u32, rows: u64) -> LayoutRef {
     FlatLayout::new(
@@ -44,7 +45,7 @@ fn locations(count: u64) -> Vec<SegmentLocation> {
 #[test]
 fn nested_chunks_use_root_file_rows() -> VortexResult<()> {
     let layout = chunks(vec![flat(0, 10), chunks(vec![flat(1, 20), flat(2, 30)])]);
-    let lifetimes = read_lifetimes(&layout, &locations(3))?;
+    let lifetimes = read_lifetimes(&layout, &locations(3), None)?;
     for (offset, rows) in [(0, 0..10), (4, 10..30), (8, 30..60)] {
         assert_eq!(
             lifetimes[&IoTarget::range(offset, 4)],
@@ -60,7 +61,7 @@ fn dictionary_values_inherit_the_entire_consumer_region() -> VortexResult<()> {
     let codes = chunks(vec![flat(3, 10), flat(4, 10)]);
     let dictionary = DictLayout::new(values, codes).into_layout();
     let layout = chunks(vec![flat(0, 10), dictionary, flat(5, 30)]);
-    let lifetimes = read_lifetimes(&layout, &locations(6))?;
+    let lifetimes = read_lifetimes(&layout, &locations(6), None)?;
     // Both values chunks can be read by any row in the dictionary's root-row region 10..30.
     for offset in [4, 8] {
         assert_eq!(
@@ -82,7 +83,7 @@ fn dictionary_values_inherit_the_entire_consumer_region() -> VortexResult<()> {
 #[test]
 fn repeated_segments_cover_all_consumer_regions() -> VortexResult<()> {
     let layout = chunks(vec![flat(0, 20), flat(1, 20), flat(0, 20)]);
-    let lifetimes = read_lifetimes(&layout, &locations(2))?;
+    let lifetimes = read_lifetimes(&layout, &locations(2), None)?;
     assert_eq!(lifetimes[&IoTarget::range(0, 4)], ReadLifetime::Rows(0..60));
     assert_eq!(
         lifetimes[&IoTarget::range(4, 4)],
@@ -92,7 +93,27 @@ fn repeated_segments_cover_all_consumer_regions() -> VortexResult<()> {
 }
 
 #[test]
+fn only_scanned_fields_are_indexed() -> VortexResult<()> {
+    let u32 = DType::Primitive(PType::U32, false.into());
+    let layout = StructLayout::new(
+        10,
+        DType::struct_([("a", u32.clone()), ("b", u32)], false.into()),
+        vec![flat(0, 10), chunks(vec![flat(1, 4), flat(2, 6)])],
+    )
+    .into_layout();
+    let lifetimes = read_lifetimes(&layout, &locations(3), Some(&["b".into()]))?;
+    assert!(!lifetimes.contains_key(&IoTarget::range(0, 4)));
+    assert_eq!(lifetimes[&IoTarget::range(4, 4)], ReadLifetime::Rows(0..4));
+    assert_eq!(
+        lifetimes[&IoTarget::range(8, 4)],
+        ReadLifetime::Rows(4..10)
+    );
+    Ok(())
+}
+
+#[test]
 fn missing_segment_locations_are_rejected() {
-    let error = read_lifetimes(&flat(1, 20), &locations(1)).expect_err("segment 1 is absent");
+    let error =
+        read_lifetimes(&flat(1, 20), &locations(1), None).expect_err("segment 1 is absent");
     assert!(error.to_string().contains("no known location"));
 }

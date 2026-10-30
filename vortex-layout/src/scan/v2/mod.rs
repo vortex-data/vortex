@@ -31,6 +31,8 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Field;
+use vortex_array::dtype::FieldName;
 use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -172,6 +174,7 @@ impl ScanBuilder {
             None => cache.insert_root(lower(&file.layout)?),
         };
         let row_count = root.row_count();
+        let fields = scanned_fields(&self.projection, self.filter.as_ref())?;
         let filtered_chunk_rows = self
             .filter
             .as_ref()
@@ -215,9 +218,16 @@ impl ScanBuilder {
             None => cache.insert_ranges(segment_ranges(&file.locations)),
         };
         let values = cache.values();
-        let read_lifetimes = match cache.read_lifetimes() {
-            Some(lifetimes) => lifetimes,
-            None => cache.insert_read_lifetimes(read_lifetimes(&file.layout, &file.locations)?),
+        // Lifetimes of a few fields are cheap to index for each scan; those of every field are
+        // indexed once per cache.
+        let read_lifetimes = match (&fields, cache.read_lifetimes()) {
+            (Some(fields), _) => read_lifetimes(&file.layout, &file.locations, Some(fields))?,
+            (None, Some(lifetimes)) => lifetimes,
+            (None, None) => cache.insert_read_lifetimes(read_lifetimes(
+                &file.layout,
+                &file.locations,
+                None,
+            )?),
         };
         Ok(PreparedScan {
             session: self.session,
@@ -235,6 +245,29 @@ impl ScanBuilder {
             chunk_rows,
         })
     }
+}
+
+/// The root struct fields the projection and filter read, or `None` when they read the root whole.
+fn scanned_fields(
+    projection: &BoundExpression,
+    filter: Option<&BoundExpression>,
+) -> VortexResult<Option<Vec<FieldName>>> {
+    let mut paths = referenced_field_paths(projection)?;
+    if let Some(filter) = filter {
+        paths.extend(referenced_field_paths(filter)?);
+    }
+    let mut fields = Vec::new();
+    for path in paths.iter() {
+        match path.parts().first() {
+            Some(Field::Name(name)) => {
+                if !fields.contains(name) {
+                    fields.push(name.clone());
+                }
+            }
+            _ => return Ok(None),
+        }
+    }
+    Ok(Some(fields))
 }
 
 fn filtered_rows_per_chunk(
