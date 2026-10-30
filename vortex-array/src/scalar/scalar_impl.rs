@@ -7,7 +7,6 @@ use std::cmp::Ordering;
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
@@ -69,7 +68,7 @@ impl Scalar {
     /// Attempts to create a new [`Scalar`] with the given [`DType`] and potentially null
     /// [`ScalarValue`].
     ///
-    /// Legacy `U64` bit representations of `F16` are converted to `F16` before validation.
+    /// Legacy `U64` bit representations of `F16` are converted to `F16` during construction.
     /// Nested and extension values must already match their storage dtypes.
     ///
     /// # Errors
@@ -77,6 +76,19 @@ impl Scalar {
     /// Returns an error if the given [`DType`] and [`ScalarValue`] are incompatible.
     #[inline]
     pub fn try_new(dtype: DType, value: Option<ScalarValue>) -> VortexResult<Self> {
+        if Self::is_compatible(&dtype, value.as_ref()) {
+            return Ok(Self { dtype, value });
+        }
+
+        Self::try_new_fallback(dtype, value)
+    }
+
+    /// Converts legacy `F16` values or reports why the value is incompatible.
+    ///
+    /// It owns the parts so their drop code stays out of the canonical construction path.
+    #[cold]
+    #[inline(never)]
+    fn try_new_fallback(dtype: DType, value: Option<ScalarValue>) -> VortexResult<Self> {
         let value = match (&dtype, value) {
             (DType::Primitive(PType::F16, _), Some(ScalarValue::Primitive(PValue::U64(bits)))) => {
                 let bits = u16::try_from(bits).map_err(|_| {
@@ -85,23 +97,10 @@ impl Scalar {
 
                 Some(ScalarValue::Primitive(PValue::F16(f16::from_bits(bits))))
             }
-            (_, value) => value,
+            (_, value) => return Err(Self::incompatible_error(&dtype, value.as_ref())),
         };
 
-        if !Self::is_compatible(&dtype, value.as_ref()) {
-            return Err(Self::try_new_failed(dtype, value));
-        }
-
         Ok(Self { dtype, value })
-    }
-
-    /// The error path of [`Self::try_new`].
-    ///
-    /// It takes ownership of the parts so that their drop code is also out of line.
-    #[cold]
-    #[inline(never)]
-    fn try_new_failed(dtype: DType, value: Option<ScalarValue>) -> VortexError {
-        Self::incompatible_error(&dtype, value.as_ref())
     }
 
     /// Creates a new [`Scalar`] with the given [`DType`] and potentially null [`ScalarValue`]
