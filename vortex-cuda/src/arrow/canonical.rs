@@ -1560,6 +1560,7 @@ mod tests {
     fn cuda_ctx_with_varbin_layout(layout: VarBinExportLayout) -> VortexResult<CudaExecutionCtx> {
         let session = VortexSession::empty()
             .with_some(CudaSession::try_default()?.with_varbin_export_layout(layout));
+        vortex::file::register_default_encodings(&session);
         CudaSession::create_execution_ctx(&session)
     }
 
