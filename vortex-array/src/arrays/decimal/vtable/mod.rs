@@ -1,6 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Decimal vtable and adapters for the existing `vortex.decimal` wire form.
+//!
+//! Stored-node validation is shared by the canonical reader and the compatibility plugin, so both
+//! readers reject malformed buffer layouts before constructing arrays.
+
+mod kernel;
+mod operations;
+
+mod plugin;
+pub use plugin::DecimalPlugin;
+
+mod stored;
+use stored::StoredDecimal;
+
+mod validity;
+
+use std::hash::Hash;
 use std::hash::Hasher;
 
 use prost::Message;
@@ -10,42 +27,30 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayParts;
 use crate::ArrayRef;
+use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::array::Array;
+use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::decimal::DecimalData;
+use crate::arrays::decimal::array::DecimalSlots;
+use crate::arrays::decimal::compute::rules::RULES;
 use crate::arrays::fixed_width::vtable as fixed_width;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::DecimalBuilder;
 use crate::dtype::DType;
-use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
-use crate::serde::ArrayChildren;
-use crate::validity::Validity;
-mod kernel;
-mod operations;
-
-mod plugin;
-pub use plugin::DecimalPlugin;
-
-mod validity;
-
-use std::hash::Hash;
-
-use vortex_session::registry::CachedId;
-
-use crate::EqMode;
-use crate::array::ArrayId;
-use crate::arrays::decimal::array::DecimalSlots;
-use crate::arrays::decimal::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
+use crate::serde::ArrayChildren;
+
 /// A [`Decimal`]-encoded Vortex array.
 pub type DecimalArray = Array<Decimal>;
 
@@ -53,9 +58,10 @@ pub(crate) fn initialize(session: &VortexSession) {
     kernel::initialize(session);
 }
 
-// The type of the values can be determined by looking at the type info...right?
+/// The stored integer width of a `vortex.decimal` node.
 #[derive(prost::Message)]
 pub struct DecimalMetadata {
+    /// The [`DecimalType`] discriminant stored in the wire metadata.
     #[prost(int32, tag = "1")]
     pub(super) values_type: i32,
 }
@@ -68,86 +74,6 @@ impl DecimalMetadata {
                 self.values_type
             )
         })
-    }
-}
-
-/// A `vortex.decimal` node as it is stored, with its parts checked against its dtype and length.
-///
-/// Older writers stored a decimal dtype at any width that held its values, so the stored width
-/// `values_type` can differ from the canonical width of `decimal_dtype`. The checks here make every
-/// later read of the node safe, so a malformed node returns an error and never panics.
-struct StoredDecimal {
-    decimal_dtype: DecimalDType,
-    /// The stored width of `values`.
-    values_type: DecimalType,
-    /// One `values_type` integer per row, aligned to its width, in host or device memory.
-    values: BufferHandle,
-    /// The validity, with one entry per row and the nullability of the dtype.
-    validity: Validity,
-}
-
-impl StoredDecimal {
-    /// Decodes the parts of a node with `len` rows of the decimal dtype `dtype`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `dtype` is not a decimal dtype, if the metadata names no known width,
-    /// if the node does not have exactly one buffer, if the buffer does not hold `len` values of
-    /// the stored width or is not aligned to it, or if the validity children do not match the
-    /// nullability of `dtype`.
-    fn deserialize(
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-    ) -> VortexResult<Self> {
-        let Some(&decimal_dtype) = dtype.as_decimal_opt() else {
-            vortex_bail!("Decimal node requires a decimal dtype, got {dtype}");
-        };
-        let values_type = DecimalMetadata::decode(metadata)?.get_values_type()?;
-        let values = fixed_width::single_buffer(buffers)?;
-
-        // NB: every later read takes the row count from the buffer, so a buffer of another length
-        // must fail here. A read that returns another row count panics at the length assert of
-        // the deserializer.
-        let byte_len = len.checked_mul(values_type.byte_width()).ok_or_else(|| {
-            vortex_err!(
-                "Decimal node of {values_type} values must have a byte length that fits in usize, \
-                 got length {len}"
-            )
-        })?;
-        vortex_ensure!(
-            values.len() == byte_len,
-            "Decimal buffer of {len} {values_type} values must have {byte_len} bytes, got {}",
-            values.len()
-        );
-
-        DecimalData::validate(&values, values_type)?;
-
-        let validity = fixed_width::deserialize_validity(dtype.nullability(), len, children)?;
-        vortex_ensure_eq!(
-            validity.nullability(),
-            dtype.nullability(),
-            "Decimal validity must match the nullability of the dtype",
-        );
-
-        Ok(Self {
-            decimal_dtype,
-            values_type,
-            values,
-            validity,
-        })
-    }
-
-    /// Returns the parts of a [`DecimalArray`] at the stored width, with the same buffer.
-    fn into_array_parts(self) -> VortexResult<ArrayParts<Decimal>> {
-        let dtype = DType::Decimal(self.decimal_dtype, self.validity.nullability());
-        let len = self.values.len() / self.values_type.byte_width();
-        let slots = DecimalData::make_slots(&self.validity, len);
-        let data = DecimalData::try_new_handle(self.values, self.values_type, self.decimal_dtype)?;
-
-        Ok(ArrayParts::new(Decimal, dtype, len, data, slots))
     }
 }
 
@@ -297,178 +223,4 @@ impl VTable for Decimal {
 pub struct Decimal;
 
 #[cfg(test)]
-mod tests {
-    use std::sync::LazyLock;
-
-    use prost::Message;
-    use rstest::rstest;
-    use vortex_buffer::ByteBuffer;
-    use vortex_buffer::ByteBufferMut;
-    use vortex_buffer::buffer;
-    use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
-    use vortex_session::registry::ReadContext;
-
-    use super::DecimalMetadata;
-    use crate::ArrayContext;
-    use crate::ArrayRef;
-    use crate::IntoArray;
-    use crate::VortexSessionExecute;
-    use crate::array::VTable;
-    use crate::arrays::Decimal;
-    use crate::arrays::DecimalArray;
-    use crate::assert_arrays_eq;
-    use crate::buffer::BufferHandle;
-    use crate::dtype::DType;
-    use crate::dtype::DecimalDType;
-    use crate::dtype::DecimalType;
-    use crate::dtype::Nullability;
-    use crate::dtype::i256;
-    use crate::serde::SerializeOptions;
-    use crate::serde::SerializedArray;
-    use crate::validity::Validity;
-
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
-
-    #[test]
-    fn test_array_serde() {
-        let array = DecimalArray::new(
-            buffer![100i64, 200i64, 300i64, 400i64, 500i64],
-            DecimalDType::new(10, 2),
-            Validity::NonNullable,
-        );
-        let dtype = array.dtype().clone();
-
-        let array_ctx = ArrayContext::empty();
-        let out = array
-            .into_array()
-            .serialize(&array_ctx, &SESSION, &SerializeOptions::default())
-            .unwrap();
-        // Concat into a single buffer
-        let mut concat = ByteBufferMut::empty();
-        for buf in out {
-            concat.extend_from_slice(buf.as_ref());
-        }
-
-        let concat = concat.freeze();
-
-        let parts = SerializedArray::try_from(concat).unwrap();
-        let decoded = parts
-            .decode(&dtype, 5, &ReadContext::new(array_ctx.to_ids()), &SESSION)
-            .unwrap();
-        assert!(decoded.is::<Decimal>());
-        assert_arrays_eq!(
-            decoded,
-            DecimalArray::from_iter([100i64, 200, 300, 400, 500], DecimalDType::new(10, 2)),
-            &mut SESSION.create_execution_ctx()
-        );
-    }
-
-    #[test]
-    fn test_nullable_decimal_serde_roundtrip() {
-        let mut ctx = SESSION.create_execution_ctx();
-        let array = DecimalArray::new(
-            buffer![1234567i32, 0i32, -9999999i32],
-            DecimalDType::new(7, 3),
-            Validity::from_iter([true, false, true]),
-        );
-        let dtype = array.dtype().clone();
-        let len = array.len();
-
-        let array_ctx = ArrayContext::empty();
-        let out = array
-            .clone()
-            .into_array()
-            .serialize(&array_ctx, &SESSION, &SerializeOptions::default())
-            .unwrap();
-        let mut concat = ByteBufferMut::empty();
-        for buf in out {
-            concat.extend_from_slice(buf.as_ref());
-        }
-
-        let parts = SerializedArray::try_from(concat.freeze()).unwrap();
-        let decoded = parts
-            .decode(&dtype, len, &ReadContext::new(array_ctx.to_ids()), &SESSION)
-            .unwrap();
-
-        assert_arrays_eq!(decoded, array, &mut ctx);
-    }
-
-    #[rstest]
-    #[case::first_unused(6)]
-    #[case::negative(-1)]
-    #[case::max(i32::MAX)]
-    fn test_deserialize_rejects_unknown_values_type(#[case] raw: i32) {
-        let metadata = DecimalMetadata { values_type: raw }.encode_to_vec();
-        let buffers = [BufferHandle::new_host(ByteBuffer::zeroed(4))];
-        let children: Vec<ArrayRef> = Vec::new();
-
-        let result = Decimal.deserialize(
-            &DType::Decimal(DecimalDType::new(2, 0), Nullability::NonNullable),
-            4,
-            &metadata,
-            &buffers,
-            &children,
-            &SESSION,
-        );
-
-        let expected =
-            format!("DecimalMetadata values_type must be a known DecimalType, got {raw}");
-        assert!(result.is_err_and(|err| err.to_string().contains(&expected)));
-    }
-
-    #[rstest]
-    #[case::i8(
-        DecimalArray::from_iter([1i8, -2, 3], DecimalDType::new(2, 0)),
-        DecimalType::I8
-    )]
-    #[case::i16(
-        DecimalArray::from_iter([1i16, -2, 3], DecimalDType::new(4, 0)),
-        DecimalType::I16
-    )]
-    #[case::i32(
-        DecimalArray::from_iter([1i32, -2, 3], DecimalDType::new(9, 2)),
-        DecimalType::I32
-    )]
-    #[case::i64(
-        DecimalArray::from_iter([1i64, -2, 3], DecimalDType::new(18, 2)),
-        DecimalType::I64
-    )]
-    #[case::i128(
-        DecimalArray::from_iter([1i128, -2, 3], DecimalDType::new(38, 2)),
-        DecimalType::I128
-    )]
-    #[case::i256(
-        DecimalArray::from_iter(
-            [i256::from_i128(1), i256::from_i128(-2), i256::from_i128(3)],
-            DecimalDType::new(76, 2),
-        ),
-        DecimalType::I256
-    )]
-    fn test_serde_each_values_type(
-        #[case] array: DecimalArray,
-        #[case] values_type: DecimalType,
-    ) -> VortexResult<()> {
-        let dtype = array.dtype().clone();
-        let len = array.len();
-
-        let array_ctx = ArrayContext::empty();
-        let out = array.clone().into_array().serialize(
-            &array_ctx,
-            &SESSION,
-            &SerializeOptions::default(),
-        )?;
-        let mut concat = ByteBufferMut::empty();
-        for buf in out {
-            concat.extend_from_slice(buf.as_ref());
-        }
-
-        let parts = SerializedArray::try_from(concat.freeze())?;
-        let decoded = parts.decode(&dtype, len, &ReadContext::new(array_ctx.to_ids()), &SESSION)?;
-
-        assert_eq!(decoded.as_::<Decimal>().values_type(), values_type);
-        assert_arrays_eq!(decoded, array, &mut SESSION.create_execution_ctx());
-
-        Ok(())
-    }
-}
+mod tests;

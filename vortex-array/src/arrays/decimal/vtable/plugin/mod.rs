@@ -43,8 +43,8 @@ use crate::validity::Validity;
 /// fit the precision. [`WidenArray::from_stored_decimal`] reads any other node on the host into
 /// the canonical array or a `Widen`.
 ///
-/// A non-canonical node is copied to the host on CUDA read paths, because CUDA has no `Widen` kernel.
-/// If the copy to the host fails, the read returns an error.
+/// A non-canonical node is copied to the host on CUDA read paths, because CUDA has no `Widen`
+/// kernel. If the copy to the host fails, the read returns an error.
 ///
 /// The default [`ArraySession`] registers this plugin in place of [`Decimal`]. The plugin writes
 /// arrays as [`Decimal`] does.
