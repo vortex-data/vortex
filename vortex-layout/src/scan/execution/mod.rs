@@ -108,6 +108,8 @@ pub struct PreparedScan {
     pub(super) values: ValueCache,
     /// The rows of one chunk, the unit of work a chunk planner emits.
     pub(super) chunk_rows: usize,
+    /// The maximum selected rows in an output batch.
+    pub(super) max_output_rows: usize,
 }
 
 impl PreparedScan {

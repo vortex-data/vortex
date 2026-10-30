@@ -14,6 +14,7 @@
 
 use std::collections::VecDeque;
 use std::future;
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -49,6 +50,9 @@ use crate::RUNTIME;
 /// The chunks a thread runs beside each other on its run, so one chunk's reads overlap another's
 /// compute.
 const CHUNKS_PER_THREAD: usize = 1;
+/// The most selected rows of one output batch. DuckDB exports a batch's chunks one by one without
+/// flattening them, so a filtered range keeps reusing the dictionary it carries.
+const MAX_OUTPUT_ROWS: usize = 1_048_576;
 
 /// One file's V2 scan, shared by the threads scanning it.
 pub(crate) struct FileScan {
@@ -86,7 +90,13 @@ impl FileScan {
         splits: &[u64],
         dynamic: bool,
     ) -> VortexResult<Self> {
-        let scan = Arc::new(builder.prepare()?);
+        let scan = Arc::new(
+            builder
+                .with_max_output_rows(
+                    NonZeroUsize::new(MAX_OUTPUT_ROWS).vortex_expect("output rows are nonzero"),
+                )
+                .prepare()?,
+        );
         let reads = Arc::new(FileReads::new(scan.io(), scan.read_lifetimes()));
         let rows = scan.rows().clone();
         let claim = reads.claim(rows.clone());
