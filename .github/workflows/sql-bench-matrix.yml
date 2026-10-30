@@ -44,7 +44,7 @@ jobs:
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   # data-gen does not link DataFusion or DuckDB, so it builds well before the benchmark binaries
-  # and lets the datagen jobs start while `build` is still compiling.
+  # and lets the bench jobs generate their data while `build` is still compiling.
   build-datagen:
     timeout-minutes: 60
     env:
@@ -75,82 +75,6 @@ jobs:
         with:
           name: bench-datagen
           path: target/release_debug/data-gen
-
-  # Generates each benchmark's data on a non-metal runner with the bench machine's CPU and memory,
-  # overlapping the benchmark binary build, and publishes it to S3 for the matching bench job.
-  # Fork PRs have no AWS credentials, so their bench jobs still generate data inline.
-  datagen:
-    needs: [resolve-matrix, build-datagen]
-    if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
-    timeout-minutes: 120
-    env:
-      FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
-      COLUMNS: 120
-      AWS_REGION: "us-east-1"
-      GENERATED_DATA: "s3://vortex-ci-benchmark-datasets/${{ github.ref_name }}/${{ github.run_id }}/${{ inputs.matrix_preset }}/_generated/${{ matrix.id }}"
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJSON(needs.resolve-matrix.outputs.benchmark_matrix) }}
-    runs-on: >-
-      ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/region=us-east-1/runner=bench-dedicated/family=c8gd.24xlarge/image=ubuntu24-full-arm64-pre-v2/tag=datagen-{1}', github.run_id, matrix.id)
-          || 'ubuntu-latest' }}
-    steps:
-      - uses: runs-on/action@v2
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-        with:
-          ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }}
-          persist-credentials: false
-      - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
-        with:
-          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
-          aws-region: us-east-1
-          role-duration-seconds: 7200
-      # Clear the output and markers of an earlier attempt first, so the bench job cannot pick
-      # them up while this attempt is still generating.
-      - name: Clear previous data
-        shell: bash
-        run: aws s3 rm --recursive --only-show-errors "$GENERATED_DATA/"
-      - parallel:
-          - name: Install uv
-            uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
-            with:
-              sync: false
-          - name: Install DuckDB
-            uses: ./.github/actions/setup-duckdb
-          - name: Download data-gen
-            uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
-            with:
-              name: bench-datagen
-              path: target/release_debug/
-      - name: Generate data
-        shell: bash
-        env:
-          RUST_BACKTRACE: full
-        run: |
-          chmod +x target/release_debug/data-gen
-          uv run --project bench-orchestrator vx-bench prepare-data "${{ matrix.subcommand }}" \
-            --formats-json '${{ toJSON(matrix.data_formats) }}' \
-            ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
-      - name: Upload data
-        shell: bash
-        env:
-          REMOTE_STORAGE: "s3://vortex-ci-benchmark-datasets/${{ github.ref_name }}/${{ github.run_id }}/${{ inputs.matrix_preset }}/${{ matrix.remote_key }}/"
-        run: |
-          set -Eeuo pipefail
-          aws configure set default.s3.max_concurrent_requests 64
-          aws s3 sync --only-show-errors vortex-bench/data "$GENERATED_DATA/data/"
-          if [ -n "${{ matrix.remote_key }}" ]; then
-            aws s3 rm --recursive --only-show-errors "$REMOTE_STORAGE"
-            aws s3 cp --recursive --only-show-errors "${{ matrix.local_dir }}" "$REMOTE_STORAGE"
-          fi
-          echo "$GITHUB_RUN_ATTEMPT" | aws s3 cp - "$GENERATED_DATA/_DONE"
-      - name: Mark data generation failed
-        if: failure() || cancelled()
-        shell: bash
-        run: echo "$GITHUB_RUN_ATTEMPT" | aws s3 cp - "$GENERATED_DATA/_FAILED"
 
   build:
     timeout-minutes: 60
@@ -204,9 +128,10 @@ jobs:
                 polarsignals-cloud-token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
                 project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
 
-  # Bench does not `needs: datagen`, which would wait for every dataset; it polls S3 for its own.
+  # Bench starts once data-gen is built, generates its data, then waits for `build` to upload the
+  # benchmark binaries, so data generation overlaps the benchmark binary build.
   bench:
-    needs: [resolve-matrix, build, build-datagen]
+    needs: [resolve-matrix, build-datagen]
     timeout-minutes: 120
     env:
       FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
@@ -244,6 +169,50 @@ jobs:
 
       - uses: ./.github/actions/system-info
 
+      - name: Download data-gen
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: bench-datagen
+          path: target/release_debug/
+
+      - name: Generate data
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+        run: |
+          chmod +x target/release_debug/data-gen
+          uv run --project bench-orchestrator vx-bench prepare-data "${{ matrix.subcommand }}" \
+            --formats-json '${{ toJSON(matrix.data_formats) }}' \
+            ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
+
+      # The bench job does not `needs: build`, so wait here for its artifact. Artifacts are
+      # downloadable as soon as their upload finishes, before the uploading job completes.
+      - name: Wait for benchmark binaries
+        timeout-minutes: 60
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          run="repos/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          until [ "$(gh api "$run/artifacts?name=bench-binaries" --jq '.total_count')" -gt 0 ]; do
+            failed="$(gh api --paginate "$run/attempts/${{ github.run_attempt }}/jobs?per_page=100" \
+              --jq '.jobs[] | select((.name == "build" or (.name | endswith("/ build"))) and .status == "completed" and .conclusion != "success") | .name')"
+            if [ -n "$failed" ]; then
+              echo "::error::The benchmark binary build failed: $failed"
+              exit 1
+            fi
+            sleep 10
+          done
+      - name: Download binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: bench-binaries
+          path: target/release_debug/
+      - name: Make binaries executable
+        shell: bash
+        run: chmod +x target/release_debug/*
+
       - name: Setup AWS CLI
         if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6
@@ -253,51 +222,15 @@ jobs:
           # Expand session window, otherwise some large scale runs time out.
           role-duration-seconds: 7200
 
-      - parallel:
-          - name: Download binaries
-            uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
-            with:
-              name: bench-binaries
-              path: target/release_debug/
-          - name: Download data-gen
-            if: inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == true
-            uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
-            with:
-              name: bench-datagen
-              path: target/release_debug/
-          # A _FAILED marker from an earlier attempt is ignored, since that datagen job is
-          # rerun alongside this one; a _DONE marker from an earlier attempt is reused.
-          - name: Download generated data
-            if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
-            timeout-minutes: 90
-            shell: bash
-            env:
-              AWS_REGION: "us-east-1"
-              GENERATED_DATA: "s3://vortex-ci-benchmark-datasets/${{ github.ref_name }}/${{ github.run_id }}/${{ inputs.matrix_preset }}/_generated/${{ matrix.id }}"
-            run: |
-              set -Eeuo pipefail
-              until aws s3 ls "$GENERATED_DATA/_DONE" > /dev/null; do
-                if [ "$(aws s3 cp "$GENERATED_DATA/_FAILED" - 2> /dev/null || true)" = "$GITHUB_RUN_ATTEMPT" ]; then
-                  echo "::error::Data generation for ${{ matrix.id }} failed, see its datagen job"
-                  exit 1
-                fi
-                sleep 10
-              done
-              aws configure set default.s3.max_concurrent_requests 64
-              aws s3 sync --only-show-errors "$GENERATED_DATA/data/" vortex-bench/data/
-      - name: Make binaries executable
-        shell: bash
-        run: chmod +x target/release_debug/*
-
-      - name: Generate data
-        if: inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == true
+      - name: Upload data
+        if: matrix.remote_key != null && (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false)
         shell: bash
         env:
-          RUST_BACKTRACE: full
+          AWS_REGION: "us-east-1"
+          REMOTE_STORAGE: "s3://vortex-ci-benchmark-datasets/${{ github.ref_name }}/${{ github.run_id }}/${{ inputs.matrix_preset }}/${{ matrix.remote_key }}/"
         run: |
-          uv run --project bench-orchestrator vx-bench prepare-data "${{ matrix.subcommand }}" \
-            --formats-json '${{ toJSON(matrix.data_formats) }}' \
-            ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
+          aws s3 rm --recursive "$REMOTE_STORAGE"
+          aws s3 cp --recursive "${{ matrix.local_dir }}" "$REMOTE_STORAGE"
 
       - name: Setup Polar Signals
         if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
