@@ -30,8 +30,10 @@ mod tests;
 
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldPath;
 use vortex_array::expr::BoundExpression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -39,6 +41,7 @@ use vortex_expr::analysis::referenced_field_paths;
 use vortex_scan::selection::Selection;
 use vortex_scan::strict_sorted_buffer::StrictSortedBuffer;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_map::HashMap;
 
 pub use self::cache::ScanCache;
 pub use self::cache::WeakScanCache;
@@ -56,6 +59,7 @@ pub use crate::scan::execution::PrunePlanner;
 use crate::scan::execution::ROW_BLOCK_SIZE;
 pub use crate::scan::execution::SegmentLocation;
 use crate::scan::execution::rows_per_chunk;
+use crate::scan::execution::uncompressed_rows_per_chunk;
 use crate::scan::v2::io::segment_ranges;
 use crate::segments::SegmentSource;
 
@@ -100,7 +104,31 @@ pub struct ScanBuilder {
     row_range: Option<Range<u64>>,
     selection: Selection,
     row_offset: u64,
+    uncompressed_field_sizes: Option<Arc<HashMap<FieldPath, u64>>>,
 }
+
+/// Experimental chunk sizing, read once from the environment.
+///
+/// `VORTEX_SCAN_CHUNK_ROWS=<rows>` cuts every scan into chunks of `rows`, rounded up to the
+/// 8,192-row block. `VORTEX_SCAN_CHUNK_BYTES=<bytes>` sizes the chunks of a scan given its
+/// fields' uncompressed sizes so the fields the filter and projection reference decode to about
+/// `bytes` per chunk. Fixed rows win over bytes.
+struct ChunkSizing {
+    rows: Option<usize>,
+    uncompressed_bytes: Option<u64>,
+}
+
+static CHUNK_SIZING: LazyLock<ChunkSizing> = LazyLock::new(|| {
+    let var = |name: &str| std::env::var(name).ok().and_then(|v| v.parse::<u64>().ok());
+    ChunkSizing {
+        rows: var("VORTEX_SCAN_CHUNK_ROWS").filter(|&rows| rows > 0).map(|rows| {
+            usize::try_from(rows.div_ceil(ROW_BLOCK_SIZE as u64))
+                .vortex_expect("chunk rows fit usize")
+                * ROW_BLOCK_SIZE
+        }),
+        uncompressed_bytes: var("VORTEX_SCAN_CHUNK_BYTES").filter(|&bytes| bytes > 0),
+    }
+});
 
 impl ScanBuilder {
     /// Creates a V2 scan over the file's layout and segment source.
@@ -113,6 +141,7 @@ impl ScanBuilder {
             row_range: None,
             selection: Selection::default(),
             row_offset: 0,
+            uncompressed_field_sizes: None,
         }
     }
 
@@ -161,6 +190,13 @@ impl ScanBuilder {
         self
     }
 
+    /// Sets the uncompressed size in bytes of each of the file's fields, from the file's
+    /// statistics, so chunks can be sized by the bytes the scan decodes.
+    pub fn with_uncompressed_field_sizes(mut self, sizes: Arc<HashMap<FieldPath, u64>>) -> Self {
+        self.uncompressed_field_sizes = Some(sizes);
+        self
+    }
+
     /// Lowers the file's layout and plans the filter and the projection, from the file's cache
     /// where an earlier scan planned them already. Touches no segment. Lowering and optimizing a
     /// wide file is real CPU, so a driver runs this where it runs compute.
@@ -172,6 +208,16 @@ impl ScanBuilder {
             None => cache.insert_root(lower(&file.layout)?),
         };
         let row_count = root.row_count();
+        let uncompressed_chunk_rows = match (
+            CHUNK_SIZING.uncompressed_bytes,
+            self.uncompressed_field_sizes.as_deref(),
+        ) {
+            (Some(target), Some(sizes)) => {
+                referenced_uncompressed_bytes(&self.projection, self.filter.as_ref(), sizes)?
+                    .map(|bytes| uncompressed_rows_per_chunk(row_count, bytes, target))
+            }
+            _ => None,
+        };
         let filtered_chunk_rows = self
             .filter
             .as_ref()
@@ -203,7 +249,9 @@ impl ScanBuilder {
                 cache.insert_projection(self.projection, plan)
             }
         };
-        let chunk_rows = if let Some(rows) = filtered_chunk_rows {
+        let chunk_rows = if let Some(rows) = CHUNK_SIZING.rows.or(uncompressed_chunk_rows) {
+            rows
+        } else if let Some(rows) = filtered_chunk_rows {
             rows
         } else if identity {
             rows_per_chunk(row_count, &file.locations)
@@ -230,6 +278,33 @@ impl ScanBuilder {
             chunk_rows,
         })
     }
+}
+
+/// The uncompressed bytes of the fields the projection and filter reference, or `None` when the
+/// scan references the whole row or a field without a known size.
+fn referenced_uncompressed_bytes(
+    projection: &BoundExpression,
+    filter: Option<&BoundExpression>,
+    sizes: &HashMap<FieldPath, u64>,
+) -> VortexResult<Option<u64>> {
+    let mut fields = referenced_field_paths(projection)?;
+    if let Some(filter) = filter {
+        fields.extend(referenced_field_paths(filter)?);
+    }
+    // Iterating the set drops paths nested in another, so no field is counted twice.
+    let mut bytes = 0u64;
+    let mut any = false;
+    for field in fields {
+        if field.is_root() {
+            return Ok(None);
+        }
+        let Some(size) = sizes.get(&field) else {
+            return Ok(None);
+        };
+        bytes += size;
+        any = true;
+    }
+    Ok(any.then_some(bytes))
 }
 
 fn filtered_rows_per_chunk(

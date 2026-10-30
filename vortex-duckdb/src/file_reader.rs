@@ -9,6 +9,9 @@ use std::sync::atomic::Ordering;
 use futures::FutureExt;
 use object_store::registry::ObjectStoreRegistry;
 use url::Url;
+use vortex::aggregate_fn::AggregateFnVTableExt as _;
+use vortex::aggregate_fn::EmptyOptions;
+use vortex::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::struct_::StructArrayExt as _;
@@ -33,6 +36,7 @@ use vortex::layout::scan::v2::ScanBuilder as V2ScanBuilder;
 use vortex::layout::scan::v2::ScanFile;
 use vortex::mask::Mask;
 use vortex::session::SessionExt as _;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::REGISTRY;
 use crate::RUNTIME;
@@ -126,6 +130,8 @@ pub struct FileScanState {
     reader: LayoutReaderRef,
     /// The file as the V2 executor reads it.
     scan_file: ScanFile,
+    /// The uncompressed size of each field the file's statistics record it for.
+    uncompressed_field_sizes: Arc<HashMap<FieldPath, u64>>,
     /// The file's V2 scan, which every thread scanning the file drives. Set when the file is
     /// initialized for a V2 scan.
     v2: OnceLock<FileScan>,
@@ -139,10 +145,12 @@ impl OpenFileReader {
         let file = open_cached(&SESSION, Some(&path), source, None, &|options| options).await?;
         let mut scan_file = file.scan_file();
         scan_file.cache.get_or_insert_default();
+        let uncompressed_field_sizes = Arc::new(uncompressed_field_sizes(file.footer()));
         Ok(OpenFileReader {
             scan_state: Some(Arc::new(FileScanState {
                 reader: file.layout_reader()?,
                 scan_file,
+                uncompressed_field_sizes,
                 v2: OnceLock::new(),
                 cache: ConversionCache::default(),
             })),
@@ -174,6 +182,23 @@ impl OpenFileReader {
             None => Ok(false),
         }
     }
+}
+
+/// The exact uncompressed size in bytes of each field the footer's statistics record it for.
+fn uncompressed_field_sizes(footer: &Footer) -> HashMap<FieldPath, u64> {
+    let Some(stats) = footer.statistics() else {
+        return HashMap::default();
+    };
+    let size = UncompressedSizeInBytes.bind(EmptyOptions);
+    stats
+        .paths()
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, path)| {
+            let bytes = stats.get(idx).0.get(&size).as_exact()?;
+            Some((path.clone(), bytes.as_primitive().as_u64()?))
+        })
+        .collect()
 }
 
 /// Called once per file while initializing the scan under file-local lock.
@@ -260,6 +285,7 @@ fn v2_builder(state: &FileScanState, global: &GlobalState) -> V2ScanBuilder {
         .with_some_filter(filter.filter.clone())
         .with_selection(filter.row_selection.clone())
         .with_row_range(rows)
+        .with_uncompressed_field_sizes(Arc::clone(&state.uncompressed_field_sizes))
 }
 
 /// What a thread's split yields next.

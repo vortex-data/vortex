@@ -30,6 +30,8 @@ pub(crate) const MAX_ROWS_PER_CHUNK: usize = 8 * ROW_BLOCK_SIZE;
 /// The rows of a filtered chunk, balancing conjunct setup against parallelism.
 pub(crate) const FILTERED_ROWS_PER_CHUNK: usize = 16 * ROW_BLOCK_SIZE;
 const TARGET_BYTES_PER_CHUNK: u64 = 8 * 1024 * 1024;
+/// The most row blocks a chunk sized by uncompressed bytes spans.
+const MAX_BLOCKS_PER_UNCOMPRESSED_CHUNK: u64 = 128;
 
 /// Limit estimated bytes per chunk without changing the writer-aligned row granularity.
 pub(crate) fn rows_per_chunk(row_count: u64, locations: &[SegmentLocation]) -> usize {
@@ -43,6 +45,19 @@ pub(crate) fn rows_per_chunk(row_count: u64, locations: &[SegmentLocation]) -> u
     let bytes_per_row = bytes.div_ceil(row_count).max(1);
     let blocks = TARGET_BYTES_PER_CHUNK / bytes_per_row / ROW_BLOCK_SIZE as u64;
     blocks.clamp(1, 8) as usize * ROW_BLOCK_SIZE
+}
+
+/// The rows of a chunk whose referenced fields decode to about `target_bytes` uncompressed bytes,
+/// given those fields decode to `uncompressed_bytes` over the file's `row_count` rows. The rows
+/// stay a multiple of the 8,192-row block, and at least one block.
+pub(crate) fn uncompressed_rows_per_chunk(
+    row_count: u64,
+    uncompressed_bytes: u64,
+    target_bytes: u64,
+) -> usize {
+    let bytes_per_row = uncompressed_bytes.div_ceil(row_count.max(1)).max(1);
+    let blocks = target_bytes / bytes_per_row / ROW_BLOCK_SIZE as u64;
+    blocks.clamp(1, MAX_BLOCKS_PER_UNCOMPRESSED_CHUNK) as usize * ROW_BLOCK_SIZE
 }
 
 /// Fixed boundaries in the file's row domain, clipped to the requested range.
