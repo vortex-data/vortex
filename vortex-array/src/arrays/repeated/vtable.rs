@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::hash::Hash;
-use std::hash::Hasher;
 use std::iter;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
@@ -14,11 +13,9 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::AnyCanonical;
-use crate::ArrayEq;
-use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::EqMode;
+use crate::EmptyArrayData;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
@@ -35,9 +32,7 @@ use crate::arrays::ChunkedArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::repeated::RepeatedArraySlotsExt;
-use crate::arrays::repeated::RepeatedData;
 use crate::arrays::repeated::RepeatedSlots;
-use crate::arrays::repeated::array::repeated_len;
 use crate::arrays::repeated::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -54,20 +49,8 @@ pub struct Repeated;
 /// A [`Repeated`]-encoded array, which repeats its child end to end.
 pub type RepeatedArray = Array<Repeated>;
 
-impl ArrayHash for RepeatedData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, _accuracy: EqMode) {
-        self.count.hash(state);
-    }
-}
-
-impl ArrayEq for RepeatedData {
-    fn array_eq(&self, other: &Self, _accuracy: EqMode) -> bool {
-        self.count == other.count
-    }
-}
-
 impl VTable for Repeated {
-    type TypedArrayData = RepeatedData;
+    type TypedArrayData = EmptyArrayData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
@@ -79,7 +62,7 @@ impl VTable for Repeated {
 
     fn validate(
         &self,
-        data: &RepeatedData,
+        _data: &EmptyArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
@@ -93,10 +76,9 @@ impl VTable for Repeated {
             dtype,
             "Repeated child dtype does not match outer dtype"
         );
-        vortex_ensure_eq!(
-            repeated_len(child.len(), data.count)?,
-            len,
-            "Repeated length does not match child length times count"
+        vortex_ensure!(
+            len == 0 || !child.is_empty(),
+            "Repeated cannot repeat an empty child to {len} rows"
         );
         Ok(())
     }
@@ -153,8 +135,8 @@ impl VTable for Repeated {
             .clone()
             .execute::<Canonical>(ctx)?
             .into_array();
-        for _ in 0..array.count {
-            child.append_to_builder(builder, ctx)?;
+        for copy in copies(&child, array.len())? {
+            copy.append_to_builder(builder, ctx)?;
         }
         Ok(())
     }
@@ -164,6 +146,11 @@ impl VTable for Repeated {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        if array.is_empty() {
+            return Ok(ExecutionResult::done(
+                Canonical::empty(array.dtype()).into_array(),
+            ));
+        }
         if array.child().len() == 1 {
             let scalar = array.child().execute_scalar(0, ctx)?;
             return Ok(ExecutionResult::done(
@@ -174,8 +161,8 @@ impl VTable for Repeated {
         let array = require_child!(array, array.child(), RepeatedSlots::CHILD => AnyCanonical);
 
         // Decode the child once, then let `Chunked` append the decoded child once per copy.
-        let copies = iter::repeat_n(array.child().clone(), array.count);
-        let chunked = ChunkedArray::try_new(copies, array.dtype().clone())?;
+        let chunked =
+            ChunkedArray::try_new(copies(array.child(), array.len())?, array.dtype().clone())?;
         Ok(ExecutionResult::done(chunked.into_array()))
     }
 
@@ -183,21 +170,21 @@ impl VTable for Repeated {
         if array.is_empty() {
             return Ok(Some(Canonical::empty(array.dtype()).into_array()));
         }
-        if array.count == 1 {
-            return Ok(Some(array.child().clone()));
+        let child = array.child();
+        if array.len() <= child.len() {
+            return Ok(Some(child.slice(0..array.len())?));
         }
-        if let Some(constant) = array.child().as_opt::<Constant>() {
+        if let Some(constant) = child.as_opt::<Constant>() {
             return Ok(Some(
                 ConstantArray::new(constant.scalar().clone(), array.len()).into_array(),
             ));
         }
-        if let Some(inner) = array.child().as_opt::<Repeated>() {
-            let count = inner
-                .count
-                .checked_mul(array.count)
-                .ok_or_else(|| vortex_err!("Repeated count overflows usize"))?;
+        // An inner repeat that ends on a whole copy of its own child repeats that child exactly.
+        if let Some(inner) = child.as_opt::<Repeated>()
+            && inner.len().is_multiple_of(inner.child().len())
+        {
             return Ok(Some(
-                RepeatedArray::try_new(inner.child().clone(), count)?.into_array(),
+                RepeatedArray::try_new(inner.child().clone(), array.len())?.into_array(),
             ));
         }
         Ok(None)
@@ -210,6 +197,15 @@ impl VTable for Repeated {
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
+}
+
+/// Returns the copies of the non-empty `child` that make up `len` rows: whole copies of `child`,
+/// then a prefix of it for the last, partial copy.
+fn copies(child: &ArrayRef, len: usize) -> VortexResult<impl Iterator<Item = ArrayRef>> {
+    let whole = len / child.len();
+    let rest = len % child.len();
+    let partial = (rest > 0).then(|| child.slice(0..rest)).transpose()?;
+    Ok(iter::repeat_n(child.clone(), whole).chain(partial))
 }
 
 impl OperationsVTable<Repeated> for Repeated {
@@ -240,7 +236,7 @@ impl ValidityVTable<Repeated> for Repeated {
     fn validity(array: ArrayView<'_, Repeated>) -> VortexResult<Validity> {
         Ok(match array.child().validity()? {
             Validity::Array(validity) => {
-                Validity::Array(RepeatedArray::try_new(validity, array.count)?.into_array())
+                Validity::Array(RepeatedArray::try_new(validity, array.len())?.into_array())
             }
             validity => validity,
         })

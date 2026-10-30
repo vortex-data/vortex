@@ -24,31 +24,25 @@ impl SliceReduce for Repeated {
         // The range is non-empty, so the child is too.
         let child = array.child();
         let child_len = child.len();
-        let first_copy = range.start / child_len;
-        let offset = first_copy * child_len;
+        let rotation = range.start % child_len;
 
         // A range inside one copy is a slice of the child.
-        if range.end - offset <= child_len {
-            return Ok(Some(child.slice(range.start - offset..range.end - offset)?));
+        if rotation + range.len() <= child_len {
+            return Ok(Some(child.slice(rotation..rotation + range.len())?));
         }
 
-        // A range whose length is a whole number of copies repeats the child rotated to start where
-        // the range does.
-        if range.len().is_multiple_of(child_len) {
-            let rotation = range.start - offset;
-            let rotated = if rotation == 0 {
-                child.clone()
-            } else {
-                ChunkedArray::try_new(
-                    [child.slice(rotation..child_len)?, child.slice(0..rotation)?],
-                    child.dtype().clone(),
-                )?
-                .into_array()
-            };
-            let count = range.len() / child_len;
-            return Ok(Some(RepeatedArray::try_new(rotated, count)?.into_array()));
-        }
-
-        Ok(None)
+        // Any other range repeats the child rotated to start where the range does.
+        let rotated = if rotation == 0 {
+            child.clone()
+        } else {
+            ChunkedArray::try_new(
+                [child.slice(rotation..child_len)?, child.slice(0..rotation)?],
+                child.dtype().clone(),
+            )?
+            .into_array()
+        };
+        Ok(Some(
+            RepeatedArray::try_new(rotated, range.len())?.into_array(),
+        ))
     }
 }

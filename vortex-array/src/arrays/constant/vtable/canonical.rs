@@ -490,8 +490,8 @@ fn tile_fixed_size_list_elements(
                 return tile;
             }
 
-            RepeatedArray::try_new(tile, len)
-                .vortex_expect("repeated elements length is the run's elements length")
+            RepeatedArray::try_new(tile, elements_len)
+                .vortex_expect("a non-empty tile repeats to any length")
                 .into_array()
         }
     }
@@ -1089,11 +1089,10 @@ mod tests {
         assert_eq!(canonical.elements().len(), 2 * LEN);
         let repeated = canonical.elements().as_::<Repeated>();
         assert_eq!(
-            repeated.count(),
-            LEN,
+            repeated.child().len(),
+            2,
             "every row should reference the same tile rather than hold its own copy",
         );
-        assert_eq!(repeated.child().len(), 2);
         for index in [0, 1, LEN - 1] {
             assert_arrays_eq!(
                 canonical.fixed_size_list_elements_at(index).unwrap(),
