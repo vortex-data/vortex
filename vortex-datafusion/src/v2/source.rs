@@ -88,6 +88,7 @@ use datafusion_common::arrow::array::AsArray;
 use datafusion_common::arrow::array::RecordBatch;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::stats::Precision as DFPrecision;
+use datafusion_common::tree_node::TreeNode;
 use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::source::DataSource;
 use datafusion_datasource::source::OpenArgs;
@@ -101,6 +102,7 @@ use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::expressions::Column;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::utils::reassign_expr_columns;
+use datafusion_physical_expr_common::physical_expr::is_volatile;
 use datafusion_physical_expr_common::sort_expr::LexOrdering;
 use datafusion_physical_expr_common::sort_expr::PhysicalSortExpr;
 use datafusion_physical_plan::DisplayFormatType;
@@ -133,6 +135,8 @@ use vortex::expr::root;
 use vortex::expr::stats::Precision;
 use vortex::expr::transform::replace;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::scalar_fn::fns::get_item::GetItem;
+use vortex::scalar_fn::fns::pack::Pack;
 use vortex::scan::DataSourceRef;
 use vortex::scan::PartitionStream;
 use vortex::scan::ScanRequest;
@@ -318,9 +322,25 @@ impl VortexDataSourceBuilder {
         .await?
         .iter()
         .zip(fields.fields())
-        .map(|(stats, dtype)| stats_set_to_df(stats, &dtype))
+        .zip(arrow_schema.fields())
+        .map(|((stats, dtype), field)| {
+            let mut statistics = stats_set_to_df(stats, &dtype)?;
+            statistics.min_value = statistics
+                .min_value
+                .cast_to(field.data_type())
+                .unwrap_or(DFPrecision::Absent);
+            statistics.max_value = statistics
+                .max_value
+                .cast_to(field.data_type())
+                .unwrap_or(DFPrecision::Absent);
+            Ok(statistics)
+        })
         .collect::<VortexResult<Vec<_>>>()?;
 
+        let output_projection = ProjectionExprs::from_indices(
+            &(0..arrow_schema.fields().len()).collect::<Vec<_>>(),
+            &arrow_schema,
+        );
         Ok(VortexDataSource {
             data_source: self.data_source,
             session: self.session,
@@ -332,6 +352,7 @@ impl VortexDataSourceBuilder {
             initial_schema: Arc::clone(&arrow_schema),
             initial_projection: projection.clone(),
             initial_statistics: statistics.clone(),
+            output_projection,
             projected_projection: projection.clone(),
             projected_schema: Arc::clone(&arrow_schema),
             projected_statistics: statistics.clone(),
@@ -402,8 +423,9 @@ pub struct VortexDataSource {
     /// The initial Vortex projection expression (e.g. column selection from the builder).
     initial_projection: Expression,
     /// Column statistics for the initial projection columns.
-    #[expect(dead_code)]
     initial_statistics: Vec<ColumnStatistics>,
+    /// The DataFusion projection from the initial schema to the current output.
+    output_projection: ProjectionExprs,
 
     // --- Phase 2: Projected (pushed into the Vortex scan) ---
     /// The Vortex projection expression sent in the [`ScanRequest`].
@@ -859,8 +881,6 @@ impl DataSource for VortexDataSource {
         self.limit
     }
 
-    // Note that we're explicitly "swapping" the projection. That means everything we do must
-    // be computed over the original input schema, rather than the projected output schema.
     fn try_swapping_with_projection(
         &self,
         projection: &ProjectionExprs,
@@ -869,6 +889,11 @@ impl DataSource for VortexDataSource {
             "VortexScanSource: trying to swap with projection: {}",
             projection
         );
+
+        if would_duplicate_costly_exprs(&self.output_projection, projection) {
+            return Ok(None);
+        }
+        let projection = self.output_projection.try_merge(projection)?;
 
         let converter = &self.expression_converter;
         let input_schema = self.initial_schema.as_ref();
@@ -882,6 +907,24 @@ impl DataSource for VortexDataSource {
             scan_reference_schema,
             leftover_projection,
         } = converter.split_projection(projection.clone(), input_schema, &projected_schema)?;
+
+        let projected_statistics = direct_projection_statistics(
+            &scan_projection,
+            input_schema,
+            &self.initial_statistics,
+            scan_reference_schema.fields().len(),
+        );
+        let leftover_statistics = projection
+            .iter()
+            .map(|projection| {
+                projection
+                    .expr
+                    .downcast_ref::<Column>()
+                    .and_then(|column| self.initial_statistics.get(column.index()))
+                    .cloned()
+                    .unwrap_or_else(ColumnStatistics::new_unknown)
+            })
+            .collect();
 
         // Compose with the initial projection so the scan operates on the original
         // source columns, not the initial projection's output columns.
@@ -904,15 +947,14 @@ impl DataSource for VortexDataSource {
         let final_schema = Arc::new(projected_schema);
 
         let mut this = self.clone();
-        this.output_ordering = project_output_ordering(self.initial_ordering.as_ref(), projection);
+        this.output_ordering = project_output_ordering(self.initial_ordering.as_ref(), &projection);
+        this.output_projection = projection;
         this.projected_projection = scan_projection;
         this.projected_schema = Arc::clone(&scan_output_schema);
-        this.projected_statistics =
-            vec![ColumnStatistics::new_unknown(); scan_output_schema.fields().len()];
+        this.projected_statistics = projected_statistics;
         this.leftover_projection = Some(leftover_projection);
         this.leftover_schema = Arc::clone(&final_schema);
-        this.leftover_statistics =
-            vec![ColumnStatistics::new_unknown(); final_schema.fields().len()];
+        this.leftover_statistics = leftover_statistics;
 
         Ok(Some(Arc::new(this)))
     }
@@ -988,6 +1030,55 @@ impl DataSource for VortexDataSource {
             f,
         )
     }
+}
+
+fn would_duplicate_costly_exprs(inner: &ProjectionExprs, outer: &ProjectionExprs) -> bool {
+    let mut references = vec![0_usize; inner.as_ref().len()];
+    for projection in outer {
+        projection
+            .expr
+            .apply(|expr| {
+                if let Some(column) = expr.downcast_ref::<Column>()
+                    && let Some(count) = references.get_mut(column.index())
+                {
+                    *count += 1;
+                }
+                Ok(TreeNodeRecursion::Continue)
+            })
+            .expect("column traversal is infallible");
+    }
+    inner.iter().zip(references).any(|(projection, count)| {
+        count > 1
+            && (is_volatile(&projection.expr)
+                || !projection.expr.placement().should_push_to_leaves())
+    })
+}
+
+fn direct_projection_statistics(
+    projection: &Expression,
+    input_schema: &Schema,
+    statistics: &[ColumnStatistics],
+    output_fields: usize,
+) -> Vec<ColumnStatistics> {
+    if projection.is_root() {
+        return statistics.to_vec();
+    }
+    if projection.as_opt::<Pack>().is_none() {
+        return vec![ColumnStatistics::new_unknown(); output_fields];
+    }
+    projection
+        .children()
+        .iter()
+        .map(|child| {
+            child
+                .as_opt::<GetItem>()
+                .filter(|_| child.child(0).is_root())
+                .and_then(|name| input_schema.index_of(name.as_ref()).ok())
+                .and_then(|index| statistics.get(index))
+                .cloned()
+                .unwrap_or_else(ColumnStatistics::new_unknown)
+        })
+        .collect()
 }
 
 fn project_output_ordering(
