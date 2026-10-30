@@ -61,14 +61,31 @@ vx-bench run <benchmark> [options]
 Generate only the data formats needed for a benchmark run.
 
 ```bash
-vx-bench prepare-data <benchmark> [options]
+vx-bench prepare-data <benchmark>... [options]
 ```
 
 **Options:**
 
 - `--format, -f`: Formats to generate, comma-separated
 - `--formats-json`: Exact data formats as JSON, e.g. `'["parquet","vortex"]'`
-- `--opt`: Benchmark-specific options such as `scale-factor=10.0`
+- `--opt`: Benchmark-specific options such as `scale-factor=10.0`, passed to every benchmark
+- `--parallel`: Generate the benchmarks concurrently, prefixing each output line with its name
+
+### `prepare-slt` - Generate SQL Logic Test Fixtures
+
+Generate the TPC-H, TPC-DS and ClickBench fixtures that `vortex-sqllogictest` reads, with the
+same `data-gen` binary as the benchmarks, and copy them into `vortex-sqllogictest/slt/<dataset>/data/`.
+Vortex files are reconverted on every run.
+
+```bash
+vx-bench prepare-slt [tpch] [tpcds] [clickbench] [options]
+```
+
+**Options:**
+
+- `--parallel`: Generate the datasets concurrently
+- `--build/--no-build`: Build `data-gen` first (default: build)
+- `--profile`: Cargo profile of the `data-gen` binary (default: `release`)
 
 
 ### `matrix` - Render a CI Benchmark Matrix

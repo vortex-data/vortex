@@ -170,7 +170,7 @@ fn engines_for(path: &Path) -> (bool, bool) {
     (datafusion, duckdb)
 }
 
-/// Suites whose tables come from a `generate_data.sh` script rather than the
+/// Suites whose tables come from `vx-bench prepare-slt` rather than the
 /// test itself: the `slt/` subdirectory holding the suite, and a file whose
 /// Vortex and Parquet versions both have to exist for the suite to run.
 const GENERATED_DATASETS: &[(&str, &str)] = &[

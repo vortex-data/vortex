@@ -1,9 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-# Checks that every Vortex table produced by generate_data.sh holds exactly the
-# same rows as the Parquet table it was converted from. generate_data.sh runs
-# this file right after the conversion, and it also runs as part of the suite.
+# Checks that every Vortex table produced by `vx-bench prepare-slt` holds
+# exactly the same rows as the Parquet table it was converted from.
 
 include ../../setup.slt.no
 
