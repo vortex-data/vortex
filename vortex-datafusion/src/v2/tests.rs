@@ -362,14 +362,15 @@ async fn statistics_follow_filter_and_fetch() -> anyhow::Result<()> {
 }
 
 #[rstest]
-#[case(Operator::And, vec![30, 20], vec![30], vec![20])]
-#[case(Operator::Or, vec![30, 10, 20], vec![30, 20], vec![30, 20])]
+#[case(Operator::And, vec![30, 20], vec![30], vec![20], vec![])]
+#[case(Operator::Or, vec![30, 10, 20], vec![30, 20], vec![30, 20], vec![30, 20])]
 #[tokio::test]
 async fn dynamic_filters_refresh_projected_bounds_and_keep_residuals(
     #[case] operator: Operator,
     #[case] unrestricted: Vec<i32>,
     #[case] above_bound: Vec<i32>,
     #[case] equal_bound: Vec<i32>,
+    #[case] unsupported_result: Vec<i32>,
 ) -> anyhow::Result<()> {
     let source = vortex_source()
         .await?
@@ -409,7 +410,13 @@ async fn dynamic_filters_refresh_projected_bounds_and_keep_residuals(
         })
     })?;
     assert!(visited);
-    // An unsupported dynamic predicate must not erase the static AND restriction.
+    let source = source
+        .try_swapping_with_projection(&ProjectionExprs::from(vec![ProjectionExpr::new(
+            Arc::new(df_expr::Column::new("value", 0)),
+            "renamed",
+        )]))?
+        .expect("native filters retain their inputs across output projection");
+    // DataFusion evaluates opaque live predicates before rows leave the scan.
     let unsupported = Arc::new(df_expr::BinaryExpr::new(
         Arc::new(df_expr::BinaryExpr::new(
             Arc::clone(&column),
@@ -430,7 +437,7 @@ async fn dynamic_filters_refresh_projected_bounds_and_keep_residuals(
             )) as Arc<dyn PhysicalExpr>,
             equal_bound,
         ),
-        (unsupported as Arc<dyn PhysicalExpr>, unrestricted),
+        (unsupported as Arc<dyn PhysicalExpr>, unsupported_result),
     ] {
         let stream = source.open(0, SessionContext::new().task_ctx())?;
         let schema = stream.schema();

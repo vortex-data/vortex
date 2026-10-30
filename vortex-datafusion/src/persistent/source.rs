@@ -15,6 +15,7 @@ use datafusion_datasource::file_groups::FileGroupPartitioner;
 use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
+use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::EquivalenceProperties;
 use datafusion_physical_expr::LexOrdering;
 use datafusion_physical_expr::PhysicalExprRef;
@@ -526,10 +527,10 @@ impl FileSource for VortexSource {
             })
             .collect::<DFResult<Vec<_>>>()?;
 
-        if supported_filters
-            .iter()
-            .all(|p| matches!(p.discriminant, PushedDown::No))
-        {
+        if supported_filters.iter().all(|p| {
+            matches!(p.discriminant, PushedDown::No)
+                && !DynamicFilterTracking::classify(&p.predicate).contains_dynamic_filter()
+        }) {
             return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
                 vec![PushedDown::No; supported_filters.len()],
             )
@@ -538,9 +539,10 @@ impl FileSource for VortexSource {
 
         let supported = supported_filters
             .iter()
-            .filter_map(|p| match p.discriminant {
-                PushedDown::Yes => Some(&p.predicate),
-                PushedDown::No => None,
+            .filter_map(|p| {
+                (matches!(p.discriminant, PushedDown::Yes)
+                    || DynamicFilterTracking::classify(&p.predicate).contains_dynamic_filter())
+                .then_some(&p.predicate)
             })
             .cloned();
 
@@ -605,6 +607,7 @@ mod tests {
     use datafusion_physical_expr::ScalarFunctionExpr;
     use datafusion_physical_expr::expressions as df_expr;
     use datafusion_physical_expr::expressions::Column;
+    use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
     use object_store::memory::InMemory;
     use vortex::VortexSessionDefault;
 
@@ -751,6 +754,26 @@ mod tests {
             .clone();
         assert_eq!(updated_source.vortex_predicate.as_ref(), Some(&filter));
         assert_eq!(updated_source.full_predicate.as_ref(), Some(&filter));
+        Ok(())
+    }
+
+    #[test]
+    fn dynamic_filter_is_a_hint_and_respects_disabled_pushdown() -> anyhow::Result<()> {
+        let schema = Arc::new(Schema::new(vec![Field::new("name", DataType::Utf8, false)]));
+        let filter = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![Arc::new(Column::new("name", 0))],
+            df_expr::lit(true),
+        )) as Arc<dyn PhysicalExpr>;
+        for enabled in [true, false] {
+            let source = sort_test_source(Arc::clone(&schema)).with_predicate_pushdown(enabled);
+            let result =
+                source.try_pushdown_filters(vec![Arc::clone(&filter)], &ConfigOptions::new())?;
+            assert!(matches!(result.filters.as_slice(), [PushedDown::No]));
+            let updated = result.updated_node.unwrap();
+            let source = updated.downcast_ref::<VortexSource>().unwrap();
+            assert_eq!(source.vortex_predicate.is_some(), enabled);
+            assert_eq!(source.full_predicate.as_ref(), Some(&filter));
+        }
         Ok(())
     }
 

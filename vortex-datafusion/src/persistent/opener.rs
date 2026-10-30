@@ -23,6 +23,7 @@ use datafusion_datasource::file_stream::FileOpenFuture;
 use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::CachedFileMetadataEntry;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
+use datafusion_physical_expr::DynamicFilterTracking;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::expressions::LambdaExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
@@ -74,6 +75,7 @@ use vortex_utils::aliases::dash_map::Entry;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::VortexAccessPlan;
+use crate::convert::dynamic_filters::convert_dynamic_filter;
 use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::exprs::raw_projection;
@@ -94,8 +96,8 @@ pub(crate) struct VortexOpener {
     /// Optional table schema projection. The indices are w.r.t. the `table_schema`, which is
     /// all fields in the final scan result not including the partition columns.
     pub projection: ProjectionExprs,
-    /// Exact filter accepted during planning. Per-file adaptation may move parts
-    /// of it to DataFusion residual evaluation before projection and limits.
+    /// Accepted filters and conservative dynamic hints. Per-file adaptation may move
+    /// exact filters to DataFusion residual evaluation before projection and limits.
     pub filter: Option<PhysicalExprRef>,
     /// Filter expression used by DataFusion's FilePruner to eliminate files based on
     /// statistics and partition values without opening them.
@@ -330,6 +332,14 @@ impl FileOpener for VortexOpener {
                     ));
                 }
                 for expr in split_conjunction(filter) {
+                    if DynamicFilterTracking::classify(expr).contains_dynamic_filter() {
+                        native_filters.push(convert_dynamic_filter(
+                            Arc::clone(expr),
+                            Arc::clone(&this_file_schema),
+                            Arc::clone(&expr_converter),
+                        ));
+                        continue;
+                    }
                     let converted = expr_converter
                         .try_convert(expr, &this_file_schema)
                         .map_err(|e| {

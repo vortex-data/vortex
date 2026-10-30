@@ -144,7 +144,7 @@ use vortex::session::VortexSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_utils::parallelism::get_available_parallelism;
 
-use super::dynamic_filters::convert_dynamic_filter;
+use crate::convert::dynamic_filters::convert_dynamic_filter;
 use crate::convert::exprs::DefaultExpressionConverter;
 use crate::convert::exprs::ExpressionConverter;
 use crate::convert::exprs::ProcessedProjection;
