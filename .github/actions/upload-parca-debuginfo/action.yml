@@ -66,52 +66,9 @@ runs:
         FORCE: ${{ inputs.force }}
       run: |
         set -Eeu -o pipefail
-
-        token_file="$(mktemp)"
-        upload_log="$(mktemp)"
-        trap 'rm -f "$token_file" "$upload_log"' EXIT
-        printf "%s" "$POLARSIGNALS_CLOUD_TOKEN" > "$token_file"
-
-        uploaded=0
-        while IFS= read -r binary; do
-          binary="${binary#"${binary%%[![:space:]]*}"}"
-          binary="${binary%"${binary##*[![:space:]]}"}"
-          [[ -z "$binary" ]] && continue
-
-          if [[ ! -f "$binary" ]]; then
-            echo "::error::Debuginfo upload target does not exist: $binary"
-            exit 1
-          fi
-
-          cmd=(
-            parca-debuginfo
-            upload
-            "--store-address=$STORE_ADDRESS"
-            "--bearer-token-file=$token_file"
-            "--grpc-headers=projectID=$PROJECT_ID"
-            "$binary"
-          )
-          if [[ "$FORCE" == "true" ]]; then
-            cmd+=(--force)
-          fi
-
-          set +e
-          "${cmd[@]}" > "$upload_log" 2>&1
-          status=$?
-          set -e
-          cat "$upload_log"
-
-          if [[ "$status" -ne 0 ]]; then
-            if grep -Eiq "upload id mismatch|already exists|AlreadyExists|previous upload is still in-progress|not stale yet|only stale uploads can be retried" "$upload_log"; then
-              echo "::notice::Debuginfo upload already exists or is in progress for $binary; continuing"
-            else
-              exit "$status"
-            fi
-          fi
-          uploaded=$((uploaded + 1))
-        done <<< "$PATHS"
-
-        if [[ "$uploaded" -eq 0 ]]; then
-          echo "::error::No debuginfo upload targets were provided"
-          exit 1
+        mapfile -t binaries < <(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d' <<< "$PATHS")
+        args=(--project-id "$PROJECT_ID" --store-address "$STORE_ADDRESS")
+        if [[ "$FORCE" == "true" ]]; then
+          args+=(--force)
         fi
+        python3 scripts/upload-parca-debuginfo.py "${args[@]}" "${binaries[@]}"
