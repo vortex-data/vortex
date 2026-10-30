@@ -32,23 +32,23 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 
 mod array;
+pub use array::*;
 mod assemble;
 pub(crate) mod compute;
 mod plugin;
-#[cfg(test)]
-mod prop_tests;
-mod rules;
-mod split;
-#[cfg(test)]
-mod testing;
-
-pub use array::*;
 pub use plugin::DecimalBytePartsPlugin;
 pub use plugin::DecimalBytePartsV2Metadata;
 pub use plugin::decimal_byte_parts_v1_id;
 pub use plugin::decimal_byte_parts_v2_id;
+#[cfg(test)]
+mod prop_tests;
+mod rules;
+mod split;
 pub use split::DecimalParts;
+pub use split::lower_part_count;
 pub use split::split_decimal;
+#[cfg(test)]
+mod testing;
 
 #[doc(hidden)]
 pub mod _benchmarking {

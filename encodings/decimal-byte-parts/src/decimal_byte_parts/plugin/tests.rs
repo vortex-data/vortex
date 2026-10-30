@@ -47,6 +47,24 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
     &DecimalArray::new(buffer![-99i64, 0, 99], DecimalDType::new(2, 0), Validity::NonNullable),
     &mut SESSION.create_execution_ctx(),
 ))]
+#[case::wider_i128_storage(DecimalByteParts::encode(
+    &DecimalArray::new(buffer![-99i128, 0, 99], DecimalDType::new(2, 0), Validity::NonNullable),
+    &mut SESSION.create_execution_ctx(),
+))]
+#[case::wider_i256_storage(DecimalByteParts::encode(
+    &DecimalArray::new(
+        buffer![i256::from_i128(-99), i256::ZERO, i256::from_i128(99)],
+        DecimalDType::new(2, 0), Validity::NonNullable,
+    ),
+    &mut SESSION.create_execution_ctx(),
+))]
+#[case::wider_i256_storage_all_null(DecimalByteParts::encode(
+    &DecimalArray::new(
+        buffer![i256::from_parts(1 << 127, 0); 3],
+        DecimalDType::new(2, 0), Validity::AllInvalid,
+    ),
+    &mut SESSION.create_execution_ctx(),
+))]
 #[case::redundant_lower_parts(DecimalByteParts::try_new_with_lower_parts(
     buffer![0i64; 3].into_array(),
     vec![buffer![0u64; 3].into_array(), buffer![0u64; 3].into_array(), lower_part()],
@@ -124,13 +142,13 @@ fn serde_round_trip(#[case] array: VortexResult<DecimalBytePartsArray>) -> Vorte
     Ok(())
 }
 
-/// Storage wider than the canonical width splits into more lower parts than the dtype allows.
+/// A valid value outside the precision can need more lower parts than the dtype allows.
 #[rstest]
 #[case::wider_i128_storage(DecimalArray::new(
-    buffer![-99i128, 0, 99], DecimalDType::new(2, 0), Validity::NonNullable,
+    buffer![-99i128, 0, 1 << 70], DecimalDType::new(2, 0), Validity::NonNullable,
 ))]
 #[case::wider_i256_storage(DecimalArray::new(
-    buffer![i256::from_i128(-99), i256::ZERO, i256::from_i128(99)],
+    buffer![i256::from_i128(-99), i256::ZERO, i256::from_i128(1 << 70)],
     DecimalDType::new(2, 0), Validity::NonNullable,
 ))]
 fn encode_rejects_lower_parts_past_canonical_width(#[case] decimal: DecimalArray) {

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Decimal scheme refinement by allowed serialized IDs, and compression of wide decimal parts.
+//! Decimal scheme refinement by allowed serialized IDs, the shapes of its output, and compression
+//! of wide decimal parts.
 
 #![cfg(test)]
 
@@ -17,6 +18,8 @@ use vortex_array::arrays::Decimal;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::NativeDecimalType;
+use vortex_array::dtype::PType;
 use vortex_array::dtype::i256;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::SerializedArray;
@@ -115,8 +118,32 @@ fn assert_decimal_output(
     } else {
         assert!(compressed.is::<Decimal>());
     }
-    assert_arrays_eq!(array, compressed, &mut ctx);
+    assert_arrays_eq!(compressed, array, &mut ctx);
     Ok(())
+}
+
+/// A decimal array of `values` at precision `precision` and scale 2.
+fn decimal_at_precision<T: NativeDecimalType>(
+    precision: u8,
+    values: Buffer<T>,
+    validity: Validity,
+) -> ArrayRef {
+    DecimalArray::new(values, DecimalDType::new(precision, 2), validity).into_array()
+}
+
+/// Serializes `array` and decodes it again.
+fn serde_round_trip(array: &ArrayRef) -> VortexResult<ArrayRef> {
+    let array_ctx = ArrayContext::empty();
+    let mut bytes = ByteBufferMut::empty();
+    for buffer in array.serialize(&array_ctx, &SESSION, &SerializeOptions::default())? {
+        bytes.extend_from_slice(buffer.as_ref());
+    }
+    SerializedArray::try_from(bytes.freeze())?.decode(
+        array.dtype(),
+        array.len(),
+        &ReadContext::new(array_ctx.to_ids()),
+        &SESSION,
+    )
 }
 
 #[rstest]
@@ -215,17 +242,113 @@ fn wide_decimal_parts_roundtrip(
         assert!(parts.lower_parts().iter().all(|part| !part.is_canonical()));
     }
 
-    let array_ctx = ArrayContext::empty();
-    let mut bytes = ByteBufferMut::empty();
-    for buffer in compressed.serialize(&array_ctx, &SESSION, &SerializeOptions::default())? {
-        bytes.extend_from_slice(buffer.as_ref());
+    assert_arrays_eq!(serde_round_trip(&compressed)?, array, &mut ctx);
+    Ok(())
+}
+
+/// The shape of the scheme output for each storage width and value range. v1 leaves an array with
+/// lower parts canonical. Only the valid values choose the lower-part count and the MSP type.
+#[rstest]
+#[case::p12_small(
+    decimal_at_precision(12, (0..2048i64).collect::<Buffer<_>>(), Validity::NonNullable),
+    0,
+    PType::I16
+)]
+#[case::p38_fits_i64(
+    decimal_at_precision(38, (0..2048i128).collect::<Buffer<_>>(), Validity::NonNullable),
+    0,
+    PType::I16
+)]
+#[case::p38_above_64_bits(
+    decimal_at_precision(
+        38,
+        (0..2048i128).map(|i| (1 << 70) + i).collect::<Buffer<_>>(),
+        Validity::NonNullable,
+    ),
+    1,
+    PType::I64
+)]
+#[case::p40_fits_i64(
+    decimal_at_precision(
+        40,
+        (0..2048i128).map(i256::from_i128).collect::<Buffer<_>>(),
+        Validity::NonNullable,
+    ),
+    0,
+    PType::I16
+)]
+#[case::p40_above_64_bits(
+    decimal_at_precision(
+        40,
+        (0..2048i128).map(|i| i256::from_i128((1 << 70) + i)).collect::<Buffer<_>>(),
+        Validity::NonNullable,
+    ),
+    1,
+    PType::I64
+)]
+#[case::p76_above_128_bits(
+    decimal_at_precision(
+        76,
+        (0..2048u128).map(|i| i256::from_parts(i, 1 << 70)).collect::<Buffer<_>>(),
+        Validity::NonNullable,
+    ),
+    3,
+    PType::I64
+)]
+#[case::p38_large_null_slots(
+    decimal_at_precision(
+        38,
+        (0..2048i128).map(|i| if i % 7 == 0 { 1 << 100 } else { i }).collect::<Buffer<_>>(),
+        Validity::from_iter((0..2048).map(|i| i % 7 != 0)),
+    ),
+    0,
+    PType::I16
+)]
+fn decimal_scheme_part_shapes(
+    #[case] array: ArrayRef,
+    #[case] lower_part_count: usize,
+    #[case] msp_ptype: PType,
+    #[values(false, true)] v2: bool,
+) -> VortexResult<()> {
+    let builder = if v2 {
+        BtrBlocksCompressorBuilder::from_session(&SESSION).disable_editions()
+    } else {
+        BtrBlocksCompressorBuilder::from_session(&CORE_SESSION)
+    };
+    let mut ctx = SESSION.create_execution_ctx();
+    let compressed = builder.build().compress(&array, &mut ctx)?;
+
+    if !v2 && lower_part_count > 0 {
+        assert!(compressed.is::<Decimal>());
+    } else {
+        let parts = compressed
+            .as_opt::<DecimalByteParts>()
+            .ok_or_else(|| vortex_err!("expected decimal byte parts"))?;
+        assert_eq!(parts.lower_parts().len(), lower_part_count);
+        assert_eq!(parts.msp().dtype().as_ptype(), msp_ptype);
     }
-    let decoded = SerializedArray::try_from(bytes.freeze())?.decode(
-        array.dtype(),
-        array.len(),
-        &ReadContext::new(array_ctx.to_ids()),
-        &SESSION,
-    )?;
-    assert_arrays_eq!(array, decoded, &mut ctx);
+
+    assert_arrays_eq!(serde_round_trip(&compressed)?, array, &mut ctx);
+    Ok(())
+}
+
+/// The MSP narrows to a signed type: an unsigned MSP is invalid, so values from 0 to 200 get `i16`
+/// and not `u8`.
+#[test]
+fn msp_keeps_signedness() -> VortexResult<()> {
+    let array = decimal_at_precision(
+        10,
+        (0..200i64).collect::<Buffer<_>>(),
+        Validity::NonNullable,
+    );
+    let builder = BtrBlocksCompressorBuilder::empty().with_new_scheme(&DECIMAL_V2);
+    let mut ctx = SESSION.create_execution_ctx();
+    let compressed = builder.build().compress(&array, &mut ctx)?;
+
+    let parts = compressed
+        .as_opt::<DecimalByteParts>()
+        .ok_or_else(|| vortex_err!("expected decimal byte parts"))?;
+    assert_eq!(parts.msp().dtype().as_ptype(), PType::I16);
+    assert_arrays_eq!(compressed, array, &mut ctx);
     Ok(())
 }

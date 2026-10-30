@@ -125,6 +125,7 @@ mod arrays {
 
     use crate::common::arrays::cases;
     use crate::common::arrays::decimal_array;
+    use crate::common::arrays::full_width_lower_part_count;
 
     pub(super) static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<KernelSession>());
@@ -133,7 +134,8 @@ mod arrays {
     fn dbp_assemble(bencher: Bencher, (values_type, len): (DecimalType, usize)) {
         let decimal = decimal_array(values_type, len, Validity::NonNullable);
         let mut ctx = SESSION.create_execution_ctx();
-        let parts = split_decimal(&decimal, &mut ctx).vortex_expect("split benchmark input");
+        let parts = split_decimal(&decimal, full_width_lower_part_count(values_type), &mut ctx)
+            .vortex_expect("split benchmark input");
         bench_parts(
             bencher,
             parts.msp,
