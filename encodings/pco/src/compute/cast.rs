@@ -34,7 +34,7 @@ impl CastReduce for Pco {
             return Ok(None);
         };
 
-        // Only nullability changes; retain the same immutable page index and compressed owners.
+        // Only nullability changes; share the immutable metadata and compressed buffers.
         let data = array.data().clone();
 
         Ok(Some(

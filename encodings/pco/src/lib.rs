@@ -12,15 +12,16 @@
 //! To deserialize arrays manually, register the encoding in the array session:
 //!
 //! ```rust
+//! use vortex_array::session::ArraySessionExt;
 //! use vortex_session::VortexSession;
 //! use vortex_pco::Pco;
 //!
 //! let session = VortexSession::empty();
-//! use vortex_array::session::ArraySessionExt;
 //! session.arrays().register(Pco);
 //! ```
 
 use prost::Message;
+
 mod array;
 mod compute;
 mod probe;
@@ -71,6 +72,7 @@ pub struct PcoLogicalRowPrefix {
     /// Exclusive unsliced logical-row ends in physical page order.
     ///
     /// The final page includes trailing null rows. An empty index has no valid values.
+    // Tag 1 was used by the experimental version field; do not reuse it.
     #[prost(uint64, repeated, tag = "2")]
     pub logical_row_ends: Vec<u64>,
 }

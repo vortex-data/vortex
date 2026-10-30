@@ -403,8 +403,8 @@ impl<T: TypedArrayRef<Pco>> PcoArrayExt for T {}
 #[derive(Clone, Debug)]
 /// Encoding-specific data for a [`PcoArray`].
 pub struct PcoData {
-    pub(crate) chunk_metas: Arc<[ByteBuffer]>,
-    pub(crate) pages: Arc<[ByteBuffer]>,
+    pub(crate) chunk_metas: Arc<Vec<ByteBuffer>>,
+    pub(crate) pages: Arc<Vec<ByteBuffer>>,
     pub(crate) metadata: Arc<PcoMetadata>,
     ptype: PType,
     unsliced_n_rows: usize,
