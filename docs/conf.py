@@ -130,16 +130,20 @@ def _replace_rust_references(app, lines, transform, options) -> None:
 
     # This is one of my finest hacks...
     # Hawkmoth doesn't expose type information to us. So we grab it from the caller's stack frame locals.
-    stack_frame = sys._getframe(6)
+    stack_frame = sys._getframe(1)
+    while not isinstance(stack_frame.f_locals.get("root"), hawkmoth.docstring.RootDocstring):
+        stack_frame = stack_frame.f_back
     docs: hawkmoth.docstring.RootDocstring = stack_frame.f_locals["root"]
 
     global C_DOCS
     if C_DOCS is None:
+        # Iterate only the top-level docstrings to ignore e.g. enum members.
         C_DOCS = set(
-            d._name
-            for d in docs.walk(
-                recurse=False,  # Ignore e.g. enum members
-                filter_types=(
+            d.get_name()
+            for d in docs
+            if isinstance(
+                d,
+                (
                     hawkmoth.docstring.FunctionDocstring,
                     hawkmoth.docstring.EnumDocstring,
                     hawkmoth.docstring.UnionDocstring,
@@ -160,7 +164,7 @@ def _replace_rust_references(app, lines, transform, options) -> None:
         # TODO(ngates): detect if the reference is a function or a type
         func_name = match.group(2)
 
-        refs = list(docs.walk(filter_names=[func_name]))
+        refs = [d for d in docs if d.get_name() == func_name]
         if not refs:
             # If we can't find the function, return the original match without a reference
             return func_name
