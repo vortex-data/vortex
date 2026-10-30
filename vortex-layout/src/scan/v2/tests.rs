@@ -935,8 +935,13 @@ async fn scan_cache_reuses_values_between_scans(
     Ok(())
 }
 
+#[rstest]
+#[case::child(false)]
+#[case::independent(true)]
 #[tokio::test]
-async fn selected_split_scope_is_bounded_before_projection() -> VortexResult<()> {
+async fn selected_split_scope_is_bounded_before_projection(
+    #[case] independent: bool,
+) -> VortexResult<()> {
     let session = new_session().with_tokio();
     let (segments, layout) = write(&session, table().as_ref()).await?;
     let scan = Arc::new(
@@ -951,8 +956,12 @@ async fn selected_split_scope_is_bounded_before_projection() -> VortexResult<()>
         scan.selection().clone(),
         None,
     );
-    let PlannerOutput::Planner(scope, _) = chunks.compute()? else {
-        vortex_bail!("the selected rows were not planned");
+    if independent {
+        chunks = chunks.with_independent_chunks();
+    }
+    let scope = match (independent, chunks.compute()?) {
+        (false, PlannerOutput::Planner(scope, _)) | (true, PlannerOutput::Spawn(scope, _)) => scope,
+        _ => vortex_bail!("the selected rows were not planned with the requested independence"),
     };
     assert_eq!(scope.rows, 7..2002);
     assert!(matches!(chunks.compute()?, PlannerOutput::Done));

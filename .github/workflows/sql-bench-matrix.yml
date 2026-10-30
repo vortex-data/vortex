@@ -47,7 +47,6 @@ jobs:
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   build:
-    if: github.event.pull_request.number != 10857
     timeout-minutes: 60
     env:
       FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
@@ -101,7 +100,7 @@ jobs:
                 project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
 
       - name: Build Q38 develop baseline
-        if: github.event.pull_request.number == 10857
+        if: false
         shell: bash
         env:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
@@ -114,7 +113,7 @@ jobs:
           CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target" cargo build --locked \
             --bin data-gen --bin datafusion-bench --bin duckdb-bench --profile release_debug
       - name: Upload Q38 baseline binary
-        if: github.event.pull_request.number == 10857
+        if: false
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7
         with:
           name: q38-baseline-binary
@@ -164,7 +163,7 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
         with:
           name: bench-binaries
-          run-id: ${{ github.event.pull_request.number == 10857 && 41086114054 || github.run_id }}
+          run-id: ${{ github.run_id }}
           github-token: ${{ github.token }}
           path: target/release_debug/
       - name: Make binaries executable
@@ -217,7 +216,7 @@ jobs:
         run: sudo bash scripts/setup-benchmark.sh
 
       - name: Run ${{ matrix.name }} benchmark
-        if: github.event.pull_request.number != 10857 && (matrix.remote_key == null || github.event.pull_request.head.repo.fork == true)
+        if: matrix.remote_key == null || github.event.pull_request.head.repo.fork == true
         shell: bash
         env:
           OTEL_SERVICE_NAME: "vortex-bench"
@@ -255,6 +254,14 @@ jobs:
             --opt remote-data-dir="$REMOTE_STORAGE" \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
+      - name: Download Q38 pre-fix binary
+        if: github.event.pull_request.number == 10857 && matrix.id == 'clickbench-nvme'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
+        with:
+          name: bench-binaries
+          run-id: 41086114054
+          github-token: ${{ github.token }}
+          path: target/q38-before/
       - name: Download Q38 baseline binary
         if: github.event.pull_request.number == 10857 && matrix.id == 'clickbench-nvme'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8
@@ -273,31 +280,34 @@ jobs:
           set -x
           mkdir -p q38-diagnostics
           ln -s "$GITHUB_WORKSPACE" "$RUNNER_TEMP/q38-base"
-          chmod +x target/q38-base/datafusion-bench
-          sha256sum target/q38-base/datafusion-bench target/release_debug/datafusion-bench \
+          chmod +x target/q38-base/datafusion-bench target/q38-before/datafusion-bench
+          sha256sum target/q38-base/datafusion-bench target/release_debug/datafusion-bench target/q38-before/datafusion-bench \
             > q38-diagnostics/binaries.sha256
           args=(clickbench --formats vortex --scan-v2 true --queries 38
             --display-format gh-json --hide-progress-bar --runner c8gd.metal-24xl)
-          for version in base head; do
+          for version in base before head; do
             binary=target/release_debug/datafusion-bench
             [[ "$version" != base ]] || binary=target/q38-base/datafusion-bench
+            [[ "$version" != before ]] || binary=target/q38-before/datafusion-bench
             bash scripts/bench-taskset.sh "$binary" "${args[@]}" --iterations 5 \
               -o "q38-diagnostics/$version-warm.jsonl"
           done
           trial=0
-          for version in base head head base; do
+          for version in base head head base before head head before; do
             trial=$((trial + 1))
             binary=target/release_debug/datafusion-bench
             [[ "$version" != base ]] || binary=target/q38-base/datafusion-bench
+            [[ "$version" != before ]] || binary=target/q38-before/datafusion-bench
             /usr/bin/time -v -o "q38-diagnostics/$version-$trial.time" \
               bash scripts/bench-taskset.sh "$binary" "${args[@]}" --iterations 30 \
                 -o "q38-diagnostics/$version-$trial.jsonl" \
                 --ingest-jsonl "q38-diagnostics/$version-$trial.ingest.jsonl"
             cat "q38-diagnostics/$version-$trial.jsonl"
           done
-          for version in base head; do
+          for version in base before head; do
             binary=target/release_debug/datafusion-bench
             [[ "$version" != base ]] || binary=target/q38-base/datafusion-bench
+            [[ "$version" != before ]] || binary=target/q38-before/datafusion-bench
             bash scripts/bench-taskset.sh "$binary" "${args[@]}" --iterations 1 --show-metrics \
               -o "q38-diagnostics/$version-metrics.jsonl" \
               > "q38-diagnostics/$version-metrics.txt" 2>&1
@@ -309,9 +319,10 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y "linux-tools-$(uname -r)"
           fi
-          for version in base head; do
+          for version in base before head; do
             binary=target/release_debug/datafusion-bench
             [[ "$version" != base ]] || binary=target/q38-base/datafusion-bench
+            [[ "$version" != before ]] || binary=target/q38-before/datafusion-bench
             sudo env FLAT_LAYOUT_INLINE_ARRAY_NODE=1 RUST_LOG=warn \
               bash scripts/bench-taskset.sh perf record -e cycles:u -F 499 --call-graph fp \
               -o "q38-diagnostics/$version.perf.data" -- \
@@ -334,7 +345,7 @@ jobs:
           path: q38-diagnostics/
 
       - name: Capture file sizes
-        if: github.event.pull_request.number != 10857 && matrix.remote_key == null
+        if: matrix.remote_key == null
         shell: bash
         run: |
           uv run --no-project scripts/capture-file-sizes.py \
@@ -346,7 +357,7 @@ jobs:
           cat sizes.json >> results.json
 
       - name: Compare results
-        if: github.event.pull_request.number != 10857 && inputs.mode == 'pr'
+        if: inputs.mode == 'pr'
         shell: bash
         run: |
           set -Eeu -o pipefail -x
@@ -359,7 +370,7 @@ jobs:
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment PR
-        if: github.event.pull_request.number != 10857 && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
+        if: inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
         uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
         with:
           file-path: comment.md

@@ -484,7 +484,10 @@ impl FileOpener for VortexOpener {
                     let scan = Arc::clone(&scan);
                     move |kept: Option<Mask>, claim: RowClaim| -> Box<dyn Planner> {
                         let selection = scan.selection().clone();
-                        Box::new(ChunkPlanner::new(scan, claim, selection, kept))
+                        Box::new(
+                            ChunkPlanner::new(scan, claim, selection, kept)
+                                .with_independent_chunks(),
+                        )
                     }
                 };
                 let root_scan = Arc::clone(&scan);

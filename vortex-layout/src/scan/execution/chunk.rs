@@ -89,6 +89,7 @@ pub struct ChunkPlanner {
     selection: Selection,
     /// The rows zone pruning kept, over `rows`, or `None` when nothing was pruned.
     kept: Option<Mask>,
+    independent: bool,
 }
 
 impl ChunkPlanner {
@@ -127,7 +128,15 @@ impl ChunkPlanner {
             chunks: chunks.into_iter(),
             selection,
             kept,
+            independent: false,
         }
+    }
+
+    /// Emits independent chunks so the driver can schedule their compute and reads concurrently.
+    /// Drivers that already assign work to their own workers keep the default child planners.
+    pub fn with_independent_chunks(mut self) -> Self {
+        self.independent = true;
+        self
     }
 }
 
@@ -155,7 +164,11 @@ impl Planner for ChunkPlanner {
             if let Some((scope, planner)) =
                 plan_selection(&self.scan, scope, claim, &self.selection, kept)
             {
-                return Ok(PlannerOutput::Planner(scope, planner));
+                return Ok(if self.independent {
+                    PlannerOutput::Spawn(scope, planner)
+                } else {
+                    PlannerOutput::Planner(scope, planner)
+                });
             }
         }
         Ok(PlannerOutput::Done)
