@@ -299,6 +299,34 @@ fn test_primitive_integers(
     Ok(())
 }
 
+/// Needles longer than one lookup batch, in an encoding other than primitive, are looked up a
+/// batch at a time.
+#[test]
+fn test_compressed_needles_in_batches() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let set = PreparedSetData::try_new(list_scalar(
+        &buffer![3i64, 9000, 20_001].into_array(),
+        &mut ctx,
+    )?)?;
+    let values = |range: std::ops::Range<i64>| {
+        PrimitiveArray::from_option_iter(range.map(|v| (v % 7 != 0).then_some(v))).into_array()
+    };
+    let needles = ChunkedArray::try_new(
+        vec![values(0..12_000), values(12_000..25_000)],
+        DType::Primitive(PType::I64, Nullability::Nullable),
+    )?
+    .into_array();
+    let expected = BoolArray::from_iter(
+        (0..25_000i64).map(|v| (v % 7 != 0).then_some(matches!(v, 3 | 9000 | 20_001))),
+    );
+    assert_arrays_eq!(
+        set.contains(&needles, &ListContainsOptions::default(), &mut ctx)?,
+        expected,
+        &mut ctx
+    );
+    Ok(())
+}
+
 /// The set `{2, null}` of nullable `i32`.
 fn set_with_null() -> Scalar {
     let element = DType::Primitive(PType::I32, Nullability::Nullable);

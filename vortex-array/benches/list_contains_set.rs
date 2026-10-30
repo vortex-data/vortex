@@ -59,14 +59,20 @@ const NESTED_SET_LENS: &[usize] = &[32];
 
 /// A random set of `len` values, and needles of which about half are members.
 fn random_i64(len: usize) -> (Vec<i64>, Vec<i64>) {
+    random_i64_in_span(len, 40)
+}
+
+/// A random set of `len` values below `2^span_bits`, and needles of which about half are members.
+fn random_i64_in_span(len: usize, span_bits: u32) -> (Vec<i64>, Vec<i64>) {
     let mut rng = StdRng::seed_from_u64(0);
-    let set: Vec<i64> = (0..len).map(|_| rng.random_range(0..1 << 40)).collect();
+    let span = 1i64 << span_bits;
+    let set: Vec<i64> = (0..len).map(|_| rng.random_range(0..span)).collect();
     let needles = (0..ROWS)
         .map(|_| {
             if rng.random_bool(0.5) {
                 set[rng.random_range(0..len)]
             } else {
-                rng.random_range(0..1 << 40)
+                rng.random_range(0..span)
             }
         })
         .collect();
@@ -101,6 +107,23 @@ fn i64_set(values: Vec<i64>) -> Scalar {
 #[divan::bench(args = SET_LENS)]
 fn i64_random(bencher: Bencher, set_len: usize) {
     let (set, needles) = random_i64(set_len);
+    let needles = PrimitiveArray::from_iter(needles);
+    bench_in_set(bencher, i64_set(set), needles.into_array());
+}
+
+/// Lengths of sets too sparse for a bitmap over their whole span.
+const SPARSE_SET_LENS: &[usize] = &[32, 256];
+
+#[divan::bench(args = SPARSE_SET_LENS)]
+fn i64_sparse_span_2_24(bencher: Bencher, set_len: usize) {
+    let (set, needles) = random_i64_in_span(set_len, 24);
+    let needles = PrimitiveArray::from_iter(needles);
+    bench_in_set(bencher, i64_set(set), needles.into_array());
+}
+
+#[divan::bench(args = SPARSE_SET_LENS)]
+fn i64_sparse_span_2_40(bencher: Bencher, set_len: usize) {
+    let (set, needles) = random_i64_in_span(set_len, 40);
     let needles = PrimitiveArray::from_iter(needles);
     bench_in_set(bencher, i64_set(set), needles.into_array());
 }
