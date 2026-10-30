@@ -92,8 +92,23 @@ BENCHMARK_ENGINES: dict[Benchmark, frozenset[Engine]] = {
 }
 
 
-# Benchmarks that run their Vortex scans on the planner-driven V2 scan. The others use V1.
-SCAN_V2_BENCHMARKS: frozenset[Benchmark] = frozenset({Benchmark.TPCH, Benchmark.TPCDS, Benchmark.CLICKBENCH})
+# Whether each benchmark runs its Vortex scans on the planner-driven V2 scan (`True`) or on V1.
+# Every benchmark is listed so its scan version is explicit.
+BENCHMARK_SCAN_V2: dict[Benchmark, bool] = {
+    Benchmark.APPIAN: False,
+    Benchmark.TPCH: True,
+    Benchmark.TPCDS: True,
+    Benchmark.CLICKBENCH: True,
+    Benchmark.CLICKBENCH_SORTED: False,
+    Benchmark.FINEWEB: False,
+    Benchmark.GHARCHIVE: False,
+    Benchmark.JOB: False,
+    Benchmark.POLARSIGNALS: False,
+    Benchmark.PUBLIC_BI: False,
+    Benchmark.STATPOPGEN: False,
+    Benchmark.SPATIALBENCH: False,
+    Benchmark.VORTEX_QUERIES: False,
+}
 
 
 def engines_for_benchmark(benchmark: Benchmark) -> frozenset[Engine]:

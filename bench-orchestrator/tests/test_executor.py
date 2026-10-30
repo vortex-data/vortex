@@ -6,7 +6,7 @@ import textwrap
 from pathlib import Path
 
 import pytest
-from bench_orchestrator.config import Benchmark, Engine, Format
+from bench_orchestrator.config import BENCHMARK_SCAN_V2, Benchmark, Engine, Format
 from bench_orchestrator.runner.executor import BenchmarkExecutor
 
 
@@ -47,22 +47,18 @@ def test_build_command_serializes_vortex_spatial_native_format() -> None:
     assert cmd[cmd.index("--formats") + 1] == "parquet,vortex,vortex-spatial-native"
 
 
+def test_every_benchmark_has_a_scan_version() -> None:
+    assert set(BENCHMARK_SCAN_V2) == set(Benchmark)
+
+
 @pytest.mark.parametrize("engine", [Engine.DATAFUSION, Engine.DUCKDB])
-@pytest.mark.parametrize(
-    ("benchmark", "scan_v2"),
-    [
-        (Benchmark.TPCH, "true"),
-        (Benchmark.TPCDS, "true"),
-        (Benchmark.CLICKBENCH, "true"),
-        (Benchmark.STATPOPGEN, "false"),
-    ],
-)
-def test_build_command_selects_scan_version(engine: Engine, benchmark: Benchmark, scan_v2: str) -> None:
+@pytest.mark.parametrize("benchmark", list(Benchmark))
+def test_build_command_selects_scan_version(engine: Engine, benchmark: Benchmark) -> None:
     executor = BenchmarkExecutor(Path("/tmp/bench"), engine)
 
     cmd = executor.build_command(benchmark=benchmark, formats=[Format.VORTEX])
 
-    assert cmd[cmd.index("--scan-v2") + 1] == scan_v2
+    assert cmd[cmd.index("--scan-v2") + 1] == str(BENCHMARK_SCAN_V2[benchmark]).lower()
 
 
 def test_build_command_omits_formats_for_lance_backend() -> None:
