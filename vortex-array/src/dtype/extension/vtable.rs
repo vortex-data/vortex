@@ -46,6 +46,13 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     ///
     /// This is called when constructing an [`ExtDType`] and should check both storage dtype and
     /// extension metadata.
+    ///
+    /// The result **must not** depend on the top-level nullability of the storage dtype. An
+    /// extension type cannot restrict whether its values can be null, and
+    /// [`ExtDType::with_nullability`] changes the nullability without validating again. Nested
+    /// nullability belongs to the extension type, so the validator can check it. A validator that
+    /// breaks this rule does not cause undefined behavior, but `with_nullability` can then return a
+    /// dtype that the validator rejects.
     fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()>;
 
     // Methods related to the extension scalar values.
